@@ -1069,6 +1069,7 @@ Returns an appropriate tag."
                    clear-loop-head
                    `(lap:str :xzr (:x10 -8))
                    `(lap:subs :x10 :x10 8)
+                   `(lap:subs :xzr :sp :x10)
                    `(lap:b.ne ,clear-loop-head)
                    ;; Copy values.
                    `(lap:add :x12 :sp :xzr)

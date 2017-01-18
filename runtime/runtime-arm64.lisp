@@ -62,6 +62,7 @@
                                         (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
   (mezzano.lap.arm64:movz :x10 #.(+ (- 8 sys.int::+tag-object+)
                                     (* 5 8))) ; Current index.
+  (mezzano.lap.arm64:movz :x11 5)
   (:gc :frame :multiple-values 0)
   unpack-loop
   (mezzano.lap.arm64:ldr :x7 (:x6 :x10))
@@ -71,7 +72,8 @@
   (:gc :frame :multiple-values 0)
   (mezzano.lap.arm64:add :x12 :x12 8)
   (mezzano.lap.arm64:add :x10 :x10 8)
-  (mezzano.lap.arm64:subs :xzr :x10 :x9)
+  (mezzano.lap.arm64:add :x11 :x11 1)
+  (mezzano.lap.arm64:subs :xzr :x11 :x9)
   (mezzano.lap.arm64:b.ne unpack-loop)
   done
   (mezzano.lap.arm64:add :sp :x29 0)
