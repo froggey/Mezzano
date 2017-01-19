@@ -136,8 +136,8 @@
         (full-sub (gensym "-full")))
     (emit-trailer (ovfl)
       ;; Recover the full value using the carry bit.
+      ;; Carry does not need to be inverted, unlike x86.
       (emit `(lap:adc :x9 :xzr :xzr)
-            `(lap:eor :x9 :x9 #x1)
             `(lap:add :x9 :xzr :x9 :lsl 63)
             `(lap:add :x10 :x9 :x0 :lsr 1))
       ;; Call assembly helper function.
