@@ -429,6 +429,8 @@ A passive drag sends no drag events to the window.")
 (defmethod process-event ((event window-close-event))
   (format t "Closing window ~S. Goodbye!~%" (window event))
   (setf *window-list* (remove (window event) *window-list*))
+  (when (eql *drag-window* (window event))
+    (setf *drag-window* nil))
   (when (eql *active-window* (window event))
     (setf *active-window* (first *window-list*))
     (when *active-window*
