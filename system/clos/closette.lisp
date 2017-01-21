@@ -1820,6 +1820,16 @@ has only has class specializer."
 (defclass structure-class (clos-class)
   ((structure-definition :initarg :definition)))
 
+(defmethod allocate-instance ((class structure-class) &rest initargs)
+  (declare (ignore initargs))
+  (let* ((def (slot-value class 'structure-definition))
+         (slots (sys.int::structure-slots def))
+         (n-slots (length slots))
+         (struct (sys.int::%make-struct (1+ n-slots)
+                                        (sys.int::structure-area def))))
+    (setf (sys.int::%struct-slot struct 0) def)
+    struct))
+
 (defmethod direct-slot-definition-class ((class structure-class) &rest initargs)
   *the-class-standard-direct-slot-definition*)
 (defmethod effective-slot-definition-class ((class structure-class) &rest initargs)
