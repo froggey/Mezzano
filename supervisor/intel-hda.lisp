@@ -678,22 +678,22 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     "Other"))
 
 (defparameter *pin-colour*
-  #("Unknown"
-    "Black"
-    "Grey"
-    "Blue"
-    "Green"
-    "Red"
-    "Orange"
-    "Yellow"
-    "Purple"
-    "Pink"
-    "Reserved (10)"
-    "Reserved (11)"
-    "Reserved (12)"
-    "Reserved (13)"
-    "White"
-    "Other"))
+  #(:unknown
+    :black
+    :grey
+    :blue
+    :green
+    :red
+    :orange
+    :yellow
+    :purple
+    :pink
+    :reserved-10
+    :reserved-11
+    :reserved-12
+    :reserved-13
+    :white
+    :other))
 
 (defun parameter (node parameter)
   (command (hda node) (cad node) (nid node) (make-parameter parameter)))
@@ -936,14 +936,9 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (command hda codec pin #x70740) ; enable output
   (stream-go hda 4))
 
-(defun report-pos (hda)
-  (loop
-     (format t "~S ~S~%"
-             (dma-position hda 4)
-             (sd-reg/32 hda 4 +sdnlpib+))))
-
-(defun play-sound (sound buffer hda codec dac pin &optional mixer)
-  (let ((buf-len #x20000)
+(defun play-sound (sound buffer hda)
+  (let ((output-pin (default-output-pin hda))
+        (buf-len #x20000)
         (buffer-offset 0)
         (sound-position nil)
         (sound-len (length sound))
@@ -954,7 +949,9 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
       (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i)
             (aref sound i)))
     (setf sound-position buf-len)
-    (test hda buffer codec dac pin mixer)
+    (multiple-value-bind (converter mixer)
+        (output-path output-pin)
+      (test hda buffer (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))))
     (unwind-protect
          (loop
             ;; Wait for the dma position to move from the
@@ -987,3 +984,49 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                        (setf buffer-offset 0)))))
             (sleep 0.01))
       (stream-reset hda 4))))
+
+;; Return a list of all pin widgets.
+(defun pin-widgets (hda)
+  (let ((result '()))
+    (loop
+       for codec-id below (length (hda-codecs hda))
+       for codec = (aref (hda-codecs hda) codec-id)
+       when codec
+       do (dolist (function-group (function-groups codec))
+            (dolist (widget (widgets function-group))
+              (when (typep widget 'audio-pin-complex)
+                (push widget result)))))
+    result))
+
+(defun pin-output-priority (pin)
+  (case (pin-default-device pin)
+    (:line-out
+     (case (pin-colour pin)
+       (:green 4)
+       (t 2)))
+    (:headphones-out
+     (case (pin-colour pin)
+       (:green 3)
+       (t 1)))
+    (t 0)))
+
+(defun default-output-pin (hda)
+  (first (sort (remove-if-not #'output-path (pin-widgets hda)) #'>
+               :key #'pin-output-priority)))
+
+(defun output-path (pin)
+  "Return two values, an output converter and an optional mixer, for this pin.
+Returns NIL if there is no output path."
+  (let ((direct-converters (remove-if-not (lambda (x) (typep x 'audio-output-converter))
+                                          (connections pin)))
+        (direct-mixers (remove-if-not (lambda (x) (typep x 'audio-mixer))
+                                      (connections pin))))
+    (cond ((endp direct-converters)
+           (dolist (mixer direct-mixers
+                    (values nil nil))
+             (let ((indirect-converters (remove-if-not (lambda (x) (typep x 'audio-output-converter))
+                                                       (connections mixer))))
+               (when indirect-converters
+                 (return (values mixer (first indirect-converters)))))))
+          (t
+           (values (first direct-converters) nil)))))
