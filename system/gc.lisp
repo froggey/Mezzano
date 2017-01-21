@@ -460,7 +460,13 @@ This is required to make the GC interrupt safe."
             (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
           (when (and (not framep)
                      pushed-values-register)
-            (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))))
+            (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
+          ;; Not all settings are valid in arm64.
+          #+arm64
+          (when (or (not (eql extra-registers nil))
+                    (not (eql extra-registers :rax)))
+            (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))
+      #+x86-64
       (ecase extra-registers
         ((nil))
         ((:rax)
@@ -472,6 +478,17 @@ This is required to make the GC interrupt safe."
          (scavengef (mezzano.supervisor:thread-state-rax-value thread))
          (scavengef (mezzano.supervisor:thread-state-rcx-value thread))
          (scavengef (mezzano.supervisor:thread-state-rdx-value thread))))
+      #+arm64
+      (ecase extra-registers
+        ((nil))
+        ((:rax)
+         ;; x9 (rax) contains an interior pointer into :x1 (r9)
+         (let ((offset (- (mezzano.supervisor:thread-state-rax thread)
+                          (mezzano.supervisor:thread-state-r9 thread))))
+           (scavengef (mezzano.supervisor:thread-state-r9 thread))
+           (setf (mezzano.supervisor:thread-state-rax thread)
+                 (+ (mezzano.supervisor:thread-state-r9 thread)
+                    offset)))))
       (when block-or-tagbody-thunk
         ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
         ;; pointed to by RAX.
