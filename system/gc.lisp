@@ -217,21 +217,13 @@ This is required to make the GC interrupt safe."
        "  n-values " n-values
        "  from " (if framep
                      (+ frame-pointer 16)
-                     (+ stack-pointer (* (+ layout-length
-                                            #-arm64 1
-                                            #+arm64 0)
-                                         8)))))
+                     (+ stack-pointer (* layout-length 8)))))
     ;; There are N-VALUES values above the return address.
     (if framep
         ;; Skip saved fp and return address.
         (scavenge-many (+ frame-pointer 16) n-values)
-        ;; Skip return address and any layout values.
-        (scavenge-many (+ stack-pointer
-                          (cond #+arm64
-                                ((zerop layout-length)
-                                 0)
-                                (t
-                                 (* (1+ layout-length) 8))))
+        ;; Skip any layout values.
+        (scavenge-many (+ stack-pointer (* layout-length 8))
                        n-values))))
 
 (defun scavenge-regular-stack-frame (frame-pointer stack-pointer framep
@@ -382,7 +374,10 @@ This is required to make the GC interrupt safe."
              (when extra-registers
                (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))
              (when restart
-               (bad-metadata ":RESTART seen outside full-save'd function."))))
+               (bad-metadata ":RESTART seen outside full-save'd function."))
+             (when (and (not framep)
+                        (eql layout-length 0))
+               (bad-metadata "Tried to unwind through function with no available return address"))))
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
@@ -390,9 +385,6 @@ This is required to make the GC interrupt safe."
                 (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                        stack-pointer (+ frame-pointer 16)
                        frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))
-               #+arm64
-               ((zerop layout-length)
-                (mezzano.supervisor:panic "Tried to unwind through function with no available return address"))
                (t
                 ;; No frame, carefully pick out the new values.
                 (gc-log "Unwinding through no-frame function")
@@ -401,7 +393,7 @@ This is required to make the GC interrupt safe."
                 (setf return-address (memref-unsigned-byte-64 stack-pointer layout-length))
                 ;; Stack pointer needs the return address popped off,
                 ;; and any layout variables.
-                (setf stack-pointer (+ stack-pointer (* (1+ layout-length) 8)))))))))
+                (setf stack-pointer (+ stack-pointer (* layout-length 8)))))))))
 
 (defun scavenge-thread-data-registers (thread)
   (scavengef (mezzano.supervisor:thread-state-r8-value thread))
@@ -461,6 +453,11 @@ This is required to make the GC interrupt safe."
           (when (and (not framep)
                      pushed-values-register)
             (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
+          ;; arm64 uses a link register
+          #-arm64
+          (when (and (not framep)
+                     (eql layout-length 0))
+            (bad-metadata "Tried to unwind through function with no available return address"))
           ;; Not all settings are valid in arm64.
           #+arm64
           (when (or (not (eql extra-registers nil))
@@ -523,7 +520,7 @@ This is required to make the GC interrupt safe."
                                            0)))
       (cond #+arm64
             ((and (not framep)
-                  (zerop layout-length))
+                  (eql layout-length 0))
              ;; Special case: lr contains the return address and there is return address on the stack.
              (scavenge-stack
               ;; Stack pointer needs the return address popped off,
@@ -538,11 +535,11 @@ This is required to make the GC interrupt safe."
              (scavenge-stack
               ;; Stack pointer needs the return address popped off,
               ;; and any layout variables.
-              (+ stack-pointer (* (1+ layout-length) 8))
+              (+ stack-pointer (* layout-length 8))
               ;; Frame pointer should be unchanged.
               frame-pointer
               ;; Return address should be above the layout variables.
-              (memref-unsigned-byte-64 stack-pointer layout-length)))
+              (memref-unsigned-byte-64 stack-pointer (1- layout-length))))
             ((not (zerop frame-pointer))
              (scavenge-stack (+ frame-pointer 16) ; sp
                              (memref-unsigned-byte-64 frame-pointer 0) ; fp

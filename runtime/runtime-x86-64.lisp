@@ -6,8 +6,9 @@
 (sys.int::define-lap-function values-list ((list)
                                            ((list 0)))
   "Returns the elements of LIST as multiple values."
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:sub64 :rsp 16) ; 2 slots
@@ -95,7 +96,7 @@
   (sys.lap-x86:jmp unpack-loop)
   done
   (sys.lap-x86:leave)
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #*0 :multiple-values 0)
   (sys.lap-x86:ret)
   type-error
   (:gc :frame :layout #*10)
@@ -120,8 +121,9 @@
 
 (sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
   "Returns the elements of SIMPLE-VECTOR as multiple values."
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   ;; Check arg count.
@@ -184,7 +186,7 @@
   (sys.lap-x86:jne unpack-loop)
   done
   (sys.lap-x86:leave)
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #*0 :multiple-values 0)
   (sys.lap-x86:ret)
   ;; Special-case 0 values as it requires NIL in R8.
   zero-values
@@ -220,8 +222,9 @@
 ;;            (= x y))))
 (sys.int::define-lap-function eql ((x y))
   "Compare X and Y."
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   ;; Check arg count.
@@ -235,7 +238,7 @@
   (sys.lap-x86:mov32 :r8d t)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   (:gc :frame)
   MAYBE-NUMBER-CASE
@@ -270,7 +273,7 @@
   ;; RCX was set to fixnum 2 on entry.
   (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
   (:gc :frame)
   OBJECTS-UNEQUAL
@@ -278,7 +281,7 @@
   (sys.lap-x86:mov32 :r8d nil)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   (:gc :frame)
   BAD-ARGUMENTS
@@ -292,8 +295,9 @@
 ;;; will be performed on the argument list.
 ;;; FIXME: should enforce CALL-ARGUMENTS-LIMIT.
 (sys.int::define-lap-function %apply ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   ;; Function goes in RBX.
@@ -393,12 +397,12 @@
   (:gc :frame)
   ;; Finish up & return.
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   do-tail-call
   (:gc :frame)
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:rbx #.(+ (- sys.int::+tag-object+) 8)))
   ;; R8 = function, R9 = arg-list.
   ;; (raise-type-error arg-list 'proper-list)

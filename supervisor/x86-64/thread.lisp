@@ -9,7 +9,7 @@
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
   (sys.lap-x86:sti)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
 (sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
@@ -33,7 +33,6 @@
 ;;; current-thread interrupt-frame next-thread
 ;;; Interrupts must be off, current & next must be locked.
 (sys.int::define-lap-function %%switch-to-thread-via-interrupt ()
-  (:gc :no-frame)
   ;; Save fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
@@ -84,7 +83,7 @@
   (sys.lap-x86:mov64 :rbp (:object nil #.+thread-state-rbp+))
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   ;; Check for pending footholds.
   (sys.lap-x86:gs)
   (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
@@ -128,6 +127,7 @@
   (sys.lap-x86:iret))
 
 (sys.int::define-lap-function current-thread (())
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:test64 :rcx :rcx)
   (sys.lap-x86:jnz BAD-ARGS)
   (sys.lap-x86:gs)
@@ -135,6 +135,10 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   BAD-ARGS
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
@@ -151,6 +155,7 @@
         (thread-state-cs thread) 8))
 
 (sys.int::define-lap-function %%full-save-return-thunk (())
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
 (defun convert-thread-to-full-save (thread)

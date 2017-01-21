@@ -45,7 +45,7 @@
 
 (sys.int::define-lap-function local-cpu-info (())
   "Return the address of the local CPU's info vector."
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:fs)
   (sys.lap-x86:mov64 :r8 (#.+cpu-info-self-offset+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
@@ -53,9 +53,9 @@
 
 (sys.int::define-lap-function %lgdt ((length address))
   "Load a new GDT."
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:sub64 :rsp 16)
-  (:gc :no-frame :layout #*00)
+  (:gc :no-frame :layout #*000)
   (sys.lap-x86:mov64 :rax :r8) ; length
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 (:rsp) :rax)
@@ -64,14 +64,14 @@
   (sys.lap-x86:mov64 (:rsp 2) :rax)
   (sys.lap-x86:lgdt (:rsp))
   (sys.lap-x86:add64 :rsp 16)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
 (sys.int::define-lap-function %lidt ((length address))
   "Load a new IDT."
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:sub64 :rsp 16)
-  (:gc :no-frame :layout #*00)
+  (:gc :no-frame :layout #*000)
   (sys.lap-x86:mov64 :rax :r8) ; length
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 (:rsp) :rax)
@@ -80,11 +80,12 @@
   (sys.lap-x86:mov64 (:rsp 2) :rax)
   (sys.lap-x86:lidt (:rsp))
   (sys.lap-x86:add64 :rsp 16)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
 (sys.int::define-lap-function %ltr ((selector))
   "Load the task register."
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rax :r8) ; selector
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:ltr :ax)
@@ -92,6 +93,7 @@
 
 (sys.int::define-lap-function %load-cs ((selector))
   "Load CS."
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rax :r8) ; selector
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:push :rax)
@@ -188,6 +190,7 @@
 ;; (%cpuid leaf ecx) -> eax ebx ecx edx
 ;; Must be called with the GC deferred as CPUID uses EBX.
 (sys.int::define-lap-function %cpuid ()
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:sar64 :rax #.+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rcx :r9)

@@ -258,6 +258,9 @@ With a frame:  (bit layout n) = (livep (- :rbp (* (1+ n) 8)))
 With no frame: (bit layout n) = (livep (+ :rsp (* n 8)))
 Defaults to #*.
 
+When no RBP-based frame is used, this is used to determine the size of the
+stack frame, including the return address (if any).
+
 
 ** :INCOMING-ARGUMENTS
 

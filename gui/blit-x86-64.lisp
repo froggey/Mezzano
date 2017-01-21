@@ -22,7 +22,7 @@
 ;;    (incf to-offset)
 ;;    (incf from-offset)))
 (sys.int::define-lap-function %bitblt-line ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r10) ; TO-OFFSET
   (sys.lap-x86:mov64 :rsi (:rsp 8)) ; FROM-OFFSET
   (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+) ; unbox fixnum
@@ -45,7 +45,7 @@
 ;;    (funcall blender colour to to-offset)
 ;;    (incf to-offset)))
 (sys.int::define-lap-function %bitset-line ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r10) ; TO-OFFSET
   (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; unbox fixnum
   LOOP-HEAD
@@ -67,7 +67,7 @@
 ;;    (incf to-offset)
 ;;    (incf mask-offset)))
 (sys.int::define-lap-function %bitset-mask-1-line ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r10) ; RDI = TO-OFFSET.
   (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; unbox fixnum.
   (sys.lap-x86:mov64 :r10 (:rsp 16)) ; R10 = COLOUR.
@@ -131,7 +131,7 @@
 ;; (defun red-component (colour)
 ;;   (/ (ldb (byte 8 16) colour) 255.0))
 (sys.int::define-lap-function %bitset-mask-8-line ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   ;; Fetch & unbox MASK-OFFSET.
   (sys.lap-x86:mov64 :rsi (:rsp 8))
   (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
@@ -188,14 +188,14 @@
 ;;; EAX = ARGB8888 source pixel.
 ;;; R9 + RDI = ARGB8888 destination.
 (sys.int::define-lap-function %%set-one-argb8888-argb8888 ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov32 (:object :r9 0 :rdi 4) :eax)
   (sys.lap-x86:ret))
 
 ;;; EAX = ARGB8888 source pixel.
 ;;; R9 + RDI = ARGB8888 destination.
 (sys.int::define-lap-function %%xor-one-argb8888-argb8888 ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:xor32 (:object :r9 0 :rdi 4) :eax)
   (sys.lap-x86:ret))
 
@@ -206,7 +206,7 @@
 ;; src = GL_ONE
 ;; dst = GL_ONE_MINUS_SRC_ALPHA
 (sys.int::define-lap-function %%alpha-blend-one-argb8888-argb8888 ()
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov32 :ecx :eax) ; ecx = source (ARGB)
   (sys.lap-x86:and32 :ecx #xFF000000) ; ecx = source alpha (A000)
   (sys.lap-x86:jz out) ; Fully transparent, bail out.

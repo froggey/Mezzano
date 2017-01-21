@@ -6,8 +6,9 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::define-lap-function ensure-on-wired-stack ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:mov64 :rax :rsp)
@@ -18,9 +19,10 @@
   (sys.lap-x86:jae BAD)
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   BAD
+  (:gc :frame)
   (sys.lap-x86:mov64 :r13 (:function panic-not-on-wired-stack))
   (sys.lap-x86:mov32 :ecx #.(ash 0 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
@@ -55,13 +57,14 @@
 ;; %C-O-W-S-W-I must not be exited using a non-local exit.
 ;; %RESCHEDULE and similar functions must not be called.
 (sys.int::define-lap-function %call-on-wired-stack-without-interrupts ()
+  (:gc :no-frame :layout #*0)
   ;; Argument setup.
   (sys.lap-x86:mov64 :rbx :r8) ; function
   (sys.lap-x86:mov64 :r8 :rsp) ; sp
   (sys.lap-x86:mov64 :r9 :rbp) ; fp
   ;; Test if interrupts are enabled.
   (sys.lap-x86:pushf)
-  (:gc :no-frame :layout #*0)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:test64 (:rsp) #x200)
   (sys.lap-x86:jnz INTERRUPTS-ENABLED)
   ;; Interrupts are already disabled, tail-call to the function.
@@ -90,7 +93,7 @@
   (sys.lap-x86:sti)
   ;; Now safe to restore :RBP.
   (sys.lap-x86:pop :rbp)
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #*0 :multiple-values 0)
   ;; Done, return.
   (sys.lap-x86:ret))
 

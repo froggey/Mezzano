@@ -200,7 +200,7 @@
       (when code-tag
         (load-multiple-values code-tag)
         (emit `(sys.lap-x86:leave)
-              `(:gc :no-frame :multiple-values 0)
+              `(:gc :no-frame :layout #*0 :multiple-values 0)
               `(sys.lap-x86:ret))))
     (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
@@ -269,9 +269,9 @@
     (nconc
      (list entry-label
            ;; Create control stack frame.
-           `(:gc :no-frame :incoming-arguments :rcx)
-           `(sys.lap-x86:push :rbp)
            `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+           `(sys.lap-x86:push :rbp)
+           `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
            `(sys.lap-x86:mov64 :rbp :rsp)
            `(:gc :frame :incoming-arguments :rcx))
      (when sys.c::*enable-stack-alignment-checking*
@@ -1595,7 +1595,7 @@ Returns an appropriate tag."
   (emit `(sys.lap-x86:leave))
   ;; Tail calls can only be performed when there are no arguments on the stack.
   ;; So :GC :NO-FRAME is fine here.
-  (emit `(:gc :no-frame))
+  (emit `(:gc :no-frame :layout #*0))
   (emit `(sys.lap-x86:jmp ,where)))
 
 (defun cg-variable (form)

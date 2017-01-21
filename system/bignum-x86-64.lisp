@@ -4,6 +4,7 @@
 (in-package :sys.int)
 
 (define-lap-function %%bignum-< ()
+  (:gc :no-frame :layout #*0)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-object+)))
@@ -55,6 +56,7 @@
   (sys.lap-x86:jmp sx-right-resume))
 
 (define-lap-function %%bignum-= ()
+  (:gc :no-frame :layout #*0)
   ;; Read headers.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
   (sys.lap-x86:cmp64 :rax (:r9 #.(- +tag-object+)))
@@ -79,8 +81,9 @@
   (sys.lap-x86:jmp done))
 
 (define-lap-function %%bignum-+ ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:push :r8)
@@ -153,7 +156,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (:gc :frame)
   sx-left
@@ -178,8 +181,9 @@
   (sys.lap-x86:ud2))
 
 (define-lap-function %%bignum-- ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:push :r8)
@@ -250,7 +254,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (:gc :frame)
   sx-left
@@ -279,8 +283,9 @@
 ;;; This can be either a fixnum, a length-one bignum or a length-two bignum.
 ;;; Always returns an (UNSIGNED-BYTE 128) in a length-three bignum.
 (define-lap-function %%bignum-multiply-step ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   ;; Read X.
@@ -310,7 +315,7 @@
   ;; Single value return
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   (:gc :frame)
   read-bignum-x
@@ -322,8 +327,9 @@
 
 (macrolet ((def (bignum-name op)
              `(define-lap-function ,bignum-name ()
-                (sys.lap-x86:push :rbp)
                 (:gc :no-frame :layout #*0)
+                (sys.lap-x86:push :rbp)
+                (:gc :no-frame :layout #*00)
                 (sys.lap-x86:mov64 :rbp :rsp)
                 (:gc :frame)
                 ;; Save objects.
@@ -382,7 +388,7 @@
                 (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
                 (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
                 (sys.lap-x86:leave)
-                (:gc :no-frame)
+                (:gc :no-frame :layout #*0)
                 (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
                 (:gc :frame)
                 sx-left
@@ -400,8 +406,9 @@
   (def %%bignum-logxor sys.lap-x86:xor64))
 
 (define-lap-function %%bignum-left-shift ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   ;; Save objects.
   (sys.lap-x86:push :r8) ; src
@@ -449,12 +456,13 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
 
 (define-lap-function %%bignum-right-shift ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   ;; Save objects.
@@ -500,7 +508,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
 
 ;;; Convert a bignum to canonical form.
@@ -508,8 +516,9 @@
 ;;; otherwise it is converted to the shortest possible bignum
 ;;; by removing redundant sign-extension bits.
 (define-lap-function %%canonicalize-bignum ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
@@ -572,7 +581,7 @@
   do-return
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
   ;; Attempt to convert a size-1 bignum to a fixnum.
   maybe-fixnumize
@@ -587,8 +596,9 @@
   (sys.lap-x86:jmp do-return))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:push :rdx)
@@ -601,12 +611,13 @@
   (sys.lap-x86:pop (:object :r8 1))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
 (sys.int::define-lap-function sys.int::%%make-bignum-64-rax ()
-  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:push 0)
@@ -618,5 +629,5 @@
   (sys.lap-x86:pop (:object :r8 0))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:leave)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))

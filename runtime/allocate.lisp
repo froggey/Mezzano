@@ -237,6 +237,7 @@
 ;; many simple vectors of length 0.
 #+x86-64
 (sys.int::define-lap-function %allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #*0)
   ;; Attempt to quickly allocate from the general area. Will call
   ;; %SLOW-ALLOCATE-FROM-GENERAL-AREA if things get too hairy.
   ;; This is not even remotely SMP safe.
@@ -253,7 +254,7 @@
   (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
   (sys.lap-x86:lea64 :rdi (:rdi (:r8 #.(ash 1 (- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+)))))
   ;; If a garbage collection occurs, it must rewind IP back here.
-  (:gc :no-frame :restart t)
+  (:gc :no-frame :layout #*0 :restart t)
   ;; Big hammer, disable interrupts. Faster than taking locks & stuff.
   (sys.lap-x86:cli)
   ;; Check *ENABLE-ALLOCATION-PROFILING*
@@ -314,7 +315,7 @@
   ;; This must be done in a single write so the GC always sees a correct header.
   (sys.lap-x86:mov64 (:object :rbx -1) :rdi)
   ;; Leave restart region.
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*0)
   ;; Done. Return everything.
   (sys.lap-x86:mov64 :r8 :rbx)
   (sys.lap-x86:mov64 :rbx (:constant *general-fast-path-hits*))
@@ -457,6 +458,7 @@
 
 #+x86-64
 (sys.int::define-lap-function cons ((car cdr))
+  (:gc :no-frame :layout #*0)
   ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
   ;; This is not even remotely SMP safe.
   ;; R8 = car; R9 = cdr

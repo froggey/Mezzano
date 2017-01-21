@@ -154,6 +154,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 
 #+x86-64
 (sys.int::define-lap-function %%bitblt-row-x8r8g8b8 ((to-base from-base ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rsi :r9) ; from-storage
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -166,6 +167,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 
 #+x86-64
 (sys.int::define-lap-function %%bitblt-row-r8g8b8 ((to-base from-base ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rsi :r9) ; from-storage
   (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
@@ -208,6 +210,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 
 #+x86-64
 (sys.int::define-lap-function %%bitset-row-x8r8g8b8 ((to-base colour ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rax :r9) ; colour
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -220,6 +223,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 
 #+x86-64
 (sys.int::define-lap-function %%bitset-row-r8g8b8 ((to-base colour ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:test64 :r10 :r10) ; ncols
   (sys.lap-x86:jz OUT)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
