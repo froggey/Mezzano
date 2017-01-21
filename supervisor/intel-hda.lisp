@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2015-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.driver.intel-hda
@@ -862,7 +862,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                (hda-corb/rirb/dmap-physical hda) dma-phys))
        (initialize-corb hda)
        (initialize-rirb hda)
-       #+(or)(let ((dmap-address (logior (+ (hda-rirb/rirb/dmap-physical hda) +dmap-offset+)
+       (let ((dmap-address (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
                                    (mask-field +dplbase-enable+ -1))))
          (setf (global-reg/32 hda +dpubase+) (ldb (byte 32 32) dmap-address)
                (global-reg/32 hda +dplbase+) (ldb (byte 32 0) dmap-address)))
@@ -893,11 +893,21 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
             (sys.int::memref-unsigned-byte-32 array (+ offset 2))
             (sys.int::memref-unsigned-byte-32 array (+ offset 3)))))
 
-(defun prep-stream (hda stream-id bdl-base bdl-length)
-  (setf (sd-reg/32 hda stream-id +sdnbdpl+) (+ (hda-corb/rirb/dmap-physical c) +bdl-offset+ (* bdl-base 16))
+(defun dma-position (hda stream)
+  (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
+         (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
+    (sys.int::memref-unsigned-byte-32 virt (* stream 2))))
+
+(defun (setf dma-position) (value hda stream)
+  (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
+         (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
+    (value (sys.int::memref-unsigned-byte-32 virt (* stream 2)))))
+
+(defun prep-stream (hda stream-id bdl-base bdl-length cb-length)
+  (setf (sd-reg/32 hda stream-id +sdnbdpl+) (+ (hda-corb/rirb/dmap-physical hda) +bdl-offset+ (* bdl-base 16))
         (sd-reg/16 hda stream-id +sdnfmt+) #x4011
         (sd-reg/16 hda stream-id +sdnlvi+) bdl-length
-        (sd-reg/32 hda stream-id +sdncbl+) #x100000))
+        (sd-reg/32 hda stream-id +sdncbl+) cb-length))
 
 (defun stream-reset (hda stream-id)
   ;; Clear the run bit before doing anything.
@@ -910,16 +920,70 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun stream-go (hda stream-id)
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) #x00100002))
 
-(defun test (codec dac pin &optional mixer)
-  (stream-reset c 4)
-  (write-bdl c 0 #x200000 #x80000)
-  (write-bdl c 1 #x400000 #x80000)
-  (prep-stream c 4 0 1)
+(defun test (hda buffer codec dac pin &optional mixer)
+  (stream-reset hda 4)
+  ;(write-bdl hda 0 #x200000 #x80000)
+  ;(write-bdl hda 1 #x400000 #x80000)
+  (write-bdl hda 0 buffer #x10000)
+  (write-bdl hda 1 (+ buffer #x10000) #x10000)
+  (prep-stream hda 4 0 1 #x20000)
   (when mixer
-    (command c codec mixer #x3F07F)) ; unmute L/R out/in
-  (command c codec dac #x70610) ; stream=1
-  (command c codec dac #x24011) ; format
-  (command c codec dac #x3b07f) ; unmute L/R out
-  (command c codec pin #x3b07f) ; unmute L/R out
-  (command c codec pin #x70740) ; enable output
-  (stream-go c 4))
+    (command hda codec mixer #x3F07F)) ; unmute L/R out/in
+  (command hda codec dac #x70610) ; stream=1
+  (command hda codec dac #x24011) ; format
+  (command hda codec dac #x3b07f) ; unmute L/R out
+  (command hda codec pin #x3b07f) ; unmute L/R out
+  (command hda codec pin #x70740) ; enable output
+  (stream-go hda 4))
+
+(defun report-pos (hda)
+  (loop
+     (format t "~S ~S~%"
+             (dma-position hda 4)
+             (sd-reg/32 hda 4 +sdnlpib+))))
+
+(defun play-sound (sound buffer hda codec dac pin &optional mixer)
+  (let ((buf-len #x20000)
+        (buffer-offset 0)
+        (sound-position nil)
+        (sound-len (length sound))
+        (at-end nil))
+    (dotimes (i buf-len)
+      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0))
+    (dotimes (i (min sound-len buf-len))
+      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i)
+            (aref sound i)))
+    (setf sound-position buf-len)
+    (test hda buffer codec dac pin mixer)
+    (unwind-protect
+         (loop
+            ;; Wait for the dma position to move from the
+            ;; current buffer to the other buffer.
+            (let* ((dmap (dma-position hda 4))
+                   (current-offset (truncate dmap (truncate buf-len 2))))
+              (when (not (eql current-offset (truncate buffer-offset (truncate buf-len 2))))
+                (when at-end
+                  (return))
+                ;; Refill buffer.
+                (cond ((>= sound-position sound-len)
+                       ;; Nearing the end?
+                       (setf at-end t)
+                       (dotimes (i (truncate buf-len 2))
+                         (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer buffer-offset) i) 0)))
+                      (t
+                       (let* ((true-end (min sound-len
+                                             (+ sound-position (truncate buf-len 2))))
+                              (true-len (- true-end sound-position))
+                              (pad-len (- (truncate buf-len 2) true-len)))
+                         (dotimes (i true-len)
+                           (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer buffer-offset) i)
+                                 (aref sound (+ i sound-position))))
+                         (dotimes (i pad-len)
+                           (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer true-len buffer-offset) i) 0))
+                         (incf sound-position true-len))))
+                (cond ((eql buffer-offset 0)
+                       (setf buffer-offset (truncate buf-len 2)))
+                      (t
+                       (setf buffer-offset 0)))))
+            (sleep 0.01))
+      (stream-reset hda 4))))
