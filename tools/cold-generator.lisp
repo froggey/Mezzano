@@ -190,6 +190,7 @@
     "system/xp-format.lisp"
     "system/xp-printers.lisp"
     "system/profiler.lisp"
+    "drivers/network-card.lisp"
     "drivers/virtio-net.lisp"
     "drivers/rtl8168.lisp"
     "drivers/intel-hda.lisp"

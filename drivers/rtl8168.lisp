@@ -2,7 +2,8 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.driver.rtl8168
-  (:use :cl :mezzano.supervisor))
+  (:use :cl :mezzano.supervisor)
+  (:local-nicknames (:nic :mezzano.driver.network-card)))
 
 (in-package :mezzano.driver.rtl8168)
 
@@ -131,7 +132,14 @@
   rx-bounce-phys
   rx-bounce-virt
   rx-current
+
+  wrapper
 )
+
+;; FIXME: This should be merged with virtio-net.
+;; Only exists for compatibility.
+(defclass rtl8168-network-card (nic:network-card)
+  ((nic :initarg :nic)))
 
 (defun rtl8168-pci-register (location)
   (let ((nic (make-rtl8168 :pci-location location
@@ -298,7 +306,9 @@
     (simple-irq-unmask (rtl8168-irq-handler nic)))
   ;; FIXME: Make sure this happens in the same boot. Can't be done in with-pseudo-atomic because
   ;; of allocation.
-  (register-nic nic (rtl8168-mac nic) 'rtl8168-transmit 'rtl8168-stats +rtl8168-mtu+)
+  (let ((wrapper (make-instance 'rtl8168-network-card :nic nic)))
+    (setf (rtl8168-wrapper nic) wrapper)
+    (nic:register-network-card wrapper))
   t)
 
 (defun rtl8168-transmit  (nic packet)
@@ -373,7 +383,7 @@
                                                                       (ash 1 +rtl8168-descriptor-EOR+)
                                                                       0))
                       (rtl8168-rx-desc-vlan nic current) 0))
-              (nic-received-packet nic buffer))
+              (nic:device-received-packet (rtl8168-wrapper nic) buffer))
             ;; Advance Current.
             (setf (rtl8168-rx-current nic) (rem (1+ current) +rtl8168-n-rx-descriptors+))))
        ;; Transmit handling.
@@ -456,6 +466,18 @@
          (virt (mezzano.supervisor::convert-to-pmap-address phys)))
     (debug-print-line "RTL8168 " name " bounce buffer at " phys)
     (values phys virt)))
+
+(defmethod nic:mac-address ((nic rtl8168-network-card))
+  (rtl8168-mac (slot-value nic 'nic)))
+
+(defmethod nic:statistics ((nic rtl8168-network-card))
+  (rtl8168-stats (slot-value nic 'nic)))
+
+(defmethod nic:mtu ((nic rtl8168-network-card))
+  +rtl8168-mtu+)
+
+(defmethod nic:device-transmit-packet ((nic rtl8168-network-card) packet)
+  (rtl8168-transmit (slot-value nic 'nic) packet))
 
 (define-pci-driver rtl8168 rtl8168-pci-register
   ((#x10EC #x8168))

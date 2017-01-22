@@ -156,7 +156,7 @@
 
 (defgeneric transmit-ipv4-packet-on-interface (destination-host interface packet))
 
-(defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.supervisor:nic) packet)
+(defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.driver.network-card:network-card) packet)
   (mezzano.network.ethernet:transmit-ethernet-packet
    interface
    (mezzano.network.arp:arp-lookup interface
@@ -168,14 +168,14 @@
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
   ;; Bounce loopback packets out over the nic for testing as well.
   (mezzano.network.ethernet:transmit-ethernet-packet
-   (first mezzano.supervisor::*nics*)
+   (first mezzano.driver.network-card::*nics*)
    #(0 0 0 1 2 3)
    mezzano.network.ethernet:+ethertype-ipv4+
    packet)
   ;; This is a bit very hacky...
   ;; Trying to avoid recursively calling back into the receive path. The
   ;; ethernet worker will pick packet up and deal with it normally.
-  (mezzano.supervisor::irq-fifo-push
+  (mezzano.supervisor:fifo-push
    (cons interface
          (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
                                             :element-type '(unsigned-byte 8))))
@@ -185,7 +185,7 @@
                                          8 0)
                                        packet))
            loopback-packet))
-   mezzano.supervisor::*received-packets*))
+   mezzano.driver.network-card::*received-packets*))
 
 (defun assemble-ipv4-packet (source destination protocol payload)
   (let* ((ip-header (make-array 20 :element-type '(unsigned-byte 8)))

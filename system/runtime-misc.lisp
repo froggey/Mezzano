@@ -54,12 +54,6 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (mezzano.supervisor:thread-name object))))
 
-(defmethod print-object ((object mezzano.supervisor::nic) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~:(~A~) ~/mezzano.network.ethernet:format-mac-address/"
-            (type-of (mezzano.supervisor::nic-device object))
-            (mezzano.supervisor:nic-mac object))))
-
 (defmethod print-object ((object mezzano.supervisor::disk) stream)
   (print-unreadable-object (object stream :identity t)
     (format stream "Disk")

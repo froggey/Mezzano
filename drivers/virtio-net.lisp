@@ -2,7 +2,8 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.driver.virtio-net
-  (:use :cl :mezzano.supervisor))
+  (:use :cl :mezzano.supervisor)
+  (:local-nicknames (:nic :mezzano.driver.network-card)))
 
 (in-package :mezzano.driver.virtio-net)
 
@@ -64,6 +65,7 @@ packet (1514 bytes), plus a virtio-net header (10 or 12 bytes)
 and then some alignment.")
 (defconstant +virtio-net-n-tx-buffers+ 32)
 
+;; FIXME: Should derive from NIC:NETWORK-CARD.
 (defstruct virtio-net
   mac
   virtio-device
@@ -85,7 +87,13 @@ and then some alignment.")
   (total-rx-bytes 0)
   (total-tx-bytes 0)
   (total-rx-packets 0)
-  (total-tx-packets 0))
+  (total-tx-packets 0)
+  wrapper)
+
+;; FIXME: This should be merged with virtio-net.
+;; Only exists for compatibility.
+(defclass virtio-net-network-card (mezzano.driver.network-card:network-card)
+  ((vnet :initarg :vnet)))
 
 (defun check-virtio-net-boot (nic)
   (when (not (eql (virtio-net-boot-id nic) (current-boot-id)))
@@ -129,7 +137,7 @@ and then some alignment.")
              (virtio-ring-add-to-avail-ring rx-queue id)
              (setf (virtqueue-last-seen-used rx-queue)
                    (ldb (byte 16 0) (1+ (virtqueue-last-seen-used rx-queue))))))
-         (nic-received-packet nic packet)))))
+         (nic:device-received-packet (virtio-net-wrapper nic) packet)))))
 
 (defun virtio-net-do-transmit-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
@@ -341,7 +349,9 @@ and then some alignment.")
           (debug-print-line "Unable to allocate RX buffers")
           (setf (virtio-device-status device) +virtio-status-failed+)
           (return-from virtio-net-initialize nil))
-        (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
+        (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
+          (setf (virtio-net-wrapper nic) wrapper)
+          (nic:register-network-card wrapper))
         ;; Configuration complete, go to OK mode.
         (simple-irq-attach (virtio-net-irq-handler-function nic))
         (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
@@ -349,5 +359,17 @@ and then some alignment.")
                                                     +virtio-status-ok+))
         (virtio-kick device +virtio-net-receiveq+))))
   t)
+
+(defmethod nic:mac-address ((nic virtio-net-network-card))
+  (virtio-net-mac (slot-value nic 'vnet)))
+
+(defmethod nic:statistics ((nic virtio-net-network-card))
+  (virtio-net-stats (slot-value nic 'vnet)))
+
+(defmethod nic:mtu ((nic virtio-net-network-card))
+  +virtio-net-mtu+)
+
+(defmethod nic:device-transmit-packet ((nic virtio-net-network-card) packet)
+  (virtio-net-transmit (slot-value nic 'vnet) packet))
 
 (define-virtio-driver virtio-net virtio-net-register +virtio-dev-id-net+)

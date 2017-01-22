@@ -102,13 +102,16 @@
            option))
 
 (sys.int::defglobal *boot-hook-lock*)
+(sys.int::defglobal *early-boot-hooks*)
 (sys.int::defglobal *boot-hooks*)
 (sys.int::defglobal *late-boot-hooks*)
 
 (defun add-boot-hook (fn &optional when)
-  (check-type when (member nil :late))
+  (check-type when (member nil :late :early))
   (with-mutex (*boot-hook-lock*)
     (case when
+      (:early
+       (push fn *early-boot-hooks*))
       ((nil)
        (push fn *boot-hooks*))
       (:late
@@ -116,10 +119,15 @@
 
 (defun remove-boot-hook (fn)
   (with-mutex (*boot-hook-lock*)
+    (setf *early-boot-hooks* (remove fn *early-boot-hooks*))
     (setf *boot-hooks* (remove fn *boot-hooks*))
     (setf *late-boot-hooks* (remove fn *late-boot-hooks*))))
 
 (defun run-boot-hooks ()
+  (dolist (hook *early-boot-hooks*)
+    (sys.int::log-and-ignore-errors
+      (format t "Run early boot hook ~A~%" hook)
+      (funcall hook)))
   (dolist (hook *boot-hooks*)
     (sys.int::log-and-ignore-errors
       (format t "Run boot hook ~A~%" hook)
@@ -133,66 +141,6 @@
 
 (defun current-boot-id ()
   *boot-id*)
-
-(defstruct (nic
-             (:area :wired))
-  device
-  mac
-  transmit-packet
-  stats
-  mtu)
-
-(sys.int::defglobal *nics*)
-(sys.int::defglobal *received-packets*)
-
-(defun register-nic (device mac transmit-fn stats-fn mtu)
-  (debug-print-line "Registered NIC " device " with MAC " mac)
-  (push-wired (make-nic :device device
-                        :mac mac
-                        :transmit-packet transmit-fn
-                        :stats stats-fn
-                        :mtu mtu)
-              *nics*))
-
-(defun net-statistics (nic)
-  "Get NIC statistics. Returns 7 values:
-Bytes received.
-Packets received.
-Receive errors.
-Bytes transmitted.
-Packets transmitted.
-Transmit errors.
-Collisions."
-  (funcall (nic-stats nic) (mezzano.supervisor::nic-device nic)))
-
-(defun net-transmit-packet (nic pkt)
-  (set-network-light t)
-  (set-network-light nil)
-  (funcall (mezzano.supervisor::nic-transmit-packet nic)
-           (mezzano.supervisor::nic-device nic)
-           pkt))
-
-(defun net-receive-packet ()
-  "Wait for a packet to arrive.
-Returns two values, the packet data and the receiving NIC."
-  (set-network-light t)
-  (set-network-light nil)
-  (let ((info (irq-fifo-pop *received-packets*)))
-    (values (cdr info) (car info))))
-
-(defun nic-received-packet (device pkt)
-  (let ((nic (find device *nics* :key #'nic-device)))
-    (when nic
-      (irq-fifo-push (cons nic pkt) *received-packets*))))
-
-(defun initialize-net ()
-  (when (not (boundp '*received-packets*))
-    ;; First run.
-    ;; FIXME: This should be a normal non-IRQ FIFO, but
-    ;; creating a FIFO won't work until the cold load finishes.
-    (setf *received-packets* (make-irq-fifo 50)))
-  (setf *nics* '())
-  (irq-fifo-reset *received-packets*))
 
 (sys.int::defglobal *deferred-boot-actions*)
 
@@ -253,7 +201,6 @@ Returns two values, the packet data and the receiving NIC."
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
     (initialize-time)
-    (initialize-net)
     (initialize-video)
     (initialize-efi)
     (initialize-acpi)
@@ -265,6 +212,7 @@ Returns two values, the packet data and the receiving NIC."
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
                  *boot-hook-lock* (make-mutex "Boot Hook Lock")
+                 *early-boot-hooks* '()
                  *boot-hooks* '()
                  *late-boot-hooks* '())
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
