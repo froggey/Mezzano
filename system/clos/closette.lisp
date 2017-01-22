@@ -1865,6 +1865,12 @@ has only has class specializer."
           (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
         (return (funcall `(setf ,(sys.int::structure-slot-accessor slot)) new-value instance))))))
 
+(defmethod slot-boundp-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
+  t)
+
+(defmethod slot-makunbound-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
+  (error "Cannot make structure slots unbound."))
+
 (defmethod finalize-inheritance ((class structure-class))
   (std-finalize-inheritance class)
   (values))
