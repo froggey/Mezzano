@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;;;; MMIO transport for virtio devices.
@@ -74,11 +74,13 @@
         value))
 
 (defun virtio-mmio-register (address irq)
-  (let* ((dev (make-virtio-device :mmio address :mmio-irq irq))
+  (let* ((dev (make-virtio-device :mmio address
+                                  :mmio-irq irq))
          (magic (virtio-mmio-magic dev))
          (version (virtio-mmio-version dev))
          (did (virtio-mmio-device-id dev))
          (vid (virtio-mmio-vendor-id dev)))
+    (setf (virtio-device-did dev) did)
     (when (not (and (eql magic +virtio-mmio-magic-value+)
                     (eql version 1)
                     (not (eql did +virtio-dev-id-invalid+))))

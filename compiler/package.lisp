@@ -221,6 +221,10 @@
            #:make-condition-variable
            #:condition-wait
            #:condition-notify
+           #:make-latch
+           #:latch-reset
+           #:latch-wait
+           #:latch-trigger
            #:snapshot
            #:allocate-memory-range
            #:protect-memory-range
@@ -238,6 +242,7 @@
            #:store-statistics
            #:physical-memory-statistics
            #:reboot
+           #:current-boot-id
 
            ;; Temporary drivers.
            #:ps/2-key-read
@@ -247,6 +252,8 @@
            #:framebuffer-width
            #:framebuffer-height
            #:*nics*
+           #:register-nic
+           #:nic-received-packet
            #:nic
            #:nic-mac
            #:nic-mtu
@@ -286,7 +293,82 @@
            #:pci-io-region/32
            #:pci-intr-line
            #:map-pci-devices
-           #:pci-probe))
+           #:pci-probe
+
+           #:make-simple-irq
+           #:simple-irq-unmask
+           #:simple-irq-mask
+           #:simple-irq-attach
+
+           #:+virtio-dev-id-invalid+
+           #:+virtio-dev-id-net+
+           #:+virtio-dev-id-block+
+           #:+virtio-dev-id-console+
+           #:+virtio-dev-id-entropy-src+
+           #:+virtio-dev-id-mem-balloon+
+           #:+virtio-dev-id-io-memory+
+           #:+virtio-dev-id-rpmsg+
+           #:+virtio-dev-id-scsi-host+
+           #:+virtio-dev-id-9p-transport+
+           #:+virtio-dev-id-mac80211-wlan+
+           #:+virtio-dev-id-rproc-serial+
+           #:+virtio-dev-id-caif+
+           #:+virtio-dev-id-gpu+
+           #:+virtio-dev-id-input+
+
+           #:+virtio-status-reset+
+           #:+virtio-status-acknowledge+
+           #:+virtio-status-driver+
+           #:+virtio-status-ok+
+           #:+virtio-status-failed+
+
+           #:+virtio-ring-desc-f-next+
+           #:+virtio-ring-desc-f-write+
+           #:+virtio-ring-desc-f-indirect+
+
+           #:virtio-device
+           #:virtqueue
+           #:virtio-ring-size
+           #:virtio-virtqueue
+           #:virtqueue-index
+           #:virtqueue-size
+           #:virtqueue-avail-offset
+           #:virtqueue-used-offset
+           #:virtqueue-next-free-descriptor
+           #:virtqueue-last-seen-used
+           #:virtio-device-specific-header/8
+           #:virtio-device-specific-header/16
+           #:virtio-device-specific-header/32
+           #:virtio-device-specific-header/64
+           #:virtio-ring-desc-address
+           #:virtio-ring-desc-length
+           #:virtio-ring-desc-flags
+           #:virtio-ring-desc-next
+           #:virtio-ring-avail-flags
+           #:virtio-ring-avail-idx
+           #:virtio-ring-avail-ring
+           #:virtio-ring-used-flags
+           #:virtio-ring-used-idx
+           #:virtio-ring-used-elem-id
+           #:virtio-ring-used-elem-len
+           #:virtio-ring-alloc-descriptor
+           #:virtio-ring-free-descriptor
+           #:virtio-ring-add-to-avail-ring
+           #:virtio-pop-used-ring
+           #:virtio-kick
+           #:virtio-ring-disable-interrupts
+           #:virtio-ring-enable-interrupts
+           #:virtio-device-status
+           #:virtio-device-features
+           #:virtio-guest-features
+           #:virtio-isr-status
+           #:virtio-device-irq
+           #:virtio-attach-irq
+           #:virtio-ack-irq
+           #:virtio-irq-mask
+           #:virtio-configure-virtqueues
+           #:define-virtio-driver
+           ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

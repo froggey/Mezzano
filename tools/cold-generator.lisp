@@ -66,7 +66,6 @@
     "supervisor/virtio.lisp"
     "supervisor/virtio-pci.lisp"
     "supervisor/virtio-mmio.lisp"
-    "supervisor/virtio-net.lisp"
     "supervisor/virtio-block.lisp"
     "supervisor/virtio-input.lisp"
     "supervisor/virtio-gpu.lisp"
@@ -121,6 +120,7 @@
     "system/parse.lisp"
     "system/load.lisp"
     "system/time.lisp"
+    "drivers/virtio-net.lisp"
 ))
 
 (defparameter *special-source-files*

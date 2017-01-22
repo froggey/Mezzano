@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;;;; PCI transport for virtio devices.
@@ -66,13 +66,15 @@
 
 (defun virtio-pci-register (location)
   (let* ((header (pci-bar location 0))
-         (dev (make-virtio-device :pci-device location :header header)))
+         (dev (make-virtio-device :pci-device location
+                                  :header header
+                                  :did (pci-config/16 location +pci-config-subdeviceid+))))
     ;; Enable PCI bus master bit, just in case it wasn't set and the emulator
     ;; is really picky.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
                                                                 ;; Bit 2 is Bus Master bit.
                                                                 (ash 1 2)))
-    (virtio-device-register dev (pci-config/16 location +pci-config-subdeviceid+))))
+    (virtio-device-register dev)))
 
 (defun virtio-pci-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."

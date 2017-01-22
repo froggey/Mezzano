@@ -1,7 +1,10 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.driver.virtio-net
+  (:use :cl :mezzano.supervisor))
+
+(in-package :mezzano.driver.virtio-net)
 
 ;;; Network device feature bits.
 (defconstant +virtio-net-f-csum+ 0
@@ -61,8 +64,7 @@ packet (1514 bytes), plus a virtio-net header (10 or 12 bytes)
 and then some alignment.")
 (defconstant +virtio-net-n-tx-buffers+ 32)
 
-(defstruct (virtio-net
-             (:area :wired))
+(defstruct virtio-net
   mac
   virtio-device
   boot-id
@@ -86,11 +88,11 @@ and then some alignment.")
   (total-tx-packets 0))
 
 (defun check-virtio-net-boot (nic)
-  (when (not (eql (virtio-net-boot-id nic) *boot-id*))
+  (when (not (eql (virtio-net-boot-id nic) (current-boot-id)))
     (debug-print-line "virtio-net device " nic " removed. Old boot: "
-                      (sys.int::lisp-object-address (virtio-net-boot-id nic))
+                      (virtio-net-boot-id nic)
                       " Current boot: "
-                      (sys.int::lisp-object-address *boot-id*))
+                      (current-boot-id))
     (throw 'nic-detached nil)))
 
 (defun virtio-net-receive-processing (nic)
@@ -195,9 +197,6 @@ and then some alignment.")
          (return))
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
-(defun virtio-net-irq-handler (nic)
-  (latch-trigger (virtio-net-irq-latch nic)))
-
 (defun virtio-net-transmit (nic packet)
   (let* ((len (loop for elt in packet
                  summing (length elt)))
@@ -232,10 +231,10 @@ and then some alignment.")
   (let* ((dev (virtio-net-virtio-device nic))
          (tx-queue (virtio-virtqueue dev +virtio-net-transmitq+))
          (n-tx-buffers (min +virtio-net-n-tx-buffers+ (truncate (virtqueue-size tx-queue) 2)))
-         (frame (or (allocate-physical-pages (ceiling (* n-tx-buffers +virtio-net-tx-buffer-size+) +4k-page-size+))
+         (frame (or (mezzano.supervisor::allocate-physical-pages (ceiling (* n-tx-buffers +virtio-net-tx-buffer-size+) mezzano.supervisor::+4k-page-size+))
                     (return-from virtio-net-allocate-tx-descriptors nil)))
-         (phys (* frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
+         (phys (* frame mezzano.supervisor::+4k-page-size+))
+         (virt (mezzano.supervisor::convert-to-pmap-address phys)))
     (debug-print-line "Virtio-Net TX buffer at " phys)
     (setf (virtio-net-tx-virt nic) virt
           (virtio-net-tx-phys nic) phys)
@@ -250,7 +249,7 @@ and then some alignment.")
         (setf (virtio-ring-desc-address tx-queue pkt-desc) (+ phys (* i +virtio-net-tx-buffer-size+) +virtio-net-hdr-size+)
               (virtio-ring-desc-length tx-queue pkt-desc) (- +virtio-net-tx-buffer-size+ +virtio-net-hdr-size+)
               (virtio-ring-desc-flags tx-queue pkt-desc) 0)
-        (push-wired hdr-desc (virtio-net-free-tx-buffers nic)))))
+        (push hdr-desc (virtio-net-free-tx-buffers nic)))))
   t)
 
 (defun virtio-net-allocate-rx-descriptors (nic)
@@ -260,10 +259,10 @@ and then some alignment.")
          (rx-queue (virtio-virtqueue (virtio-net-virtio-device nic) +virtio-net-receiveq+))
          (n-rx-buffers (min +virtio-net-n-rx-buffers+ (truncate (virtqueue-size rx-queue) 2)))
          ;; Allocate as a single large chunk.
-         (frame (or (allocate-physical-pages (ceiling (* n-rx-buffers +virtio-net-rx-buffer-size+) +4k-page-size+))
+         (frame (or (mezzano.supervisor::allocate-physical-pages (ceiling (* n-rx-buffers +virtio-net-rx-buffer-size+) mezzano.supervisor::+4k-page-size+))
                     (return-from virtio-net-allocate-rx-descriptors nil)))
-         (phys (* frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
+         (phys (* frame mezzano.supervisor::+4k-page-size+))
+         (virt (mezzano.supervisor::convert-to-pmap-address phys)))
     (debug-print-line "Virtio-Net RX buffer at " phys)
     (setf (virtio-net-rx-virt nic) virt
           (virtio-net-rx-phys nic) phys)
@@ -283,22 +282,16 @@ and then some alignment.")
   t)
 
 (defun virtio-net-register (device)
-  ;; Wired allocation required for the IRQ handler closure.
-  (declare (sys.c::closure-allocation :wired))
   (debug-print-line "Detected virtio net device " device)
   (let* ((nic (make-virtio-net :virtio-device device
-                               :boot-id *boot-id*))
-         (irq-handler (lambda (interrupt-frame irq)
-                        (declare (ignore interrupt-frame irq))
-                        (virtio-net-irq-handler nic))))
+                               :boot-id (current-boot-id)))
+         (irq-handler (make-simple-irq (virtio-device-irq device)
+                                       (virtio-net-irq-latch nic))))
     (setf (virtio-net-irq-handler-function nic) irq-handler)
-    (virtio-attach-irq device irq-handler)
-    (add-deferred-boot-action
-     (lambda ()
-       (setf (virtio-net-worker-thread nic)
-             (make-thread (lambda ()
-                            (virtio-net-worker nic))
-                          :name "Virtio-Net NIC worker"))))))
+    (setf (virtio-net-worker-thread nic)
+          (make-thread (lambda ()
+                         (virtio-net-worker nic))
+                       :name "Virtio-Net NIC worker"))))
 
 (defun virtio-net-worker (nic)
   (catch 'nic-detached
@@ -306,10 +299,14 @@ and then some alignment.")
       (return-from virtio-net-worker))
     (loop
        ;; Wait for something to happen.
+       (simple-irq-unmask (virtio-net-irq-handler-function nic))
        (latch-wait (virtio-net-irq-latch nic))
        (latch-reset (virtio-net-irq-latch nic))
-       (virtio-net-receive-processing nic)
-       (virtio-net-transmit-processing nic))))
+       (let* ((dev (virtio-net-virtio-device nic))
+              (status (virtio-isr-status dev)))
+         (virtio-net-receive-processing nic)
+         (virtio-net-transmit-processing nic)
+         (virtio-ack-irq dev status)))))
 
 (defun virtio-net-initialize (nic)
   (with-pseudo-atomic
@@ -342,11 +339,12 @@ and then some alignment.")
           (setf (virtio-device-status device) +virtio-status-failed+)
           (return-from virtio-net-initialize nil))
         (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
-        ;; Enable IRQ handler.
-        (setf (virtio-irq-mask device) nil)
         ;; Configuration complete, go to OK mode.
+        (simple-irq-attach (virtio-net-irq-handler-function nic))
         (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                     +virtio-status-driver+
                                                     +virtio-status-ok+))
         (virtio-kick device +virtio-net-receiveq+))))
   t)
+
+(define-virtio-driver virtio-net virtio-net-register +virtio-dev-id-net+)

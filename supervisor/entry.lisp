@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.supervisor)
@@ -131,6 +131,9 @@
 
 (sys.int::defglobal *boot-id*)
 
+(defun current-boot-id ()
+  *boot-id*)
+
 (defstruct (nic
              (:area :wired))
   device
@@ -254,6 +257,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-video)
     (initialize-efi)
     (initialize-acpi)
+    (initialize-virtio)
     (initialize-platform)
     (when (not (boot-option +boot-option-no-detect+))
       (detect-disk-partitions))
