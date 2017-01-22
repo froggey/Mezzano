@@ -349,15 +349,15 @@ and then some alignment.")
           (debug-print-line "Unable to allocate RX buffers")
           (setf (virtio-device-status device) +virtio-status-failed+)
           (return-from virtio-net-initialize nil))
-        (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
-          (setf (virtio-net-wrapper nic) wrapper)
-          (nic:register-network-card wrapper))
         ;; Configuration complete, go to OK mode.
         (simple-irq-attach (virtio-net-irq-handler-function nic))
         (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                     +virtio-status-driver+
                                                     +virtio-status-ok+))
         (virtio-kick device +virtio-net-receiveq+))))
+  (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
+    (setf (virtio-net-wrapper nic) wrapper)
+    (nic:register-network-card wrapper))
   t)
 
 (defmethod nic:mac-address ((nic virtio-net-network-card))
