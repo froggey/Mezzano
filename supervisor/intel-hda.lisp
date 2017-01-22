@@ -918,15 +918,23 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) 0))
 
 (defun stream-go (hda stream-id)
+  ;; run, stream number (tag) 1.
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) #x00100002))
 
+(defun first-input-stream (hda)
+  (declare (ignore hda))
+  0)
+
+(defun first-output-stream (hda)
+  (gcap-iss (global-reg/16 hda +gcap+)))
+
 (defun test (hda buffer codec dac pin &optional mixer)
-  (stream-reset hda 4)
+  (stream-reset hda (first-output-stream hda))
   ;(write-bdl hda 0 #x200000 #x80000)
   ;(write-bdl hda 1 #x400000 #x80000)
   (write-bdl hda 0 buffer #x10000)
   (write-bdl hda 1 (+ buffer #x10000) #x10000)
-  (prep-stream hda 4 0 1 #x20000)
+  (prep-stream hda (first-output-stream hda) 0 1 #x20000)
   (when mixer
     (command hda codec mixer #x3F07F)) ; unmute L/R out/in
   (command hda codec dac #x70610) ; stream=1
@@ -934,7 +942,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (command hda codec dac #x3b07f) ; unmute L/R out
   (command hda codec pin #x3b07f) ; unmute L/R out
   (command hda codec pin #x70740) ; enable output
-  (stream-go hda 4))
+  (stream-go hda (first-output-stream hda)))
 
 (defun play-sound (sound buffer hda)
   (let ((output-pin (default-output-pin hda))
@@ -983,7 +991,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                       (t
                        (setf buffer-offset 0)))))
             (sleep 0.01))
-      (stream-reset hda 4))))
+      (stream-reset hda (first-output-stream hda)))))
 
 ;; Return a list of all pin widgets.
 (defun pin-widgets (hda)
