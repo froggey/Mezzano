@@ -6,6 +6,7 @@
 (sys.int::defglobal *global-thread-lock* nil
   "This lock protects the special variables that make up the thread list and run queues.")
 (sys.int::defglobal *supervisor-priority-run-queue*)
+(sys.int::defglobal *high-priority-run-queue*)
 (sys.int::defglobal *normal-priority-run-queue*)
 (sys.int::defglobal *low-priority-run-queue*)
 (sys.int::defglobal *all-threads*)
@@ -106,9 +107,9 @@
   ;; This only contains live (not state = :dead) threads.
   (field global-next             14)
   (field global-prev             15)
-  ;; Thread's priority, can be :supervisor, :normal or :low.
+  ;; Thread's priority, can be :supervisor, :high, :normal, or :low.
   ;; Threads at :supervisor have priority over all other threads.
-  (field priority                16 :type (member :low :normal :supervisor))
+  (field priority                16 :type (member :low :normal :high :supervisor))
   ;; Arguments passed to the pager when performing an RPC.
   (field pager-argument-1        17)
   (field pager-argument-2        18)
@@ -213,6 +214,7 @@
 (defun run-queue-for-priority (priority)
   (ecase priority
     (:supervisor *supervisor-priority-run-queue*)
+    (:high *high-priority-run-queue*)
     (:normal *normal-priority-run-queue*)
     (:low *low-priority-run-queue*)))
 
@@ -246,6 +248,7 @@
 
 (defun pop-run-queue ()
   (or (pop-run-queue-1 *supervisor-priority-run-queue*)
+      (pop-run-queue-1 *high-priority-run-queue*)
       (pop-run-queue-1 *normal-priority-run-queue*)
       (pop-run-queue-1 *low-priority-run-queue*)))
 
@@ -261,6 +264,7 @@
     (debug-print-line "Thread " *world-stopper* " holds the world"))
   (when (boundp '*normal-priority-run-queue*)
     (dump-run-queue *supervisor-priority-run-queue*)
+    (dump-run-queue *high-priority-run-queue*)
     (dump-run-queue *normal-priority-run-queue*)
     (dump-run-queue *low-priority-run-queue*)))
 
@@ -353,7 +357,7 @@ Interrupts must be off, the current thread must be locked."
   (declare (sys.c::closure-allocation :wired))
   (check-type name (or null string))
   (check-type function (or function symbol))
-  (check-type priority (member :supervisor :normal :low))
+  (check-type priority (member :supervisor :high :normal :low))
   (when name
     (setf name (mezzano.runtime::copy-string-in-area name :wired)))
   ;; Allocate-object will leave the thread's state variable initialized to 0.
@@ -592,6 +596,7 @@ Interrupts must be off, the current thread must be locked."
     ;; First-run stuff.
     (setf *global-thread-lock* :unlocked)
     (setf *supervisor-priority-run-queue* (make-run-queue :supervisor)
+          *high-priority-run-queue* (make-run-queue :high)
           *normal-priority-run-queue* (make-run-queue :normal)
           *low-priority-run-queue* (make-run-queue :low))
     (setf *world-stop-lock* (make-mutex "World stop lock")
