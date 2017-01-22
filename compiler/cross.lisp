@@ -515,6 +515,7 @@
            #:virtio-ack-irq
            #:virtio-irq-mask
            #:virtio-configure-virtqueues
+           #:virtio-driver-detached
            #:define-virtio-driver
            ))
 

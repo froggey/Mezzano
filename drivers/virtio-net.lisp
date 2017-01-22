@@ -291,22 +291,25 @@ and then some alignment.")
     (setf (virtio-net-worker-thread nic)
           (make-thread (lambda ()
                          (virtio-net-worker nic))
-                       :name "Virtio-Net NIC worker"))))
+                       :name "Virtio-Net NIC worker")))
+  t)
 
 (defun virtio-net-worker (nic)
-  (catch 'nic-detached
-    (when (not (virtio-net-initialize nic))
-      (return-from virtio-net-worker))
-    (loop
-       ;; Wait for something to happen.
-       (simple-irq-unmask (virtio-net-irq-handler-function nic))
-       (latch-wait (virtio-net-irq-latch nic))
-       (latch-reset (virtio-net-irq-latch nic))
-       (let* ((dev (virtio-net-virtio-device nic))
-              (status (virtio-isr-status dev)))
-         (virtio-net-receive-processing nic)
-         (virtio-net-transmit-processing nic)
-         (virtio-ack-irq dev status)))))
+  (unwind-protect
+       (catch 'nic-detached
+         (when (not (virtio-net-initialize nic))
+           (return-from virtio-net-worker))
+         (loop
+            ;; Wait for something to happen.
+            (simple-irq-unmask (virtio-net-irq-handler-function nic))
+            (latch-wait (virtio-net-irq-latch nic))
+            (latch-reset (virtio-net-irq-latch nic))
+            (let* ((dev (virtio-net-virtio-device nic))
+                   (status (virtio-isr-status dev)))
+              (virtio-net-receive-processing nic)
+              (virtio-net-transmit-processing nic)
+              (virtio-ack-irq dev status))))
+    (virtio-driver-detached (virtio-net-virtio-device nic))))
 
 (defun virtio-net-initialize (nic)
   (with-pseudo-atomic

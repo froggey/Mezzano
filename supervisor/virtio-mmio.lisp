@@ -75,7 +75,8 @@
 
 (defun virtio-mmio-register (address irq)
   (let* ((dev (make-virtio-device :mmio address
-                                  :mmio-irq irq))
+                                  :mmio-irq irq
+                                  :boot-id (current-boot-id)))
          (magic (virtio-mmio-magic dev))
          (version (virtio-mmio-version dev))
          (did (virtio-mmio-device-id dev))

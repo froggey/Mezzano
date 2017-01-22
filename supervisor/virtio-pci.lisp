@@ -68,7 +68,8 @@
   (let* ((header (pci-bar location 0))
          (dev (make-virtio-device :pci-device location
                                   :header header
-                                  :did (pci-config/16 location +pci-config-subdeviceid+))))
+                                  :did (pci-config/16 location +pci-config-subdeviceid+)
+                                  :boot-id (current-boot-id))))
     ;; Enable PCI bus master bit, just in case it wasn't set and the emulator
     ;; is really picky.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)

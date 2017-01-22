@@ -70,7 +70,8 @@
   mmio-irq
   virtqueues
   did
-  claimed)
+  claimed
+  boot-id)
 
 (defstruct (virtqueue
              (:area :wired))
@@ -442,3 +443,11 @@
   (setf *virtio-devices* '()
         *virtio-late-probe-devices* '())
   (add-deferred-boot-action 'virtio-late-probe))
+
+(defun virtio-driver-detached (dev)
+  "Call when a driver is done with a device."
+  (setf (virtio-device-claimed dev) nil)
+  (with-pseudo-atomic ()
+    (when (eql (virtio-device-boot-id dev) (current-boot-id))
+      ;; TODO: Maybe reprobe the device?
+      (setf (virtio-device-status dev) +virtio-status-failed+))))
