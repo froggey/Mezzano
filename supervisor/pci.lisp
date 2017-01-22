@@ -51,6 +51,10 @@
 (defstruct (pci-device
              (:area :wired))
   address
+  vendor-id
+  device-id
+  vendor-name
+  device-name
   boot-id
   claimed)
 
@@ -243,7 +247,13 @@
                             (device-id (pci-config/16 device +pci-config-deviceid+))
                             (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
                        (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-                         (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id)
+                         (setf (pci-device-vendor-id device) vendor-id
+                               (pci-device-device-id device) device-id)
+                         (multiple-value-bind (vendor-name device-name)
+                             (pci-find-device vendor-id device-id)
+                           (setf (pci-device-vendor-name device) vendor-name
+                                 (pci-device-device-name device) device-name)
+                           (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id " " vendor-name " - " device-name))
                          (push-wired device *pci-devices*)
                          (when (eql header-type +pci-bridge-htype+)
                            ;; Bridge device, scan the other side.
@@ -358,3 +368,44 @@
     (push-wired driver *pci-drivers*)
     (probe-pci-driver driver)
     name))
+
+(declaim (special sys.int::*pci-ids*))
+
+(defun bsearch (item vector &key (start 0) end (stride 1))
+  "Locate ITEM using a binary search through VECTOR."
+  ;; IMIN/IMAX are inclusive indicies.
+  (do ((imin start)
+       (imax (1- (truncate (or end (sys.int::simple-vector-length vector)) stride))))
+      ((< imax imin)
+       nil)
+    (let* ((imid (truncate (+ imin imax) 2))
+           (elt (svref vector (* imid stride))))
+      (cond ((< elt item) (setf imin (1+ imid)))
+            ((> elt item) (setf imax (1- imid)))
+            (t (return (* imid stride)))))))
+
+(defun pci-find-vendor (id &optional (ids sys.int::*pci-ids*))
+  (let ((position (bsearch id ids :stride 3)))
+    (when position
+      (values (svref ids (+ position 1))
+              (svref ids (+ position 2))))))
+
+(defun pci-find-device (vid did &optional (ids sys.int::*pci-ids*))
+  (multiple-value-bind (vname devices)
+      (pci-find-vendor vid ids)
+    (when (and vname devices)
+      (let ((position (bsearch did devices :stride 3)))
+        (when position
+          (values vname
+                  (svref devices (+ position 1))
+                  (svref devices (+ position 2))))))))
+
+(defun pci-find-subsystem (vid did svid sdid &optional (ids sys.int::*pci-ids*))
+  (multiple-value-bind (vname dname subsystems)
+      (pci-find-device vid did ids)
+    (when (and vname subsystems)
+      (let ((position (bsearch (logior (ash svid 16) sdid) subsystems
+                               :stride 2)))
+        (if position
+            (values vname dname (svref subsystems (1+ position)))
+            (values vname dname nil))))))

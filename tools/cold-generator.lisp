@@ -1262,9 +1262,9 @@
               (read-sequence vec warm)
               (vector-push-extend (cons (pathname-name llf-path) vec) warm-files)))))
       (setf (cold-symbol-value 'sys.int::*warm-llf-files*) (save-object warm-files :pinned)))
-    #+nil(format t "Saving PCI IDs...~%")
-    #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*))
-           (object (save-object pci-ids :static)))
+    (format t "Saving PCI IDs...~%")
+    (let* ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*))
+           (object (save-object pci-ids :wired)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist. This avoids memory allocation after finalize-areas runs.
     (format t "Final tweaks...~%")
