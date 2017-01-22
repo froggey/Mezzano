@@ -431,6 +431,7 @@
            #:pci-io-region/16
            #:pci-io-region/32
            #:pci-intr-line
+           #:pci-bus-master-enabled
            #:map-pci-devices
            #:pci-probe
            #:define-pci-driver

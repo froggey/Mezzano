@@ -156,6 +156,20 @@
 (defun pci-intr-line (device)
   (pci-config/8 device +pci-config-intr-line+))
 
+(defconstant +pci-command-bus-master-enable+ (ash 1 2))
+
+(defun pci-bus-master-enabled (device)
+  (logtest (pci-config/16 device +pci-config-command+)
+           +pci-command-bus-master-enable+))
+
+(defun (setf pci-bus-master-enabled) (value device)
+  (let ((prev (pci-config/16 device +pci-config-command+)))
+    (setf (pci-config/16 device +pci-config-command+)
+          (if value
+              (logior prev +pci-command-bus-master-enable+)
+              (logand prev (lognot +pci-command-bus-master-enable+))))
+    value))
+
 (defun pci-io-region/8 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.

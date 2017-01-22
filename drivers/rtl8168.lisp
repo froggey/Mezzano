@@ -220,6 +220,7 @@
       (return-from rtl8168-initialize))
     (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
     (simple-irq-attach (rtl8168-irq-handler nic))
+    (setf (pci-bus-master-enabled (rtl8168-pci-location nic)) t)
     ;; Mask and ack interrupts.
     (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #x0000
           (rtl8168-reg/16 nic +rtl8168-register-ISR+) #xFFFF)

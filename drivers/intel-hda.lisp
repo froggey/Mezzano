@@ -820,6 +820,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
          (hda (make-hda :pci-device device :register-set bar0)))
     (format t "Found Intel HDA controller at ~S.~%" device)
+    (setf (mezzano.supervisor:pci-bus-master-enabled device) t)
     ;; Perform a controller reset by pulsing crst to 0.
     (format t "Begin reset.~%")
     (setf (global-reg/32 hda +gctl+) 0)

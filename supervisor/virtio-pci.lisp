@@ -72,9 +72,7 @@
                                   :boot-id (current-boot-id))))
     ;; Enable PCI bus master bit, just in case it wasn't set and the emulator
     ;; is really picky.
-    (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
-                                                                ;; Bit 2 is Bus Master bit.
-                                                                (ash 1 2)))
+    (setf (pci-bus-master-enabled location) t)
     (virtio-device-register dev)))
 
 (defun virtio-pci-kick (dev vq-id)
