@@ -320,7 +320,8 @@
              (debug-print-line "PCI device " (pci-config/16 dev +pci-config-vendorid+) ":" (pci-config/16 dev +pci-config-deviceid+) " not supported."))
       (when (and (not (pci-device-claimed dev))
                  (pci-driver-compatible-p drv dev)
-                 (funcall (pci-driver-probe drv) dev))
+                 (sys.int::log-and-ignore-errors
+                  (funcall (pci-driver-probe drv) dev)))
         (setf (pci-device-claimed dev) drv)
         (return)))))
 
@@ -359,7 +360,8 @@
   (dolist (dev *pci-devices*)
     (when (and (not (pci-device-claimed dev))
                (pci-driver-compatible-p driver dev)
-               (funcall (pci-driver-probe driver) dev))
+               (sys.int::log-and-ignore-errors
+                (funcall (pci-driver-probe driver) dev)))
       (setf (pci-device-claimed dev) driver))))
 
 (defmacro define-pci-driver (name probe-function pci-ids classes)

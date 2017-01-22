@@ -348,7 +348,8 @@
                (debug-print-line "Unknown virtio device type " (virtio-device-did dev))
                (setf (virtio-device-status dev) +virtio-status-failed+)))
       (when (and (eql (virtio-device-did dev) (virtio-driver-dev-id drv))
-                 (funcall (virtio-driver-probe drv) dev))
+                 (sys.int::log-and-ignore-errors
+                  (funcall (virtio-driver-probe drv) dev)))
         (setf (virtio-device-claimed dev) drv)
         (return)))))
 
@@ -432,7 +433,8 @@
     (dolist (dev *virtio-devices*)
       (when (and (not (virtio-device-claimed dev))
                  (eql (virtio-device-did dev) dev-id)
-                 (funcall probe-function dev))
+                 (sys.int::log-and-ignore-errors
+                  (funcall probe-function dev)))
         (setf (virtio-device-claimed dev) driver)))
     name))
 
