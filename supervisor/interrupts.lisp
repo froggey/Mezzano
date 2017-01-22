@@ -193,3 +193,34 @@ RETURN-FROM/GO must not be used to leave this form."
   (setf (sys.int::memref-t (interrupt-frame-pointer frame)
                            (interrupt-frame-register-offset register))
         value))
+
+;;; Simple IRQ handler.
+;;; When an IRQ is received, the IRQ is masked and a latch is triggered.
+
+(defstruct (simple-irq
+             (:area :wired)
+             (:constructor %make-simple-irq))
+  irq
+  function
+  latch)
+
+(defun make-simple-irq (irq latch)
+  (declare (sys.c::closure-allocation :wired))
+  (let* ((simple-irq (%make-simple-irq :irq irq
+                                       :latch latch))
+         (fn (lambda (interrupt-frame irq)
+               (declare (ignore interrupt-frame))
+               (latch-trigger (simple-irq-latch simple-irq))
+               (platform-mask-irq irq))))
+    (setf (simple-irq-function simple-irq) fn)
+    simple-irq))
+
+(defun simple-irq-attach (simple-irq)
+  (platform-attach-irq (simple-irq-irq simple-irq)
+                       (simple-irq-function simple-irq)))
+
+(defun simple-irq-mask (simple-irq)
+  (platform-mask-irq (simple-irq-irq simple-irq)))
+
+(defun simple-irq-unmask (simple-irq)
+  (platform-unmask-irq (simple-irq-irq simple-irq)))

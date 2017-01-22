@@ -109,7 +109,7 @@
   (irq-latch (make-latch "RTL8168 NIC IRQ latch"))
   worker-thread
   irq
-  irq-handler-function
+  irq-handler
   io-base
 
   tx-ring-phys
@@ -136,10 +136,6 @@
                            :io-base (pci-io-region location 2 256)
                            :boot-id *boot-id*
                            :irq (pci-intr-line location))))
-    (setf (rtl8168-irq-handler-function nic) (lambda (interrupt-frame irq)
-                                               (declare (ignore interrupt-frame irq))
-                                               (rtl8168-irq-handler nic)))
-    (i8259-hook-irq (rtl8168-irq nic) (rtl8168-irq-handler-function nic))
     (add-deferred-boot-action
        (lambda ()
          (setf (rtl8168-worker-thread nic) (make-thread (lambda () (rtl8168-worker nic))
@@ -206,12 +202,14 @@
   (setf (rtl8168-descriptor-address (rtl8168-tx-ring-virt nic) descriptor) value))
 
 (defun rtl8168-initialize (nic)
+  (setf (rtl8168-irq-handler nic) (make-simple-irq (rtl8168-irq nic) (rtl8168-irq-latch nic)))
   (with-pseudo-atomic
     ;; Initialize the device.
     (when (not (eql (rtl8168-boot-id nic) *boot-id*))
       ;; Reboot occurred, card no longer exists.
       (return-from rtl8168-initialize))
     (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
+    (simple-irq-attach (rtl8168-irq-handler nic))
     ;; Mask and ack interrupts.
     (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #x0000
           (rtl8168-reg/16 nic +rtl8168-register-ISR+) #xFFFF)
@@ -295,8 +293,7 @@
                                                             (ash 1 +rtl8168-CR-TE+)))
     ;; Unmask IRQs.
     (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #b1111) ; enable tx error, tx ok, rx error and rx ok.
-    (safe-without-interrupts (nic)
-      (i8259-unmask-irq (rtl8168-irq nic))))
+    (simple-irq-unmask (rtl8168-irq-handler nic)))
   ;; FIXME: Make sure this happens in the same boot. Can't be done in with-pseudo-atomic because
   ;; of allocation.
   (register-nic nic (rtl8168-mac nic) 'rtl8168-transmit 'rtl8168-stats +rtl8168-mtu+)
@@ -331,10 +328,6 @@
           0
           0))
 
-(defun rtl8168-irq-handler (nic)
-  (latch-trigger (rtl8168-irq-latch nic))
-  (setf (rtl8168-reg/16 nic +rtl8168-register-ISR+) #b1111))
-
 (defun rtl8168-worker (nic)
   (when (not (rtl8168-initialize nic))
     (return-from rtl8168-worker))
@@ -343,6 +336,7 @@
              (return-from rtl8168-worker))))
     (loop
        ;; Wait for something to happen.
+       (simple-irq-unmask (rtl8168-irq-handler nic))
        (latch-wait (rtl8168-irq-latch nic))
        (latch-reset (rtl8168-irq-latch nic))
        ;; Perform receive handling. Remove packets from the RX ring
@@ -351,6 +345,8 @@
           (let ((current (rtl8168-rx-current nic)))
             (with-pseudo-atomic ()
               (check-boot)
+              ;; Acknowledge IRQ.
+              (setf (rtl8168-reg/16 nic +rtl8168-register-ISR+) #b1111)
               (when (logbitp +rtl8168-descriptor-OWN+ (rtl8168-rx-desc-flags nic current))
                 ;; Current descriptor owned by the NIC, no more packets to receive.
                 ;; Break out of the RX loop.
