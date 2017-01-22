@@ -512,12 +512,14 @@
 
 (defun command (hda cad nid command)
   (send-corb hda (make-command cad nid command))
-  (loop with time = (1+ (get-universal-time))
+  (loop
+     with time = (+ (get-universal-time) 2)
      until (> (get-universal-time) time)
      do (multiple-value-bind (x y)
             (poll-rirb hda)
           (when x
-            (return (values x y))))))
+            (return (values x y))))
+       finally (error "Timeout executing command. hda: ~S  cad: ~S  nid: ~S command: ~S." hda cad nid command)))
 
 (defclass node ()
   ((nid :initarg :nid :reader nid)
