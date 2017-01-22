@@ -131,15 +131,14 @@
 )
 
 (defun rtl8168-pci-register (location)
-  (declare (sys.c::closure-allocation :wired))
   (let ((nic (make-rtl8168 :pci-location location
                            :io-base (pci-io-region location 2 256)
                            :boot-id *boot-id*
                            :irq (pci-intr-line location))))
-    (add-deferred-boot-action
-       (lambda ()
-         (setf (rtl8168-worker-thread nic) (make-thread (lambda () (rtl8168-worker nic))
-                                                 :name "RTL8168 NIC worker"))))))
+    (setf (rtl8168-worker-thread nic)
+          (make-thread (lambda () (rtl8168-worker nic))
+                       :name "RTL8168 NIC worker")))
+  t)
 
 ;;; Register access.
 
@@ -454,3 +453,7 @@
          (virt (convert-to-pmap-address phys)))
     (debug-print-line "RTL8168 " name " bounce buffer at " phys)
     (values phys virt)))
+
+(define-pci-driver rtl8168 rtl8168-pci-register
+  ((#x10EC #x8168))
+  ())

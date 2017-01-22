@@ -46,11 +46,13 @@
 (sys.int::defglobal *pci-config-lock*)
 
 (sys.int::defglobal *pci-devices*)
+(sys.int::defglobal *pci-late-probe-devices*)
 
 (defstruct (pci-device
              (:area :wired))
   address
-  boot-id)
+  boot-id
+  claimed)
 
 (defun make-pci-address (bus device function)
   (declare (type (integer 0 255) bus register)
@@ -216,8 +218,12 @@
                           do (funcall callback device))))))
 
 (defun initialize-pci ()
+  (when (not (boundp '*pci-drivers*))
+    (setf *pci-drivers* '()))
   (setf *pci-config-lock* :unlocked)
-  (setf *pci-devices* '()))
+  (setf *pci-devices* '()
+        *pci-late-probe-devices* '())
+  (add-deferred-boot-action 'pci-late-probe))
 
 (defun pci-detect ()
   (setf (system:io-port/32 +pci-config-address+) #x80000000)
@@ -262,11 +268,13 @@
          (cond ((and (eql vendor-id #x1AF4)
                      (<= #x1000 device-id #x103F))
                 ;; Some kind of virtio-device.
-                (virtio-pci-register device))
+                (virtio-pci-register device)
+                (setf (pci-device-claimed device) :virtio-pci))
                ((and (eql base-class-code #x01)
                      (eql sub-class-code #x01))
                 ;; A PATA controller.
-                (ata-pci-register device))
+                (ata-pci-register device)
+                (setf (pci-device-claimed device) :ata))
                ((or
                  ;; SATA controller implementing AHCI 1.0.
                  (and (eql base-class-code #x01)
@@ -276,9 +284,77 @@
                  (and (eql vendor-id #x8086)
                       (eql device-id #x2822)))
                 ;; An AHCI controller.
-                (ahci-pci-register device))
-               ((and (eql vendor-id #x10EC)
-                     (eql device-id #x8168))
-                ;; The NIC in my test machine.
-                (rtl8168-pci-register device))
-               (t (debug-print-line "PCI device not supported."))))))))
+                (ahci-pci-register device)
+                (setf (pci-device-claimed device) :ahci))
+               (t
+                (push-wired device *pci-late-probe-devices*))))))))
+
+;; These devices must be probed late because their drivers may not be in wired memory.
+(defun pci-late-probe ()
+  (dolist (dev *pci-late-probe-devices*)
+    (dolist (drv *pci-drivers*
+             (debug-print-line "PCI device " (pci-config/16 dev +pci-config-vendorid+) ":" (pci-config/16 dev +pci-config-deviceid+) " not supported."))
+      (when (and (not (pci-device-claimed dev))
+                 (pci-driver-compatible-p drv dev)
+                 (funcall (pci-driver-probe drv) dev))
+        (setf (pci-device-claimed dev) drv)
+        (return)))))
+
+;; FIXME: Access to this needs to be protected.
+;; I'm not sure a mutex will cut it, it needs to be accessible
+;; during boot-time device probing.
+(sys.int::defglobal *pci-drivers* '())
+
+(defstruct (pci-driver
+             (:area :wired))
+  name
+  probe
+  pci-ids
+  classes)
+
+(defun pci-driver-compatible-p (driver device)
+  (or
+   (loop
+      for (base-class sub-class pi) in (pci-driver-classes driver)
+      do
+        (when (and (or (not base-class)
+                       (eql (pci-base-class device) base-class))
+                   (or (not sub-class)
+                       (eql (pci-sub-class device) sub-class))
+                   (or (not pi)
+                       (eql (pci-programming-interface device) pi)))
+          (return t)))
+   (loop
+      for (vid did) in (pci-driver-pci-ids driver)
+      do
+        (when (and (eql (pci-config/16 device +pci-config-vendorid+) vid)
+                   (eql (pci-config/16 device +pci-config-deviceid+) did))
+          (return t)))))
+
+(defun probe-pci-driver (driver)
+  (dolist (dev *pci-devices*)
+    (when (and (not (pci-device-claimed dev))
+               (pci-driver-compatible-p driver dev)
+               (funcall (pci-driver-probe driver) dev))
+      (setf (pci-device-claimed dev) driver))))
+
+(defmacro define-pci-driver (name probe-function pci-ids classes)
+  `(register-pci-driver ',name ',probe-function ',pci-ids ',classes))
+
+(defun register-pci-driver (name probe-function pci-ids classes)
+  (dolist (drv *pci-drivers*)
+    (when (eql (pci-driver-name drv) name)
+      (when (not (eql (pci-driver-probe drv) probe-function))
+        ;; TODO: Detach current driver and reprobe?
+        (error "Incompatible redefinition of virtio driver ~S." name))
+      (probe-pci-driver drv)
+      (return-from register-pci-driver name)))
+  (let ((driver (make-pci-driver
+                 :name name
+                 :probe probe-function
+                 :pci-ids pci-ids
+                 :classes classes)))
+    (debug-print-line "Registered new pci driver " name)
+    (push-wired driver *pci-drivers*)
+    (probe-pci-driver driver)
+    name))
