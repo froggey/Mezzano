@@ -1,7 +1,10 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2015-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.driver.rtl8168
+  (:use :cl :mezzano.supervisor))
+
+(in-package :mezzano.driver.rtl8168)
 
 ;;; http://www.iitg.ernet.in/asahu/cs421/RealTek.pdf
 
@@ -133,7 +136,7 @@
 (defun rtl8168-pci-register (location)
   (let ((nic (make-rtl8168 :pci-location location
                            :io-base (pci-io-region location 2 256)
-                           :boot-id *boot-id*
+                           :boot-id (current-boot-id)
                            :irq (pci-intr-line location))))
     (setf (rtl8168-worker-thread nic)
           (make-thread (lambda () (rtl8168-worker nic))
@@ -204,7 +207,7 @@
   (setf (rtl8168-irq-handler nic) (make-simple-irq (rtl8168-irq nic) (rtl8168-irq-latch nic)))
   (with-pseudo-atomic
     ;; Initialize the device.
-    (when (not (eql (rtl8168-boot-id nic) *boot-id*))
+    (when (not (eql (rtl8168-boot-id nic) (current-boot-id)))
       ;; Reboot occurred, card no longer exists.
       (return-from rtl8168-initialize))
     (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
@@ -252,7 +255,7 @@
       (setf (rtl8168-tx-desc-flags nic i) 0
             (rtl8168-tx-desc-vlan nic i) 0
             (rtl8168-tx-desc-address nic i) (+ (rtl8168-tx-bounce-phys nic)
-                                               (* i (align-up +rtl8168-mtu+ 128)))))
+                                               (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
     (setf (rtl8168-tx-used-count nic) 0
           (rtl8168-tx-current nic) 0
           (rtl8168-tx-tail nic) 0
@@ -266,7 +269,7 @@
                                                       0))
             (rtl8168-rx-desc-vlan nic i) 0
             (rtl8168-rx-desc-address nic i) (+ (rtl8168-rx-bounce-phys nic)
-                                               (* i (align-up +rtl8168-mtu+ 128)))))
+                                               (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
     (setf (rtl8168-rx-current nic) 0)
     ;; Configure Rx.
     (setf (rtl8168-reg/32 nic +rtl8168-register-RCR+)
@@ -331,7 +334,7 @@
   (when (not (rtl8168-initialize nic))
     (return-from rtl8168-worker))
   (flet ((check-boot ()
-           (when (not (eql (rtl8168-boot-id nic) *boot-id*))
+           (when (not (eql (rtl8168-boot-id nic) (current-boot-id)))
              (return-from rtl8168-worker))))
     (loop
        ;; Wait for something to happen.
@@ -358,7 +361,7 @@
                 (check-boot)
                 ;; Copy the packet into the receive buffer.
                 (let ((address (+ (rtl8168-rx-bounce-virt nic)
-                                  (* current (align-up +rtl8168-mtu+ 128)))))
+                                  (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
                   (dotimes (i (min +rtl8168-mtu+
                                    (ldb (byte 16 +rtl8168-descriptor-Frame_Length+)
                                         (rtl8168-rx-desc-flags nic current))))
@@ -404,7 +407,7 @@
               (check-boot)
               ;; Copy packet to buffer.
               (let ((address (+ (rtl8168-tx-bounce-virt nic)
-                                (* current (align-up +rtl8168-mtu+ 128)))))
+                                (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
                 (dotimes (i (min +rtl8168-mtu+
                                  (length to-send)))
                   (setf (sys.int::memref-unsigned-byte-8 address i) (aref to-send i))))
@@ -427,30 +430,30 @@
             (setf (rtl8168-tx-current nic) (rem (1+ current) +rtl8168-n-tx-descriptors+)))))))
 
 (defun rtl8168-allocate-ring (name size)
-  (let* ((descriptor-frame (or (allocate-physical-pages
+  (let* ((descriptor-frame (or (mezzano.supervisor::allocate-physical-pages
                                 (ceiling (* size +rtl8168-descriptor-size+)
-                                         +4k-page-size+))
+                                         mezzano.supervisor::+4k-page-size+))
                                (return-from rtl8168-allocate-ring
                                  (progn
                                    (debug-print-line "Unable to allocate memory for RTL8168 " name " descriptor ring.")
                                    nil))))
-         (phys (* descriptor-frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
+         (phys (* descriptor-frame mezzano.supervisor::+4k-page-size+))
+         (virt (mezzano.supervisor::convert-to-pmap-address phys)))
     (dotimes (i (* +rtl8168-n-tx-descriptors+ +rtl8168-descriptor-size+))
       (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
     (debug-print-line "RTL8168 " name " ring at " phys)
     (values phys virt)))
 
 (defun rtl8168-allocate-bounce (name size)
-  (let* ((descriptor-frame (or (allocate-physical-pages
-                                (ceiling (* size (align-up +rtl8168-mtu+ 128))
-                                         +4k-page-size+))
+  (let* ((descriptor-frame (or (mezzano.supervisor::allocate-physical-pages
+                                (ceiling (* size (mezzano.supervisor::align-up +rtl8168-mtu+ 128))
+                                         mezzano.supervisor::+4k-page-size+))
                                (return-from rtl8168-allocate-bounce
                                  (progn
                                    (debug-print-line "Unable to allocate memory for RTL8168 " name " bounce buffer.")
                                    nil))))
-         (phys (* descriptor-frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
+         (phys (* descriptor-frame mezzano.supervisor::+4k-page-size+))
+         (virt (mezzano.supervisor::convert-to-pmap-address phys)))
     (debug-print-line "RTL8168 " name " bounce buffer at " phys)
     (values phys virt)))
 

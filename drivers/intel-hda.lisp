@@ -893,7 +893,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun (setf dma-position) (value hda stream)
   (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
          (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
-    (value (sys.int::memref-unsigned-byte-32 virt (* stream 2)))))
+    (setf (sys.int::memref-unsigned-byte-32 virt (* stream 2)) value)))
 
 (defun prep-stream (hda stream-id bdl-base bdl-length cb-length)
   (setf (sd-reg/32 hda stream-id +sdnbdpl+) (+ (hda-corb/rirb/dmap-physical hda) +bdl-offset+ (* bdl-base 16))

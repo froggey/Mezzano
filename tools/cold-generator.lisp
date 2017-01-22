@@ -71,7 +71,6 @@
     "supervisor/virtio-gpu.lisp"
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"
-    "supervisor/rtl8168.lisp"
     "supervisor/acpi.lisp"
     "supervisor/efi.lisp"
     ("supervisor/x86-64/platform.lisp" :x86-64)
@@ -120,7 +119,6 @@
     "system/parse.lisp"
     "system/load.lisp"
     "system/time.lisp"
-    "drivers/virtio-net.lisp"
 ))
 
 (defparameter *special-source-files*
@@ -192,6 +190,9 @@
     "system/xp-format.lisp"
     "system/xp-printers.lisp"
     "system/profiler.lisp"
+    "drivers/virtio-net.lisp"
+    "drivers/rtl8168.lisp"
+    "drivers/intel-hda.lisp"
     "gui/package.lisp"
     "gui/colour.lisp"
     "gui/surface.lisp"
