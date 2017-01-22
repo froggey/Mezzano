@@ -6,8 +6,6 @@
 
 (in-package :mezzano.driver.intel-hda)
 
-(assert sys.int::*load-wired* () "This file must be loaded wired.")
-
 (defmacro define-register (name (size position) &rest slots-and-docstring)
   (let ((docstring (when (stringp (first slots-and-docstring))
                      (pop slots-and-docstring)))
@@ -203,14 +201,9 @@
                                                    (lognot 127))))
 (defconstant +io-buffer-size+ (+ +bdl-offset+ (* +maximum-n-streams+ +bdl-entry-size+ +max-bdl-entries+)))
 
-(defparameter *hda-pci-ids*
-  '((#x8086 #x2668) ; ICH6 HDA
-    (#x8086 #x27D8))) ; ICH7 HDA
-
 (defvar *cards* '())
 
-(defstruct (hda
-             (:area :wired))
+(defstruct hda
   pci-device
   register-set
   ;; CORB, RIRB & DMA Position in Current Buffer share the same DMA allocation.
@@ -220,7 +213,7 @@
   corbsize
   rirbsize
   rirb-read-pointer
-  (codecs (make-array 15 :initial-element nil :area :wired)))
+  (codecs (make-array 15 :initial-element nil)))
 
 (defun global-reg/8 (hda reg)
   (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg))
@@ -822,60 +815,59 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
       (graph-widget widget)))
   (format t "}~%"))
 
-(defun intel-hda-probe ()
+(defun intel-hda-probe (device)
   ;; FIXME: Flush old cards first.
-  (setf *cards* '())
-  (mezzano.supervisor:pci-probe
-   (lambda (device)
-     (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
-            (hda (make-hda :pci-device device :register-set bar0)))
-       (format t "Found Intel HDA controller at ~S.~%" device)
-       ;; Perform a controller reset by pulsing crst to 0.
-       (format t "Begin reset.~%")
-       (setf (global-reg/32 hda +gctl+) 0)
-       ;; Wait for it to read back 0.
-       (loop while (not (zerop (gctl-crst (global-reg/32 hda +gctl+)))))
-       (format t "Leaving reset.~%")
-       (setf (global-reg/32 hda +gctl+) (mask-field +gctl-crst+ -1))
-       ;; Wait for it to read 1. FIXME: Timeouts...
-       (loop while (zerop (gctl-crst (global-reg/32 hda +gctl+))))
-       (format t "Waiting for codecs.~%")
-       ;; Wait for the codecs to report in. 521µs.
-       (loop while (< (global-reg/32 hda +walclk+) 14000))
-       (format t "HDA version ~D.~D~%" (global-reg/8 hda +vmaj+) (global-reg/8 hda +vmin+))
-       (print-gcap (global-reg/16 hda +gcap+))
-       (format t "OUTPAY: ~D  INPAY: ~D~%"
-               (global-reg/16 hda +outpay+) (global-reg/16 hda +inpay+))
-       (format t "OUTSTRMPAY: ~D  INSTRMPAY: ~D~%"
-               (global-reg/16 hda +outstrmpay+) (global-reg/16 hda +instrmpay+))
-       (format t "STATEST: ~D~%" (global-reg/16 hda +statest+))
-       (format t "Walclk1 ~D   Walclk1 ~D~%"
-               (global-reg/32 hda +walclk+) (global-reg/32 hda +walclk+))
-       (print-icis (global-reg/16 hda +icis+))
-       (let* ((dma-phys (* (or (mezzano.supervisor::allocate-physical-pages
-                                (ceiling +io-buffer-size+ mezzano.supervisor::+4k-page-size+)
-                                :32-bit-only (zerop (gcap-64ok (global-reg/16 hda +gcap+))))
-                               (error "Unable to allocate DMA buffer!"))
-                           mezzano.supervisor::+4k-page-size+))
-              (dma-virt (+ mezzano.supervisor::+physical-map-base+ dma-phys)))
-         (setf (hda-corb/rirb/dmap hda) dma-virt
-               (hda-corb/rirb/dmap-physical hda) dma-phys))
-       (initialize-corb hda)
-       (initialize-rirb hda)
-       (let ((dmap-address (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
-                                   (mask-field +dplbase-enable+ -1))))
-         (setf (global-reg/32 hda +dpubase+) (ldb (byte 32 32) dmap-address)
-               (global-reg/32 hda +dplbase+) (ldb (byte 32 0) dmap-address)))
-       (loop
-          with statest = (global-reg/16 hda +statest+)
-          for i from 0 below +maximum-n-codecs+
-          when (logbitp i statest)
-          do (setf (aref (hda-codecs hda) i) (enumerate-codec hda i)))
-       (push hda *cards*)))
-   *hda-pci-ids*))
+  (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
+         (hda (make-hda :pci-device device :register-set bar0)))
+    (format t "Found Intel HDA controller at ~S.~%" device)
+    ;; Perform a controller reset by pulsing crst to 0.
+    (format t "Begin reset.~%")
+    (setf (global-reg/32 hda +gctl+) 0)
+    ;; Wait for it to read back 0.
+    (loop while (not (zerop (gctl-crst (global-reg/32 hda +gctl+)))))
+    (format t "Leaving reset.~%")
+    (setf (global-reg/32 hda +gctl+) (mask-field +gctl-crst+ -1))
+    ;; Wait for it to read 1. FIXME: Timeouts...
+    (loop while (zerop (gctl-crst (global-reg/32 hda +gctl+))))
+    (format t "Waiting for codecs.~%")
+    ;; Wait for the codecs to report in. 521µs.
+    (loop while (< (global-reg/32 hda +walclk+) 14000))
+    (format t "HDA version ~D.~D~%" (global-reg/8 hda +vmaj+) (global-reg/8 hda +vmin+))
+    (print-gcap (global-reg/16 hda +gcap+))
+    (format t "OUTPAY: ~D  INPAY: ~D~%"
+            (global-reg/16 hda +outpay+) (global-reg/16 hda +inpay+))
+    (format t "OUTSTRMPAY: ~D  INSTRMPAY: ~D~%"
+            (global-reg/16 hda +outstrmpay+) (global-reg/16 hda +instrmpay+))
+    (format t "STATEST: ~D~%" (global-reg/16 hda +statest+))
+    (format t "Walclk1 ~D   Walclk1 ~D~%"
+            (global-reg/32 hda +walclk+) (global-reg/32 hda +walclk+))
+    (print-icis (global-reg/16 hda +icis+))
+    (let* ((dma-phys (* (or (mezzano.supervisor::allocate-physical-pages
+                             (ceiling +io-buffer-size+ mezzano.supervisor::+4k-page-size+)
+                             :32-bit-only (zerop (gcap-64ok (global-reg/16 hda +gcap+))))
+                            (error "Unable to allocate DMA buffer!"))
+                        mezzano.supervisor::+4k-page-size+))
+           (dma-virt (+ mezzano.supervisor::+physical-map-base+ dma-phys)))
+      (setf (hda-corb/rirb/dmap hda) dma-virt
+            (hda-corb/rirb/dmap-physical hda) dma-phys))
+    (initialize-corb hda)
+    (initialize-rirb hda)
+    (let ((dmap-address (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
+                                (mask-field +dplbase-enable+ -1))))
+      (setf (global-reg/32 hda +dpubase+) (ldb (byte 32 32) dmap-address)
+            (global-reg/32 hda +dplbase+) (ldb (byte 32 0) dmap-address)))
+    (loop
+       with statest = (global-reg/16 hda +statest+)
+       for i from 0 below +maximum-n-codecs+
+       when (logbitp i statest)
+       do (setf (aref (hda-codecs hda) i) (enumerate-codec hda i)))
+    (push hda *cards*))
+  t)
 
-(mezzano.supervisor:add-boot-hook 'intel-hda-probe)
-(intel-hda-probe)
+(mezzano.supervisor:define-pci-driver intel-hda intel-hda-probe
+  ((#x8086 #x2668) ; ICH6 HDA
+   (#x8086 #x27D8)) ; ICH7 HDA
+  ())
 
 (defun write-bdl (hda entry base length)
   (let ((array (hda-corb/rirb/dmap hda))
@@ -944,6 +936,8 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (command hda codec pin #x70740) ; enable output
   (stream-go hda (first-output-stream hda)))
 
+;; TODO: This should stream to anything that looks vaugely output-like, instead
+;; of a single pin.
 (defun play-sound (sound buffer hda)
   (let ((output-pin (default-output-pin hda))
         (buf-len #x20000)
@@ -1012,6 +1006,10 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
      (case (pin-colour pin)
        (:green 4)
        (t 2)))
+    (:speaker
+     (case (pin-colour pin)
+       (:green 4)
+       (t 0)))
     (:headphones-out
      (case (pin-colour pin)
        (:green 3)

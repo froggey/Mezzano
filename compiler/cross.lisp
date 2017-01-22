@@ -442,6 +442,7 @@
            #:pci-intr-line
            #:map-pci-devices
            #:pci-probe
+           #:define-pci-driver
 
            #:make-simple-irq
            #:simple-irq-unmask
