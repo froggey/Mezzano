@@ -307,6 +307,9 @@
   (setf (global-reg/16 hda +rirbwp+) 0)
   ;; And the software read pointer.
   (setf (hda-rirb-read-pointer hda) 0)
+  ;; HACK: qemu requires this for RIBR responses to work, even though RIBR
+  ;; interrupts aren't currently used.
+  (setf (global-reg/16 hda +rintcnt+) #xFF)
   ;; TODO: Enable interrupts.
   ;; Start the DMA engine.
   (setf (rirbctl-rirbdmaen (global-reg/8 hda +rirbctl+)) 1))
