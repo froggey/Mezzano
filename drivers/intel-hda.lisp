@@ -899,10 +899,12 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (setf (sys.int::memref-unsigned-byte-32 virt (* stream 2)) value)))
 
 (defun prep-stream (hda stream-id bdl-base bdl-length cb-length)
-  (setf (sd-reg/32 hda stream-id +sdnbdpl+) (+ (hda-corb/rirb/dmap-physical hda) +bdl-offset+ (* bdl-base 16))
-        (sd-reg/16 hda stream-id +sdnfmt+) #x4011
-        (sd-reg/16 hda stream-id +sdnlvi+) bdl-length
-        (sd-reg/32 hda stream-id +sdncbl+) cb-length))
+  (let ((bdl (+ (hda-corb/rirb/dmap-physical hda) +bdl-offset+ (* bdl-base 16))))
+    (setf (sd-reg/32 hda stream-id +sdnbdpl+) (ldb (byte 32 0) bdl)
+          (sd-reg/32 hda stream-id +sdnbdpu+) (ldb (byte 32 32) bdl))
+    (setf (sd-reg/16 hda stream-id +sdnfmt+) #x4011
+          (sd-reg/16 hda stream-id +sdnlvi+) bdl-length
+          (sd-reg/32 hda stream-id +sdncbl+) cb-length)))
 
 (defun stream-reset (hda stream-id)
   ;; Clear the run bit before doing anything.
