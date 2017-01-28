@@ -215,7 +215,10 @@
   rirb-read-pointer
   (codecs (make-array 15 :initial-element nil))
   interrupt-latch
-  interrupt-handler)
+  interrupt-handler
+  dma-buffer-phys
+  dma-buffer-virt
+  dma-buffer-size)
 
 (defun global-reg/8 (hda reg)
   (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg))
@@ -857,9 +860,19 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                              :32-bit-only (zerop (gcap-64ok (global-reg/16 hda +gcap+))))
                             (error "Unable to allocate DMA buffer!"))
                         mezzano.supervisor::+4k-page-size+))
-           (dma-virt (+ mezzano.supervisor::+physical-map-base+ dma-phys)))
+           (dma-virt (mezzano.supervisor::convert-to-pmap-address dma-phys)))
       (setf (hda-corb/rirb/dmap hda) dma-virt
             (hda-corb/rirb/dmap-physical hda) dma-phys))
+    (let* ((buf-size #x20000) ; play-sound assumes the buffer is this big.
+           (buf-phys (* (or (mezzano.supervisor::allocate-physical-pages
+                             (ceiling buf-size mezzano.supervisor::+4k-page-size+)
+                             :32-bit-only (zerop (gcap-64ok (global-reg/16 hda +gcap+))))
+                            (error "Unable to allocate stream buffer!"))
+                        mezzano.supervisor::+4k-page-size+))
+           (buf-virt (mezzano.supervisor::convert-to-pmap-address buf-phys)))
+      (setf (hda-dma-buffer-size hda) buf-size
+            (hda-dma-buffer-phys hda) buf-phys
+            (hda-dma-buffer-virt hda) buf-virt))
     (mezzano.supervisor:simple-irq-attach (hda-interrupt-handler hda))
     (initialize-corb hda)
     (initialize-rirb hda)
@@ -968,9 +981,10 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 
 ;; TODO: This should stream to anything that looks vaugely output-like, instead
 ;; of a single pin.
-(defun play-sound (sound buffer hda)
-  (let ((output-pin (default-output-pin hda))
-        (buf-len #x20000)
+(defun play-sound (sound hda)
+  (let ((buffer (hda-dma-buffer-phys hda))
+        (buf-len (hda-dma-buffer-size hda))
+        (output-pin (default-output-pin hda))
         (buffer-offset 0)
         (sound-position nil)
         (sound-len (length sound))
