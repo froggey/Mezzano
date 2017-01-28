@@ -1063,6 +1063,6 @@ Returns NIL if there is no output path."
              (let ((indirect-converters (remove-if-not (lambda (x) (typep x 'audio-output-converter))
                                                        (connections mixer))))
                (when indirect-converters
-                 (return (values mixer (first indirect-converters)))))))
+                 (return (values (first indirect-converters) mixer))))))
           (t
            (values (first direct-converters) nil)))))
