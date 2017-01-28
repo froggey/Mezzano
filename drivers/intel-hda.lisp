@@ -213,7 +213,9 @@
   corbsize
   rirbsize
   rirb-read-pointer
-  (codecs (make-array 15 :initial-element nil)))
+  (codecs (make-array 15 :initial-element nil))
+  interrupt-latch
+  interrupt-handler)
 
 (defun global-reg/8 (hda reg)
   (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg))
@@ -824,6 +826,8 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   ;; FIXME: Flush old cards first.
   (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
          (hda (make-hda :pci-device device :register-set bar0)))
+    (setf (hda-interrupt-latch hda) (mezzano.supervisor:make-latch "HDA IRQ latch"))
+    (setf (hda-interrupt-handler hda) (mezzano.supervisor:make-simple-irq (mezzano.supervisor:pci-intr-line device) (hda-interrupt-latch hda)))
     (format t "Found Intel HDA controller at ~S.~%" device)
     (setf (mezzano.supervisor:pci-bus-master-enabled device) t)
     ;; Perform a controller reset by pulsing crst to 0.
@@ -856,6 +860,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
            (dma-virt (+ mezzano.supervisor::+physical-map-base+ dma-phys)))
       (setf (hda-corb/rirb/dmap hda) dma-virt
             (hda-corb/rirb/dmap-physical hda) dma-phys))
+    (mezzano.supervisor:simple-irq-attach (hda-interrupt-handler hda))
     (initialize-corb hda)
     (initialize-rirb hda)
     (let ((dmap-address (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
@@ -881,7 +886,8 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (setf (sys.int::memref-unsigned-byte-32 array (+ offset 0)) (ldb (byte 32 0) base)
           (sys.int::memref-unsigned-byte-32 array (+ offset 1)) (ldb (byte 32 32) base)
           (sys.int::memref-unsigned-byte-32 array (+ offset 2)) length
-          (sys.int::memref-unsigned-byte-32 array (+ offset 3)) 0)))
+          ;; IOC
+          (sys.int::memref-unsigned-byte-32 array (+ offset 3)) 1)))
 
 (defun read-bdl (hda entry)
   (let ((array (hda-corb/rirb/dmap hda))
@@ -915,11 +921,12 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
         (logand (sd-reg/32 hda stream-id +sdnctlsts+)
                 (lognot 2)))
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) 1)
-  (setf (sd-reg/32 hda stream-id +sdnctlsts+) 0))
+  (setf (sd-reg/32 hda stream-id +sdnctlsts+) 0)
+  (setf (global-reg/32 hda +intctl+) 0))
 
 (defun stream-go (hda stream-id)
-  ;; run, stream number (tag) 1.
-  (setf (sd-reg/32 hda stream-id +sdnctlsts+) #x00100002))
+  ;; run, IoC enabled, stream number (tag) 1.
+  (setf (sd-reg/32 hda stream-id +sdnctlsts+) #x00100006))
 
 (defun first-input-stream (hda)
   (declare (ignore hda))
@@ -928,7 +935,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun first-output-stream (hda)
   (gcap-iss (global-reg/16 hda +gcap+)))
 
-(defun test (hda buffer codec dac pin &optional mixer)
+(defun start-playback (hda buffer codec dac pin &optional mixer)
   (stream-reset hda (first-output-stream hda))
   ;(write-bdl hda 0 #x200000 #x80000)
   ;(write-bdl hda 1 #x400000 #x80000)
@@ -942,7 +949,22 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (command hda codec dac #x3b07f) ; unmute L/R out
   (command hda codec pin #x3b07f) ; unmute L/R out
   (command hda codec pin #x70740) ; enable output
+  ;; Enable global and stream interrupts.
+  (setf (global-reg/32 hda +intctl+) (logior #x80000000 (ash 1 (first-output-stream hda))))
   (stream-go hda (first-output-stream hda)))
+
+(defun wait-for-buffer-interrupt (hda)
+  (let ((latch (hda-interrupt-latch hda))
+        (stream (first-output-stream hda)))
+    (loop
+       (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda))
+       (mezzano.supervisor:latch-wait latch)
+       (mezzano.supervisor:latch-reset latch)
+       (when (logbitp stream (global-reg/32 hda +intsts+))
+         ;; qemu is picky and requires a write to the 8-bit status part of
+         ;; the register.
+         (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2)) ; bcis
+         (return)))))
 
 ;; TODO: This should stream to anything that looks vaugely output-like, instead
 ;; of a single pin.
@@ -961,7 +983,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (setf sound-position buf-len)
     (multiple-value-bind (converter mixer)
         (output-path output-pin)
-      (test hda buffer (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))))
+      (start-playback hda buffer (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))))
     (unwind-protect
          (loop
             ;; Wait for the dma position to move from the
@@ -992,7 +1014,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                        (setf buffer-offset (truncate buf-len 2)))
                       (t
                        (setf buffer-offset 0)))))
-            (sleep 0.01))
+            (wait-for-buffer-interrupt hda))
       (stream-reset hda (first-output-stream hda)))))
 
 ;; Return a list of all pin widgets.
