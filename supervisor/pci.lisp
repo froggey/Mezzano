@@ -264,7 +264,7 @@
                          (setf (pci-device-vendor-id device) vendor-id
                                (pci-device-device-id device) device-id)
                          (multiple-value-bind (vendor-name device-name)
-                             (pci-find-device vendor-id device-id)
+                             (pci-find-device-name vendor-id device-id)
                            (setf (pci-device-vendor-name device) vendor-name
                                  (pci-device-device-name device) device-name)
                            (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id " " vendor-name " - " device-name))
@@ -410,15 +410,15 @@
             ((> elt item) (setf imax (1- imid)))
             (t (return (* imid stride)))))))
 
-(defun pci-find-vendor (id &optional (ids sys.int::*pci-ids*))
+(defun pci-find-vendor-name (id &optional (ids sys.int::*pci-ids*))
   (let ((position (bsearch id ids :stride 3)))
     (when position
       (values (svref ids (+ position 1))
               (svref ids (+ position 2))))))
 
-(defun pci-find-device (vid did &optional (ids sys.int::*pci-ids*))
+(defun pci-find-device-name (vid did &optional (ids sys.int::*pci-ids*))
   (multiple-value-bind (vname devices)
-      (pci-find-vendor vid ids)
+      (pci-find-vendor-name vid ids)
     (when (and vname devices)
       (let ((position (bsearch did devices :stride 3)))
         (when position
@@ -426,9 +426,9 @@
                   (svref devices (+ position 1))
                   (svref devices (+ position 2))))))))
 
-(defun pci-find-subsystem (vid did svid sdid &optional (ids sys.int::*pci-ids*))
+(defun pci-find-subsystem-name (vid did svid sdid &optional (ids sys.int::*pci-ids*))
   (multiple-value-bind (vname dname subsystems)
-      (pci-find-device vid did ids)
+      (pci-find-device-name vid did ids)
     (when (and vname subsystems)
       (let ((position (bsearch (logior (ash svid 16) sdid) subsystems
                                :stride 2)))
