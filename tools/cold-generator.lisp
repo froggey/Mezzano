@@ -69,6 +69,7 @@
     "supervisor/virtio-block.lisp"
     "supervisor/virtio-input.lisp"
     "supervisor/virtio-gpu.lisp"
+    "supervisor/virtualbox.lisp"
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"
     "supervisor/acpi.lisp"
@@ -204,6 +205,7 @@
     "gui/compositor.lisp"
     ("gui/input-drivers.lisp" :x86-64)
     ("gui/input-drivers-virtio.lisp" :arm64)
+    ("gui/virtualbox-guest-helper.lisp" :x86-64)
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
     "net/package.lisp"

@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.supervisor)
@@ -310,6 +310,16 @@
                 ;; An AHCI controller.
                 (ahci-pci-register device)
                 (setf (pci-device-claimed device) :ahci))
+               ((and (eql vendor-id #x80EE)
+                     (eql device-id #xCAFE))
+                ;; VirtualBox Guest Service.
+                (setf (pci-device-claimed device)
+                      (virtualbox-guest-register device)))
+               ((and (eql vendor-id #x80EE)
+                     (eql device-id #xBEEF))
+                ;; VirtualBox Graphics Adapter.
+                (setf (pci-device-claimed device)
+                      (virtualbox-graphics-register device)))
                (t
                 (push-wired device *pci-late-probe-devices*))))))))
 

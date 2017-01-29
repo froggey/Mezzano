@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;;;; Packages used for cross-compilation.
@@ -417,6 +417,8 @@
            #:stop-profiling
            #:*virtio-input-devices*
            #:read-virtio-input-device
+           #:virtualbox-read-event
+           #:virtualbox-graphics-update-framebuffer
 
            #:pci-device-location
            #:pci-config/8

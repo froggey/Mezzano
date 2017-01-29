@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.gui
@@ -69,6 +69,9 @@
            #:force-redisplay))
 
 (defpackage :mezzano.gui.input-drivers
+  (:use :cl))
+
+(defpackage :mezzano.gui.virtualbox-helper
   (:use :cl))
 
 (defpackage :mezzano.gui.basic-repl
