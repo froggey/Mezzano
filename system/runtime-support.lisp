@@ -55,13 +55,10 @@
 
 ;;; Turn (APPLY fn arg) into (%APPLY fn arg), bypassing APPLY's
 ;;; rest-list generation in the single arg case.
-;;; Would be nice to turn (APPLY fn args...) into (%APPLY fn (LIST* args...)),
-;;; but that would cause callers to cons when they didn't before. Don't
-;;; know if that's a problem... Need DX-LIST*.
-;;; Or better APPLY implementation.
 (define-compiler-macro apply (&whole whole function arg &rest more-args)
   (if more-args
-      whole
+      `(mezzano.runtime::%apply (%coerce-to-callable ,function)
+                                (list* ,arg ,@more-args))
       `(mezzano.runtime::%apply (%coerce-to-callable ,function) ,arg)))
 
 (defun apply (function arg &rest more-args)
