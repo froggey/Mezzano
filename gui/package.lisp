@@ -53,6 +53,7 @@
            #:mouse-x-motion
            #:mouse-y-motion
            #:submit-mouse
+           #:submit-mouse-absolute
            #:global-mouse-state
            #:make-window
            #:with-window

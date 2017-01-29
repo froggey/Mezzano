@@ -281,13 +281,18 @@ A passive drag sends no drag events to the window.")
 
 (defmethod process-event ((event mouse-event))
   ;; Update positions and buttons
-  (let* ((buttons (mouse-button-state event))
+  (let* ((buttons (or (mouse-button-state event)
+                      *mouse-buttons*))
          (changes (logxor *mouse-buttons* buttons))
-         (x-motion (mouse-x-motion event))
          (old-x *mouse-x*)
+         (x-motion (or (and (mouse-x-position event)
+                            (- (mouse-x-position event) old-x))
+                       (mouse-x-motion event)))
          (new-x (+ *mouse-x* x-motion))
-         (y-motion (mouse-y-motion event))
          (old-y *mouse-y*)
+         (y-motion (or (and (mouse-y-position event)
+                            (- (mouse-y-position event) old-y))
+                       (mouse-y-motion event)))
          (new-y (+ *mouse-y* y-motion)))
     (multiple-value-bind (width height)
         (screen-dimensions)
@@ -351,6 +356,13 @@ A passive drag sends no drag events to the window.")
                                                :button-state buttons
                                                :x-motion x-motion
                                                :y-motion y-motion)
+                                *event-queue*))
+
+(defun submit-mouse-absolute (x-position y-position)
+  "Submit a mouse event into the input system."
+  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
+                                               :x-position x-position
+                                               :y-position y-position)
                                 *event-queue*))
 
 (defun global-mouse-state ()
