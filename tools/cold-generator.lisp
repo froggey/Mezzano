@@ -89,6 +89,7 @@
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
+    "system/data-types.lisp"
     "system/defstruct.lisp"
     "system/early-cons.lisp"
     "system/sequence.lisp"
@@ -106,7 +107,6 @@
     ("system/bignum-x86-64.lisp" :x86-64)
     ("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
-    "system/data-types.lisp"
     "system/gc.lisp"
     "system/room.lisp"
     "system/reader.lisp"
@@ -1511,6 +1511,17 @@
                                   (word (+ address 1 word))))))
     array))
 
+(defun value-is-function-p (value)
+  (and (eql (tag-part value) sys.int::+tag-object+)
+       (let* ((address (pointer-part value))
+              (header (word address))
+              (tag (ldb (byte sys.int::+object-type-size+
+                              sys.int::+object-type-shift+)
+                        header)))
+         (or (eql tag sys.int::+object-tag-function+)
+             (eql tag sys.int::+object-tag-closure+)
+             (eql tag sys.int::+object-tag-funcallable-instance+)))))
+
 (defun extract-object (value)
   (let ((slot-def (gethash value *image-to-cross-slot-definitions*)))
     (when slot-def
@@ -1573,6 +1584,47 @@
       (vcons (first args) (apply 'vlist (rest args)))
       (vintern "NIL" "COMMON-LISP")))
 
+(defun vlist* (arg &rest args)
+  (if args
+      (vcons arg (apply 'vlist* args))
+      arg))
+
+(defun cross-value-p (value)
+  (and (consp value)
+       (eql (first value) :cross-value)))
+
+(defun convert-host-tree-to-cross (tree)
+  (cond ((cross-value-p tree)
+         (second tree))
+        ((consp tree)
+         (vcons (convert-host-tree-to-cross (car tree))
+                (convert-host-tree-to-cross (cdr tree))))
+        ((symbolp tree)
+         (vintern (symbol-name tree)
+                  (canonical-symbol-package tree)))
+        (t
+         (error "Unsupported object ~S" tree))))
+
+(defun stack-pop (stack &optional (evaluation-mode :force))
+  (let ((value (vector-pop stack)))
+    (cond ((integerp value)
+           (if (eql evaluation-mode :lazy)
+               `(:cross-value ,value)
+               value))
+          (t
+           (ecase evaluation-mode
+             (:force
+              ;; TODO: Evaluate if possible, error otherwise.
+              (error "Force evaluation of ~S." value))
+             (:load
+              ;; Put it in load-time-evals.
+              ;; TODO: Try to constant-fold as much as possible.
+              (push (convert-host-tree-to-cross (first value))
+                    *load-time-evals*)
+              nil)
+             (:lazy
+              (first value)))))))
+
 (defun load-llf-function (stream stack)
   ;; n constants on stack.
   ;; list of fixups on stack.
@@ -1593,15 +1645,15 @@
          (gc-info-length (load-integer stream))
          (gc-info (make-array (* (ceiling gc-info-length 8) 8)
                               :element-type '(unsigned-byte 8)))
-         (fixups (vector-pop stack))
+         (fixups (stack-pop stack))
          ;; Pull n constants off the value stack.
-         (constants (subseq stack (- (length stack) n-constants)))
+         (constants (reverse (loop
+                                repeat n-constants
+                                collect (stack-pop stack))))
          (total-size (+ (* (ceiling (+ mc-length 16) 16) 2)
                         n-constants
                         (ceiling gc-info-length 8)))
          (address (allocate total-size *default-pinned-allocation-area*)))
-    ;; Pop constants off.
-    (decf (fill-pointer stack) n-constants)
     ;; Read mc bytes.
     (read-sequence mc stream :start 16 :end (+ 16 mc-length))
     ;; Copy machine code bytes.
@@ -1634,15 +1686,15 @@
     ;; Set constant pool.
     (dotimes (i (length constants))
       (setf (word (+ address (* (ceiling (+ mc-length 16) 16) 2) i))
-            (aref constants i))
+            (elt constants i))
       (lock-word (+ address (* (ceiling (+ mc-length 16) 16) 2) i)))
     ;; Add to the function map.
-    (push (list address (extract-object (aref constants 0)))
+    (push (list address (extract-object (elt constants 0)))
           *function-map*)
     ;; Add fixups to the list.
     (dolist (fixup (extract-object fixups))
       (assert (>= (cdr fixup) 16))
-      (push (list (car fixup) address (cdr fixup) :signed32 (aref constants 1))
+      (push (list (car fixup) address (cdr fixup) :signed32 (elt constants 1))
             *pending-fixups*))
     ;; Done.
     (make-value address sys.int::+tag-object+)))
@@ -1703,13 +1755,29 @@ Tag with +TAG-OBJECT+."
     (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
     image-def))
 
+(defun maybe-eval-funcall-n (name name-value args-values)
+  (cond ((and *load-should-set-fdefinitions*
+              (eql name 'sys.int::%defun)
+              (eql (length args-values) 2)
+              (cross-value-p (elt args-values 0))
+              (cross-value-p (elt args-values 1)))
+         (let* ((defun-name-value (second (elt args-values 0)))
+                (fn-value (second (elt args-values 1)))
+                (defun-name (extract-object defun-name-value))
+                (fref (function-reference defun-name)))
+           (setf (word (+ fref 2)) fn-value
+                 (word (+ fref 3)) (word (1+ (pointer-part fn-value)))))
+         name-value)
+        (t
+         nil)))
+
 (defun load-one-object (command stream stack)
   (ecase command
     (#.sys.int::+llf-function+
      (load-llf-function stream stack))
     (#.sys.int::+llf-cons+
-     (let* ((car (vector-pop stack))
-            (cdr (vector-pop stack)))
+     (let* ((car (stack-pop stack))
+            (cdr (stack-pop stack)))
        (vcons car cdr)))
     (#.sys.int::+llf-symbol+
      (let* ((name (load-string* stream))
@@ -1717,10 +1785,10 @@ Tag with +TAG-OBJECT+."
        (make-value (symbol-address name package)
                    sys.int::+tag-object+)))
     (#.sys.int::+llf-uninterned-symbol+
-     (let ((plist (vector-pop stack))
-           (fn (vector-pop stack))
-           (value (vector-pop stack))
-           (name (vector-pop stack))
+     (let ((plist (stack-pop stack))
+           (fn (stack-pop stack))
+           (value (stack-pop stack))
+           (name (stack-pop stack))
            (address (allocate 6 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
@@ -1739,46 +1807,23 @@ Tag with +TAG-OBJECT+."
        (typecase value
          ((signed-byte 63) (make-fixnum value))
          (t (make-bignum value)))))
-    (#.sys.int::+llf-invoke+
-     ;; `(funcall ',fn)
-     (let* ((fn (vector-pop stack))
-            (form (vlist (vintern "FUNCALL" "COMMON-LISP")
-                         (vlist (vintern "QUOTE" "COMMON-LISP")
-                                fn))))
-       (push form *load-time-evals*))
-     nil)
-    (#.sys.int::+llf-setf-fdefinition+
-     (let* ((base-name (vector-pop stack))
-            (fn-value (vector-pop stack))
-            (name (extract-object base-name)))
-       (cond (*load-should-set-fdefinitions*
-              (let ((fref (function-reference name)))
-                (setf (word (+ fref 2)) fn-value
-                      (word (+ fref 3)) (word (1+ (pointer-part fn-value))))))
-             (t ;; `(funcall #'(setf symbol-function) ',fn-value ',name)
-              (push (vlist (vintern "FUNCALL" "COMMON-LISP")
-                           (vlist (vintern "FUNCTION" "COMMON-LISP") (vlist (vintern "SETF" "COMMON-LISP") (vintern "FDEFINITION" "COMMON-LISP")))
-                           (vlist (vintern "QUOTE" "COMMON-LISP") fn-value)
-                           (vlist (vintern "QUOTE" "COMMON-LISP") base-name))
-                    *load-time-evals*))))
-     nil)
     (#.sys.int::+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.sys.int::+llf-character+
      (logior (ash (load-character stream) 4)
              sys.int::+tag-character+))
     (#.sys.int::+llf-structure-definition+
-     (let ((area (vector-pop stack))
-           (parent (vector-pop stack))
-           (slots (vector-pop stack))
-           (name (vector-pop stack)))
+     (let ((area (stack-pop stack))
+           (parent (stack-pop stack))
+           (slots (stack-pop stack))
+           (name (stack-pop stack)))
        (load-structure-definition name slots parent area)))
     (#.sys.int::+llf-structure-slot-definition+
-     (let ((read-only (vector-pop stack))
-           (type (vector-pop stack))
-           (initform (vector-pop stack))
-           (accessor (vector-pop stack))
-           (name (vector-pop stack)))
+     (let ((read-only (stack-pop stack))
+           (type (stack-pop stack))
+           (initform (stack-pop stack))
+           (accessor (stack-pop stack))
+           (name (stack-pop stack)))
        (load-structure-slot-definition name accessor initform type read-only)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
@@ -1793,7 +1838,7 @@ Tag with +TAG-OBJECT+."
      (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
            (length (load-integer stream)))
        (dotimes (i length)
-         (setf list (vcons (vector-pop stack) list)))
+         (setf list (vcons (stack-pop stack) list)))
        list))
     (#.sys.int::+llf-integer-vector+
      (let* ((len (load-integer stream))
@@ -1820,7 +1865,7 @@ Tag with +TAG-OBJECT+."
                    octet))))
        (make-value address sys.int::+tag-object+)))
     (#.sys.int::+llf-function-reference+
-     (let* ((name (vector-pop stack))
+     (let* ((name (stack-pop stack))
             (truname (extract-object name)))
        (make-value (function-reference truname)
                    sys.int::+tag-object+)))
@@ -1829,7 +1874,33 @@ Tag with +TAG-OBJECT+."
            (position (load-integer stream)))
        (logior (ash size 4)
                (ash position 18)
-               sys.int::+tag-byte-specifier+)))))
+               sys.int::+tag-byte-specifier+)))
+    (#.sys.int::+llf-funcall-n+
+     (let* ((n-args-value (stack-pop stack))
+            (n-args (extract-object n-args-value))
+            (fn-name-value (stack-pop stack))
+            (fn-name (and (not (value-is-function-p fn-name-value))
+                          (extract-object fn-name-value)))
+            (args-values (reverse (loop
+                                     repeat n-args
+                                     collect (stack-pop stack :lazy))))
+            (value (and fn-name
+                        (maybe-eval-funcall-n fn-name fn-name-value args-values))))
+       (cond (value)
+             (t
+              ;; Not able to evaluate the function.
+              (list
+               `(funcall ,(if (value-is-function-p fn-name-value)
+                              `(:cross-value ,fn-name-value)
+                              `#'(:cross-value ,fn-name-value))
+                         ,@(loop
+                              for arg in args-values
+                              collect (if (cross-value-p arg)
+                                          `',arg
+                                          arg))))))))
+    (#.sys.int::+llf-drop+
+     (stack-pop stack :load)
+     nil)))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))
@@ -1852,7 +1923,7 @@ Tag with +TAG-OBJECT+."
                    (declare (ignore existing-value))
                    (when existing-value-p
                      (error "Duplicate backlink ID ~D." id)))
-                 (setf (gethash id omap) (vector-pop stack))))
+                 (setf (gethash id omap) (stack-pop stack))))
               (t (let ((value (load-one-object command stream stack)))
                    (when value
                      (vector-push-extend value stack)))))))))

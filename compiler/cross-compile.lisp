@@ -807,66 +807,121 @@
                nil)
     `(symbol-value ',ltv-sym)))
 
+(defvar *failed-fastload-by-symbol* (make-hash-table))
+
+;; One of:
+;;   'symbol
+;;   #'symbol
+;;   #'(SETF symbol)
+;;   #'(CAS symbol)
+(defun valid-funcall-function-p (form)
+  (and (consp form)
+       (consp (cdr form))
+       (null (cddr form))
+       (or (and (eql (first form) 'quote)
+                (symbolp (second form)))
+           (and (eql (first form) 'function)
+                (let ((name (second form)))
+                  (or (symbolp name)
+                      (and (consp name)
+                           (consp (cdr name))
+                           (null (cddr name))
+                           (member (first name) '(setf sys.int::cas))
+                           (symbolp (second name)))))))))
+
+;; Convert a valid funcall function to the function name.
+(defun funcall-function-name (form)
+  (second form))
+
 (defun x-compile (form env)
-  ;; Special case (%defun 'name (lambda ...)) forms.
-  (cond ((and (consp form)
-              (eql (first form) 'sys.int::%defun)
-              (= (list-length form) 3)
-              (consp (second form))
-              (eql (first (second form)) 'quote)
-              (= (list-length (second form)) 2)
-              (consp (third form))
-              (eql (first (third form)) 'lambda))
-         (let* ((name (second (second form)))
-                (lambda (third form))
-                (*load-time-value-hook* 'cross-load-time-value)
-                (fn (compile-lambda lambda env *target-architecture*)))
-           (declare (special *load-time-value-hook*))
-           #+nil(add-to-llf sys.int::+llf-defun+ name fn)
-           (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
-        ;; And (define-lap-function name (options...) code...)
-        ((and (consp form)
-              (eql (first form) 'sys.int::define-lap-function)
-              (>= (length form) 3))
-         (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
-             (cdr form)
-           (let ((docstring nil))
-             (when (stringp (first code))
-               (setf docstring (pop code)))
-             (add-to-llf sys.int::+llf-setf-fdefinition+
-                         (sys.int::assemble-lap
-                          code
-                          name
-                          (list :debug-info
-                                name
-                                frame-layout
-                                environment-vector-offset
-                                environment-vector-layout
-                                (when *compile-file-pathname*
-                                  (princ-to-string *compile-file-pathname*))
-                                sys.int::*top-level-form-number*
-                                lambda-list
-                                docstring)
-                          nil
-                          *target-architecture*)
-                         name))))
-        ;; And (quote form)
-        ((and (consp form)
-              (eql (first form) 'quote)
-              (= (length form) 2)))
-        ;; Convert other forms to zero-argument functions and
-        ;; add it to the fasl as an eval node.
-        ;; Progn to avoid problems with DECLARE.
-        (t (let* ((*load-time-value-hook* 'cross-load-time-value)
-                  (fn (compile-lambda `(lambda ()
-                                         (declare (system:lambda-name
-                                                   (sys.int::toplevel ,(when *compile-file-pathname*
-                                                                             (princ-to-string *compile-file-pathname*))
-                                                                      ,sys.int::*top-level-form-number*)))
-                                         (progn ,form))
-                                      env
-                                      *target-architecture*)))
-             (add-to-llf sys.int::+llf-invoke+ fn)))))
+  (cond
+    ;; Special case (define-lap-function name (options...) code...)
+    ;; Don't macroexpand this, as it expands into a bunch of difficult to
+    ;; recognize nonsense.
+    ((and (consp form)
+          (eql (first form) 'sys.int::define-lap-function)
+          (>= (length form) 3))
+     (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
+         (cdr form)
+       (let ((docstring nil))
+         (when (stringp (first code))
+           (setf docstring (pop code)))
+         (x-compile
+          `(sys.int::%defun ',name
+                            ',(sys.int::assemble-lap
+                               code
+                               name
+                               (list :debug-info
+                                     name
+                                     frame-layout
+                                     environment-vector-offset
+                                     environment-vector-layout
+                                     (when *compile-file-pathname*
+                                       (princ-to-string *compile-file-pathname*))
+                                     sys.int::*top-level-form-number*
+                                     lambda-list
+                                     docstring)
+                               nil
+                               *target-architecture*))
+          env))))
+    (t
+     (x-compile-for-value form env)
+     (add-to-llf sys.int::+llf-drop+))))
+
+(defun x-compile-for-value (form env)
+  ;; FIXME: This should probably use compiler-macroexpand.
+  (let ((expansion (macroexpand form env)))
+    (cond
+      ((symbolp expansion)
+       (add-to-llf sys.int::+llf-funcall-n+ expansion 'symbol-value 1))
+      ((not (consp expansion))
+       ;; Self-evaluating form.
+       (add-to-llf nil expansion))
+      ((eql (first expansion) 'quote)
+       (add-to-llf nil (second expansion)))
+      ((and (eql (first expansion) 'function)
+            (consp (second expansion))
+            (eql (first (second expansion)) 'lambda))
+       (let* ((*load-time-value-hook* 'cross-load-time-value)
+              (fn (compile-lambda (second expansion) env *target-architecture*)))
+         (declare (special *load-time-value-hook*))
+         (add-to-llf nil fn)))
+      ((eql (first expansion) 'setq)
+       (x-compile-for-value `(funcall #'(setf symbol-value)
+                                      ,(third form)
+                                      ',(second form))
+                            env))
+      ((special-operator-p (first expansion))
+       ;; Can't convert this, convert it to a zero-argument function and
+       ;; call that. PROGN to avoid problems with DECLARE.
+       (incf (gethash (first expansion) *failed-fastload-by-symbol* 0))
+       (let* ((*load-time-value-hook* 'cross-load-time-value)
+              (fn (compile-lambda `(lambda ()
+                                     (declare (system:lambda-name
+                                               (sys.int::toplevel ,(when *compile-file-pathname*
+                                                                         (princ-to-string *compile-file-pathname*))
+                                                                  ,sys.int::*top-level-form-number*)))
+                                     (progn ,expansion))
+                                  env
+                                  *target-architecture*)))
+         (declare (special *load-time-value-hook*))
+         (add-to-llf sys.int::+llf-funcall-n+ fn 0)))
+      (t
+       ;; That should just leave ordinary calls.
+       (let ((name (first expansion))
+             (args (rest expansion)))
+         ;; Unpeel funcall forms.
+         (loop
+            (cond ((and (eql name 'funcall)
+                        (consp args)
+                        (valid-funcall-function-p (first args)))
+                   (setf name (funcall-function-name (first args))
+                         args (rest args)))
+                  (t
+                   (return))))
+         (dolist (arg args)
+           (x-compile-for-value arg env))
+         (add-to-llf sys.int::+llf-funcall-n+ name (length args)))))))
 
 (defun cross-compile-file (input-file &key
                            (output-file (make-pathname :type "llf" :defaults input-file))
@@ -912,7 +967,8 @@
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o *output-map* *output-fasl*))
-              (write-byte (car cmd) *output-fasl*))))
+              (when (car cmd)
+                (write-byte (car cmd) *output-fasl*)))))
         (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
   output-file)
 
@@ -977,7 +1033,8 @@
           (dolist (cmd commands)
             (dolist (o (cdr cmd))
               (save-object o *output-map* *output-fasl*))
-            (write-byte (car cmd) *output-fasl*))))
+            (when (car cmd)
+              (write-byte (car cmd) *output-fasl*)))))
       (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
 
 (deftype sys.int::non-negative-fixnum ()

@@ -383,7 +383,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                  (declare (system:lambda-name load-form))
                                  (progn ,creation-form)))
                  omap stream)
-    (write-byte +llf-funcall+ stream)))
+    (save-object 0 omap stream)
+    (write-byte +llf-funcall-n+ stream)))
 
 (defun save-object (object omap stream)
   (when (null (gethash object omap))
@@ -406,62 +407,121 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *llf-forms*))
 
-(defun compile-file-load-time-value (form read-only-p omap)
+(defun compile-file-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-    (or (fastload-form form omap nil)
-        (add-to-llf +llf-invoke+
-                    (sys.c::compile-lambda `(lambda ()
-                                              (declare (special ,ltv-sym))
-                                              (setq ,ltv-sym ,form))
-                                           nil)))
+    (compile-top-level-form `(setq ,ltv-sym ,form) nil)
     `(symbol-value ',ltv-sym)))
 
-(defun fastload-form (form omap env)
-  (cond ((and (consp form)
-              (eql (first form) 'sys.int::%defun)
-              (= (list-length form) 3)
-              (consp (second form))
-              (eql (first (second form)) 'quote)
-              (= (list-length (second form)) 2)
-              (consp (third form))
-              (eql (first (third form)) 'lambda))
-         ;; Special case (%defun 'name (lambda ...)) forms.
-         (add-to-llf +llf-setf-fdefinition+
-                     (sys.c::compile-lambda (third form) env)
-                     (second (second form)))
-         t)
-        ((and (listp form)
-              (>= (list-length form) 3)
-              (eql (first form) 'define-lap-function)
-              (listp (third form)))
-         (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
-             (cdr form)
-           (let ((docstring nil))
-             (when (stringp (first code))
-               (setf docstring (pop code)))
-             (add-to-llf +llf-setf-fdefinition+
-                         (assemble-lap
-                          code
-                          name
-                          (list :debug-info
-                                name
-                                frame-layout
-                                environment-vector-offset
-                                environment-vector-layout
-                                (when *compile-file-pathname*
-                                  (princ-to-string *compile-file-pathname*))
-                                sys.int::*top-level-form-number*
-                                lambda-list
-                                docstring)
-                          nil
-                          #+x86-64 :x86-64)
-                         name)))
-         t)
-        ((and (listp form)
-              (= (list-length form) 2)
-              (eql (first form) 'quote))
-         t)))
+(defun compile-top-level-form (form env)
+  (cond
+    ;; Special case (define-lap-function name (options...) code...)
+    ;; Don't macroexpand this, as it expands into a bunch of difficult to
+    ;; recognize nonsense.
+    ((and (listp form)
+          (>= (list-length form) 3)
+          (eql (first form) 'define-lap-function)
+          (listp (third form)))
+     (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
+         (cdr form)
+       (let ((docstring nil))
+         (when (stringp (first code))
+           (setf docstring (pop code)))
+         (compile-top-level-form
+          `(sys.int::%defun ',name
+                            ',(assemble-lap
+                               code
+                               name
+                               (list :debug-info
+                                     name
+                                     frame-layout
+                                     environment-vector-offset
+                                     environment-vector-layout
+                                     (when *compile-file-pathname*
+                                       (princ-to-string *compile-file-pathname*))
+                                     sys.int::*top-level-form-number*
+                                     lambda-list
+                                     docstring)
+                               nil
+                               #+x86-64 :x86-64
+                               #+arm64 :arm64))))))
+    (t
+     (compile-top-level-form-for-value form env)
+     (add-to-llf sys.int::+llf-drop+))))
+
+;; One of:
+;;   'symbol
+;;   #'symbol
+;;   #'(SETF symbol)
+;;   #'(CAS symbol)
+(defun valid-funcall-function-p (form)
+  (and (consp form)
+       (consp (cdr form))
+       (null (cddr form))
+       (or (and (eql (first form) 'quote)
+                (symbolp (second form)))
+           (and (eql (first form) 'function)
+                (let ((name (second form)))
+                  (or (symbolp name)
+                      (and (consp name)
+                           (consp (cdr name))
+                           (null (cddr name))
+                           (member (first name) '(setf sys.int::cas))
+                           (symbolp (second name)))))))))
+
+;; Convert a valid funcall function to the function name.
+(defun funcall-function-name (form)
+  (second form))
+
+(defun compile-top-level-form-for-value (form env)
+  ;; FIXME: This should probably use compiler-macroexpand.
+  (let ((expansion (macroexpand form env)))
+    (cond
+      ((symbolp expansion)
+       (add-to-llf sys.int::+llf-funcall-n+ expansion 'symbol-value 1))
+      ((not (consp expansion))
+       ;; Self-evaluating form.
+       (add-to-llf nil expansion))
+      ((eql (first expansion) 'quote)
+       (add-to-llf nil (second expansion)))
+      ((and (eql (first expansion) 'function)
+            (consp (second expansion))
+            (eql (first (second expansion)) 'lambda))
+       (add-to-llf nil (sys.c::compile-lambda (second expansion) env)))
+      ((eql (first expansion) 'setq)
+       (compile-top-level-form-for-value `(funcall #'(setf symbol-value)
+                                                   ,(third form)
+                                                   ',(second form))
+                                         env))
+      ((special-operator-p (first expansion))
+       ;; Can't convert this, convert it to a zero-argument function and
+       ;; call that. PROGN to avoid problems with DECLARE.
+       (add-to-llf sys.int::+llf-funcall-n+
+                   (sys.c::compile-lambda
+                    `(lambda ()
+                       (declare (system:lambda-name
+                                 (sys.int::toplevel ,(when *compile-file-pathname*
+                                                           (princ-to-string *compile-file-pathname*))
+                                                    ,sys.int::*top-level-form-number*)))
+                       (progn ,expansion))
+                    env)
+                   0))
+      (t
+       ;; That should just leave ordinary calls.
+       (let ((name (first expansion))
+             (args (rest expansion)))
+         ;; Unpeel funcall forms.
+         (loop
+            (cond ((and (eql name 'funcall)
+                        (consp args)
+                        (valid-funcall-function-p (first args)))
+                   (setf name (funcall-function-name (first args))
+                         args (rest args)))
+                  (t
+                   (return))))
+         (dolist (arg args)
+           (compile-top-level-form-for-value arg env))
+         (add-to-llf sys.int::+llf-funcall-n+ name (length args)))))))
 
 (defun compile-file (input-file &key
                                   (output-file (compile-file-pathname input-file))
@@ -480,8 +540,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
            (*compile-file-truename* (truename *compile-file-pathname*))
            (*top-level-form-number* 0)
-           (sys.c::*load-time-value-hook* (lambda (f r-o-p)
-                                            (compile-file-load-time-value f r-o-p omap))))
+           (sys.c::*load-time-value-hook* 'compile-file-load-time-value))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))
@@ -493,15 +552,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         ;; TODO: Deal with lexical environments.
         (handle-top-level-form form
                                (lambda (f env)
-                                 (or (fastload-form f omap env)
-                                     (add-to-llf +llf-invoke+
-                                                 (sys.c::compile-lambda
-                                                  `(lambda ()
-                                                     (declare (system:lambda-name (sys.int::toplevel ,(when *compile-file-pathname*
-                                                                                                            (princ-to-string *compile-file-pathname*))
-                                                                                                     ,sys.int::*top-level-form-number*)))
-                                                     (progn ,f))
-                                                  env))))
+                                 (compile-top-level-form f env))
                                (lambda (f env)
                                  (eval-in-lexenv f env)))
         (incf *top-level-form-number*))
@@ -522,7 +573,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o omap output-stream))
-              (write-byte (car cmd) output-stream)))
+              (when (car cmd)
+                (write-byte (car cmd) output-stream))))
           (write-byte +llf-end-of-load+ output-stream)
           (values (truename output-stream) nil nil))))))
 
@@ -547,8 +599,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                  (*print-level* 3))
              (declare (special *print-length* *print-level*))
              (format t ";; Compiling form ~S.~%" form))
-           (or (fastload-form form omap nil)
-               (error "Could not fastload builtin.")))
+           (compile-top-level-form form nil))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
       (let ((commands (reverse *llf-forms*)))
@@ -560,7 +611,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           (dolist (cmd commands)
             (dolist (o (cdr cmd))
               (save-object o omap output-stream))
-            (write-byte (car cmd) output-stream))))
+            (when (car cmd)
+              (write-byte (car cmd) output-stream)))))
       (write-byte +llf-end-of-load+ output-stream))
     (values (truename output-stream) nil nil)))
 

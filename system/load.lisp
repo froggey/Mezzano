@@ -26,10 +26,7 @@
     (#.+llf-uninterned-symbol+ 'uninterned-symbol)
     (#.+llf-unbound+ 'unbound)
     (#.+llf-string+ 'string)
-    (#.+llf-setf-symbol+ 'setf-symbol)
     (#.+llf-integer+ 'integer)
-    (#.+llf-invoke+ 'invoke)
-    (#.+llf-setf-fdefinition+ 'setf-fdefinition)
     (#.+llf-simple-vector+ 'simple-vector)
     (#.+llf-character+ 'character)
     (#.+llf-character-with-bits+ 'character-with-bits)
@@ -42,12 +39,13 @@
     (#.+llf-add-backlink+ 'add-backlink)
     (#.+llf-ratio+ 'ratio)
     (#.+llf-array+ 'array)
-    (#.+llf-funcall+ 'funcall)
     (#.+llf-bit-vector+ 'bit-vector)
     (#.+llf-function-reference+ 'function-reference)
     (#.+llf-byte+ 'byte)
     (#.+llf-double-float+ 'double-float)
-    (#.+llf-typed-array+ 'typed-array)))
+    (#.+llf-typed-array+ 'typed-array)
+    (#.+llf-funcall-n+ 'funcall-n)
+    (#.+llf-drop+ 'drop)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -244,15 +242,6 @@
     (#.+llf-unbound+ *magic-unbound-value*)
     (#.+llf-string+ (load-string stream))
     (#.+llf-integer+ (load-integer stream))
-    (#.+llf-invoke+
-     (let ((fn (vector-pop stack)))
-       (funcall fn))
-     (values))
-    (#.+llf-setf-fdefinition+
-     (let ((name (vector-pop stack))
-           (fn (vector-pop stack)))
-       (setf (fdefinition name) fn))
-     (values))
     (#.+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.+llf-character+ (load-character stream))
@@ -290,8 +279,6 @@
        (/ num denom)))
     (#.+llf-array+
      (load-llf-array stream stack))
-    (#.+llf-funcall+
-     (values (funcall (vector-pop stack))))
     (#.+llf-bit-vector+
      (let* ((len (load-integer stream))
             (n-octets (ceiling len 8))
@@ -309,7 +296,20 @@
      (byte (load-integer stream)
            (load-integer stream)))
     (#.+llf-typed-array+
-     (load-llf-typed-array stream stack))))
+     (load-llf-typed-array stream stack))
+    (#.+llf-funcall-n+
+     (let* ((n-args (vector-pop stack))
+            (fn (vector-pop stack))
+            (args (reverse (loop
+                              repeat n-args
+                              collect (vector-pop stack)))))
+       (values (apply (if (functionp fn)
+                          fn
+                          (fdefinition fn))
+                      args))))
+    (#.+llf-drop+
+     (vector-pop stack)
+     (values))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
@@ -319,6 +319,10 @@
     (loop (let ((command (%read-byte stream)))
             (case command
               (#.+llf-end-of-load+
+               (when *noisy-load*
+                 (format t "END-OF-LOAD~%"))
+               (when (not (eql (length stack) 0))
+                 (error "Bug! Stack not empty after LLF load."))
                (return))
               (#.+llf-backlink+
                (let ((id (load-integer stream)))

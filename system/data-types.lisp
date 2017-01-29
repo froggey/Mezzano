@@ -237,7 +237,7 @@ Internal to the pager, should not be used by other code.")
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 17)
+(defparameter *llf-version* 18)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
@@ -250,11 +250,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-uninterned-symbol+ #x05)
 (defconstant +llf-unbound+ #x06)
 (defconstant +llf-string+ #x07)
-(defconstant +llf-setf-symbol+ #x08)
 (defconstant +llf-integer+ #x09)
-;; Call a function, ignore the result.
-(defconstant +llf-invoke+ #x0A)
-(defconstant +llf-setf-fdefinition+ #x0B)
 (defconstant +llf-simple-vector+ #x0C)
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
@@ -266,8 +262,6 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-add-backlink+ #x14)
 (defconstant +llf-ratio+ #x15)
 (defconstant +llf-array+ #x16)
-;; Call a function, push the result.
-(defconstant +llf-funcall+ #x17)
 (defconstant +llf-bit-vector+ #x18)
 (defconstant +llf-function-reference+ #x19)
 (defconstant +llf-character-with-bits+ #x1A)
@@ -275,6 +269,10 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-byte+ #x1C)
 (defconstant +llf-double-float+ #x1D)
 (defconstant +llf-typed-array+ #x1E)
+;; Call a function with N arguments, push the result.
+(defconstant +llf-funcall-n+ #x1F)
+;; Discard the top of stack value.
+(defconstant +llf-drop+ #x20)
 
 ;;; Fields in the Unicode info tables.
 
