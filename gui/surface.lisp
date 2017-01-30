@@ -13,11 +13,11 @@
 The surface will be filled with INITIAL-COLOUR, which defaults to fully transparent."
   (check-type format (member :argb32 :a8 :a1))
   (%make-surface :pixels (make-array (list height width)
-                                        :element-type (ecase format
-                                                        (:argb32 '(unsigned-byte 32))
-                                                        (:a8 '(unsigned-byte 8))
-                                                        (:a1 'bit))
-                                        :initial-element initial-colour)
+                                     :element-type (ecase format
+                                                     (:argb32 '(unsigned-byte 32))
+                                                     (:a8 '(unsigned-byte 8))
+                                                     (:a1 'bit))
+                                     :initial-element initial-colour)
                  :format format))
 
 (defun make-surface-from-array (array &key (format :argb32) premultiplied)

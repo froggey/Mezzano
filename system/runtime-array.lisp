@@ -4,40 +4,48 @@
 (in-package :sys.int)
 
 ;; Information about the various specialized arrays.
-;; A list of (type tag size-in-bits 16-byte-aligned-p) lists.
+;; A list of (type tag size-in-bits 16-byte-aligned-p zero-value) lists.
 ;; This must be sorted from most-specific type to least-specific type.
 (defvar *array-info*)
+;; Info for T and BIT arrays.
+(defvar *array-t-info*)
+(defvar *array-bit-info*)
+(defvar *array-character-info*)
 ;; A simple-vector mapping simple 1D array object tags to their element type.
 (defvar *array-types*)
 
 (defun cold-array-initialization ()
   "Called during cold-load to initialize array support variables."
+  (setf *array-t-info* '(t #.+object-tag-array-t+ 64 nil 0)
+        *array-bit-info* '(bit #.+object-tag-array-bit+ 1 nil 0)
+        *array-character-info* '(character nil nil nil #\Nul))
   (setf *array-info*
-        '((bit                    #.+object-tag-array-bit+                    1 nil)
-          ((unsigned-byte 2)      #.+object-tag-array-unsigned-byte-2+        2 nil)
-          ((unsigned-byte 4)      #.+object-tag-array-unsigned-byte-4+        4 nil)
-          ((unsigned-byte 8)      #.+object-tag-array-unsigned-byte-8+        8 nil)
-          ((unsigned-byte 16)     #.+object-tag-array-unsigned-byte-16+      16 nil)
-          ((unsigned-byte 32)     #.+object-tag-array-unsigned-byte-32+      32 nil)
-          ((unsigned-byte 64)     #.+object-tag-array-unsigned-byte-64+      64 nil)
-          ((signed-byte 1)        #.+object-tag-array-signed-byte-1+          1 nil)
-          ((signed-byte 2)        #.+object-tag-array-signed-byte-2+          2 nil)
-          ((signed-byte 4)        #.+object-tag-array-signed-byte-4+          4 nil)
-          ((signed-byte 8)        #.+object-tag-array-signed-byte-8+          8 nil)
-          ((signed-byte 16)       #.+object-tag-array-signed-byte-16+        16 nil)
-          ((signed-byte 32)       #.+object-tag-array-signed-byte-32+        32 nil)
-          (fixnum                 #.+object-tag-array-fixnum+                64 nil)
-          ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil)
-          (single-float           #.+object-tag-array-single-float+          32 t)
-          (double-float           #.+object-tag-array-double-float+          64 t)
-          (short-float            #.+object-tag-array-short-float+           16 t)
-          (long-float             #.+object-tag-array-long-float+           128 t)
-          (xmm-vector             #.+object-tag-array-xmm-vector+           128 t)
-          ((complex single-float) #.+object-tag-array-complex-single-float+  64 t)
-          ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t)
-          ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t)
-          ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t)
-          (t                      #.+object-tag-array-t+                     64 nil)))
+        '((bit                    #.+object-tag-array-bit+                    1 nil 0)
+          ((unsigned-byte 2)      #.+object-tag-array-unsigned-byte-2+        2 nil 0)
+          ((unsigned-byte 4)      #.+object-tag-array-unsigned-byte-4+        4 nil 0)
+          ((unsigned-byte 8)      #.+object-tag-array-unsigned-byte-8+        8 nil 0)
+          ((unsigned-byte 16)     #.+object-tag-array-unsigned-byte-16+      16 nil 0)
+          ((unsigned-byte 32)     #.+object-tag-array-unsigned-byte-32+      32 nil 0)
+          ((unsigned-byte 64)     #.+object-tag-array-unsigned-byte-64+      64 nil 0)
+          ((signed-byte 1)        #.+object-tag-array-signed-byte-1+          1 nil 0)
+          ((signed-byte 2)        #.+object-tag-array-signed-byte-2+          2 nil 0)
+          ((signed-byte 4)        #.+object-tag-array-signed-byte-4+          4 nil 0)
+          ((signed-byte 8)        #.+object-tag-array-signed-byte-8+          8 nil 0)
+          ((signed-byte 16)       #.+object-tag-array-signed-byte-16+        16 nil 0)
+          ((signed-byte 32)       #.+object-tag-array-signed-byte-32+        32 nil 0)
+          (fixnum                 #.+object-tag-array-fixnum+                64 nil 0)
+          ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil 0)
+          (single-float           #.+object-tag-array-single-float+          32 t   0.0f0)
+          (double-float           #.+object-tag-array-double-float+          64 t   0.0d0)
+          (short-float            #.+object-tag-array-short-float+           16 t   0.0s0)
+          (long-float             #.+object-tag-array-long-float+           128 t   0.0l0)
+          (xmm-vector             #.+object-tag-array-xmm-vector+           128 t   0)
+          ((complex single-float) #.+object-tag-array-complex-single-float+  64 t   #C(0.0f0 0.0f0))
+          ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t   #C(0.0d0 0.0d0))
+          ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #C(0.0s0 0.0s0))
+          ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t   #C(0.0l0 0.0l0))
+          (character              nil                                       nil nil #\Nul)
+          (t                      #.+object-tag-array-t+                     64 nil 0)))
   (setf *array-types*
         #(t
           fixnum
@@ -65,9 +73,8 @@
           (complex long-float)
           xmm-vector)))
 
-(defun make-simple-array-1 (length real-element-type area)
-  (let* ((info (assoc real-element-type *array-info* :test 'equal))
-         (total-size (+ (if (fourth info) 64 0) ; padding for alignment.
+(defun make-simple-array-1 (length info area)
+  (let* ((total-size (+ (if (fourth info) 64 0) ; padding for alignment.
                         (* length (third info)))))
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))

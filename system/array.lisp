@@ -122,19 +122,22 @@
 (%define-compound-type-optimizer 'array 'compile-array-type)
 )
 
-(defun upgraded-array-element-type (typespec &optional environment)
+(defun upgraded-array-info (typespec &optional environment)
   ;; Pick off a few obvious cases.
   (case typespec
-    ((t) 't)
-    ((character base-char) 'character)
-    ((bit) 'bit)
+    ((t) *array-t-info*)
+    ((character base-char) *array-character-info*)
+    ((bit) *array-bit-info*)
     (t (if (subtypep typespec 'nil environment)
            ;; NIL promotes to T.
-           't
-           (dolist (info *array-info* 't)
+           *array-t-info*
+           (dolist (info *array-info* *array-t-info*)
              (let ((type (first info)))
                (when (subtypep typespec type environment)
-                 (return type))))))))
+                 (return info))))))))
+
+(defun upgraded-array-element-type (typespec &optional environment)
+  (first (upgraded-array-info typespec environment)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
@@ -168,12 +171,13 @@
 )
 
 (defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
-  (let* ((real-element-type (upgraded-array-element-type element-type))
-         (array (make-simple-array-1 length real-element-type area)))
+  (let* ((info (upgraded-array-info element-type))
+         (array (make-simple-array-1 length info area)))
     (when initial-element-p
       (unless (typep initial-element element-type)
         (error 'type-error :expected-type element-type :datum initial-element))
-      (fill array initial-element))
+      (unless (eql initial-element (fifth info))
+        (fill array initial-element)))
     array))
 
 (defun initialize-from-initial-contents (array sequence)
