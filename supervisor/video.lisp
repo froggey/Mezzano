@@ -65,7 +65,10 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
                                                                  'framebuffer-dummy-damage)
                                                   :blit-fn blit-fn
                                                   :fill-fn fill-fn)))
-  (set-run-light t))
+  (set-run-light t)
+  (setf *debug-video-x* 0
+        *debug-video-y* 0
+        *debug-video-col* 0))
 
 (defun current-framebuffer ()
   *current-framebuffer*)
@@ -372,7 +375,8 @@ An integer, measured in internal time units.")
         ((eql char #\Newline)
          (incf *debug-video-y* 8)
          (setf *debug-video-x* 0)
-         (when (>= *debug-video-y* (framebuffer-height *current-framebuffer*))
+         (when (>= (truncate *debug-video-y* 8)
+                   (truncate (framebuffer-height *current-framebuffer*) 8))
            (setf *debug-video-y* 0)
            (incf *debug-video-col*)
            (when (>= *debug-video-col* 3)
