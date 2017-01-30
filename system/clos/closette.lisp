@@ -1443,12 +1443,13 @@ has only has class specializer."
                            (assert (eql (length method) 2))
                            (second method))
                           (t
-                           `(apply ',(method-fast-function method
-                                                           (if next-method-list
-                                                               `(lambda (&rest ,',method-args)
-                                                                  (call-method ,(first next-method-list)
-                                                                               ,(rest next-method-list)))
-                                                               nil))
+                           `(apply (funcall ',(method-function method)
+                                            ',method
+                                            ,(if next-method-list
+                                                 `(lambda (&rest ,',method-args)
+                                                    (call-method ,(first next-method-list)
+                                                                 ,(rest next-method-list)))
+                                                 nil))
                                    ,',method-args))))
                   (make-method (form)
                     (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
