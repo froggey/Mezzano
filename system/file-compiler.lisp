@@ -359,6 +359,23 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer (byte-size object) stream)
   (save-integer (byte-position object) stream))
 
+(defmethod save-one-object ((object complex) omap stream)
+  (etypecase (realpart object)
+    (rational
+     (write-byte sys.int::+llf-complex-rational+ stream)
+     (save-integer (numerator (realpart object)) stream)
+     (save-integer (denominator (realpart object)) stream)
+     (save-integer (numerator (imagpart object)) stream)
+     (save-integer (denominator (imagpart object)) stream))
+    (single-float
+     (write-byte sys.int::+llf-complex-single-float+ stream)
+     (save-integer (%single-float-as-integer (realpart object)) stream)
+     (save-integer (%single-float-as-integer (imagpart object)) stream))
+    (double-float
+     (write-byte sys.int::+llf-complex-double-float+ stream)
+     (save-integer (%double-float-as-integer (realpart object)) stream)
+     (save-integer (%double-float-as-integer (imagpart object)) stream))))
+
 (defmethod make-load-form ((object hash-table) &optional environment)
   (declare (ignore environment))
   ;; FIXME: Should produce creation & initialzation forms, but not that's not implemented yet.
@@ -369,10 +386,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           for keys being the hash-keys in object using (hash-value value)
           collect `(setf (gethash ',keys ht) ',value))
      ht))
-
-(defmethod make-load-form ((object complex) &optional environment)
-  (declare (ignore environment))
-  `(complex ',(realpart object) ',(imagpart object)))
 
 (defmethod save-one-object (object omap stream)
   (multiple-value-bind (creation-form initialization-form)

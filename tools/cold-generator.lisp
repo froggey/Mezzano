@@ -1902,7 +1902,46 @@ Tag with +TAG-OBJECT+."
                                           arg))))))))
     (#.sys.int::+llf-drop+
      (stack-pop stack :load)
-     nil)))
+     nil)
+    (#.sys.int::+llf-complex-rational+
+     (let* ((realpart-numerator (load-integer stream))
+            (realpart-denominator (load-integer stream))
+            (imagpart-numerator (load-integer stream))
+            (imagpart-denominator (load-integer stream))
+            (address (allocate 4)))
+       ;; TODO: Support ratios.
+       (assert (eql realpart-denominator 1))
+       (assert (eql imagpart-denominator 1))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-rational+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) (typecase realpart-numerator
+                                    ((signed-byte 63) (make-fixnum realpart-numerator))
+                                    (t (make-bignum realpart-numerator)))
+             (word (+ address 2)) (typecase imagpart-numerator
+                                    ((signed-byte 63) (make-fixnum imagpart-numerator))
+                                    (t (make-bignum imagpart-numerator))))
+       (make-value address sys.int::+tag-object+)))
+    (#.sys.int::+llf-complex-single-float+
+     (let* ((realpart (load-integer stream))
+            (imagpart (load-integer stream))
+            (address (allocate 2)))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-single-float+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) (logior realpart
+                                          (ash imagpart 32)))
+       (make-value address sys.int::+tag-object+)))
+    (#.sys.int::+llf-complex-double-float+
+     (let* ((realpart (load-integer stream))
+            (imagpart (load-integer stream))
+            (address (allocate 4)))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-double-float+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) realpart
+             (word (+ address 2)) imagpart)
+       (make-value address sys.int::+tag-object+)))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))

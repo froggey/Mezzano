@@ -45,7 +45,10 @@
     (#.+llf-double-float+ 'double-float)
     (#.+llf-typed-array+ 'typed-array)
     (#.+llf-funcall-n+ 'funcall-n)
-    (#.+llf-drop+ 'drop)))
+    (#.+llf-drop+ 'drop)
+    (#.+llf-complex-rational+ 'complex-rational)
+    (#.+llf-complex-single-float+ 'complex-single-float)
+    (#.+llf-complex-double-float+ 'complex-double-float)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -309,7 +312,23 @@
                       args))))
     (#.+llf-drop+
      (vector-pop stack)
-     (values))))
+     (values))
+    (#.+llf-complex-rational+
+     (let* ((realpart-numerator (load-integer stream))
+            (realpart-denominator (load-integer stream))
+            (realpart (/ realpart-numerator realpart-denominator))
+            (imagpart-numerator (load-integer stream))
+            (imagpart-denominator (load-integer stream))
+            (imagpart (/ imagpart-numerator imagpart-denominator)))
+       (complex realpart imagpart)))
+    (#.+llf-complex-single-float+
+     (let ((realpart (%integer-as-single-float (load-integer stream)))
+           (imagpart (%integer-as-single-float (load-integer stream))))
+       (complex realpart imagpart)))
+    (#.+llf-complex-double-float+
+     (let ((realpart (%integer-as-double-float (load-integer stream)))
+           (imagpart (%integer-as-double-float (load-integer stream))))
+       (complex realpart imagpart)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)

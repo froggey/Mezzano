@@ -779,6 +779,23 @@
   (save-integer (byte-size object) stream)
   (save-integer (byte-position object) stream))
 
+(defmethod save-one-object ((object complex) omap stream)
+  (etypecase (realpart object)
+    (rational
+     (write-byte sys.int::+llf-complex-rational+ stream)
+     (save-integer (numerator (realpart object)) stream)
+     (save-integer (denominator (realpart object)) stream)
+     (save-integer (numerator (imagpart object)) stream)
+     (save-integer (denominator (imagpart object)) stream))
+    (single-float
+     (write-byte sys.int::+llf-complex-single-float+ stream)
+     (save-integer (%single-float-as-integer (realpart object)) stream)
+     (save-integer (%single-float-as-integer (imagpart object)) stream))
+    (double-float
+     (write-byte sys.int::+llf-complex-double-float+ stream)
+     (save-integer (%double-float-as-integer (realpart object)) stream)
+     (save-integer (%double-float-as-integer (imagpart object)) stream))))
+
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
     (cond (*output-dry-run*
