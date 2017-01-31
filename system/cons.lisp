@@ -565,11 +565,19 @@
 (defun acons (key datum alist)
   (cons (cons key datum) alist))
 
-(defun sublis (alist tree &key) ; key test test-not
+(defun sublis (alist tree &key key test test-not)
+  (when (and test test-not)
+    (error "TEST and TEST-NOT specified."))
+  (when test-not
+    (setf test (complement test-not)))
+  (unless test
+    (setf test 'eql))
+  (unless key
+    (setf key 'identity))
   (flet ((sublis-one (thing)
            (if (consp thing)
                (sublis alist thing)
-               (let ((x (assoc thing alist)))
+               (let ((x (assoc thing alist :key key :test test)))
                  (if x (cdr x) thing)))))
     (cons (sublis-one (car tree))
           (sublis-one (cdr tree)))))
