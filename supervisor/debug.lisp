@@ -268,22 +268,22 @@
         (dump-thread thread (thread-frame-pointer thread))))))
 
 (defun panic-1 (things extra)
-  (%disable-interrupts)
-  (when (and (boundp '*panic-in-progress*)
-             *panic-in-progress*)
-    (loop (%arch-panic-stop)))
-  ;; Stop the world, just in case printing the backtrace requires paging stuff in.
-  (setf *world-stopper* (current-thread)
-        *panic-in-progress* t)
-  (debug-force-output)
-  (set-panic-light)
-  #+x86-64
-  (disable-page-fault-ist)
-  (debug-print-line-1 things)
-  (when extra
-    (funcall extra))
-  (debug-dump-threads)
-  (loop (%arch-panic-stop)))
+  (safe-without-interrupts (things extra)
+    (when (and (boundp '*panic-in-progress*)
+               *panic-in-progress*)
+      (loop (%arch-panic-stop)))
+    ;; Stop the world, just in case printing the backtrace requires paging stuff in.
+    (setf *world-stopper* (current-thread)
+          *panic-in-progress* t)
+    (debug-force-output)
+    (set-panic-light)
+    #+x86-64
+    (disable-page-fault-ist)
+    (debug-print-line-1 things)
+    (when extra
+      (funcall extra))
+    (debug-dump-threads)
+    (loop (%arch-panic-stop))))
 
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."
