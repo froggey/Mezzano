@@ -133,7 +133,7 @@
     (:documentation
      `(:documentation ',(second option)))
     (t
-     `(,(first option) ',(rest option)))))
+     `(',(first option) ',(rest option)))))
 
 (defun canonicalize-defclass-default-initargs (initargs)
   (check-plist initargs)
