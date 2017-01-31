@@ -1053,6 +1053,8 @@ has only has class specializer."
                                          (eql (first spec) 'eql))
                                     (intern-eql-specializer (second spec))
                                     spec)))
+  (assert (eql (length specializers)
+               (length (gf-required-arglist gf))))
   (let ((method
           (find-if #'(lambda (method)
                        (and (equal qualifiers
