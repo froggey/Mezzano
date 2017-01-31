@@ -262,7 +262,9 @@ is below the rehash-threshold."
            (dotimes (i (length object) hash)
              (setf hash (logand #xFFFFFFFF (+ (logand #xFFFFFFFF (* hash 33))
                                               (char-int (char object i))))))))
-        ;; EQL-HASH also works for characters, numbers and symbols.
+        (symbol
+         (sxhash-1 (string object) depth))
+        ;; EQL-HASH also works for characters and numbers.
         (t (eql-hash object)))))
 
 (defun sxhash (object)
