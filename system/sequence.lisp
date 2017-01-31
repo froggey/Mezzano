@@ -502,6 +502,12 @@
                  (setf (elt new-sequence (+ start i)) newitem)))
              new-sequence))))
 
+(defun substitute-if-not (newitem predicate sequence &key key (start 0) end) ; from-end
+  (substitute-if newitem (complement predicate) sequence
+                 :key key
+                 :start start
+                 :end end))
+
 (defun substitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
   (when (and test test-not)
     (error "Both :TEST and :TEST-NOT specified"))
@@ -607,26 +613,6 @@
                                 (funcall key
                                          (elt sequence (+ i 2)))))))
              x))))
-
-(defun set-difference (list-1 list-2 &key key test test-not)
-  (let ((result '()))
-    (dolist (e list-1)
-      (when (not (member e list-2 :key key :test test :test-not test-not))
-        (setf result (cons e result))))
-    result))
-
-(defun union (list-1 list-2 &key key test test-not)
-  (let ((result (copy-list list-1)))
-    (dolist (e list-2)
-      (when (not (member e list-1 :key key :test test :test-not test-not))
-        (setf result (cons e result))))
-    result))
-
-(defun intersection (list-1 list-2 &key key test test-not)
-  (when list-1
-    (if (member (first list-1) list-2 :key key :test test :test-not test-not)
-        (cons (first list-1) (intersection (rest list-1) list-2))
-        (intersection (rest list-1) list-2))))
 
 (defun copy-seq (x) (subseq x 0))
 

@@ -1,10 +1,6 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-;;;; Basic cons-related functions.
-;;;; This file is loaded at bootstrap time and once more after the compiler
-;;;; is loaded, so it should only contain final versions of the functions.
-
 (in-package :sys.int)
 
 (declaim (inline caar cadr cdar cddr
@@ -303,6 +299,29 @@
         (cdr result))
     (setf (cdr tail) (cons (funcall function (car itr)) nil))))
 
+(define-compiler-macro mapcar (function list &rest more-lists)
+  (let* ((fn-sym (gensym "FN"))
+         (result-sym (gensym "RESULT"))
+         (tail-sym (gensym "TAIL"))
+         (tmp-sym (gensym "TMP"))
+         (all-lists (list* list more-lists))
+         (iterators (mapcar (lambda (x) (declare (ignore x)) (gensym))
+                            all-lists)))
+    `(do* ((,fn-sym ,function)
+           (,result-sym (cons nil nil))
+           (,tail-sym ,result-sym)
+           ,@(mapcar (lambda (name form)
+                       (list name form `(cdr ,name)))
+                     iterators all-lists))
+          ((or ,@(mapcar (lambda (name) `(null ,name))
+                         iterators))
+           (cdr ,result-sym))
+       (let ((,tmp-sym (cons (funcall ,fn-sym ,@(mapcar (lambda (name) `(car ,name))
+                                                        iterators))
+                             nil)))
+         (setf (cdr ,tail-sym) ,tmp-sym
+               ,tail-sym ,tmp-sym)))))
+
 (defun mapcar (function list &rest more-lists)
   (if more-lists
       (do* ((lists (cons list more-lists))
@@ -320,9 +339,47 @@
                 (car itr) (cdar itr))))
       (single-mapcar function list)))
 
+(define-compiler-macro mapc (function list &rest more-lists)
+  (let* ((fn-sym (gensym "FN"))
+         (result-sym (gensym "RESULT"))
+         (all-lists (list* list more-lists))
+         (iterators (mapcar (lambda (x) (declare (ignore x)) (gensym))
+                            all-lists)))
+    `(do* ((,fn-sym ,function)
+           ,@(mapcar (lambda (name form)
+                       (list name form `(cdr ,name)))
+                     iterators all-lists)
+           (,result-sym ,(first iterators)))
+          ((or ,@(mapcar (lambda (name) `(null ,name))
+                         iterators))
+           ,result-sym)
+       (funcall ,fn-sym ,@(mapcar (lambda (name) `(car ,name))
+                                  iterators)))))
+
 (defun mapc (function list &rest more-lists)
   (apply 'mapcar function list more-lists)
   list)
+
+(define-compiler-macro maplist (function list &rest more-lists)
+  (let* ((fn-sym (gensym "FN"))
+         (result-sym (gensym "RESULT"))
+         (tail-sym (gensym "TAIL"))
+         (tmp-sym (gensym "TMP"))
+         (all-lists (list* list more-lists))
+         (iterators (mapcar (lambda (x) (declare (ignore x)) (gensym))
+                            all-lists)))
+    `(do* ((,fn-sym ,function)
+           (,result-sym (cons nil nil))
+           (,tail-sym ,result-sym)
+           ,@(mapcar (lambda (name form)
+                       (list name form `(cdr ,name)))
+                     iterators all-lists))
+          ((or ,@(mapcar (lambda (name) `(null ,name))
+                         iterators))
+           (cdr ,result-sym))
+       (let ((,tmp-sym (cons (funcall ,fn-sym ,@iterators) nil)))
+       (setf (cdr ,tail-sym) ,tmp-sym
+             ,tail-sym ,tmp-sym)))))
 
 (defun maplist (function list &rest more-lists)
   (when (null list)
@@ -341,6 +398,10 @@
       (when (null (car itr))
         (return-from maplist (cdr result))))))
 
+(defun mapl (function list &rest more-lists)
+  (apply #'maplist function list more-lists)
+  list)
+
 (defun mapcan (function list &rest more-lists)
   (do* ((lists (cons list more-lists))
         (result (cons nil nil))
@@ -355,6 +416,9 @@
         (return-from mapcan (cdr result)))
       (setf (cdr call-tail) (cons (caar itr) nil))
       (setf (car itr) (cdar itr)))))
+
+(defun mapcon (function list &rest more-lists)
+  (apply #'nconc (apply #'maplist function list more-lists)))
 
 (defun getf (plist indicator &optional default)
   (do ((i plist (cddr i)))
@@ -423,8 +487,19 @@
            ,store-form
            ,result)))))
 
+(declaim (inline assoc-if assoc-if-not assoc))
+(defun assoc-if (predicate alist &key key)
+  (unless key
+    (setf key 'identity))
+  (dolist (i alist)
+    (when (and i
+               (funcall predicate (funcall key (car i))))
+      (return i))))
 
-(declaim (inline assoc))
+(defun assoc-if-not (predicate alist &key key)
+  (assoc-if (complement predicate) alist
+            :key key))
+
 (defun assoc (item alist &key key test test-not)
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
@@ -432,14 +507,23 @@
     (setf test (complement test-not)))
   (unless test
     (setf test 'eql))
-  (unless key
+  (assoc-if (lambda (x) (funcall test item x))
+            alist
+            :key key))
+
+(declaim (inline member-if member-if-not member))
+(defun member-if (predicate list &key key)
+  (when (not key)
     (setf key 'identity))
-  (dolist (i alist)
-    (when (and i
-               (funcall test item (funcall key (car i))))
+  (do ((i list (cdr i)))
+      ((endp i))
+    (when (funcall predicate (funcall key (car i)))
       (return i))))
 
-(declaim (inline member))
+(defun member-if-not (predicate list &key key)
+  (member-if (complement predicate) list
+             :key key))
+
 (defun member (item list &key key test test-not)
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
@@ -447,18 +531,9 @@
     (setf test (complement test-not)))
   (unless test
     (setf test 'eql))
-  (unless key
-    (setf key 'identity))
-  (do ((i list (cdr i)))
-      ((endp i))
-      (when (funcall test item (funcall key (car i)))
-        (return i))))
-
-(defun member-if (predicate list)
-  (when list
-    (if (funcall predicate (first list))
-        list
-        (member-if predicate (rest list)))))
+  (member-if (lambda (x) (funcall test item x))
+             list
+             :key key))
 
 (defun get-properties (plist indicator-list)
   (do ((i plist (cddr i)))
@@ -506,6 +581,13 @@
       (cons (cons (car keys) (car data))
             (pairlis (cdr keys) (cdr data) alist))
       alist))
+
+(defun copy-alist (alist)
+  (loop
+     for entry in alist
+     collect (if (consp entry)
+                 (cons (car entry) (cdr entry))
+                 entry)))
 
 (defun ldiff (list object)
   (do ((list list (cdr list))
@@ -594,3 +676,50 @@
   (rassoc-if (lambda (x) (funcall test item x))
              alist
              :key key))
+
+(defun set-difference (list-1 list-2 &key key test test-not)
+  (let ((result '()))
+    (dolist (e list-1)
+      (when (not (member e list-2 :key key :test test :test-not test-not))
+        (push e result)))
+    result))
+
+(defun union (list-1 list-2 &key key test test-not)
+  (let ((result (copy-list list-1)))
+    (dolist (e list-2)
+      (when (not (member e list-1 :key key :test test :test-not test-not))
+        (push e result)))
+    result))
+
+(defun intersection (list-1 list-2 &key key test test-not)
+  (when list-1
+    (if (member (first list-1) list-2 :key key :test test :test-not test-not)
+        (cons (first list-1) (intersection (rest list-1) list-2))
+        (intersection (rest list-1) list-2))))
+
+(defun set-exclusive-or (list-1 list-2 &key key test test-not)
+  (let ((result '()))
+    (dolist (e list-1)
+      (when (not (member e list-2 :key key :test test :test-not test-not))
+        (push e result)))
+    (dolist (e list-2)
+      (when (not (member e list-1 :key key :test test :test-not test-not))
+        (push e result)))
+    result))
+
+(defun tree-equal (tree-1 tree-2 &key test test-not)
+  (when (and test test-not)
+    (error "TEST and TEST-NOT specified."))
+  (when test-not
+    (setf test (complement test-not)))
+  (unless test
+    (setf test 'eql))
+  (labels ((frob (lhs rhs)
+             (or (and (atomp lhs)
+                      (atomp rhs)
+                      (funcall test lhs rhs))
+                 (and (consp lhs)
+                      (consp rhs)
+                      (frob (car lhs) (car rhs))
+                      (frob (cdr lhs) (cdr rhs))))))
+    (frob tree-1 tree-2)))
