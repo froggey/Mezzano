@@ -5,6 +5,7 @@
   (:use :cl)
   (:export #:line-edit-mixin
            #:*line-editor-command-table*
+	   #:global-set-key
            #:define-command
            #:buffer
            #:cursor-position
