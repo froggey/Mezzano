@@ -149,7 +149,7 @@
      (complex
       (%integer-as-single-float (%object-ref-unsigned-byte-32 array (* index 2)))
       (%integer-as-single-float (%object-ref-unsigned-byte-32 array (1+ (* index 2))))))
-    (#.+object-tag-array-double-float+
+    (#.+object-tag-array-complex-double-float+
      (complex
       (%integer-as-double-float (%object-ref-unsigned-byte-64 array (* index 2)))
       (%integer-as-double-float (%object-ref-unsigned-byte-64 array (1+ (* index 2))))))))
