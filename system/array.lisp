@@ -315,7 +315,15 @@
                     (backing-array (if initial-element-p
                                        (make-simple-array total-size element-type area initial-element)
                                        (make-simple-array total-size element-type area)))
-                    (array (%make-array-header +object-tag-array+ backing-array fill-pointer nil dimensions area)))
+                    (array (%make-array-header (if (and (not fill-pointer)
+                                                        (not adjustable))
+                                                   +object-tag-simple-array+
+                                                   +object-tag-array+)
+                                               backing-array
+                                               fill-pointer
+                                               nil
+                                               dimensions
+                                               area)))
                (when initial-contents-p
                  (initialize-from-initial-contents array initial-contents))
                array)))))
