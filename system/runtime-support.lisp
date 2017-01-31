@@ -125,10 +125,12 @@
   args)
 
 (defun copy-list-in-area (list &optional area)
+  (check-type list list)
   (do* ((result (cons nil nil))
         (tail result)
         (l list (cdr l)))
-       ((null l)
+       ((not (consp l))
+        (setf (cdr tail) l)
         (cdr result))
     (setf (cdr tail) (cons-in-area (car l) nil area)
           tail (cdr tail))))
