@@ -723,7 +723,7 @@ at least MIN-EXTENSION if required."
 (define-bit-function bit-orc2 logorc2)
 
 (defun bit-not (bit-array &optional opt-arg)
-  (let ((result-array (ecase opt-arg
+  (let ((result-array (etypecase opt-arg
                         ((array bit) opt-arg)
                         ((eql t) bit-array)
                         ((eql nil) (make-array (array-dimensions bit-array)
