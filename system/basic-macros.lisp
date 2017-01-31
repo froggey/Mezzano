@@ -118,7 +118,9 @@
 
 (defmacro dotimes ((var count-form &optional result-form) &body body)
   (let ((count-val (gensym "COUNT")))
-    `(do ((,count-val (the integer ,count-form))
+    `(do ((,count-val (let ((,count-val ,count-form))
+                        (check-type ,count-val integer)
+                        ,count-val))
           (,var 0 (1+ ,var)))
          ((>= ,var ,count-val) ,result-form)
        ,@body)))
