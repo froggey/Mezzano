@@ -555,7 +555,11 @@
                            :fill-pointer 0))
        (x (read-char stream t nil t)
           (read-char stream t nil t)))
-      ((eql x first) string)
+      ((eql x first)
+       ;; Convert to simple-string.
+       (make-array (length string)
+                   :element-type 'character
+                   :initial-contents string))
     (if (eql (readtable-syntax-type x) :single-escape)
         (vector-push-extend (read-char stream t nil t) string)
         (vector-push-extend x string))))
