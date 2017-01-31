@@ -56,7 +56,6 @@
   (fill *gc-transport-counts* 0)
   (fill *gc-transport-old-counts* 0)
   (fill *gc-transport-cycles* 0)
-  (setf *gc-words-freed* 0)
   (values))
 
 (defun gc-stats ()
