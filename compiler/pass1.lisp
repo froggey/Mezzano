@@ -7,7 +7,7 @@
   "Parse a lambda expression, extracting the body, lambda-list, declare expressions, any name declared with lambda-name and a docstring."
   (when (or (not (eq (first lambda) 'lambda))
             (not (rest lambda)))
-    (error "Lambda expression does not begin with LAMBDA."))
+    (error-program-error "Lambda expression does not begin with LAMBDA."))
   (do ((lambda-list (second lambda))
        (declares '())
        (name nil)
@@ -178,7 +178,7 @@
   (let ((var (lookup-variable-in-environment symbol env)))
     (cond ((typep var 'symbol-macro)
            (when (not allow-symbol-macros)
-             (error "Symbol-macro not allowed here."))
+             (error-program-error "Symbol-macro not allowed here."))
            (list symbol (symbol-macro-expansion var)))
           (t
            (when (and (typep var 'special-variable)
@@ -411,7 +411,7 @@
   (destructuring-bind (tag-name) (cdr form)
     (check-type tag-name (or symbol integer))
     (let ((tag (or (lookup-go-tag-in-environment tag-name env)
-                   (error "GO refers to unknown tag ~S." tag-name))))
+                   (error-program-error "GO refers to unknown tag ~S." tag-name))))
       (incf (go-tag-use-count tag))
       (pushnew *current-lambda* (go-tag-used-in tag))
       (make-instance 'ast-go
@@ -453,7 +453,7 @@
   (when (and (typep var 'special-variable)
              (not (member (sys.int::symbol-mode (name var))
                           '(nil :special))))
-    (error "Attemting to bind ~S variable ~S." (sys.int::symbol-mode (name var)) (name var))))
+    (error-program-error "Attemting to bind ~S variable ~S." (sys.int::symbol-mode (name var)) (name var))))
 
 (defun pass1-let (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
@@ -592,7 +592,7 @@
   (destructuring-bind (name &optional result) (cdr form)
     (check-type name symbol)
     (let ((tag (or (lookup-block-in-environment name env)
-                   (error "RETURN-FROM refers to unknown block ~S." name))))
+                   (error-program-error "RETURN-FROM refers to unknown block ~S." name))))
       (incf (lexical-variable-use-count tag))
       (pushnew *current-lambda* (lexical-variable-used-in tag))
       (make-instance 'ast-return-from
@@ -617,7 +617,7 @@
              (t (make-instance 'ast-progn
                                :forms (nreverse forms)))))
     (when (null (cdr i))
-      (error "Odd number of arguments to SETQ."))
+      (error-program-error "Odd number of arguments to SETQ."))
     (let ((var (find-variable (first i) env t))
           (val (second i)))
       (etypecase var
@@ -654,11 +654,11 @@
                       for (name expansion) in definitions
                       do
                         (when (declared-as-p 'special name declares)
-                          (error "Symbol macro ~S declared special." name))
+                          (error-program-error "Symbol macro ~S declared special." name))
                         (when (eql (sys.int::variable-information name) :special)
-                          (error "Attempt to bind special variable ~S as a symbol-macro." name))
+                          (error-program-error "Attempt to bind special variable ~S as a symbol-macro." name))
                         (when (eql (sys.int::variable-information name) :constant)
-                          (error "Attempt to bind constant ~S as a symbol-macro." name))
+                          (error-program-error "Attempt to bind constant ~S as a symbol-macro." name))
                       collect (list name
                                     (make-instance 'symbol-macro
                                                    :name name

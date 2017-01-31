@@ -134,3 +134,8 @@ A list of any declaration-specifiers."
 
 (defun fixnump (object)
   (typep object '(signed-byte 63)))
+
+(defun error-program-error (format-control &rest format-arguments)
+  (error 'sys.int::simple-program-error
+         :format-control format-control
+         :format-arguments format-arguments))
