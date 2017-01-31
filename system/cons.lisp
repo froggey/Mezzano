@@ -265,7 +265,8 @@
       (do ((list (last (car start)) (last list))
            (i (cdr start) (cdr i)))
           ((null (cdr i))
-           (setf (cdr list) (car i))
+           (when (consp list)
+             (setf (cdr list) (car i)))
            (car start))
         (setf (cdr list) (car i))))))
 
@@ -598,6 +599,7 @@
                  entry)))
 
 (defun ldiff (list object)
+  (check-type list list)
   (do ((list list (cdr list))
        (r '() (cons (car list) r)))
       ((atom list)
@@ -606,7 +608,8 @@
       (return (nreverse r)))))
 
 (defun tailp (object list)
-   (do ((list list (cdr list)))
+  (check-type list list)
+  (do ((list list (cdr list)))
        ((atom list) (eql list object))
       (if (eql object list)
           (return t))))
@@ -686,6 +689,8 @@
              :key key))
 
 (defun set-difference (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
   (let ((result '()))
     (dolist (e list-1)
       (when (not (member e list-2 :key key :test test :test-not test-not))
@@ -693,6 +698,8 @@
     result))
 
 (defun union (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
   (let ((result (copy-list list-1)))
     (dolist (e list-2)
       (when (not (member e list-1 :key key :test test :test-not test-not))
@@ -700,12 +707,16 @@
     result))
 
 (defun intersection (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
   (when list-1
     (if (member (first list-1) list-2 :key key :test test :test-not test-not)
         (cons (first list-1) (intersection (rest list-1) list-2))
         (intersection (rest list-1) list-2))))
 
 (defun set-exclusive-or (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
   (let ((result '()))
     (dolist (e list-1)
       (when (not (member e list-2 :key key :test test :test-not test-not))
@@ -714,6 +725,19 @@
       (when (not (member e list-1 :key key :test test :test-not test-not))
         (push e result)))
     result))
+
+(defun subsetp (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
+  (when (and test test-not)
+    (error ":TEST and :TEST-NOT specified"))
+  (when test-not
+    (setf test (complement test-not)))
+  (setf test (or test #'eql))
+  (setf key (or key #'identity))
+  (every (lambda (e)
+           (member (funcall key e) list-2 :key key :test test))
+         list-1))
 
 (defun tree-equal (tree-1 tree-2 &key test test-not)
   (when (and test test-not)

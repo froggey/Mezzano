@@ -821,14 +821,3 @@
                  (mapcar (lambda (s) (elt s i))
                          sequences))))
   result-sequence)
-
-(defun subsetp (list-1 list-2 &key key test test-not)
-  (when (and test test-not)
-    (error ":TEST and :TEST-NOT specified"))
-  (when test-not
-    (setf test (complement test-not)))
-  (setf test (or test #'eql))
-  (setf key (or key #'identity))
-  (every (lambda (e)
-           (member (funcall key e) list-2 :key key :test test))
-         list-1))
