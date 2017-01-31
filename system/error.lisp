@@ -45,6 +45,19 @@
   (:report (lambda (condition stream)
              (format stream "Throw to unknown catch-tag ~S." (bad-catch-tag-error-tag condition)))))
 
+(define-condition bad-restart-error (control-error)
+  ((identifier :initarg :identifier
+               :reader bad-restart-error-identifier)
+   (condition :initarg :condition
+              :reader bad-restart-error-condition))
+  (:report (lambda (condition stream)
+             (if (bad-restart-error-condition condition)
+                 (format stream "No applicable restart named ~S associated with ~S"
+                         (bad-restart-error-identifier condition)
+                         (bad-restart-error-condition condition))
+                 (format stream "No applicable restart named ~S"
+                         (bad-restart-error-identifier condition))))))
+
 (define-condition division-by-zero (arithmetic-error)
   ())
 

@@ -60,7 +60,9 @@
 
 (defun find-restart-or-die (identifier &optional condition)
   (or (find-restart identifier condition)
-      (error "No applicable restart ~S" identifier)))
+      (error 'bad-restart-error
+             :identifier identifier
+             :condition condition)))
 
 (defun invoke-restart-interactively (restart)
   (let* ((restart (find-restart-or-die restart))
