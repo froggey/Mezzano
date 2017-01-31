@@ -1047,6 +1047,12 @@ has only has class specializer."
 
 (defun find-method (gf qualifiers specializers
                     &optional (errorp t))
+  (setf specializers (loop
+                        for spec in specializers
+                        collect (if (and (consp spec)
+                                         (eql (first spec) 'eql))
+                                    (intern-eql-specializer (second spec))
+                                    spec)))
   (let ((method
           (find-if #'(lambda (method)
                        (and (equal qualifiers
