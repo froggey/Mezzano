@@ -165,7 +165,11 @@
           (define-compiler-macro ,name (number &rest more-numbers)
             (let ((n-numbers (1+ (length more-numbers))))
               (case n-numbers
-                (1 `(progn (check-type ,number ,',type) 't))
+                (1
+                 (let ((the-number (gensym)))
+                   `(let ((,the-number ,number))
+                      (check-type ,the-number ,',type)
+                      t)))
                 (2 `(,',base ,number ,(first more-numbers)))
                 (t (let* ((all-nums (list* number more-numbers))
                           (syms (loop for i below n-numbers
