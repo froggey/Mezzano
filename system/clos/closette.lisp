@@ -1032,7 +1032,7 @@ has only has class specializer."
     (when (typep specializer 'class)
       (pushnew method (class-direct-methods specializer))))
   (finalize-generic-function gf)
-  method)
+  gf)
 
 (defun remove-method (gf method)
   (setf (generic-function-methods gf)
@@ -1043,7 +1043,7 @@ has only has class specializer."
       (setf (class-direct-methods class)
             (remove method (class-direct-methods class)))))
   (finalize-generic-function gf)
-  method)
+  gf)
 
 (defun find-method (gf qualifiers specializers
                     &optional (errorp t))
