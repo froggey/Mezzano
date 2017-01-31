@@ -185,6 +185,9 @@
 (defgeneric unparse-pathname-file (pathname host))
 (defgeneric unparse-pathname-directory (pathname host))
 
+(defun host-namestring (pathname)
+  (host-name (pathname-host pathname)))
+
 (defun file-namestring (pathname)
   (unparse-pathname-file pathname (pathname-host pathname)))
 
