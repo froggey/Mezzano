@@ -87,6 +87,9 @@
 (define-condition parse-error (error)
   ())
 
+(define-condition simple-parse-error (simple-condition parse-error)
+  ())
+
 (define-condition print-not-readable (error)
   ((object :initarg :object
            :reader print-not-readable-object)))

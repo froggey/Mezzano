@@ -437,7 +437,9 @@
     (when (>= start end)
       (if junk-allowed
           (return-from parse-integer (values nil start))
-          (error "No non-whitespace characters in ~S." string)))
+          (error 'simple-parse-error
+                 :format-control "No non-whitespace characters in ~S."
+                 :format-arguments (list string))))
     (cond ((eql (char string start) #\+)
            (incf start))
           ((eql (char string start) #\-)
@@ -457,7 +459,9 @@
                             nil
                             n)
                         offset))
-              (error "Not a parseable integer ~S." string)))
+              (error 'simple-parse-error
+                     :format-control "Not a parseable integer ~S."
+                     :format-arguments (list string))))
         (setf n (+ (* n radix) weight))))))
 
 (defun logcount (integer)
