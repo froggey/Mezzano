@@ -85,7 +85,10 @@
                             dimension-spec))
                 (eql dimension-spec '*))
             (dimension-spec))
-    (values element-type dimension-spec)))
+    (values (if (eql element-type '*)
+                '*
+                (upgraded-array-element-type element-type))
+            dimension-spec)))
 )
 
 (defun array-type-p (object type)
