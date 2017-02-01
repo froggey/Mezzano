@@ -694,7 +694,11 @@
        (#b101101 'object-tag-101101)
        (#b101110 'object-tag-101110)
        (#b101111 'object-tag-101111)
-       (#b110000 'symbol)
+       (#b110000
+        (cond ((eql object 'nil) 'null)
+              ((eql object 't) 'boolean)
+              ((keywordp object) 'keyword)
+              (t 'symbol)))
        (#b110001 (structure-name (%struct-slot object 0)))
        (#b110010 (class-name (class-of object)))
        (#b110011 'xmm-vector)
