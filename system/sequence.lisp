@@ -145,14 +145,16 @@
   (when (or (not (eql start 0))
             end)
     (error "start/end not implemented"))
+  (when count
+    (check-type count integer))
   (etypecase sequence
     (list
      (let* ((list (cons nil nil))
             (tail list))
        (dolist (e sequence (cdr list))
-         (when (or (and count
+         (when (and (or (null count)
                         (plusp count))
-                   (not (funcall test (funcall key e))))
+                    (not (funcall test (funcall key e))))
            (when count
              (decf count))
            (setf (cdr tail) (cons e nil)
@@ -161,7 +163,7 @@
      (loop
         with result = (make-array (length sequence) :element-type (array-element-type sequence) :fill-pointer 0)
         for e across sequence
-        when (or (and count
+        when (and (or (null count)
                       (plusp count))
                  (not (funcall test (funcall key e))))
         do
