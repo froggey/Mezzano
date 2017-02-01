@@ -271,7 +271,7 @@
 (sys.int::define-lap-function sys.int::%%double-float-sqrt ()
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
-  (sys.lap-x86:sqrtsd :xmm0 (:object :r9 0))
+  (sys.lap-x86:sqrtsd :xmm0 :xmm0)
   (sys.lap-x86:movq :rax :xmm0)
   (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-double-float-rax))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
