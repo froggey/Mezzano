@@ -375,7 +375,8 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(nil #\Space #\, 3))
-    `(sys.format::format-integer XP ,(get-arg) ,base (list ,@params) ',atsign ',colon)))
+    `(let ((the-params (list ,@params)))
+       (sys.format::format-integer XP ,(get-arg) ,base the-params ',atsign ',colon))))
 
 (def-format-handler #\D (start end) (impl-integer start end 10))
 (def-format-handler #\B (start end) (impl-integer start end 2))
@@ -386,17 +387,18 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(:no-parameters-specified nil #\Space #\, 3))
-    `(sys.format::format-radix XP
-                               ,(get-arg)
-                               ;; If no parameters are specified, then pass in
-                               ;; an empty param list to format-radix. That's
-                               ;; how it it knows to print cardinal/ordinal
-                               ;; numbers.
-                               ,(if (eql (first params) :no-parameters-specified)
-                                    '()
-                                    `(list ,@params))
-                               ',atsign
-                               ',colon)))
+    ;; If no parameters are specified, then pass in
+    ;; an empty param list to format-radix. That's
+    ;; how it it knows to print cardinal/ordinal
+    ;; numbers.
+    `(let ((the-params ,(if (eql (first params) :no-parameters-specified)
+                            '()
+                            `(list ,@params))))
+       (sys.format::format-radix XP
+                                 ,(get-arg)
+                                 the-params
+                                 ',atsign
+                                 ',colon))))
 
 (def-format-handler #\C (start end)
   (declare (ignore end))
