@@ -660,6 +660,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun boole (op integer-1 integer-2)
   "Perform bit-wise logical OP on INTEGER-1 and INTEGER-2."
+  (check-type integer-1 integer)
+  (check-type integer-2 integer)
   (ecase op
     (boole-1 integer-1)
     (boole-2 integer-2)
