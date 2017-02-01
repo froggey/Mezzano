@@ -97,8 +97,8 @@
                         (class-slots class)
                         :key #'slot-definition-name)))
         (when (null slot)
-          (error "The slot ~S is missing from the class ~S."
-                 slot-name class))
+          (return-from slot-location
+            nil))
         (case (slot-definition-allocation slot)
           ((:instance :class)
            (slot-definition-location slot))
@@ -174,6 +174,10 @@
 (defun std-slot-value (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
+    (when (not location)
+      (return-from std-slot-value
+        (values (slot-missing (class-of instance) instance
+                              slot-name 'slot-value))))
     (let ((val (slot-contents slots location)))
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance) instance slot-name))
@@ -190,6 +194,10 @@
 (defun (setf std-slot-value) (value instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
+    (when (not location)
+      (slot-missing (class-of instance) instance slot-name 'setf value)
+      (return-from std-slot-value
+        value))
     (setf (slot-contents slots location) value)))
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
@@ -205,6 +213,10 @@
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
+    (when (not location)
+      (return-from std-slot-boundp
+        (values (slot-missing (class-of instance) instance
+                              slot-name 'slot-boundp))))
     (not (eq *secret-unbound-value* (slot-contents slots location)))))
 (defun slot-boundp (object slot-name)
   (let ((metaclass (class-of (class-of object))))
@@ -219,6 +231,10 @@
 (defun std-slot-makunbound (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
+    (when (not location)
+      (return-from std-slot-makunbound
+        (values (slot-missing (class-of instance) instance
+                              slot-name 'slot-makunbound))))
     (setf (slot-contents slots location) *secret-unbound-value*))
   instance)
 (defun slot-makunbound (object slot-name)
@@ -233,6 +249,10 @@
 
 (defun slot-exists-p (instance slot-name)
   (not (null (find-effective-slot instance slot-name))))
+
+(defun slot-exists-in-class-p (class slot-name)
+  (not (null (find slot-name (class-slots class)
+                   :key #'slot-definition-name))))
 
 ;;; class-of
 
@@ -1188,8 +1208,10 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
-                     (std-class-p (class-of class)))
+                     (std-class-p (class-of class))
+                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                  (assert location)
                   (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
                   (fast-slot-read (first args) location)))
@@ -1205,8 +1227,10 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
-                     (std-class-p (class-of class)))
+                     (std-class-p (class-of class))
+                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                  (assert location)
                   (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
                   (fast-slot-write (first args) (second args) location)))
