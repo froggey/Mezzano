@@ -433,10 +433,11 @@
 (defun parse-integer (string &key (start 0) end (radix 10) junk-allowed)
   (setf end (or end (length string)))
   (let ((negativep nil)
-        (n 0))
+        (n 0)
+        (whitespace '(#\Space #\Newline #\Tab #\Linefeed #\Page #\Return)))
     ;; Eat leading/trailing whitespace.
     (do () ((or (>= start end)
-                (and (not (member (char string start) '(#\Space #\Newline #\Tab))))))
+                (and (not (member (char string start) whitespace)))))
       (incf start))
     (when (>= start end)
       (if junk-allowed
@@ -449,11 +450,21 @@
           ((eql (char string start) #\-)
            (setf negativep t)
            (incf start)))
+    (when (>= start end)
+      (if junk-allowed
+          (return-from parse-integer (values nil start))
+          (error 'simple-parse-error
+                 :format-control "No numbers after sign in ~S."
+                 :format-arguments (list string))))
     (do ((offset start (1+ offset)))
         ((or (>= offset end)
-             (member (char string offset) '(#\Space #\Newline #\Tab)))
+             (member (char string offset) whitespace))
          (when negativep
            (setf n (- n)))
+         ;; Eat trailing whitespace
+         (do () ((or (>= offset end)
+                     (and (not (member (char string offset) whitespace)))))
+           (incf offset))
          (values n offset))
       (let ((weight (digit-char-p (char string offset) radix)))
         (when (not weight)
