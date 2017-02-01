@@ -268,9 +268,9 @@
   '("zero" "ten" "twenty" "thirty" "forty" "fifty" "sixty" "seventy" "eighty" "ninety"))
 (defvar *ordinal-names-1*
   '("zeroth" "first" "second" "third" "fourth" "fifth" "sixth" "seventh" "eighth" "ninth"
-    "tenth" "eleventh" "twelveth" "thirteenth" "fourteenth" "fifteenth" "sixteenth" "seventeenth" "eighteenth" "nineteenth"))
+    "tenth" "eleventh" "twelfth" "thirteenth" "fourteenth" "fifteenth" "sixteenth" "seventeenth" "eighteenth" "nineteenth"))
 (defvar *ordinal-names-10*
-  '("zeroth" "tenth" "twenieth" "thirtieth" "fortieth" "fiftieth" "sixtieth" "seventieth" "eightieth" "ninetieth"))
+  '("zeroth" "tenth" "twentieth" "thirtieth" "fortieth" "fiftieth" "sixtieth" "seventieth" "eightieth" "ninetieth"))
 (defvar *radix-powers*
   '((1000000 "million" "millionth") (1000 "thousand" "thousandth") (100 "hundred" "hundredth")))
 
