@@ -435,10 +435,12 @@
                   (values nil t))
                  (t
                   (values t t))))
-          ((eql t2 'character)
-           (values (or (eql t1 'standard-char)
-                       (eql t1 'character))
-                   t))
+          ((and (eql t2 'character)
+                (or (eql t1 'standard-char)
+                    ;; aka standard-char.
+                    (equal t1 '(and character (satisfies standard-char-p)))
+                    (eql t1 'character)))
+           (values t t))
           ((eql t2 't)
            (values t t))
           ((and (or (and (consp t1) (member (first t1) '(array simple-array)))
@@ -510,6 +512,9 @@
                 (symbolp t2)
                 (find-class t2 nil))
            (subclassp (find-class t1 nil) (find-class t2 nil)))
+          ((or (and (consp t1) (eql (first t1) 'satisfies))
+               (and (consp t2) (eql (first t2) 'satisfies)))
+           (values nil nil))
           (t
            (values nil t)))))
 
