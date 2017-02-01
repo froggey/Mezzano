@@ -233,7 +233,7 @@
   (do* ((result (cons nil nil))
         (tail result (cdr tail))
         (itr list (cdr itr)))
-       ((<= (length itr) n)
+       ((<= (dotted-list-length itr) n)
         (cdr result))
     (setf (cdr tail) (cons (car itr) nil))))
 
@@ -576,13 +576,16 @@
     (setf test 'eql))
   (unless key
     (setf key 'identity))
-  (flet ((sublis-one (thing)
-           (if (consp thing)
-               (sublis alist thing)
-               (let ((x (assoc thing alist :key key :test test)))
-                 (if x (cdr x) thing)))))
-    (cons (sublis-one (car tree))
-          (sublis-one (cdr tree)))))
+  (labels ((sublis-one (thing)
+             (let ((x (assoc (funcall key thing) alist :test test)))
+               (cond (x
+                      (cdr x))
+                     ((consp thing)
+                      (cons (sublis-one (car thing))
+                            (sublis-one (cdr thing))))
+                     (t
+                      thing)))))
+    (sublis-one tree)))
 
 (defun pairlis (keys data &optional alist)
   (assert (or (and keys data)
