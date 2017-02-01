@@ -58,14 +58,18 @@
   `(or (vector base-char ,size)
        (vector character ,size)))
 
+(defun simple-array-p (object)
+  (or (%simple-1d-array-p object)
+      (%object-of-type-p object +object-tag-simple-string+)
+      (%object-of-type-p object +object-tag-simple-array+)))
+
 (defun simple-array-type-p (object type)
-  (and (or (%simple-1d-array-p object)
-           (simple-string-p object))
+  (and (simple-array-p object)
        (array-type-p object type)))
 (%define-compound-type 'simple-array 'simple-array-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'simple-array '%simple-1d-array-p)
+(%define-type-symbol 'simple-array 'simple-array-p)
 )
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
