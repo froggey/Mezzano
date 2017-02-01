@@ -385,7 +385,10 @@
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (when (typep type-2 'class)
-    (return-from subtypep (subclassp type-1 type-2)))
+    (return-from subtypep (subclassp (if (listp type-1)
+                                         (first type-1)
+                                         type-1)
+                                     type-2)))
   (when (typep type-1 'class)
     (let ((other-class (when (symbolp type-2)
                          (find-class type-2 nil))))
