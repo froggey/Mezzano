@@ -23,9 +23,13 @@
 
 (defun elt (sequence index)
   (check-type sequence sequence)
+  (check-type index (integer 0))
   (if (listp sequence)
-      ;; TODO: more error checking.
-      (nth index sequence)
+      (let ((the-cdr (nthcdr index sequence)))
+        (cond ((null the-cdr)
+               (error "Index ~D out of bounds for sequence ~S." index sequence))
+              (t
+               (car the-cdr))))
       (aref sequence index)))
 
 (defun (setf elt) (value sequence index)
