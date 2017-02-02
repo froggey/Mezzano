@@ -646,11 +646,18 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
                (let ((ofs (1+ (position ch *unicode-direct-name-codes*))))
                  (if (eql (ash (logand (aref trie (+ node ofs)) #xFC000000) -26) ofs)
                      (setf node (logand (aref trie (+ node ofs)) #x00FFFFFF))
-                     (return-from match-unicode-name nil)))))
+                     (return-from match-unicode-name nil))))
+             (peek-next ()
+               (if (eql (1+ i) end)
+                   nil
+                   (char name (1+ i)))))
         (let ((ch (char name i)))
           ;; Ignore spaces and medial hyphens
           (cond ((eql ch #\-)
-                 (unless (and prev-was-letter (not (eql (char name (1+ i)) #\Space)))
+                 (when (not (or (and prev-was-letter
+                                     (not (eql (peek-next) #\Space)))
+                                (and (not prev-was-letter)
+                                     (eql (peek-next) #\Space))))
                    (advance #\-)))
                 ((or (eql ch #\Space)
                      (eql ch #\_))
