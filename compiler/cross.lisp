@@ -302,6 +302,7 @@
   (:export #:current-thread
            #:with-symbol-spinlock
            #:with-pseudo-atomic
+           #:with-snapshot-inhibited
            #:without-interrupts
            #:with-world-stopped
            #:make-thread

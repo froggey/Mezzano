@@ -320,7 +320,7 @@ and then some alignment.")
     (virtio-driver-detached (virtio-net-virtio-device nic))))
 
 (defun virtio-net-initialize (nic)
-  (with-pseudo-atomic
+  (with-snapshot-inhibited ()
     (check-virtio-net-boot nic)
     (let ((device (virtio-net-virtio-device nic)))
       ;; Set the driver bit in the status field.
@@ -354,10 +354,10 @@ and then some alignment.")
         (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                     +virtio-status-driver+
                                                     +virtio-status-ok+))
-        (virtio-kick device +virtio-net-receiveq+))))
-  (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
-    (setf (virtio-net-wrapper nic) wrapper)
-    (nic:register-network-card wrapper))
+        (virtio-kick device +virtio-net-receiveq+)))
+    (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
+      (setf (virtio-net-wrapper nic) wrapper)
+      (nic:register-network-card wrapper)))
   t)
 
 (defmethod nic:mac-address ((nic virtio-net-network-card))

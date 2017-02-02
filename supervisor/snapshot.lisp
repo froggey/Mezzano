@@ -385,3 +385,12 @@ Returns 4 values:
                         t)))))
     (when did-wake
       (thread-yield))))
+
+(defmacro with-snapshot-inhibited (options &body body)
+  `(call-with-snapshot-inhibited (dx-lambda () ,@body) ,@options))
+
+(defun call-with-snapshot-inhibited (fn)
+  (incf *snapshot-inhibit*)
+  (unwind-protect
+       (funcall fn)
+    (decf *snapshot-inhibit*)))
