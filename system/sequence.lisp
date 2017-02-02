@@ -145,17 +145,15 @@
     (error "start/end not implemented"))
   (when from-end
     (setf sequence (reverse sequence)))
-  (cond (count
-         (check-type count integer))
-        (t
-         (setf count most-positive-fixnum)))
+  (check-type count (or null integer))
   (etypecase sequence
     (list
      (let* ((list (cons nil nil))
             (tail list))
        (dolist (e sequence)
          (when (not (and (funcall test (funcall key e))
-                         (>= (decf count) 0)))
+                         (or (null count)
+                             (>= (decf count) 0))))
            (setf (cdr tail) (cons e nil)
                  tail (cdr tail))))
        (if from-end
@@ -166,7 +164,8 @@
         with result = (make-array (length sequence) :element-type (array-element-type sequence) :fill-pointer 0)
         for e across sequence
         when (not (and (funcall test (funcall key e))
-                       (>= (decf count) 0)))
+                       (or (null count)
+                           (>= (decf count) 0))))
         do
           (vector-push e result)
           (decf count)
