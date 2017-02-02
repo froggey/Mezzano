@@ -258,7 +258,8 @@
   ;; n => (n)
   (when (not (listp dimensions))
     (setf dimensions (list dimensions)))
-  (let ((rank (length dimensions)))
+  (let ((rank (length dimensions))
+        (upgraded-element-type (upgraded-array-element-type element-type)))
     (when (>= rank array-rank-limit)
       (error "Array has too many dimensions."))
     (when (and initial-element-p initial-contents-p)
@@ -283,8 +284,7 @@
                 (not fill-pointer)
                 (not displaced-to)
                 ;; character arrays are special.
-                (not (and (subtypep element-type 'character)
-                          (not (subtypep element-type 'nil)))))
+                (not (eql upgraded-element-type 'character)))
            ;; Create a simple 1D array.
            (let ((array (if initial-element-p
                             (make-simple-array (first dimensions) element-type area initial-element)
@@ -296,9 +296,7 @@
            (unless displaced-index-offset
              (setf displaced-index-offset 0))
            (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
-          ((or (eql element-type 'character)
-               (and (subtypep element-type 'character)
-                    (not (subtypep element-type 'nil))))
+          ((eql upgraded-element-type 'character)
            (let* ((total-size (apply #'* dimensions))
                   (backing-array (make-simple-array total-size '(unsigned-byte 8) area))
                   (array (%make-array-header (if (and (not adjustable)
