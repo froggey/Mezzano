@@ -140,37 +140,39 @@
 (declaim (inline remove-if remove remove-if-not))
 (defun remove-if (test sequence &key from-end (start 0) end count key)
   (unless key (setf key 'identity))
-  (when from-end
-    (error "from-end not implemented"))
   (when (or (not (eql start 0))
             end)
     (error "start/end not implemented"))
-  (when count
-    (check-type count integer))
+  (when from-end
+    (setf sequence (reverse sequence)))
+  (cond (count
+         (check-type count integer))
+        (t
+         (setf count most-positive-fixnum)))
   (etypecase sequence
     (list
      (let* ((list (cons nil nil))
             (tail list))
-       (dolist (e sequence (cdr list))
-         (when (and (or (null count)
-                        (plusp count))
-                    (not (funcall test (funcall key e))))
-           (when count
-             (decf count))
+       (dolist (e sequence)
+         (when (not (and (funcall test (funcall key e))
+                         (>= (decf count) 0)))
            (setf (cdr tail) (cons e nil)
-                 tail (cdr tail))))))
+                 tail (cdr tail))))
+       (if from-end
+           (reverse (cdr list))
+           (cdr list))))
     (vector
      (loop
         with result = (make-array (length sequence) :element-type (array-element-type sequence) :fill-pointer 0)
         for e across sequence
-        when (and (or (null count)
-                      (plusp count))
-                 (not (funcall test (funcall key e))))
+        when (not (and (funcall test (funcall key e))
+                       (>= (decf count) 0)))
         do
           (vector-push e result)
-          (when count
-            (decf count))
-        finally (return result)))))
+          (decf count)
+        finally (return (if from-end
+                            (reverse result)
+                            result))))))
 
 (defun remove (item sequence &key from-end test test-not (start 0) end count key)
   (when (and test test-not)
