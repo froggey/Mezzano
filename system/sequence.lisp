@@ -488,13 +488,16 @@
                  result-vector)))
             (t (error "~S is not a subtype of SEQUENCE." result-type))))))
 
-(defun substitute-if (newitem predicate sequence &key key (start 0) end) ; from-end
+(defun substitute-if (newitem predicate sequence &key key (start 0) end count) ; from-end
+  (check-type count (or null integer))
   (unless key (setf key 'identity))
   (cond ((and (listp sequence)
               (zerop start)
               (null end))
          (mapcar (lambda (x)
-                   (if (funcall predicate (funcall key x))
+                   (if (and (funcall predicate (funcall key x))
+                            (or (null count)
+                                (>= (decf count) 0)))
                        newitem
                        x))
                  sequence))
@@ -505,17 +508,20 @@
                                                :element-type (array-element-type sequence)
                                                :initial-contents sequence))))
              (dotimes (i (- end start))
-               (when (funcall predicate (funcall key (elt new-sequence (+ start i))))
+               (when (and (funcall predicate (funcall key (elt new-sequence (+ start i))))
+                          (or (null count)
+                              (>= (decf count) 0)))
                  (setf (elt new-sequence (+ start i)) newitem)))
              new-sequence))))
 
-(defun substitute-if-not (newitem predicate sequence &key key (start 0) end) ; from-end
+(defun substitute-if-not (newitem predicate sequence &key key (start 0) end count) ; from-end
   (substitute-if newitem (complement predicate) sequence
                  :key key
                  :start start
-                 :end end))
+                 :end end
+                 :count count))
 
-(defun substitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
+(defun substitute (newitem olditem sequence &key test test-not key (start 0) end count) ; from-end
   (when (and test test-not)
     (error "Both :TEST and :TEST-NOT specified"))
   (when test-not (setf test (complement test-not)))
@@ -525,7 +531,8 @@
                  sequence
                  :key key
                  :start start
-                 :end end))
+                 :end end
+                 :count count))
 
 (defun nsubstitute-if (newitem predicate sequence &key key (start 0) end) ; from-end
   (unless key (setf key 'identity))
