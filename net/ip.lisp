@@ -214,13 +214,13 @@
      (ub16ref/be ip-header +ipv4-header-checksum+) (compute-ip-checksum ip-header))
     packet))
 
-(defun transmit-ipv4-packet (destination protocol payload)
+(defun transmit-ipv4-packet (source destination protocol payload)
   (multiple-value-bind (host interface)
       (ipv4-route destination)
     (when (and host interface)
       (transmit-ipv4-packet-on-interface
        host interface
-       (assemble-ipv4-packet (or (ipv4-interface-address interface) #x00000000)
+       (assemble-ipv4-packet (or source (ipv4-interface-address interface) #x00000000)
                              destination
                              protocol
                              payload)))))
@@ -284,6 +284,7 @@
                                              (+ start total-length)))
         (#.+ip-protocol-udp+
          (mezzano.network.udp::%udp4-receive packet
+                                             dest-ip
                                              source-ip
                                              (+ start header-length)
                                              (+ start total-length)))
@@ -455,7 +456,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (when payload
       (replace packet payload :start1 +icmp4-header-size+))
     (setf (ub16ref/be packet +icmp4-checksum+) (mezzano.network.ip:compute-ip-checksum packet))
-    (transmit-ipv4-packet destination +ip-protocol-icmp+ (list packet))))
+    (transmit-ipv4-packet nil destination +ip-protocol-icmp+ (list packet))))
 
 (defun send-ping (destination &optional (identifier 0) (sequence-number 0) payload)
   (when (not payload)
