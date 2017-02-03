@@ -24,18 +24,23 @@
 
 (defvar *server-alist* '())
 
-(defstruct tcp-connection
-  %state
-  local-port
-  remote-port
-  remote-ip
-  s-next
-  r-next
-  window-size
-  (max-seg-size 1000)
-  rx-data
-  (lock (mezzano.supervisor:make-mutex "TCP connection lock"))
-  (cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
+(defclass tcp-connection ()
+  ((%state :accessor tcp-connection-%state :initarg :%state)
+   (local-port :accessor tcp-connection-local-port :initarg :local-port)
+   (remote-port :accessor tcp-connection-remote-port :initarg :remote-port)
+   (remote-ip :accessor tcp-connection-remote-ip :initarg :remote-ip)
+   (s-next :accessor tcp-connection-s-next :initarg :s-next)
+   (r-next :accessor tcp-connection-r-next :initarg :r-next)
+   (window-size :accessor tcp-connection-window-size :initarg :window-size)
+   (max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
+   (rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
+   (lock :accessor tcp-connection-lock :initarg :lock)
+   (cvar :accessor tcp-connection-cvar :initarg :cvar))
+  (:default-initargs
+   :max-seg-size 1000
+    :lock (mezzano.supervisor:make-mutex "TCP connection lock")
+    :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")
+    :rx-data '()))
 
 (declaim (inline tcp-connection-state (setf tcp-connection-state)))
 
@@ -73,13 +78,14 @@
        (format t "Establishing TCP connection. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip)
        (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
               (blah (random #x100000000))
-              (connection (make-tcp-connection :%state :syn-received
-                                               :local-port local-port
-                                               :remote-port remote-port
-                                               :remote-ip remote-ip
-                                               :s-next (logand #xFFFFFFFF (1+ blah))
-                                               :r-next (logand #xFFFFFFFF (1+ seq))
-                                               :window-size 8192)))
+              (connection (make-instance 'tcp-connection
+                                         :%state :syn-received
+                                         :local-port local-port
+                                         :remote-port remote-port
+                                         :remote-ip remote-ip
+                                         :s-next (logand #xFFFFFFFF (1+ blah))
+                                         :r-next (logand #xFFFFFFFF (1+ seq))
+                                         :window-size 8192)))
          (let ((server (assoc local-port *server-alist*)))
            (cond (server
                   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -383,14 +389,15 @@
 
 (defun tcp-connect (ip port)
   (let* ((source-port (allocate-local-tcp-port))
-	 (seq (random #x100000000))
-	 (connection (make-tcp-connection :%state :syn-sent
-					  :local-port source-port
-					  :remote-port port
-					  :remote-ip ip
-					  :s-next (logand #xFFFFFFFF (1+ seq))
-					  :r-next 0
-					  :window-size 8192)))
+         (seq (random #x100000000))
+         (connection (make-instance 'tcp-connection
+                                    :%state :syn-sent
+                                    :local-port source-port
+                                    :remote-port port
+                                    :remote-ip ip
+                                    :s-next (logand #xFFFFFFFF (1+ seq))
+                                    :r-next 0
+                                    :window-size 8192)))
     (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
       (push connection *tcp-connections*))
     (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
