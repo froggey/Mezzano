@@ -524,8 +524,8 @@
 
 (defun do-complex-^-test (a1 &optional (a2 nil) (a3 nil))
   (cond (a3 (and (<= a1 a2) (<= a2 a3)))
-        (a2 (= a1 a2))
-        (t (= 0 a1))))
+        (a2 (eql a1 a2))
+        (t (eql 0 a1))))
 
 ;delimited pairs of format directives. "(){}[]<>;"
 
