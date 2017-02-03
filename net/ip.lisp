@@ -279,6 +279,7 @@
       (case protocol
         (#.+ip-protocol-tcp+
          (mezzano.network.tcp::%tcp4-receive packet
+                                             dest-ip
                                              source-ip
                                              (+ start header-length)
                                              (+ start total-length)))

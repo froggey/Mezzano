@@ -27,6 +27,7 @@
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
    (local-port :accessor tcp-connection-local-port :initarg :local-port)
+   (local-ip :accessor tcp-connection-local-ip :initarg :local-ip)
    (remote-port :accessor tcp-connection-remote-port :initarg :remote-port)
    (remote-ip :accessor tcp-connection-remote-ip :initarg :remote-ip)
    (s-next :accessor tcp-connection-s-next :initarg :s-next)
@@ -55,22 +56,25 @@
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
-(defun get-tcp-connection (remote-ip remote-port local-port)
+(defun get-tcp-connection (remote-ip remote-port local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (dolist (connection *tcp-connections*)
       (when (and (mezzano.network.ip:address-equal
                   (tcp-connection-remote-ip connection)
                   remote-ip)
                  (eql (tcp-connection-remote-port connection) remote-port)
+                 (mezzano.network.ip:address-equal
+                  (tcp-connection-local-ip connection)
+                  local-ip)
                  (eql (tcp-connection-local-port connection) local-port))
         (return connection)))))
 
-(defun %tcp4-receive (packet remote-ip start end)
+(defun %tcp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
          (flags (ldb (byte 12 0)
                      (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))))
-         (connection (get-tcp-connection remote-ip remote-port local-port)))
+         (connection (get-tcp-connection remote-ip remote-port local-ip local-port)))
     (cond
       (connection
        (tcp4-receive connection packet start end))
@@ -81,6 +85,7 @@
               (connection (make-instance 'tcp-connection
                                          :%state :syn-received
                                          :local-port local-port
+                                         :local-ip local-ip
                                          :remote-port remote-port
                                          :remote-ip remote-ip
                                          :s-next (logand #xFFFFFFFF (1+ blah))
@@ -278,26 +283,22 @@
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
-  (multiple-value-bind (remote-host interface)
-      (mezzano.network.ip:ipv4-route (tcp-connection-remote-ip connection))
-    (cond ((and remote-host interface)
-           (let* ((source (mezzano.network.ip:ipv4-interface-address interface))
-                  (source-port (tcp-connection-local-port connection))
-                  (packet (assemble-tcp4-packet source source-port
-                                                (tcp-connection-remote-ip connection)
-                                                (tcp-connection-remote-port connection)
-                                                seq ack
-                                                (tcp-connection-window-size connection)
-                                                data
-                                                :ack-p ack-p
-                                                :psh-p psh-p
-                                                :rst-p rst-p
-                                                :syn-p syn-p
-                                                :fin-p fin-p)))
-             (mezzano.network.ip:transmit-ipv4-packet-on-interface
-              remote-host interface packet)))
-           (t (format t "No route to ~A? Discarding TCPv4 packet.~%"
-                      (tcp-connection-remote-ip connection))))))
+  (let* ((source (tcp-connection-local-ip connection))
+         (source-port (tcp-connection-local-port connection))
+         (packet (assemble-tcp4-packet source source-port
+                                       (tcp-connection-remote-ip connection)
+                                       (tcp-connection-remote-port connection)
+                                       seq ack
+                                       (tcp-connection-window-size connection)
+                                       data
+                                       :ack-p ack-p
+                                       :psh-p psh-p
+                                       :rst-p rst-p
+                                       :syn-p syn-p
+                                       :fin-p fin-p)))
+    (mezzano.network.ip:transmit-ipv4-packet
+     source (tcp-connection-remote-ip connection)
+     mezzano.network.ip:+ip-protocol-tcp+ packet)))
 
 (defun compute-ip-pseudo-header-partial-checksum (src-ip dst-ip protocol length)
   (+ (logand src-ip #xFFFF)
@@ -310,13 +311,11 @@
 (defun assemble-tcp4-packet (src-ip src-port dst-ip dst-port seq-num ack-num window payload
                              &key (ack-p t) psh-p rst-p syn-p fin-p)
   "Build a full TCP & IP header."
-  (mezzano.network.ip::assemble-ipv4-packet
-   src-ip dst-ip mezzano.network.ip:+ip-protocol-tcp+
-   (let* ((checksum 0)
-          (payload-size (length payload))
-          (header (make-array 20 :element-type '(unsigned-byte 8)))
-          (packet (list header payload)))
-     ;; Assemble the TCP header.
+  (let* ((checksum 0)
+         (payload-size (length payload))
+         (header (make-array 20 :element-type '(unsigned-byte 8)))
+         (packet (list header payload)))
+    ;; Assemble the TCP header.
     (setf (ub16ref/be header +tcp4-header-source-port+) src-port
           (ub16ref/be header +tcp4-header-destination-port+) dst-port
           (ub32ref/be header +tcp4-header-sequence-number+) seq-num
@@ -343,7 +342,7 @@
     (setf checksum (mezzano.network.ip:compute-ip-partial-checksum header 0 nil checksum))
     (setf checksum (mezzano.network.ip:compute-ip-checksum payload 0 nil checksum))
     (setf (ub16ref/be header +tcp4-header-checksum+) checksum)
-    packet)))
+    packet))
 
 (defun allocate-local-tcp-port ()
   (do ()
@@ -388,35 +387,39 @@
   ())
 
 (defun tcp-connect (ip port)
-  (let* ((source-port (allocate-local-tcp-port))
-         (seq (random #x100000000))
-         (connection (make-instance 'tcp-connection
-                                    :%state :syn-sent
-                                    :local-port source-port
-                                    :remote-port port
-                                    :remote-ip ip
-                                    :s-next (logand #xFFFFFFFF (1+ seq))
-                                    :r-next 0
-                                    :window-size 8192)))
-    (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-      (push connection *tcp-connections*))
-    (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-    ;; FIXME: Better timeout mechanism.
-    (let ((timeout (+ (get-universal-time) 10)))
-      (loop
-         (when (not (eql (tcp-connection-state connection) :syn-sent))
-           (when (eql (tcp-connection-state connection) :connection-aborted)
-             (error 'connection-aborted
+  (multiple-value-bind (host interface)
+      (mezzano.network.ip:ipv4-route ip)
+    (let* ((source-port (allocate-local-tcp-port))
+           (source-address (mezzano.network.ip:ipv4-interface-address interface))
+           (seq (random #x100000000))
+           (connection (make-instance 'tcp-connection
+                                      :%state :syn-sent
+                                      :local-port source-port
+                                      :local-ip source-address
+                                      :remote-port port
+                                      :remote-ip ip
+                                      :s-next (logand #xFFFFFFFF (1+ seq))
+                                      :r-next 0
+                                      :window-size 8192)))
+      (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+        (push connection *tcp-connections*))
+      (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+      ;; FIXME: Better timeout mechanism.
+      (let ((timeout (+ (get-universal-time) 10)))
+        (loop
+           (when (not (eql (tcp-connection-state connection) :syn-sent))
+             (when (eql (tcp-connection-state connection) :connection-aborted)
+               (error 'connection-aborted
+                      :host ip
+                      :port port))
+             (return))
+           (when (> (get-universal-time) timeout)
+             (close-tcp-connection connection)
+             (error 'connection-timed-out
                     :host ip
                     :port port))
-           (return))
-         (when (> (get-universal-time) timeout)
-           (close-tcp-connection connection)
-           (error 'connection-timed-out
-                  :host ip
-                  :port port))
-         (sleep 0.01)))
-    connection))
+           (sleep 0.01)))
+      connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
   (when (eql (tcp-connection-state connection) :established)
