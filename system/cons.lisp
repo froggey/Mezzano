@@ -537,6 +537,29 @@
              list
              :key key))
 
+(define-compiler-macro member (&whole whole item list &key key test test-not)
+  (cond
+    ((or (not (and (consp list)
+                   (consp (cdr list))
+                   (null (cddr list))
+                   (eql (first list) 'quote)
+                   (listp (second list))))
+         ;; Bail out when keyword arguments are involved.
+         ;; Tricky to keep order of evaluation correct.
+         key
+         test
+         test-not)
+     ;; Skip if the list isn't a quoted proper list.
+     whole)
+    ((eql (second list) '())
+     ''nil)
+    (t
+     (let ((item-sym (gensym "ITEM")))
+       `(let ((,item-sym ,item))
+          (if (eql ,item-sym ',(first (second list)))
+              ',(second list)
+              (member ,item-sym ',(rest (second list)))))))))
+
 (defun get-properties (plist indicator-list)
   (do ((i plist (cddr i)))
       ((null i)
