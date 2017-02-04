@@ -393,7 +393,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (when initialization-form
       (error "Initialization-forms from MAKE-LOAD-FORM not supported."))
     (save-object (compile nil `(lambda ()
-                                 (declare (system:lambda-name load-form))
+                                 (declare (sys.int::lambda-name load-form))
                                  (progn ,creation-form)))
                  omap stream)
     (save-object 0 omap stream)
@@ -512,7 +512,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        (add-to-llf sys.int::+llf-funcall-n+
                    (sys.c::compile-lambda
                     `(lambda ()
-                       (declare (system:lambda-name
+                       (declare (lambda-name
                                  (sys.int::toplevel ,(when *compile-file-pathname*
                                                            (princ-to-string *compile-file-pathname*))
                                                     ,sys.int::*top-level-form-number*)))

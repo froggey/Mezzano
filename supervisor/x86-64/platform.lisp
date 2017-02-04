@@ -50,7 +50,7 @@
       ;; Pulse the reset line via the PS/2 controller.
       (ps/2-input-wait)
       ;; Pulse output line 0 low.
-      (setf (system:io-port/8 +ps/2-control-port+) #xFE)))
+      (setf (sys.int::io-port/8 +ps/2-control-port+) #xFE)))
   ;; Give up. Trash the IDT and trigger a page-fault to triple-fault the CPU.
   (%lidt 0 0)
   (sys.int::memref-unsigned-byte-8 0 0))

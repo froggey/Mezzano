@@ -860,8 +860,6 @@
            "COMMON-LISP")
           ((eql package (find-package "SYS.INT"))
            "SYSTEM.INTERNALS")
-          ((eql package (find-package "SYSTEM"))
-           "SYSTEM")
           ((eql package (find-package "SYS.FORMAT"))
            "SYS.FORMAT")
           (t (error "Not touching package ~S (for symbol ~A)." package symbol)))))
@@ -1191,10 +1189,6 @@
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
          (cl-symbol-names (with-open-file (s *cl-symbol-list-file*) (read s)))
-         (system-symbol-names (remove-duplicates
-                               (iter (for sym in-package :system external-only t)
-                                     (collect (symbol-name sym)))
-                               :test #'string=))
          (pf-exception-stack (create-stack (* 128 1024)))
          (irq-stack (create-stack (* 128 1024)))
          (wired-stack (create-stack (* 128 1024)))
@@ -1328,8 +1322,6 @@
     ;; Poke all the CL & SYSTEM symbols
     (dolist (name cl-symbol-names)
       (symbol-address name "COMMON-LISP"))
-    (dolist (name system-symbol-names)
-      (symbol-address name "SYSTEM"))
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)

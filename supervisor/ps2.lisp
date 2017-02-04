@@ -46,7 +46,7 @@
 (sys.int::defglobal *ps/2-debug-dump-state*)
 
 (defun ps/2-irq-handler (fifo update-debug-state)
-  (let ((byte (system:io-port/8 +ps/2-data-port+)))
+  (let ((byte (sys.int::io-port/8 +ps/2-data-port+)))
     (irq-fifo-push byte fifo)
     (when update-debug-state
       (case *ps/2-debug-dump-state*
@@ -78,7 +78,7 @@
   ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
             (debug-print-line "PS/2: Timeout waiting for " what "."))
-    (when (zerop (logand (system:io-port/8 +ps/2-control-port+) +ps/2-status-input-buffer-status+))
+    (when (zerop (logand (sys.int::io-port/8 +ps/2-control-port+) +ps/2-status-input-buffer-status+))
       (return t))))
 
 (defun ps/2-output-wait (&optional (what "data"))
@@ -86,16 +86,16 @@
   ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
             (debug-print-line "PS/2: Timeout waiting for " what "."))
-    (when (not (zerop (logand (system:io-port/8 +ps/2-control-port+) +ps/2-status-output-buffer-status+)))
+    (when (not (zerop (logand (sys.int::io-port/8 +ps/2-control-port+) +ps/2-status-output-buffer-status+)))
       (return t))))
 
 (defun ps/2-port-write (byte command)
   (without-interrupts
     (with-symbol-spinlock (*ps/2-controller-lock*)
       (ps/2-input-wait)
-      (setf (system:io-port/8 +ps/2-control-port+) command)
+      (setf (sys.int::io-port/8 +ps/2-control-port+) command)
       (ps/2-input-wait)
-      (setf (system:io-port/8 +ps/2-data-port+) byte))))
+      (setf (sys.int::io-port/8 +ps/2-data-port+) byte))))
 
 (defun ps/2-key-write (byte)
   "Write a byte to the key port."
@@ -128,26 +128,26 @@
   (setf *ps/2-present* t)
   ;; Enable the aux port.
   (ps/2-input-wait)
-  (setf (system:io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
+  (setf (sys.int::io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
   ;; Enable interrupts for key & aux.
   (ps/2-input-wait)
-  (setf (system:io-port/8 +ps/2-control-port+) +ps/2-read-config-byte+)
+  (setf (sys.int::io-port/8 +ps/2-control-port+) +ps/2-read-config-byte+)
   (ps/2-output-wait)
-  (let ((config (logior (system:io-port/8 +ps/2-data-port+)
+  (let ((config (logior (sys.int::io-port/8 +ps/2-data-port+)
                         +ps/2-config-key-interrupt+
                         +ps/2-config-aux-interrupt+)))
     (ps/2-input-wait)
-    (setf (system:io-port/8 +ps/2-control-port+) +ps/2-write-config-byte+)
+    (setf (sys.int::io-port/8 +ps/2-control-port+) +ps/2-write-config-byte+)
     (ps/2-input-wait)
-    (setf (system:io-port/8 +ps/2-data-port+) config))
+    (setf (sys.int::io-port/8 +ps/2-data-port+) config))
   ;; Enable mouse defaults & reporting.
   (ps/2-aux-write #xF6)
   ;; Read response.
   (ps/2-output-wait)
-  (system:io-port/8 +ps/2-data-port+)
+  (sys.int::io-port/8 +ps/2-data-port+)
   (ps/2-aux-write #xF4)
   (ps/2-output-wait)
-  (system:io-port/8 +ps/2-data-port+)
+  (sys.int::io-port/8 +ps/2-data-port+)
   ;; Enable both IRQs.
   (i8259-hook-irq +ps/2-key-irq+ 'ps/2-key-irq-handler)
   (i8259-hook-irq +ps/2-aux-irq+ 'ps/2-aux-irq-handler)

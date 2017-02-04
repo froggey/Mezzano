@@ -5,7 +5,7 @@
 
 (declaim (inline integerp))
 (defun integerp (object)
-  (or (system:fixnump object)
+  (or (sys.int::fixnump object)
       (sys.int::bignump object)))
 
 (declaim (inline sys.int::single-float-p sys.int::double-float-p))

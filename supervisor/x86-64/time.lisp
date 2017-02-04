@@ -20,10 +20,10 @@
           *run-time-advance* (truncate (* *pit-tick-rate*
                                           internal-time-units-per-second)))
     ;; Channel 0. lobyte/hibyte. Square wave generator. Not BCD.
-    (setf (system:io-port/8 #x43) #x36)
+    (setf (sys.int::io-port/8 #x43) #x36)
     ;; Write low & high bytes to channel 0.
-    (setf (system:io-port/8 #x40) (ldb (byte 8 0) divisor)
-          (system:io-port/8 #x40) (ldb (byte 8 8) divisor))))
+    (setf (sys.int::io-port/8 #x40) (ldb (byte 8 0) divisor)
+          (sys.int::io-port/8 #x40) (ldb (byte 8 8) divisor))))
 
 (defun calibrate-tsc-1 ()
   "Return the number of cycles per second, approximately."
@@ -93,15 +93,15 @@
   ;; Setting the high bit of the index register
   ;; will disable some types of NMI.
   (check-type register (unsigned-byte 7))
-  (setf (system:io-port/8 +rtc-index-io-reg+) register)
-  (system:io-port/8 +rtc-data-io-reg+))
+  (setf (sys.int::io-port/8 +rtc-index-io-reg+) register)
+  (sys.int::io-port/8 +rtc-data-io-reg+))
 
 (defun (setf rtc) (value register)
   ;; Setting the high bit of the index register
   ;; will disable some types of NMI.
   (check-type register (unsigned-byte 7))
-  (setf (system:io-port/8 +rtc-index-io-reg+) register
-        (system:io-port/8 +rtc-data-io-reg+) value))
+  (setf (sys.int::io-port/8 +rtc-index-io-reg+) register
+        (sys.int::io-port/8 +rtc-data-io-reg+) value))
 
 (defun wait-for-rtc ()
   "Wait for the update-in-progress flag to clear. Returns false if the RTC times out."

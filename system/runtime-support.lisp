@@ -16,11 +16,11 @@
 
 (defun proclaim-symbol-mode (symbol new-mode)
   (check-type symbol symbol)
-  (when (not (or (null (system:symbol-mode symbol))
-                 (eql (system:symbol-mode symbol) new-mode)))
+  (when (not (or (null (symbol-mode symbol))
+                 (eql (symbol-mode symbol) new-mode)))
     (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
-            symbol (system:symbol-mode symbol) new-mode))
-  (setf (system:symbol-mode symbol) new-mode))
+            symbol (symbol-mode symbol) new-mode))
+  (setf (symbol-mode symbol) new-mode))
 
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
@@ -650,7 +650,7 @@ VALUE may be nil to make the fref unbound."
              `(setf (fdefinition ',op)
                     (lambda (&rest args)
                       (declare (ignore args)
-                               (system:lambda-name (special-operator ,op)))
+                               (lambda-name (special-operator ,op)))
                       (error 'undefined-function :name ',op))))
            (all (&rest ops)
              `(progn

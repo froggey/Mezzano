@@ -168,7 +168,7 @@
           (t
            (cerror "Change the value" "Attempting to modify constant symbol ~S" symbol)))))
 
-(defun system:symbol-mode (symbol)
+(defun sys.int::symbol-mode (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (ecase (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
     (#.sys.int::+symbol-mode-nil+ nil)
@@ -177,7 +177,7 @@
     (#.sys.int::+symbol-mode-symbol-macro+ :symbol-macro)
     (#.sys.int::+symbol-mode-global+ :global)))
 
-(defun (setf system:symbol-mode) (value symbol)
+(defun (setf sys.int::symbol-mode) (value symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (setf (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
         (ecase value

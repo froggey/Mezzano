@@ -30,7 +30,7 @@
         ;; for a lambda-name declaration.
         (dolist (decl (cdar body))
           (push decl declares)
-          (when (and (eq (car decl) 'system:lambda-name)
+          (when (and (eql (car decl) 'sys.int::lambda-name)
                      (cdr decl)
                      (not name))
             (setf name (cadr decl)))))))
@@ -346,7 +346,7 @@
                                :name name
                                :definition-point *current-lambda*)))
       (values name var `(lambda ,(second fn)
-                          (declare (system:lambda-name (flet ,name :in ,(lambda-information-name *current-lambda*)))
+                          (declare (sys.int::lambda-name (flet ,name :in ,(lambda-information-name *current-lambda*)))
                                    ,@declares)
                           (block ,(if (consp name)
                                       (second name)
@@ -529,7 +529,7 @@
                 (sys.int::eval-in-lexenv
                  `(lambda (,whole ,env)
                     (declare (ignorable ,whole ,env)
-                             (system:lambda-name (macrolet ,name)))
+                             (sys.int::lambda-name (macrolet ,name)))
                     (destructuring-bind ,lambda-list (cdr ,whole)
                       (declare ,@declares)
                       (block ,name ,@body)))
@@ -749,7 +749,7 @@
         (make-instance 'ast-unwind-protect
                        :protected-form (pass1-form protected-form env)
                        :cleanup-function (pass1-lambda `(lambda ()
-                                                          (declare (system:lambda-name (unwind-protect-cleanup :in ,(lambda-information-name *current-lambda*))))
+                                                          (declare (sys.int::lambda-name (unwind-protect-cleanup :in ,(lambda-information-name *current-lambda*))))
                                                           (progn ,@cleanup-forms))
                                                        env))
         (pass1-form protected-form env))))

@@ -244,7 +244,7 @@
          (%defsetf-long-form ',access-fn
                              ',(length store-variables)
                              (lambda (,subforms ,env ,@store-variables)
-                               (declare (system:lambda-name (defsetf ,access-fn))
+                               (declare (lambda-name (defsetf ,access-fn))
                                         (ignorable ,env))
                                (block ,access-fn
                                  (apply (lambda ,new-lambda-list

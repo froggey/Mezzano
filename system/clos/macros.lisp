@@ -270,7 +270,7 @@
                                              `()))))
       `(lambda (method next-emfun)
          (lambda ,incoming-lambda-list
-           (declare (system:lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers)))
+           (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers)))
            ,@(when docstring (list docstring))
            (flet ((call-next-method (&rest cnm-args)
                     (if cnm-args

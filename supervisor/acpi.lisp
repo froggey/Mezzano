@@ -224,9 +224,9 @@
                      (4 (physical-memref-unsigned-byte-64 address))))
                   (1 ; System I/O space.
                    (ecase (acpi-generic-address-access-size gas)
-                     (1 (system:io-port/8 address))
-                     (2 (system:io-port/16 address))
-                     (3 (system:io-port/32 address)))))))
+                     (1 (sys.int::io-port/8 address))
+                     (2 (sys.int::io-port/16 address))
+                     (3 (sys.int::io-port/32 address)))))))
     (ldb (byte (acpi-generic-address-register-bit-width gas)
                (acpi-generic-address-register-bit-offset gas))
          value)))
@@ -249,9 +249,9 @@
          (4 (setf (physical-memref-unsigned-byte-64 address) value))))
       (1 ; System I/O space.
        (ecase (acpi-generic-address-access-size gas)
-         (1 (setf (system:io-port/8 address) value))
-         (2 (setf (system:io-port/16 address) value))
-         (3 (setf (system:io-port/32 address) value)))))))
+         (1 (setf (sys.int::io-port/8 address) value))
+         (2 (setf (sys.int::io-port/16 address) value))
+         (3 (setf (sys.int::io-port/32 address) value)))))))
 
 (defun read-acpi-table-header (header)
   (let ((address (acpi-table-header-address header)))

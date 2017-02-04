@@ -111,7 +111,7 @@
 
 (defmacro formatter (string)
   `(lambda (s &rest args)
-     (declare (system:lambda-name (formatter ,string)))
+     (declare (sys.int::lambda-name (formatter ,string)))
      (formatter-in-package ,string "CL-USER")))
 
 (defvar *errors-are-errors* t)
@@ -765,7 +765,7 @@
 
 (defun compile-format-string (string)
   (let ((form `(lambda (s &rest args)
-                 (declare (system:lambda-name (formatter ,string)))
+                 (declare (sys.int::lambda-name (formatter ,string)))
                  ,(formatter-fn string "CL-USER" t))))
     (cond (*compiling-format-string*
            (values (mezzano.full-eval:eval-in-lexenv form nil) nil))

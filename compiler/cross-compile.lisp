@@ -914,7 +914,7 @@
        (incf (gethash (first expansion) *failed-fastload-by-symbol* 0))
        (let* ((*load-time-value-hook* 'cross-load-time-value)
               (fn (compile-lambda `(lambda ()
-                                     (declare (system:lambda-name
+                                     (declare (sys.int::lambda-name
                                                (sys.int::toplevel ,(when *compile-file-pathname*
                                                                          (princ-to-string *compile-file-pathname*))
                                                                   ,sys.int::*top-level-form-number*)))

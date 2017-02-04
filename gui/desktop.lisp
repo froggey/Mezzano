@@ -68,8 +68,8 @@
     (unless image
       (setf image (gui:make-surface-from-array
                    (or (load-jpeg truename)
-                      (load-png truename)
-                      (error "Unable to load ~S." path))))
+                       (load-png truename)
+                       (error "Unable to load ~S." path))))
       (setf (gethash truename *image-cache*) image))
     image))
 

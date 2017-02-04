@@ -12,16 +12,16 @@
 
 (defmacro defbuiltin (name lambda-list (&optional (emit-function t) suppress-binding-stack-check) &body body)
   `(progn (setf (gethash ',name *builtins*)
-		(list ',lambda-list
-		      (lambda ,lambda-list
-			(declare (system:lambda-name ,name)
+                (list ',lambda-list
+                      (lambda ,lambda-list
+                        (declare (sys.int::lambda-name ,name)
                                  ,@(when suppress-binding-stack-check
                                      '((sys.int::suppress-ssp-checking))))
-			,@body)
+                        ,@body)
                       ',emit-function
                       ',name
                       ',suppress-binding-stack-check))
-	  ',name))
+          ',name))
 
 (defun emit-tag-check (reg tag type)
   "Emit a value tag type check. Smashes AL."
@@ -66,7 +66,7 @@
                (when (third info)
                  (push (list (fourth info)
                              `(lambda ,(first info)
-                                (declare (system:lambda-name ,(fourth info)))
+                                (declare (sys.int::lambda-name ,(fourth info)))
                                 (funcall #',(fourth info) ,@(first info))))
                        functions)))
              *builtins*)

@@ -5,7 +5,7 @@
 
 (in-package :mezzano.compiler.codegen.x86-64)
 
-(defbuiltin system:fixnump (object) ()
+(defbuiltin sys.int::fixnump (object) ()
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:test8 :r8l ,sys.int::+fixnum-tag-mask+))
   (predicate-result :z))

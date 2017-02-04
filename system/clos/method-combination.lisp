@@ -173,7 +173,7 @@
         (applicable-methods (gensym "APPLICABLE-METHODS")))
     `(lambda (,generic-function-symbol ,applicable-methods ,@lambda-list)
        (declare (ignorable ,generic-function-symbol)
-                (system:lambda-name (method-combination ,name)))
+                (sys.int::lambda-name (method-combination ,name)))
        (let (,@(loop
                   for specifier in method-group-specifiers
                   collect (method-group-specifier-name specifier)))

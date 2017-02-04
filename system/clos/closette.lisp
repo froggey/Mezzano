@@ -1153,7 +1153,7 @@ has only has class specializer."
                     (lambda (,@req-args ,@(if rest-arg
                                               `(&rest ,rest-arg)
                                               '()))
-                      (declare (system:lambda-name (1-effective-discriminator ,index ,n-required ,restp)))
+                      (declare (sys.int::lambda-name (1-effective-discriminator ,index ,n-required ,restp)))
                       (let* ((class (class-of ,(nth index req-args)))
                              (emfun (single-dispatch-emf-entry emf-table class)))
                         (if emfun
@@ -1466,7 +1466,7 @@ has only has class specializer."
   (let ((method-args (gensym "ARGS"))
         (next-emfun (gensym "NEXT-EMFUN")))
     `(lambda (&rest ,method-args)
-       (declare (system:lambda-name (effective-method ,@name)))
+       (declare (sys.int::lambda-name (effective-method ,@name)))
        (macrolet ((call-method (method &optional next-method-list)
                     (when (listp method)
                       (assert (eql (first method) 'make-method)))

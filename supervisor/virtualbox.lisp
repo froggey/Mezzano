@@ -167,12 +167,12 @@
 (defconstant +bochs-vbe-data-port+  #x01CF)
 
 (defun bochs-vbe-write (index value)
-  (setf (system:io-port/16 +bochs-vbe-index-port+) index
-        (system:io-port/16 +bochs-vbe-data-port+) value))
+  (setf (sys.int::io-port/16 +bochs-vbe-index-port+) index
+        (sys.int::io-port/16 +bochs-vbe-data-port+) value))
 
 (defun bochs-vbe-read (index)
-  (setf (system:io-port/16 +bochs-vbe-index-port+) index)
-  (system:io-port/16 +bochs-vbe-data-port+))
+  (setf (sys.int::io-port/16 +bochs-vbe-index-port+) index)
+  (sys.int::io-port/16 +bochs-vbe-data-port+))
 
 (defun bochs-vbe-switch-resolution (xres yres)
   ;; Disable.

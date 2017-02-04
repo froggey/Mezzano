@@ -17,7 +17,7 @@
 
 (def-x-macro defun (name lambda-list &body body)
   (let ((the-lambda `(lambda ,lambda-list
-                       (declare (system:lambda-name ,name))
+                       (declare (sys.int::lambda-name ,name))
                        ,@body)))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -58,7 +58,7 @@
             (t (setf whole-sym (gensym))))
       `(eval-when (:compile-toplevel :load-toplevel :execute)
          (sys.int::%defmacro ',name (lambda (,whole-sym ,env-sym)
-                                      (declare (system:lambda-name (defmacro ,name)))
+                                      (declare (sys.int::lambda-name (defmacro ,name)))
                                       ,@(unless supplied-env-sym
                                           `((declare (ignore ,env-sym))))
                                       (destructuring-bind ,fixed-lambda-list (cdr ,whole-sym)
@@ -82,10 +82,10 @@
 
 (defun proclaim-symbol-mode (sym mode)
   (check-type sym symbol)
-  (when (not (or (null (system:symbol-mode sym))
-                 (eql (system:symbol-mode sym) mode)))
+  (when (not (or (null (sys.int::symbol-mode sym))
+                 (eql (sys.int::symbol-mode sym) mode)))
     (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
-            sym (system:symbol-mode sym) mode))
+            sym (sys.int::symbol-mode sym) mode))
   (setf (gethash sym *system-symbol-declarations*) mode))
 
 ;; SYS.INT shadows some CL symbols in the cross-environment. When loaded in the true
@@ -112,7 +112,7 @@
      (dolist (name (rest declaration-specifier))
        (setf (gethash name *inline-modes*) nil)))))
 
-(defun system:symbol-mode (symbol)
+(defun sys.int::symbol-mode (symbol)
   (check-type symbol symbol)
   (values (gethash symbol *system-symbol-declarations*)))
 

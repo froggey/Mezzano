@@ -279,7 +279,7 @@
   (let ((symbols nil)
         (current-package nil))
     (lambda ()
-      (declare (system:lambda-name w-p-i-iterator))
+      (declare (lambda-name w-p-i-iterator))
       (when (endp symbols)
         ;; Find a package with symbols that match.
         (loop

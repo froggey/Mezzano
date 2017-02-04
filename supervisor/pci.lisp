@@ -68,8 +68,8 @@
           (ash function 8)))
 
 (defun pci-set-config-address (address register)
-  (setf (system:io-port/32 +pci-config-address+) (logior address
-                                                  (logand register #b11111100))))
+  (setf (sys.int::io-port/32 +pci-config-address+) (logior address
+                                                           (logand register #b11111100))))
 
 (defun pci-device-location (device)
   (let ((address (pci-device-address device)))
@@ -82,7 +82,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
+        (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
 
 (defun pci-config/16 (device register)
   (when (logtest register #b01)
@@ -91,7 +91,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
+        (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
 
 (defun pci-config/32 (device register)
   (when (logtest register #b11)
@@ -100,14 +100,14 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/32 +pci-config-data+)))))
+        (sys.int::io-port/32 +pci-config-data+)))))
 
 (defun (setf pci-config/8) (value device register)
   (safe-without-interrupts (value device register)
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
+        (setf (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
 
 (defun (setf pci-config/16) (value device register)
   (when (logtest register #b01)
@@ -116,7 +116,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
+        (setf (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
 
 (defun (setf pci-config/32) (value device register)
   (when (logtest register #b11)
@@ -125,7 +125,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/32 +pci-config-data+) value)))))
+        (setf (sys.int::io-port/32 +pci-config-data+) value)))))
 
 (defun pci-base-class (device)
   (ldb (byte 8 24) (pci-config/32 device +pci-config-revid+)))
@@ -173,7 +173,7 @@
 (defun pci-io-region/8 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/8 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
       (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
                                           offset))))
@@ -181,7 +181,7 @@
 (defun pci-io-region/16 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/16 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
       (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
                                            offset))))
@@ -189,7 +189,7 @@
 (defun pci-io-region/32 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/32 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
       (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
                                            offset))))
@@ -197,7 +197,7 @@
 (defun (setf pci-io-region/8) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/8 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
       (setf (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
                                                 offset))
@@ -206,7 +206,7 @@
 (defun (setf pci-io-region/16) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/16 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
       (setf (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
                                                  offset))
@@ -215,7 +215,7 @@
 (defun (setf pci-io-region/32) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/32 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
       (setf (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
                                                  offset))
@@ -244,8 +244,8 @@
   (add-deferred-boot-action 'pci-late-probe))
 
 (defun pci-detect ()
-  (setf (system:io-port/32 +pci-config-address+) #x80000000)
-  (when (eql (system:io-port/32 +pci-config-address+) #x80000000)
+  (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
+  (when (eql (sys.int::io-port/32 +pci-config-address+) #x80000000)
     (debug-print-line "Begin PCI scan.")
     (labels ((scan-bus (bus)
                (dotimes (device-nr 32)

@@ -104,7 +104,7 @@
                  `(sys.lap-x86:sar32 :edx ,sys.int::+n-fixnum-bits+)
                  (list instruction :dx))))))
 
-(defbuiltin system:io-port/8 (port) ()
+(defbuiltin sys.int::io-port/8 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
   (emit-port-access 'sys.lap-x86:in8 port :r8)
@@ -112,7 +112,7 @@
         `(sys.lap-x86:mov32 :r8d :eax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf system:io-port/8) (value port) ()
+(defbuiltin (setf sys.int::io-port/8) (value port) ()
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
@@ -126,7 +126,7 @@
     (emit-port-access 'sys.lap-x86:out8 port :r9)
     value))
 
-(defbuiltin system:io-port/16 (port) ()
+(defbuiltin sys.int::io-port/16 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
   (emit-port-access 'sys.lap-x86:in16 port :r8)
@@ -134,7 +134,7 @@
         `(sys.lap-x86:mov32 :r8d :eax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf system:io-port/16) (value port) ()
+(defbuiltin (setf sys.int::io-port/16) (value port) ()
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
@@ -148,7 +148,7 @@
     (emit-port-access 'sys.lap-x86:out16 port :r9)
     value))
 
-(defbuiltin system:io-port/32 (port) ()
+(defbuiltin sys.int::io-port/32 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
   (emit-port-access 'sys.lap-x86:in32 port :r8)
@@ -156,7 +156,7 @@
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf system:io-port/32) (value port) ()
+(defbuiltin (setf sys.int::io-port/32) (value port) ()
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)

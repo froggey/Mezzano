@@ -190,7 +190,7 @@
         (colon-sym (or colon (gensym "Colon"))))
     `(setf (format-interpreter ',character)
            (lambda (,arguments ,at-sign-sym ,colon-sym ,@parameter-lambda-list)
-             (declare (system:lambda-name (format-interpreter ,character)))
+             (declare (sys.int::lambda-name (format-interpreter ,character)))
              (block nil
                ,@(when (not at-sign)
                        (list `(when ,at-sign-sym

@@ -21,7 +21,7 @@
   `(setf (gethash ',name *special-forms*)
          (lambda (,form-sym ,env-sym)
            (declare (ignorable ,form-sym ,env-sym)
-                    (system:lambda-name (special-form ,name)))
+                    (sys.int::lambda-name (special-form ,name)))
            (block ,name
              (destructuring-bind ,lambda-list (cdr ,form-sym)
                ,@body))))))
@@ -96,7 +96,7 @@
         (sys.int::parse-declares forms :permit-docstring t)
       (declare (ignore docstring))
       (dolist (i declares)
-        (when (eql (first i) 'system:lambda-name)
+        (when (eql (first i) 'sys.int::lambda-name)
           (setf name (second i))))
       (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
           (sys.int::parse-ordinary-lambda-list lambda-list)
@@ -368,7 +368,7 @@
           (sys.int::fix-lambda-list-environment lambda-list)
         (cons name
               (eval `#'(lambda (,whole ,env)
-                         (declare (system:lambda-name (macrolet ,name))
+                         (declare (sys.int::lambda-name (macrolet ,name))
                                   (ignorable ,whole ,env))
                          ,(sys.int::expand-destructuring-lambda-list new-lambda-list name body
                                                                      whole `(cdr ,whole)

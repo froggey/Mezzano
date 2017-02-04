@@ -324,7 +324,7 @@ Returns NIL if the function captures no variables."
         (setf (fdefinition fn)
               (lambda (&rest args)
                 (declare (dynamic-extent args)
-                         (system:lambda-name trace-wrapper))
+                         (lambda-name trace-wrapper))
                 (if *suppress-trace*
                     (apply old-definition args)
                     (let ((*suppress-trace* t))

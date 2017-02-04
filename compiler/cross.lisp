@@ -176,26 +176,9 @@
 
 (in-package :system.compiler)
 
-(defpackage :system
-  (:export :dotted-list-length
-           :parse-ordinary-lambda-list
-           :lambda-name
-           :proclaimed-special-p
-           :symbol-macro-function
-           :variable-information
-           :symbol-mode
-           :io-port/8
-           :io-port/16
-           :io-port/32
-           :char-bit
-           :char-bits
-           :fixnump))
-
-(declaim (declaration system:lambda-name))
-
 (defpackage :system.internals
   (:nicknames :sys.int)
-  (:use :cross-cl :system)
+  (:use :cross-cl)
   (:export #:allocate-std-instance
            #:std-instance-p
            #:std-instance-class
@@ -208,6 +191,8 @@
            #:funcallable-std-instance-slots
            #:funcallable-std-instance-layout
            #:funcallable-standard-object))
+
+(declaim (declaration sys.int::lambda-name))
 
 (defpackage :mezzano.clos
   (:use :cross-cl)
