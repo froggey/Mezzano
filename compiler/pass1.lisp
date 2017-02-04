@@ -238,7 +238,8 @@
                 ;; Replace constants with their quoted values.
                 (or (expand-constant-variable form)
                     ;; And replace special variable with calls to symbol-value.
-                    (pass1-form `(,(special-variable-access-function var) ',(name var)) env)))
+                    (pass1-form `(the ,(mezzano.runtime::symbol-type (name var))
+                                      (,(special-variable-access-function var) ',(name var))) env)))
                (lexical-variable
                 (when (eq (lexical-variable-ignore var) 't)
                   (warn 'sys.int::simple-style-warning
@@ -623,7 +624,10 @@
       (etypecase var
         (special-variable
          (push (pass1-form `(funcall #'(setf ,(special-variable-access-function var))
-                                     ,val ',(name var)) env) forms))
+                                     (the ,(mezzano.runtime::symbol-type (name var))
+                                          ,val)
+                                     ',(name var))
+                           env) forms))
         (lexical-variable
          (when (eq (lexical-variable-ignore var) 't)
            (warn 'sys.int::simple-style-warning

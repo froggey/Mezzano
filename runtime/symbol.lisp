@@ -86,17 +86,24 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (setf (sys.int::%object-ref-t symbol sys.int::+symbol-type+) type))
 
+(defun check-symbol-value-type (value symbol)
+  (let ((type (symbol-type symbol)))
+    (when (not (eql type 't))
+      (assert (typep value (symbol-type symbol))))))
+
 (defun sys.int::symbol-global-value (symbol)
   (symbol-value-cell-value (symbol-global-value-cell symbol)))
 
 (defun (setf sys.int::symbol-global-value) (value symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
+  (check-symbol-value-type value symbol)
   (setf (symbol-value-cell-value (symbol-global-value-cell symbol)) value))
 
 (defun (sys.int::cas sys.int::symbol-global-value) (old new symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
+  (check-symbol-value-type new symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-global-value-cell symbol))
                 old new))
 
@@ -123,11 +130,13 @@
 (defun (setf symbol-value) (value symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
+  (check-symbol-value-type value symbol)
   (setf (symbol-value-cell-value (symbol-value-cell symbol)) value))
 
 (defun (sys.int::cas symbol-value) (old new symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
+  (check-symbol-value-type new symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
                 old new))
 
