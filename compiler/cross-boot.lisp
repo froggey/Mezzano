@@ -26,6 +26,7 @@
 
 (defvar *inline-modes* (make-hash-table :test #'equal))
 (defvar *inline-forms* (make-hash-table :test #'equal))
+(defvar *function-types* (make-hash-table :test #'equal))
 
 (defun sys.int::%compiler-defun (name source-lambda)
   (when (or (gethash name *inline-modes*)
@@ -42,6 +43,8 @@
 (defun function-inline-info (name)
   (values (gethash name *inline-modes*)
           (gethash name *inline-forms*)))
+
+(defvar *variable-types* (make-hash-table))
 
 ;; Enough to load the full DEFMACRO.
 (def-x-macro defmacro (name lambda-list &body body)
@@ -110,11 +113,26 @@
        (setf (gethash name *inline-modes*) t)))
     (notinline
      (dolist (name (rest declaration-specifier))
-       (setf (gethash name *inline-modes*) nil)))))
+       (setf (gethash name *inline-modes*) nil)))
+    (type
+     (destructuring-bind (typespec &rest vars)
+         (rest declaration-specifier)
+       (dolist (name vars)
+         (setf (gethash name *variable-types*) typespec))))
+    (ftype
+     (destructuring-bind (typespec &rest vars)
+         (rest declaration-specifier)
+       (dolist (name vars)
+         (setf (gethash name *function-types*) typespec))))
+    (t (warn "Unknown declaration ~S" (first declaration-specifier)))))
 
 (defun sys.int::symbol-mode (symbol)
   (check-type symbol symbol)
   (values (gethash symbol *system-symbol-declarations*)))
+
+(defun mezzano.runtime::symbol-type (symbol)
+  (check-type symbol symbol)
+  (values (gethash symbol *variable-types* 't)))
 
 (defun sys.int::dotted-list-length (list)
   "Returns the length of LIST if list is a proper list. Returns NIL if LIST is a circular list."

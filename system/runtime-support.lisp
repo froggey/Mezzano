@@ -22,6 +22,8 @@
             symbol (symbol-mode symbol) new-mode))
   (setf (symbol-mode symbol) new-mode))
 
+(defvar *known-declarations* '())
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special
@@ -42,7 +44,25 @@
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
            (inline-info-location-for-name name)
-         (setf (get sym indicator) nil))))))
+         (setf (get sym indicator) nil))))
+    (type
+     (destructuring-bind (typespec &rest vars)
+         (rest declaration-specifier)
+       (dolist (name vars)
+         (check-type name symbol)
+         (when (and (boundp name)
+                    (not (typep (symbol-value name) typespec)))
+           (cerror "Continue" "Symbol ~S's type being proclaimed to ~S, but current value ~S has an incompatible type."
+                   name typespec (symbol-value name)))
+         (setf (mezzano.runtime::symbol-type name) typespec))))
+    (ftype)
+    (declaration
+     (dolist (name (rest declaration-specifier))
+       (check-type name symbol)
+       (pushnew name *known-declarations*)))
+    (t
+     (unless (find (first declaration-specifier) *known-declarations*)
+       (warn "Unknown declaration ~S" declaration-specifier)))))
 
 (defun variable-information (symbol)
   (symbol-mode symbol))
