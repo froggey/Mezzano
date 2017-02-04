@@ -79,27 +79,32 @@
       (connection
        (tcp4-receive connection packet start end))
       ((eql flags +tcp4-flag-syn+)
-       (format t "Establishing TCP connection. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip)
-       (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
-              (blah (random #x100000000))
-              (connection (make-instance 'tcp-connection
-                                         :%state :syn-received
-                                         :local-port local-port
-                                         :local-ip local-ip
-                                         :remote-port remote-port
-                                         :remote-ip remote-ip
-                                         :s-next (logand #xFFFFFFFF (1+ blah))
-                                         :r-next (logand #xFFFFFFFF (1+ seq))
-                                         :window-size 8192)))
-         (let ((server (assoc local-port *server-alist*)))
-           (cond (server
-                  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-                    (push connection *tcp-connections*))
-                  (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
-                                    :ack-p t :syn-p t)
-                  (funcall (second server) connection))))))
+       (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
       (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
                  (subseq packet start end))))))
+
+(defun tcp4-establish-connection (local-ip local-port remote-ip remote-port packet start end)
+  (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
+         (blah (random #x100000000))
+         (connection (make-instance 'tcp-connection
+                                    :%state :syn-received
+                                    :local-port local-port
+                                    :local-ip local-ip
+                                    :remote-port remote-port
+                                    :remote-ip remote-ip
+                                    :s-next (logand #xFFFFFFFF (1+ blah))
+                                    :r-next (logand #xFFFFFFFF (1+ seq))
+                                    :window-size 8192)))
+    (let ((server (assoc local-port *server-alist*)))
+      (cond (server
+             (format t "Establishing TCP connection. l ~D  r ~D  from ~X to server ~S.~%" local-port remote-port remote-ip (second server))
+             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (push connection *tcp-connections*))
+             (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
+                               :ack-p t :syn-p t)
+             (funcall (second server) connection))
+            (t
+             (format t "Ignoring  TCP connection attempt, no server. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip))))))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
