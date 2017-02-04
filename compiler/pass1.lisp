@@ -224,6 +224,32 @@
         (values (funcall *macroexpand-hook* fn form env) t)
         (values form nil))))
 
+(defun pass1-variable-inner (form env)
+  (let ((var (find-variable form env)))
+    (etypecase var
+      (special-variable
+       ;; Replace constants with their quoted values.
+       (or (expand-constant-variable form)
+           ;; And replace special variable with calls to symbol-value.
+           (pass1-form `(,(special-variable-access-function var) ',(name var)) env)))
+      (lexical-variable
+       (when (eq (lexical-variable-ignore var) 't)
+         (warn 'sys.int::simple-style-warning
+               :format-control "Reading ignored variable ~S."
+               :format-arguments (list (lexical-variable-name var))))
+       (incf (lexical-variable-use-count var))
+       (pushnew *current-lambda* (lexical-variable-used-in var))
+       var))))
+
+(defun pass1-variable (form env)
+  (let* ((converted (pass1-variable-inner form env))
+         (declared-type (lookup-variable-declared-type-in-environment form env)))
+    (if (eql declared-type 't)
+        converted
+        (make-instance 'ast-the
+                       :type declared-type
+                       :value converted))))
+
 (defun pass1-form (form env)
   (cond
     ((symbolp form)
@@ -232,22 +258,7 @@
          (macroexpand-1 form env)
        (if expandedp
            (pass1-form expansion env)
-           (let ((var (find-variable form env)))
-             (etypecase var
-               (special-variable
-                ;; Replace constants with their quoted values.
-                (or (expand-constant-variable form)
-                    ;; And replace special variable with calls to symbol-value.
-                    (pass1-form `(the ,(mezzano.runtime::symbol-type (name var))
-                                      (,(special-variable-access-function var) ',(name var))) env)))
-               (lexical-variable
-                (when (eq (lexical-variable-ignore var) 't)
-                  (warn 'sys.int::simple-style-warning
-                        :format-control "Reading ignored variable ~S."
-                        :format-arguments (list (lexical-variable-name var))))
-                (incf (lexical-variable-use-count var))
-                (pushnew *current-lambda* (lexical-variable-used-in var))
-                var))))))
+           (pass1-variable form env))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
      (make-instance 'ast-quote :value form))
@@ -469,7 +480,7 @@
                                 bindings)))
         (make-instance 'ast-let
                        :bindings (mapcar (lambda (b)
-                                           (list (third b) (pass1-form (second b) env)))
+                                           (list (third b) (pass1-form (wrap-initform-with-the (second b) (third b) declares) env)))
                                          variables)
                        :body (pass1-form `(progn ,@body)
                                          (extend-environment env
@@ -477,6 +488,24 @@
                                                                                   (list (first b) (third b)))
                                                                                 variables)
                                                              :declarations declares)))))))
+
+(defun find-type-declaration (symbol declares)
+  (dolist (dec declares 't)
+    (when (and (eql (first dec) 'type)
+               (member symbol (cddr dec)))
+      (return (second dec)))))
+
+(defun wrap-initform-with-the (initform var declares)
+  (etypecase var
+    (lexical-variable
+     (let ((declared-type (find-type-declaration (name var) declares)))
+       (if (eql declared-type 't)
+           initform
+           `(the ,declared-type ,initform))))
+    (special-variable
+     (let ((declared-type `(and (find-type-declaration (name var) declares)
+                                (mezzano.runtime::symbol-type (name var)))))
+       `(the ,declared-type ,initform)))))
 
 (defun pass1-let* (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
@@ -494,7 +523,7 @@
             (let ((var (make-variable name declares)))
               (check-variable-bindable var)
               (setf (body inner) (make-instance 'ast-let
-                                                :bindings (list (list var (pass1-form init-form env)))
+                                                :bindings (list (list var (pass1-form (wrap-initform-with-the init-form var declares) env)))
                                                 :body (make-instance 'ast-quote :value 'nil))
                     inner (body inner)
                     env (extend-environment env :variables (list (list name var)))))))
@@ -619,13 +648,16 @@
                                :forms (nreverse forms)))))
     (when (null (cdr i))
       (error-program-error "Odd number of arguments to SETQ."))
-    (let ((var (find-variable (first i) env t))
-          (val (second i)))
+    (let* ((var (find-variable (first i) env t))
+           (val (second i))
+           (declared-type (lookup-variable-declared-type-in-environment (first i) env))
+           (wrapped-value (if (eql declared-type 't)
+                              val
+                              `(the ,declared-type ,val))))
       (etypecase var
         (special-variable
          (push (pass1-form `(funcall #'(setf ,(special-variable-access-function var))
-                                     (the ,(mezzano.runtime::symbol-type (name var))
-                                          ,val)
+                                     ,wrapped-value
                                      ',(name var))
                            env) forms))
         (lexical-variable
@@ -638,11 +670,11 @@
          (pushnew *current-lambda* (lexical-variable-used-in var))
          (push (make-instance 'ast-setq
                               :variable var
-                              :value (pass1-form val env))
+                              :value (pass1-form wrapped-value env))
                forms))
         (cons
          ;; Symbol macro.
-         (push (pass1-form `(setf ,(second var) ,val) env) forms))))))
+         (push (pass1-form `(setf ,(second var) ,wrapped-value) env) forms))))))
 
 (defun pass1-symbol-macrolet (form env)
   (destructuring-bind (definitions &body body) (cdr form)

@@ -23,6 +23,7 @@
 (defgeneric environment-macro-definitions-only (environment))
 (defgeneric compiler-macro-function-in-environment (name environment))
 (defgeneric macro-function-in-environment (symbol environment))
+(defgeneric lookup-variable-declared-type-in-environment (symbol environment))
 
 ;;; Lexical environments.
 
@@ -31,7 +32,8 @@
    (%functions :initform '())
    (%blocks :initform '())
    (%go-tags :initform '())
-   (%inline-decls :initform '())))
+   (%inline-decls :initform '())
+   (%variable-type-decls :initform '())))
 
 (defun extend-environment (environment &key
                                          variables
@@ -87,6 +89,42 @@
         (when (not (assoc (first func) new-decls :test #'equal))
           (push (list (first func) nil) new-decls)))
       (setf (slot-value sub '%inline-decls) (append new-decls (slot-value environment '%inline-decls))))
+    (let ((new-decls '()))
+      (flet ((add-decl (name type)
+               (let* ((new-var (assoc name variables))
+                      (actual-var (or (and new-var (second new-var))
+                                      (lookup-variable-in-environment name environment)))
+                      (real-type (etypecase actual-var
+                                   (lexical-variable
+                                    (if new-var
+                                        type
+                                        (let ((old-type (lookup-variable-declared-type-in-environment name environment)))
+                                          (if (eql old-type 't)
+                                              type
+                                              `(and ,type ,old-type)))))
+                                   (special-variable
+                                    (let ((old-type (mezzano.runtime::symbol-type name)))
+                                      (if (eql old-type 't)
+                                          type
+                                          `(and ,type ,old-type)))))))
+                 (when (assoc name new-decls :key #'name)
+                   (error "Multiple type declarations for ~S." name))
+                 (push (list actual-var real-type) new-decls))))
+        (loop
+           for (what type . names) in declarations
+           ;; TODO: Pick up (declare (fixnum ...)) and similar.
+           when (eql what 'type)
+           do (loop for name in names do (add-decl name type)))
+        (loop
+           for (name var) in variables
+           when (and (typep var 'lexical-variable)
+                     (not (assoc var new-decls)))
+           do (push (list var 't) new-decls))
+        (loop
+           for (var type) in (slot-value environment '%variable-type-decls)
+           when (not (assoc var new-decls))
+           do (push (list var type) new-decls))
+        (setf (slot-value sub '%variable-type-decls) new-decls)))
     sub))
 
 (defmethod lookup-variable-in-environment (symbol (environment lexical-environment))
@@ -150,3 +188,10 @@
              (second data)))
           (t
            (macro-function-in-environment symbol nil)))))
+
+(defmethod lookup-variable-declared-type-in-environment (symbol (environment lexical-environment))
+  (let ((ty (assoc symbol (slot-value environment '%variable-type-decls)
+                   :key #'name)))
+    (if ty
+        (second ty)
+        (lookup-variable-declared-type-in-environment symbol nil))))

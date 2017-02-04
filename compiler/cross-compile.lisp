@@ -354,6 +354,9 @@
 (defmethod macro-function-in-environment (symbol (environment null))
   (gethash symbol *system-macros*))
 
+(defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
+  (mezzano.runtime::symbol-type symbol))
+
 (defun compiler-macro-function (name &optional env)
   (compiler-macro-function-in-environment name env))
 

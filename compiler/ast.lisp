@@ -61,6 +61,9 @@
                      :used-in '()
                      :plist '()))
 
+(defmethod name ((object lexical-variable))
+  (lexical-variable-name object))
+
 (defun lexical-variable-p (object)
   (typep object 'lexical-variable))
 

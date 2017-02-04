@@ -31,3 +31,6 @@
 
 (defmethod macro-function-in-environment (symbol (environment null))
   (macro-function symbol))
+
+(defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
+  (mezzano.runtime::symbol-type symbol))
