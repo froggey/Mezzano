@@ -127,6 +127,7 @@
 (defconstant +symbol-value+ 2)
 (defconstant +symbol-function+ 3)
 (defconstant +symbol-plist+ 4)
+(defconstant +symbol-type+ 5)
 
 (defconstant +symbol-value-cell-symbol+ 1)
 (defconstant +symbol-value-cell-value+ 2)

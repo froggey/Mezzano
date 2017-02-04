@@ -78,6 +78,14 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
 
+(defun symbol-type (symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (sys.int::%object-ref-t symbol sys.int::+symbol-type+))
+
+(defun (setf symbol-type) (type symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (setf (sys.int::%object-ref-t symbol sys.int::+symbol-type+) type))
+
 (defun sys.int::symbol-global-value (symbol)
   (symbol-value-cell-value (symbol-global-value-cell symbol)))
 

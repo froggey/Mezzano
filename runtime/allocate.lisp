@@ -614,7 +614,7 @@
 (defun make-symbol (name)
   (check-type name string)
   ;; FIXME: Copy name into the wired area and unicode normalize it.
-  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired))
+  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 6 :wired))
          (global-value (%allocate-object sys.int::+object-tag-array-t+ 3 3 :wired)))
     (setf (svref global-value sys.int::+symbol-value-cell-symbol+) symbol)
     (setf (svref global-value sys.int::+symbol-value-cell-value+) (sys.int::%unbound-value))
@@ -623,6 +623,7 @@
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-function+) nil
           (symbol-plist symbol) '()
           (symbol-package symbol) nil)
+    (setf (sys.int::%object-ref-t symbol sys.int::+symbol-type+) 't)
     symbol))
 
 (defun copy-symbol (symbol &optional copy-properties)

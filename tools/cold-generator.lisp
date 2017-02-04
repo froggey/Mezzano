@@ -509,7 +509,7 @@
         address)))
 
 (defun allocate-symbol (name package)
-  (let ((address (allocate 6 :wired)))
+  (let ((address (allocate 8 :wired)))
     (setf (gethash address *reverse-symbol-table*) (cons name package)
           (gethash (cons name package) *symbol-table*) address)
     address))
@@ -524,7 +524,8 @@
           (word (+ address 2)) (vsym package) ; package
           (word (+ address 3)) (make-value global-cell sys.int::+tag-object+) ; value
           (word (+ address 4)) (vsym nil) ; function
-          (word (+ address 5)) (vsym nil)) ; plist
+          (word (+ address 5)) (vsym nil) ; plist
+          (word (+ address 6)) (vsym t)) ;type
     (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
           (word (+ global-cell 1)) (vsym nil)
           (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
@@ -1782,14 +1783,15 @@ Tag with +TAG-OBJECT+."
            (fn (stack-pop stack))
            (value (stack-pop stack))
            (name (stack-pop stack))
-           (address (allocate 6 :wired)))
+           (address (allocate 8 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
              (word (+ address 1)) name
              (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
              (word (+ address 3)) value
              (word (+ address 4)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-             (word (+ address 5)) plist)
+             (word (+ address 5)) plist
+             (word (+ address 6)) (vsym t))
        (unless (eql fn (unbound-value))
          (error "Uninterned symbol with function not supported."))
        (make-value address sys.int::+tag-object+)))

@@ -665,7 +665,7 @@ This is required to make the GC interrupt safe."
       #.+object-tag-ratio+)
      (scan-generic object 3))
     (#.+object-tag-symbol+
-     (scan-generic object 6))
+     (scan-generic object 8))
     (#.+object-tag-structure-object+
      (scan-generic object (1+ (%object-header-data object))))
     (#.+object-tag-std-instance+
@@ -868,7 +868,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-xmm-vector+
           4)
          (#.+object-tag-symbol+
-          6)
+          8)
          (#.+object-tag-std-instance+
           4)
          (#.+object-tag-function-reference+
