@@ -313,5 +313,6 @@
              (mezzano.runtime::%fixnum-< (integer integer))
              (sys.int::fixnump (t))
              (byte-size (byte))
-             (byte-position (byte))))
+             (byte-position (byte))
+             (keywordp (symbol))))
   (setf (get (first x) 'constant-fold-mode) (second x)))
