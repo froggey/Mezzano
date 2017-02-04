@@ -373,3 +373,7 @@
 
 (defun invoke-debugger (condition)
   (panic "Early invoke debugger. " condition))
+
+(defun warn (datum &rest arguments)
+  (declare (dynamic-extent arguments))
+  (debug-print-line "Early WARN: " datum " " arguments))
