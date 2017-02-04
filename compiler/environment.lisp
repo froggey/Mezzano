@@ -95,7 +95,8 @@
                       (actual-var (or (and new-var (second new-var))
                                       (lookup-variable-in-environment name environment)))
                       (real-type (etypecase actual-var
-                                   (lexical-variable
+                                   ((or lexical-variable
+                                        symbol-macro)
                                     (if new-var
                                         type
                                         (let ((old-type (lookup-variable-declared-type-in-environment name environment)))

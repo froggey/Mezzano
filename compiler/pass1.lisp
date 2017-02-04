@@ -257,7 +257,11 @@
      (multiple-value-bind (expansion expandedp)
          (macroexpand-1 form env)
        (if expandedp
-           (pass1-form expansion env)
+           (pass1-form (let ((declared-type (lookup-variable-declared-type-in-environment form env)))
+                         (if (eql declared-type 't)
+                             expansion
+                             `(the ,declared-type ,expansion)))
+                       env)
            (pass1-variable form env))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
