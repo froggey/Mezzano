@@ -156,14 +156,38 @@
 
 (defgeneric transmit-ipv4-packet-on-interface (destination-host interface packet))
 
+;; TODO: These should time out after a while.
+(defvar *outstanding-sends* '()
+  "Packets due to be transmitted, but are waiting for an ARP request to be resolved.")
+
+(defun try-ethernet-transmit (destination-host interface packet)
+  (let ((arp-result (mezzano.network.arp:arp-lookup interface
+                                                    mezzano.network.ethernet:+ethertype-ipv4+
+                                                    (ipv4-address-address destination-host))))
+    (cond (arp-result
+           (mezzano.network.ethernet:transmit-ethernet-packet
+            interface
+            arp-result
+            mezzano.network.ethernet:+ethertype-ipv4+
+            packet)
+           t)
+          (t
+           nil))))
+
+(defun arp-table-updated ()
+  (setf *outstanding-sends*
+        (loop
+           for (destination-host interface packet attempt) in *outstanding-sends*
+           do (format t "Attempting retransmit to ~S on ~S.~%"
+                      destination-host interface)
+           when (not (or (try-ethernet-transmit destination-host interface packet)
+                         (> attempt 5)))
+           collect (list destination-host interface packet (1+ attempt)))))
+
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.driver.network-card:network-card) packet)
-  (mezzano.network.ethernet:transmit-ethernet-packet
-   interface
-   (mezzano.network.arp:arp-lookup interface
-                                   mezzano.network.ethernet:+ethertype-ipv4+
-                                   (ipv4-address-address destination-host))
-   mezzano.network.ethernet:+ethertype-ipv4+
-   packet))
+  (when (not (try-ethernet-transmit destination-host interface packet))
+    (push (list destination-host interface packet 0)
+          *outstanding-sends*)))
 
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
   ;; Bounce loopback packets out over the nic for testing as well.

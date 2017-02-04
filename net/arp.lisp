@@ -60,7 +60,8 @@
                       (aref packet (+ sha-start i)) (aref mac i))))
             (setf (ub32ref/be packet spa-start) address
                   (ub16ref/be packet 20) +arp-op-reply+)
-            (mezzano.network.ethernet:transmit-packet interface (list (subseq packet 0 44)))))))
+            (mezzano.network.ethernet:transmit-packet interface (list (subseq packet 0 44))))))
+      (mezzano.network.ip::arp-table-updated))
     (format t "New ARP table: ~S~%" *arp-table*)))
 
 (defun send-arp (interface ptype address)
@@ -92,7 +93,8 @@
     (mezzano.network.ethernet:transmit-packet interface (list packet))))
 
 (defun arp-lookup (interface ptype address)
-  "Convert ADDRESS to an Ethernet address."
+  "Convert ADDRESS to an Ethernet address.
+Returns NIL if there is no entry currently in the cache, this will trigger a lookup over the interface."
   (when (equalp (mezzano.network.ip::ipv4-address-address
                  (mezzano.network.ip:ipv4-interface-address interface))
                 address)
@@ -102,20 +104,5 @@
     (when (and (eql (first e) ptype)
                (eql (second e) address))
       (return-from arp-lookup (third e))))
-  (dotimes (attempt 3)
-    (send-arp interface ptype address)
-    ;; FIXME: better timeout mechanism.
-    (let ((timeout-absolute (+ (get-universal-time) 5)))
-      (loop
-         (when (> (get-universal-time) timeout-absolute)
-           (error "ARP lookup timed out."))
-         (when (find-if (lambda (e)
-                          (and (eql (first e) ptype)
-                               (eql (second e) address)))
-                        *arp-table*)
-           (return))
-         (sleep 0.01)))
-    (dolist (e *arp-table*)
-      (when (and (eql (first e) ptype)
-                 (eql (second e) address))
-        (return-from arp-lookup (third e))))))
+  (send-arp interface ptype address)
+  nil)
