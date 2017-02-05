@@ -169,7 +169,7 @@ Inherit source locations/etc from INHERIT."
 
 (defun convert-ast-the (new-variables type value)
   (make-instance 'ast-the
-                 :type type
+                 :type (sys.int::typeexpand type)
                  :value (convert-ast-form value new-variables)))
 
 (defun convert-ast-unwind-protect (new-variables protected-form cleanup-function)

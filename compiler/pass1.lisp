@@ -265,7 +265,7 @@
     (if (eql declared-type 't)
         converted
         (make-instance 'ast-the
-                       :type declared-type
+                       :type (sys.int::typeexpand declared-type env)
                        :value converted))))
 
 (defun pass1-form (form env)
@@ -778,7 +778,7 @@
 (defun pass1-the (form env)
   (destructuring-bind (value-type form) (cdr form)
     (make-instance 'ast-the
-                   :type value-type
+                   :type (sys.int::typeexpand value-type env)
                    :value (pass1-form form env))))
 
 (defun pass1-throw (form env)
