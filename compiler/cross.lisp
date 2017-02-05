@@ -56,7 +56,9 @@
            :byte-size
            :byte-position
            :ldb
-           :dpb)
+           :dpb
+           :subtypep
+           :upgraded-array-element-type)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

@@ -92,6 +92,17 @@
            (when (symbolp type)
              (setf type (list type)))
            (values (funcall expander type environment) t))
+          ((and (consp type)
+                (member (first type) '(array simple-array))
+                (second type))
+           (multiple-value-bind (expanded-inner expandedp)
+               (typeexpand (second type) environment)
+             (if expandedp
+                 (values (list* (first type)
+                                expanded-inner
+                                (cddr type))
+                         t)
+                 (values type nil))))
           ((or (eql type 'complex)
                (and (consp type)
                     (eql (first type) 'complex)
@@ -112,6 +123,7 @@
             type expansion))))
 )
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun canonicalize-real-type (type name)
   (if (consp type)
       (destructuring-bind (&optional (min '*) (max '*))
@@ -130,6 +142,7 @@
           (error "Bad ~S type: ~S." name type))
         (values min max))
       (values '* '*)))
+)
 
 (defun satisfies-type-p (object type)
   (destructuring-bind (function) (cdr type)
@@ -258,8 +271,12 @@
 (%define-type-symbol 'function 'functionp)
 (%define-type-symbol 'structure-object 'structure-object-p)
 (%define-type-symbol 'keyword 'keywordp)
+(%define-type-symbol 't 'yes-its-true)
 )
-(%define-type-symbol 't #'(lambda (x) (declare (ignore x)) t))
+
+(defun yes-its-true (object)
+  (declare (ignore object))
+  t)
 
 (defun complex-type (object type)
   (destructuring-bind (&optional (typespec '*))
@@ -343,6 +360,7 @@
 (deftype boolean ()
   '(member t nil))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun set-numeric-supertype (type supertype)
   "Set the supertype of a numeric type."
   (setf (get type 'numeric-supertype) supertype))
@@ -372,6 +390,7 @@
   (numeric-subtypep type 'real))
 (defun number-subtype-p (type)
   (numeric-subtypep type 'number))
+)
 
 (deftype standard-char ()
   '(and character (satisfies standard-char-p)))
@@ -382,6 +401,7 @@
 (deftype extended-char ()
   'nil)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (when (typep type-2 'class)
@@ -459,6 +479,9 @@
                                 (eql t1-base 'simple-array))
                             (cond ((eql t2-element-type '*) t)
                                   ((eql t1-element-type '*) nil)
+                                  ;; U-A-E-T always returns consistent results,
+                                  ;; so EQUAL is acceptable for determining
+                                  ;; type equality here.
                                   (t (equal (upgraded-array-element-type t1-element-type)
                                             (upgraded-array-element-type t2-element-type))))
                             (cond ((eql t2-dimension-spec '*) t)
@@ -517,6 +540,7 @@
            (values nil nil))
           (t
            (values nil t)))))
+)
 
 (defun subclassp (class-1 class-2)
   (let ((c1 (if (typep class-1 'class)
