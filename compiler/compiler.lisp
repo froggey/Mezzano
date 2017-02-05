@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :sys.c)
@@ -9,7 +9,7 @@
   "When true, attempt to eliminate tail calls.")
 
 (defparameter *suppress-builtins* nil
-  "When T, the built-in functions will not be used and full calls will
+  "When true, the built-in functions will not be used and full calls will
 be generated instead.")
 
 (defparameter *enable-branch-tensioner* t)
@@ -20,6 +20,9 @@ be generated instead.")
 (defvar *jump-table-size-max* 64)
 
 (defvar *load-time-value-hook*)
+
+(defvar *optimize-restrictions* '())
+(defvar *optimize-policy* '(safety 3 debug 3))
 
 (defun parse-declares (forms)
   "Extract any leading declare forms.
@@ -111,7 +114,16 @@ A list of any declaration-specifiers."
              *change-count*)
     (incf *change-count*)))
 
+(defun optimize-quality (lambda quality)
+  (max (getf *optimize-restrictions* quality 0)
+       (or (getf (getf (lambda-information-plist lambda) :optimize '())
+                 quality
+                 nil)
+           (getf *optimize-policy* quality 0))))
+
 (defun run-optimizers (form target-architecture)
+  (when (eql (optimize-quality form 'compiliation-speed) 3)
+    (return-from run-optimizers form))
   (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
                               :format-control "Possible optimizer infinite loop."
                               :format-arguments '())
