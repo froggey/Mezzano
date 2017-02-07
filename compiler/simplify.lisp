@@ -155,6 +155,30 @@
                                    (bindings form)))
   (dolist (b (bindings form))
     (setf (second b) (simp-form (second b))))
+  ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
+  (when (not (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form))))
+    (loop
+       for binding-position from 0
+       for (variable initform) in (bindings form)
+       when (typep initform 'ast-progn)
+       do
+         (change-made)
+         (return-from simp-form
+           (ast `(let ,(subseq (bindings form) 0 binding-position)
+                   (progn
+                     ,@(butlast (ast-forms initform))
+                     (let ((,variable ,(first (last (ast-forms initform))))
+                           ,@(subseq (bindings form) (1+ binding-position)))
+                       ,(ast-body form))))))
+       when (typep initform 'ast-let)
+       do
+         (change-made)
+         (return-from simp-form
+           (ast `(let (,@(subseq (bindings form) 0 binding-position)
+                       ,@(bindings initform)
+                       (,variable ,(ast-body initform))
+                       ,@(subseq (bindings form) (1+ binding-position)))
+                   ,(ast-body form))))))
   ;; Remove the LET if there are no values.
   (cond ((bindings form)
          (setf (body form) (simp-form (body form)))
