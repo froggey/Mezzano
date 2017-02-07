@@ -16,7 +16,7 @@
 
 (defgeneric cp-form (form))
 
-(defun form-value (form &key (reduce-use-count t))
+(defun form-value (form)
   "Return the value of form wrapped in quote if its known, otherwise return nil."
   (cond ((or (typep form 'ast-quote)
              (typep form 'ast-function)
@@ -25,8 +25,6 @@
         ((lexical-variable-p form)
          (let ((val (assoc form *known-variables*)))
            (when val
-             (when reduce-use-count
-               (decf (lexical-variable-use-count form)))
              (second val))))))
 
 (defun flush-mutable-variable (var)
@@ -75,7 +73,7 @@
     (setf (test form) (cp-form (test form)))
     (let ((value (form-value (test form))))
       (cond ((and value
-                  (not (lexical-variable-p value)))
+                  (not (lexical-variable-p (unwrap-the value))))
              (change-made)
              (if (and (typep value 'ast-quote)
                       (eql (value value) 'nil))
@@ -83,6 +81,14 @@
                  (pick-branch (if-else form) (if-then form))
                  ;; Use the true branch.
                  (pick-branch (if-then form) (if-else form))))
+            ((and (typep (test form) 'ast-the)
+                  (subtypep (the-type (test form)) 'null))
+             (change-made)
+             (pick-branch (if-else form) (if-then form)))
+            ((and (typep (test form) 'ast-the)
+                  (subtypep (the-type (test form)) '(not null)))
+             (change-made)
+             (pick-branch (if-then form) (if-else form)))
             (t
              (flush-mutable-variables)
              (setf (if-then form) (cp-form (if-then form)))
@@ -96,11 +102,11 @@
      (setf form (ast-value form))))
 
 (defun copyable-value-p (form)
-  (let ((unwrapped form))
-    (and (pure-p form)
-         (or (not (lambda-information-p form))
-             (<= (getf (lambda-information-plist form) 'copy-count 0)
-               *constprop-lambda-copy-limit*)))))
+  (let ((unwrapped (unwrap-the form)))
+    (and (pure-p unwrapped)
+         (or (not (lambda-information-p unwrapped))
+             (<= (getf (lambda-information-plist unwrapped) 'copy-count 0)
+                 *constprop-lambda-copy-limit*)))))
 
 (defmethod cp-form ((form ast-let))
   (let ((*known-variables* *known-variables*))
@@ -112,9 +118,12 @@
         ;; Add variables to the new constants list.
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
-        (when (and (lexical-variable-p var)
-                   (copyable-value-p val))
-          (push (list var val 0 b) *known-variables*))))
+        (when (lexical-variable-p var)
+          (cond ((copyable-value-p val)
+                 (push (list var val 0 b) *known-variables*))
+                ((and (typep val 'ast-the)
+                      (pure-p var))
+                 (push (list var (ast `(the ,(the-type val) ,var)) 0 b) *known-variables*))))))
     ;; Run on the body, with the new constants.
     (setf (body form) (cp-form (body form)))
     form))
@@ -151,31 +160,31 @@
   (setf (value form) (cp-form (value form)))
   (let* ((info (assoc (setq-variable form) *known-variables*))
          (value (value form)))
-    (if info
-        (cond ((and (localp (setq-variable form))
-                    (or (and (lambda-information-p value)
-                             (<= (getf (lambda-information-plist value) 'copy-count 0)
-                                 *constprop-lambda-copy-limit*))
-                        (typep value 'ast-quote)
-                        (typep value 'ast-function)))
-               ;; Always propagate the new value forward.
-               (setf (second info) value)
-               ;; The value is constant. Attempt to push it back to the
-               ;; original binding.
-               (cond ((zerop (third info))
-                      ;; Send it back, and replace this form with the variable.
-                      (change-made)
-                      (setf (second info) value)
-                      (setf (second (fourth info)) value)
-                      ;; Prevent future SETQ forms from back-propgating values.
-                      (incf (third info))
-                      (setq-variable form))
-                     (t ;; Leave this form alone.
-                      form)))
-              (t ;; Non-constant, flush.
-               (flush-mutable-variable (setq-variable form))
-               form))
-        form)))
+    (cond ((null info)
+           form)
+          ((and (localp (setq-variable form))
+                (or (and (lambda-information-p value)
+                         (<= (getf (lambda-information-plist value) 'copy-count 0)
+                             *constprop-lambda-copy-limit*))
+                    (typep value 'ast-quote)
+                    (typep value 'ast-function)))
+           ;; Always propagate the new value forward.
+           (setf (second info) value)
+           ;; The value is constant. Attempt to push it back to the
+           ;; original binding.
+           (cond ((zerop (third info))
+                  ;; Send it back, and replace this form with the variable.
+                  (change-made)
+                  (setf (second info) value)
+                  (setf (second (fourth info)) value)
+                  ;; Prevent future SETQ forms from back-propgating values.
+                  (incf (third info))
+                  (setq-variable form))
+                 (t ;; Leave this form alone.
+                  form)))
+          (t ;; Non-constant, flush.
+           (flush-mutable-variable (setq-variable form))
+           form))))
 
 (defmethod cp-form ((form ast-tagbody))
   (flush-mutable-variables)
@@ -186,8 +195,17 @@
   form)
 
 (defmethod cp-form ((form ast-the))
-  (setf (value form) (cp-form (value form)))
-  form)
+  (let ((val (assoc (ast-value form) *known-variables*)))
+    (cond ((and val
+                (typep (second val) 'ast-the)
+                (subtypep (the-type (second val)) (the-type form))
+                (eql (ast-value (second val)) (ast-value form))
+                (typep (ast-value form) 'lexical-variable))
+           ;; Don't do anything. This would replace this form with an identical nested THE.
+           form)
+          (t
+           (setf (value form) (cp-form (value form)))
+           form))))
 
 (defmethod cp-form ((form ast-unwind-protect))
   (setf (protected-form form) (cp-form (protected-form form))

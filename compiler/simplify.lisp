@@ -147,14 +147,16 @@
   (setf (bindings form) (remove-if (lambda (b)
                                      (let ((var (first b))
                                            (val (second b)))
-                                       (and (lexical-variable-p var)
-                                            (pure-p val)
-                                            (eql (lexical-variable-use-count var) 0)
-                                            (progn (change-made)
-                                                   t))))
+                                       (cond ((and (lexical-variable-p var)
+                                                   (pure-p val)
+                                                   (eql (lexical-variable-use-count var) 0))
+                                              (change-made)
+                                              t)
+                                             (t nil))))
                                    (bindings form)))
   (dolist (b (bindings form))
     (setf (second b) (simp-form (second b))))
+  (setf (body form) (simp-form (body form)))
   ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
   (when (not (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form))))
     (loop
@@ -181,11 +183,10 @@
                    ,(ast-body form))))))
   ;; Remove the LET if there are no values.
   (cond ((bindings form)
-         (setf (body form) (simp-form (body form)))
          form)
         (t
          (change-made)
-         (simp-form (body form)))))
+         (body form))))
 
 (defmethod simp-form ((form ast-multiple-value-bind))
   ;; If no variables are used, or there are no variables then
@@ -423,7 +424,7 @@
          `(and ,type-1 ,type-2))))
 
 (defmethod simp-form ((form ast-the))
-  (cond ((eql (the-type form) 't)
+  (cond ((subtypep 't (the-type form))
          (change-made)
          (simp-form (value form)))
         ((typep (value form) 'ast-the)
