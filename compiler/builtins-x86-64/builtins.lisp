@@ -17,7 +17,10 @@
                         (declare (sys.int::lambda-name ,name)
                                  ,@(when suppress-binding-stack-check
                                      '((sys.int::suppress-ssp-checking))))
-                        ,@body)
+                        (block ,(if (consp name)
+                                    (second name)
+                                    name)
+                          ,@body))
                       ',emit-function
                       ',name
                       ',suppress-binding-stack-check))
