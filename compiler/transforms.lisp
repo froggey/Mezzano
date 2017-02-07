@@ -191,7 +191,8 @@
       (return nil))))
 
 (defun match-transform-type (transform-type type)
-  (subtypep type transform-type))
+  (and (not (subtypep type 'nil))
+       (subtypep type transform-type)))
 
 (defun match-transform-argument (transform-type argument)
   (cond ((eql transform-type 't))
