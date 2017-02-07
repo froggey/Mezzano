@@ -82,12 +82,16 @@
                  ;; Use the true branch.
                  (pick-branch (if-then form) (if-else form))))
             ((and (typep (test form) 'ast-the)
-                  (subtypep (the-type (test form)) 'null))
+                  ;; Type must equal NULL.
+                  (subtypep (the-type (test form)) 'null)
+                  (subtypep 'null (the-type (test form))))
              (change-made)
+             ;; Use the else branch.
              (pick-branch (if-else form) (if-then form)))
             ((and (typep (test form) 'ast-the)
                   (subtypep (the-type (test form)) '(not null)))
              (change-made)
+             ;; Use the true branch.
              (pick-branch (if-then form) (if-else form)))
             (t
              (flush-mutable-variables)
