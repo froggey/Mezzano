@@ -29,6 +29,8 @@
 (sys.int::defglobal *cons-fast-path-hits*)
 (sys.int::defglobal *cons-allocation-count*)
 
+(sys.int::defglobal *bytes-consed*)
+
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
 
@@ -80,7 +82,8 @@
         *general-fast-path-hits* 0
         *general-allocation-count* 0
         *cons-fast-path-hits* 0
-        *cons-allocation-count* 0))
+        *cons-allocation-count* 0
+        *bytes-consed* 0))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
@@ -437,6 +440,7 @@
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
+    (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
     (ecase area
       ((nil)
        (%allocate-from-general-area tag data words))
@@ -452,8 +456,10 @@
     ((nil)
      (cons car cdr))
     (:pinned
+     (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-pinned-area car cdr))
     (:wired
+     (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-wired-area car cdr))))
 
 #+x86-64
@@ -466,6 +472,9 @@
   (sys.lap-x86:mov64 :rbx (:constant *cons-allocation-count*))
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov64 :rbx (:constant *bytes-consed*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 16 sys.int::+n-fixnum-bits+))
   ;; Big hammer, disable interrupts. Faster than taking locks & stuff.
   (sys.lap-x86:cli)
   ;; Check argument count.
