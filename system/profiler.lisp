@@ -21,7 +21,8 @@
     (lambda :in mezzano.clos::compute-n-effective-discriminator)
     (lambda :in mezzano.clos::std-compute-effective-method-function-with-standard-method-combination)
     (lambda :in mezzano.clos::compute-primary-emfun)
-    sys.int::%progv))
+    sys.int::%progv
+    sys.int::%catch))
 
 (defstruct thread-sample
   thread
