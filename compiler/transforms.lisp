@@ -286,3 +286,22 @@
 (define-fast-array-transform (signed-byte 32) sys.int::%object-ref-signed-byte-32)
 (define-fast-array-transform (signed-byte 16) sys.int::%object-ref-signed-byte-16)
 (define-fast-array-transform (signed-byte 8) sys.int::%object-ref-signed-byte-8)
+
+(define-transform length ((sequence (and (simple-array * (*))
+                                         (not (simple-array character (*))))))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(the (integer 0 ,array-dimension-limit) (call sys.int::%object-header-data ,sequence))))
+
+;;; Misc transforms.
+
+(defmacro define-type-predicate-transform (predicate type)
+  `(progn
+     (define-transform ,predicate ((object ,type))
+         ()
+       (ast `'t))
+     (define-transform ,predicate ((object (not ,type)))
+         ()
+       (ast `'nil))))
+
+(define-type-predicate-transform consp cons)
+(define-type-predicate-transform vectorp vector)
