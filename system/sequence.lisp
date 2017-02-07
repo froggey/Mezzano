@@ -42,27 +42,43 @@
 (declaim (inline position-if))
 (defun position-if (predicate sequence &key key from-end (start 0) end)
   (unless key (setf key 'identity))
-  (cond ((and (listp sequence)
-              (eql start 0)
-              (eql end nil))
-         (when from-end
-           (setf sequence (reverse sequence)))
-         (do ((p 0 (1+ p))
-              (i sequence (cdr i)))
-             ((null i) nil)
-           (when (funcall predicate (funcall key (car i)))
-             (return (if from-end
-                         (- (length sequence) p 1)
-                         p)))))
-        (t (unless end (setf end (length sequence)))
-           (if from-end
-               (let ((len (- end start)))
-                 (dotimes (i len nil)
-                   (when (funcall predicate (funcall key (elt sequence (+ start (- len i 1)))))
-                     (return (+ start (- len i 1))))))
-               (dotimes (i (- end start) nil)
-                 (when (funcall predicate (funcall key (elt sequence (+ i start))))
-                   (return (+ start i))))))))
+  (etypecase sequence
+    (list
+     (cond ((and (eql start 0)
+                 (eql end nil))
+            (when from-end
+              (setf sequence (reverse sequence)))
+            (do ((p 0 (1+ p))
+                 (i sequence (cdr i)))
+                ((null i) nil)
+              (when (funcall predicate (funcall key (car i)))
+                (return (if from-end
+                            (- (length sequence) p 1)
+                            p)))))
+           (t
+            (let ((end (or end (length sequence))))
+              (if from-end
+                  (let ((len (- end start)))
+                    (dotimes (i len nil)
+                      (when (funcall predicate (funcall key (elt sequence (+ start (- len i 1)))))
+                        (return (+ start (- len i 1))))))
+                  (dotimes (i (- end start) nil)
+                    (when (funcall predicate (funcall key (elt sequence (+ i start))))
+                      (return (+ start i)))))))))
+    (vector
+     (assert (<= 0 start))
+     (when end
+       (assert (<= end (length sequence))))
+     (let ((end (or end (length sequence))))
+       (if from-end
+           (loop
+              for i fixnum from (1- end) downto start
+              when (funcall predicate (funcall key (aref sequence i)))
+              do (return i))
+           (loop
+              for i fixnum from start below end
+              when (funcall predicate (funcall key (aref sequence i)))
+              do (return i)))))))
 
 (declaim (inline position))
 (defun position (item sequence &key test test-not key from-end (start 0) end)
@@ -125,16 +141,22 @@
        (when (funcall predicate (funcall key e))
          (return e))))
     (vector
-     (cond (from-end
-            (loop
-               for i from (1- (or end (length sequence))) downto start
-               when (funcall predicate (funcall key (elt sequence i)))
-               do (return (elt sequence i))))
-           (t
-            (loop
-               for i from start below (or end (length sequence))
-               when (funcall predicate (funcall key (elt sequence i)))
-               do (return (elt sequence i))))))))
+     (assert (<= 0 start))
+     (when end
+       (assert (<= end (length sequence))))
+     (let ((end (or end (length sequence))))
+       (cond (from-end
+              (loop
+                 for i from (1- (or end (length sequence))) downto start
+                 for val = (aref sequence i)
+                 when (funcall predicate (funcall key val))
+                 do (return val)))
+             (t
+              (loop
+                 for i from start below (or end (length sequence))
+                 for val = (aref sequence i)
+                 when (funcall predicate (funcall key val))
+                 do (return val))))))))
 
 (defun find (item sequence &key key test test-not (start 0) end from-end)
   (when (and test test-not)
