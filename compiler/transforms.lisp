@@ -133,11 +133,20 @@
    (%result-type :initarg :result-type :reader transform-result-type)
    (%optimize :initarg :optimize :reader transform-optimize)
    (%architecture :initarg :architecture :reader transform-architecture)
-   (%body :initarg :body :reader transform-body))
+   (%body :initarg :body :reader transform-body)
+   (%documentation :initarg :documentation :reader transform-documentation))
   (:default-initargs
    :result-type 't
     :optimize '()
-    :architecture 't))
+    :architecture 't
+    :documentation nil))
+
+(defmethod print-object ((object transform) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S ~S -> ~S"
+            (transform-function object)
+            (mapcar #'list (transform-lambda-list object) (transform-argument-types object))
+            (transform-result-type object))))
 
 (defvar *transforms* '())
 
@@ -161,6 +170,7 @@
                                         ,@(loop for (option . rest) in options
                                              collect option
                                              collect (ecase option
+                                                       (:documentation `',(first rest))
                                                        (:result-type `',(first rest))
                                                        (:optimize `',rest)
                                                        (:architecture `',rest)))))))
@@ -181,21 +191,18 @@
       (return nil))))
 
 (defun match-transform-type (transform-type type)
-  ;; TODO: Use cross-subtypep when that exists.
-  (equal transform-type type))
+  (subtypep type transform-type))
 
 (defun match-transform-argument (transform-type argument)
   (cond ((eql transform-type 't))
-        ((and (consp transform-type)
-              (member (first transform-type) '(eql member))
-              (typep argument 'ast-quote))
-         (member (value argument) (rest transform-type)))
         ((typep argument 'ast-the)
-         (match-transform-type transform-type (the-type argument)))))
+         (match-transform-type transform-type (the-type argument)))
+        ((typep argument 'ast-quote)
+         (typep (value argument) transform-type))))
 
 (defun match-transform (call result-type target-architecture)
-  (dolist (transform *transforms*)
-    (when (and (eql (transform-function transform) (ast-name call))
+  (dolist (transform *transforms* nil)
+    (when (and (equal (transform-function transform) (ast-name call))
                (or (eql (transform-architecture transform) 't)
                    (member target-architecture (transform-architecture transform)))
                (match-optimize-settings transform)
@@ -208,3 +215,74 @@
 
 (defun apply-transform (transform arguments)
   (apply (transform-body transform) arguments))
+
+;;; Unboxed fixnum arithmetic.
+;;; These only apply at safety 0 as they can produce invalid values which
+;;; can damage the system.
+
+(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn)
+  `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
+      ((:result-type fixnum)
+       (:optimize (= safety 0) (= speed 3)))
+     (ast `(call ,',fast-fn ,lhs ,rhs))))
+
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
+(define-fast-fixnum-transform-arith-two-arg sys.int::%truncate %fast-fixnum-truncate)
+(define-fast-fixnum-transform-arith-two-arg rem %fast-fixnum-rem)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
+
+;;; Fixnum comparisons.
+;;; These apply at safety 1 and below as violating the types will only produce
+;;; incorrect results, rather than potentially damaging the system.
+
+(define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (<= safety 1) (= speed 3)))
+  (ast `(call eq ,lhs ,rhs)))
+
+(define-transform sys.int::binary-< ((lhs fixnum) (rhs fixnum))
+    ((:optimize (<= safety 1) (= speed 3)))
+  (ast `(call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary->= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (<= safety 1) (= speed 3)))
+  (ast `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs))))
+
+(define-transform sys.int::binary-> ((lhs fixnum) (rhs fixnum))
+    ((:optimize (<= safety 1) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call mezzano.runtime::%fixnum-< rhs-value lhs-value))))
+
+(define-transform sys.int::binary-<= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (<= safety 1) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call not (call mezzano.runtime::%fixnum-< rhs-value lhs-value)))))
+
+;;; Fast array accesses. Unbounded and may attack at any time.
+;;; Currently only functional on simple 1d arrays.
+
+(defmacro define-fast-array-transform (type accessor)
+  `(progn
+     (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) index)
+         ((:optimize (= safety 0) (= speed 3)))
+       (ast `(the ,',type (call ,',accessor ,array ,index))))
+     (define-transform (setf sys.int::aref-1) ((value ,type) (array (simple-array ,type (*))) index)
+         ((:optimize (= safety 0) (= speed 3)))
+       (ast `(the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
+
+(define-fast-array-transform t sys.int::%object-ref-t)
+(define-fast-array-transform fixnum sys.int::%object-ref-t)
+(define-fast-array-transform (unsigned-byte 64) sys.int::%object-ref-unsigned-byte-64)
+(define-fast-array-transform (unsigned-byte 32) sys.int::%object-ref-unsigned-byte-32)
+(define-fast-array-transform (unsigned-byte 16) sys.int::%object-ref-unsigned-byte-16)
+(define-fast-array-transform (unsigned-byte 8) sys.int::%object-ref-unsigned-byte-8)
+(define-fast-array-transform (signed-byte 64) sys.int::%object-ref-signed-byte-64)
+(define-fast-array-transform (signed-byte 32) sys.int::%object-ref-signed-byte-32)
+(define-fast-array-transform (signed-byte 16) sys.int::%object-ref-signed-byte-16)
+(define-fast-array-transform (signed-byte 8) sys.int::%object-ref-signed-byte-8)
