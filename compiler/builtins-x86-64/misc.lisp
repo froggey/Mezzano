@@ -404,6 +404,13 @@
 
 (defbuiltin mezzano.runtime::fast-symbol-value-cell (symbol) ()
   (smash-r8)
+  (when (and (constant-type-p symbol 'symbol)
+             (eql (sys.int::symbol-mode (second symbol)) :global))
+    ;; This is a known global symbol, pull the global value cell.
+    (load-in-r8 symbol t)
+    (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot sys.int::+symbol-value+)))
+    (return-from mezzano.runtime::fast-symbol-value-cell
+      (setf *r8-value* (list (gensym)))))
   (let ((cache-miss (gensym "SYMBOL-CACHE-MISS"))
         (resume (gensym "RESUME")))
     (emit-trailer (cache-miss)
@@ -428,6 +435,24 @@
       ;; Done.
       (emit `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r9 symbol t)
+    (when (not (constant-type-p symbol 'symbol))
+      ;; Symbol type check.
+      (emit `(sys.lap-x86:lea64 :rax (:r9 ,(- sys.int::+tag-object+)))
+            `(sys.lap-x86:test8 :al #b1111)
+            `(sys.lap-x86:jne ,cache-miss)
+            `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+            `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                         sys.int::+object-type-shift+))
+            `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-symbol+
+                                         sys.int::+object-type-shift+))
+            `(sys.lap-x86:jne ,cache-miss))
+      ;; For global symbols, don't even look at the cache.
+      ;; Cache entries exist on the stack, which may not be paged in.
+      (emit `(sys.lap-x86:mov8 :al (:r9 ,(+ (- sys.int::+tag-object+) 1)))
+            `(sys.lap-x86:and8 :al #b111)
+            `(sys.lap-x86:cmp8 :al ,sys.int::+symbol-mode-global+)
+            `(sys.lap-x86:cmov64e :r8 ,(object-ea :r9 :slot sys.int::+symbol-value+))
+            `(sys.lap-x86:je ,resume)))
     ;; Compute symbol hash. Symbols are wired, so use the address.
     ;; Ignore the low 4 bits.
     (emit `(sys.lap-x86:mov64 :rax :r9)
