@@ -114,18 +114,27 @@
 (declaim (inline find-if find find-if-not))
 (defun find-if (predicate sequence &key key (start 0) end from-end)
   (unless key (setf key 'identity))
-  (when (or (not (zerop start))
-            end)
-    (setf sequence (subseq sequence start end)))
-  (when from-end
-    (setf sequence (reverse sequence)))
-  (if (listp sequence)
-      (dolist (e sequence)
-        (when (funcall predicate (funcall key e))
-          (return e)))
-      (dotimes (i (length sequence) nil)
-        (when (funcall predicate (funcall key (elt sequence i)))
-          (return (elt sequence i))))))
+  (etypecase sequence
+    (list
+     (when (or (not (zerop start))
+               end)
+       (setf sequence (subseq sequence start end)))
+     (when from-end
+       (setf sequence (reverse sequence)))
+     (dolist (e sequence)
+       (when (funcall predicate (funcall key e))
+         (return e))))
+    (vector
+     (cond (from-end
+            (loop
+               for i from (1- (or end (length sequence))) downto start
+               when (funcall predicate (funcall key (elt sequence i)))
+               do (return (elt sequence i))))
+           (t
+            (loop
+               for i from start below (or end (length sequence))
+               when (funcall predicate (funcall key (elt sequence i)))
+               do (return (elt sequence i))))))))
 
 (defun find (item sequence &key key test test-not (start 0) end from-end)
   (when (and test test-not)
