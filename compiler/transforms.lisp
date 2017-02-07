@@ -273,7 +273,7 @@
      (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
        (ast `(the ,',type (call ,',accessor ,array ,index))))
-     (define-transform (setf sys.int::aref-1) ((value ,type) (array (simple-array ,type (*))) index)
+     (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
        (ast `(the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
 
