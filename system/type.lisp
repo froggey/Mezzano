@@ -541,7 +541,7 @@
           ((and (consp t2)
                 (eql (first t2) 'not))
            (multiple-value-bind (subtype-p valid-p)
-               (subtypep t1 (second t2))
+               (subtypep (second t2) t1)
              (if valid-p
                  (values (not subtype-p) t)
                  (values nil nil))))
