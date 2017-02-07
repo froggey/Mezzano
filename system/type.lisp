@@ -540,7 +540,6 @@
            (values nil nil))
           (t
            (values nil t)))))
-)
 
 (defun subclassp (class-1 class-2)
   (let ((c1 (if (typep class-1 'class)
@@ -548,6 +547,7 @@
                 (find-class class-1 nil))))
     (cond (c1 (values (member class-2 (mezzano.clos:class-precedence-list c1)) t))
           (t (values nil nil)))))
+)
 
 (defun typep (object type-specifier &optional environment)
   (when (and (or (std-instance-p type-specifier)

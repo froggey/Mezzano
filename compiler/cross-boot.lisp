@@ -281,3 +281,6 @@
 (defun upgraded-array-element-type (typespec &optional environment)
   ;; Oh so very wrong.
   (cl:upgraded-array-element-type (sys.int::typeexpand typespec environment)))
+
+(defun mezzano.clos:class-precedence-list (class)
+  (sb-mop:class-precedence-list class))
