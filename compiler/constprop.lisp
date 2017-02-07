@@ -89,6 +89,19 @@
              (setf (if-else form) (cp-form (if-else form)))
              form)))))
 
+(defun unwrap-the (form)
+  (loop
+     (when (not (typep form 'ast-the))
+       (return form))
+     (setf form (ast-value form))))
+
+(defun copyable-value-p (form)
+  (let ((unwrapped form))
+    (and (pure-p form)
+         (or (not (lambda-information-p form))
+             (<= (getf (lambda-information-plist form) 'copy-count 0)
+               *constprop-lambda-copy-limit*)))))
+
 (defmethod cp-form ((form ast-let))
   (let ((*known-variables* *known-variables*))
     (dolist (b (bindings form))
@@ -100,14 +113,7 @@
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
         (when (and (lexical-variable-p var)
-                   (or (and (lambda-information-p val)
-                            (<= (getf (lambda-information-plist val) 'copy-count 0)
-                                *constprop-lambda-copy-limit*))
-                       (typep val 'ast-quote)
-                       (typep val 'ast-function)
-                       (and (lexical-variable-p val)
-                            (localp val)
-                            (eql (lexical-variable-write-count val) 0))))
+                   (copyable-value-p val))
           (push (list var val 0 b) *known-variables*))))
     ;; Run on the body, with the new constants.
     (setf (body form) (cp-form (body form)))
@@ -260,8 +266,8 @@
   (let ((val (assoc form *known-variables*)))
     (cond (val
            (change-made)
-           (when (lambda-information-p (second val))
-             (incf (getf (lambda-information-plist (second val)) 'copy-count 0)))
+           (when (lambda-information-p (unwrap-the (second val)))
+             (incf (getf (lambda-information-plist (unwrap-the (second val))) 'copy-count 0)))
            (decf (lexical-variable-use-count form))
            (incf (third val))
            (copy-form (second val)))
