@@ -52,9 +52,7 @@
   (let ((test-form (test form)))
     (typecase test-form
       (ast-let
-       (when (find-if (lambda (x) (typep x 'special-variable))
-                      (bindings test-form)
-                      :key #'first)
+       (when (let-binds-special-variable-p test-form)
          (return-from hoist-form-out-of-if nil))
        (ast `(let ,(bindings test-form)
                (if ,(body test-form)
@@ -135,7 +133,7 @@
   ;; Merge nested LETs when possible, do not merge special bindings!
   (do ((nested-form (body form) (body form)))
       ((or (not (typep nested-form 'ast-let))
-           (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form)))
+           (let-binds-special-variable-p form)
            (and (bindings nested-form)
                 (typep (first (first (bindings nested-form))) 'special-variable))))
     (change-made)
@@ -158,7 +156,7 @@
     (setf (second b) (simp-form (second b))))
   (setf (body form) (simp-form (body form)))
   ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
-  (when (not (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form))))
+  (when (not (let-binds-special-variable-p form))
     (loop
        for binding-position from 0
        for (variable initform) in (bindings form)
@@ -172,7 +170,8 @@
                      (let ((,variable ,(first (last (ast-forms initform))))
                            ,@(subseq (bindings form) (1+ binding-position)))
                        ,(ast-body form))))))
-       when (typep initform 'ast-let)
+       when (and (typep initform 'ast-let)
+                 (not (let-binds-special-variable-p initform)))
        do
          (change-made)
          (return-from simp-form
@@ -187,6 +186,10 @@
         (t
          (change-made)
          (body form))))
+
+(defun let-binds-special-variable-p (let-form)
+  (some (lambda (x) (typep (first x) 'special-variable))
+        (bindings let-form)))
 
 (defmethod simp-form ((form ast-multiple-value-bind))
   ;; If no variables are used, or there are no variables then
@@ -494,9 +497,7 @@
                        ,(first (last (ast-forms arg)))
                        ,@(subseq (arguments form) (1+ arg-position))))))
      when (and (typep arg 'ast-let)
-               (every (lambda (binding)
-                        (typep (first binding) 'lexical-variable))
-                      (ast-bindings arg)))
+               (not (let-binds-special-variable-p arg)))
      do
        (change-made)
        (return-from simp-form
