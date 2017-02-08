@@ -490,7 +490,7 @@
                (t
                 (load-in-reg :r8 integer t)
                 (smash-r8)
-                (emit `(sys.lap-x86:shl64 :r8 ,count))
+                (emit `(sys.lap-x86:shl64 :r8 ,(second count)))
                 (setf *r8-value* (list (gensym))))))
         (t
          (load-in-reg :r8 integer t)
