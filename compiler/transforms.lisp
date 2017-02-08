@@ -221,46 +221,44 @@
 ;;; These only apply at safety 0 as they can produce invalid values which
 ;;; can damage the system.
 
-(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn)
+(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
-      ((:result-type fixnum)
+      ((:result-type ,result)
        (:optimize (= safety 0) (= speed 3)))
-     (ast `(call ,',fast-fn ,lhs ,rhs))))
+     (ast `(the fixnum (call ,',fast-fn ,lhs ,rhs)))))
 
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
 (define-fast-fixnum-transform-arith-two-arg sys.int::%truncate %fast-fixnum-truncate)
 (define-fast-fixnum-transform-arith-two-arg rem %fast-fixnum-rem)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior :result t)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
 
 ;;; Fixnum comparisons.
-;;; These apply at safety 1 and below as violating the types will only produce
-;;; incorrect results, rather than potentially damaging the system.
 
 (define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (<= safety 1) (= speed 3)))
+    ((:optimize (= safety 0) (= speed 3)))
   (ast `(call eq ,lhs ,rhs)))
 
 (define-transform sys.int::binary-< ((lhs fixnum) (rhs fixnum))
-    ((:optimize (<= safety 1) (= speed 3)))
+    ((:optimize (= safety 0) (= speed 3)))
   (ast `(call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
 
 (define-transform sys.int::binary->= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (<= safety 1) (= speed 3)))
+    ((:optimize (= safety 0) (= speed 3)))
   (ast `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs))))
 
 (define-transform sys.int::binary-> ((lhs fixnum) (rhs fixnum))
-    ((:optimize (<= safety 1) (= speed 3)))
+    ((:optimize (= safety 0) (= speed 3)))
   (ast `(let ((lhs-value ,lhs)
               (rhs-value ,rhs))
           (call mezzano.runtime::%fixnum-< rhs-value lhs-value))))
 
 (define-transform sys.int::binary-<= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (<= safety 1) (= speed 3)))
+    ((:optimize (= safety 0) (= speed 3)))
   (ast `(let ((lhs-value ,lhs)
               (rhs-value ,rhs))
           (call not (call mezzano.runtime::%fixnum-< rhs-value lhs-value)))))
@@ -298,11 +296,12 @@
 (defmacro define-type-predicate-transform (predicate type)
   `(progn
      (define-transform ,predicate ((object ,type))
-         ()
+         ((:optimize (= safety 0) (= speed 3)))
        (ast `'t))
      (define-transform ,predicate ((object (not ,type)))
-         ()
+         ((:optimize (= safety 0) (= speed 3)))
        (ast `'nil))))
 
 (define-type-predicate-transform consp cons)
 (define-type-predicate-transform vectorp vector)
+(define-type-predicate-transform sys.int::fixnump fixnum)
