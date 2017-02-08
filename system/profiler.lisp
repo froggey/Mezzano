@@ -30,7 +30,7 @@
   wait-item
   call-stack)
 
-(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune ignore-functions) &body body)
+(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune ignore-functions repeat) &body body)
   "Profile BODY.
 :THREAD - Thread to sample.
           If NIL, then sample all threads.
@@ -42,7 +42,7 @@
 :IGNORE-FUNCTIONS - A list of function names to be removed from the call stack."
   `(call-with-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*))
+(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*) repeat)
   (let* ((profile-buffer nil)
          (results (unwind-protect
                        (progn
@@ -51,7 +51,10 @@
                           :thread (if (eq thread t)
                                       (mezzano.supervisor:current-thread)
                                       thread))
-                         (multiple-value-list (funcall function)))
+                         (if repeat
+                             (dotimes (i repeat)
+                               (funcall function))
+                             (multiple-value-list (funcall function))))
                     (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
     (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil) ignore-functions))
     (cond (path
