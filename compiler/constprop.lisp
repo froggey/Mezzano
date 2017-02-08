@@ -203,6 +203,7 @@
     (cond ((and val
                 (typep (second val) 'ast-the)
                 (subtypep (the-type (second val)) (the-type form))
+                (subtypep (the-type form) (the-type (second val)))
                 (eql (ast-value (second val)) (ast-value form))
                 (typep (ast-value form) 'lexical-variable))
            ;; Don't do anything. This would replace this form with an identical nested THE.
