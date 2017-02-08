@@ -509,8 +509,8 @@
            initform
            `(the ,declared-type ,initform))))
     (special-variable
-     (let ((declared-type `(and (find-type-declaration (name var) declares)
-                                (mezzano.runtime::symbol-type (name var)))))
+     (let ((declared-type `(and ,(find-type-declaration (name var) declares)
+                                ,(mezzano.runtime::symbol-type (name var)))))
        `(the ,declared-type ,initform)))))
 
 (defun pass1-let* (form env)
