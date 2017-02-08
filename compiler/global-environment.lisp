@@ -34,3 +34,6 @@
 
 (defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
   (mezzano.runtime::symbol-type symbol))
+
+(defmethod optimize-qualities-in-environment ((environment null))
+  '())

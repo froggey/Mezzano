@@ -76,26 +76,14 @@
                                    ((declared-as-p 'ignorable name declares) :maybe))
                      :dynamic-extent (declared-as-p 'dynamic-extent name declares))))
 
-(defun canonicalize-optimize-qualities (qualities)
-  (let ((canonical-settings '()))
-    (dolist (quality qualities)
-      (destructuring-bind (quality value)
-          (if (symbolp quality)
-              `(,quality 3)
-              quality)
-        (check-type quality (member compilation-speed debug safety space speed))
-        (check-type value (member 0 1 2 3))
-        (let ((current (getf canonical-settings quality 0)))
-          (setf (getf canonical-settings quality) (max value current)))))
-    canonical-settings))
-
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
-      (let* ((info (make-instance 'lambda-information
+      (let* ((optimize-env (extend-environment env :declarations declares))
+             (info (make-instance 'lambda-information
                                   :name (or name
                                             `(lambda :in ,(or (and (boundp '*current-lambda*)
                                                                    *current-lambda*
@@ -107,11 +95,7 @@
                                   :enable-keys enable-keys
                                   :allow-other-keys allow-other-keys
                                   :plist (list :declares declares
-                                               :optimize (canonicalize-optimize-qualities
-                                                          (loop
-                                                             for (dec . stuff) in declares
-                                                             when (eql dec 'optimize)
-                                                             appending stuff)))))
+                                               :optimize (optimize-qualities-in-environment optimize-env))))
              (*current-lambda* info)
              (aux-bindings '()))
         ;; Add required, optional and rest arguments to the environment & lambda.

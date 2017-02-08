@@ -24,6 +24,7 @@
 (defgeneric compiler-macro-function-in-environment (name environment))
 (defgeneric macro-function-in-environment (symbol environment))
 (defgeneric lookup-variable-declared-type-in-environment (symbol environment))
+(defgeneric optimize-qualities-in-environment (environment))
 
 ;;; Lexical environments.
 
@@ -33,7 +34,8 @@
    (%blocks :initform '())
    (%go-tags :initform '())
    (%inline-decls :initform '())
-   (%variable-type-decls :initform '())))
+   (%variable-type-decls :initform '())
+   (%optimize :initform '())))
 
 (defun extend-environment (environment &key
                                          variables
@@ -126,6 +128,21 @@
            when (not (assoc var new-decls))
            do (push (list var type) new-decls))
         (setf (slot-value sub '%variable-type-decls) new-decls)))
+    (let ((optimize-settings (optimize-qualities-in-environment environment)))
+      (loop
+         for (what . qualities) in declarations
+         when (eql what 'optimize)
+         do
+           (dolist (quality qualities)
+             (destructuring-bind (quality value)
+                 (if (symbolp quality)
+                     `(,quality 3)
+                     quality)
+               (check-type quality (member compilation-speed debug safety space speed))
+               (check-type value (member 0 1 2 3))
+               (let ((current (getf optimize-settings quality 0)))
+                 (setf (getf optimize-settings quality) (max value current))))))
+      (setf (slot-value sub '%optimize) optimize-settings))
     sub))
 
 (defmethod lookup-variable-in-environment (symbol (environment lexical-environment))
@@ -196,3 +213,6 @@
     (if ty
         (second ty)
         (lookup-variable-declared-type-in-environment symbol nil))))
+
+(defmethod optimize-qualities-in-environment ((environment lexical-environment))
+  (slot-value environment '%optimize))

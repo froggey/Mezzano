@@ -357,6 +357,9 @@
 (defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
   (mezzano.runtime::symbol-type symbol))
 
+(defmethod optimize-qualities-in-environment ((environment null))
+  '())
+
 (defun compiler-macro-function (name &optional env)
   (compiler-macro-function-in-environment name env))
 
