@@ -544,11 +544,14 @@
            (values nil nil))
           ((and (consp t2)
                 (eql (first t2) 'not))
-           (multiple-value-bind (subtype-p valid-p)
-               (subtypep (second t2) t1)
-             (if valid-p
-                 (values (not subtype-p) t)
-                 (values nil nil))))
+           (cond ((not (subtypep t1 (second t2)))
+                  (multiple-value-bind (subtype-p valid-p)
+                      (subtypep (second t2) t1)
+                    (if valid-p
+                        (values (not subtype-p) t)
+                        (values nil nil))))
+                 (t
+                  (values nil t))))
           ((and (symbolp t1)
                 (find-class t1 nil)
                 (symbolp t2)
