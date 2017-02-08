@@ -200,6 +200,10 @@
   ((%the-type :initarg :type :accessor the-type :accessor ast-the-type)
    (%value :initarg :value :accessor value :accessor ast-value)))
 
+(defmethod print-object ((instance ast-the) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~S" (ast-the-type instance))))
+
 (defclass ast-unwind-protect ()
   ((%protected-form :initarg :protected-form :accessor protected-form :accessor ast-protected-form)
    (%cleanup-function :initarg :cleanup-function :accessor cleanup-function :accessor ast-cleanup-function)))
