@@ -240,7 +240,6 @@
   (mezzano.lap.arm64:blr :x9)
   (mezzano.lap.arm64:hlt 0))
 
-(declaim (inline eql))
 (defun eql (x y)
   (or (eq x y)
       (and (sys.int::%value-has-tag-p x sys.int::+tag-object+)
