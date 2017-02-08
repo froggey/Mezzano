@@ -513,6 +513,21 @@
                                 ,(mezzano.runtime::symbol-type (name var)))))
        `(the ,declared-type ,initform)))))
 
+(defun non-type-type-declaration-p (declaration)
+  "Test if DECLARATION should be treated as a type declaration."
+  (and (symbolp declaration)
+       (or (get declaration 'sys.int::type-expander)
+           (get declaration 'sys.int::type-symbol))))
+
+(defun fake-type-declarations-for (declares name)
+  (dolist (dec declares '())
+    (cond ((and (eql (first dec) 'type)
+               (member name (cddr dec)))
+           (return `((type ,(second dec) ,name))))
+          ((and (non-type-type-declaration-p (first dec))
+                (member name (rest dec)))
+           (return `((type ,(first dec) ,name)))))))
+
 (defun pass1-let* (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
@@ -532,7 +547,9 @@
                                                 :bindings (list (list var (pass1-form (wrap-initform-with-the init-form var declares) env)))
                                                 :body (make-instance 'ast-quote :value 'nil))
                     inner (body inner)
-                    env (extend-environment env :variables (list (list name var)))))))
+                    env (extend-environment env
+                                            :variables (list (list name var))
+                                            :declarations (fake-type-declarations-for declares name))))))
         (setf (body inner) (pass1-form `(progn ,@body)
                                        (extend-environment env :declarations declares)))
         (body result)))))
