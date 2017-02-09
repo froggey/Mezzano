@@ -482,33 +482,6 @@
   form)
 
 (defmethod simp-form ((form ast-call))
-  ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
-  (loop
-     for arg-position from 0
-     for arg in (arguments form)
-     when (typep arg 'ast-progn)
-     do
-       (change-made)
-       (return-from simp-form
-         (ast `(progn
-                 ,@(butlast (ast-forms arg))
-                 (call ,(ast-name form)
-                       ,@(subseq (arguments form) 0 arg-position)
-                       ,(first (last (ast-forms arg)))
-                       ,@(subseq (arguments form) (1+ arg-position))))))
-     when (and (typep arg 'ast-let)
-               (not (let-binds-special-variable-p arg)))
-     do
-       (change-made)
-       (return-from simp-form
-         (ast `(let ,(ast-bindings arg)
-                 (call ,(ast-name form)
-                       ,@(subseq (arguments form) 0 arg-position)
-                       ,(ast-body arg)
-                       ,@(subseq (arguments form) (1+ arg-position))))))
-     ;; Bail when a non-pure arg is seen. Arguments after this one can't safely be hoisted.
-     when (not (pure-p arg))
-     do (return))
   ;; (funcall 'symbol ...) -> (symbol ...)
   ;; (funcall #'name ...) -> (name ...)
   (cond ((and (eql (name form) 'funcall)
@@ -529,6 +502,33 @@
          (simp-ash form))
         (t
          (simp-form-list (arguments form))
+         ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
+         (loop
+            for arg-position from 0
+            for arg in (arguments form)
+            when (typep arg 'ast-progn)
+            do
+              (change-made)
+              (return-from simp-form
+                (ast `(progn
+                        ,@(butlast (ast-forms arg))
+                        (call ,(ast-name form)
+                              ,@(subseq (arguments form) 0 arg-position)
+                              ,(first (last (ast-forms arg)))
+                              ,@(subseq (arguments form) (1+ arg-position))))))
+            when (and (typep arg 'ast-let)
+                      (not (let-binds-special-variable-p arg)))
+            do
+              (change-made)
+              (return-from simp-form
+                (ast `(let ,(ast-bindings arg)
+                        (call ,(ast-name form)
+                              ,@(subseq (arguments form) 0 arg-position)
+                              ,(ast-body arg)
+                              ,@(subseq (arguments form) (1+ arg-position))))))
+            ;; Bail when a non-pure arg is seen. Arguments after this one can't safely be hoisted.
+            when (not (pure-p arg))
+            do (return))
          form)))
 
 (defmethod simp-form ((form ast-jump-table))
