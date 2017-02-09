@@ -413,6 +413,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
+  (when (equal type-1 type-2)
+    (return-from subtypep (values t t)))
   (when (typep type-2 'class)
     (return-from subtypep (subclassp (if (listp type-1)
                                          (first type-1)
