@@ -360,4 +360,4 @@ Returns NIL if the function captures no variables."
             (setf (fdefinition (first x)) (second x)))))))
 
 (defmacro untrace (&rest functions)
-  `(%untrace ,(loop for fn in functions collect `',fn)))
+  `(%untrace ,@(loop for fn in functions collect `',fn)))
