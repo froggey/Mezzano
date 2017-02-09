@@ -331,8 +331,9 @@
         (struct-type-sym (gensym "struct-type")))
     `(let ((,value ,place)
            (,struct-type-sym ,struct-type))
-       (when (not (or (eql (%struct-slot ,value 0) ,struct-type-sym)
-                      (structure-type-p ,value ,struct-type-sym)))
+       (when (not (and (structure-object-p ,value)
+                       (or (eql (%struct-slot ,value 0) ,struct-type-sym)
+                           (structure-type-p ,value ,struct-type-sym))))
          (raise-type-error ,value (structure-name ,struct-type-sym))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
