@@ -427,7 +427,7 @@
          `(and ,type-1 ,type-2))))
 
 (defmethod simp-form ((form ast-the))
-  (cond ((subtypep 't (the-type form))
+  (cond ((compiler-subtypep 't (the-type form))
          (change-made)
          (simp-form (value form)))
         ((typep (value form) 'ast-the)

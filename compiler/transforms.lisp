@@ -191,8 +191,8 @@
       (return nil))))
 
 (defun match-transform-type (transform-type type)
-  (and (not (subtypep type 'nil))
-       (subtypep type transform-type)))
+  (and (not (compiler-subtypep type 'nil))
+       (compiler-subtypep type transform-type)))
 
 (defun match-transform-argument (transform-type argument)
   (cond ((eql transform-type 't))
@@ -201,17 +201,20 @@
         ((typep argument 'ast-quote)
          (typep (value argument) transform-type))))
 
+(defun match-one-transform (transform call result-type target-architecture)
+  (and (equal (transform-function transform) (ast-name call))
+       (or (eql (transform-architecture transform) 't)
+           (member target-architecture (transform-architecture transform)))
+       (match-optimize-settings transform)
+       (match-transform-type (transform-result-type transform) result-type)
+       (eql (length (arguments call)) (length (transform-lambda-list transform)))
+       (every #'match-transform-argument
+              (transform-argument-types transform)
+              (arguments call))))
+
 (defun match-transform (call result-type target-architecture)
   (dolist (transform *transforms* nil)
-    (when (and (equal (transform-function transform) (ast-name call))
-               (or (eql (transform-architecture transform) 't)
-                   (member target-architecture (transform-architecture transform)))
-               (match-optimize-settings transform)
-               (match-transform-type (transform-result-type transform) result-type)
-               (eql (length (arguments call)) (length (transform-lambda-list transform)))
-               (every #'match-transform-argument
-                      (transform-argument-types transform)
-                      (arguments call)))
+    (when (match-one-transform transform call result-type target-architecture)
       (return transform))))
 
 (defun apply-transform (transform arguments)

@@ -152,3 +152,7 @@ A list of any declaration-specifiers."
   (error 'sys.int::simple-program-error
          :format-control format-control
          :format-arguments format-arguments))
+
+;; A wrapper around SUBTYPEP that can be traced safely.
+(defun compiler-subtypep (type-1 type-2 &optional environment)
+  (subtypep type-1 type-2 environment))
