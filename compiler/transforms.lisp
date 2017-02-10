@@ -24,7 +24,7 @@
 (defmethod apply-transforms-1 ((form ast-call) target-architecture)
  (let* ((matching-transform (match-transform form 't target-architecture))
         (new-form (if matching-transform
-                      (apply-transform matching-transform (arguments form))
+                      (apply-transform matching-transform (arguments form) form)
                       nil)))
    (cond (new-form
           (change-made)
@@ -105,7 +105,9 @@
   (cond ((typep (value form) 'ast-call)
          (let* ((matching-transform (match-transform (value form) (the-type form) target-architecture))
                 (new-form (if matching-transform
-                              (apply-transform matching-transform (arguments (value form)))
+                              (apply-transform matching-transform
+                                               (arguments (value form))
+                                               (value form))
                               nil)))
            (cond (new-form
                   (change-made)
@@ -217,8 +219,23 @@
     (when (match-one-transform transform call result-type target-architecture)
       (return transform))))
 
-(defun apply-transform (transform arguments)
-  (apply (transform-body transform) arguments))
+(defun apply-transform (transform arguments &optional inherit)
+  ;; Enforce left-to-right order of evaluation for arguments.
+  (let* ((temps (loop
+                   for arg in arguments
+                   collect (make-instance 'lexical-variable
+                                          :name (gensym)
+                                          :definition-point *current-lambda*
+                                          :use-count 1)))
+         (new-form (apply (transform-body transform) temps)))
+    (if new-form
+        (ast `(let ,(loop
+                       for temp in temps
+                       for arg in arguments
+                       collect (list temp arg))
+                ,new-form)
+             inherit)
+        nil)))
 
 ;;; Unboxed fixnum arithmetic.
 ;;; These only apply at safety 0 as they can produce invalid values which
@@ -228,7 +245,7 @@
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
       ((:result-type ,result)
        (:optimize (= safety 0) (= speed 3)))
-     (ast `(the fixnum (call ,',fast-fn ,lhs ,rhs)))))
+     `(the fixnum (call ,',fast-fn ,lhs ,rhs))))
 
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
@@ -244,34 +261,30 @@
 
 (define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call eq ,lhs ,rhs)))
+  `(call eq ,lhs ,rhs))
 
 (define-transform sys.int::binary-< ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
+  `(call mezzano.runtime::%fixnum-< ,lhs ,rhs))
 
 (define-transform sys.int::binary->= ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs))))
+  `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
 
 (define-transform sys.int::binary-> ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call mezzano.runtime::%fixnum-< rhs-value lhs-value))))
+  `(call mezzano.runtime::%fixnum-< ,rhs ,lhs))
 
 (define-transform sys.int::binary-<= ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call not (call mezzano.runtime::%fixnum-< rhs-value lhs-value)))))
+  `(call not (call mezzano.runtime::%fixnum-< ,rhs ,lhs)))
 
 ;;; Single-Float arithmetic.
 
 (defmacro define-fast-single-float-transform-arith-two-arg (binary-fn fast-fn)
   `(define-transform ,binary-fn ((lhs single-float) (rhs single-float))
       ((:optimize (= safety 0) (= speed 3)))
-     (ast `(the single-float (call ,',fast-fn ,lhs ,rhs)))))
+     `(the single-float (call ,',fast-fn ,lhs ,rhs))))
 
 (define-fast-single-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%single-float-+)
 (define-fast-single-float-transform-arith-two-arg sys.int::binary-- sys.int::%%single-float--)
@@ -280,45 +293,39 @@
 
 (define-transform float ((number fixnum) (prototype single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(the single-float
-             (let ((number-value ,number)
-                   (prototype-value ,prototype))
-               (call mezzano.runtime::%%coerce-fixnum-to-single-float number-value)))))
+  `(the single-float
+        (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number)))
 
 (define-transform float ((number fixnum))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(the single-float (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number))))
+  `(the single-float (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number)))
 
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call eq ,lhs ,rhs)))
+  `(call eq ,lhs ,rhs))
 
 (define-transform sys.int::binary-< ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call sys.int::%%single-float-< ,lhs ,rhs)))
+  `(call sys.int::%%single-float-< ,lhs ,rhs))
 
 (define-transform sys.int::binary->= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call not (call sys.int::%%single-float-< ,lhs ,rhs))))
+  `(call not (call sys.int::%%single-float-< ,lhs ,rhs)))
 
 (define-transform sys.int::binary-> ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call sys.int::%%single-float-< rhs-value lhs-value))))
+  `(call sys.int::%%single-float-< ,rhs ,lhs))
 
 (define-transform sys.int::binary-<= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call not (call sys.int::%%single-float-< rhs-value lhs-value)))))
+  `(call not (call sys.int::%%single-float-< ,rhs ,lhs)))
 
 ;;; Double-Float arithmetic.
 
 (defmacro define-fast-double-float-transform-arith-two-arg (binary-fn fast-fn)
   `(define-transform ,binary-fn ((lhs double-float) (rhs double-float))
       ((:optimize (= safety 0) (= speed 3)))
-     (ast `(the double-float (call ,',fast-fn ,lhs ,rhs)))))
+     `(the double-float (call ,',fast-fn ,lhs ,rhs))))
 
 (define-fast-double-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%double-float-+)
 (define-fast-double-float-transform-arith-two-arg sys.int::binary-- sys.int::%%double-float--)
@@ -327,34 +334,28 @@
 
 (define-transform float ((number fixnum) (prototype double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(the double-float
-             (let ((number-value ,number)
-                   (prototype-value ,prototype))
-               (call mezzano.runtime::%%coerce-fixnum-to-double-float number-value)))))
+  `(the double-float
+        (call mezzano.runtime::%%coerce-fixnum-to-double-float ,number)))
 
 (define-transform sys.int::binary-= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call eq ,lhs ,rhs)))
+  `(call eq ,lhs ,rhs))
 
 (define-transform sys.int::binary-< ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call sys.int::%%double-float-< ,lhs ,rhs)))
+  `(call sys.int::%%double-float-< ,lhs ,rhs))
 
 (define-transform sys.int::binary->= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(call not (call sys.int::%%double-float-< ,lhs ,rhs))))
+  `(call not (call sys.int::%%double-float-< ,lhs ,rhs)))
 
 (define-transform sys.int::binary-> ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call sys.int::%%double-float-< rhs-value lhs-value))))
+  `(call sys.int::%%double-float-< ,rhs ,lhs))
 
 (define-transform sys.int::binary-<= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(let ((lhs-value ,lhs)
-              (rhs-value ,rhs))
-          (call not (call sys.int::%%double-float-< rhs-value lhs-value)))))
+  `(call not (call sys.int::%%double-float-< ,rhs ,lhs)))
 
 ;;; Fast array accesses. Unbounded and may attack at any time.
 ;;; Currently only functional on simple 1d arrays.
@@ -363,10 +364,10 @@
   `(progn
      (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
-       (ast `(the ,',type (call ,',accessor ,array ,index))))
+       `(the ,',type (call ,',accessor ,array ,index)))
      (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
-       (ast `(the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
+       `(the ,',type (call (setf ,',accessor) ,value ,array ,index)))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
@@ -384,7 +385,7 @@
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))
     ((:optimize (= safety 0) (= speed 3)))
-  (ast `(the (integer 0 ,array-dimension-limit) (call sys.int::%object-header-data ,sequence))))
+  `(the (integer 0 ,array-dimension-limit) (call sys.int::%object-header-data ,sequence)))
 
 ;;; Misc transforms.
 
@@ -392,10 +393,10 @@
   `(progn
      (define-transform ,predicate ((object ,type))
          ((:optimize (= safety 0) (= speed 3)))
-       (ast `'t))
+       `'t)
      (define-transform ,predicate ((object (not ,type)))
          ((:optimize (= safety 0) (= speed 3)))
-       (ast `'nil))))
+       `'nil)))
 
 (define-type-predicate-transform consp cons)
 (define-type-predicate-transform vectorp vector)
