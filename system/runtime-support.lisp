@@ -60,6 +60,15 @@
      (dolist (name (rest declaration-specifier))
        (check-type name symbol)
        (pushnew name *known-declarations*)))
+    (optimize
+     (dolist (quality (rest declaration-specifier))
+       (destructuring-bind (quality value)
+           (if (symbolp quality)
+               `(,quality 3)
+               quality)
+         (check-type quality (member compilation-speed debug safety space speed))
+         (check-type value (member 0 1 2 3))
+         (setf (getf sys.c::*optimize-policy* quality) value))))
     (t
      (unless (find (first declaration-specifier) *known-declarations*)
        (warn "Unknown declaration ~S" declaration-specifier)))))
