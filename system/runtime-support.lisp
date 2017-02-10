@@ -24,6 +24,15 @@
 
 (defvar *known-declarations* '())
 
+(defun proclaim-type (typespec vars)
+  (dolist (name vars)
+    (check-type name symbol)
+    (when (and (boundp name)
+               (not (typep (symbol-value name) typespec)))
+      (cerror "Continue" "Symbol ~S's type being proclaimed to ~S, but current value ~S has an incompatible type."
+              name typespec (symbol-value name)))
+    (setf (mezzano.runtime::symbol-type name) typespec)))
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special
@@ -48,13 +57,7 @@
     (type
      (destructuring-bind (typespec &rest vars)
          (rest declaration-specifier)
-       (dolist (name vars)
-         (check-type name symbol)
-         (when (and (boundp name)
-                    (not (typep (symbol-value name) typespec)))
-           (cerror "Continue" "Symbol ~S's type being proclaimed to ~S, but current value ~S has an incompatible type."
-                   name typespec (symbol-value name)))
-         (setf (mezzano.runtime::symbol-type name) typespec))))
+       (proclaim-type typespec vars)))
     (ftype)
     (declaration
      (dolist (name (rest declaration-specifier))
@@ -70,8 +73,14 @@
          (check-type value (member 0 1 2 3))
          (setf (getf sys.c::*optimize-policy* quality) value))))
     (t
-     (unless (find (first declaration-specifier) *known-declarations*)
-       (warn "Unknown declaration ~S" declaration-specifier)))))
+     (cond ((or (get (first declaration-specifier) 'type-expander)
+                (get (first declaration-specifier) 'compound-type)
+                (get (first declaration-specifier) 'type-symbol))
+            ;; Actually a type declaration.
+            (proclaim-type (first declaration-specifier)
+                           (rest declaration-specifier)))
+           ((not (find (first declaration-specifier) *known-declarations*))
+            (warn "Unknown declaration ~S" declaration-specifier))))))
 
 (defun variable-information (symbol)
   (symbol-mode symbol))
