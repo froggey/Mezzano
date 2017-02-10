@@ -266,6 +266,96 @@
               (rhs-value ,rhs))
           (call not (call mezzano.runtime::%fixnum-< rhs-value lhs-value)))))
 
+;;; Single-Float arithmetic.
+
+(defmacro define-fast-single-float-transform-arith-two-arg (binary-fn fast-fn)
+  `(define-transform ,binary-fn ((lhs single-float) (rhs single-float))
+      ((:optimize (= safety 0) (= speed 3)))
+     (ast `(the single-float (call ,',fast-fn ,lhs ,rhs)))))
+
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%single-float-+)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-- sys.int::%%single-float--)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-* sys.int::%%single-float-*)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-/ sys.int::%%single-float-/)
+
+(define-transform float ((number fixnum) (prototype single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(the single-float
+             (let ((number-value ,number)
+                   (prototype-value ,prototype))
+               (call mezzano.runtime::%%coerce-fixnum-to-single-float number-value)))))
+
+(define-transform float ((number fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(the single-float (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number))))
+
+(define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call eq ,lhs ,rhs)))
+
+(define-transform sys.int::binary-< ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call sys.int::%%single-float-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary->= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call not (call sys.int::%%single-float-< ,lhs ,rhs))))
+
+(define-transform sys.int::binary-> ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call sys.int::%%single-float-< rhs-value lhs-value))))
+
+(define-transform sys.int::binary-<= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call not (call sys.int::%%single-float-< rhs-value lhs-value)))))
+
+;;; Double-Float arithmetic.
+
+(defmacro define-fast-double-float-transform-arith-two-arg (binary-fn fast-fn)
+  `(define-transform ,binary-fn ((lhs double-float) (rhs double-float))
+      ((:optimize (= safety 0) (= speed 3)))
+     (ast `(the double-float (call ,',fast-fn ,lhs ,rhs)))))
+
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%double-float-+)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-- sys.int::%%double-float--)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-* sys.int::%%double-float-*)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-/ sys.int::%%double-float-/)
+
+(define-transform float ((number fixnum) (prototype double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(the double-float
+             (let ((number-value ,number)
+                   (prototype-value ,prototype))
+               (call mezzano.runtime::%%coerce-fixnum-to-double-float number-value)))))
+
+(define-transform sys.int::binary-= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call eq ,lhs ,rhs)))
+
+(define-transform sys.int::binary-< ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call sys.int::%%double-float-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary->= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(call not (call sys.int::%%double-float-< ,lhs ,rhs))))
+
+(define-transform sys.int::binary-> ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call sys.int::%%double-float-< rhs-value lhs-value))))
+
+(define-transform sys.int::binary-<= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  (ast `(let ((lhs-value ,lhs)
+              (rhs-value ,rhs))
+          (call not (call sys.int::%%double-float-< rhs-value lhs-value)))))
+
 ;;; Fast array accesses. Unbounded and may attack at any time.
 ;;; Currently only functional on simple 1d arrays.
 
@@ -288,6 +378,8 @@
 (define-fast-array-transform (signed-byte 32) sys.int::%object-ref-signed-byte-32)
 (define-fast-array-transform (signed-byte 16) sys.int::%object-ref-signed-byte-16)
 (define-fast-array-transform (signed-byte 8) sys.int::%object-ref-signed-byte-8)
+(define-fast-array-transform single-float sys.int::%object-ref-single-float)
+(define-fast-array-transform double-float sys.int::%object-ref-double-float)
 
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))
