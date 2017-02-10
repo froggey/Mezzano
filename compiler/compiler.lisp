@@ -114,12 +114,13 @@ A list of any declaration-specifiers."
              *change-count*)
     (incf *change-count*)))
 
-(defun optimize-quality (lambda quality)
+(defun optimize-quality-1 (qualities quality)
   (max (getf *optimize-restrictions* quality 0)
-       (or (getf (getf (lambda-information-plist lambda) :optimize '())
-                 quality
-                 nil)
+       (or (getf qualities quality nil)
            (getf *optimize-policy* quality 0))))
+
+(defun optimize-quality (ast-node quality)
+  (optimize-quality-1 (ast-optimize ast-node) quality))
 
 (defun run-optimizers (form target-architecture)
   (when (eql (optimize-quality form 'compiliation-speed) 3)

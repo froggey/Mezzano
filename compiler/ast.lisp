@@ -5,7 +5,19 @@
 
 ;;; AST objects.
 
-(defclass lambda-information ()
+(defclass ast-node ()
+  ((%optimize-qualities :initarg :optimize :accessor ast-optimize))
+  (:default-initargs :optimize '()))
+
+(defmethod initialize-instance :after ((instance ast-node) &key inherit &allow-other-keys)
+  (when inherit
+    (loop
+       for (quality value) on (ast-optimize inherit) by #'cddr
+       do (setf (getf (ast-optimize instance) quality)
+                (max value
+                     (getf (ast-optimize instance) quality 0))))))
+
+(defclass lambda-information (ast-node)
   ((%name :initarg :name :accessor lambda-information-name)
    (%docstring :initarg :docstring :accessor lambda-information-docstring)
    (%lambda-list :initarg :lambda-list :accessor lambda-information-lambda-list)
@@ -43,7 +55,7 @@
   (typep object 'lambda-information))
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
-(defclass lexical-variable ()
+(defclass lexical-variable (ast-node)
   ((%name :initarg :name :accessor lexical-variable-name)
    (%definition-point :initarg :definition-point :accessor lexical-variable-definition-point)
    (%ignore :initarg :ignore :accessor lexical-variable-ignore)
@@ -77,7 +89,7 @@
            (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
 
 ;;; A special variable, only used in bindings.
-(defclass special-variable ()
+(defclass special-variable (ast-node)
   ((%name :initarg :name :accessor name)
    (%implicitly-declared :initarg :implicitly-declared :accessor special-variable-implicitly-declared))
   (:default-initargs :implicitly-declared nil))
@@ -110,7 +122,7 @@
 (defun tagbody-information-p (object)
   (typep object 'tagbody-information))
 
-(defclass go-tag ()
+(defclass go-tag (ast-node)
   ((%name :initarg :name :accessor go-tag-name)
    (%tagbody :initarg :tagbody :accessor go-tag-tagbody)
    (%use-count :initarg :use-count :accessor go-tag-use-count)
@@ -123,27 +135,27 @@
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
-(defclass ast-block ()
+(defclass ast-block (ast-node)
   ((%info :initarg :info :accessor info :accessor ast-info)
    (%body :initarg :body :accessor body :accessor ast-body)))
 
-(defclass ast-function ()
+(defclass ast-function (ast-node)
   ((%name :initarg :name :accessor name :accessor ast-name)))
 
 (defmethod print-object ((object ast-function) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (name object))))
 
-(defclass ast-go ()
+(defclass ast-go (ast-node)
   ((%target :initarg :target :accessor target :accessor ast-target)
    (%info :initarg :info :accessor info :accessor ast-info)))
 
-(defclass ast-if ()
+(defclass ast-if (ast-node)
   ((%test :initarg :test :accessor test :accessor ast-test)
    (%then :initarg :then :accessor if-then :accessor ast-if-then)
    (%else :initarg :else :accessor if-else :accessor ast-if-else)))
 
-(defclass ast-let ()
+(defclass ast-let (ast-node)
   ;; BINDINGS is a list of (variable init-form), where
   ;; variable is either a LEXICAL-VARIABLE or a SPECIAL-VARIABLE.
   ;; Init-forms are evaluated in list order.
@@ -152,7 +164,7 @@
   ((%bindings :initarg :bindings :accessor bindings :accessor ast-bindings)
    (%body :initarg :body :accessor body :accessor ast-body)))
 
-(defclass ast-multiple-value-bind ()
+(defclass ast-multiple-value-bind (ast-node)
   ;; BINDING is a list of variables, which can be either LEXICAL-VARIABLEs
   ;; or SPECIAL-VARIABLES.
   ;; Bindings occur after VALUE-FORM has been evaulated.
@@ -160,34 +172,34 @@
    (%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)
    (%body :initarg :body :accessor body :accessor ast-body)))
 
-(defclass ast-multiple-value-call ()
+(defclass ast-multiple-value-call (ast-node)
   ((%function-form :initarg :function-form :accessor function-form :accessor ast-function-form)
    (%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)))
 
-(defclass ast-multiple-value-prog1 ()
+(defclass ast-multiple-value-prog1 (ast-node)
   ((%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)
    (%body :initarg :body :accessor body :accessor ast-body)))
 
-(defclass ast-progn ()
+(defclass ast-progn (ast-node)
   ((%forms :initarg :forms :accessor forms :accessor ast-forms)))
 
-(defclass ast-quote ()
+(defclass ast-quote (ast-node)
   ((%value :initarg :value :accessor value :accessor ast-value)))
 
 (defmethod print-object ((object ast-quote) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (value object))))
 
-(defclass ast-return-from ()
+(defclass ast-return-from (ast-node)
   ((%target :initarg :target :accessor target :accessor ast-target)
    (%value :initarg :value :accessor value :accessor ast-value)
    (%info :initarg :info :accessor info :accessor ast-info)))
 
-(defclass ast-setq ()
+(defclass ast-setq (ast-node)
   ((%variable :initarg :variable :accessor setq-variable :accessor ast-setq-variable)
    (%value :initarg :value :accessor value :accessor ast-value)))
 
-(defclass ast-tagbody ()
+(defclass ast-tagbody (ast-node)
   ((%info :initarg :info :accessor info :accessor ast-info)
    ;; A list of (go-tag form).
    ;; Form that do not end in a control transfer will cause the
@@ -196,7 +208,7 @@
    ;; statements can only be reached via GO forms.
    (%statements :initarg :statements :accessor statements :accessor ast-statements)))
 
-(defclass ast-the ()
+(defclass ast-the (ast-node)
   ((%the-type :initarg :type :accessor the-type :accessor ast-the-type)
    (%value :initarg :value :accessor value :accessor ast-value)))
 
@@ -204,11 +216,11 @@
   (print-unreadable-object (instance stream :type t :identity t)
     (format stream "~S" (ast-the-type instance))))
 
-(defclass ast-unwind-protect ()
+(defclass ast-unwind-protect (ast-node)
   ((%protected-form :initarg :protected-form :accessor protected-form :accessor ast-protected-form)
    (%cleanup-function :initarg :cleanup-function :accessor cleanup-function :accessor ast-cleanup-function)))
 
-(defclass ast-call ()
+(defclass ast-call (ast-node)
   ((%name :initarg :name :accessor name :accessor ast-name)
    (%arguments :initarg :arguments :accessor arguments :accessor ast-arguments)))
 
@@ -216,7 +228,7 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (name object))))
 
-(defclass ast-jump-table ()
+(defclass ast-jump-table (ast-node)
   ((%value :initarg :value :accessor value :accessor ast-value)
    (%targets :initarg :targets :accessor targets :accessor ast-targets)))
 
