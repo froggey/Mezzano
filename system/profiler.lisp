@@ -14,13 +14,23 @@
 (in-package :mezzano.profiler)
 
 (defparameter *ignorable-function-names*
-  '(sys.int::%apply
+  '(mezzano.runtime::%apply
     apply
     (lambda :in mezzano.clos::compute-1-effective-discriminator)
     (lambda :in mezzano.clos::std-compute-effective-method-function)
     (lambda :in mezzano.clos::compute-n-effective-discriminator)
     (lambda :in mezzano.clos::std-compute-effective-method-function-with-standard-method-combination)
     (lambda :in mezzano.clos::compute-primary-emfun)
+    (mezzano.clos::1-effective-discriminator 0 1 nil)
+    (mezzano.clos::1-effective-discriminator 0 1 t)
+    (mezzano.clos::1-effective-discriminator 0 2 nil)
+    (mezzano.clos::1-effective-discriminator 0 2 t)
+    (mezzano.clos::1-effective-discriminator 0 3 nil)
+    (mezzano.clos::1-effective-discriminator 0 3 t)
+    (mezzano.clos::1-effective-discriminator 0 4 nil)
+    (mezzano.clos::1-effective-discriminator 0 4 t)
+    (mezzano.clos::1-effective-discriminator 0 5 nil)
+    (mezzano.clos::1-effective-discriminator 0 5 t)
     sys.int::%progv
     sys.int::%catch))
 
@@ -30,7 +40,7 @@
   wait-item
   call-stack)
 
-(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune ignore-functions repeat) &body body)
+(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune ignore-functions repeat order-by) &body body)
   "Profile BODY.
 :THREAD - Thread to sample.
           If NIL, then sample all threads.
@@ -42,7 +52,7 @@
 :IGNORE-FUNCTIONS - A list of function names to be removed from the call stack."
   `(call-with-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*) repeat)
+(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*) repeat order-by)
   (let* ((profile-buffer nil)
          (results (unwind-protect
                        (progn
@@ -58,7 +68,7 @@
                     (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
     (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil) ignore-functions))
     (cond (path
-           (save-profile path profile-buffer :verbosity verbosity)
+           (save-profile path profile-buffer :verbosity verbosity :order-by order-by)
            (values-list results))
           (t profile-buffer))))
 
@@ -143,12 +153,12 @@ thread states & call-stacks."
            (values-list results))
           (t profile-buffer))))
 
-(defun save-profile (path profile &key (verbosity :report))
+(defun save-profile (path profile &key (verbosity :report) order-by)
   "Convert a profile into an almost human-readable format."
   (with-open-file (s path :direction :output :if-exists :new-version :if-does-not-exist :create)
     (when (member verbosity '(:report :full))
       (let ((*standard-output* s))
-        (generate-report profile))
+        (generate-report profile order-by))
     (when (eql verbosity :full)
       (loop
          for sample across profile do
@@ -222,7 +232,7 @@ thread states & call-stacks."
     :callers (make-hash-table)
     :callees (make-hash-table)))
 
-(defun generate-report (profile)
+(defun generate-report (profile order-by)
   (let ((threads (make-hash-table)))
     (labels ((entry-for (thread function)
                (let ((thread-samples (gethash thread threads)))
@@ -275,7 +285,10 @@ thread states & call-stacks."
                             (declare (ignore fn))
                             (vector-push sample samples))
                           sample-table)
-                 (setf samples (sort samples #'> :key #'profile-entry-total-count))
+                 (setf samples (sort samples #'>
+                                     :key (ecase order-by
+                                            ((nil :total) #'profile-entry-total-count)
+                                            ((:direct) #'profile-entry-direct-count))))
                  (loop
                     for s across samples
                     do

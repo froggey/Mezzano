@@ -101,7 +101,7 @@
                     (profile-append-return-address (thread-state-rip thread)))
                   (profile-append-call-stack (thread-frame-pointer thread))))))))
 
-(defun start-profiling (&key buffer-size thread)
+(defun start-profiling (&key buffer-size thread (reset t))
   "Set up a profile sample buffer and enable sampling."
   (assert (not *enable-profiling*) ()
           "Profiling already started.")
@@ -109,9 +109,11 @@
   (when (or (not (boundp '*profile-buffer*))
             (not *profile-buffer*)
             (not (eql (length *profile-buffer*) buffer-size)))
+    (setf reset t)
     (setf *profile-buffer* (make-array buffer-size :area :wired)))
-  (setf *profile-buffer-head* 0
-        *profile-buffer-tail* 0)
+  (when reset
+    (setf *profile-buffer-head* 0
+          *profile-buffer-tail* 0))
   (setf *profile-thread* thread)
   (setf *enable-profiling* t))
 
