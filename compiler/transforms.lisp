@@ -219,11 +219,12 @@
     (when (match-one-transform transform call result-type target-architecture)
       (return transform))))
 
-(defun apply-transform (transform arguments &optional inherit)
+(defun apply-transform (transform arguments inherit)
   ;; Enforce left-to-right order of evaluation for arguments.
   (let* ((temps (loop
                    for arg in arguments
                    collect (make-instance 'lexical-variable
+                                          :inherit arg
                                           :name (gensym)
                                           :definition-point *current-lambda*
                                           :use-count 1)))

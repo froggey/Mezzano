@@ -79,6 +79,7 @@ Must be run after keywords have been lowered."
 (defmethod lower-arguments-1 ((form lambda-information))
   (flet ((new-var (name)
            (make-instance 'lexical-variable
+                          :inherit form
                           :name (gensym name)
                           :definition-point *current-lambda*)))
     (let* ((*current-lambda* form)
@@ -117,12 +118,13 @@ Must be run after keywords have been lowered."
                                               arg))))
                               (new-init-form (if trivial-init-form
                                                  init-form
-                                                 (ast '(quote nil)))))
+                                                 (ast '(quote nil) init-form))))
                          (when (or (not trivial-init-form)
                                    (typep arg 'special-variable))
                            (push (list arg (ast `(if ,new-suppliedp
                                                      ,new-arg
-                                                     ,init-form)))
+                                                     ,init-form)
+                                                init-form))
                                  extra-bindings))
                          (when (and (not (null suppliedp))
                                     (typep suppliedp 'special-variable))
@@ -158,5 +160,6 @@ Must be run after keywords have been lowered."
         ;; Bindings were added.
         (setf (lambda-information-body form)
               (ast `(let ,(reverse extra-bindings)
-                      ,(lambda-information-body form)))))
+                      ,(lambda-information-body form))
+                   form)))
       (lower-arguments-1 (lambda-information-body form)))))

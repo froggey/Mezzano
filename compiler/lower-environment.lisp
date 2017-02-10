@@ -336,7 +336,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                         (block-information-env-offset (info form)) env-offset)
                   (list
                    `(call (setf sys.int::%object-ref-t) ,(info form) ,env-var (quote ,env-offset)))))
-            ,(lower-env-form (body form))))))
+            ,(lower-env-form (body form))))
+       form))
 
 (defmethod lower-env-form ((form ast-function))
   form)
@@ -361,7 +362,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                                       (ast `(call (setf sys.int::%object-ref-t)
                                                   ,(lower-env-form init-form)
                                                   ,(second (first *environment-chain*))
-                                                  (quote ,(1+ (position variable (gethash (first *environment*) *environment-layout*))))))))))
+                                                  (quote ,(1+ (position variable (gethash (first *environment*) *environment-layout*)))))
+                                           form)))))
   (setf (body form) (lower-env-form (body form)))
   form)
 
@@ -377,20 +379,24 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                                        ,(second (first *environment-chain*))
                                        (quote ,(1+ (position var (gethash (first *environment*) *environment-layout*))))))))
                       (bindings form))
-            ,(lower-env-form (body form))))))
+            ,(lower-env-form (body form))))
+       form))
 
 (defmethod lower-env-form ((form ast-multiple-value-call))
   (ast `(multiple-value-call
             ,(lower-env-form (function-form form))
-          ,(lower-env-form (value-form form)))))
+          ,(lower-env-form (value-form form)))
+       form))
 
 (defmethod lower-env-form ((form ast-multiple-value-prog1))
   (ast `(multiple-value-prog1
             ,(lower-env-form (value-form form))
-          ,(lower-env-form (body form)))))
+          ,(lower-env-form (body form)))
+       form))
 
 (defmethod lower-env-form ((form ast-progn))
-  (ast `(progn ,@(mapcar #'lower-env-form (forms form)))))
+  (ast `(progn ,@(mapcar #'lower-env-form (forms form)))
+       form))
 
 (defmethod lower-env-form ((form ast-quote))
   form)
@@ -412,7 +418,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                  (return (ast `(call (setf sys.int::%object-ref-t)
                                      ,(lower-env-form (value form))
                                      ,(get-env-vector e)
-                                     (quote ,(1+ offset)))))))))))
+                                     (quote ,(1+ offset)))
+                              form))))))))
 
 (defmethod lower-env-form ((form ast-tagbody))
   (let* ((possible-env-vector-heads (list* (info form)
@@ -422,6 +429,7 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
          (new-envs (loop for i in env-vector-heads
                       collect (list i
                                     (make-instance 'lexical-variable
+                                                   :inherit form
                                                    :name (gensym "Environment")
                                                    :definition-point *current-lambda*
                                                    :plist (list 'hide-from-debug-info t))
@@ -455,9 +463,11 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                                                     (list `(setq ,(second info)
                                                                  ,(generate-make-environment (info form) (1+ (length (third info)))))))))
                                        (go ,old-entry ,(info form))))
-                              ,@new-statements))
+                              ,@new-statements)
+                          form)
                      (ast `(tagbody ,(info form)
-                              ,@new-statements)))))
+                              ,@new-statements)
+                          form))))
              (frob-inner (current-env)
                (loop
                   for (go-tag stmt) in (statements form)
@@ -478,13 +488,15 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                                                                                  *environment-chain*))
                                                      (*environment* (list* current-env *environment*)))
                                                  (lower-env-form stmt))
-                                               (lower-env-form stmt)))))))))
+                                               (lower-env-form stmt)))
+                                       stmt))))))
       (if (endp new-envs)
           (frob-outer)
           (ast `(let ,(loop
                          for (stmt env layout) in new-envs
                          collect (list env (ast `(quote nil))))
-                  ,(frob-outer)))))))
+                  ,(frob-outer))
+               form)))))
 
 (defmethod lower-env-form ((form ast-the))
   (setf (value form) (lower-env-form (value form)))
@@ -493,17 +505,20 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
 (defmethod lower-env-form ((form ast-unwind-protect))
   (ast `(unwind-protect
              ,(lower-env-form (protected-form form))
-          ,(lower-env-form (cleanup-function form)))))
+          ,(lower-env-form (cleanup-function form)))
+       form))
 
 (defmethod lower-env-form ((form ast-call))
   (ast `(call
          ,(name form)
-         ,@(mapcar #'lower-env-form (arguments form)))))
+         ,@(mapcar #'lower-env-form (arguments form)))
+       form))
 
 (defmethod lower-env-form ((form ast-jump-table))
   (ast `(jump-table
          ,(lower-env-form (value form))
-         ,@(mapcar #'lower-env-form (targets form)))))
+         ,@(mapcar #'lower-env-form (targets form)))
+       form))
 
 (defmethod lower-env-form ((form lexical-variable))
   (if (localp form)
@@ -515,7 +530,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
           (when offset
             (return (ast `(call sys.int::%object-ref-t
                                 ,(get-env-vector e)
-                                (quote ,(1+ offset))))))))))
+                                (quote ,(1+ offset)))
+                         form)))))))
 
 (defun lower-env-lambda (lambda)
   (let ((*environment-chain* '())
@@ -530,6 +546,7 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
     (when *environment*
       ;; The entry environment vector.
       (let ((env (make-instance 'lexical-variable
+                                :inherit lambda
                                 :name (gensym "Environment")
                                 :definition-point lambda
                                 :plist (list 'hide-from-debug-info t))))
@@ -538,6 +555,7 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
     (cond ((not (endp local-env))
            ;; Environment is present, rewrite body with a new vector.
            (let ((new-env (make-instance 'lexical-variable
+                                         :inherit lambda
                                          :name (gensym "Environment")
                                          :definition-point lambda
                                          :plist (list 'hide-from-debug-info t))))
@@ -581,7 +599,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                                ,@(when (and (lambda-information-count-arg lambda)
                                             (not (localp (lambda-information-count-arg lambda))))
                                        (list (set-var (lambda-information-count-arg lambda))))
-                               ,(lower-env-form (lambda-information-body lambda)))))))))
+                               ,(lower-env-form (lambda-information-body lambda))))
+                          lambda)))))
           (t (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
              (setf (lambda-information-body lambda) (lower-env-form (lambda-information-body lambda)))))
     lambda))
@@ -595,15 +614,18 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
               (not *perform-tce*))
          (ast `(call sys.c::make-dx-closure
                      ,(lower-env-lambda form)
-                     ,(second (first *environment-chain*)))))
+                     ,(second (first *environment-chain*)))
+              form))
         (*environment-allocation-mode*
          (ast `(call sys.int::make-closure
                      ,(lower-env-lambda form)
                      ,(second (first *environment-chain*))
-                     (quote ,*environment-allocation-mode*))))
+                     (quote ,*environment-allocation-mode*))
+              form))
         (t (ast `(call sys.int::make-closure
                        ,(lower-env-lambda form)
-                       ,(second (first *environment-chain*)))))))
+                       ,(second (first *environment-chain*)))
+                form))))
 
 (defvar *environment-chain* nil
   "The directly accessible environment vectors in this function.")
@@ -628,7 +650,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
               ;; Allocation in an explicit area.
               `(call sys.int::make-simple-vector (quote ,size) (quote ,*environment-allocation-mode*)))
              (t ;; General allocation.
-              `(call sys.int::make-simple-vector (quote ,size))))))
+              `(call sys.int::make-simple-vector (quote ,size))))
+       lambda))
 
 (defun get-env-vector (vector-id)
   (let ((chain (assoc vector-id *environment-chain*)))

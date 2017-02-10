@@ -73,29 +73,35 @@
 ;;                   z-val
 ;;                   nil)))
 ;;       ...)))
-(defun lower-key-arguments* (body rest keys allow-other-keys)
+(defun lower-key-arguments* (form body rest keys allow-other-keys)
   (let* ((values (mapcar (lambda (x)
                            (make-instance 'lexical-variable
+                                          :inherit form
                                           :name (gensym (string (variable-name (cadar x))))
                                           :definition-point *current-lambda*))
                          keys))
          (suppliedp (mapcar (lambda (x)
                               (make-instance 'lexical-variable
+                                             :inherit form
                                              :name (if (third x)
                                                        (gensym (string (variable-name (third x))))
                                                        (gensym))
                                              :definition-point *current-lambda*))
                             keys))
          (aok (make-instance 'lexical-variable
-                                 :name (gensym "ALLOW-OTHER-KEYS")
-                                 :definition-point *current-lambda*))
+                             :inherit form
+                             :name (gensym "ALLOW-OTHER-KEYS")
+                             :definition-point *current-lambda*))
          (aok-itr (make-instance 'lexical-variable
+                                 :inherit form
                                  :name (gensym)
                                  :definition-point *current-lambda*))
          (itr (make-instance 'lexical-variable
+                             :inherit form
                              :name (gensym)
                              :definition-point *current-lambda*))
          (current-keyword (make-instance 'lexical-variable
+                                         :inherit form
                                          :name (gensym)
                                          :definition-point *current-lambda*)))
     (labels ((create-key-test-list (key-args values suppliedp)
@@ -180,7 +186,8 @@
                     (if ,itr
                         (go head-tag tb)
                         (quote nil))))
-                ,(create-key-let-body keys values suppliedp)))))))
+                ,(create-key-let-body keys values suppliedp)))
+           form))))
 
 (defun lower-keyword-arguments (form)
   (lower-keyword-arguments-1 form)
@@ -259,12 +266,14 @@
         ;; Add in a &REST arg and make it dynamic-extent.
         (setf (lambda-information-rest-arg form)
               (make-instance 'lexical-variable
+                             :inherit form
                              :name (gensym "REST")
                              :definition-point *current-lambda*
                              :ignore :maybe
                              :dynamic-extent t)))
       (setf (lambda-information-body form)
-            (lower-key-arguments* (lambda-information-body form)
+            (lower-key-arguments* form
+                                  (lambda-information-body form)
                                   (lambda-information-rest-arg form)
                                   (lambda-information-key-args form)
                                   (lambda-information-allow-other-keys form)))

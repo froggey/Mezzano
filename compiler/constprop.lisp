@@ -127,7 +127,7 @@
                  (push (list var val 0 b) *known-variables*))
                 ((and (typep val 'ast-the)
                       (pure-p var))
-                 (push (list var (ast `(the ,(the-type val) ,var)) 0 b) *known-variables*))))))
+                 (push (list var (ast `(the ,(the-type val) ,var) val) 0 b) *known-variables*))))))
     ;; Run on the body, with the new constants.
     (setf (body form) (cp-form (body form)))
     form))
@@ -222,7 +222,7 @@
   (cp-implicit-progn (targets form))
   form)
 
-(defun constant-fold (function arg-list)
+(defun constant-fold (form function arg-list)
   ;; Bail out in case of errors.
   (ignore-errors
     (let ((mode (get function 'constant-fold-mode)))
@@ -234,7 +234,8 @@
                                                       (typep (value thing) type))
                                            (return-from constant-fold nil))
                                          (value thing))
-                                       arg-list mode))))
+                                       arg-list mode)))
+               form)
           (ecase mode
             (:commutative-arithmetic
              ;; Arguments can be freely re-ordered, assumed to be associative.
@@ -254,8 +255,10 @@
                  (if nonconst-args
                      (ast `(call ,function
                                  (quote ,value)
-                                 ,@nonconst-args))
-                     (ast `(quote ,value))))))
+                                 ,@nonconst-args)
+                          form)
+                     (ast `(quote ,value)
+                          form)))))
             (:arithmetic
              ;; Arguments cannot be re-ordered, assumed to be non-associative.
              (if arg-list
@@ -266,7 +269,8 @@
                             (push (value i) constant-accu))
                            (t
                             (when constant-accu
-                              (push (ast `(quote ,(apply function (nreverse constant-accu))))
+                              (push (ast `(quote ,(apply function (nreverse constant-accu)))
+                                         form)
                                     arg-accu)
                               (setf constant-accu nil))
                             (push i arg-accu))))
@@ -274,15 +278,18 @@
                        (ast `(call ,function
                                    ,@(nreverse arg-accu)
                                    ,@(when constant-accu
-                                       (list `(quote ,(apply function (nreverse constant-accu)))))))
-                       (ast `(quote ,(apply function (nreverse constant-accu))))))
-                 (ast `(quote ,(funcall function)))))
+                                       (list `(quote ,(apply function (nreverse constant-accu))))))
+                            form)
+                       (ast `(quote ,(apply function (nreverse constant-accu)))
+                            form)))
+                 (ast `(quote ,(funcall function))
+                      form)))
             ((nil) nil))))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
 (defmethod cp-form ((form ast-call))
   (cp-implicit-progn (arguments form))
-  (or (constant-fold (name form) (arguments form))
+  (or (constant-fold form (name form) (arguments form))
       form))
 
 (defmethod cp-form ((form lexical-variable))

@@ -80,6 +80,7 @@
            (change-made)
            ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
            (ll-form (make-instance 'ast-multiple-value-bind
+                                   :inherit form
                                    :bindings (mapcar 'first (lambda-information-optional-args fn))
                                    :value-form (value-form form)
                                    :body (lambda-information-body fn))))
@@ -203,6 +204,7 @@
     (let* ((argument-vars (mapcar (lambda (x)
                                     (declare (ignore x))
                                     (make-instance 'lexical-variable
+                                                   :inherit lambda
                                                    :name (gensym)
                                                    :definition-point *current-lambda*
                                                    :ignore :maybe))
@@ -216,7 +218,8 @@
                (build-required-bindings (req-args arg-vars)
                  (cond (req-args
                         (ast `(let ((,(first req-args) ,(first arg-vars)))
-                                ,(build-required-bindings (rest req-args) (rest arg-vars)))))
+                                ,(build-required-bindings (rest req-args) (rest arg-vars)))
+                             lambda))
                        (t (build-optional-bindings optional-args arg-vars))))
                (build-optional-bindings (opt-args arg-vars)
                  (cond ((and opt-args arg-vars)
@@ -225,18 +228,21 @@
                           (declare (ignore init-form))
                           (ast `(let ,(var-and-suppliedp-bindings var (first arg-vars)
                                                                   suppliedp '(quote t))
-                                  ,(build-optional-bindings (rest opt-args) (rest arg-vars))))))
+                                  ,(build-optional-bindings (rest opt-args) (rest arg-vars)))
+                               lambda)))
                        (opt-args
                         (destructuring-bind (var init-form suppliedp)
                             (first opt-args)
                           (ast `(let ,(var-and-suppliedp-bindings var init-form
                                                                   suppliedp '(quote nil))
-                                  ,(build-optional-bindings (rest opt-args) '())))))
+                                  ,(build-optional-bindings (rest opt-args) '()))
+                               lambda)))
                        (t (build-rest-binding arg-vars))))
                (build-rest-binding (arg-vars)
                  (if rest-arg
                      (ast `(let ((,rest-arg (call list ,@arg-vars)))
-                             ,(build-key-bindings key-args)))
+                             ,(build-key-bindings key-args))
+                          lambda)
                      (build-key-bindings key-args)))
                (build-key-bindings (keys)
                  (cond (keys
@@ -251,16 +257,19 @@
                                ;; Not provided, use the initform.
                                (ast `(let ,(var-and-suppliedp-bindings var init-form
                                                                        suppliedp '(quote nil))
-                                       ,(build-key-bindings (rest keys)))))
+                                       ,(build-key-bindings (rest keys)))
+                                    lambda))
                             (when (eql (value (car i)) keyword)
                               ;; Keywords match, use this argument.
                               (return (ast `(let ,(var-and-suppliedp-bindings var (nth (1+ p) key-pairs)
                                                                               suppliedp '(quote t))
-                                              ,(build-key-bindings (rest keys)))))))))
+                                              ,(build-key-bindings (rest keys)))
+                                           lambda))))))
                        (t (ll-form (lambda-information-body lambda))))))
         ;; Evaluate arguments.
         (ast `(let ,(mapcar #'list argument-vars arg-list)
-                ,(build-required-bindings required-args argument-vars)))))))
+                ,(build-required-bindings required-args argument-vars))
+             lambda)))))
 
 (defmethod ll-form ((form ast-call))
   (ll-implicit-progn (arguments form))

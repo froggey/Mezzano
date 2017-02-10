@@ -92,7 +92,7 @@
   (il-implicit-progn (targets form) architecture)
   form)
 
-(defun expand-inline-function (name arg-list architecture)
+(defun expand-inline-function (form name arg-list architecture)
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
     (when (and inlinep
@@ -102,16 +102,28 @@
                                     (:x86-64 mezzano.compiler.codegen.x86-64::*builtins*)
                                     (:arm64 mezzano.compiler.codegen.arm64::*builtins*)))))
       (cond (expansion
-             (ast `(call funcall ,(pass1-lambda expansion nil) ,@arg-list)))
+             (ast `(call funcall ,(pass1-lambda expansion
+                                                (extend-environment
+                                                 nil
+                                                 :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                                                                collect (list quality value))))))
+                         ,@arg-list)
+                  form))
             ((fboundp name)
              (multiple-value-bind (expansion closurep)
                  (function-lambda-expression (fdefinition name))
                (when (and expansion (not closurep))
-                 (ast `(call funcall ,(pass1-lambda expansion nil) ,@arg-list)))))))))
+                 (ast `(call funcall ,(pass1-lambda expansion
+                                                    (extend-environment
+                                                     nil
+                                                     :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                                                                    collect (list quality value))))))
+                             ,@arg-list)
+                      form))))))))
 
 (defmethod il-form ((form ast-call) architecture)
   (il-implicit-progn (arguments form) architecture)
-  (let ((inlined-form (expand-inline-function (name form) (arguments form) architecture)))
+  (let ((inlined-form (expand-inline-function form (name form) (arguments form) architecture)))
     (cond (inlined-form
            (change-made)
            inlined-form)

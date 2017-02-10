@@ -260,6 +260,7 @@
       (let ((new (make-instance (if (block-information-p var)
                                     'block-information
                                     'lexical-variable)
+                                :inherit var
                                 :name (lexical-variable-name var)
                                 :ignore (lexical-variable-ignore var)
                                 :dynamic-extent (lexical-variable-dynamic-extent var))))
@@ -273,6 +274,7 @@
 
 (defmethod copy-form-1 ((form ast-block))
   (make-instance 'ast-block
+                 :inherit form
                  :info (copy-variable (info form))
                  :body (copy-form-1 (body form))))
 
@@ -283,6 +285,7 @@
     (incf (lexical-variable-use-count (go-tag-tagbody tag)))
     (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
     (make-instance 'ast-go
+                   :inherit form
                    :target tag
                    :info (copy-form-1 (info form)))))
 
@@ -291,6 +294,7 @@
 
 (defmethod copy-form-1 ((form ast-if))
   (make-instance 'ast-if
+                 :inherit form
                  :test (copy-form-1 (test form))
                  :then (copy-form-1 (if-then form))
                  :else (copy-form-1 (if-else form))))
@@ -302,6 +306,7 @@
      for (variable init-form) in (bindings form)
      do (copy-variable variable))
   (make-instance 'ast-let
+                 :inherit form
                  :bindings (loop
                               for (variable init-form) in (bindings form)
                               collect (list (copy-form-fix variable)
@@ -310,22 +315,26 @@
 
 (defmethod copy-form-1 ((form ast-multiple-value-bind))
   (make-instance 'ast-multiple-value-bind
+                 :inherit form
                  :bindings (mapcar #'copy-variable (bindings form))
                  :value-form (copy-form-1 (value-form form))
                  :body (copy-form-1 (body form))))
 
 (defmethod copy-form-1 ((form ast-multiple-value-call))
   (make-instance 'ast-multiple-value-call
+                 :inherit form
                  :function-form (copy-form-1 (function-form form))
                  :value-form (copy-form-1 (value-form form))))
 
 (defmethod copy-form-1 ((form ast-multiple-value-prog1))
   (make-instance 'ast-multiple-value-prog1
+                 :inherit form
                  :value-form (copy-form-1 (value-form form))
                  :body (copy-form-1 (body form))))
 
 (defmethod copy-form-1 ((form ast-progn))
   (make-instance 'ast-progn
+                 :inherit form
                  :forms (loop
                            for form in (forms form)
                            collect (copy-form-1 form))))
@@ -338,6 +347,7 @@
     (incf (lexical-variable-use-count var))
     (pushnew *current-lambda* (lexical-variable-used-in var))
     (make-instance 'ast-return-from
+                   :inherit form
                    :target var
                    :value (copy-form-1 (value form))
                    :info (copy-form-1 (info form)))))
@@ -348,20 +358,24 @@
     (incf (lexical-variable-write-count var))
     (pushnew *current-lambda* (lexical-variable-used-in var))
     (make-instance 'ast-setq
+                   :inherit form
                    :variable var
                    :value (copy-form-1 (value form)))))
 
 (defmethod copy-form-1 ((form ast-tagbody))
   (let ((info (make-instance 'tagbody-information
+                             :inherit (info form)
                              :definition-point (copy-form-fix (lexical-variable-definition-point (info form))))))
     (push (cons (info form) info) *replacements*)
     (dolist (tag (tagbody-information-go-tags (info form)))
       (let ((new-tag (make-instance 'go-tag
+                                    :inherit tag
                                     :name (go-tag-name tag)
                                     :tagbody info)))
         (push new-tag (tagbody-information-go-tags info))
         (push (cons tag new-tag) *replacements*)))
     (make-instance 'ast-tagbody
+                   :inherit form
                    :info info
                    :statements (loop
                                   for (go-tag statement) in (statements form)
@@ -370,16 +384,19 @@
 
 (defmethod copy-form-1 ((form ast-the))
   (make-instance 'ast-the
+                 :inherit form
                  :type (the-type form)
                  :value (copy-form-1 (value form))))
 
 (defmethod copy-form-1 ((form ast-unwind-protect))
   (make-instance 'ast-unwind-protect
+                 :inherit form
                  :protected-form (copy-form-1 (protected-form form))
                  :cleanup-function (copy-form-1 (cleanup-function form))))
 
 (defmethod copy-form-1 ((form ast-call))
   (make-instance 'ast-call
+                 :inherit form
                  :name (name form)
                  :arguments (loop
                                for arg in (arguments form)
@@ -387,6 +404,7 @@
 
 (defmethod copy-form-1 ((form ast-jump-table))
   (make-instance 'ast-jump-table
+                 :inherit form
                  :value (copy-form-1 (value form))
                  :targets (loop
                              for targ in (targets form)
@@ -400,6 +418,7 @@
 
 (defmethod copy-form-1 ((form lambda-information))
   (let* ((info (make-instance 'lambda-information
+                              :inherit form
                               :name (lambda-information-name form)
                               :docstring (lambda-information-docstring form)
                               :lambda-list (lambda-information-lambda-list form)
