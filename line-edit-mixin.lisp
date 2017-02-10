@@ -5,6 +5,7 @@
   (:use :cl)
   (:export #:line-edit-mixin
            #:*line-editor-command-table*
+	   #:global-set-key
            #:define-command
            #:buffer
            #:cursor-position
@@ -102,14 +103,19 @@
 
 (defvar *line-editor-command-table* (make-hash-table))
 
-(defmacro define-command (name (stream keys) &body body)
+(defun global-set-key (keys command)
+  "Create keyboard shortcut to any command."
   (when (not (listp keys))
     (setf keys (list keys)))
+  (loop for key in keys
+     collect (setf (gethash key *line-editor-command-table*) command)))
+
+(defmacro define-command (name (stream keys) &body body)
+  "Define command and create keyboard shortcut."
   `(progn
      (defun ,name (,stream)
        ,@body)
-     ,@(loop for key in keys
-          collect `(setf (gethash ',key *line-editor-command-table*) ',name))))
+     (global-set-key ',keys ',name)))
 
 (define-command forward-char (stream (#\C-F #\Right-Arrow))
   "Move forward one character."
