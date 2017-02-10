@@ -186,6 +186,9 @@
       (and errorp
            (error "Unknown structure type ~S." name))))
 
+(defun sys.int::structure-object-p (object)
+  (cross-struct-p object))
+
 (defun sys.int::structure-type-p (object struct-type)
   (when (cross-struct-p object)
     (do ((object-type (sys.int::%struct-slot object 0)
