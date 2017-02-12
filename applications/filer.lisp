@@ -20,6 +20,7 @@
     (:text (mezzano.gui:make-colour-from-octets #xCC #x93 #x93))
     (:font (mezzano.gui:make-colour-from-octets #x7F #x9F #x7F))
     (:image (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
+    (:video (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
     (t mezzano.gui:*default-foreground-colour*)))
 
 (defclass filer ()
@@ -43,7 +44,8 @@
     (:compiled-lisp-code "llf")
     (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown" "md" "el")
     (:font "ttf")
-    (:image "png" "jpeg" "jpg")))
+    (:image "png" "jpeg" "jpg")
+    (:video "avi")))
 
 (defun canonical-type-from-pathname-type (type-string)
   (when (or (not type-string)
