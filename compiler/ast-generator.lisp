@@ -7,10 +7,9 @@
   "Produce AST nodes from a programmer-friendly representation.
 *CURRENT-LAMBDA* must be bound appropriately.
 Inherit source locations/etc from INHERIT."
-  (declare (ignore inherit))
-  (convert-ast-form form '()))
+  (convert-ast-form form inherit '()))
 
-(defun convert-ast-form (form new-variables)
+(defun convert-ast-form (form inherit new-variables)
   (when (symbolp form)
     (let ((var (assoc form new-variables)))
       (assert var () "Missing substitution variable ~S" form)
@@ -35,12 +34,15 @@ Inherit source locations/etc from INHERIT."
            ((unwind-protect) #'convert-ast-unwind-protect)
            ((call) #'convert-ast-call)
            ((jump-table) #'convert-ast-jump-table))
-         new-variables (rest form)))
+         inherit
+         new-variables
+         (rest form)))
 
-(defun convert-ast-block (new-variables name body)
+(defun convert-ast-block (inherit new-variables name body)
   (check-type name (or block-information symbol))
   (let ((new-block (if (symbolp name)
                        (make-instance 'block-information
+                                      :inherit inherit
                                       :name name
                                       :definition-point *current-lambda*
                                       :use-count 1)
@@ -48,30 +50,36 @@ Inherit source locations/etc from INHERIT."
     (when (symbolp name)
       (push (cons name new-block) new-variables))
     (make-instance 'ast-block
+                   :inherit inherit
                    :info new-block
-                   :body (convert-ast-form body new-variables))))
+                   :body (convert-ast-form body inherit new-variables))))
 
-(defun convert-ast-function (new-variables name)
+(defun convert-ast-function (inherit new-variables name)
   (declare (ignore new-variables))
-  (make-instance 'ast-function :name name))
+  (make-instance 'ast-function
+                 :inherit inherit
+                 :name name))
 
-(defun convert-ast-go (new-variables target info)
+(defun convert-ast-go (inherit new-variables target info)
   (make-instance 'ast-go
-                 :target (convert-ast-form target new-variables)
-                 :info (convert-ast-form info new-variables)))
+                 :inherit inherit
+                 :target (convert-ast-form target inherit new-variables)
+                 :info (convert-ast-form info inherit new-variables)))
 
-(defun convert-ast-if (new-variables test then else)
+(defun convert-ast-if (inherit new-variables test then else)
   (make-instance 'ast-if
-                 :test (convert-ast-form test new-variables)
-                 :then (convert-ast-form then new-variables)
-                 :else (convert-ast-form else new-variables)))
+                 :inherit inherit
+                 :test (convert-ast-form test inherit new-variables)
+                 :then (convert-ast-form then inherit new-variables)
+                 :else (convert-ast-form else inherit new-variables)))
 
-(defun convert-ast-let (new-variables bindings body)
+(defun convert-ast-let (inherit new-variables bindings body)
   (let ((real-bindings (loop
                           for (variable init-form) in bindings
                           collect (list (etypecase variable
                                           (symbol
                                            (let ((new (make-instance 'lexical-variable
+                                                                     :inherit inherit
                                                                      :name variable
                                                                      :definition-point *current-lambda*
                                                                      :use-count 1)))
@@ -81,17 +89,19 @@ Inherit source locations/etc from INHERIT."
                                            variable))
                                         init-form))))
     (make-instance 'ast-let
+                   :inherit inherit
                    :bindings (loop
                                 for (variable init-form) in real-bindings
-                                collect (list variable (convert-ast-form init-form new-variables)))
-                   :body (convert-ast-form body new-variables))))
+                                collect (list variable (convert-ast-form init-form inherit new-variables)))
+                   :body (convert-ast-form body inherit new-variables))))
 
-(defun convert-ast-multiple-value-bind (new-variables bindings value-form body)
-  (let ((value (convert-ast-form value-form new-variables))
+(defun convert-ast-multiple-value-bind (inherit new-variables bindings value-form body)
+  (let ((value (convert-ast-form value-form inherit new-variables))
         (real-bindings '()))
     (dolist (binding bindings)
       (cond ((symbolp binding)
              (let ((new (make-instance 'lexical-variable
+                                       :inherit inherit
                                        :name binding
                                        :definition-point *current-lambda*
                                        :use-count 1)))
@@ -99,49 +109,58 @@ Inherit source locations/etc from INHERIT."
                (push new real-bindings)))
             (t (push binding real-bindings))))
     (make-instance 'ast-multiple-value-bind
+                   :inherit inherit
                    :bindings (reverse real-bindings)
                    :value-form value
-                   :body (convert-ast-form body new-variables))))
+                   :body (convert-ast-form body inherit new-variables))))
 
-(defun convert-ast-multiple-value-call (new-variables function value-form)
+(defun convert-ast-multiple-value-call (inherit new-variables function value-form)
   (make-instance 'ast-multiple-value-call
-                 :function-form (convert-ast-form function new-variables)
-                 :value-form (convert-ast-form value-form new-variables)))
+                 :inherit inherit
+                 :function-form (convert-ast-form function inherit new-variables)
+                 :value-form (convert-ast-form value-form inherit new-variables)))
 
-(defun convert-ast-multiple-value-prog1 (new-variables value-form body)
+(defun convert-ast-multiple-value-prog1 (inherit new-variables value-form body)
   (make-instance 'ast-multiple-value-prog1
-                 :value-form (convert-ast-form value-form new-variables)
-                 :body (convert-ast-form body new-variables)))
+                 :inherit inherit
+                 :value-form (convert-ast-form value-form inherit new-variables)
+                 :body (convert-ast-form body inherit new-variables)))
 
-(defun convert-ast-progn (new-variables &rest body)
+(defun convert-ast-progn (inherit new-variables &rest body)
   (make-instance 'ast-progn
+                 :inherit inherit
                  :forms (loop
                            for form in body
-                           collect (convert-ast-form form new-variables))))
+                           collect (convert-ast-form form inherit new-variables))))
 
-(defun convert-ast-quote (new-variables value)
+(defun convert-ast-quote (inherit new-variables value)
   (declare (ignore new-variables))
-  (make-instance 'ast-quote :value value))
+  (make-instance 'ast-quote
+                 :inherit inherit
+                 :value value))
 
-(defun convert-ast-return-from (new-variables target value-form info)
+(defun convert-ast-return-from (inherit new-variables target value-form info)
   (make-instance 'ast-return-from
-                 :target (convert-ast-form target new-variables)
-                 :value (convert-ast-form value-form new-variables)
-                 :info (convert-ast-form info new-variables)))
+                 :inherit inherit
+                 :target (convert-ast-form target inherit new-variables)
+                 :value (convert-ast-form value-form inherit new-variables)
+                 :info (convert-ast-form info inherit new-variables)))
 
-(defun convert-ast-setq (new-variables variable value)
+(defun convert-ast-setq (inherit new-variables variable value)
   (check-type variable (or symbol lexical-variable))
   (make-instance 'ast-setq
-                 :variable (convert-ast-form variable new-variables)
-                 :value (convert-ast-form value new-variables)))
+                 :inherit inherit
+                 :variable (convert-ast-form variable inherit new-variables)
+                 :value (convert-ast-form value inherit new-variables)))
 
-(defun convert-ast-tagbody (new-variables info &rest statements)
+(defun convert-ast-tagbody (inherit new-variables info &rest statements)
   (check-type info (or symbol tagbody-information))
   (let ((tagbody-info (cond ((symbolp info)
                              (make-instance 'tagbody-information
-                                     :name info
-                                     :definition-point *current-lambda*
-                                     :use-count 1))
+                                            :inherit inherit
+                                            :name info
+                                            :definition-point *current-lambda*
+                                            :use-count 1))
                             (t info)))
         (new-go-tags '()))
     (when (symbolp info)
@@ -153,6 +172,7 @@ Inherit source locations/etc from INHERIT."
              (assert (eql (go-tag-tagbody go-tag) tagbody-info)))
             (symbol
              (let ((tag (make-instance 'go-tag
+                                       :inherit inherit
                                        :name go-tag
                                        :tagbody tagbody-info
                                        :use-count 1)))
@@ -161,32 +181,37 @@ Inherit source locations/etc from INHERIT."
     (setf (tagbody-information-go-tags tagbody-info) (append (reverse new-go-tags)
                                                              (tagbody-information-go-tags tagbody-info)))
     (make-instance 'ast-tagbody
+                   :inherit inherit
                    :info tagbody-info
                    :statements (loop
                                   for (go-tag statement) in statements
-                                  collect (list (convert-ast-form go-tag new-variables)
-                                                (convert-ast-form statement new-variables))))))
+                                  collect (list (convert-ast-form go-tag inherit new-variables)
+                                                (convert-ast-form statement inherit new-variables))))))
 
-(defun convert-ast-the (new-variables type value)
+(defun convert-ast-the (inherit new-variables type value)
   (make-instance 'ast-the
-                 :type type
-                 :value (convert-ast-form value new-variables)))
+                 :inherit inherit
+                 :type (sys.int::typeexpand type)
+                 :value (convert-ast-form value inherit new-variables)))
 
-(defun convert-ast-unwind-protect (new-variables protected-form cleanup-function)
+(defun convert-ast-unwind-protect (inherit new-variables protected-form cleanup-function)
   (make-instance 'ast-unwind-protect
-                 :protected-form (convert-ast-form protected-form new-variables)
-                 :cleanup-function (convert-ast-form cleanup-function new-variables)))
+                 :inherit inherit
+                 :protected-form (convert-ast-form protected-form inherit new-variables)
+                 :cleanup-function (convert-ast-form cleanup-function inherit new-variables)))
 
-(defun convert-ast-call (new-variables name &rest arguments)
+(defun convert-ast-call (inherit new-variables name &rest arguments)
   (make-instance 'ast-call
+                 :inherit inherit
                  :name name
                  :arguments (loop
                                for form in arguments
-                               collect (convert-ast-form form new-variables))))
+                               collect (convert-ast-form form inherit new-variables))))
 
-(defun convert-ast-jump-table (new-variables value &rest targets)
+(defun convert-ast-jump-table (inherit new-variables value &rest targets)
   (make-instance 'ast-jump-table
-                 :value (convert-ast-form value new-variables)
+                 :inherit inherit
+                 :value (convert-ast-form value inherit new-variables)
                  :targets (loop
                              for form in targets
-                             collect (convert-ast-form form new-variables))))
+                             collect (convert-ast-form form inherit new-variables))))

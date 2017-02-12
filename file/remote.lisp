@@ -4,7 +4,8 @@
 ;;; Simple remote file protocol client.
 
 (defpackage :mezzano.file-system.remote
-  (:export #:add-simple-file-host)
+  (:export #:add-simple-file-host
+           #:test-host-connectivity)
   (:use #:cl #:mezzano.file-system))
 
 (in-package :mezzano.file-system.remote)
@@ -266,8 +267,10 @@
              (error "Cannot create ~A. ~S" pathname x)))
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
-      (let ((stream (cond ((subtypep element-type 'character)
-                           (assert (eql external-format :default) (external-format))
+      (let ((stream (cond ((or (eql element-type :default)
+                               (subtypep element-type 'character))
+                           (assert (member external-format '(:default :utf-8))
+                                   (external-format))
                            (make-instance 'simple-file-character-stream
                                           :path path
                                           :pathname pathname
@@ -318,7 +321,7 @@
                  (sys.net:buffered-format con "(~S ~S)" (abort-action stream) (path stream))
                  (let ((x (read-preserving-whitespace con)))
                    (unless (eql x :ok)
-                     (error "Error: ~A ~S." path x))
+                     (error "Error: ~A ~S." (path stream) x))
                    x))))))
   t)
 
@@ -437,7 +440,7 @@
                (code-char code-point))
           #\REPLACEMENT_CHARACTER))))
 
-(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
   (cond ((stringp sequence)
          ;; This is slightly faster than going through method dispatch, but it's not great.
@@ -484,7 +487,7 @@
           (error "Read error! ~S" file-size))
         file-size))))
 
-(defmethod directory-using-host ((host simple-file-host) pathname)
+(defmethod directory-using-host ((host simple-file-host) pathname &key)
   (let ((path (unparse-simple-file-path pathname))
         (x nil))
     (with-connection (con host)
@@ -535,7 +538,10 @@
     (sys.net:buffered-format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (or (integerp x) (null x))
-        (error "Error: ~A ~S." path x))
+        (error 'simple-file-error
+               :pathname path
+               :format-control "Error: ~A ~S."
+               :format-arguments (list path x)))
       x)))
 
 (defmethod delete-file-using-host ((host simple-file-host) path &key)
@@ -544,7 +550,10 @@
     (sys.net:buffered-format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (eql x :ok)
-        (error "Error: ~A ~S." path x))
+        (error 'simple-file-error
+               :pathname path
+               :format-control "Error: ~A ~S."
+               :format-arguments (list path x)))
       x)))
 
 (defmethod expunge-directory-using-host ((host simple-file-host) path &key)
@@ -553,3 +562,14 @@
 
 (defmethod stream-truename ((stream simple-file-stream))
   (file-stream-pathname stream))
+
+(defun test-host-connectivity (host)
+  (handler-case
+      (with-connection (con host)
+        (sys.net:buffered-format con "(:PING)~%")
+        (let ((x (read-preserving-whitespace con nil :end-of-file)))
+          (unless (eql x :pong)
+            (error "Invalid ping response ~S received from remote file server." x)))
+        t)
+    (mezzano.network.tcp:connection-error (c)
+      (error "Unable to connect to file server: ~S." c))))

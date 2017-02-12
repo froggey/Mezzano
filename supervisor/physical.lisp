@@ -42,7 +42,7 @@
 (defconstant +4k-page-size+ #x1000)
 (defconstant +2m-page-size+ #x200000)
 
-(defvar *verbose-physical-allocation*)
+(sys.int::defglobal *verbose-physical-allocation*)
 
 ;;; Accessors into the page frame information vector.
 (macrolet ((def (name offset)
@@ -154,7 +154,7 @@
       (* entry 16))
    1))
 
-(defvar *physical-lock*)
+(sys.int::defglobal *physical-lock*)
 
 ;; Bootloader does everything for us. How kind.
 (defun initialize-physical-allocator ()
@@ -162,6 +162,10 @@
     ;; First boot.
     (setf *physical-lock* :unlocked
           *verbose-physical-allocation* nil)))
+
+(declaim (inline verbose-physical-allocation-p))
+(defun verbose-physical-allocation-p ()
+  *verbose-physical-allocation*)
 
 (defun allocate-physical-pages-1 (n-pages buddy-allocator-address max-order type)
   ;; Find the bin that matches this page count and
@@ -179,7 +183,7 @@
         (decf (physical-buddy-bin-count buddy-allocator-address avail-bin))
         (when (physical-page-frame-next frame)
           (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
-        (when *verbose-physical-allocation*
+        (when (verbose-physical-allocation-p)
           (debug-print-line "Considering frame " frame " type " (physical-page-frame-type frame)
                             " avail bin " avail-bin " best bin " best-bin))
         (when (not (eql (physical-page-frame-type frame) :free))
@@ -191,7 +195,7 @@
              (return))
            (decf avail-bin)
            (let ((p (+ frame (ash 1 avail-bin))))
-             (when *verbose-physical-allocation*
+             (when (verbose-physical-allocation-p)
                (debug-print-line "Split frame " frame " buddy " p " order " avail-bin))
              ;; Mark free, and set bin number.
              (setf (physical-page-frame-type p) :free
@@ -205,8 +209,8 @@
              (incf (physical-buddy-bin-count buddy-allocator-address avail-bin))))
         (when mezzano.runtime::*paranoid-allocation*
           (dotimes (i (* n-pages 512))
-            (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
-        (when *verbose-physical-allocation*
+            (setf (sys.int::memref-signed-byte-64 (convert-to-pmap-address (ash frame 12)) i) -1)))
+        (when (verbose-physical-allocation-p)
           (debug-print-line "Allocated " n-pages " pages " frame))
         frame))))
 
@@ -216,7 +220,7 @@ If the allocation could not be satisfied then NIL will be returned
 when MANDATORY-P is false, otherwise PANIC will be called.
 If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
-  (when *verbose-physical-allocation*
+  (when (verbose-physical-allocation-p)
     (debug-print-line "Allocating " n-pages " of type " type))
   (let ((frame
          (safe-without-interrupts (n-pages type 32-bit-only)
@@ -231,7 +235,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                             +boot-information-32-bit-physical-buddy-bins-offset+
                                             +n-32-bit-physical-buddy-bins+
                                             type))))))
-    (when *verbose-physical-allocation*
+    (when (verbose-physical-allocation-p)
       (debug-print-line "Allocated frame " frame))
     (when (and (not frame)
                mandatory-p)
@@ -256,7 +260,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                    (and (eql (physical-page-frame-type buddy) :free)
                         (not (eql (physical-page-frame-bin buddy) bin))))
            (return))
-         (when *verbose-physical-allocation*
+         (when (verbose-physical-allocation-p)
            (debug-print-line "Merge frame " page-number " buddy " buddy " order " bin " other " (physical-page-frame-bin buddy)))
          ;; Combine with buddy.
          ;; Remove buddy from freelist.
@@ -287,8 +291,8 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (eql (physical-page-frame-type page-number) :free)) "Tried to free free frame.")
   (when mezzano.runtime::*paranoid-allocation*
     (dotimes (i (* n-pages 512))
-      (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash page-number 12)) i) -1)))
-  (when *verbose-physical-allocation*
+      (setf (physical-memref-signed-byte-64 (ash page-number 12) i) -1)))
+  (when (verbose-physical-allocation-p)
     (debug-print-line "Freeing " n-pages " pages " page-number))
   (safe-without-interrupts (page-number n-pages)
     (with-symbol-spinlock (*physical-lock*)
@@ -325,6 +329,10 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                 (ash 1 bin)))))
       (values n-free-pages total-pages))))
 
+(declaim (inline convert-to-pmap-address))
+(defun convert-to-pmap-address (physical-address)
+  (+ +physical-map-base+ physical-address))
+
 ;;; Accessors into physical memory.
 (declaim (inline physical-memref-unsigned-byte-8
                  physical-memref-unsigned-byte-16
@@ -337,23 +345,23 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                  (setf physical-memref-unsigned-byte-64)
                  (setf physical-memref-t)))
 (defun physical-memref-unsigned-byte-8 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-8 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-16 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-16 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-32 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-32 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-64 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-64 (convert-to-pmap-address address) index))
 (defun physical-memref-t (address &optional (index 0))
-  (sys.int::memref-t (+ +physical-map-base+ address) index))
+  (sys.int::memref-t (convert-to-pmap-address address) index))
 
 (defun (setf physical-memref-unsigned-byte-8) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-8 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-16) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-16 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-32) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-32 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-64) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-64 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-t) (value address &optional (index 0))
-  (setf (sys.int::memref-t (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-t (convert-to-pmap-address address) index) value))

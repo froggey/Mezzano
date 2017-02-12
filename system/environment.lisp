@@ -13,8 +13,10 @@ A list of two elements, the short & long name." )
 
 ;;; 25.1.2 Debugging Utilities.
 
-(defgeneric documentation (x doc-type))
-(defgeneric (setf documentation) (new-value x doc-type))
+(defgeneric documentation (object doc-type)
+  (:argument-precedence-order doc-type object))
+(defgeneric (setf documentation) (new-value object doc-type)
+  (:argument-precedence-order new-value doc-type object))
 
 (defmethod documentation (x doc-type) nil)
 (defmethod (setf documentation) (new-value x doc-type) new-value)
@@ -97,7 +99,9 @@ A list of two elements, the short & long name." )
 
 ;; (instance)
 (defun machine-instance () *machine-info*)
-(defun machine-type () "x86-64")
+(defun machine-type ()
+  #+x86-64 "x86-64"
+  #+arm64 "arm64")
 (defun machine-version ()
   (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)
       (cpuid 0)

@@ -9,6 +9,8 @@
 
 (defvar sys.int::*top-level-form-number* nil)
 
+(defvar *target-architecture*)
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
@@ -41,6 +43,35 @@
 (defun sys.int::structure-slot-read-only (x) (structure-slot-read-only x))
 
 (defvar *structure-types* (make-hash-table :test 'eq))
+
+(defun ldb (bytespec integer)
+  (logand (ash integer (- (byte-position bytespec)))
+          (1- (ash 1 (byte-size bytespec)))))
+
+(defun dpb (newbyte bytespec integer)
+  (let ((mask (1- (ash 1 (byte-size bytespec)))))
+    (logior (ash (logand newbyte mask) (byte-position bytespec))
+            (logand integer (lognot (ash mask (byte-position bytespec)))))))
+
+(define-setf-expander ldb (bytespec int &environment env)
+  (multiple-value-bind (temps vals stores
+                              store-form access-form)
+      (cl:get-setf-expansion int env);Get setf expansion for int.
+    (let ((btemp (gensym))     ;Temp var for byte specifier.
+          (store (gensym))     ;Temp var for byte to store.
+          (stemp (first stores)) ;Temp var for int to store.
+          (bs-size (gensym))   ; Temp var for byte specifier size.
+          (bs-position (gensym))) ; Temp var for byte specifier position.
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Return the setf expansion for LDB as five values.
+      (values (cons btemp temps)       ;Temporary variables.
+              (cons bytespec vals)     ;Value forms.
+              (list store)             ;Store variables.
+              `(let ((,stemp (dpb ,store ,btemp ,access-form)))
+                 ,store-form
+                 ,store)               ;Storing form.
+              `(ldb ,btemp ,access-form) ;Accessing form.
+              ))))
 
 (defparameter *char-name-alist*
   ;; C0 control characters, prioritize friendly names.
@@ -197,35 +228,35 @@
 (defun character-reader (stream ch p)
   (declare (ignore ch p))
   (let ((x (read-char stream t nil t))
-	(y (peek-char nil stream nil nil t)))
+        (y (peek-char nil stream nil nil t)))
     (if (or (eql nil y)
-	    (get-macro-character y)
-	    (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
-	;; Simple form: Single character followed by EOF or a non-constituent character.
-	;; Just return the character that was read.
-	x
-	;; Reading a character name, similar to read-token, but no special handling
-	;; is done for packages or numbers.
-	(let ((token (make-array 1
-				 :element-type 'character
-				 :initial-element x
-				 :adjustable t
-				 :fill-pointer t)))
-	  (do ((z (read-char stream nil nil t)
-		  (read-char stream nil nil t)))
-	      ((or (eql nil z)
-		   (when (or (get-macro-character z)
+            (get-macro-character y)
+            (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
+        ;; Simple form: Single character followed by EOF or a non-constituent character.
+        ;; Just return the character that was read.
+        x
+        ;; Reading a character name, similar to read-token, but no special handling
+        ;; is done for packages or numbers.
+        (let ((token (make-array 1
+                                 :element-type 'character
+                                 :initial-element x
+                                 :adjustable t
+                                 :fill-pointer t)))
+          (do ((z (read-char stream nil nil t)
+                  (read-char stream nil nil t)))
+              ((or (eql nil z)
+                   (when (or (get-macro-character z)
                              (member z '(#\Space #\Tab #\Newline) :test #'char-equal))
-		     (unread-char z stream)
-		     t)))
-	    (vector-push-extend z token))
-	  ;; Finished reading the token, convert it to a character
-	  (let ((c (cross-name-char token)))
-	    (when (and (not c) (not *read-suppress*))
-	      (error 'simple-reader-error :stream stream
+                     (unread-char z stream)
+                     t)))
+            (vector-push-extend z token))
+          ;; Finished reading the token, convert it to a character
+          (let ((c (cross-name-char token)))
+            (when (and (not c) (not *read-suppress*))
+              (error 'simple-reader-error :stream stream
                      :format-control "Unrecognized character name ~S."
                      :format-arguments (list token)))
-	    c)))))
+            c)))))
 
 (defun cross-name-char (name)
   (or (loop for (code . names) in *char-name-alist*
@@ -244,38 +275,100 @@
   (declare (ignore first))
   (case (peek-char nil stream t)
     (#\@ (read-char stream t nil t)
-	 (list 'sys.int::bq-comma-atsign (read stream t nil t)))
+         (list 'sys.int::bq-comma-atsign (read stream t nil t)))
     (#\. (read-char stream t nil t)
-	 (list 'sys.int::bq-comma-dot (read stream t nil t)))
+         (list 'sys.int::bq-comma-dot (read stream t nil t)))
     (otherwise
      (list 'sys.int::bq-comma (read stream t nil t)))))
 
 (set-macro-character #\` 'read-backquote nil *cross-readtable*)
 (set-macro-character #\, 'read-comma nil *cross-readtable*)
 
-(defun sys.int::symbol-macro-expansion (symbol &optional env)
-  (dolist (e env
-           (gethash symbol *system-symbol-macros*))
-    (when (eql (first e) :symbol-macros)
-      (let ((x (assoc symbol (rest e))))
-        (when x (return (second x)))))))
+(defun eval-feature-test (test)
+  "Evaluate the feature expression TEST."
+  (etypecase test
+    (symbol (member test sys.int::*features*))
+    (cons (case (car test)
+            (:not (when (or (null (cdr test)) (cddr test))
+                    (error "Invalid feature expression ~S" test))
+                  (not (eval-feature-test (cadr test))))
+            (:and (dolist (subexpr (cdr test) t)
+                    (when (not (eval-feature-test subexpr))
+                      (return nil))))
+            (:or (dolist (subexpr (cdr test) nil)
+                   (when (eval-feature-test subexpr)
+                     (return t))))
+            (t (error "Invalid feature expression ~S" test))))))
+
+(defun read-features (stream suppress-if-false)
+  "Common function to implement #+ and #-."
+  (let* ((test (let ((*package* (find-package "KEYWORD")))
+                 (read stream t nil t)))
+         (*read-suppress* (or *read-suppress*
+                              (if suppress-if-false
+                                  (not (eval-feature-test test))
+                                  (eval-feature-test test))))
+         (value (read stream t nil t)))
+    (if *read-suppress*
+        (values)
+        value)))
+
+(defun read-feature-plus (stream ch p)
+  (declare (ignore ch p))
+  (read-features stream t))
+
+(defun read-feature-minus (stream ch p)
+  (declare (ignore ch p))
+  (read-features stream nil))
+
+(set-dispatch-macro-character #\# #\+ 'read-feature-plus *cross-readtable*)
+(set-dispatch-macro-character #\# #\- 'read-feature-minus *cross-readtable*)
+
+(defmethod lookup-variable-in-environment (symbol (environment null))
+  (multiple-value-bind (expansion expandedp)
+      (gethash symbol *system-symbol-macros*)
+    (if expandedp
+        (make-instance 'symbol-macro :name symbol :expansion expansion)
+        (make-instance 'special-variable
+                       :name symbol
+                       :implicitly-declared (not (sys.int::variable-information symbol))))))
+
+(defmethod lookup-function-in-environment (name (environment null))
+  (make-instance 'top-level-function :name name))
+
+(defmethod inline-info-in-environment (name (environment null))
+  (function-inline-info name))
+
+(defmethod lookup-block-in-environment (tag (environment null))
+  nil)
+
+(defmethod lookup-go-tag-in-environment (tag (environment null))
+  nil)
+
+(defmethod environment-macro-definitions-only ((environment null))
+  nil)
+
+(defmethod compiler-macro-function-in-environment (name (environment null))
+  (gethash name *system-compiler-macros*))
+
+(defmethod macro-function-in-environment (symbol (environment null))
+  (gethash symbol *system-macros*))
+
+(defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
+  (mezzano.runtime::symbol-type symbol))
+
+(defmethod optimize-qualities-in-environment ((environment null))
+  '())
 
 (defun compiler-macro-function (name &optional env)
-  (dolist (e env
-           (gethash name *system-compiler-macros*))
-    (when (eql (first e) :compiler-macros)
-      (let ((x (assoc name (rest e) :test 'equal)))
-        (when x (return (cdr x)))))))
+  (compiler-macro-function-in-environment name env))
 
 (defun (setf compiler-macro-function) (value name &optional env)
-  (declare (ignore env))
+  (assert (eql env nil))
   (setf (gethash name *system-compiler-macros*) value))
 
 (defun macro-function (symbol &optional env)
-  (dolist (e env (gethash symbol *system-macros*))
-    (when (eql (first e) :macros)
-      (let ((x (assoc symbol (rest e))))
-        (when x (return (cdr x)))))))
+  (macro-function-in-environment symbol env))
 
 (defun macroexpand (form &optional env)
   (let ((did-expand nil))
@@ -288,7 +381,11 @@
 
 (defun macroexpand-1 (form &optional env)
   (cond ((symbolp form)
-         (sys.int::symbol-macro-expansion form env))
+         (let ((var (lookup-variable-in-environment form env)))
+           (cond ((typep var 'symbol-macro)
+                  (values (symbol-macro-expansion var) t))
+                 (t
+                  (values form nil)))))
         ((consp form)
          (let ((fn (macro-function (first form) env)))
            (if fn
@@ -357,13 +454,14 @@
   "Common code for handling the body of LOCALLY, MACROLET and SYMBOL-MACROLET forms at the top-level."
   (multiple-value-bind (body declares)
       (parse-declares forms)
-    (dolist (dec declares)
-      (when (eql 'special (first dec))
-        (push (list* :special (rest dec)) env)))
-    (x-compile-top-level-implicit-progn body env mode)))
+    (x-compile-top-level-implicit-progn
+     body (extend-environment env :declarations declares) mode)))
 
 (defun make-macrolet-env (definitions env)
-  (list* (list* :macros (mapcar 'hack-macrolet-definition definitions)) env))
+  (extend-environment env
+                      :functions (loop
+                         for def in definitions
+                                    collect (hack-macrolet-definition def env))))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)
@@ -372,7 +470,15 @@
               (listp (third form)))
          ;; Don't expand DEFINE-LAP-FUNCTION.
          (values form nil))
-        (t (macroexpand form env))))
+        (t
+         ;; Preserve the above behaviour when recursively macroexpanding.
+         (multiple-value-bind (expansion expandedp)
+             (macroexpand-1 form env)
+           (cond (expandedp
+                  (values (macroexpand-top-level-form expansion env)
+                          t))
+                 (t
+                  (values expansion nil)))))))
 
 (defun x-compile-top-level (form env &optional (mode :not-compile-time))
   "Cross-compile a top-level form.
@@ -457,19 +563,32 @@
   (alexandria:ensure-gethash name *fref-table*
                              (make-cross-fref name)))
 
-(defun sys.int::assemble-lap (code &optional name debug-info)
+(defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
+  (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
-        (sys.lap-x86:assemble code
-          :base-address 16
-          :initial-symbols '((nil . :fixup)
-                             (t . :fixup)
-                             (:unbound-value . :fixup)
-                             (:unbound-tls-slot . :fixup)
-                             (:undefined-function . :fixup)
-                             (:closure-trampoline . :fixup)
-                             (:funcallable-instance-trampoline . :fixup))
-          :info (list name debug-info)))
+      (let ((sys.lap:*function-reference-resolver* #'resolve-fref))
+        (declare (special sys.lap:*function-reference-resolver*)) ; blech.
+        (ecase architecture
+          (:x86-64
+           (sys.lap-x86:assemble code
+             :base-address 16
+             :initial-symbols '((nil . :fixup)
+                                (t . :fixup)
+                                (:unbound-value . :fixup)
+                                (:undefined-function . :fixup)
+                                (:closure-trampoline . :fixup)
+                                (:funcallable-instance-trampoline . :fixup))
+             :info (list name debug-info)))
+          (:arm64
+           (mezzano.lap.arm64:assemble code
+             :base-address 16
+             :initial-symbols '((nil . :fixup)
+                                (t . :fixup)
+                                (:unbound-value . :fixup)
+                                (:undefined-function . :fixup)
+                                (:closure-trampoline . :fixup)
+                                (:funcallable-instance-trampoline . :fixup))
+             :info (list name debug-info)))))
     (declare (ignore symbols))
     (make-cross-function :mc mc
                          :constants constants
@@ -480,7 +599,11 @@
   (declare (ignore input-file))
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream)
-  (save-integer sys.int::*llf-version* output-stream))
+  (save-integer sys.int::*llf-version* output-stream)
+  (save-integer (ecase *target-architecture*
+                  (:x86-64 sys.int::+llf-arch-x86-64+)
+                  (:arm64 sys.int::+llf-arch-arm64+))
+                output-stream))
 
 (defun save-integer (integer stream)
   (let ((negativep (minusp integer)))
@@ -619,9 +742,20 @@
   #+sbcl (ldb (byte 32 0) (sb-kernel:single-float-bits value))
   #-(or sbcl) (error "Not implemented on this platform!"))
 
+(defun %double-float-as-integer (value)
+  (check-type value double-float)
+  #+sbcl (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits value)) 32)
+                 (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
+  #-(or sbcl) (error "Not implemented on this platform!"))
+
 (defmethod save-one-object ((object float) omap stream)
-  (write-byte sys.int::+llf-single-float+ stream)
-  (save-integer (%single-float-as-integer object) stream))
+  (etypecase object
+    (single-float
+     (write-byte sys.int::+llf-single-float+ stream)
+     (save-integer (%single-float-as-integer object) stream))
+    (double-float
+     (write-byte sys.int::+llf-double-float+ stream)
+     (save-integer (%double-float-as-integer object) stream))))
 
 (defmethod save-one-object ((object ratio) omap stream)
   (write-byte sys.int::+llf-ratio+ stream)
@@ -646,6 +780,28 @@
         (setf (ldb (byte 1 j) octet) (bit object j)))
       (write-byte octet stream))))
 
+(defmethod save-one-object ((object byte) omap stream)
+  (write-byte sys.int::+llf-byte+ stream)
+  (save-integer (byte-size object) stream)
+  (save-integer (byte-position object) stream))
+
+(defmethod save-one-object ((object complex) omap stream)
+  (etypecase (realpart object)
+    (rational
+     (write-byte sys.int::+llf-complex-rational+ stream)
+     (save-integer (numerator (realpart object)) stream)
+     (save-integer (denominator (realpart object)) stream)
+     (save-integer (numerator (imagpart object)) stream)
+     (save-integer (denominator (imagpart object)) stream))
+    (single-float
+     (write-byte sys.int::+llf-complex-single-float+ stream)
+     (save-integer (%single-float-as-integer (realpart object)) stream)
+     (save-integer (%single-float-as-integer (imagpart object)) stream))
+    (double-float
+     (write-byte sys.int::+llf-complex-double-float+ stream)
+     (save-integer (%double-float-as-integer (realpart object)) stream)
+     (save-integer (%double-float-as-integer (imagpart object)) stream))))
+
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
     (cond (*output-dry-run*
@@ -668,65 +824,127 @@
 (defun cross-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-    (x-compile `(setq ,ltv-sym ,form) nil)
+    (x-compile `(locally
+                    (declare (special ,ltv-sym))
+                  (setq ,ltv-sym ,form))
+               nil)
     `(symbol-value ',ltv-sym)))
 
+(defvar *failed-fastload-by-symbol* (make-hash-table))
+
+;; One of:
+;;   'symbol
+;;   #'symbol
+;;   #'(SETF symbol)
+;;   #'(CAS symbol)
+(defun valid-funcall-function-p (form)
+  (and (consp form)
+       (consp (cdr form))
+       (null (cddr form))
+       (or (and (eql (first form) 'quote)
+                (symbolp (second form)))
+           (and (eql (first form) 'function)
+                (let ((name (second form)))
+                  (or (symbolp name)
+                      (and (consp name)
+                           (consp (cdr name))
+                           (null (cddr name))
+                           (member (first name) '(setf sys.int::cas))
+                           (symbolp (second name)))))))))
+
+;; Convert a valid funcall function to the function name.
+(defun funcall-function-name (form)
+  (second form))
+
 (defun x-compile (form env)
-  ;; Special case (%defun 'name (lambda ...)) forms.
-  (cond ((and (consp form)
-              (eql (first form) 'sys.int::%defun)
-              (= (list-length form) 3)
-              (consp (second form))
-              (eql (first (second form)) 'quote)
-              (= (list-length (second form)) 2)
-              (consp (third form))
-              (eql (first (third form)) 'lambda))
-         (let* ((name (second (second form)))
-                (lambda (third form))
-                (*load-time-value-hook* 'cross-load-time-value)
-                (fn (compile-lambda lambda (cons env nil))))
-           #+nil(add-to-llf sys.int::+llf-defun+ name fn)
-           (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
-        ;; And (define-lap-function name (options...) code...)
-        ((and (consp form)
-              (eql (first form) 'sys.int::define-lap-function)
-              (>= (length form) 3))
-         (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
-             (cdr form)
-           (let ((docstring nil))
-             (when (stringp (first code))
-               (setf docstring (pop code)))
-             (add-to-llf sys.int::+llf-setf-fdefinition+
-                         (sys.int::assemble-lap
-                          code
-                          name
-                          (list :debug-info
-                                name
-                                frame-layout
-                                environment-vector-offset
-                                environment-vector-layout
-                                (when *compile-file-pathname*
-                                  (princ-to-string *compile-file-pathname*))
-                                sys.int::*top-level-form-number*
-                                lambda-list
-                                docstring))
-                         name))))
-        ;; And (quote form)
-        ((and (consp form)
-              (eql (first form) 'quote)
-              (= (length form) 2)))
-        ;; Convert other forms to zero-argument functions and
-        ;; add it to the fasl as an eval node.
-        ;; Progn to avoid problems with DECLARE.
-        (t (let* ((*load-time-value-hook* 'cross-load-time-value)
-                  (fn (compile-lambda `(lambda ()
-                                         (declare (system:lambda-name
-                                                   (sys.int::toplevel ,(when *compile-file-pathname*
-                                                                             (princ-to-string *compile-file-pathname*))
-                                                                      ,sys.int::*top-level-form-number*)))
-                                         (progn ,form))
-                                      (cons env nil))))
-             (add-to-llf sys.int::+llf-invoke+ fn)))))
+  (cond
+    ;; Special case (define-lap-function name (options...) code...)
+    ;; Don't macroexpand this, as it expands into a bunch of difficult to
+    ;; recognize nonsense.
+    ((and (consp form)
+          (eql (first form) 'sys.int::define-lap-function)
+          (>= (length form) 3))
+     (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
+         (cdr form)
+       (let ((docstring nil))
+         (when (stringp (first code))
+           (setf docstring (pop code)))
+         (x-compile
+          `(sys.int::%defun ',name
+                            ',(sys.int::assemble-lap
+                               code
+                               name
+                               (list :debug-info
+                                     name
+                                     frame-layout
+                                     environment-vector-offset
+                                     environment-vector-layout
+                                     (when *compile-file-pathname*
+                                       (princ-to-string *compile-file-pathname*))
+                                     sys.int::*top-level-form-number*
+                                     lambda-list
+                                     docstring)
+                               nil
+                               *target-architecture*))
+          env))))
+    (t
+     (x-compile-for-value form env)
+     (add-to-llf sys.int::+llf-drop+))))
+
+(defun x-compile-for-value (form env)
+  ;; FIXME: This should probably use compiler-macroexpand.
+  (let ((expansion (macroexpand form env)))
+    (cond
+      ((symbolp expansion)
+       (add-to-llf sys.int::+llf-funcall-n+ expansion 'symbol-value 1))
+      ((not (consp expansion))
+       ;; Self-evaluating form.
+       (add-to-llf nil expansion))
+      ((eql (first expansion) 'quote)
+       (add-to-llf nil (second expansion)))
+      ((and (eql (first expansion) 'function)
+            (consp (second expansion))
+            (eql (first (second expansion)) 'lambda))
+       (let* ((*load-time-value-hook* 'cross-load-time-value)
+              (fn (compile-lambda (second expansion) env *target-architecture*)))
+         (declare (special *load-time-value-hook*))
+         (add-to-llf nil fn)))
+      ((eql (first expansion) 'setq)
+       (x-compile-for-value `(funcall #'(setf symbol-value)
+                                      ,(third form)
+                                      ',(second form))
+                            env))
+      ((special-operator-p (first expansion))
+       ;; Can't convert this, convert it to a zero-argument function and
+       ;; call that. PROGN to avoid problems with DECLARE.
+       (incf (gethash (first expansion) *failed-fastload-by-symbol* 0))
+       (let* ((*load-time-value-hook* 'cross-load-time-value)
+              (fn (compile-lambda `(lambda ()
+                                     (declare (sys.int::lambda-name
+                                               (sys.int::toplevel ,(when *compile-file-pathname*
+                                                                         (princ-to-string *compile-file-pathname*))
+                                                                  ,sys.int::*top-level-form-number*)))
+                                     (progn ,expansion))
+                                  env
+                                  *target-architecture*)))
+         (declare (special *load-time-value-hook*))
+         (add-to-llf sys.int::+llf-funcall-n+ fn 0)))
+      (t
+       ;; That should just leave ordinary calls.
+       (let ((name (first expansion))
+             (args (rest expansion)))
+         ;; Unpeel funcall forms.
+         (loop
+            (cond ((and (eql name 'funcall)
+                        (consp args)
+                        (valid-funcall-function-p (first args)))
+                   (setf name (funcall-function-name (first args))
+                         args (rest args)))
+                  (t
+                   (return))))
+         (dolist (arg args)
+           (x-compile-for-value arg env))
+         (add-to-llf sys.int::+llf-funcall-n+ name (length args)))))))
 
 (defun cross-compile-file (input-file &key
                            (output-file (make-pathname :type "llf" :defaults input-file))
@@ -752,15 +970,15 @@
              (sys.int::*top-level-form-number* 0))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
-        (iter:iter (iter:for form = (read input nil input))
-              (when (eql form input)
-                (return))
-              (when *compile-print*
-                (let ((*print-length* 3)
-                      (*print-level* 2))
-                  (format t ";; X-compiling: ~S~%" form)))
-              (x-compile-top-level form nil)
-              (incf sys.int::*top-level-form-number*))
+        (loop for form = (read input nil input) do
+             (when (eql form input)
+               (return))
+             (when *compile-print*
+               (let ((*print-length* 3)
+                     (*print-level* 2))
+                 (format t ";; X-compiling: ~S~%" form)))
+             (x-compile-top-level form nil)
+             (incf sys.int::*top-level-form-number*))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *pending-llf-commands*)))
@@ -772,7 +990,8 @@
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o *output-map* *output-fasl*))
-              (write-byte (car cmd) *output-fasl*))))
+              (when (car cmd)
+                (write-byte (car cmd) *output-fasl*)))))
         (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
   output-file)
 
@@ -791,69 +1010,26 @@
            (*gensym-counter* 0))
       (when *compile-verbose*
         (format t ";; Cross-loading ~S~%" input-file))
-      (iter:iter (iter:for form = (read input nil input))
-            (when (eql form input)
-              (return))
-            (when *compile-print*
-              (let ((*print-length* 3)
-                    (*print-level* 2))
-                (format t ";; X-loading: ~S~%" form)))
-            (x-compile-top-level form nil :not-compile-time))))
+      (loop for form = (read input nil input) do
+           (when (eql form input)
+             (return))
+           (when *compile-print*
+             (let ((*print-length* 3)
+                   (*print-level* 2))
+               (format t ";; X-loading: ~S~%" form)))
+           (x-compile-top-level form nil :not-compile-time))))
   t)
 
-(defparameter *cross-source-files*
-  '("system/basic-macros.lisp"
-    "system/defmacro.lisp"
-    "system/backquote.lisp"
-    "system/setf.lisp"
-    "system/cas.lisp"
-    "system/defstruct.lisp"
-    "system/cons-compiler-macros.lisp"
-    "system/condition.lisp"
-    "system/restarts.lisp"
-    "system/error.lisp"
-    "system/type.lisp"
-    "system/array.lisp"
-    "system/sequence.lisp"
-    "system/hash-table.lisp"
-    "system/packages.lisp"
-    "system/stream.lisp"
-    "system/reader.lisp"
-    "system/printer.lisp"
-    "system/numbers.lisp"
-    "system/character.lisp"
-    "system/clos-package.lisp"
-    "system/closette.lisp"
-    "system/data-types.lisp"
-    "system/gc.lisp"
-    "system/cold-start.lisp"
-    "system/early-cons.lisp"
-    "system/runtime-numbers.lisp"
-    "supervisor/cpu.lisp"
-    "supervisor/thread.lisp"
-    "supervisor/interrupts.lisp"
-    "supervisor/entry.lisp"
-    "supervisor/physical.lisp"
-    "supervisor/support.lisp"
-    "runtime/struct.lisp"
-    "runtime/array.lisp"
-    "runtime/symbol.lisp"
-    "system/stuff.lisp"
-)
-  "These files are loaded into the compiler environment so other source
-files will be compiled correctly.")
-
-(defun set-up-cross-compiler ()
-  (mapc 'load-for-cross-compiler *cross-source-files*))
-
-(defun save-compiler-builtins (path)
+(defun save-compiler-builtins (path target-architecture)
   (with-open-file (*output-fasl* path
                    :element-type '(unsigned-byte 8)
                    :if-exists :supersede
                    :direction :output)
     (format t ";; Writing compiler builtins to ~A.~%" path)
     (write-llf-header *output-fasl* path)
-    (let* ((builtins (generate-builtin-functions))
+    (let* ((builtins (ecase target-architecture
+                       (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
+                       (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
            (*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
@@ -880,8 +1056,28 @@ files will be compiled correctly.")
           (dolist (cmd commands)
             (dolist (o (cdr cmd))
               (save-object o *output-map* *output-fasl*))
-            (write-byte (car cmd) *output-fasl*))))
+            (when (car cmd)
+              (write-byte (car cmd) *output-fasl*)))))
       (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
 
 (deftype sys.int::non-negative-fixnum ()
   `(integer 0 ,most-positive-fixnum))
+
+(defun sys.int::fixnump (object)
+  (sys.c::fixnump object))
+
+(defun mezzano.runtime::left-shift (integer count)
+  (check-type integer integer)
+  (check-type count (integer 1))
+  (ash integer count))
+
+(defun mezzano.runtime::right-shift (integer count)
+  (check-type integer integer)
+  (check-type count (integer 1))
+  (ash integer (- count)))
+
+(defun sys.int::eval-in-lexenv (lambda env)
+  ;; Just quietly ignore the environment for now...
+  ;; It's not currently needed by any of the cross-compiled files.
+  (declare (ignore env))
+  (eval lambda))

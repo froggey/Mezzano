@@ -12,44 +12,55 @@
 
 (in-package :mezzano.supervisor)
 
-;;; In-memory freelist linked list
-(defvar *store-freelist-head*)
-(defvar *store-freelist-tail*)
+(sys.int::defglobal *verbose-store*)
 
-(defvar *store-deferred-freelist-head*)
+;;; In-memory freelist linked list
+(sys.int::defglobal *store-freelist-head*)
+(sys.int::defglobal *store-freelist-tail*)
+
+(sys.int::defglobal *store-deferred-freelist-head*)
 
 ;;; Free metadata objects.
-(defvar *store-freelist-metadata-freelist*)
-(defvar *store-freelist-n-free-metadata*)
+(sys.int::defglobal *store-freelist-metadata-freelist*)
+(sys.int::defglobal *store-freelist-n-free-metadata*)
 (defvar *store-freelist-recursive-metadata-allocation*)
 (defconstant +store-freelist-metadata-soft-limit+ 16)
 
 ;;; Block counts.
-(defvar *store-freelist-n-free-blocks*)
-(defvar *store-freelist-n-deferred-free-blocks*)
-(defvar *store-freelist-total-blocks*)
+(sys.int::defglobal *store-freelist-n-free-blocks*)
+(sys.int::defglobal *store-freelist-n-deferred-free-blocks*)
+(sys.int::defglobal *store-freelist-total-blocks*)
 
-(macrolet ((field (name offset)
-             (let ((field-name (intern (format nil "+FREELIST-METADATA-~A+" (symbol-name name))
-                                       (symbol-package name)))
-                   (accessor-name (intern (format nil "FREELIST-METADATA-~A" (symbol-name name))
-                                          (symbol-package name))))
-               `(progn
-                  (defconstant ,field-name ,offset)
-                  (defun ,accessor-name (md)
-                    (sys.int::memref-t md ,field-name))
-                  (defun (setf ,accessor-name) (value md)
-                    (setf (sys.int::memref-t md ,field-name) value))))))
-  (field start 0)
-  (field stuff 1)
-  (field next  2)
-  (field prev  3))
+;; Use a macro instead of macrolet to define these functions
+;; because the compiler doesn't generate inlining info when there's
+;; a non-null environment.
+(defmacro define-freelist-metadata-field (name offset)
+  (let ((field-name (intern (format nil "+FREELIST-METADATA-~A+" (symbol-name name))
+                            (symbol-package name)))
+        (accessor-name (intern (format nil "FREELIST-METADATA-~A" (symbol-name name))
+                               (symbol-package name))))
+    `(progn
+       (defconstant ,field-name ,offset)
+       (declaim (inline ,accessor-name (setf ,accessor-name)))
+       (defun ,accessor-name (md)
+         (sys.int::memref-t md ,field-name))
+       (defun (setf ,accessor-name) (value md)
+         (setf (sys.int::memref-t md ,field-name) value)))))
+
+(define-freelist-metadata-field start 0)
+(define-freelist-metadata-field stuff 1)
+(define-freelist-metadata-field next  2)
+(define-freelist-metadata-field prev  3)
+
+(declaim (inline freelist-metadata-end (setf freelist-metadata-end)))
 
 (defun freelist-metadata-end (md)
   (ldb (byte 60 1) (freelist-metadata-stuff md)))
 
 (defun (setf freelist-metadata-end) (value md)
   (setf (ldb (byte 60 1) (freelist-metadata-stuff md)) value))
+
+(declaim (inline freelist-metadata-free-p (setf freelist-metadata-free-p)))
 
 (defun freelist-metadata-free-p (md)
   (logbitp 0 (freelist-metadata-stuff md)))
@@ -63,7 +74,7 @@
   ;; Repopulate freelist.
   (let* ((frame (let ((*store-freelist-recursive-metadata-allocation* t))
                   (pager-allocate-page :other)))
-         (addr (+ +physical-map-base+ (ash frame 12))))
+         (addr (convert-to-pmap-address (ash frame 12))))
     (dotimes (i (truncate #x1000 +freelist-metadata-size+))
       (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
             (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
@@ -161,9 +172,9 @@
                (<= end (freelist-metadata-end range)))
       (when (eql (not (not freep)) (freelist-metadata-free-p range))
         (do ((range *store-freelist-head*
-                  (freelist-metadata-next range)))
-          ((null range))
-        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
+                    (freelist-metadata-next range)))
+            ((null range))
+          (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
         (panic "Tried to free a free range or tried to allocate an allocated range. "
                start "-" end ":" freep " " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (cond
@@ -171,30 +182,29 @@
               (eql (freelist-metadata-end range) end))
          ;; This range will be shrunk to nothingness.
          ;; Merge the next/prev ranges.
-         (cond ((and (freelist-metadata-next range)
-                     (freelist-metadata-prev range))
-                ;; Both sides exist. Pick one to free and enlarge the other.
-                (let ((before (freelist-metadata-prev range))
-                      (after (freelist-metadata-next range)))
+         (let ((before (freelist-metadata-prev range))
+               (after (freelist-metadata-next range)))
+           (cond ((and before after)
+                  ;; Both sides exist. Pick one to free and enlarge the other.
                   (setf (freelist-metadata-prev after) (freelist-metadata-prev before)
                         (freelist-metadata-start after) (freelist-metadata-start before))
                   (cond ((freelist-metadata-prev before)
                          (setf (freelist-metadata-next (freelist-metadata-prev before)) after))
                         (t (setf *store-freelist-head* after)))
                   (freelist-free-metadata before)
-                  (freelist-free-metadata range)))
-               ((freelist-metadata-next range)
-                (setf (freelist-metadata-prev (freelist-metadata-next range)) '()
-                      (freelist-metadata-start (freelist-metadata-next range)) (freelist-metadata-start range)
-                      *store-freelist-head* (freelist-metadata-next range))
-                (freelist-free-metadata range))
-               ((freelist-metadata-prev range)
-                (setf (freelist-metadata-next (freelist-metadata-prev range)) '()
-                      (freelist-metadata-end (freelist-metadata-prev range)) (freelist-metadata-end range)
-                      *store-freelist-tail* (freelist-metadata-prev range))
-                (freelist-free-metadata range))
-               (t ;; Neither side exists! Just flip the free bit.
-                (setf (freelist-metadata-free-p range) freep))))
+                  (freelist-free-metadata range))
+                 (after
+                  (setf (freelist-metadata-prev after) '()
+                        (freelist-metadata-start after) (freelist-metadata-start range)
+                        *store-freelist-head* after)
+                  (freelist-free-metadata range))
+                 (before
+                  (setf (freelist-metadata-next before) '()
+                        (freelist-metadata-end before) (freelist-metadata-end range)
+                        *store-freelist-tail* before)
+                  (freelist-free-metadata range))
+                 (t ;; Neither side exists! Just flip the free bit.
+                  (setf (freelist-metadata-free-p range) freep)))))
         ((eql (freelist-metadata-start range) start)
          ;; Shrink, leaving end the same.
          (adjust-freelist-range-start range end))
@@ -211,6 +221,7 @@
       (return))))
 
 (defun store-free (start n-blocks)
+  (ensure (not (eql start sys.int::+block-map-id-lazy+)) "Tried to free lazy block.")
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   (incf *store-freelist-n-free-blocks* n-blocks)
@@ -218,6 +229,7 @@
 
 ;; TODO: Be smarter here, check for overlaps in the deferred list and the main freelist.
 (defun store-deferred-free (start n-blocks)
+  (ensure (not (eql start sys.int::+block-map-id-lazy+)) "Tried to free lazy block.")
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   ;;(debug-print-line "Deferred store free " start " " n-blocks)
@@ -262,17 +274,20 @@
                (freep (logbitp 0 size)))
           (setf size (ash size -1))
           (when (zerop size)
-            (debug-print-line " freelist processing complete final " block-id ":" i)
+            (when *verbose-store*
+              (debug-print-line " freelist processing complete final " block-id ":" i))
             (return-from process-one-freelist-block
               (values i nil)))
           (cond (freep
                  (incf *store-freelist-n-free-blocks* size))
                 (t
                  (decf *store-freelist-n-free-blocks* size)))
-          (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated"))
+          (when *verbose-store*
+            (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated")))
           (store-insert-range start size freep)))
       (assert (not (zerop next)) () "Corrupt freelist! No next block.")
-      (debug-print-line " next freelist block " next)
+      (when *verbose-store*
+        (debug-print-line " next freelist block " next))
       (values nil next))))
 
 (defun dump-store-freelist ()
@@ -305,6 +320,21 @@
     (dump-store-freelist))
   (debug-print-line *store-freelist-n-free-blocks* "/" *store-freelist-total-blocks* " store blocks free at boot"))
 
+(defun initialize-freestanding-store ()
+  (when (not (boundp '*verbose-store*))
+    (setf *verbose-store* nil))
+  (setf *store-freelist-metadata-freelist* '()
+        *store-freelist-recursive-metadata-allocation* nil
+        *store-freelist-n-free-metadata* 0)
+  (store-refill-metadata)
+  (setf *store-freelist-head* nil
+        *store-freelist-tail* nil
+        *store-deferred-freelist-head* nil
+        *store-freelist-n-free-blocks* 0
+        *store-freelist-n-deferred-free-blocks* 0
+        ;; Prevent division by zero in ROOM.
+        *store-freelist-total-blocks* 1))
+
 (defun store-statistics ()
   "Return three values: The number of blocks free, the total number of blocks, and the number of deferred free blocks."
   ;; Disable interrupts to avoid smearing if a snapshot is taken between the two reads.
@@ -330,7 +360,7 @@
                         estimated-count " freelist blocks required.")
       ;; Allocate blocks and pages.
       (dotimes (i estimated-count)
-        (let ((memory (+ +physical-map-base+ (ash (pager-allocate-page) 12)))
+        (let ((memory (convert-to-pmap-address (ash (pager-allocate-page) 12)))
               (disk-block (or (store-alloc 1)
                               (panic "Unable to allocate new freelist entries!"))))
           (setf (sys.int::memref-t memory 0) free-block-list

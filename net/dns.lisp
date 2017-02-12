@@ -68,11 +68,11 @@
   "Break a string apart into a list using SEPERATOR as
 the seperator character."
   (let ((start start)
-	(list nil))
+        (list nil))
     (dotimes (i (- (or end (length string)) start))
       (when (eql (char string i) seperator)
-	(push (subseq string start i) list)
-	(setf start (1+ i))))
+        (push (subseq string start i) list)
+        (setf start (1+ i))))
       (push (subseq string start end) list)
     (nreverse list)))
 

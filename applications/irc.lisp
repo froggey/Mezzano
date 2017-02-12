@@ -211,7 +211,7 @@
                          name)
                     *command-table*)
            (lambda (,state ,(first lambda-list) ,args)
-             (declare (system:lambda-name (irc-command ,name)))
+             (declare (sys.int::lambda-name (irc-command ,name)))
              (destructuring-bind ,(rest lambda-list) ,args
                ,@body)))))
 
@@ -314,7 +314,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
      (setf (gethash ',(string-upcase (string name))
                     *top-level-commands*)
            (lambda (,irc ,text)
-             (declare (system:lambda-name (irc-command ,name)))
+             (declare (sys.int::lambda-name (irc-command ,name)))
              ,@body))))
 
 (define-command quit (irc text)

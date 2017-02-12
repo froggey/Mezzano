@@ -69,7 +69,13 @@
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:export #:tcp-stream-connect))
+  (:export #:tcp-stream-connect
+           #:network-error
+           #:connection-error
+           #:connection-error-host
+           #:connection-error-port
+           #:connection-aborted
+           #:connection-timed-out))
 
 (defpackage :mezzano.network.udp
   (:use :cl)

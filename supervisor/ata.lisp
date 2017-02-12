@@ -67,8 +67,8 @@
 (defconstant +ata-command-write-dma+ #xCA)
 (defconstant +ata-command-write-dma-ext+ #x35)
 (defconstant +ata-command-identify+ #xEC)
-
-(defvar *ata-devices*)
+(defconstant +ata-command-identify-packet+ #xA1)
+(defconstant +ata-command-packet+ #xA0)
 
 (defstruct (ata-controller
              (:area :wired))
@@ -88,6 +88,23 @@
   block-size
   sector-count
   lba48-capable)
+
+(defstruct (atapi-device
+             (:area :wired))
+  controller
+  channel
+  cdb-size
+  initialized-p)
+
+(defun ata-error (controller)
+  "Read the error register."
+  (sys.int::io-port/8 (+ (ata-controller-command controller)
+                         +ata-register-error+)))
+
+(defun ata-status (controller)
+  "Read the status register."
+  (sys.int::io-port/8 (+ (ata-controller-command controller)
+                         +ata-register-status+)))
 
 (defun ata-alt-status (controller)
   "Read the alternate status register."
@@ -113,7 +130,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
   ;; select-device should never be called with a command in progress on the controller.
   (when (logtest (logior +ata-bsy+ +ata-drq+)
                  (ata-alt-status controller))
-    (debug-write-line "ATA-SELECT-DEVICE called with command in progress.")
+    (debug-print-line "ATA-SELECT-DEVICE called with command in progress.")
     (return-from ata-select-device nil))
   (when (not (eql (ata-controller-current-channel controller) channel))
     (assert (or (eql channel :master) (eql channel :slave)))
@@ -125,16 +142,81 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     ;; Again, neither BSY nor DRQ should be set.
     (when (logtest (logior +ata-bsy+ +ata-drq+)
                    (ata-alt-status controller))
-      (debug-write-line "ATA-SELECT-DEVICE called with command in progress.")
+      (debug-print-line "ATA-SELECT-DEVICE called with command in progress.")
       (return-from ata-select-device nil))
     (setf (ata-controller-current-channel controller) channel))
   t)
+
+(defun ata-detect-packet-device (controller channel)
+  (let ((buf (sys.int::make-simple-vector 256 :wired)))
+    ;; Select the device.
+    (when (not (ata-select-device controller channel))
+      (debug-print-line "Could not select ata device when probing.")
+      (return-from ata-detect-packet-device nil))
+    ;; Issue IDENTIFY.
+    (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                 +ata-register-command+))
+          +ata-command-identify-packet+)
+    ;; Delay 400ns after writing command.
+    (ata-alt-status controller)
+    ;; Wait for BSY to clear and DRQ to go high.
+    ;; Use a 1 second timeout.
+    ;; I don't know if there's a standard timeout for this, but
+    ;; I figure that the device should respond to IDENTIFY quickly.
+    ;; Wrong blah! ata-wait-for-controller is nonsense.
+    ;; if bsy = 0 & drq = 0, then there was an error.
+    (let ((success (ata-wait-for-controller controller (logior +ata-bsy+ +ata-drq+) +ata-drq+ 1)))
+      ;; Read the status register to clear the pending interrupt flag.
+      (sys.int::io-port/8 (+ (ata-controller-command controller)
+                             +ata-register-status+))
+      ;; Check ERR before checking for timeout.
+      ;; ATAPI devices will abort, and wait-for-controller will time out.
+      (when (logtest (ata-alt-status controller) +ata-err+)
+        (debug-print-line "IDENTIFY PACKET aborted by device.")
+        (return-from ata-detect-packet-device))
+      (when (not success)
+        (debug-print-line "Timeout while waiting for DRQ during IDENTIFY PACKET.")
+        (return-from ata-detect-packet-device)))
+    ;; Read data.
+    (dotimes (i 256)
+      (setf (svref buf i) (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                                  +ata-register-data+))))
+    (let* ((general-config (svref buf 0))
+           (cdb-size (case (ldb (byte 2 0) general-config)
+                      (0 12)
+                      (1 16))))
+      (debug-print-line "PACKET device:")
+      (debug-print-line " General configuration: " general-config)
+      (debug-print-line " Specific configuration: " (svref buf 2))
+      (debug-print-line " Capabilities: " (svref buf 49) " " (svref buf 50))
+      (debug-print-line " Field validity: " (svref buf 53))
+      (debug-print-line " DMADIR: " (svref buf 62))
+      (debug-print-line " Multiword DMA transfer: " (svref buf 63))
+      (debug-print-line " PIO transfer mode supported: " (svref buf 64))
+      (debug-print-line " Features: " (svref buf 82) " " (svref buf 83) " " (svref buf 84) " " (svref buf 85) " " (svref buf 86) " " (svref buf 87))
+      (debug-print-line " Removable Media Notification: " (svref buf 127))
+      (when (or (not (logbitp 15 general-config))
+                (logbitp 14 general-config))
+        (debug-print-line "Device does not implement the PACKET command set.")
+        (return-from ata-detect-packet-device))
+      (when (not (eql (ldb (byte 5 8) general-config) 5))
+        (debug-print-line "PACKET device is not a CD-ROM drive.")
+        (return-from ata-detect-packet-device))
+      (when (not cdb-size)
+        (debug-print-line "PACKET device has unsupported CDB size " (ldb (byte 2 0) (svref buf 0)))
+        (return-from ata-detect-packet-device))
+      (let ((device (make-atapi-device :controller controller
+                                       :channel channel
+                                       :cdb-size cdb-size
+                                       :initialized-p nil)))
+        (cdrom-initialize-device device cdb-size 'ata-issue-packet-command)
+        (setf (atapi-device-initialized-p device) t)))))
 
 (defun ata-detect-drive (controller channel)
   (let ((buf (sys.int::make-simple-vector 256 :wired)))
     ;; Select the device.
     (when (not (ata-select-device controller channel))
-      (debug-write-line "Could not select ata device when probing.")
+      (debug-print-line "Could not select ata device when probing.")
       (return-from ata-detect-drive nil))
     ;; Issue IDENTIFY.
     (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
@@ -149,6 +231,9 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     ;; Wrong blah! ata-wait-for-controller is nonsense.
     ;; if bsy = 0 & drq = 0, then there was an error.
     (let ((success (ata-wait-for-controller controller (logior +ata-bsy+ +ata-drq+) +ata-drq+ 1)))
+      ;; Read the status register to clear the pending interrupt flag.
+      (sys.int::io-port/8 (+ (ata-controller-command controller)
+                             +ata-register-status+))
       ;; Check ERR before checking for timeout.
       ;; ATAPI devices will abort, and wait-for-controller will time out.
       (when (logtest (ata-alt-status controller) +ata-err+)
@@ -163,15 +248,13 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                    (eql (sys.int::io-port/8 (+ (ata-controller-command controller)
                                                +ata-register-lba-high+))
                         #xEB))
-            (debug-write-line "PACKET device detected, ignoring.")
-            (debug-write-line "IDENTIFY aborted by device."))
+            (return-from ata-detect-drive
+              (ata-detect-packet-device controller channel))
+            (debug-print-line "IDENTIFY aborted by device."))
         (return-from ata-detect-drive))
       (when (not success)
-        (debug-write-line "Timeout while waiting for DRQ during IDENTIFY.")
+        (debug-print-line "Timeout while waiting for DRQ during IDENTIFY.")
         (return-from ata-detect-drive)))
-    ;; Read the status register to clear the pending interrupt flag.
-    (sys.int::io-port/8 (+ (ata-controller-command controller)
-                           +ata-register-status+))
     ;; Read data.
     (dotimes (i 256)
       (setf (svref buf i) (sys.int::io-port/16 (+ (ata-controller-command controller)
@@ -183,7 +266,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                             ;; Data in logical sector size field valid.
                             (logior (svref buf 117)
                                     (ash (svref buf 118) 16))
-                            ;; Not valid, use 512. (TODO: PACKET devices? when was this field introduced?)
+                            ;; Not valid, use 512.
                             512))
            (sector-count (if lba48-capable
                              (logior (svref buf 100)
@@ -200,14 +283,13 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (debug-print-line "Features (83): " supported-command-sets)
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
-      (push-wired device *ata-devices*)
-      (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
+      (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
     ;; Select the device.
     (when (not (ata-select-device controller (ata-device-channel device)))
-      (debug-write-line "Could not select ata device.")
+      (debug-print-line "Could not select ata device.")
       (return-from ata-issue-lba28-command nil))
     (latch-reset (ata-controller-irq-latch controller))
     ;; HI3: Write_parameters
@@ -243,7 +325,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
          (command-base (ata-controller-command controller)))
     ;; Select the device.
     (when (not (ata-select-device controller (ata-device-channel device)))
-      (debug-write-line "Could not select ata device.")
+      (debug-print-line "Could not select ata device.")
       (return-from ata-issue-lba48-command nil))
     (latch-reset (ata-controller-irq-latch controller))
     ;; HI3: Write_parameters
@@ -251,6 +333,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (setf count 0))
     (flet ((wr (reg val)
              (setf (sys.int::io-port/8 (+ command-base reg)) val)))
+      (declare (dynamic-extent #'wr))
       (wr +ata-register-count+    (ldb (byte 8 8) count))
       (wr +ata-register-count+    (ldb (byte 8 0) count))
       (wr +ata-register-lba-high+ (ldb (byte 8 40) lba))
@@ -267,50 +350,48 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (wr +ata-register-command+ command)))
   t)
 
-(defun ata-check-status (device &optional (timeout 30))
+(defun ata-check-status (controller &optional (timeout 30))
   "Wait until BSY clears, then return two values.
 First is true if DRQ is set, false if DRQ is clear or timeout.
 Second is true if the timeout expired.
 This is used to implement the Check_Status states of the various command protocols."
-  (let ((controller (ata-device-controller device)))
-    ;; Sample the alt-status register for the required delay.
-    (ata-alt-status controller)
-    (loop
-       (let ((status (ata-alt-status controller)))
-         (when (not (logtest status +ata-bsy+))
-           (return (values (logtest status +ata-drq+)
-                           nil)))
-         ;; Stay in Check_Status.
-         (when (<= timeout 0)
-           (return (values nil t)))
-         (sleep 0.001)
-         (decf timeout 0.001)))))
+  ;; Sample the alt-status register for the required delay.
+  (ata-alt-status controller)
+  (loop
+     (let ((status (ata-alt-status controller)))
+       (when (not (logtest status +ata-bsy+))
+         (return (values (logtest status +ata-drq+)
+                         nil)))
+       ;; Stay in Check_Status.
+       (when (<= timeout 0)
+         (return (values nil t)))
+       (sleep 0.001)
+       (decf timeout 0.001))))
 
-(defun ata-intrq-wait (device &optional (timeout 30))
+(defun ata-intrq-wait (controller &optional (timeout 30))
   "Wait for a interrupt from the device.
 This is used to implement the INTRQ_Wait state."
   (declare (ignore timeout))
   ;; FIXME: Timeouts.
-  (let ((controller (ata-device-controller device)))
-    (latch-wait (ata-controller-irq-latch controller))
-    (latch-reset (ata-controller-irq-latch controller))))
+  (latch-wait (ata-controller-irq-latch controller))
+  (latch-reset (ata-controller-irq-latch controller)))
 
 (defun ata-pio-data-in (device count mem-addr)
   "Implement the PIO data-in protocol."
   (let ((controller (ata-device-controller device)))
     (loop
        ;; HPIOI0: INTRQ_wait
-       (ata-intrq-wait device)
+       (ata-intrq-wait controller)
        ;; HPIOI1: Check_Status
        (multiple-value-bind (drq timed-out)
-           (ata-check-status device)
+           (ata-check-status controller)
          (when timed-out
            ;; FIXME: Should reset the device here.
-           (debug-write-line "Device timeout during PIO data in.")
+           (debug-print-line "Device timeout during PIO data in.")
            (return-from ata-pio-data-in nil))
          (when (not drq)
            ;; FIXME: Should reset the device here.
-           (debug-write-line "Device error during PIO data in.")
+           (debug-print-line "Device error during PIO data in.")
            (return-from ata-pio-data-in nil)))
        ;; HPIOI2: Transfer_Data
        (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
@@ -329,10 +410,10 @@ This is used to implement the INTRQ_Wait state."
     (loop
        ;; HPIOO0: Check_Status
        (multiple-value-bind (drq timed-out)
-           (ata-check-status device)
+           (ata-check-status controller)
          (when timed-out
            ;; FIXME: Should reset the device here.
-           (debug-write-line "Device timeout during PIO data out.")
+           (debug-print-line "Device timeout during PIO data out.")
            (return-from ata-pio-data-out nil))
          (when (not drq)
            (cond ((zerop count)
@@ -340,7 +421,7 @@ This is used to implement the INTRQ_Wait state."
                   (return-from ata-pio-data-out t))
                  (t ;; Error?
                   ;; FIXME: Should reset the device here.
-                  (debug-write-line "Device error during PIO data out.")
+                  (debug-print-line "Device error during PIO data out.")
                   (return-from ata-pio-data-out nil)))))
        ;; HPIOO1: Transfer_Data
        (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
@@ -349,13 +430,13 @@ This is used to implement the INTRQ_Wait state."
                (sys.int::memref-unsigned-byte-16 mem-addr 0))
          (incf mem-addr 2))
        ;; HPIOO2: INTRQ_Wait
-       (ata-intrq-wait device)
+       (ata-intrq-wait controller)
        ;; Return to HPIOO0.
        (decf count))))
 
 (defun ata-configure-prdt (controller phys-addr n-octets direction)
   (let* ((prdt (ata-controller-prdt-phys controller))
-         (prdt-virt (+ +physical-map-base+ prdt)))
+         (prdt-virt (convert-to-pmap-address prdt)))
     (do ((offset 0))
         ((<= n-octets #x10000)
          ;; Write final chunk.
@@ -378,9 +459,9 @@ This is used to implement the INTRQ_Wait state."
 
 (defun ata-read-write (device lba count mem-addr what dma-fn pio-fn)
   (let ((controller (ata-device-controller device)))
-    (assert (>= lba 0))
-    (assert (>= count 0))
-    (assert (<= (+ lba count) (ata-device-sector-count device)))
+    (ensure (>= lba 0))
+    (ensure (>= count 0))
+    (ensure (<= (+ lba count) (ata-device-sector-count device)))
     (cond
       ((ata-device-lba48-capable device)
        (when (> count 65536)
@@ -396,11 +477,12 @@ This is used to implement the INTRQ_Wait state."
                 ;; 4GB limit.
                 (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
            (funcall dma-fn controller device lba count (- mem-addr +physical-map-base+)))
-          ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+          ((eql (* count (ata-device-block-size device)) +4k-page-size+)
            ;; Transfer is small enough that the bounce page can be used.
            (let* ((bounce-frame (ata-controller-bounce-buffer controller))
                   (bounce-phys (ash bounce-frame 12))
-                  (bounce-virt (+ +physical-map-base+ bounce-phys)))
+                  (bounce-virt (convert-to-pmap-address bounce-phys)))
+             ;; FIXME: Don't copy a whole page
              (when (eql what :write)
                (%fast-page-copy bounce-virt mem-addr))
              (funcall dma-fn controller device lba count bounce-phys)
@@ -435,7 +517,7 @@ This is used to implement the INTRQ_Wait state."
   (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
                                                                                                     +ata-bmr-direction-read/write+))
   ;; Wait for completion.
-  (ata-intrq-wait device)
+  (ata-intrq-wait controller)
   (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
     ;; Stop the transfer.
     (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-direction-read/write+)
@@ -468,7 +550,7 @@ This is used to implement the INTRQ_Wait state."
   ;; after the command write.
   (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-command-start+)
   ;; Wait for completion.
-  (ata-intrq-wait device)
+  (ata-intrq-wait controller)
   (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
     ;; Stop the transfer.
     (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) 0)
@@ -482,17 +564,158 @@ This is used to implement the INTRQ_Wait state."
   (ata-read-write device lba count mem-addr
                   :write #'ata-write-dma #'ata-write-pio))
 
-(defun ata-irq-handler (interrupt-frame irq)
-  (declare (ignore interrupt-frame))
-  (dolist (drive *ata-devices*)
-    (let ((controller (ata-device-controller drive)))
-      (when (eql (ata-controller-irq controller) irq)
-        ;; Read the status register to clear the interrupt pending state.
-        (sys.int::io-port/8 (+ (ata-controller-command controller)
-                               +ata-register-status+))
-        (latch-trigger (ata-controller-irq-latch controller))))))
+(defun ata-submit-packet-command (device cdb result-len dma dmadir)
+  (let* ((controller (atapi-device-controller device))
+         (command-base (ata-controller-command controller)))
+    ;; Select the device.
+    (when (not (ata-select-device controller (atapi-device-channel device)))
+      (debug-print-line "Could not select ata device.")
+      (return-from ata-submit-packet-command nil))
+    (latch-reset (ata-controller-irq-latch controller))
+    ;; HI3: Write_parameters
+    (flet ((wr (reg val)
+             (setf (sys.int::io-port/8 (+ command-base reg)) val)))
+      (declare (dynamic-extent #'wr))
+      (wr +ata-register-features+ (if dma
+                                      (logior #b0001
+                                              (ecase dmadir
+                                                (:device-to-host #b0100)
+                                                (:host-to-device #b0000)))
+                                      #b0000))
+      ;; Set maximum transfer size.
+      (cond ((eql result-len 0)
+             ;; Some devices use 0 to mean some other value, use a tiny result instead.
+             (wr +ata-register-lba-mid+  2)
+             (wr +ata-register-lba-high+ 0))
+            (t
+             ;; Some devices use 0 to mean some other value, use a tiny result instead.
+             (wr +ata-register-lba-mid+  (ldb (byte 8 0) result-len))
+             (wr +ata-register-lba-high+ (ldb (byte 8 8) result-len))))
+      ;; HI4: Write_command
+      (wr +ata-register-command+ +ata-command-packet+))
+    ;; Delay 400ns after writing command.
+    (ata-alt-status controller)
+    ;; HP0: Check_Status_A
+    (multiple-value-bind (drq timed-out)
+        (ata-check-status controller)
+      (when timed-out
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device timeout during PACKET Check_Status_A.")
+        (return-from ata-submit-packet-command nil))
+      (when (not drq)
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device error " (ata-error controller) " during PACKET Check_Status_A.")
+        (return-from ata-submit-packet-command nil)))
+    ;; HP1: Send_Packet
+    ;; Send the command a word at a time.
+    (loop
+       for i from 0 by 2 below (atapi-device-cdb-size device)
+       for lo = (svref cdb i)
+       for hi = (svref cdb (1+ i))
+       for word = (logior lo (ash hi 8))
+       do (setf (sys.int::io-port/16 (+ command-base +ata-register-data+)) word)))
+  t)
+
+(defun ata-issue-pio-packet-command (device cdb result-buffer result-len)
+  (let* ((controller (atapi-device-controller device))
+         (command-base (ata-controller-command controller)))
+    (when (not (ata-submit-packet-command device cdb result-len nil nil))
+      (return-from ata-issue-pio-packet-command nil))
+    ;; HP3: INTRQ_wait
+    (when (atapi-device-initialized-p device)
+      (ata-intrq-wait controller))
+    ;; HP2: Check_Status_B
+    (multiple-value-bind (drq timed-out)
+        (ata-check-status controller)
+      (when timed-out
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device timeout during PACKET Check_Status_B.")
+        (return-from ata-issue-pio-packet-command nil))
+      (when (logtest +ata-err+ (ata-alt-status controller))
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device error " (ata-error controller) " during PACKET Check_Status_B.")
+        (return-from ata-issue-pio-packet-command nil))
+      (cond (drq
+             ;; Data ready for transfer.
+             ;; HP4: Transfer_Data
+             (let ((len (logior (sys.int::io-port/8 (+ command-base +ata-register-lba-mid+))
+                                (ash (sys.int::io-port/8 (+ command-base +ata-register-lba-high+)) 8))))
+               (loop
+                  for i from 0 by 2 below (min len result-len)
+                  do
+                    (setf (sys.int::memref-unsigned-byte-16 (+ result-buffer i))
+                          (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                                  +ata-register-data+))))
+               ;; Read any remaining data.
+               (loop
+                  for i from 0 by 2 below (- len result-len)
+                  do (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                             +ata-register-data+)))
+               len))
+            (t
+             ;; No data to transfer.
+             0)))))
+
+(defun ata-issue-dma-packet-command (device cdb result-buffer-phys result-len)
+  (let* ((controller (atapi-device-controller device))
+         (command-base (ata-controller-command controller)))
+    (ata-configure-prdt controller result-buffer-phys result-len :read)
+    (when (not (ata-submit-packet-command device cdb result-len t :device-to-host))
+      (return-from ata-issue-dma-packet-command nil))
+    ;; Start DMA.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
+                                                                                                      +ata-bmr-direction-read/write+))
+    ;; Wait for completion.
+    (ata-intrq-wait controller)
+    ;; FIXME: Should go to Check_Status_B here.
+    (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
+      ;; Stop the transfer.
+      (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-direction-read/write+)
+      ;; Clear error bit.
+      (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) (logior status +ata-bmr-status-error+ +ata-bmr-status-interrupt+))
+      (if (logtest status +ata-bmr-status-error+)
+          (values nil :device-error)
+          t))))
+
+(defun ata-issue-packet-command (device cdb result-buffer result-len)
+  (ensure (eql (sys.int::simple-vector-length cdb)
+               (atapi-device-cdb-size device)))
+  (ensure (eql (rem result-len 4) 0))
+  (cond ((not (atapi-device-initialized-p device))
+         (ata-issue-pio-packet-command device cdb result-buffer result-len))
+        ((or (null result-buffer)
+             (and (<= +physical-map-base+ result-buffer)
+                  ;; 4GB limit.
+                  (< result-buffer (+ +physical-map-base+ (* 4 1024 1024 1024)))))
+         (ata-issue-dma-packet-command device
+                                       cdb
+                                       (if result-buffer
+                                           (- result-buffer +physical-map-base+)
+                                           0)
+                                       result-len))
+        ((eql result-len +4k-page-size+)
+         ;; Transfer is small enough that the bounce page can be used.
+         (let* ((controller (atapi-device-controller device))
+                (bounce-frame (ata-controller-bounce-buffer controller))
+                (bounce-phys (ash bounce-frame 12))
+                (bounce-virt (convert-to-pmap-address bounce-phys)))
+           (ata-issue-dma-packet-command device
+                                         cdb
+                                         bounce-phys
+                                         result-len)
+           ;; FIXME: Don't copy a whole page.
+           (%fast-page-copy result-buffer bounce-virt)))
+        (t ;; Give up and do a slow PIO transfer.
+         (ata-issue-pio-packet-command device cdb result-buffer result-len))))
+
+(defun ata-irq-handler (controller)
+  ;; Read the status register to clear the interrupt pending state.
+  (sys.int::io-port/8 (+ (ata-controller-command controller)
+                         +ata-register-status+))
+  (latch-trigger (ata-controller-irq-latch controller)))
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
+  (declare (sys.c::closure-allocation :wired))
   (debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
   (let* ((dma32-bounce-buffer (allocate-physical-pages 1
                                                        :mandatory-p "ATA DMA bounce buffer"
@@ -514,20 +737,19 @@ This is used to implement the INTRQ_Wait state."
     ;; reset to finish, which is a bit silly...
     (when (not (ata-wait-for-controller controller +ata-bsy+ 0 2))
       ;; BSY did not go low, no devices on this controller.
-      (debug-write-line "No devices on ata controller.")
+      (debug-print-line "No devices on ata controller.")
       (return-from init-ata-controller))
-    (debug-write-line "Probing ata controller.")
+    (debug-print-line "Probing ata controller.")
     ;; Attach interrupt handler.
-    (i8259-hook-irq irq 'ata-irq-handler) ; fixme: should clear pending irqs?
+    (i8259-hook-irq irq (lambda (interrupt-frame irq)
+                          (declare (ignore interrupt-frame irq))
+                          (ata-irq-handler controller)))
     (i8259-unmask-irq irq)
     ;; Probe drives.
     (ata-detect-drive controller :master)
     (ata-detect-drive controller :slave)
     ;; Enable controller interrupts.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
-
-(defun initialize-ata ()
-  (setf *ata-devices* '()))
 
 (defun ata-pci-register (location)
   (let* ((prdt-page (allocate-physical-pages 1

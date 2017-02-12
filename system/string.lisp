@@ -12,7 +12,10 @@
     (symbol (symbol-name x))))
 
 (defun stringp (object)
-  (and (character-array-p object)
+  (and (or (character-array-p object)
+           ;; Cover displaced arrays too.
+           (and (arrayp object)
+                (eql (array-element-type object) 'character)))
        (eql (array-rank object) 1)))
 
 (defun simple-string-p (object)
@@ -60,6 +63,15 @@ same characters in the corresponding positions; otherwise it returns false."))
   (def string-downcase char-downcase t)
   (def nstring-upcase char-upcase nil)
   (def nstring-downcase char-downcase nil))
+
+(defun string-capitalize (name &key (start 0) end)
+  (setf name (string name))
+  (format nil "~A~:(~A~)~A"
+          (subseq name 0 start)
+          (subseq name start end)
+          (if end
+              (subseq name end)
+              "")))
 
 (macrolet ((def (sensitive-name insensitive-name char-comparator numeric-comparator)
              `(progn

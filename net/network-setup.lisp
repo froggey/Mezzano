@@ -5,19 +5,27 @@
 
 ;;; Hardcode the qemu & virtualbox network layout for now.
 (defun net-setup (&key
-                  (local-ip (mezzano.network.ip:make-ipv4-address '(10 0 2 15)))
-                  (prefix-length 8)
-                  (gateway (mezzano.network.ip:make-ipv4-address '(10 0 2 2)))
-                  (interface (first mezzano.network.ethernet::*cards*)))
-  (let ((loopback-interface (make-instance 'sys.net::loopback-interface)))
+                    (local-ip "10.0.2.15")
+                    ;; Use a prefix-length of 24 instead of 8, so people
+                    ;; running the file-server on non-10.0.2.0 10/8 networks
+                    ;; don't run into trouble.
+                    (prefix-length 24)
+                    (gateway "10.0.2.2")
+                    (interface (first mezzano.network.ethernet::*cards*))
+                    ;; Use Google DNS, as Virtualbox does not provide a DNS server within the NAT.
+                    (dns-server "8.8.8.8"))
+  (let ((loopback-interface (make-instance 'sys.net::loopback-interface))
+        (local-ip (mezzano.network.ip:make-ipv4-address local-ip))
+        (gateway (mezzano.network.ip:make-ipv4-address gateway))
+        (loopback-ip (mezzano.network.ip:make-ipv4-address "127.0.0.1"))
+        (loopback-network (mezzano.network.ip:make-ipv4-address "127.0.0.0")))
     ;; Flush existing route info.
     (setf mezzano.network.ip::*ipv4-interfaces* nil
           mezzano.network.ip::*routing-table* nil
           mezzano.network.dns:*dns-servers* '())
     ;; Bring interfaces up.
     (mezzano.network.ip::ifup interface local-ip)
-    (mezzano.network.ip::ifup loopback-interface
-                              (mezzano.network.ip:make-ipv4-address '(127 0 0 1)))
+    (mezzano.network.ip::ifup loopback-interface loopback-ip)
     ;; Set up default routing table.
     ;; Default route.
     (mezzano.network.ip:add-route
@@ -30,21 +38,19 @@
      prefix-length
      interface)
     ;; Loopback network.
-    (mezzano.network.ip:add-route
-     (mezzano.network.ip:make-ipv4-address '(127 0 0 0))
-     8
-     loopback-interface)
-    ;; Use Google DNS, as Virtualbox does not provide a DNS server within the NAT.
-    (push (mezzano.network.ip:make-ipv4-address '(8 8 8 8)) mezzano.network.dns:*dns-servers*))
+    (mezzano.network.ip:add-route loopback-network 8 loopback-interface)
+    (push (mezzano.network.ip:make-ipv4-address dns-server)
+          mezzano.network.dns:*dns-servers*))
   t)
 
 (defun ethernet-boot-hook ()
   ;; delay a little to allow any NIC drivers to complete.
   ;; TODO: Need a notification mechanism to detect when NICs are attached/detached.
   (sleep 1)
-  (setf mezzano.network.ethernet::*cards* (copy-list mezzano.supervisor:*nics*)
+  (setf mezzano.network.ethernet::*cards* (copy-list mezzano.driver.network-card::*nics*)
         mezzano.network.ip::*routing-table* '()
         mezzano.network.ip::*ipv4-interfaces* '()
+        mezzano.network.ip::*outstanding-sends* '()
         mezzano.network.arp::*arp-table* '()
         *hosts* `(("localhost" ,(mezzano.network.ip:make-ipv4-address '(127 0 0 1)))))
   (net-setup)

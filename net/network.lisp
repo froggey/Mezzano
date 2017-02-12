@@ -53,7 +53,8 @@
              (:cr
               (vector-push-extend #x0D bytes))))
           (t (let ((code (char-code c)))
-               (unless (zerop (system:char-bits c)) (setf code (char-code #\REPLACEMENT_CHARACTER)))
+               (unless (zerop (sys.int::char-bits c))
+                 (setf code (char-code #\REPLACEMENT_CHARACTER)))
                (unless (and (<= 0 code #x1FFFFF)
                             (not (<= #xD800 code #xDFFF)))
                  (setf code (char-code #\REPLACEMENT_CHARACTER)))

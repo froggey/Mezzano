@@ -5,6 +5,8 @@
 
 (in-package sys.c)
 
+(defvar *tagbody-statement-stack* '())
+
 (defun simplify-control-flow (form)
   (simplify-control-flow-1 form '() '() '()))
 
@@ -56,10 +58,11 @@
       ;; to maintain proper control flow.
       (when (and (not (typep stmt 'ast-quote))
                  (member tb-ast permitted-hoist-tagbodys)
-                 (eql (go-tag-use-count (target form)) 1))
+                 (eql (go-tag-use-count (target form)) 1)
+                 (not (member (target form) *tagbody-statement-stack*)))
         (change-made)
-        (let ((new-stmt (ast `(progn ,stmt ,form))))
-          (setf (second stmt-pair) (ast `(quote nil)))
+        (let ((new-stmt (ast `(progn ,stmt ,form) stmt)))
+          (setf (second stmt-pair) (ast `(quote nil) new-stmt))
           (return-from simplify-control-flow-1
             (simplify-control-flow-1 new-stmt ti/tb-mapping permitted-hoist-tagbodys renames))))))
   (values form t))
@@ -95,7 +98,9 @@
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-bindings))
                             (second (first new-bindings))
-                            (ast `(progn ,@(mapcar #'second (reverse new-bindings)))))
+                            (ast `(let ,(reverse (rest new-bindings))
+                                    ,(second (first new-bindings)))
+                                 form))
                         t)))))
     (setf (bindings form) (reverse new-bindings)))
   (multiple-value-bind (new-form control-terminates)
@@ -169,7 +174,8 @@
       (change-made)
       (return-from simplify-control-flow-1
         (values (ast `(progn ,(value-form form)
-                             ,new-form))
+                             ,new-form)
+                     form)
                 t)))
     (setf (body form) new-form))
   (values form nil))
@@ -187,7 +193,8 @@
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-subforms))
                             (first new-subforms)
-                            (ast `(progn ,@(reverse new-subforms))))
+                            (ast `(progn ,@(reverse new-subforms))
+                                 form))
                         t)))))
     (setf (forms form) (reverse new-subforms)))
   (values form nil))
@@ -210,7 +217,8 @@
       (change-made)
       (return-from simplify-control-flow-1
         (values (ast `(progn ,(value form)
-                             ,new-form))
+                             ,new-form)
+                     form)
                 t)))
     (setf (info form) new-form))
   (values form t))
@@ -260,10 +268,11 @@
   ;; Visit go-tag statements.
   (loop
      for statements in (statements form)
-     do (setf (second statements) (simplify-control-flow-1 (second statements)
-                                                  ti/tb-mapping
-                                                  permitted-hoist-tagbodys
-                                                  renames)))
+     do (let ((*tagbody-statement-stack* (list* (first statements) *tagbody-statement-stack*)))
+          (setf (second statements) (simplify-control-flow-1 (second statements)
+                                                             ti/tb-mapping
+                                                             permitted-hoist-tagbodys
+                                                             renames))))
   form)
 
 (defmethod simplify-control-flow-1 ((form ast-the) ti/tb-mapping permitted-hoist-tagbodys renames)
@@ -299,7 +308,8 @@
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-arguments))
                             (first new-arguments)
-                            (ast `(progn ,@(reverse new-arguments))))
+                            (ast `(progn ,@(reverse new-arguments))
+                                 form))
                         t)))))
     (setf (arguments form) (reverse new-arguments)))
   ;; TODO: This is where no-return functions can be handled.

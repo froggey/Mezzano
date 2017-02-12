@@ -55,6 +55,7 @@
    :stream-write-string
    ;; Extensions.
    :unread-char-mixin
+   :stream-display
    ))
 
 (in-package :sys.gray)
@@ -129,6 +130,8 @@
 (defgeneric stream-write-char (stream character))
 (defgeneric stream-write-string (stream string &optional start end))
 
+(defgeneric stream-display (stream object))
+
 (defclass unread-char-mixin ()
   ((unread-char :initform nil))
   (:documentation "Mixin to add dumb UNREAD-CHAR support to a stream."))
@@ -156,6 +159,21 @@
 
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
   (setf (slot-value stream 'unread-char) nil))
+
+(defmethod stream-display (stream object)
+  (format stream "~S" object))
+
+(defmethod stream-line-column ((stream sys.int::cold-stream))
+  (sys.int::cold-line-column stream))
+
+(defmethod stream-line-length ((stream sys.int::cold-stream))
+  (sys.int::cold-line-length stream))
+
+(defmethod stream-line-column ((stream fundamental-character-output-stream))
+   nil)
+
+(defmethod stream-line-length ((stream fundamental-character-output-stream))
+  nil)
 
 (in-package :sys.int)
 
@@ -186,7 +204,7 @@
       (cold-stream-p object)
       (and (boundp '*fundamental-stream-class*)
            (std-instance-p object)
-           (member *fundamental-stream-class* (sys.clos::class-precedence-list (std-instance-class object))))))
+           (member *fundamental-stream-class* (mezzano.clos:class-precedence-list (std-instance-class object))))))
 
 (setf (get 'stream 'type-symbol) 'streamp)
 
@@ -255,6 +273,12 @@
 (defmethod stream-element-type ((stream synonym-stream))
   (stream-element-type (synonym-stream-symbol stream)))
 
+(defmethod sys.gray:stream-line-column ((stream synonym-stream))
+  (sys.gray:stream-line-column (follow-synonym-stream stream)))
+
+(defmethod sys.gray:stream-line-length ((stream synonym-stream))
+  (sys.gray:stream-line-length (follow-synonym-stream stream)))
+
 (defun read-byte (stream &optional (eof-error-p t) eof-value)
   (let ((b (sys.gray:stream-read-byte (follow-synonym-stream stream))))
     (check-type b (or integer (eql :eof)))
@@ -287,7 +311,7 @@
                 (setf (aref sequence (+ start i)) elt)
                 (return (+ start i))))))))
 
-(defmethod sys.gray:stream-read-sequence ((stream stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream stream) sequence &optional start end)
   (generic-read-sequence sequence stream start end))
 
 (defun write-sequence (sequence stream &key (start 0) end)
@@ -302,7 +326,7 @@
         (dotimes (i n)
           (write-byte (aref sequence (+ start i)) stream)))))
 
-(defmethod sys.gray:stream-write-sequence ((stream stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream stream) sequence &optional start end)
   (generic-write-sequence sequence stream start end))
 
 (defun file-position (stream &optional (position-spec nil position-spec-p))
@@ -388,15 +412,22 @@
 (defun peek-char (&optional peek-type (stream *standard-input*) (eof-error-p t) eof-value recursive-p)
   (let ((s (frob-input-stream stream)))
     (cond ((eql peek-type nil)
-           (let ((ch (read-char s eof-error-p eof-value recursive-p)))
-             (unread-char ch s)
-             ch))
+           (let ((ch (read-char s eof-error-p nil recursive-p)))
+             (cond (ch
+                    (unread-char ch s)
+                    ch)
+                   (t
+                    eof-value))))
           ((eql peek-type t)
-           (do ((ch (read-char s eof-error-p eof-value recursive-p)
-                    (read-char s eof-error-p eof-value recursive-p)))
-               ((not (sys.int::whitespace[2]p ch))
-                (unread-char ch s)
-                ch)))
+           (do ((ch (read-char s eof-error-p nil recursive-p)
+                    (read-char s eof-error-p nil recursive-p)))
+               ((or (not ch)
+                    (not (sys.int::whitespace[2]p ch)))
+                (cond (ch
+                       (unread-char ch s)
+                       ch)
+                      (t
+                       eof-value)))))
           ((characterp peek-type)
            (error "TODO: character peek."))
           (t (error "Bad peek type ~S." peek-type)))))
@@ -481,7 +512,10 @@
   (print-unreadable-object (object stream :type t)
     (format stream "for ~S" (synonym-stream-symbol object))))
 
-(defclass string-output-stream (sys.gray:fundamental-character-output-stream)
+(defclass string-stream (sys.gray:fundamental-character-stream) ())
+
+(defclass string-output-stream (sys.gray:fundamental-character-output-stream
+                                string-stream)
   ((element-type :initarg :element-type)
    (string :initarg :string))
   (:default-initargs :string nil))
@@ -614,6 +648,29 @@
 (defmethod sys.gray:stream-read-char ((stream two-way-stream))
   (read-char (two-way-stream-input-stream stream) nil))
 
+(defclass concatenated-stream (sys.gray:fundamental-character-input-stream
+                               sys.gray:unread-char-mixin)
+  ((streams :initarg :streams)))
+
+(defun make-concatenated-stream (&rest input-streams)
+  (dolist (s input-streams)
+    (assert (input-stream-p s)))
+  (make-instance 'concatenated-stream :streams input-streams))
+
+(defun concatenated-stream-streams (concatenated-stream)
+  (check-type concatenated-stream concatenated-stream)
+  (slot-value concatenated-stream 'streams))
+
+(defmethod sys.gray:stream-read-char ((stream concatenated-stream))
+  (loop
+     (when (endp (concatenated-stream-streams stream))
+       (return :eof))
+     (let ((ch (read-char (first (concatenated-stream-streams stream)) nil)))
+       (when ch
+         (return ch))
+       ;; Reached end of this stream. Pop streams.
+       (pop (slot-value stream 'streams)))))
+
 (defclass case-correcting-stream (sys.gray:fundamental-character-output-stream)
   ((stream :initarg :stream)
    (case :initarg :case)
@@ -636,29 +693,29 @@ CASE may be one of:
     (:upcase (write-char (char-upcase character) (slot-value stream 'stream)))
     (:downcase (write-char (char-downcase character) (slot-value stream 'stream)))
     (:invert (write-char (if (upper-case-p character)
-			     (char-downcase character)
-			     (char-upcase character))
-			 (slot-value stream 'stream)))
+                             (char-downcase character)
+                             (char-upcase character))
+                         (slot-value stream 'stream)))
     (:titlecase
      (ecase (slot-value stream 'position)
        ((:initial :after-word)
-	(if (alphanumericp character)
-	    (progn
-	      (setf (slot-value stream 'position) :mid-word)
-	      (write-char (char-upcase character) (slot-value stream 'stream)))
-	    (write-char character (slot-value stream 'stream))))
+        (if (alphanumericp character)
+            (progn
+              (setf (slot-value stream 'position) :mid-word)
+              (write-char (char-upcase character) (slot-value stream 'stream)))
+            (write-char character (slot-value stream 'stream))))
        (:mid-word
-	(unless (alphanumericp character)
-	  (setf (slot-value stream 'position) :after-word))
-	(write-char (char-downcase character) (slot-value stream 'stream)))))
+        (unless (alphanumericp character)
+          (setf (slot-value stream 'position) :after-word))
+        (write-char (char-downcase character) (slot-value stream 'stream)))))
     (:sentencecase
      (if (eql (slot-value stream 'position) :initial)
-	 (if (alphanumericp character)
-	     (progn
-	       (setf (slot-value stream 'position) nil)
-	       (write-char (char-upcase character) (slot-value stream 'stream)))
-	     (write-char character (slot-value stream 'stream)))
-	 (write-char (char-downcase character) (slot-value stream 'stream))))))
+         (if (alphanumericp character)
+             (progn
+               (setf (slot-value stream 'position) nil)
+               (write-char (char-upcase character) (slot-value stream 'stream)))
+             (write-char character (slot-value stream 'stream)))
+         (write-char (char-downcase character) (slot-value stream 'stream))))))
 
 (defmethod sys.gray:stream-write-char ((stream case-correcting-stream) character)
   (case-correcting-write character stream))
@@ -670,35 +727,35 @@ CASE may be one of:
 
 (defmethod sys.gray:stream-read-char :around ((stream simple-edit-mixin))
   (let ((buffer (slot-value stream 'edit-buffer))
-	(offset (slot-value stream 'edit-offset)))
+        (offset (slot-value stream 'edit-offset)))
     (if (and buffer (< offset (fill-pointer buffer)))
-	(prog1 (aref buffer offset)
-	  (incf (slot-value stream 'edit-offset)))
-	(do () (nil)
-	  (let ((ch (call-next-method)))
-	    (when ch
-	      (cond ((or (graphic-char-p ch) (eql #\Newline ch))
-		     (when buffer
-		       (vector-push-extend ch buffer)
-		       (incf (slot-value stream 'edit-offset)))
-		     (return (write-char ch stream)))
-		    ((eql #\Backspace ch)
+        (prog1 (aref buffer offset)
+          (incf (slot-value stream 'edit-offset)))
+        (do () (nil)
+          (let ((ch (call-next-method)))
+            (when ch
+              (cond ((or (graphic-char-p ch) (eql #\Newline ch))
+                     (when buffer
+                       (vector-push-extend ch buffer)
+                       (incf (slot-value stream 'edit-offset)))
+                     (return (write-char ch stream)))
+                    ((eql #\Backspace ch)
                      (when (slot-value stream 'edit-handler)
                        (funcall (slot-value stream 'edit-handler) ch))))))))))
 
 (defmethod sys.gray:stream-clear-input :before ((stream simple-edit-mixin))
   (when (slot-value stream 'edit-buffer)
     (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
-	  (slot-value stream 'edit-offset) 0)))
+          (slot-value stream 'edit-offset) 0)))
 
 (defmethod stream-with-edit ((stream simple-edit-mixin) fn)
   (let ((old-buffer (slot-value stream 'edit-buffer))
-	(old-offset (slot-value stream 'edit-offset))
-	(old-handler (slot-value stream 'edit-handler))
-	(buffer (make-array 100
-			    :element-type 'character
-			    :adjustable t
-			    :fill-pointer 0)))
+        (old-offset (slot-value stream 'edit-offset))
+        (old-handler (slot-value stream 'edit-handler))
+        (buffer (make-array 100
+                            :element-type 'character
+                            :adjustable t
+                            :fill-pointer 0)))
     (unwind-protect
          (multiple-value-bind (start-x start-y)
              (stream-cursor-pos stream)
@@ -785,10 +842,10 @@ CASE may be one of:
 (defmethod sys.gray:stream-write-byte ((stream shadow-stream) byte)
   (write-byte byte (shadow-stream-primary stream)))
 
-(defmethod sys.gray:stream-read-sequence ((stream shadow-stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream shadow-stream) sequence &optional start end)
   (read-sequence sequence (shadow-stream-primary stream) start end))
 
-(defmethod sys.gray:stream-write-sequence ((stream shadow-stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream shadow-stream) sequence &optional start end)
   (write-sequence sequence (shadow-stream-primary stream) start end))
 
 (defmethod sys.gray:stream-file-position ((stream shadow-stream) &optional (fp nil fpp))
@@ -803,7 +860,8 @@ CASE may be one of:
   (stream-element-type (shadow-stream-primary stream)))
 
 (defclass string-input-stream (sys.gray:fundamental-character-input-stream
-                               sys.gray:unread-char-mixin)
+                               sys.gray:unread-char-mixin
+                               string-stream)
   ((string :initarg :string)
    (start :initarg :start)
    (end :initarg :end)))
@@ -859,7 +917,6 @@ CASE may be one of:
      (format *query-io* "Please respond with \"yes\" or \"no\". ")))
 
 ;;; Gray stream default methods.
-
 
 (defmethod stream-element-type ((stream sys.gray:fundamental-character-stream))
   'character)

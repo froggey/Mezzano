@@ -191,9 +191,10 @@
                    (setf left-margin (+ next-left-margin 8)))))
           (setf (clickables viewer) '())
           (let ((pen left))
-            (dolist (host (remove :http (mezzano.file-system:list-all-hosts)
-                                  :key #'mezzano.file-system:host-name
-                                  :test #'string-equal))
+            (dolist (host (remove-if (lambda (host)
+                                       (or (string-equal (mezzano.file-system:host-name host) :http)
+                                           (typep host 'mezzano.file-system:logical-host)))
+                                     (mezzano.file-system:list-all-hosts)))
               (let ((before pen))
                 (incf pen 10)
                 (cond ((eql host (pathname-host new-path))

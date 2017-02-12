@@ -10,8 +10,11 @@
 (in-package :mezzano.fast-eval)
 
 (defun eval-compile (form env)
-  (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
-                                  (cons env nil))))
+  (let ((sys.c::*load-time-value-hook* 'sys.c::eval-load-time-value)
+        (*compile-file-pathname* (or *compile-file-pathname*
+                                     *load-pathname*)))
+    (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
+                                    env))))
 
 (defun eval-progn-body (forms env)
   (do ((itr forms (cdr itr)))
@@ -20,10 +23,13 @@
     (eval-in-lexenv (car itr) env)))
 
 (defun eval-one-setq (var val env)
-  (let ((expansion (macroexpand var)))
-    (cond ((symbolp expansion)
-           (setf (symbol-value expansion) (eval-in-lexenv val env)))
-          (t (eval-in-lexenv `(setf ,var ,val) env)))))
+  (check-type var symbol)
+  (multiple-value-bind (expansion expandedp)
+      (macroexpand-1 var)
+    (declare (ignore expansion))
+    (cond (expandedp
+           (eval-in-lexenv `(setf ,var ,val) env))
+          (t (setf (symbol-value var) (eval-in-lexenv val env))))))
 
 (defun eval-setq (pairs env)
   (destructuring-bind (var val &rest rest)

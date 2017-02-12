@@ -38,6 +38,10 @@
   (:default-initargs :plist '()
                      :lock (mezzano.supervisor:make-mutex "Local File lock")))
 
+(defmethod print-object ((object local-file) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (file-truename object))))
+
 (defclass local-stream (file-stream sys.gray:fundamental-stream sys.gray:unread-char-mixin)
   ((%file :initarg :file :reader local-stream-file)
    (%pathname :initarg :pathname :reader file-stream-pathname)
@@ -225,6 +229,24 @@
              (when position
                (aref container position))))))))
 
+(defmethod truename-using-host ((host local-file-host) pathname)
+  (cond ((and (pathname-directory pathname)
+              (not (pathname-name pathname))
+              (not (pathname-type pathname)))
+         ;; Special-case directory pathnames. The default implementation
+         ;; uses PROBE-FILE, which tries to open the file. It's not possible
+         ;; to open a directory using a #p"foo>bar>" style path.
+         (cond ((or (equal '(:absolute) (pathname-directory pathname))
+                    (equal '(:relative) (pathname-directory pathname)))
+                pathname)
+               (t
+                (call-next-method host (make-pathname :directory (butlast (pathname-directory pathname))
+                                                      :name (first (last (pathname-directory pathname)))
+                                                      :type "directory"
+                                                      :defaults pathname)))))
+        (t
+         (call-next-method))))
+
 (defun make-file (dir truename element-type)
   (let* ((time (get-universal-time))
          (name-table (aref (file-storage dir) 0))
@@ -270,7 +292,9 @@
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
-  (when (not (eql external-format :default))
+  (when (not (or (and (eql element-type 'character)
+                      (eql external-format :utf-8))
+                 (eql external-format :default)))
     (error "Unsupported external format ~S." external-format))
   (when (not (pathname-name pathname))
     (error 'simple-file-error
@@ -560,7 +584,7 @@
                (incf (stream-position stream))))
             (t :eof)))))
 
-(defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -580,7 +604,7 @@
       (incf (stream-position stream) (- end start))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-#+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence start end)
+#+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -603,6 +627,21 @@
                                             position-spec)))
         (t (stream-position stream))))
 
+(defmethod sys.gray:stream-line-column ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-line-length ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-clear-output ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-finish-output ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-force-output ((stream local-stream))
+  nil)
+
 (defmethod close ((stream local-stream) &key abort &allow-other-keys)
   (when (and (not abort)
              (superseded-file stream))
@@ -616,4 +655,12 @@
   t)
 
 (defmethod stream-truename ((stream local-stream))
-  (file-truename (local-stream-file stream)))
+  (let ((truename (file-truename (local-stream-file stream))))
+    (cond ((string= (pathname-type truename) "directory")
+           (make-pathname :directory (append (pathname-directory truename)
+                                             (list (pathname-name truename)))
+                          :name nil
+                          :type nil
+                          :defaults truename))
+          (t
+           truename))))

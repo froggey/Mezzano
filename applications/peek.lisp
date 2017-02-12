@@ -50,11 +50,11 @@
   (dolist (card mezzano.network.ethernet::*cards*)
     (let ((address (mezzano.network.ip:ipv4-interface-address card nil)))
       (format t " ~S~%" card)
-      (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.supervisor:nic-mac card))
+      (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.driver.network-card:mac-address card))
       (when address
         (format t "   IPv4 address: ~A~%" address))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
-          (mezzano.supervisor:net-statistics card)
+          (mezzano.driver.network-card:statistics card)
         (format t "   ~:D octets, ~:D packets received. ~:D RX errors.~%"
                 rx-bytes rx-packets rx-errors)
         (format t "   ~:D octets, ~:D packets transmitted. ~:D TX errors.~%"
@@ -233,9 +233,14 @@
 (defun peek-disk ()
   (dolist (disk (mezzano.supervisor:all-disks))
     (format t "~S:~%" disk)
+    (if (mezzano.supervisor:disk-writable-p disk)
+        (format t "  Read/write.~%")
+        (format t "  Read-only.~%"))
     (format t "  Sector size: ~:D octets.~%" (mezzano.supervisor:disk-sector-size disk))
     (format t "   Total size: ~:D sectors.~%" (mezzano.supervisor:disk-n-sectors disk))
-    (format t "               ~:D octets.~%" (* (mezzano.supervisor:disk-n-sectors disk) (mezzano.supervisor:disk-sector-size disk)))))
+    (format t "               ~:D octets.~%" (* (mezzano.supervisor:disk-n-sectors disk) (mezzano.supervisor:disk-sector-size disk)))
+    (when (eql disk mezzano.supervisor::*paging-disk*)
+      (format t "  Paging disk.~%"))))
 
 (defclass peek-window ()
   ((%window :initarg :window :reader window)

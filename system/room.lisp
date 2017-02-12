@@ -130,17 +130,23 @@ Should be kept in sync with data-types.")
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
-    (multiple-value-bind (n-free-blocks total-blocks)
-        (mezzano.supervisor:store-statistics)
-      (format t "~:D/~:D store blocks used (~D%).~%"
-              (- total-blocks n-free-blocks) total-blocks
-              (truncate (* (- total-blocks n-free-blocks) 100) total-blocks)))
+    (when (not (eql mezzano.supervisor::*paging-disk* :freestanding))
+      (multiple-value-bind (n-free-blocks total-blocks)
+          (mezzano.supervisor:store-statistics)
+        (format t "~:D/~:D store blocks used (~D%).~%"
+                (- total-blocks n-free-blocks) total-blocks
+                (truncate (* (- total-blocks n-free-blocks) 100) total-blocks))))
     (multiple-value-bind (n-free-page-frames total-page-frames)
         (mezzano.supervisor:physical-memory-statistics)
       (format t "~:D/~:D physical pages used (~D%).~%"
               (- total-page-frames n-free-page-frames) total-page-frames
               (truncate (* (- total-page-frames n-free-page-frames) 100)
                         total-page-frames))))
+  (when (eql verbosity t)
+    (format t "Paging disk is ~S.~%" mezzano.supervisor::*paging-disk*)
+    (format t "Fudge-factor is ~D.~%" mezzano.supervisor::*store-fudge-factor*)
+    (when mezzano.supervisor::*paging-read-only*
+      (format t "Running in read-only mode.~%")))
   (values))
 
 (defun %walk-pinned-area (base limit fn)

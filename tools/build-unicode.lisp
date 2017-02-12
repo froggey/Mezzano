@@ -240,6 +240,40 @@ the seperator character."
                   :element-type '(unsigned-byte 32)
                   :initial-contents packed))))
 
+(defun decode-general-category (cat)
+  (second (or (assoc cat '(("Lu" :uppercase-letter)
+                           ("Ll" :lowercase-letter)
+                           ("Lt" :titlecase-letter)
+                           ("Lm" :modifier-letter)
+                           ("Lo" :other-letter)
+                           ("Mn" :nonspacing-mark)
+                           ("Mc" :spacing-mark)
+                           ("Me" :enclosing-mark)
+                           ("Nd" :decimal-number)
+                           ("Nl" :letter-number)
+                           ("No" :other-number)
+                           ("Pc" :connector-punctuation)
+                           ("Pd" :dash-punctuation)
+                           ("Ps" :open-punctuation)
+                           ("Pe" :close-punctuation)
+                           ("Pi" :initial-punctuation)
+                           ("Pf" :final-punctuation)
+                           ("Po" :other-punctuation)
+                           ("Sm" :math-symbol)
+                           ("Sc" :currency-symbol)
+                           ("Sk" :modifier-symbol)
+                           ("So" :other-symbol)
+                           ("Zs" :space-separator)
+                           ("Zl" :line-separator)
+                           ("Zp" :paragraph-separator)
+                           ("Cc" :control)
+                           ("Cf" :format)
+                           ("Cs" :surrogate)
+                           ("Co" :private-use)
+                           ("Cn" :unassigned))
+                     :test #'string=)
+              (error "Unknown Unicode General_Category ~S" cat))))
+
 (defun generate-unicode-data-tables (unicode-data)
   (let* ((planes (make-array 17 :initial-element nil))
 	 (name-store (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
@@ -255,14 +289,16 @@ the seperator character."
 		 (cell (ldb (byte 8 0) codepoint))
 		 (name (nth 1 line))
 		 (encoded-name (encode-unicode-name name encoding-table))
-		 (category (nth 2 line))
+                 (general-category (decode-general-category (nth 2 line)))
 		 (uppercase (parse-integer (nth 12 line) :radix 16 :junk-allowed t))
 		 (lowercase (parse-integer (nth 13 line) :radix 16 :junk-allowed t))
-		 (case (cond ((and (string= category "Lu") lowercase)
-			       (logior lowercase (ash 1 21)))
-			     ((and (string= category "Ll") uppercase)
-			      (logior uppercase (ash 2 21)))
-			     (t 0))))
+                 (othercase-code (cond ((and (eql general-category :lowercase-letter)
+                                             uppercase)
+                                        uppercase)
+                                       ((and (eql general-category :uppercase-letter)
+                                             lowercase)
+                                        lowercase)
+                                       (t 0))))
 	    ;; Insert this codepoint into the information table.
 	    (unless (aref planes plane)
 	      (setf (aref planes plane) (make-array 256 :initial-element nil)))
@@ -270,13 +306,23 @@ the seperator character."
 	      (setf (aref (aref planes plane) row) (make-array 256
 							       :element-type '(unsigned-byte 64)
 							       :initial-element 0)))
-	    (setf (aref (aref (aref planes plane) row) cell)
-		  ;; 20 bits for the offset, 6 for the length,
-		  ;; 21 bits for the othercase character code.
-		  ;; 2 bits for the category. 0 = no case, 1 = lowercase, 2 = uppercase.
-		  (logior (length name-store)
-			  (ash (length encoded-name) 20)
-			  (ash case 26)))
+	    (setf (aref (aref (aref planes plane) row) cell) 0)
+            ;; Name store offset.
+            (setf (cross-cl:ldb sys.int::+unicode-info-name-offset+
+                                (aref (aref (aref planes plane) row) cell))
+                  (length name-store))
+            ;; Compressed name length.
+            (setf (cross-cl:ldb sys.int::+unicode-info-name-length+
+                                (aref (aref (aref planes plane) row) cell))
+                  (length encoded-name))
+            ;; Othercase code.
+            (setf (cross-cl:ldb sys.int::+unicode-info-othercase-code+
+                                (aref (aref (aref planes plane) row) cell))
+                  othercase-code)
+            ;; General_Category.
+            (setf (cross-cl:ldb sys.int::+unicode-info-general-category+
+                                (aref (aref (aref planes plane) row) cell))
+                  (sys.int::unicode-general-category-encode general-category))
 	    ;; Append the name to the name-store
 	    (dotimes (i (length encoded-name))
 	      (vector-push-extend (aref encoded-name i) name-store))

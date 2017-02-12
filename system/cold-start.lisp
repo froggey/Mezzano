@@ -184,6 +184,8 @@
 (defun find-package-or-die (name)
   t)
 
+(defvar *warm-llf-files*)
+
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
@@ -195,8 +197,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
         *debug-io* *cold-stream*
-        *early-initialize-hook* '()
-        *initialize-hook* '()
         * nil
         ** nil
         *** nil
@@ -210,7 +210,15 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *print-escape* t
         *print-readably* nil
         *print-safe* nil)
-  (setf *features* '(:unicode :little-endian :x86-64 :mezzano :ieee-floating-point :ansi-cl :common-lisp)
+  (setf *features* '(:package-local-nicknames
+                     :unicode
+                     :little-endian
+                     #+x86-64 :x86-64
+                     #+arm64 :arm64
+                     :mezzano
+                     :ieee-floating-point
+                     :ansi-cl
+                     :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))

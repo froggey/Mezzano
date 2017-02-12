@@ -456,6 +456,63 @@
                                  framebuffer left (+ top end-y))
              (funcall (damage-function stream) left (+ top end-y) end-x line-height))))))
 
+(defun align-down (value alignment)
+  (- value (rem value alignment)))
+
+(defmethod sys.gray:stream-display ((stream text-widget) (object mezzano.gui:surface))
+  (with-cursor-hidden (stream)
+    (let* ((framebuffer (framebuffer stream))
+           (win-width (width stream))
+           (win-height (height stream))
+           (colour (background-colour stream))
+           (line-height (line-height (font stream)))
+           (left (x-position stream))
+           (top (y-position stream)))
+      (cond ((> (mezzano.gui:surface-height object) line-height)
+             ;; Object exceeds the height of a line, render it on it's own line.
+             (let ((n-lines (ceiling (mezzano.gui:surface-height object) line-height)))
+               (fresh-line stream)
+               ;; Make space.
+               (dotimes (i (1- n-lines))
+                 (terpri stream))
+               ;; Draw.
+               (let* ((draw-width (min win-width (mezzano.gui:surface-width object)))
+                      (draw-height (min (align-down win-height line-height)
+                                        (mezzano.gui:surface-height object)))
+                      (ypos (- (+ top (cursor-y stream) line-height) draw-height)))
+                 (mezzano.gui:bitblt :blend draw-width draw-height
+                                     object
+                                     0
+                                     (- (mezzano.gui:surface-height object) draw-height)
+                                     framebuffer
+                                     left
+                                     ypos)
+                 (funcall (damage-function stream) left ypos draw-width draw-height)
+                 (setf (cursor-x stream) draw-width)
+                 (terpri stream))))
+            (t
+             ;; Fits on one line, render it like a character.
+             (let ((object-width (min win-width (mezzano.gui:surface-width object)))
+                   (object-height (mezzano.gui:surface-height object)))
+               (when (> (+ (cursor-x stream) object-width) win-width)
+                 (sys.gray:stream-terpri stream))
+               ;; Fetch x/y after terpri.
+               (let ((x (cursor-x stream))
+                     (y (cursor-y stream)))
+                 (mezzano.gui:bitset :set
+                                     object-width line-height
+                                     (background-colour stream)
+                                     framebuffer (+ left x) (+ top y))
+                 (mezzano.gui:bitblt :blend
+                                     object-width object-height
+                                     object 0 0
+                                     framebuffer
+                                     (+ left x)
+                                     (+ top y (- line-height object-height)))
+                 (funcall (damage-function stream) (+ left x) (+ top y) object-width line-height)
+                 (incf (cursor-x stream) object-width)
+                 (incf (cursor-column stream)))))))))
+
 (defmethod reset ((widget text-widget))
   (setf (cursor-x widget) 0
         (cursor-y widget) 0

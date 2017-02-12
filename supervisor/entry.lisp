@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.supervisor)
@@ -6,11 +6,11 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-(defun stack-base (stack)
-  (car stack))
-
-(defun stack-size (stack)
-  (cdr stack))
+(defstruct (stack
+             (:constructor %make-stack (base size))
+             (:area :wired))
+  base
+  size)
 
 (defun %allocate-stack-1 (aligned-size bump-sym)
   (safe-without-interrupts (aligned-size bump-sym)
@@ -21,6 +21,7 @@
 
 ;; TODO: Actually allocate virtual memory.
 (defun %allocate-stack (size &optional wired)
+  (declare (sys.c::closure-allocation :wired))
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
   ;; 2m align the memory region.
@@ -28,35 +29,36 @@
                                   (if wired
                                       'sys.int::*wired-stack-area-bump*
                                       'sys.int::*stack-area-bump*)))
-         (stack (sys.int::cons-in-area addr size :wired)))
+         (stack (%make-stack addr size)))
     ;; Allocate blocks.
     (loop
        for i from 0 do
          (when (allocate-memory-range addr size
                                       (logior sys.int::+block-map-present+
                                               sys.int::+block-map-writable+
-                                              sys.int::+block-map-zero-fill+))
+                                              sys.int::+block-map-zero-fill+
+                                              (if wired
+                                                  sys.int::+block-map-wired+
+                                                  0)))
            (return))
          (when (> i mezzano.runtime::*maximum-allocation-attempts*)
            (error 'storage-condition))
          (debug-print-line "No memory for stack, calling GC.")
          (sys.int::gc))
+    (sys.int::make-weak-pointer stack stack
+                                (lambda ()
+                                  (release-memory-range addr size))
+                                :wired)
     stack))
 
 (defun reboot ()
   ;; FIXME: Need to sync disks and wait until snapshotting finishes.
-  ;; TODO: ACPI rebooting.
-  ;; Attempt one: pulse the reset line via the PS/2 controller.
-  (ps/2-input-wait)
-  (setf (system:io-port/8 +ps/2-control-port+) #xFE) ; Pulse output line 0 low.
-  ;; Attempt two: trash the IDT and trigger a page-fault to triple-fault the CPU.
-  (%lidt 0 0)
-  (sys.int::memref-unsigned-byte-8 0 0)
-  nil)
+  (platform-reboot)
+  (values))
 
 ;;; <<<<<<
 
-(defvar *boot-information-page*)
+(sys.int::defglobal *boot-information-page*)
 
 (defconstant +virtual-address-bits+ 48)
 (defconstant +log2-4k-page+ 12)
@@ -78,97 +80,76 @@
 (defconstant +boot-information-framebuffer-height+                (+ +boot-information-video+ 24))
 (defconstant +boot-information-framebuffer-layout+                (+ +boot-information-video+ 32))
 (defconstant +boot-information-acpi-rsdp+                         808)
+(defconstant +boot-information-options+                           816)
 (defconstant +boot-information-n-memory-map-entries+              824)
 (defconstant +boot-information-memory-map+                        832)
+(defconstant +boot-information-efi-system-table+                 1344)
+(defconstant +boot-information-fdt-address+                      1352)
+(defconstant +boot-information-block-map+                        1360)
+
+(defconstant +boot-option-force-read-only+ #x01)
+(defconstant +boot-option-freestanding+ #x02)
+(defconstant +boot-option-video-console+ #x04)
+(defconstant +boot-option-no-detect+ #x08)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
   (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
                                    offset))
 
-(defvar *boot-hook-lock*)
-(defvar *boot-hooks*)
+(defun boot-option (option)
+  (logtest (sys.int::memref-t (+ *boot-information-page* +boot-information-options+))
+           option))
 
-(defun add-boot-hook (fn)
+(sys.int::defglobal *boot-hook-lock*)
+(sys.int::defglobal *early-boot-hooks*)
+(sys.int::defglobal *boot-hooks*)
+(sys.int::defglobal *late-boot-hooks*)
+
+(defun add-boot-hook (fn &optional when)
+  (check-type when (member nil :late :early))
   (with-mutex (*boot-hook-lock*)
-    (push fn *boot-hooks*)))
+    (case when
+      (:early
+       (push fn *early-boot-hooks*))
+      ((nil)
+       (push fn *boot-hooks*))
+      (:late
+       (push fn *late-boot-hooks*)))))
 
 (defun remove-boot-hook (fn)
   (with-mutex (*boot-hook-lock*)
-    (setf *boot-hooks* (remove fn *boot-hooks*))))
+    (setf *early-boot-hooks* (remove fn *early-boot-hooks*))
+    (setf *boot-hooks* (remove fn *boot-hooks*))
+    (setf *late-boot-hooks* (remove fn *late-boot-hooks*))))
 
 (defun run-boot-hooks ()
+  (dolist (hook *early-boot-hooks*)
+    (sys.int::log-and-ignore-errors
+      (format t "Run early boot hook ~A~%" hook)
+      (funcall hook)))
   (dolist (hook *boot-hooks*)
     (sys.int::log-and-ignore-errors
       (format t "Run boot hook ~A~%" hook)
+      (funcall hook)))
+  (dolist (hook *late-boot-hooks*)
+    (sys.int::log-and-ignore-errors
+      (format t "Run late boot hook ~A~%" hook)
       (funcall hook))))
 
-(defvar *boot-id*)
+(sys.int::defglobal *boot-id*)
 
-(defstruct (nic
-             (:area :wired))
-  device
-  mac
-  transmit-packet
-  stats
-  mtu)
+(defun current-boot-id ()
+  *boot-id*)
 
-(defvar *nics*)
-(defvar *received-packets*)
-
-(defun register-nic (device mac transmit-fn stats-fn mtu)
-  (debug-print-line "Registered NIC " device " with MAC " mac)
-  (push-wired (make-nic :device device
-                        :mac mac
-                        :transmit-packet transmit-fn
-                        :stats stats-fn
-                        :mtu mtu)
-              *nics*))
-
-(defun net-statistics (nic)
-  "Get NIC statistics. Returns 7 values:
-Bytes received.
-Packets received.
-Receive errors.
-Bytes transmitted.
-Packets transmitted.
-Transmit errors.
-Collisions."
-  (funcall (nic-stats nic) (mezzano.supervisor::nic-device nic)))
-
-(defun net-transmit-packet (nic pkt)
-  (set-network-light t)
-  (set-network-light nil)
-  (funcall (mezzano.supervisor::nic-transmit-packet nic)
-           (mezzano.supervisor::nic-device nic)
-           pkt))
-
-(defun net-receive-packet ()
-  "Wait for a packet to arrive.
-Returns two values, the packet data and the receiving NIC."
-  (set-network-light t)
-  (set-network-light nil)
-  (let ((info (irq-fifo-pop *received-packets*)))
-    (values (cdr info) (car info))))
-
-(defun nic-received-packet (device pkt)
-  (let ((nic (find device *nics* :key #'nic-device)))
-    (when nic
-      (irq-fifo-push (cons nic pkt) *received-packets*))))
-
-(defun initialize-net ()
-  (when (not (boundp '*received-packets*))
-    ;; First run.
-    ;; FIXME: This should be a normal non-IRQ FIFO, but
-    ;; creating a FIFO won't work until the cold load finishes.
-    (setf *received-packets* (make-irq-fifo 50)))
-  (setf *nics* '())
-  (irq-fifo-reset *received-packets*))
-
-(defvar *deferred-boot-actions*)
+(sys.int::defglobal *deferred-boot-actions*)
 
 (defun add-deferred-boot-action (action)
-  (push-wired action *deferred-boot-actions*))
+  (if (boundp '*deferred-boot-actions*)
+      (push-wired action *deferred-boot-actions*)
+      (funcall action)))
+
+(sys.int::defglobal *post-boot-worker-thread*)
 
 (defun post-boot-worker ()
   (loop
@@ -187,53 +168,53 @@ Returns two values, the packet data and the receiving NIC."
         (%reschedule-via-wired-stack sp fp)))))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
-  (let ((first-run-p nil)
-        ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
-        (serial-port-io-base #x3F8))
+  (let ((first-run-p nil))
     (initialize-boot-cpu)
-    (initialize-debug-serial serial-port-io-base 4 38400)
+    (initialize-debug-log)
+    (initialize-platform-early-console boot-information-page)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
           *deferred-boot-actions* '()
-          *paging-disk* nil)
+          *paging-disk* nil
+          *page-fault-hook* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
-    (when (not (boundp 'mezzano.runtime::*tls-lock*))
+    (when (boot-option +boot-option-video-console+)
+      (debug-set-output-pseudostream #'debug-video-stream))
+    (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
-      (setf mezzano.runtime::*tls-lock* :unlocked
-            mezzano.runtime::*active-catch-handlers* 'nil
-            *pseudo-atomic* nil))
+      (setf mezzano.runtime::*active-catch-handlers* 'nil
+            *pseudo-atomic* nil
+            sys.int::*known-finalizers* nil))
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
-    (initialize-interrupts)
-    (initialize-i8259)
+    (initialize-early-platform)
     (initialize-threads)
     (initialize-disk)
     (initialize-pager)
     (initialize-snapshot)
-    (sys.int::%sti)
+    (%enable-interrupts)
+    ;;(debug-set-output-pseudostream #'debug-video-stream)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
-    (initialize-acpi)
-    (initialize-net)
     (initialize-time)
-    (initialize-ata)
-    (initialize-ahci)
-    (initialize-virtio)
-    (initialize-ps/2)
     (initialize-video)
-    (initialize-pci)
-    (detect-disk-partitions)
-    (detect-paging-disk)
-    (when (not *paging-disk*)
-      (panic "Could not find boot device. Sorry."))
+    (initialize-efi)
+    (initialize-acpi)
+    (initialize-virtio)
+    (initialize-platform)
+    (when (not (boot-option +boot-option-no-detect+))
+      (detect-disk-partitions))
+    (initialize-paging-system)
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
                  *boot-hook-lock* (make-mutex "Boot Hook Lock")
-                 *boot-hooks* '())
+                 *early-boot-hooks* '()
+                 *boot-hooks* '()
+                 *late-boot-hooks* '())
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
           (t (wake-thread *post-boot-worker-thread*)))
     (finish-initial-thread)))

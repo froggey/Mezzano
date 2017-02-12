@@ -3,20 +3,30 @@
 
 (in-package :mezzano.supervisor)
 
+(sys.int::defglobal *light-position* nil
+  "Control the position of the status light.
+Can be :TOP to position them at the top of the screen, :BOTTOM to position them at the bottom, or NIL to disable them entirely.")
+
 (defstruct (framebuffer
              (:area :wired))
   base-address
   width
   height
+  bytes-per-pixel
   pitch
-  layout)
+  layout
+  damage-fn
+  blit-fn
+  fill-fn)
 
-(defvar *current-framebuffer*)
-(defvar *debug-video-x* 0)
-(defvar *debug-video-y* 0)
-(defvar *debug-video-col* 0)
+(sys.int::defglobal *current-framebuffer* nil)
+(sys.int::defglobal *debug-video-x* 0)
+(sys.int::defglobal *debug-video-y* 0)
+(sys.int::defglobal *debug-video-col* 0)
 
 (defun initialize-early-video ()
+  (when (not (boundp '*light-position*))
+    (setf *light-position* :top))
   ;; Trash old framebuffer.
   (setf *current-framebuffer* nil)
   (setf *debug-video-x* 0
@@ -29,17 +39,36 @@
         (height (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-height+) 0))
         (pitch (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-pitch+) 0))
         (layout (ecase (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-layout+) 0)
-                  (1 :x8r8g8b8))))
-    (debug-print-line "Framebuffer at " phys "  " width "x" height "  layout " layout "  pitch " pitch)
+                  (1 :x8r8g8b8)
+                  (5 :r8g8b8))))
     (map-physical-memory (logand phys (lognot #xFFF))
                          (logand (+ (* height pitch) (logand phys #xFFF) #xFFF) (lognot #xFFF))
                          "System Framebuffer")
+    (video-set-framebuffer phys width height pitch layout nil)))
+
+(defun framebuffer-dummy-damage (x y w h in-unsafe-context-p)
+  (declare (ignore x y w h in-unsafe-context-p)))
+
+(defun video-set-framebuffer (phys width height pitch layout damage-fn)
+  (debug-print-line "Configured new framebuffer at " phys "  " width "x" height "  layout " layout "  pitch " pitch)
+  (multiple-value-bind (bytes-per-pixel blit-fn fill-fn)
+      (ecase layout
+        (:x8r8g8b8 (values 4 #'%%bitblt-row-x8r8g8b8 #'%%bitset-row-x8r8g8b8))
+        (:r8g8b8   (values 3 #'%%bitblt-row-r8g8b8   #'%%bitset-row-r8g8b8)))
     (setf *current-framebuffer* (make-framebuffer :base-address phys
                                                   :width width
                                                   :height height
+                                                  :bytes-per-pixel bytes-per-pixel
                                                   :pitch pitch
-                                                  :layout layout))
-    (set-run-light t)))
+                                                  :layout layout
+                                                  :damage-fn (or damage-fn
+                                                                 'framebuffer-dummy-damage)
+                                                  :blit-fn blit-fn
+                                                  :fill-fn fill-fn)))
+  (set-run-light t)
+  (setf *debug-video-x* 0
+        *debug-video-y* 0
+        *debug-video-col* 0))
 
 (defun current-framebuffer ()
   *current-framebuffer*)
@@ -53,10 +82,15 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
            :expected-type '(array (unsigned-byte 32) (* *))
            :datum from-array))
   ;; Don't write to the top row of pixels, that's where the lights are.
-  (when (<= to-row 0)
-    (incf from-row (- 1 to-row))
-    (decf nrows (- 1 to-row))
-    (setf to-row 1))
+  (case *light-position*
+    (:top
+     (when (<= to-row 0)
+       (incf from-row (- 1 to-row))
+       (decf nrows (- 1 to-row))
+       (setf to-row 1)))
+    (:bottom
+     (when (>= (+ to-row nrows) (1- (framebuffer-height fb)))
+       (setf nrows (- (framebuffer-height fb) to-row 1)))))
   ;; Dismember the from-array.
   (let ((from-offset 0)
         (from-storage (sys.int::%complex-array-storage from-array))
@@ -67,9 +101,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (setf from-offset (sys.int::%complex-array-info from-array)
             from-storage (sys.int::%complex-array-storage from-storage)))
     ;; Storage must be a simple ub32 array.
-    (when (not (and (eql (sys.int::%tag-field from-storage) sys.int::+tag-object+)
-                    (eql (sys.int::%object-tag from-storage)
-                         sys.int::+object-tag-array-unsigned-byte-32+)))
+    (when (not (sys.int::%object-of-type-p from-storage sys.int::+object-tag-array-unsigned-byte-32+))
       (error 'type-error
              :expected-type (array (unsigned-byte 32) (* *))
              :datum from-array))
@@ -101,25 +133,31 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (with-pseudo-atomic
       (when (not (eql fb *current-framebuffer*))
         (return-from framebuffer-blit nil))
-      (let ((to-base (+ +physical-map-base+
-                        (framebuffer-base-address fb)
-                        (* to-row (framebuffer-pitch fb))
-                        (* to-col 4)))
+      (let ((to-base (convert-to-pmap-address
+                      (+ (framebuffer-base-address fb)
+                         (* to-row (framebuffer-pitch fb))
+                         (* to-col (framebuffer-bytes-per-pixel fb)))))
             (to-pitch (framebuffer-pitch fb))
             (from-base (+ (sys.int::lisp-object-address from-storage)
                           (- sys.int::+tag-object+)
                           8
                           (* from-row from-width 4)
                           (* from-col 4)))
-            (from-pitch (* from-width 4)))
+            (from-pitch (* from-width 4))
+            (blit-fn (framebuffer-blit-fn fb)))
         (dotimes (i nrows)
-          (%%bitblt-row to-base from-base ncols)
+          (funcall blit-fn to-base from-base ncols)
           (incf to-base to-pitch)
           (incf from-base from-pitch))))
+    (funcall (framebuffer-damage-fn fb)
+             to-col to-row
+             ncols nrows
+             nil)
     t))
 
-;; (to-base from-base ncols)
-(sys.int::define-lap-function %%bitblt-row ()
+#+x86-64
+(sys.int::define-lap-function %%bitblt-row-x8r8g8b8 ((to-base from-base ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rsi :r9) ; from-storage
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -130,8 +168,52 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
 
-;; (to-base colour ncols)
-(sys.int::define-lap-function %%bitset-row ()
+#+x86-64
+(sys.int::define-lap-function %%bitblt-row-r8g8b8 ((to-base from-base ncols))
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rdi :r8) ; to-storage
+  (sys.lap-x86:mov64 :rsi :r9) ; from-storage
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:test64 :r10 :r10) ; ncols
+  (sys.lap-x86:jz OUT)
+  LOOP
+  (sys.lap-x86:mov8 :al (:rsi 0))
+  (sys.lap-x86:mov8 (:rdi 0) :al)
+  (sys.lap-x86:mov8 :al (:rsi 1))
+  (sys.lap-x86:mov8 (:rdi 1) :al)
+  (sys.lap-x86:mov8 :al (:rsi 2))
+  (sys.lap-x86:mov8 (:rdi 2) :al)
+  (sys.lap-x86:add64 :rsi 4)
+  (sys.lap-x86:add64 :rdi 3)
+  (sys.lap-x86:sub64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jnz LOOP)
+  OUT
+  (sys.lap-x86:ret))
+
+#+arm64
+(sys.int::define-lap-function %%bitblt-row-x8r8g8b8 ((to-base from-base ncols))
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+) ; to-storage
+  (mezzano.lap.arm64:add :x11 :xzr :x1 :asr #.sys.int::+n-fixnum-bits+) ; from-storage
+  (mezzano.lap.arm64:add :x5 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+) ; ncols
+  (mezzano.lap.arm64:cbz :x5 OUT)
+  LOOP
+  (mezzano.lap.arm64:ldr :w9 (:post :x11 4))
+  (mezzano.lap.arm64:str :w9 (:post :x12 4))
+  (mezzano.lap.arm64:subs :x5 :x5 1)
+  (mezzano.lap.arm64:b.ne LOOP)
+  OUT
+  (mezzano.lap.arm64:ret))
+
+#-(or x86-64 arm64)
+(defun %%bitblt-row-x8r8g8b8 (to-base from-base ncols)
+  (dotimes (i ncols)
+    (setf (sys.int::memref-unsigned-byte-32 to-base i)
+          (sys.int::memref-unsigned-byte-32 from-base i))))
+
+#+x86-64
+(sys.int::define-lap-function %%bitset-row-x8r8g8b8 ((to-base colour ncols))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rax :r9) ; colour
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -142,13 +224,60 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:stos32)
   (sys.lap-x86:ret))
 
+#+x86-64
+(sys.int::define-lap-function %%bitset-row-r8g8b8 ((to-base colour ncols))
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:test64 :r10 :r10) ; ncols
+  (sys.lap-x86:jz OUT)
+  (sys.lap-x86:mov64 :rdi :r8) ; to-storage
+  (sys.lap-x86:mov64 :rax :r9) ; colour
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  ;; Extract colour components
+  (sys.lap-x86:mov32 :ecx :eax)
+  (sys.lap-x86:shr32 :ecx 8)
+  (sys.lap-x86:mov32 :edx :ecx)
+  (sys.lap-x86:shr32 :edx 8)
+  LOOP
+  (sys.lap-x86:mov8 (:rdi 0) :al)
+  (sys.lap-x86:mov8 (:rdi 1) :cl)
+  (sys.lap-x86:mov8 (:rdi 2) :dl)
+  (sys.lap-x86:add64 :rdi 3)
+  (sys.lap-x86:sub64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jnz LOOP)
+  OUT
+  (sys.lap-x86:ret))
+
+#+arm64
+(sys.int::define-lap-function %%bitset-row-x8r8g8b8 ((to-base colour ncols))
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+) ; to-storage
+  (mezzano.lap.arm64:add :x9 :xzr :x1 :asr #.sys.int::+n-fixnum-bits+) ; colour
+  (mezzano.lap.arm64:add :x5 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+) ; ncols
+  (mezzano.lap.arm64:cbz :x5 OUT)
+  LOOP
+  (mezzano.lap.arm64:str :w9 (:post :x12 4))
+  (mezzano.lap.arm64:subs :x5 :x5 1)
+  (mezzano.lap.arm64:b.ne LOOP)
+  OUT
+  (mezzano.lap.arm64:ret))
+
+#-(or x86-64 arm64)
+(defun %%bitset-row-x8r8g8b8 (to-base colour ncols)
+  (dotimes (i ncols)
+    (setf (sys.int::memref-unsigned-byte-32 to-base i) colour)))
+
 (defun set-panic-light ()
   (when (and (boundp '*current-framebuffer*)
              *current-framebuffer*)
-    (let ((fb-addr (+ +physical-map-base+
-                      (framebuffer-base-address *current-framebuffer*))))
-      (dotimes (i (framebuffer-width *current-framebuffer*))
-        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) #xFFFF0000)))))
+    (let ((fb-addr (framebuffer-base-address *current-framebuffer*)))
+      (funcall (framebuffer-fill-fn *current-framebuffer*)
+               (convert-to-pmap-address fb-addr)
+               #xFFFF0000
+               (framebuffer-width *current-framebuffer*))
+      (funcall (framebuffer-damage-fn *current-framebuffer*)
+               0 0
+               (framebuffer-width *current-framebuffer*) 1
+               t))))
 
 (defstruct (light
              (:area :wired))
@@ -157,10 +286,10 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   colour
   state)
 
-(defvar *light-decay-time* (truncate internal-time-units-per-second 8)
+(sys.int::defglobal *light-decay-time* (truncate internal-time-units-per-second 8)
   "Time a light should stay on for after being turned off.
 An integer, measured in internal time units.")
-(defvar *lights* '())
+(sys.int::defglobal *lights* '())
 
 (defun decay-lights (dt)
   (when (boundp '*lights*)
@@ -177,29 +306,54 @@ An integer, measured in internal time units.")
                                 (if (boundp '*light-decay-time*)
                                     *light-decay-time*
                                     0)))
-  (when *current-framebuffer*
-    (let ((fb-addr (+ +physical-map-base+
-                      (framebuffer-base-address *current-framebuffer*)
-                      (* (light-index light) 32 4))))
-      (dotimes (i 32)
-        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) (if (light-state light)
-                                                               (light-colour light)
-                                                               0))))))
+  (when (and *current-framebuffer*
+             *light-position*)
+    (let* ((light-offset (* (light-index light) 32))
+           (fb-addr (+ (framebuffer-base-address *current-framebuffer*)
+                       (if (eql *light-position* :bottom)
+                           (* (1- (framebuffer-height *current-framebuffer*))
+                              (framebuffer-pitch *current-framebuffer*))
+                           0)
+                       (* light-offset (framebuffer-bytes-per-pixel *current-framebuffer*))))
+           (colour (if (light-state light)
+                       (light-colour light)
+                       0)))
+      (when (<= (+ light-offset 32) (framebuffer-width *current-framebuffer*))
+        (funcall (framebuffer-fill-fn *current-framebuffer*)
+                 (convert-to-pmap-address fb-addr)
+                 colour
+                 32)
+        (funcall (framebuffer-damage-fn *current-framebuffer*)
+                 0 0
+                 (framebuffer-width *current-framebuffer*) 1
+                 t)))))
 
 (defun clear-light (light)
   (setf (light-state light) nil)
-  (when *current-framebuffer*
-    (let ((fb-addr (+ +physical-map-base+
-                      (framebuffer-base-address *current-framebuffer*)
-                      (* (light-index light) 32 4))))
-      (dotimes (i 32)
-        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) 0)))))
+  (when (and *current-framebuffer*
+             *light-position*)
+    (let* ((light-offset (* (light-index light) 32))
+           (fb-addr (+ (framebuffer-base-address *current-framebuffer*)
+                       (if (eql *light-position* :bottom)
+                           (* (1- (framebuffer-height *current-framebuffer*))
+                              (framebuffer-pitch *current-framebuffer*))
+                           0)
+                       (* light-offset (framebuffer-bytes-per-pixel *current-framebuffer*)))))
+      (when (<= (+ light-offset 32) (framebuffer-width *current-framebuffer*))
+        (funcall (framebuffer-fill-fn *current-framebuffer*)
+                 (convert-to-pmap-address fb-addr)
+                 #xFF000000
+                 32)
+        (funcall (framebuffer-damage-fn *current-framebuffer*)
+                 0 0
+                 (framebuffer-width *current-framebuffer*) 1
+                 t)))))
 
 (defmacro deflight (name colour position)
   (let ((setter (intern (format nil "SET-~A-LIGHT" name)))
         (light-sym (intern (format nil "*LIGHT-~A*" name))))
     `(progn
-       (setf ,light-sym (make-light :name ',name :index ',position :colour ',colour :state nil))
+       (defparameter ,light-sym (make-light :name ',name :index ',position :colour ',colour :state nil))
        (push-wired ,light-sym *lights*)
        (defun ,setter (state)
          (safe-without-interrupts (state)
@@ -214,14 +368,15 @@ An integer, measured in internal time units.")
 (deflight paging #xFFFF8000 5)
 (deflight network #xFFCCFF66 6)
 
-(defvar sys.int::*debug-8x8-font*)
+(sys.int::defglobal sys.int::*debug-8x8-font*)
 
 (defun debug-video-write-char (char)
   (cond ((not *current-framebuffer*))
         ((eql char #\Newline)
          (incf *debug-video-y* 8)
          (setf *debug-video-x* 0)
-         (when (>= *debug-video-y* (framebuffer-height *current-framebuffer*))
+         (when (>= (truncate *debug-video-y* 8)
+                   (truncate (framebuffer-height *current-framebuffer*) 8))
            (setf *debug-video-y* 0)
            (incf *debug-video-col*)
            (when (>= *debug-video-col* 3)
@@ -229,12 +384,13 @@ An integer, measured in internal time units.")
          (let* ((fb *current-framebuffer*)
                 (stride (framebuffer-pitch fb))
                 (col-width (truncate (framebuffer-width fb) 3))
-                (addr (+ +physical-map-base+
-                         (framebuffer-base-address fb)
-                         (* *debug-video-col* col-width 4)
-                         (* *debug-video-y* stride))))
+                (addr (convert-to-pmap-address
+                       (+ (framebuffer-base-address fb)
+                          (* *debug-video-col* col-width (framebuffer-bytes-per-pixel fb))
+                          (* *debug-video-y* stride))))
+                (fill-fn (framebuffer-fill-fn *current-framebuffer*)))
            (dotimes (i 8)
-             (%%bitset-row addr #xFFFFFFFF col-width)
+             (funcall fill-fn addr #xFFFFFFFF col-width)
              (incf addr stride))))
         (t
          (let ((code (char-code char)))
@@ -242,16 +398,17 @@ An integer, measured in internal time units.")
              (let* ((blob (svref sys.int::*debug-8x8-font* code))
                     (fb *current-framebuffer*)
                     (col-width (truncate (framebuffer-width fb) 3))
-                    (to-base (+ +physical-map-base+
-                                (framebuffer-base-address fb)
-                                (* *debug-video-y* (framebuffer-pitch fb))
-                                (* *debug-video-x* 4)
-                                (* *debug-video-col* col-width 4)))
+                    (to-base (convert-to-pmap-address
+                              (+ (framebuffer-base-address fb)
+                                 (* *debug-video-y* (framebuffer-pitch fb))
+                                 (* *debug-video-x* (framebuffer-bytes-per-pixel fb))
+                                 (* *debug-video-col* col-width (framebuffer-bytes-per-pixel fb)))))
                     (to-pitch (framebuffer-pitch fb))
                     (from-base (+ (sys.int::lisp-object-address blob) (- sys.int::+tag-object+) 8))
-                    (from-pitch (* 8 4)))
+                    (from-pitch (* 8 4))
+                    (blit-fn (framebuffer-blit-fn fb)))
                (dotimes (i 8)
-                 (%%bitblt-row to-base from-base 8)
+                 (funcall blit-fn to-base from-base 8)
                  (incf to-base to-pitch)
                  (incf from-base from-pitch))
                (incf *debug-video-x* 8)
@@ -264,7 +421,7 @@ An integer, measured in internal time units.")
 
 (defun debug-video-stream (op &optional arg)
   (ecase op
-    (:read-char (loop))
+    (:read-char (loop (thread-yield)))
     (:clear-input)
     (:write-char (debug-video-write-char arg))
     (:write-string (debug-video-write-string arg))

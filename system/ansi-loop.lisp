@@ -1013,9 +1013,6 @@ collected result will be returned as the value of the LOOP."
 		     ,(nreverse *loop-body*)
 		     ,(nreverse *loop-after-body*)
 		     ,(nreconc *loop-epilogue* (nreverse *loop-after-epilogue*)))))
-      (do () (nil)
-	(setq answer `(block ,(pop *loop-names*) ,answer))
-	(unless *loop-names* (return nil)))
       (dolist (entry *loop-bind-stack*)
 	(let ((vars (first entry))
 	      (dcls (second entry))
@@ -1035,6 +1032,9 @@ collected result will be returned as the value of the LOOP."
 				   `((destructuring-bind ,@crocks
 					 ,@forms))
 				 forms)))))))
+      (do () (nil)
+	(setq answer `(block ,(pop *loop-names*) ,answer))
+	(unless *loop-names* (return nil)))
       answer)))
 
 
@@ -1492,7 +1492,7 @@ collected result will be returned as the value of the LOOP."
       (setq pseudo-steps (nconc pseudo-steps (loop-copylist* (car (setq tem (cdr tem))))))
       (setq tem (cdr tem))
       (when *loop-emitted-body*
-	(loop-error "Iteration in LOOP follows body code."))
+	(warn "Iteration in LOOP follows body code."))
       (unless tem (setq tem data))
       (when (car tem) (push (car tem) pre-loop-pre-step-tests))
       (setq pre-loop-steps (nconc pre-loop-steps (loop-copylist* (car (setq tem (cdr tem))))))

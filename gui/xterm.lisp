@@ -86,13 +86,13 @@
   "Translate a character into a form suitable for consumption by a terminal client.
 Calls FN with each output character."
   (declare (ignore terminal))
-  (cond ((or (system:char-bit character :meta)
-             (system:char-bit character :super)
-             (system:char-bit character :hyper))
+  (cond ((or (sys.int::char-bit character :meta)
+             (sys.int::char-bit character :super)
+             (sys.int::char-bit character :hyper))
          ;; Ignore weird characters.
          ;; FIXME: Do stuff with META.
          )
-        ((system:char-bit character :control)
+        ((sys.int::char-bit character :control)
          ;; Control character. Translate to C0 control set or ignore.
          ;; Wonder how to type the C1 control characters...
          (when (<= #x3F (char-code (char-upcase character)) #x5F)

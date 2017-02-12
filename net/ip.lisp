@@ -120,16 +120,16 @@
       (decf end)
       (incf total (ash (aref buffer end) 8)))
     (do ((i start (+ i 2)))
-	((>= i end))
+        ((>= i end))
       (incf total (ub16ref/be buffer i)))
     total))
 
 (defun compute-ip-checksum (buffer &optional (start 0) end (initial 0))
   (let ((total (compute-ip-partial-checksum buffer start end initial)))
     (do ()
-	((not (logtest total #xFFFF0000)))
+        ((not (logtest total #xFFFF0000)))
       (setf total (+ (logand total #xFFFF)
-		     (ash total -16))))
+                     (ash total -16))))
     (logand (lognot total) #xFFFF)))
 
 ;;; Other.
@@ -156,26 +156,50 @@
 
 (defgeneric transmit-ipv4-packet-on-interface (destination-host interface packet))
 
-(defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.supervisor:nic) packet)
-  (mezzano.network.ethernet:transmit-ethernet-packet
-   interface
-   (mezzano.network.arp:arp-lookup interface
-                                   mezzano.network.ethernet:+ethertype-ipv4+
-                                   (ipv4-address-address destination-host))
-   mezzano.network.ethernet:+ethertype-ipv4+
-   packet))
+;; TODO: These should time out after a while.
+(defvar *outstanding-sends* '()
+  "Packets due to be transmitted, but are waiting for an ARP request to be resolved.")
+
+(defun try-ethernet-transmit (destination-host interface packet)
+  (let ((arp-result (mezzano.network.arp:arp-lookup interface
+                                                    mezzano.network.ethernet:+ethertype-ipv4+
+                                                    (ipv4-address-address destination-host))))
+    (cond (arp-result
+           (mezzano.network.ethernet:transmit-ethernet-packet
+            interface
+            arp-result
+            mezzano.network.ethernet:+ethertype-ipv4+
+            packet)
+           t)
+          (t
+           nil))))
+
+(defun arp-table-updated ()
+  (setf *outstanding-sends*
+        (loop
+           for (destination-host interface packet attempt) in *outstanding-sends*
+           do (format t "Attempting retransmit to ~S on ~S.~%"
+                      destination-host interface)
+           when (not (or (try-ethernet-transmit destination-host interface packet)
+                         (> attempt 5)))
+           collect (list destination-host interface packet (1+ attempt)))))
+
+(defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.driver.network-card:network-card) packet)
+  (when (not (try-ethernet-transmit destination-host interface packet))
+    (push (list destination-host interface packet 0)
+          *outstanding-sends*)))
 
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
   ;; Bounce loopback packets out over the nic for testing as well.
   (mezzano.network.ethernet:transmit-ethernet-packet
-   (first mezzano.supervisor::*nics*)
+   (first mezzano.driver.network-card::*nics*)
    #(0 0 0 1 2 3)
    mezzano.network.ethernet:+ethertype-ipv4+
    packet)
   ;; This is a bit very hacky...
   ;; Trying to avoid recursively calling back into the receive path. The
   ;; ethernet worker will pick packet up and deal with it normally.
-  (mezzano.supervisor::irq-fifo-push
+  (mezzano.supervisor:fifo-push
    (cons interface
          (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
                                             :element-type '(unsigned-byte 8))))
@@ -185,7 +209,7 @@
                                          8 0)
                                        packet))
            loopback-packet))
-   mezzano.supervisor::*received-packets*))
+   mezzano.driver.network-card::*received-packets*))
 
 (defun assemble-ipv4-packet (source destination protocol payload)
   (let* ((ip-header (make-array 20 :element-type '(unsigned-byte 8)))
@@ -214,13 +238,13 @@
      (ub16ref/be ip-header +ipv4-header-checksum+) (compute-ip-checksum ip-header))
     packet))
 
-(defun transmit-ipv4-packet (destination protocol payload)
+(defun transmit-ipv4-packet (source destination protocol payload)
   (multiple-value-bind (host interface)
       (ipv4-route destination)
     (when (and host interface)
       (transmit-ipv4-packet-on-interface
        host interface
-       (assemble-ipv4-packet (or (ipv4-interface-address interface) #x00000000)
+       (assemble-ipv4-packet (or source (ipv4-interface-address interface) #x00000000)
                              destination
                              protocol
                              payload)))))
@@ -279,11 +303,13 @@
       (case protocol
         (#.+ip-protocol-tcp+
          (mezzano.network.tcp::%tcp4-receive packet
+                                             dest-ip
                                              source-ip
                                              (+ start header-length)
                                              (+ start total-length)))
         (#.+ip-protocol-udp+
          (mezzano.network.udp::%udp4-receive packet
+                                             dest-ip
                                              source-ip
                                              (+ start header-length)
                                              (+ start total-length)))
@@ -358,12 +384,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                (when (>= seen-dots 4)
                  (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Too many dots."))
+                        :format-control "Too many dots in address ~S."
+                        :format-arguments (list address)))
                (when (>= octet 256)
                  (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Part ~D too large."
-                        :format-arguments (list (1- seen-dots))))
+                        :format-control "Part ~D too large in address ~S."
+                        :format-arguments (list (1- seen-dots) address)))
                (setf value (+ (ash value 8)
                               octet)
                      octet 0))
@@ -372,12 +399,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                               weight)))
               (t (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Invalid character ~C."
-                        :format-arguments (list c))))))
+                        :format-control "Invalid character ~:C in address ~S."
+                        :format-arguments (list c address))))))
     (when (>= octet (ash 1 (* (- 4 seen-dots) 8)))
       (error 'invalid-ipv4-address
              :address address
-             :format-control "Final part too large."))
+             :format-control "Final part too large in address ~S."
+             :format-arguments (list address)))
     (setf value (+ (ash value (* (- 4 seen-dots) 8))
                    octet))
     (check-type value (unsigned-byte 32))
@@ -438,7 +466,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
          (transmit-icmp-packet source-ip
                                +icmp-echo-reply+ 0
                                identifier sequence-number
-                               (subseq packet (+ start +icmp4-header-size+))))
+                               (subseq packet (+ start +icmp4-header-size+) end)))
         (#.+icmp-echo-reply+)
         (t (format t "Ignoring ICMP packet with unknown type/code ~D/~D.~%"
                    type code))))))
@@ -453,7 +481,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (when payload
       (replace packet payload :start1 +icmp4-header-size+))
     (setf (ub16ref/be packet +icmp4-checksum+) (mezzano.network.ip:compute-ip-checksum packet))
-    (transmit-ipv4-packet destination +ip-protocol-icmp+ (list packet))))
+    (transmit-ipv4-packet nil destination +ip-protocol-icmp+ (list packet))))
 
 (defun send-ping (destination &optional (identifier 0) (sequence-number 0) payload)
   (when (not payload)
@@ -475,16 +503,16 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (mezzano.supervisor:with-mutex (*icmp-listener-lock*)
       (setf *icmp-listeners* (remove listener *icmp-listeners*)))))
 
-(defun ping-host (host &optional (count 4))
+(defun ping-host (host &key (count 4) quiet)
   (let ((in-flight-pings nil)
         (received-packets '())
         (identifier 1234)
         (host-ip (sys.net::resolve-address host))
         (rx-lock (mezzano.supervisor:make-mutex "ping lock")))
     (with-icmp-listener
-      (lambda (packet source-ip start end)
-        (mezzano.supervisor:with-mutex (rx-lock)
-          (push (list packet source-ip start end) received-packets)))
+        (lambda (packet source-ip start end)
+          (mezzano.supervisor:with-mutex (rx-lock)
+            (push (list packet source-ip start end) received-packets)))
       (dotimes (i count)
         (push i in-flight-pings)
         (send-ping host-ip identifier i))
@@ -501,10 +529,14 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                      (let ((seq (ub16ref/be packet (+ start +icmp4-sequence-number+))))
                        (when (find seq in-flight-pings)
                          (setf in-flight-pings (remove seq in-flight-pings))
-                         (format t "Pong ~S.~%" seq))))))
+                         (when (not quiet)
+                           (format t "Pong ~S.~%" seq)))))))
            (when (or (> (get-universal-time) timeout-absolute)
                      (null in-flight-pings))
              (return))
            (sleep 0.01)))
-      (when in-flight-pings
-        (format t "~S pings still in-flight.~%" (length in-flight-pings))))))
+      (when (and in-flight-pings
+                 (not quiet))
+        (format t "~S pings still in-flight.~%" (length in-flight-pings)))
+      (values (not (eql count (length in-flight-pings)))
+              (length in-flight-pings)))))

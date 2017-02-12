@@ -12,7 +12,7 @@
           "SETF VALUES not supported here.")
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-			   (get (car place) 'setf-expander)))
+                           (get (car place) 'setf-expander)))
             (update-fn (and (symbolp (car place))
                             (get (car place) 'setf-update-fn))))
         (cond
@@ -51,15 +51,15 @@
                              `(funcall #'(setf ,(car place)) ,store-sym ,@vars)
                              (list* (car place) vars))))))))
       (multiple-value-bind (expansion expanded-p)
-	  (macroexpand-1 place environment)
-	(if expanded-p
-	    ;; Expand symbol macros.
-	    (get-setf-expansion expansion environment)
-	    ;; Generate an expansion for a variable name place.
-	    (let ((store-sym (gensym "STORE")))
-	      (values '() '() (list store-sym)
-		      `(setq ,place ,store-sym)
-		      place))))))
+          (macroexpand-1 place environment)
+        (if expanded-p
+            ;; Expand symbol macros.
+            (get-setf-expansion expansion environment)
+            ;; Generate an expansion for a variable name place.
+            (let ((store-sym (gensym "STORE")))
+              (values '() '() (list store-sym)
+                      `(setq ,place ,store-sym)
+                      place))))))
 
 (defun expand-setf-values (place value env)
   "Expand a (setf (values foo...) bar) place."
@@ -92,16 +92,16 @@
 (defmacro setf (&environment env &rest forms)
   (when forms
     (do* ((i forms (cddr i))
-	  (code (cons 'progn nil))
-	  (tail code (cdr tail)))
-	 ((endp i)
-	  (if (cddr code)
-	      code
-	      (cadr code)))
+          (code (cons 'progn nil))
+          (tail code (cdr tail)))
+         ((endp i)
+          (if (cddr code)
+              code
+              (cadr code)))
       (when (endp (cdr i))
-	(error "Odd number of forms supplied to SETF."))
+        (error "Odd number of forms supplied to SETF."))
       (let ((place (car i))
-	    (value (cadr i)))
+            (value (cadr i)))
         (setf (cdr tail) (cons (cond ((and (consp place) (eql (first place) 'values))
                                       (expand-setf-values place value env))
                                      (t (expand-setf place value env)))
@@ -112,29 +112,31 @@
       (get-setf-expansion place env)
     (let ((item-sym (gensym)))
       `(let* ((,item-sym ,item)
-	      ,@(mapcar #'list vars vals)
-	      (,(car stores) (cons ,item-sym ,getter)))
-	 ,setter))))
+              ,@(mapcar #'list vars vals)
+              (,(car stores) (cons ,item-sym ,getter)))
+         ,setter))))
 
 (defmacro pop (&environment env place)
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (let ((item-sym (gensym)))
       `(let* (,@(mapcar #'list vars vals)
-	      (,item-sym ,getter)
-	      (,(car stores) (cdr ,item-sym)))
-	 (prog1 (car ,item-sym) ,setter)))))
+              (,item-sym ,getter)
+              (,(car stores) (cdr ,item-sym)))
+         (prog1 (car ,item-sym) ,setter)))))
 
-(defmacro pushnew (&environment env item place &key (key #'identity) test test-not)
+(defmacro pushnew (&environment env item place &key key test test-not)
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (let ((item-sym (gensym))
-	  (list-sym (gensym)))
+          (list-sym (gensym))
+          (key-sym (gensym)))
       `(let* ((,item-sym ,item)
-	      ,@(mapcar #'list vars vals)
-	      (,list-sym ,getter))
-	 (if (member (funcall ,key ,item-sym) ,list-sym
-                     ,@(when key (list :key key))
+              ,@(mapcar #'list vars vals)
+              (,list-sym ,getter)
+              (,key-sym ,(or key '#'identity)))
+         (if (member (funcall ,key-sym ,item-sym) ,list-sym
+                     :key ,key-sym
                      ,@(when test (list :test test))
                      ,@(when test-not (list :test-not test-not)))
              ,list-sym
@@ -146,14 +148,15 @@
       (parse-ordinary-lambda-list lambda-list)
     (when (or enable-keys keys allow-other-keys aux)
       (error "&KEYS and &AUX not permitted in define-modify-macro lambda list"))
-    (let ((reference (gensym)) (env (gensym)))
+    (let ((reference (gensym "PLACE"))
+          (env (gensym)))
       `(defmacro ,name (&environment ,env ,reference ,@lambda-list)
-	 ,documentation
-	 (multiple-value-bind (dummies vals newvals setter getter)
-	     (get-setf-expansion ,reference ,env)
-	   (when (cdr newvals)
-	     (error "Can't expand this"))
-	   `(let* (,@(mapcar #'list dummies vals)
+         ,documentation
+         (multiple-value-bind (dummies vals newvals setter getter)
+             (get-setf-expansion ,reference ,env)
+           (when (cdr newvals)
+             (error "Can't expand this"))
+           `(let* (,@(mapcar #'list dummies vals)
                    (,(car newvals)
                     ,(list* ',function getter
                             ,@required
@@ -161,13 +164,13 @@
                             ,@(if rest
                                   (list rest)
                                   (list '())))))
-	      ,setter))))))
+              ,setter))))))
 
 (defmacro define-setf-expander (access-fn lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
-	(env (gensym "ENV")))
+        (env (gensym "ENV")))
     (multiple-value-bind (new-lambda-list env-binding)
-	(fix-lambda-list-environment lambda-list)
+        (fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
          (%define-setf-expander ',access-fn
                                 (lambda (,whole ,env)
@@ -178,7 +181,7 @@
                                                                      (when env-binding
                                                                        (list `(,env-binding ,env)))
                                                                      :permit-docstring t)))
-	 ',access-fn))))
+         ',access-fn))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander)
@@ -196,9 +199,9 @@
       (error "Odd number of arguments to PSETF"))
     (let ((value (gensym)))
       `(let ((,value ,(cadr pairs)))
-	 (psetf ,@(cddr pairs))
-	 (setf ,(car pairs) ,value)
-	 nil))))
+         (psetf ,@(cddr pairs))
+         (setf ,(car pairs) ,value)
+         nil))))
 
 ;; FIXME...
 (defmacro rotatef (&rest places)
@@ -220,9 +223,51 @@
   access-fn)
 )
 
-(defmacro defsetf (access-fn update-fn &optional documentation)
+(defmacro defsetf (access-fn &rest args)
+  (cond ((listp (first args))
+         `(defsetf-long ,access-fn ,@args))
+        (t
+         `(defsetf-short ,access-fn ,@args))))
+
+(defmacro defsetf-short (access-fn update-fn &optional documentation)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%defsetf-short-form ',access-fn ',update-fn ',documentation)))
+
+(defmacro defsetf-long (access-fn lambda-list store-variables &body body)
+  (when (member '&aux lambda-list)
+    (error "&AUX not permitted in DEFSETF lambda list ~S." lambda-list))
+  (multiple-value-bind (new-lambda-list env-binding)
+      (fix-lambda-list-environment lambda-list)
+    (let ((subforms (gensym "SUBFORMS"))
+          (env (or env-binding (gensym "ENV"))))
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
+         (%defsetf-long-form ',access-fn
+                             ',(length store-variables)
+                             (lambda (,subforms ,env ,@store-variables)
+                               (declare (lambda-name (defsetf ,access-fn))
+                                        (ignorable ,env))
+                               (block ,access-fn
+                                 (apply (lambda ,new-lambda-list
+                                          ,@body)
+                                        ,subforms))))))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun %defsetf-long-form (access-fn store-variable-count expansion-fn)
+  (flet ((expand (whole env)
+           ;; Generate gensyms for every parameter, and for every store-variable.
+           (let* ((param-syms (loop for f in (rest whole) collect (gensym "PARAM")))
+                  (store-syms (loop repeat store-variable-count collect (gensym "STORE")))
+                  ;; Get the expansion.
+                  (expansion (apply expansion-fn param-syms env store-syms)))
+             (values param-syms
+                     (rest whole)
+                     store-syms
+                     expansion
+                     `(,access-fn ,@param-syms)))))
+    (setf (get access-fn 'setf-expander) #'expand
+          (get access-fn 'setf-update-fn) nil))
+  access-fn)
+)
 
 (defmacro shiftf (&rest args)
   (assert args)

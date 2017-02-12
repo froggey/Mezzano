@@ -3,7 +3,7 @@
 
 (in-package :sys.int)
 
-(setf sys.lap-x86:*function-reference-resolver* #'function-reference)
+(setf sys.lap:*function-reference-resolver* #'function-reference)
 
 (defun inline-info-location-for-name (name)
   (if (symbolp name)
@@ -14,12 +14,36 @@
         ((cas)
          (values (second name) 'cas-inline-mode 'cas-inline-form)))))
 
+(defun proclaim-symbol-mode (symbol new-mode)
+  (check-type symbol symbol)
+  (when (not (or (null (symbol-mode symbol))
+                 (eql (symbol-mode symbol) new-mode)))
+    (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
+            symbol (symbol-mode symbol) new-mode))
+  (setf (symbol-mode symbol) new-mode))
+
+(defvar *known-declarations* '())
+
+(defun proclaim-type (typespec vars)
+  (dolist (name vars)
+    (check-type name symbol)
+    (when (and (boundp name)
+               (not (typep (symbol-value name) typespec)))
+      (cerror "Continue" "Symbol ~S's type being proclaimed to ~S, but current value ~S has an incompatible type."
+              name typespec (symbol-value name)))
+    (setf (mezzano.runtime::symbol-type name) typespec)))
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
-    (special (dolist (var (rest declaration-specifier))
-               (setf (system:symbol-mode var) :special)))
-    (constant (dolist (var (rest declaration-specifier))
-                (setf (system:symbol-mode var) :constant)))
+    (special
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :special)))
+    (constant
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :constant)))
+    (global
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :global)))
     (inline
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
@@ -29,25 +53,34 @@
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
            (inline-info-location-for-name name)
-         (setf (get sym indicator) nil))))))
-
-(defun system:symbol-mode (symbol)
-  (ecase (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
-              (%object-header-data symbol))
-    (#.+symbol-mode-nil+ nil)
-    (#.+symbol-mode-special+ :special)
-    (#.+symbol-mode-constant+ :constant)
-    (#.+symbol-mode-symbol-macro+ :symbol-macro)))
-
-(defun (setf system:symbol-mode) (value symbol)
-  (setf (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
-             (%object-header-data symbol))
-        (ecase value
-          ((nil) +symbol-mode-nil+)
-          ((:special) +symbol-mode-special+)
-          ((:constant) +symbol-mode-constant+)
-          ((:symbol-macro) +symbol-mode-symbol-macro+)))
-  value)
+         (setf (get sym indicator) nil))))
+    (type
+     (destructuring-bind (typespec &rest vars)
+         (rest declaration-specifier)
+       (proclaim-type typespec vars)))
+    (ftype)
+    (declaration
+     (dolist (name (rest declaration-specifier))
+       (check-type name symbol)
+       (pushnew name *known-declarations*)))
+    (optimize
+     (dolist (quality (rest declaration-specifier))
+       (destructuring-bind (quality value)
+           (if (symbolp quality)
+               `(,quality 3)
+               quality)
+         (check-type quality (member compilation-speed debug safety space speed))
+         (check-type value (member 0 1 2 3))
+         (setf (getf sys.c::*optimize-policy* quality) value))))
+    (t
+     (cond ((or (get (first declaration-specifier) 'type-expander)
+                (get (first declaration-specifier) 'compound-type)
+                (get (first declaration-specifier) 'type-symbol))
+            ;; Actually a type declaration.
+            (proclaim-type (first declaration-specifier)
+                           (rest declaration-specifier)))
+           ((not (find (first declaration-specifier) *known-declarations*))
+            (warn "Unknown declaration ~S" declaration-specifier))))))
 
 (defun variable-information (symbol)
   (symbol-mode symbol))
@@ -60,14 +93,11 @@
 
 ;;; Turn (APPLY fn arg) into (%APPLY fn arg), bypassing APPLY's
 ;;; rest-list generation in the single arg case.
-;;; Would be nice to turn (APPLY fn args...) into (%APPLY fn (LIST* args...)),
-;;; but that would cause callers to cons when they didn't before. Don't
-;;; know if that's a problem... Need DX-LIST*.
-;;; Or better APPLY implementation.
 (define-compiler-macro apply (&whole whole function arg &rest more-args)
   (if more-args
-      whole
-      `(%apply (%coerce-to-callable ,function) ,arg)))
+      `(mezzano.runtime::%apply (%coerce-to-callable ,function)
+                                (list* ,arg ,@more-args))
+      `(mezzano.runtime::%apply (%coerce-to-callable ,function) ,arg)))
 
 (defun apply (function arg &rest more-args)
   (declare (dynamic-extent more-args))
@@ -80,136 +110,8 @@
                (i arg-list (cdr i)))
               ((null (cddr i))
                (setf (cdr i) (cadr i))
-               (%apply function arg-list))))
-        (t (%apply function arg))))
-
-;;; Support function for APPLY.
-;;; Takes a function & a list of arguments.
-;;; The function must be a function, but type-checking
-;;; will be performed on the argument list.
-;;; FIXME: should enforce CALL-ARGUMENTS-LIMIT.
-(define-lap-function %apply ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  ;; Function goes in RBX.
-  (sys.lap-x86:mov64 :rbx :r8)
-  ;; Argument count.
-  (sys.lap-x86:xor32 :ecx :ecx)
-  ;; Words pushed for alignment.
-  (sys.lap-x86:xor32 :edi :edi)
-  ;; Check for no arguments.
-  (sys.lap-x86:cmp64 :r9 nil)
-  (sys.lap-x86:je do-call)
-  ;; Unpack the list.
-  ;; Known to have at least one cons, so we can drop directly into the body.
-  (sys.lap-x86:mov64 :r13 :r9)
-  unpack-loop
-  (:gc :frame :pushed-values-register :rcx)
-  ;; Typecheck list, part 2. consp
-  (sys.lap-x86:mov8 :al :r13l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne list-type-error)
-  ;; Push car & increment arg count
-  (sys.lap-x86:push (:car :r13))
-  (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (:gc :frame :pushed-values-register :rcx)
-  ;; Advance.
-  (sys.lap-x86:mov64 :r13 (:cdr :r13))
-  ;; Typecheck list, part 1. null
-  (sys.lap-x86:cmp64 :r13 nil)
-  (sys.lap-x86:jne unpack-loop)
-  ;; Arguments have been pushed on the stack in reverse.
-  ;; Ensure the stack is misaligned.
-  ;; Misalign because 5 registers will be popped off, leaving
-  ;; the stack correctly aligned.
-  (sys.lap-x86:test64 :rsp 8)
-  (sys.lap-x86:jnz stack-aligned)
-  ;; Don't push anything extra if there are 5 or fewer args.
-  ;; They will all be popped off.
-  (sys.lap-x86:cmp32 :ecx #.(ash 5 +n-fixnum-bits+)) ; fixnum 5
-  (sys.lap-x86:jbe stack-aligned)
-  ;; Reversing will put this at the end of the stack, out of the way.
-  (sys.lap-x86:push 0)
-  (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (:gc :frame :pushed-values-register :rcx)
-  (sys.lap-x86:add32 :edi #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  stack-aligned
-  ;; RCX = n arguments. (fixnum)
-  ;; RDX = left offset, RAX = right offset.
-  (sys.lap-x86:lea32 :eax (:ecx #.(ash -1 +n-fixnum-bits+)))
-  (sys.lap-x86:shr32 :eax #.+n-fixnum-bits+)
-  (sys.lap-x86:shl32 :eax 3) ; * 8
-  (sys.lap-x86:xor32 :edx :edx)
-  (sys.lap-x86:jmp reverse-test)
-  reverse-loop
-  ;; Swap stack+rax & stack+rdx
-  (sys.lap-x86:mov64 :r8 (:rsp :rax))
-  (sys.lap-x86:mov64 :r9 (:rsp :rdx))
-  (sys.lap-x86:mov64 (:rsp :rax) :r9)
-  (sys.lap-x86:mov64 (:rsp :rdx) :r8)
-  ;; Advance offsets.
-  (sys.lap-x86:add32 :edx 8)
-  (sys.lap-x86:sub32 :eax 8)
-  reverse-test
-  ;; Stop when RDX > RAX.
-  (sys.lap-x86:cmp32 :eax :edx)
-  (sys.lap-x86:ja reverse-loop)
-  ;; Drop the word pushed for alignment (if any).
-  (sys.lap-x86:sub32 :ecx :edi)
-  ;; Put arguments into registers.
-  ;; Always at least one argument by this point.
-  (sys.lap-x86:pop :r8)
-  (:gc :frame :pushed-values-register :rcx :pushed-values -1)
-  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+))
-  (sys.lap-x86:je do-call)
-  (sys.lap-x86:pop :r9)
-  (:gc :frame :pushed-values-register :rcx :pushed-values -2)
-  (sys.lap-x86:cmp32 :ecx #.(ash 2 +n-fixnum-bits+))
-  (sys.lap-x86:je do-call)
-  (sys.lap-x86:pop :r10)
-  (:gc :frame :pushed-values-register :rcx :pushed-values -3)
-  (sys.lap-x86:cmp32 :ecx #.(ash 3 +n-fixnum-bits+))
-  (sys.lap-x86:je do-call)
-  (sys.lap-x86:pop :r11)
-  (:gc :frame :pushed-values-register :rcx :pushed-values -4)
-  (sys.lap-x86:cmp32 :ecx #.(ash 4 +n-fixnum-bits+))
-  (sys.lap-x86:je do-call)
-  (sys.lap-x86:pop :r12)
-  (:gc :frame :pushed-values-register :rcx :pushed-values -5)
-  ;; Everything is ready. Call the function!
-  do-call
-  (sys.lap-x86:call (:rbx #.(+ (- sys.int::+tag-object+) 8)))
-  (:gc :frame)
-  ;; Finish up & return.
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret)
-  ;; R8 = function, R9 = arg-list.
-  ;; (raise-type-error arg-list 'proper-list)
-  list-type-error
-  (:gc :frame)
-  ;; Make sure that the stack is 16-byte aligned.
-  ;; The list unpacking loop has been pushing values one by one.
-  (sys.lap-x86:and64 :rsp #.(lognot 15))
-  (sys.lap-x86:mov64 :r8 :r9)
-  (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function raise-type-error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2))
-
-(defun symbol-tls-slot (symbol)
-  (check-type symbol symbol)
-  (let ((slot (ldb (byte +symbol-header-tls-size+ +symbol-header-tls-position+)
-                   (%object-header-data symbol))))
-    (if (zerop slot)
-        nil
-        slot)))
+               (mezzano.runtime::%apply function arg-list))))
+        (t (mezzano.runtime::%apply function arg))))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))
@@ -225,11 +127,10 @@
     value))
 
 (defun macro-function (symbol &optional env)
-  (dolist (e env
-           (get symbol '%macro-function))
-    (when (eql (first e) :macros)
-      (let ((fn (assoc symbol (rest e))))
-        (when fn (return (cdr fn)))))))
+  (cond (env
+         (sys.c::macro-function-in-environment symbol env))
+        (t
+         (get symbol '%macro-function))))
 
 (defun (setf macro-function) (value symbol &optional env)
   (when env
@@ -240,13 +141,18 @@
         (get symbol '%macro-function) value))
 
 (defun compiler-macro-function (name &optional environment)
-  (multiple-value-bind (sym indicator)
-      (if (symbolp name)
-          (values name '%compiler-macro-function)
-          (values (second name) '%setf-compiler-macro-function))
-    (get sym indicator)))
+  (cond (environment
+         (sys.c::compiler-macro-function-in-environment name environment))
+        (t
+         (multiple-value-bind (sym indicator)
+             (if (symbolp name)
+                 (values name '%compiler-macro-function)
+                 (values (second name) '%setf-compiler-macro-function))
+           (get sym indicator)))))
 
 (defun (setf compiler-macro-function) (value name &optional environment)
+  (when environment
+    (error "TODO: (Setf Compiler-Macro-function) in environment."))
   (multiple-value-bind (sym indicator)
       (if (symbolp name)
           (values name '%compiler-macro-function)
@@ -257,10 +163,12 @@
   args)
 
 (defun copy-list-in-area (list &optional area)
+  (check-type list list)
   (do* ((result (cons nil nil))
         (tail result)
         (l list (cdr l)))
-       ((null l)
+       ((not (consp l))
+        (setf (cdr tail) l)
         (cdr result))
     (setf (cdr tail) (cons-in-area (car l) nil area)
           tail (cdr tail))))
@@ -269,16 +177,38 @@
   (copy-list-in-area list))
 
 ;;; Will be overriden later in the init process.
-(defun funcallable-instance-lambda-expression (function)
-  (values nil t nil))
-(defun funcallable-instance-debug-info (function)
-  nil)
-(defun funcallable-instance-compiled-function-p (function)
-  t)
+(when (not (fboundp 'funcallable-instance-lambda-expression))
+  (defun funcallable-instance-lambda-expression (function)
+    (values nil t nil))
+  (defun funcallable-instance-debug-info (function)
+    nil)
+  (defun funcallable-instance-compiled-function-p (function)
+    t)
+  )
+
+(defun closure-p (object)
+  (%object-of-type-p object +object-tag-closure+))
 
 (defun %closure-function (closure)
+  (assert (%object-of-type-p closure +object-tag-closure+))
   ;; Return the closed-over function associated with CLOSURE.
   (%object-ref-t closure +closure-function+))
+
+(defun %closure-length (closure)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (- (%object-header-data closure) 2))
+
+(defun %closure-value (closure index)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (assert (<= 0 index))
+  (assert (< index (%closure-length closure)))
+  (%object-ref-t closure (+ 1 +closure-function+ index)))
+
+(defun (setf %closure-value) (value closure index)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (assert (<= 0 index))
+  (assert (< index (%closure-length closure)))
+  (setf (%object-ref-t closure (+ 1 +closure-function+ index)) value))
 
 (defun function-name (function)
   (check-type function function)
@@ -317,39 +247,43 @@
     (#.+object-tag-funcallable-instance+
      (funcallable-instance-debug-info function))))
 
+(declaim (inline funcallable-std-instance-p
+                 funcallable-std-instance-class (setf funcallable-std-instance-class)
+                 funcallable-std-instance-slots (setf funcallable-std-instance-slots)
+                 funcallable-std-instance-layout (setf funcallable-std-instance-layout)))
+
 (defun funcallable-std-instance-p (object)
-  (and (eql (%tag-field object) +tag-object+)
-       (eql (%object-tag object) +object-tag-funcallable-instance+)))
+  (%object-of-type-p object +object-tag-funcallable-instance+))
 
 (defun funcallable-std-instance-function (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-function+))
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   ;; TODO: If the function is an +OBJECT-TAG-FUNCTION+, then the entry point could point directly at it.
   ;; Same as in ALLOCATE-FUNCALLABLE-STD-INSTANCE.
   (setf (%object-ref-t funcallable-instance +funcallable-instance-function+) value))
 
 (defun funcallable-std-instance-class (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-class+))
 (defun (setf funcallable-std-instance-class) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-class+) value))
 
 (defun funcallable-std-instance-slots (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-slots+))
 (defun (setf funcallable-std-instance-slots) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-slots+) value))
 
 (defun funcallable-std-instance-layout (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-layout+))
 (defun (setf funcallable-std-instance-layout) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-layout+) value))
 
 (defun compiled-function-p (object)
@@ -387,10 +321,27 @@
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
 
+(defparameter *incompatible-constant-redefinition-is-an-error* nil)
+(defparameter *defconstant-redefinition-comparator* 'eql)
+
 (defun %defconstant (name value &optional docstring)
-  (proclaim `(special ,name))
-  (setf (symbol-value name) value)
-  (proclaim `(constant ,name))
+  (cond ((boundp name)
+         (let ((old-value (symbol-value name)))
+           (when (not (funcall (or (and (boundp '*defconstant-redefinition-comparator*)
+                                        *defconstant-redefinition-comparator*)
+                                   #'eql)
+                               old-value value))
+             (when *incompatible-constant-redefinition-is-an-error*
+               (cerror "Redefine the constant"
+                       'defconstant-uneql
+                       :name name
+                       :old-value old-value
+                       :new-value value))
+             (setf (symbol-mode name) :special)
+             (setf (symbol-value name) value))))
+        (t
+         (setf (symbol-value name) value)))
+  (setf (symbol-mode name) :constant)
   name)
 
 ;;; Function references, FUNCTION, et al.
@@ -401,52 +352,57 @@
     (cons (member setf cas) (cons symbol null))))
 
 (defun make-function-reference (name)
-  (let ((fref (%allocate-object +object-tag-function-reference+ 4 0 :wired)))
+  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 4 :wired)))
     (setf (%object-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
 
-(defun function-reference (name)
-  "Convert a function name to a function reference."
+(defun decode-function-name (name)
   (cond ((symbolp name)
-         (or (%object-ref-t name +symbol-function+)
-             ;; No fref, create one and add it to the function.
-             (let ((new-fref (make-function-reference name)))
-               ;; Try to atomically update the function cell.
-               (multiple-value-bind (successp old-value)
-                   (%cas-object name +symbol-function+ nil new-fref)
-                 (if successp
-                     new-fref
-                     old-value)))))
-        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
-        ;; a hash-table or something like that.
-	((and (consp name)
-	      (= (list-length name) 2)
-	      (eql (first name) 'setf)
-	      (symbolp (second name)))
-	 (let ((fref (get (second name) 'setf-fref)))
-	   (unless fref
-	     (setf fref (make-function-reference name)
-		   (get (second name) 'setf-fref) fref))
-           fref))
-        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
-        ;; a hash-table or something like that.
-	((and (consp name)
-	      (= (list-length name) 2)
-	      (eql (first name) 'cas)
-	      (symbolp (second name)))
-	 (let ((fref (get (second name) 'cas-fref)))
-	   (unless fref
-	     (setf fref (make-function-reference name)
-		   (get (second name) 'cas-fref) fref))
-           fref))
-	(t (error 'type-error
+         (values name 'symbol))
+        ((and (consp name)
+              (consp (rest name))
+              (null (rest (rest name)))
+              (member (first name) '(setf cas))
+              (symbolp (second name)))
+         (values (second name) (first name)))
+        (t
+         (error 'type-error
                   :expected-type 'function-name
                   :datum name))))
 
+(defun function-reference (name)
+  "Convert a function name to a function reference."
+  (multiple-value-bind (name-root location)
+      (decode-function-name name)
+    (ecase location
+      (symbol
+       (or (%object-ref-t name-root +symbol-function+)
+           ;; No fref, create one and add it to the function.
+           (let ((new-fref (make-function-reference name-root)))
+             ;; Try to atomically update the function cell.
+             (multiple-value-bind (successp old-value)
+                 (%cas-object name-root +symbol-function+ nil new-fref)
+               (if successp
+                   new-fref
+                   old-value)))))
+      ;; FIXME: lock here. It's hard to lock a plist, need to switch to
+      ;; a hash-table or something like that.
+      (setf
+       (let ((fref (get name-root 'setf-fref)))
+         (unless fref
+           (setf fref (make-function-reference name)
+                 (get name-root 'setf-fref) fref))
+         fref))
+      (cas
+       (let ((fref (get name-root 'cas-fref)))
+         (unless fref
+           (setf fref (make-function-reference name)
+                 (get name-root 'cas-fref) fref))
+         fref)))))
+
 (defun function-reference-p (object)
-  (and (eql (%tag-field object) +tag-object+)
-       (eql (%object-tag object) +object-tag-function-reference+)))
+  (%object-of-type-p object +object-tag-function-reference+))
 
 (deftype function-reference ()
   '(satisfies function-reference-p))
@@ -524,8 +480,12 @@ VALUE may be nil to make the fref unbound."
 (defun gensym (&optional (thing "G"))
   (check-type thing (or string (integer 0)))
   (if (integerp thing)
-      (make-symbol (format nil "G~D" thing))
-      (prog1 (make-symbol (format nil "~A~D" thing *gensym-counter*))
+      (make-symbol (with-output-to-string (s)
+                     (write-char #\G s)
+                     (write thing :stream s :base 10)))
+      (prog1 (make-symbol (with-output-to-string (s)
+                            (write-string thing s)
+                            (write *gensym-counter* :stream s :base 10)))
         (incf *gensym-counter*))))
 
 ;;; TODO: Expand this so it knows about the compiler's constant folders.
@@ -604,7 +564,8 @@ VALUE may be nil to make the fref unbound."
               pushed-values pushed-values-register
               layout-address layout-length
               multiple-values incoming-arguments
-              block-or-tagbody-thunk extra-registers)
+              block-or-tagbody-thunk extra-registers
+              restart)
        (let ((layout (make-array 32 :element-type 'bit :adjustable t :fill-pointer 0)))
          ;; Consume layout bits.
          (dotimes (i (ceiling layout-length 8))
@@ -630,6 +591,8 @@ VALUE may be nil to make the fref unbound."
              (setf (getf entry :pushed-values) pushed-values))
            (when interruptp
              (setf (getf entry :interrupt) t))
+           (when restart
+             (setf (getf entry :restart) t))
            (push (list* offset
                         (if framep :frame :no-frame)
                         entry)
@@ -650,11 +613,14 @@ VALUE may be nil to make the fref unbound."
 (defun gentemp (&optional (prefix "T") (package *package*))
   (check-type prefix string)
   (do () (nil)
-    (let ((name (format nil "~A~D" prefix (incf *gentemp-counter*))))
+    (let ((name (with-output-to-string (s)
+                  (write-string prefix s)
+                  (write (incf *gentemp-counter*) :stream s :base 10))))
       (multiple-value-bind (x status)
           (find-symbol name package)
         (declare (ignore x))
-        (unless status (return (intern name package)))))))
+        (unless status
+          (return (intern name package)))))))
 
 (defun special-operator-p (symbol)
   (check-type symbol symbol)
@@ -684,8 +650,15 @@ VALUE may be nil to make the fref unbound."
                                               (princ-to-string *compile-file-pathname*))
                                             sys.int::*top-level-form-number*
                                             lambda-list
-                                            docstring)))
+                                            docstring)
+                                    nil
+                                    #+x86-64 :x86-64))
        ',name)))
+
+(declaim (inline std-instance-p
+                 std-instance-class (setf std-instance-class)
+                 std-instance-slots (setf std-instance-slots)
+                 std-instance-layout (setf std-instance-layout)))
 
 (defun std-instance-p (object)
   (%object-of-type-p object +object-tag-std-instance+))
@@ -715,7 +688,7 @@ VALUE may be nil to make the fref unbound."
              `(setf (fdefinition ',op)
                     (lambda (&rest args)
                       (declare (ignore args)
-                               (system:lambda-name (special-operator ,op)))
+                               (lambda-name (special-operator ,op)))
                       (error 'undefined-function :name ',op))))
            (all (&rest ops)
              `(progn

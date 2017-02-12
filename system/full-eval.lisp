@@ -21,24 +21,23 @@
   `(setf (gethash ',name *special-forms*)
          (lambda (,form-sym ,env-sym)
            (declare (ignorable ,form-sym ,env-sym)
-                    (system:lambda-name (special-form ,name)))
+                    (sys.int::lambda-name (special-form ,name)))
            (block ,name
              (destructuring-bind ,lambda-list (cdr ,form-sym)
                ,@body))))))
 
 (defun find-variable (symbol env)
   "Locate SYMBOL in ENV. Returns a binding list or the symbol if there was no lexical binding."
-  (dolist (e env symbol)
-    (when (and (eql (first e) :symbol-macros)
-               (assoc symbol (rest e)))
-      (return (list :symbol-macro (second (assoc symbol (rest e))))))
-    (when (and (eql (first e) :special) (member symbol (rest e)))
-      (return symbol))
-    (when (and (eql (first e) :binding) (eql (second e) symbol))
-      (return e))))
+  (sys.c::lookup-variable-in-environment symbol env))
 
 (defun find-function (name env)
-  (dolist (e env (restart-case (fdefinition name)
+  (let ((local-fn (sys.c::lookup-function-in-environment name env)))
+    (cond ((functionp local-fn)
+           ;; Macro function.
+           (error "~S names a macro." name))
+          ((typep local-fn 'lexical-variable)
+           (variable-value local-fn))
+          (t (restart-case (fdefinition name)
                    (use-value (v)
                      :interactive (lambda ()
                                     (format t "Enter a new value (evaluated): ")
@@ -50,18 +49,16 @@
                                     (format t "Enter a new value (evaluated): ")
                                     (list (eval (read))))
                      :report (lambda (s) (format s "Input a new value for ~S." `(fdefinition ',name)))
-                     (setf (fdefinition name) v))))
-    (when (eql (first e) :functions)
-      (let ((fn (assoc name (rest e))))
-	(when fn
-	  (return (cdr fn)))))))
+                     (setf (fdefinition name) v)))))))
 
 (defclass interpreted-function ()
   ((name :initarg :name :reader interpreted-function-name)
    (lambda :initarg :lambda :reader interpreted-function-lambda)
-   (env :initarg :env :reader interpreted-function-environment))
-  (:metaclass sys.clos:funcallable-standard-class)
-  (:default-initargs :name nil))
+   (env :initarg :env :reader interpreted-function-environment)
+   (filename :initarg :filename :reader interpreted-function-filename)
+   (tlf :initarg :tlf :reader interpreted-function-tlf))
+  (:metaclass mezzano.clos:funcallable-standard-class)
+  (:default-initargs :name nil :filename nil :tlf nil))
 
 (defmethod sys.int::funcallable-instance-lambda-expression ((function interpreted-function))
   (values (interpreted-function-lambda function)
@@ -70,12 +67,13 @@
 
 (defmethod sys.int::funcallable-instance-debug-info ((function interpreted-function))
   (list :debug-info
-        (slot-value function 'name)
+        (interpreted-function-name function)
         nil
         nil
-        nil
-        nil
-        (second (slot-value function 'lambda))))
+        (interpreted-function-filename function)
+        (interpreted-function-tlf function)
+        (second (interpreted-function-lambda function))
+        nil))
 
 (defmethod sys.int::funcallable-instance-compiled-function-p ((function interpreted-function))
   nil)
@@ -85,62 +83,75 @@
     (when (interpreted-function-name object)
       (write (interpreted-function-name object) :stream stream))))
 
+(defclass lexical-variable ()
+  ((name :initarg :name :reader variable-name)
+   (value :initarg :value :accessor variable-value))
+  (:default-initargs :value nil))
+
 (defun eval-lambda (lambda outer-env)
   (let ((lambda-list (second lambda))
         (forms (cddr lambda))
         (name 'interpreted-function))
     (multiple-value-bind (body declares docstring)
-	(sys.int::parse-declares forms :permit-docstring t)
+        (sys.int::parse-declares forms :permit-docstring t)
       (declare (ignore docstring))
       (dolist (i declares)
-        (when (eql (first i) 'system:lambda-name)
+        (when (eql (first i) 'sys.int::lambda-name)
           (setf name (second i))))
       (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-	  (sys.int::parse-ordinary-lambda-list lambda-list)
+          (sys.int::parse-ordinary-lambda-list lambda-list)
         (flet ((interpret-function (&rest args)
                  (let ((env outer-env))
-                   (dolist (arg required)
-                     (when (null args)
-                       (error "Too few arguments to function ~S lambda-list ~S" name lambda-list))
-                     (push (list :binding arg (pop args)) env))
-                   (dolist (arg optional)
-                     (cond (args
-                            (push (list :binding (first arg) (pop args)) env)
-                            (when (third arg)
-                              (push (list :binding (third arg) t) env)))
-                           (t
-                            (push (list :binding (first arg) (eval-in-lexenv (second arg) env)) env)
-                            (when (third arg)
-                              (push (list :binding (third arg) nil) env)))))
-                   (if rest
-                       (push (list :binding rest args) env)
-                       (when (and (not enable-keys) args)
-                         (error "Too many arguments to function ~S lambda-list ~S" name lambda-list)))
-                   (when enable-keys
-                     (when (oddp (length args))
-                       (error "Odd number of &KEY arguments."))
-                     (unless allow-other-keys
-                       (do ((i args (cddr i)))
-                           ((null i))
-                         (unless (member (car i) keys :key 'caar)
-                           (error "Unknown &KEY argument ~S." (car i)))))
-                     (dolist (key keys)
-                       (let ((arg (getf args (caar key) args)))
-                         (cond ((eql arg args)
-                                (push (list :binding (cadar key) (eval-in-lexenv (second key) env)) env)
-                                (when (third key)
-                                  (push (list :binding (third key) nil) env)))
-                               (t (push (list :binding (cadar key) arg) env)
+                   (flet ((bind-one (name value)
+                            (setf env
+                                  (sys.c::extend-environment
+                                   env
+                                   :variables (list (list name (make-instance 'lexical-variable :name name :value value)))))))
+                     (dolist (arg required)
+                       (when (null args)
+                         (error "Too few arguments to function ~S lambda-list ~S" name lambda-list))
+                       (bind-one arg (pop args)))
+                     (dolist (arg optional)
+                       (cond (args
+                              (bind-one (first arg) (pop args))
+                              (when (third arg)
+                                (bind-one (third arg) t)))
+                             (t
+                              (bind-one (first arg) (eval-in-lexenv (second arg) env))
+                              (when (third arg)
+                                (bind-one (third arg) nil)))))
+                     (if rest
+                         (bind-one rest args)
+                         (when (and (not enable-keys) args)
+                           (error "Too many arguments to function ~S lambda-list ~S" name lambda-list)))
+                     (when enable-keys
+                       (when (oddp (length args))
+                         (error "Odd number of &KEY arguments."))
+                       (unless allow-other-keys
+                         (do ((i args (cddr i)))
+                             ((null i))
+                           (unless (member (car i) keys :key 'caar)
+                             (error "Unknown &KEY argument ~S." (car i)))))
+                       (dolist (key keys)
+                         (let ((arg (getf args (caar key) args)))
+                           (cond ((eql arg args)
+                                  (bind-one (cadar key) (eval-in-lexenv (second key) env))
                                   (when (third key)
-                                    (push (list :binding (third key) t) env)))))))
-                   (dolist (arg aux)
-                     (push (list :binding (first arg) (eval-in-lexenv (second arg) env)) env))
-                   (eval-locally-body declares body env))))
+                                    (bind-one (third key) nil)))
+                                 (t
+                                  (bind-one (cadar key) arg)
+                                  (when (third key)
+                                    (bind-one (third key) t)))))))
+                     (dolist (arg aux)
+                       (bind-one (first arg) (eval-in-lexenv (second arg) env)))
+                     (eval-locally-body declares body env)))))
           (let ((x (make-instance 'interpreted-function
                                   :name name
                                   :lambda lambda
-                                  :env outer-env)))
-            (sys.clos:set-funcallable-instance-function x #'interpret-function)
+                                  :env outer-env
+                                  :filename (ignore-errors (namestring *load-truename*))
+                                  :tlf sys.int::*top-level-form-number*)))
+            (mezzano.clos:set-funcallable-instance-function x #'interpret-function)
             x))))))
 
 (defun eval-progn-body (forms env)
@@ -151,11 +162,7 @@
 
 (defun eval-locally-body (declares body env)
   "Collect all special declarations and add them to the environment."
-  (dolist (dec declares)
-    (when (eql (car dec) 'special)
-      (dolist (v (cdr dec))
-	(push (list :special v) env))))
-  (eval-progn-body body env))
+  (eval-progn-body body (sys.c::extend-environment env :declarations declares)))
 
 (defun frob-flet-function (definition env)
   (destructuring-bind (name lambda-list &body body) definition
@@ -172,16 +179,16 @@
                          env)))))
 
 (defspecial block (&environment env name &body body)
-  (let ((env (cons (list :block name (lambda (values)
-                                       (return-from block (values-list values))))
-                   env)))
+  (let ((env (sys.c::extend-environment
+              env
+              :blocks (list (list name (lambda (values)
+                                         (return-from block (values-list values))))))))
     (eval-progn-body body env)))
 
 (defspecial return-from (&environment env name &optional value)
-  (dolist (e env (error "No block named ~S." name))
-    (when (and (eql (first e) :block)
-               (eql (second e) name))
-      (funcall (third e) (multiple-value-list (eval-in-lexenv value env))))))
+  (let ((target (or (sys.c::lookup-block-in-environment name env)
+                    (error "No block named ~S." name))))
+    (funcall target (multiple-value-list (eval-in-lexenv value env)))))
 
 (defspecial eval-when (&environment env situation &body body)
   (multiple-value-bind (compile load eval)
@@ -190,14 +197,21 @@
       (eval-progn-body body env))))
 
 (defspecial flet (&environment env definitions &body forms)
-  (let ((functions (mapcar (lambda (def)
-                             (multiple-value-bind (name fn)
-                                 (frob-flet-function def env)
-                               (cons name fn)))
-                           definitions)))
-    (multiple-value-bind (body declares)
-        (sys.int::parse-declares forms)
-      (eval-locally-body declares body (cons (list* :functions functions) env)))))
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares forms)
+    (let* ((functions (mapcar (lambda (def)
+                                (multiple-value-bind (name fn)
+                                    (frob-flet-function def env)
+                                  (list name (make-instance
+                                              'lexical-variable
+                                              :name name
+                                              :value fn))))
+                              definitions))
+           (env (sys.c::extend-environment
+                 env
+                 :functions functions
+                 :declarations declares)))
+      (eval-progn-body body env))))
 
 (defspecial function (&environment env name)
   (if (sys.int::lambda-expression-p name)
@@ -210,74 +224,90 @@
       (eval-in-lexenv else env)))
 
 (defspecial labels (&environment env definitions &body forms)
-  (let* ((env (cons (list :functions) env))
-         (functions (mapcar (lambda (def)
-                              (multiple-value-bind (name fn)
-                                  (frob-flet-function def env)
-                                (cons name fn)))
-                            definitions)))
-    (setf (rest (first env)) functions)
-    (multiple-value-bind (body declares)
-        (sys.int::parse-declares forms)
-      (eval-locally-body declares body env))))
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares forms)
+    (let* ((functions (mapcar (lambda (def)
+                                (let ((name (first def)))
+                                  (list name (make-instance
+                                              'lexical-variable
+                                              :name name
+                                              :value nil))))
+                              definitions))
+           (env (sys.c::extend-environment
+                 env
+                 :functions functions
+                 :declarations declares)))
+      (loop
+         for def in definitions
+         for (name var) in functions
+         do (multiple-value-bind (name fn)
+                (frob-flet-function def env)
+              (setf (variable-value var) fn)))
+      (eval-progn-body body env))))
 
 (defspecial locally (&environment env &body forms)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
     (eval-locally-body declares body env)))
 
+(defun make-variable (name declares)
+  (if (or (sys.int::variable-information name)
+          (sys.c::declared-as-p 'special name declares))
+      (make-instance 'sys.c::special-variable :name name)
+      (make-instance 'lexical-variable
+                     :name name)))
+
 (defspecial let (&environment env bindings &body forms)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
-    (let ((special-variables '())
-          (special-values '())
-          (special-declares (apply 'append
-                                   (mapcar #'rest
-                                           (remove-if-not (lambda (dec) (eql (first dec) 'special))
-                                                          declares))))
-          (new-env env))
-      (dolist (b bindings)
-        (multiple-value-bind (name init-form)
-            (sys.int::parse-let-binding b)
-          (let ((value (eval-in-lexenv init-form env)))
-            (ecase (sys.int::symbol-mode name)
-              ((nil :symbol-macro)
-               (cond ((member name special-declares)
-                      (push name special-variables)
-                      (push value special-values))
-                     (t (push (list :binding name value) new-env))))
-              (:special
-               (push name special-variables)
-               (push value special-values))
-              (:constant (error "Cannot bind over constant ~S." name))))))
+    (let* ((names-and-values (mapcar (lambda (binding)
+                                       (multiple-value-bind (name init-form)
+                                           (sys.int::parse-let-binding binding)
+                                         (list name
+                                               (make-variable name declares)
+                                               (eval-in-lexenv init-form env))))
+                                     bindings))
+           (env (sys.c::extend-environment env
+                                           :variables (loop for (name var init-form) in names-and-values
+                                                         collect (list name var))
+                                           :declarations declares))
+           (special-variables '())
+           (special-values '()))
+      (loop for (name var init-value) in names-and-values do
+           (etypecase var
+             (sys.c::special-variable
+              (push name special-variables)
+              (push init-value special-values))
+             (lexical-variable
+              (setf (variable-value var) init-value))))
       (progv special-variables special-values
-        (eval-locally-body declares body new-env)))))
+        (eval-progn-body body env)))))
 
 (defspecial let* (&environment env bindings &body forms)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
-    (let ((special-declares (apply 'append
-                                   (mapcar #'rest
-                                           (remove-if-not (lambda (dec) (eql (first dec) 'special))
-                                                          declares)))))
-      (labels ((bind-one (bindings)
-                 (if bindings
-                     (multiple-value-bind (name init-form)
-                         (sys.int::parse-let-binding (first bindings))
-                       (let ((value (eval-in-lexenv init-form env)))
-                         (ecase (sys.int::symbol-mode name)
-                           ((nil :symbol-macro)
-                            (cond ((member name special-declares)
-                                   (progv (list name) (list value)
-                                     (bind-one (rest bindings))))
-                                  (t (push (list :binding name value) env)
-                                     (bind-one (rest bindings)))))
-                           (:special
-                            (progv (list name) (list value)
-                              (bind-one (rest bindings))))
-                           (:constant (error "Cannot bind over constant ~S." name)))))
-                     (eval-locally-body declares body env))))
-        (bind-one bindings)))))
+    (labels ((bind-one (bindings env)
+               (if bindings
+                   (multiple-value-bind (name init-form)
+                       (sys.int::parse-let-binding (first bindings))
+                     (let ((value (eval-in-lexenv init-form env)))
+                       (ecase (sys.int::symbol-mode name)
+                         ((nil :symbol-macro)
+                          (cond ((sys.c::declared-as-p 'special name declares)
+                                 (progv (list name) (list value)
+                                   (bind-one (rest bindings)
+                                             (sys.c::extend-environment env :variables (list (list name (make-instance 'sys.c::special-variable :name name)))))))
+                                (t
+                                 (let ((var (make-instance 'lexical-variable :name name :value value)))
+                                   (bind-one (rest bindings)
+                                             (sys.c::extend-environment env :variables (list (list name var))))))))
+                         (:special
+                          (progv (list name) (list value)
+                            (bind-one (rest bindings)
+                                      (sys.c::extend-environment env :variables (list (list name (make-instance 'sys.c::special-variable :name name)))))))
+                         (:constant (error "Cannot bind over constant ~S." name)))))
+                   (eval-progn-body body (sys.c::extend-environment env :declarations declares)))))
+      (bind-one bindings env))))
 
 (defspecial multiple-value-call (&environment env function-form &rest forms)
   (apply (eval-in-lexenv function-form env)
@@ -295,16 +325,19 @@
 (defspecial quote (object)
   object)
 
-;; TODO: symbol macros.
 (defspecial setq (&environment env &rest pairs)
   (when (oddp (length pairs))
     (error "Odd number of arguments to SETQ."))
   (when pairs
     (flet ((set-one (symbol value)
              (let ((var (find-variable symbol env)))
-               (if (symbolp var)
-                   (setf (symbol-value var) (eval-in-lexenv value env))
-                   (setf (third var) (eval-in-lexenv value env))))))
+               (etypecase var
+                 (sys.c::special-variable
+                  (setf (symbol-value symbol) (eval-in-lexenv value env)))
+                 (sys.c::symbol-macro
+                  (eval-in-lexenv `(setf ,symbol ,value) env))
+                 (lexical-variable
+                  (setf (variable-value var) (eval-in-lexenv value env)))))))
     (do ((i pairs (cddr i)))
         ((null (cddr i))
          (set-one (first i) (second i)))
@@ -335,7 +368,7 @@
           (sys.int::fix-lambda-list-environment lambda-list)
         (cons name
               (eval `#'(lambda (,whole ,env)
-                         (declare (system:lambda-name (macrolet ,name))
+                         (declare (sys.int::lambda-name (macrolet ,name))
                                   (ignorable ,whole ,env))
                          ,(sys.int::expand-destructuring-lambda-list new-lambda-list name body
                                                                      whole `(cdr ,whole)
@@ -347,26 +380,24 @@
   (multiple-value-bind (body declares)
       (sys.int::parse-declares body)
     (eval-locally-body declares body
-                       (cons (list* :macros
-                                    (mapcar 'frob-macrolet-definition definitions))
-                             env))))
+                       (sys.int::make-macrolet-env definitions env))))
 
 (defspecial symbol-macrolet (&environment env definitions &body body)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares body)
     (eval-locally-body declares body
-                       (cons (list* :symbol-macros definitions)
-                             env))))
+                       (sys.int::make-symbol-macrolet-env definitions env))))
 
 (defspecial tagbody (&environment env &body body)
   (let ((current body))
     (tagbody
-       (setf env (cons (list* :tagbody
-                              (lambda (tag)
-                                (setf current (member tag body))
-                                (go loop))
-                              (remove-if-not (lambda (x) (or (symbolp x) (integerp x))) body))
-                       env))
+       (setf env (sys.c::extend-environment
+                  env
+                  :go-tags (loop for sublist on body
+                                when (typep (first sublist) '(or symbol integer))
+                                collect (list (first sublist)
+                                              (let ((place sublist))
+                                                (lambda () (setf current place) (go loop)))))))
      loop
        (cond
          ((null current)
@@ -379,10 +410,8 @@
 
 (defspecial go (&environment env tag)
   (check-type tag (or symbol integer))
-  (dolist (e env (error "No GO-tag named ~S." tag))
-    (when (and (eql (first e) :tagbody)
-               (member tag (cddr e)))
-      (funcall (second e) tag))))
+  (funcall (or (sys.c::lookup-go-tag-in-environment tag env)
+               (error "No GO-tag named ~S." tag))))
 
 (defspecial progv (&environment env symbols values &body body)
   (progv (eval-in-lexenv symbols env) (eval-in-lexenv values env)
@@ -395,23 +424,25 @@
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
   (let ((var (find-variable form env)))
-    (cond ((symbolp var)
-           (restart-case (symbol-value var)
-             (use-value (v)
-               :interactive (lambda ()
-                              (format t "Enter a new value (evaluated): ")
-                              (list (eval (read))))
-               :report (lambda (s) (format s "Input a value to be used in place of ~S." var))
-               v)
-             (store-value (v)
-               :interactive (lambda ()
-                              (format t "Enter a new value (evaluated): ")
-                              (list (eval (read))))
-               :report (lambda (s) (format s "Input a new value for ~S." var))
-               (setf (symbol-value var) v))))
-          ((eql (first var) :symbol-macro)
-           (eval-in-lexenv (second var) env))
-          (t (third var)))))
+    (etypecase var
+      (sys.c::special-variable
+       (restart-case (symbol-value form)
+         (use-value (v)
+           :interactive (lambda ()
+                          (format t "Enter a new value (evaluated): ")
+                          (list (eval (read))))
+           :report (lambda (s) (format s "Input a value to be used in place of ~S." form))
+           v)
+         (store-value (v)
+           :interactive (lambda ()
+                          (format t "Enter a new value (evaluated): ")
+                          (list (eval (read))))
+           :report (lambda (s) (format s "Input a new value for ~S." form))
+           (setf (symbol-value form) v))))
+      (sys.c::symbol-macro
+       (eval-in-lexenv (sys.c::symbol-macro-expansion var) env))
+      (lexical-variable
+       (variable-value var)))))
 
 (defun eval-cons (form env)
   "3.1.2.1.2  Conses as forms"
@@ -432,8 +463,8 @@
 (defun eval-in-lexenv (form &optional env)
   "3.1.2.1  Form evaluation"
   (cond ((symbolp form)
-	 (eval-symbol form env))
-	((consp form)
-	 (eval-cons form env))
-	;; 3.1.2.1.3  Self evaluating objects
-	(t form)))
+         (eval-symbol form env))
+        ((consp form)
+         (eval-cons form env))
+        ;; 3.1.2.1.3  Self evaluating objects
+        (t form)))

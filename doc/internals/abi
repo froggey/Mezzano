@@ -232,9 +232,6 @@ and then calling the function's entry point.
 
 *  GC metadata.
 
-Beware, this section may blur reality with wishful thinking. The GC's stack-
-scavenging code is incomplete and buggy.
-
 Every instruction in the system has a set of GC related properties associated
 with it that mostly define the layout of the stack and registers before that
 instruction is executed.
@@ -260,6 +257,9 @@ A bit-vector indicating liveness of a given stack slot.
 With a frame:  (bit layout n) = (livep (- :rbp (* (1+ n) 8)))
 With no frame: (bit layout n) = (livep (+ :rsp (* n 8)))
 Defaults to #*.
+
+When no RBP-based frame is used, this is used to determine the size of the
+stack frame, including the return address (if any).
 
 
 ** :INCOMING-ARGUMENTS
@@ -323,6 +323,15 @@ Defaults to NIL.
 Specifies that additional registers contain values.
 This may be either NIL (no extra registers), :RAX (only :RAX),
 :RAX-RCX (:RAX and :RCX), or :RAX-RCX-RDX (:RAX, :RCX and :RDX).
+
+Defaults to NIL.
+This is only valid when the function is not in a call.
+
+
+** :RESTART
+
+Specifies that the function must be restarted when a GC occurs.
+The program counter is set to the start of the metadata region.
 
 Defaults to NIL.
 This is only valid when the function is not in a call.

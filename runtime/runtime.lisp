@@ -16,236 +16,6 @@
        (function
         (sys.int::%%disestablish-unwind-protect)))))
 
-(sys.int::define-lap-function values-list ((list)
-                                           ((list 0)))
-  "Returns the elements of LIST as multiple values."
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:sub64 :rsp 16) ; 2 slots
-  (sys.lap-x86:cmp32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:jne bad-arguments)
-  ;; RBX = iterator, (:stack 0) = list.
-  (sys.lap-x86:mov64 :rbx :r8)
-  (sys.lap-x86:mov64 (:stack 0) :r8)
-  (:gc :frame :layout #*10)
-  ;; ECX = value count.
-  (sys.lap-x86:xor32 :ecx :ecx)
-  ;; Pop into R8.
-  ;; If LIST is NIL, then R8 must be NIL, so no need to
-  ;; set R8 to NIL in the 0-values case.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r8 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R9.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r9 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R10.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r10 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R11.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r11 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R12.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r12 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Registers are populated, now unpack into the MV-area
-  (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
-                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
-  (:gc :frame :layout #*10 :multiple-values 0)
-  unpack-loop
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5) sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:jae too-many-values)
-  (sys.lap-x86:mov64 :r13 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:rdi) :r13)
-  (:gc :frame :layout #*10 :multiple-values 1)
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (:gc :frame :layout #*10 :multiple-values 0)
-  (sys.lap-x86:add64 :rdi 8)
-  (sys.lap-x86:jmp unpack-loop)
-  done
-  (sys.lap-x86:leave)
-  (:gc :no-frame :multiple-values 0)
-  (sys.lap-x86:ret)
-  type-error
-  (:gc :frame :layout #*10)
-  (sys.lap-x86:mov64 :r8 (:stack 0))
-  (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2)
-  too-many-values
-  (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
-  (sys.lap-x86:mov64 :r9 (:stack 0))
-  (sys.lap-x86:mov64 :r13 (:function error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2)
-  bad-arguments
-  (:gc :frame)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2))
-
-(sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
-  "Returns the elements of SIMPLE-VECTOR as multiple values."
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  ;; Check arg count.
-  (sys.lap-x86:cmp64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:jne bad-arguments)
-  ;; Check type.
-  (sys.lap-x86:mov8 :al :r8l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :rax (:object :r8 -1))
-  ;; Simple vector object tag is zero.
-  (sys.lap-x86:test8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                                sys.int::+object-type-shift+))
-  (sys.lap-x86:jnz type-error)
-  ;; Get number of values.
-  (sys.lap-x86:shr64 :rax #.sys.int::+object-data-shift+)
-  (sys.lap-x86:jz zero-values)
-  (sys.lap-x86:cmp64 :rax #.(+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
-  (sys.lap-x86:jae too-many-values)
-  ;; Set up. RBX = vector, RCX = number of values loaded so far, RAX = total number of values.
-  (sys.lap-x86:mov64 :rbx :r8)
-  (sys.lap-x86:xor32 :ecx :ecx)
-  ;; Load register values.
-  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 (:object :rbx 0))
-  (sys.lap-x86:cmp64 :rax 1)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r9 (:object :rbx 1))
-  (sys.lap-x86:cmp64 :rax 2)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r10 (:object :rbx 2))
-  (sys.lap-x86:cmp64 :rax 3)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r11 (:object :rbx 3))
-  (sys.lap-x86:cmp64 :rax 4)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r12 (:object :rbx 4))
-  (sys.lap-x86:cmp64 :rax 5)
-  (sys.lap-x86:je done)
-  ;; Registers are populated, now unpack into the MV-area
-  (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
-                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
-  (sys.lap-x86:mov32 :edx 5) ; Current value.
-  (:gc :frame :multiple-values 0)
-  unpack-loop
-  (sys.lap-x86:mov64 :r13 (:object :rbx 0 :rdx))
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:rdi) :r13)
-  (:gc :frame :multiple-values 1)
-  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (:gc :frame :multiple-values 0)
-  (sys.lap-x86:add64 :rdi 8)
-  (sys.lap-x86:add64 :rdx 1)
-  (sys.lap-x86:cmp64 :rdx :rax)
-  (sys.lap-x86:jne unpack-loop)
-  done
-  (sys.lap-x86:leave)
-  (:gc :no-frame :multiple-values 0)
-  (sys.lap-x86:ret)
-  ;; Special-case 0 values as it requires NIL in R8.
-  zero-values
-  (:gc :frame)
-  (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:jmp done)
-  (:gc :frame)
-  type-error
-  (sys.lap-x86:mov64 :r9 (:constant simple-vector))
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2)
-  too-many-values
-  (sys.lap-x86:mov64 :r8 (:constant "Too many values in simple-vector ~S."))
-  (sys.lap-x86:mov64 :r9 :rbx)
-  (sys.lap-x86:mov64 :r13 (:function error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2)
-  bad-arguments
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2))
-
-;;; TODO: This requires a considerably more flexible mechanism.
-(defvar *tls-lock*)
-(defvar sys.int::*next-symbol-tls-slot*)
-(defconstant +maximum-tls-slot+ (1+ mezzano.supervisor::+thread-tls-slots-end+))
-(defun sys.int::%allocate-tls-slot (symbol)
-  (mezzano.supervisor::safe-without-interrupts (symbol)
-    (mezzano.supervisor::with-symbol-spinlock (*tls-lock*)
-      ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
-      (cond ((zerop (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                         (sys.int::%object-header-data symbol)))
-             (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
-               (error "Critial error! TLS slots exhausted!"))
-             (let ((slot sys.int::*next-symbol-tls-slot*))
-               (incf sys.int::*next-symbol-tls-slot*)
-               ;; Twiddle TLS bits directly in the symbol header.
-               (setf (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                          (sys.int::%object-header-data symbol))
-                     slot)
-               slot))
-            (t (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                    (sys.int::%object-header-data symbol)))))))
-
 (defvar *active-catch-handlers*)
 (defun sys.int::%catch (tag fn)
   ;; Catch is used in low levelish code, so must avoid allocation.
@@ -278,83 +48,9 @@
          (return-from sys.int::%coerce-to-callable
            (fdefinition object)))
        (let ((fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
-         (or fn
-             (fdefinition object)))))))
-
-;; (defun eql (x y)
-;;   (or (eq x y)
-;;       (and (eq (%tag-field x) +tag-object+)
-;;            (eq (%tag-field y) +tag-object+)
-;;            (eq (%object-tag x) (%object-tag y))
-;;            (<= +first-numeric-object-tag+ (%object-tag x) +last-numeric-object-tag+)
-;;            (= x y))))
-(sys.int::define-lap-function eql ((x y))
-  "Compare X and Y."
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  ;; Check arg count.
-  (sys.lap-x86:cmp64 :rcx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:jne BAD-ARGUMENTS)
-  ;; EQ test.
-  ;; This additionally covers fixnums, characters and single-floats.
-  (sys.lap-x86:cmp64 :r8 :r9)
-  (sys.lap-x86:jne MAYBE-NUMBER-CASE)
-  ;; Objects are EQ.
-  (sys.lap-x86:mov32 :r8d t)
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret)
-  (:gc :frame)
-  MAYBE-NUMBER-CASE
-  ;; Not EQ.
-  ;; Both must be objects.
-  (sys.lap-x86:mov8 :al :r8l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
-  (sys.lap-x86:jne OBJECTS-UNEQUAL)
-  (sys.lap-x86:mov8 :al :r9l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
-  (sys.lap-x86:jne OBJECTS-UNEQUAL)
-  ;; Both are objects.
-  ;; Test that both are the same kind of object.
-  (sys.lap-x86:mov64 :rax (:object :r8 -1))
-  (sys.lap-x86:and8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:mov64 :rdx (:object :r9 -1))
-  (sys.lap-x86:and8 :dl #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:cmp8 :al :dl)
-  (sys.lap-x86:jne OBJECTS-UNEQUAL)
-  ;; They must be numbers. Characters were handled above.
-  (sys.lap-x86:sub8 :al #.(ash sys.int::+first-numeric-object-tag+
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:cmp8 :al #.(ash (- sys.int::+last-numeric-object-tag+
-                                  sys.int::+first-numeric-object-tag+)
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:ja OBJECTS-UNEQUAL)
-  ;; Both are numbers of the same type. Tail-call to generic-=.
-  ;; RCX was set to fixnum 2 on entry.
-  (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
-  (:gc :frame)
-  OBJECTS-UNEQUAL
-  ;; Objects are not EQL.
-  (sys.lap-x86:mov32 :r8d nil)
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret)
-  (:gc :frame)
-  BAD-ARGUMENTS
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2))
+         (if (sys.int::%undefined-function-p fn)
+             (fdefinition object)
+             fn))))))
 
 (in-package :sys.int)
 
@@ -362,6 +58,8 @@
   "Convert a return address to a function pointer.
 Dangerous! The return address must be kept live as a return address on a
 thread's stack if this function is called from normal code."
+  ;; Return address must be within the pinned or wired area.
+  (assert (< return-address sys.int::*pinned-area-bump*))
   ;; Walk backwards looking for an object header with a function type and
   ;; an appropriate entry point.
   (loop
@@ -381,7 +79,8 @@ thread's stack if this function is called from normal code."
                    (memref-unsigned-byte-32 (+ address 8) 0))
               (eql (logand (ash (+ address 16) -32) #xFFFFFFFF)
                    (memref-unsigned-byte-32 (+ address 12) 0)))
-         (return (%%assemble-value address sys.int::+tag-object+)))
+         (return (values (%%assemble-value address sys.int::+tag-object+)
+                         (- return-address address))))
        (decf address 16)))
 
 (defun map-function-gc-metadata (function function-to-inspect)
@@ -397,7 +96,8 @@ Arguments to FUNCTION:
  multiple-values
  incoming-arguments
  block-or-tagbody-thunk
- extra-registers"
+ extra-registers
+ restart"
   (check-type function function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
@@ -507,31 +207,76 @@ Arguments to FUNCTION:
                          (0 nil)
                          (1 :rax)
                          (2 :rax-rcx)
-                         (3 :rax-rcx-rdx))))))))
+                         (3 :rax-rcx-rdx))
+                       ;; Restart
+                       (logtest flags-and-pvr #b10000000)))))))
 
-(define-lap-function %copy-words ((destination-address source-address count))
-  "Copy COUNT words from SOURCE-ADDRESS to DESTINATION-ADDRESS.
-Source & destination must both be byte addresses."
-  (sys.lap-x86:mov64 :rdi :r8) ; Destination
-  (sys.lap-x86:mov64 :rsi :r9) ; Source
-  (sys.lap-x86:mov64 :rcx :r10) ; Count
-  (sys.lap-x86:sar64 :rdi #.+n-fixnum-bits+) ; Unbox destination
-  (sys.lap-x86:sar64 :rsi #.+n-fixnum-bits+) ; Unbox source
-  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+) ; Unbox count
-  (sys.lap-x86:rep)
-  (sys.lap-x86:movs64)
-  (sys.lap-x86:ret))
+(declaim (inline memref-t (setf memref-t)))
+(defun memref-t (base &optional (index 0))
+  (%memref-t base index))
+(defun (setf memref-t) (value base &optional (index 0))
+  (setf (%memref-t base index) value))
 
-(define-lap-function %fill-words ((destination-address value count))
-  "Store VALUE into COUNT words starting at DESTINATION-ADDRESS.
-Destination must a be byte address.
-VALUE must be an immediate value (fixnum, character, single-float, NIL or T) or
-the GC must be deferred during FILL-WORDS."
-  (sys.lap-x86:mov64 :rdi :r8) ; Destination
-  (sys.lap-x86:mov64 :rax :r9) ; Value
-  (sys.lap-x86:mov64 :rcx :r10) ; Count
-  (sys.lap-x86:sar64 :rdi #.+n-fixnum-bits+) ; Unbox destination
-  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+) ; Unbox count
-  (sys.lap-x86:rep)
-  (sys.lap-x86:stos64)
-  (sys.lap-x86:ret))
+(declaim (inline memref-unsigned-byte-8 (setf memref-unsigned-byte-8)))
+(defun memref-unsigned-byte-8 (base &optional (index 0))
+  (%memref-unsigned-byte-8 base index))
+(defun (setf memref-unsigned-byte-8) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-8 base index) value))
+
+(declaim (inline memref-unsigned-byte-16 (setf memref-unsigned-byte-16)))
+(defun memref-unsigned-byte-16 (base &optional (index 0))
+  (%memref-unsigned-byte-16 base index))
+(defun (setf memref-unsigned-byte-16) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-16 base index) value))
+
+(declaim (inline memref-unsigned-byte-32 (setf memref-unsigned-byte-32)))
+(defun memref-unsigned-byte-32 (base &optional (index 0))
+  (%memref-unsigned-byte-32 base index))
+(defun (setf memref-unsigned-byte-32) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-32 base index) value))
+
+(declaim (inline memref-unsigned-byte-64 (setf memref-unsigned-byte-64)))
+(defun memref-unsigned-byte-64 (base &optional (index 0))
+  (%memref-unsigned-byte-64 base index))
+(defun (setf memref-unsigned-byte-64) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-64 base index) value))
+
+(declaim (inline memref-signed-byte-8 (setf memref-signed-byte-8)))
+(defun memref-signed-byte-8 (base &optional (index 0))
+  (%memref-signed-byte-8 base index))
+(defun (setf memref-signed-byte-8) (value base &optional (index 0))
+  (setf (%memref-signed-byte-8 base index) value))
+
+(declaim (inline memref-signed-byte-16 (setf memref-signed-byte-16)))
+(defun memref-signed-byte-16 (base &optional (index 0))
+  (%memref-signed-byte-16 base index))
+(defun (setf memref-signed-byte-16) (value base &optional (index 0))
+  (setf (%memref-signed-byte-16 base index) value))
+
+(declaim (inline memref-signed-byte-32 (setf memref-signed-byte-32)))
+(defun memref-signed-byte-32 (base &optional (index 0))
+  (%memref-signed-byte-32 base index))
+(defun (setf memref-signed-byte-32) (value base &optional (index 0))
+  (setf (%memref-signed-byte-32 base index) value))
+
+(declaim (inline memref-signed-byte-64 (setf memref-signed-byte-64)))
+(defun memref-signed-byte-64 (base &optional (index 0))
+  (%memref-signed-byte-64 base index))
+(defun (setf memref-signed-byte-64) (value base &optional (index 0))
+  (setf (%memref-signed-byte-64 base index) value))
+
+(declaim (inline %object-ref-single-float (setf %object-ref-single-float)))
+(defun %object-ref-single-float (object index)
+  (%integer-as-single-float (%object-ref-unsigned-byte-32 object index)))
+(defun (setf %object-ref-single-float) (value object index)
+  (setf (%object-ref-unsigned-byte-32 object index)
+        (%single-float-as-integer value))
+  value)
+
+(declaim (inline %object-ref-double-float (setf %object-ref-double-float)))
+(defun %object-ref-double-float (object index)
+  (%integer-as-double-float (%object-ref-unsigned-byte-64 object index)))
+(defun (setf %object-ref-double-float) (value object index)
+  (setf (%object-ref-unsigned-byte-64 object index)
+        (%double-float-as-integer value))
+  value)

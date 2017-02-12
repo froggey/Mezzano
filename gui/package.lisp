@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.gui
@@ -53,6 +53,7 @@
            #:mouse-x-motion
            #:mouse-y-motion
            #:submit-mouse
+           #:submit-mouse-absolute
            #:global-mouse-state
            #:make-window
            #:with-window
@@ -64,9 +65,13 @@
            #:subscribe-notification
            #:unsubscribe-notification
            #:get-window-by-kind
-           #:screen-geometry-update))
+           #:screen-geometry-update
+           #:force-redisplay))
 
 (defpackage :mezzano.gui.input-drivers
+  (:use :cl))
+
+(defpackage :mezzano.gui.virtualbox-helper
   (:use :cl))
 
 (defpackage :mezzano.gui.basic-repl

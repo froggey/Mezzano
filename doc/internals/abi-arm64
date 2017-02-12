@@ -1,0 +1,33 @@
+x0   First argument, r8 (value)
+x1   Second argument, r9 (value)
+x2   Third argument, r10 (value)
+x3   Fourth argument, r11 (value)
+x4   Fifth argument, r12 (value)
+x5   Argument count, rcx (integer)
+x6   Closure environment, rbx (value)
+x7   Fref, r13 (value)
+x8   Unused
+x9   Temporary, rax (integer)
+x10  Temporary, rdx (integer)
+x11  Temporary, rsi (integer)
+x12  Temporary, rdi (integer)
+x13  Unused, r14
+x14  Unused, r15
+x15  Unused
+x16  Unused
+x17  Unused
+x18  Unused
+x18  Unused
+x20  Unused
+x21  Unused
+x22  Unused
+x23  Unused
+x24  Unused
+x25  Unused
+x26  NIL
+x27  Current CPU (value-ish)
+x28  Current thread (value-ish)
+x29  Frame pointer (integer)
+x30  Link register (integer)
+
+:extra-registers :rax indicates that the value in x9 is an interior pointer into x1

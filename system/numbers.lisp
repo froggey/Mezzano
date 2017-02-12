@@ -3,14 +3,49 @@
 
 (in-package :sys.int)
 
-(defconstant most-negative-short-float (%integer-as-single-float #xFF7FFFFF))
 (defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-negative-double-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-negative-long-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-positive-short-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant least-negative-single-float (%integer-as-single-float #x80000001))
+(defconstant least-negative-normalized-single-float (%integer-as-single-float #x80800000))
 (defconstant most-positive-single-float (%integer-as-single-float #x7F7FFFFF))
-(defconstant most-positive-double-float (%integer-as-single-float #x7F7FFFFF))
-(defconstant most-positive-long-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant least-positive-single-float (%integer-as-single-float #x00000001))
+(defconstant least-positive-normalized-single-float (%integer-as-single-float #x00800000))
+(defconstant single-float-epsilon (%integer-as-single-float #x33800001))
+(defconstant single-float-negative-epsilon (%integer-as-single-float #x33000001))
+(defconstant single-float-negative-infinity (%integer-as-single-float #xFF800000))
+(defconstant single-float-positive-infinity (%integer-as-single-float #x7F800000))
+
+(defconstant most-negative-double-float (%integer-as-double-float #xFFEFFFFFFFFFFFFF))
+(defconstant least-negative-double-float (%integer-as-double-float #x8000000000000001))
+(defconstant least-negative-normalized-double-float (%integer-as-double-float #x8010000000000000))
+(defconstant most-positive-double-float (%integer-as-double-float #x7FEFFFFFFFFFFFFF))
+(defconstant least-positive-double-float (%integer-as-double-float #x0000000000000001))
+(defconstant least-positive-normalized-double-float (%integer-as-double-float #x0010000000000000))
+(defconstant double-float-epsilon (%integer-as-double-float #x3CA0000000000001))
+(defconstant double-float-negative-epsilon (%integer-as-double-float #x3C90000000000001))
+(defconstant double-float-negative-infinity (%integer-as-double-float #xFFF0000000000000))
+(defconstant double-float-positive-infinity (%integer-as-double-float #x7FF0000000000000))
+
+(defconstant most-negative-short-float most-negative-single-float)
+(defconstant least-negative-short-float least-negative-single-float)
+(defconstant least-negative-normalized-short-float least-negative-normalized-single-float)
+(defconstant most-positive-short-float most-positive-single-float)
+(defconstant least-positive-short-float least-positive-single-float)
+(defconstant least-positive-normalized-short-float least-positive-normalized-single-float)
+(defconstant short-float-epsilon single-float-epsilon)
+(defconstant short-float-negative-epsilon single-float-negative-epsilon)
+(defconstant short-float-negative-infinity single-float-negative-infinity)
+(defconstant short-float-positive-infinity single-float-positive-infinity)
+
+(defconstant most-negative-long-float most-negative-double-float)
+(defconstant least-negative-long-float least-negative-double-float)
+(defconstant least-negative-normalized-long-float least-negative-normalized-double-float)
+(defconstant most-positive-long-float most-positive-double-float)
+(defconstant least-positive-long-float least-positive-double-float)
+(defconstant least-positive-normalized-long-float least-positive-normalized-double-float)
+(defconstant long-float-epsilon double-float-epsilon)
+(defconstant long-float-negative-epsilon double-float-negative-epsilon)
+(defconstant long-float-negative-infinity double-float-negative-infinity)
+(defconstant long-float-positive-infinity double-float-positive-infinity)
 
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)
@@ -96,7 +131,6 @@
     (t (reduce #'two-arg-gcd integers))))
 
 (define-compiler-macro gcd (&rest integers)
-  (declare (dynamic-extent integers))
   (cond ((null integers) '0)
         ((null (rest integers))
          `(abs (the integer ,(first integers))))
@@ -104,6 +138,21 @@
              (dolist (n (rest integers))
                (setf result (list 'two-arg-gcd result n)))
              result))))
+
+(defun lcm (&rest integers)
+  (cond
+    ((endp integers) 1)
+    ((endp (rest integers))
+     (check-type (first integers) integer)
+     (abs (first integers)))
+    (t (reduce #'two-arg-lcm integers))))
+
+(defun two-arg-lcm (a b)
+  (check-type a integer)
+  (check-type b integer)
+  (cond ((zerop a) b)
+        ((zerop b) a)
+        (t (/ (abs (* a b)) (gcd a b)))))
 
 (defmacro define-comparison-operator (name base type)
   `(progn (defun ,name (number &rest more-numbers)
@@ -114,10 +163,13 @@
                 (return nil))
               (setf number n)))
           (define-compiler-macro ,name (number &rest more-numbers)
-            (declare (dynamic-extent more-numbers))
             (let ((n-numbers (1+ (length more-numbers))))
               (case n-numbers
-                (1 `(progn (check-type ,number ,',type) 't))
+                (1
+                 (let ((the-number (gensym)))
+                   `(let ((,the-number ,number))
+                      (check-type ,the-number ,',type)
+                      t)))
                 (2 `(,',base ,number ,(first more-numbers)))
                 (t (let* ((all-nums (list* number more-numbers))
                           (syms (loop for i below n-numbers
@@ -145,7 +197,7 @@
     (dolist (rhs n)
       (check-type rhs number)
       (when (= lhs rhs)
-	(return-from /= nil)))))
+        (return-from /= nil)))))
 
 (define-compiler-macro /= (&whole whole number &rest more-numbers)
   (case (length more-numbers)
@@ -381,25 +433,38 @@
 (defun parse-integer (string &key (start 0) end (radix 10) junk-allowed)
   (setf end (or end (length string)))
   (let ((negativep nil)
-        (n 0))
+        (n 0)
+        (whitespace '(#\Space #\Newline #\Tab #\Linefeed #\Page #\Return)))
     ;; Eat leading/trailing whitespace.
     (do () ((or (>= start end)
-                (and (not (member (char string start) '(#\Space #\Newline #\Tab))))))
+                (and (not (member (char string start) whitespace)))))
       (incf start))
     (when (>= start end)
       (if junk-allowed
           (return-from parse-integer (values nil start))
-          (error "No non-whitespace characters in ~S." string)))
+          (error 'simple-parse-error
+                 :format-control "No non-whitespace characters in ~S."
+                 :format-arguments (list string))))
     (cond ((eql (char string start) #\+)
            (incf start))
           ((eql (char string start) #\-)
            (setf negativep t)
            (incf start)))
+    (when (>= start end)
+      (if junk-allowed
+          (return-from parse-integer (values nil start))
+          (error 'simple-parse-error
+                 :format-control "No numbers after sign in ~S."
+                 :format-arguments (list string))))
     (do ((offset start (1+ offset)))
         ((or (>= offset end)
-             (member (char string offset) '(#\Space #\Newline #\Tab)))
+             (member (char string offset) whitespace))
          (when negativep
            (setf n (- n)))
+         ;; Eat trailing whitespace
+         (do () ((or (>= offset end)
+                     (and (not (member (char string offset) whitespace)))))
+           (incf offset))
          (values n offset))
       (let ((weight (digit-char-p (char string offset) radix)))
         (when (not weight)
@@ -409,5 +474,17 @@
                             nil
                             n)
                         offset))
-              (error "Not a parseable integer ~S." string)))
+              (error 'simple-parse-error
+                     :format-control "Not a parseable integer ~S."
+                     :format-arguments (list string))))
         (setf n (+ (* n radix) weight))))))
+
+(defun logcount (integer)
+  (check-type integer integer)
+  (do ((n 0))
+      ((or (eql integer 0)
+           (eql integer -1))
+       n)
+    (when (logtest integer 1)
+      (incf n))
+    (setf integer (ash integer -1))))

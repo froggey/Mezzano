@@ -24,8 +24,59 @@
 ;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
 (setf mezzano.file-system::*home-directory* (pathname (concatenate 'string "REMOTE:" sys.int::*home-directory-path*)))
 
+(push (list "SOURCE;**;*.*.*" (merge-pathnames "**/" *default-pathname-defaults*))
+      (logical-pathname-translations "SYS"))
+
+(push (list "HOME;**;*.*.*" (merge-pathnames "**/" (user-homedir-pathname)))
+      (logical-pathname-translations "SYS"))
+
+(defun sys.int::check-connectivity ()
+  ;; Make sure that there's one network card.
+  (when (null mezzano.network.ethernet::*cards*)
+    (format t "No network cards detected!~%~
+Make sure there is a virtio-net NIC attached.~%")
+    (return-from sys.int::check-connectivity))
+  (when (not (null (rest mezzano.network.ethernet::*cards*)))
+    (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
+  (format t "Using network card ~S.~%" (first mezzano.network.ethernet::*cards*))
+  ;; Check connectivity to the file-server.
+  (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
+    (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-simple-file-port*)
+    (when (mezzano.network.ip:address-equal
+           (mezzano.network.ip:address-network fs-address 24)
+           (mezzano.network.ip:make-ipv4-address "10.0.2.0"))
+      (format t "Warning! This is on a 10/8 network and is not supported.~%"))
+    (when (mezzano.network.ip:address-equal
+           fs-address
+           (mezzano.network.ip:make-ipv4-address "127.0.0.1"))
+      (format t "Warning! This is the local loopback address, and is probably not what you want.~%"))
+    (format t "Pinging file server host... ")
+    (finish-output)
+    (cond ((mezzano.network.ip:ping-host sys.int::*file-server-host-ip* :quiet t)
+           (format t "OK!~%"))
+          (t
+           (format t "Failed! No responses received! This may not be reliable.~%"))))
+  ;; Try basic access to the file server. Just enough to talk to it.
+  (format t "Testing access to file server... ")
+  (finish-output)
+  (mezzano.file-system.remote:test-host-connectivity
+   (mezzano.file-system:find-host :remote))
+  (format t "OK!~%")
+  ;; Check connectivity to the internet.
+  (format t "Testing internet connectivity.~%")
+  (format t "Attempting to resolve google.com... ")
+  (finish-output)
+  (let ((goog (sys.net::resolve-address "google.com" nil)))
+    (cond (goog
+           (format t "OK!~%")
+           (format t "Has address ~A.~%" goog))
+          (t
+           (format t "Failed! Unable to resolve! This may not be reliable.~%")))))
+
+(sys.int::check-connectivity)
+
 ;; Local FS. Loaded from the source tree, not the home directory.
-(sys.int::cal "file/local.lisp")
+(sys.int::cal "sys:source;file;local.lisp")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
 ;; Fonts. Loaded from the home directory.
@@ -40,7 +91,7 @@
 
 ;; Icons. Loaded from the source tree.
 (ensure-directories-exist "LOCAL:>Icons>")
-(dolist (f (directory "gui/*.png"))
+(dolist (f (directory "sys:source;gui;*.png"))
   (sys.int::copy-file f
                       (merge-pathnames "LOCAL:>Icons>" f)
                       '(unsigned-byte 8)))
@@ -67,31 +118,48 @@
 ;; TCE is required for Chipz's decompressor.
 (let ((sys.c::*perform-tce* t)
       ;; Prevent extremely excessive inlining.
-      (sys.c::*constprop-lambda-copy-limit* -1))
+      (sys.c::*constprop-lambda-copy-limit* -1)
+      ;; This inhibits TCE when enabled.
+      (sys.c::*verify-special-stack* nil))
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)
 (require :swank)
+(eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
-(sys.int::cal "gui/font.lisp")
-(sys.int::cal "gui/widgets.lisp")
-(sys.int::cal "line-edit-mixin.lisp")
-(sys.int::cal "gui/popup-io-stream.lisp")
-(sys.int::cal "gui/xterm.lisp")
-(sys.int::cal "applications/telnet.lisp")
-(sys.int::cal "applications/mandelbrot.lisp")
-(sys.int::cal "applications/irc.lisp")
+(sys.int::cal "sys:source;gui;font.lisp")
+(sys.int::cal "sys:source;gui;widgets.lisp")
+(sys.int::cal "sys:source;line-edit-mixin.lisp")
+(sys.int::cal "sys:source;gui;popup-io-stream.lisp")
+(sys.int::cal "sys:source;gui;xterm.lisp")
+(sys.int::cal "sys:source;applications;telnet.lisp")
+(sys.int::cal "sys:source;applications;mandelbrot.lisp")
+(sys.int::cal "sys:source;applications;irc.lisp")
 (require :med)
-(sys.int::cal "applications/peek.lisp")
-(sys.int::cal "applications/fancy-repl.lisp")
-(sys.int::cal "gui/desktop.lisp")
-(sys.int::cal "gui/image-viewer.lisp")
-(sys.int::cal "applications/filer.lisp")
-(sys.int::cal "applications/memory-monitor.lisp")
-(sys.int::cal "file/http.lisp")
+(sys.int::cal "sys:source;applications;peek.lisp")
+(sys.int::cal "sys:source;applications;fancy-repl.lisp")
+(sys.int::cal "sys:source;gui;desktop.lisp")
+(sys.int::cal "sys:source;gui;image-viewer.lisp")
+(sys.int::cal "sys:source;applications;filer.lisp")
+(sys.int::cal "sys:source;applications;memory-monitor.lisp")
+(sys.int::cal "sys:source;file;http.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
-(setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
+(defvar sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
+
+(defvar sys.int::*init-file-path* "SYS:HOME;INIT.LISP")
+
+(defun sys.int::load-init-file ()
+  (when (and (boundp 'sys.int::*init-file-path*)
+             sys.int::*init-file-path*)
+    (handler-case (load sys.int::*init-file-path*)
+      (error (c)
+        (format t "Unable to load init file ~S: ~A.~%"
+                sys.int::*init-file-path*
+                c)))))
+
+(mezzano.supervisor:add-boot-hook 'sys.int::load-init-file :late)
+(sys.int::load-init-file)
 
 ;; Done.

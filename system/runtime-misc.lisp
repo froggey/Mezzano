@@ -23,7 +23,7 @@
 
 (defgeneric make-load-form (object &optional environment))
 
-(defun raise-undefined-function (invoked-through &rest args)
+(defun raise-undefined-function (&rest args &fref invoked-through)
   (setf invoked-through (function-reference-name invoked-through))
   ;; Allow restarting.
   ;; FIXME: Restarting doesn't actually work, as args are lost by the undefined function thunk.
@@ -54,12 +54,6 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (mezzano.supervisor:thread-name object))))
 
-(defmethod print-object ((object mezzano.supervisor::nic) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~:(~A~) ~/mezzano.network.ethernet:format-mac-address/"
-            (type-of (mezzano.supervisor::nic-device object))
-            (mezzano.supervisor:nic-mac object))))
-
 (defmethod print-object ((object mezzano.supervisor::disk) stream)
   (print-unreadable-object (object stream :identity t)
     (format stream "Disk")
@@ -85,6 +79,11 @@
       (if livep
           (format stream "pointing to ~S" value)
           (format stream "dead")))))
+
+(defmethod print-object ((o byte) stream)
+  (print-unreadable-object (o stream :type t)
+    (format stream ":Size ~D :Position ~D"
+            (byte-size o) (byte-position o))))
 
 (defmethod print-object ((object mezzano.supervisor::pci-device) stream)
   (print-unreadable-object (object stream :type t)
@@ -130,3 +129,42 @@ The file will only be recompiled if the source is newer than the output file, or
              (when (< n-elements-read buffer-size)
                (return))))))
     dest))
+
+;; FIXME: Should be a weak hash table.
+(defvar *symbol-macro-expansions* (make-hash-table))
+
+(defun symbol-macro-p (symbol)
+  (check-type symbol symbol)
+  (multiple-value-bind (expansion presentp)
+      (gethash symbol *symbol-macro-expansions*)
+    (declare (ignore expansion))
+    presentp))
+
+(defun symbol-macroexpand-1 (symbol)
+  (check-type symbol symbol)
+  (multiple-value-bind (expansion presentp)
+      (gethash symbol *symbol-macro-expansions*)
+    (cond (presentp
+           (values expansion t))
+          (t
+           (values symbol nil)))))
+
+(defun %define-symbol-macro (name expansion)
+  (check-type name symbol)
+  (when (not (member (symbol-mode name) '(nil :symbol-macro)))
+    (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode name)))
+  (setf (symbol-mode name) :symbol-macro)
+  (setf (gethash name *symbol-macro-expansions*) expansion)
+  name)
+
+(define-condition defconstant-uneql (error)
+  ((name :initarg :name :reader defconstant-uneql-name)
+   (old-value :initarg :old-value :reader defconstant-uneql-old-value)
+   (new-value :initarg :new-value :reader defconstant-uneql-new-value))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "~@<The constant ~S is being redefined (from ~S to ~S)~@:>"
+             (defconstant-uneql-name condition)
+             (defconstant-uneql-old-value condition)
+             (defconstant-uneql-new-value condition)))))

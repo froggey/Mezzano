@@ -8,6 +8,9 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
+  :depends-on (#-sbcl :iolib
+               #+sbcl :sb-bsd-sockets
+               :iterate :alexandria :cl-fad)
+  :serial t
   :components ((:file "package")
-               (:file "server" :depends-on ("package")))
-  :depends-on (#-sbcl :iolib #+sbcl :sb-bsd-sockets :iterate :alexandria :cl-fad))
+               (:file "server")))

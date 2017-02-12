@@ -79,7 +79,6 @@
   (setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
                                                              :name "Keyboard Forwarder")))
 
-
 (when (not *mouse-forwarder*)
   (setf *mouse-forwarder* (mezzano.supervisor:make-thread 'mouse-forwarder-thread
                                                           :name "Mouse Forwarder")))

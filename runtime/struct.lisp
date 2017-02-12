@@ -5,51 +5,46 @@
 
 (in-package :mezzano.runtime)
 
-(defvar sys.int::*structure-type-type* nil)
-(defvar sys.int::*structure-slot-type* nil)
+(sys.int::defglobal sys.int::*structure-type-type* nil)
+(sys.int::defglobal sys.int::*structure-slot-type* nil)
 
 (declaim (inline sys.int::structure-object-p
                  sys.int::%struct-slot
                  (setf sys.int::%struct-slot)
-                 sys.int::%cas-struct-slot))
+                 (sys.int::cas sys.int::%struct-slot)))
 
 (defun sys.int::structure-object-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-structure-object+))
 
 (defun sys.int::%struct-slot (object slot)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
   (sys.int::%object-ref-t object slot))
 
 (defun (setf sys.int::%struct-slot) (value object slot)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
   (setf (sys.int::%object-ref-t object slot) value))
-
-(defun sys.int::%cas-struct-slot (object slot old new)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
-  (sys.int::%cas-object object slot old new))
 
 (defun (sys.int::cas sys.int::%struct-slot) (old new object slot)
   (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-struct-slot object slot old new)
+      (sys.int::%cas-object object slot old new)
+    (declare (ignore successp))
     actual-value))
 
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
   (when (sys.int::structure-object-p object)
-    (do ((object-type (sys.int::%struct-slot object 0) (sys.int::structure-parent object-type)))
-        ;; Stop when the object-type stops being a structure-definition, not
-        ;; when it becomes NIL.
-        ;; This avoids a race condition in the GC when it is
-        ;; scavenging a partially initialized structure.
-        ((not (and (sys.int::structure-object-p object-type)
-                   (eql (sys.int::%struct-slot object-type 0)
-                        sys.int::*structure-type-type*)))
-         nil)
-      (when (eq object-type struct-type)
-        (return t)))))
+    (let ((ty (sys.int::%object-ref-t object 0)))
+      (if (eq ty struct-type)
+          't
+          (do ((object-type ty (sys.int::structure-parent object-type)))
+              ;; Stop when the object-type stops being a structure-definition, not
+              ;; when it becomes NIL.
+              ;; This avoids a race condition in the GC when it is
+              ;; scavenging a partially initialized structure.
+              ((not (and (sys.int::structure-object-p object-type)
+                         (eq (sys.int::%struct-slot object-type 0)
+                             sys.int::*structure-type-type*)))
+               nil)
+            (when (eq object-type struct-type)
+              (return t)))))))
 
 ;;; Manually define accessors & constructors for the structure-definition type.
 ;;; This is required because the structure-definition for structure-definition
@@ -59,8 +54,8 @@
 (defun sys.int::make-struct-definition (name slots parent area)
   (let ((x (sys.int::%make-struct 6 :wired)))
     (setf (sys.int::%struct-slot x 0) sys.int::*structure-type-type*
-	  (sys.int::%struct-slot x 1) name
-	  (sys.int::%struct-slot x 2) slots
+          (sys.int::%struct-slot x 1) name
+          (sys.int::%struct-slot x 2) slots
           (sys.int::%struct-slot x 3) parent
           (sys.int::%struct-slot x 4) area
           (sys.int::%struct-slot x 5) nil)

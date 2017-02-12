@@ -16,7 +16,7 @@ Returns the character position in *UNIFONT-BMP-DATA* and the character pixel wid
     (when (and (<= code #xFFFF)
                (zerop (char-bits c)))
       (let ((row (aref *unifont-bmp* (ldb (byte 8 8) code))))
-	(when row
+        (when row
           (let ((data (aref row (ldb (byte 8 0) code))))
             (when (logtest data #x80000000)
               (values (ldb (byte 30 0) data)

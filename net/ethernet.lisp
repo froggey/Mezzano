@@ -16,7 +16,7 @@
 
 (defun ethernet-mac (nic)
   (let ((mac (make-array 6 :element-type '(unsigned-byte 8)))
-        (mac-int (mezzano.supervisor:nic-mac nic)))
+        (mac-int (mezzano.driver.network-card:mac-address nic)))
     (dotimes (i 6)
       (setf (aref mac i) (ldb (byte 8 (* i 8)) mac-int)))
     mac))
@@ -43,13 +43,13 @@
   (loop
      (sys.int::log-and-ignore-errors
       (multiple-value-bind (packet nic)
-          (mezzano.supervisor:net-receive-packet)
+          (mezzano.driver.network-card:receive-packet)
         (receive-ethernet-packet nic packet)))))
 
 (defun ethernet-loopback (interface packet)
   ;; This is a bit hacky...
-  (mezzano.supervisor::nic-received-packet
-   (mezzano.supervisor::nic-device interface)
+  (mezzano.driver.network-card::device-received-packet
+   interface
    (let ((loopback-packet (make-array (sys.net::packet-length packet)
                                       :element-type '(unsigned-byte 8))))
      (sys.net::copy-packet loopback-packet packet)
@@ -57,11 +57,11 @@
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))
-	 (packet (cons ethernet-header packet))
-	 (source (ethernet-mac interface)))
+         (packet (cons ethernet-header packet))
+         (source (ethernet-mac interface)))
     (dotimes (i 6)
       (setf (aref ethernet-header i) (aref destination i)
-	    (aref ethernet-header (+ i 6)) (aref source i)))
+            (aref ethernet-header (+ i 6)) (aref source i)))
     (setf (ub16ref/be ethernet-header 12) ethertype)
     (cond ((equalp destination source)
            ;; Loopback, don't hit the wire.
@@ -74,4 +74,4 @@
            (transmit-packet interface packet)))))
 
 (defun transmit-packet (nic packet)
-  (mezzano.supervisor:net-transmit-packet nic packet))
+  (mezzano.driver.network-card:transmit-packet nic packet))

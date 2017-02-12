@@ -6,6 +6,8 @@
 ;;; Lower forms based on the number of values they're expected to generated.
 ;;; Either no value (for effect, not 0 values), one value or mulitple (including 0) values.
 
+(defvar *rename-list*)
+
 (defun value-aware-lowering (lambda)
   (let ((*rename-list* '()))
     (value-aware-lowering-1 lambda :single)))
@@ -20,6 +22,7 @@
      (change-made)
      (let* ((info (info form))
             (end-tag (make-instance 'go-tag
+                                    :inherit info
                                     :name 'block-end
                                     :use-count 5
                                     :tagbody info)))
@@ -29,7 +32,8 @@
                        :go-tags (list end-tag))
          (ast `(tagbody ,info
                   (entry ,body)
-                  (,end-tag 'nil))))))
+                  (,end-tag 'nil))
+              form))))
     ((:single :multiple)
      (setf (body form) (value-aware-lowering-1 (body form) mode))
      form)))
@@ -38,7 +42,7 @@
   (ecase mode
     (:effect
      (change-made)
-     (ast `(quote nil)))
+     (ast `(quote nil) form))
     ((:single :multiple)
      form)))
 
@@ -77,7 +81,8 @@
      (change-made)
      (value-aware-lowering-1
       (ast `(progn ,(value-form form)
-                   ,(body form)))
+                   ,(body form))
+           form)
       :effect))
     (:single
      ;; Replace with PROG1.
@@ -86,7 +91,8 @@
       (ast `(let ((result-value ,(value-form form)))
               (progn
                 ,(body form)
-                result-value)))
+                result-value))
+           form)
       :single))
     (:multiple
      (setf (value-form form) (value-aware-lowering-1 (value-form form) :multiple)
@@ -114,7 +120,8 @@
       (ast `(progn
               ,(value form)
               (go ,(cdr (assoc (target form) *rename-list*))
-                  ,(info form))))
+                  ,(info form)))
+           form)
       :effect))
     ((:single :multiple)
      (setf (value form) (value-aware-lowering-1 (value form)
@@ -148,7 +155,7 @@
          (change-made)
          (cond ((endp (arguments form))
                 ;; No arguments, evaluate to NIL.
-                (ast `(quote nil)))
+                (ast `(quote nil) form))
                ((endp (rest (arguments form)))
                 ;; One argument, evaluate to it.
                 (value-aware-lowering-1 (first (arguments form)) mode))
@@ -157,7 +164,8 @@
                  (ast `(let ((result-value ,(first (arguments form))))
                          (progn
                            ,@(rest (arguments form))
-                           result-value)))
+                           result-value))
+                      form)
                  mode))))
         (t
          (setf (arguments form) (loop
@@ -177,7 +185,7 @@
   (ecase mode
     (:effect
      (change-made)
-     (ast `(quote nil)))
+     (ast `(quote nil) form))
     ((:single :multiple)
      form)))
 

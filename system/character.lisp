@@ -85,56 +85,77 @@
               `(char-bit ,access-form ,btemp) ;Accessing form.
               ))))
 
+(defun character-designator-p (object)
+  (or (characterp object)
+      (and (or (stringp object)
+               (symbolp object))
+           (eql (length (string object)) 1))))
+
+(deftype character-designator ()
+  `(satisfies character-designator-p))
+
+(defun character (character-designator)
+  (cond
+    ((characterp character-designator)
+     character-designator)
+    ((and (or (stringp character-designator)
+              (symbolp character-designator))
+          (eql (length (string character-designator)) 1))
+     (char (string character-designator) 0))
+    (t (error 'type-error
+              :expected-type 'character-designator
+              :datum character-designator))))
+
 (defun char-upcase (char)
   "If CHAR is a lowercase character, the corresponding uppercase character. Otherwise, CHAR is returned unchanged."
   (let ((code (if (<= (char-code char) #x7F)
-		  (if (char<= #\a char #\z)
-		      (logand #xFFFFDF (char-code char))
-		      (char-code char))
-		  (let ((info (unicode-char-info char)))
-		    (when (and info (eql (logand info #x1800000000000) #x1000000000000))
-		      (logand (ash info -26) #x1FFFFF))))))
-    (if code
-	(%make-character code (char-bits char))
-	char)))
+                  (if (char<= #\a char #\z)
+                      (logand #xFFFFDF (char-code char))
+                      (char-code char))
+                  (when (eql (unicode-char-general-category char) :lowercase-letter)
+                    (ldb +unicode-info-othercase-code+
+                         (unicode-char-info char))))))
+    (if (and code
+             (not (eql code 0)))
+        (%make-character code (char-bits char))
+        char)))
 
 (defun char-downcase (char)
   "If CHAR is an uppercase character, the corresponding lowercase character. Otherwise, CHAR is returned unchanged."
   (let ((code (if (<= (char-code char) #x7F)
-		  (if (char<= #\A char #\Z)
-		      (logior #x20 (char-code char))
-		      (char-code char))
-		  (let ((info (unicode-char-info char)))
-		    (when (and info (eql (logand info #x1800000000000) #x0800000000000))
-		      (logand (ash info -26) #x1FFFFF))))))
-    (if code
-	(%make-character code (char-bits char))
-	char)))
+                  (if (char<= #\A char #\Z)
+                      (logior #x20 (char-code char))
+                      (char-code char))
+                  (when (eql (unicode-char-general-category char) :uppercase-letter)
+                    (ldb +unicode-info-othercase-code+
+                         (unicode-char-info char))))))
+    (if (and code
+             (not (eql code 0)))
+        (%make-character code (char-bits char))
+        char)))
 
 (defun upper-case-p (char)
   "Returns true if CHAR is an uppercase character; otherwise, false is returned."
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (char<= #\A char #\Z)
-      (let ((info (unicode-char-info char)))
-	(and info (eql (logand info #x1800000000000) #x0800000000000)))))
+      (eql (unicode-char-general-category char) :uppercase-letter)))
 
 (defun lower-case-p (char)
   "Returns true if CHAR is an lowercase character; otherwise, false is returned."
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (char<= #\a char #\z)
-      (let ((info (unicode-char-info char)))
-	(and info (eql (logand info #x1800000000000) #x1000000000000)))))
+      (eql (unicode-char-general-category char) :lowercase-letter)))
 
 (defun both-case-p (char)
   "Returns true if CHAR has case; otherwise false is returned."
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (or (char<= #\A char #\Z) (char<= #\a char #\z))
-      (let ((info (unicode-char-info char)))
-	(and info (or (eql (logand info #x1800000000000) #x0800000000000)
-		      (eql (logand info #x1800000000000) #x1000000000000))))))
+      (let ((category (unicode-char-general-category char)))
+        (or (eql category :lowercase-letter)
+            (eql category :uppercase-letter)))))
 
 (define-compiler-macro char= (&whole whole character &rest more-characters)
   (cond ((null more-characters)
@@ -193,7 +214,19 @@
     (dolist (rhs n)
       (check-type rhs character)
       (when (char= lhs rhs)
-	(return-from char/= nil)))))
+        (return-from char/= nil)))))
+
+(defun char-not-equal (character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (check-type character character)
+  (do ((lhs character (car n))
+       (n more-characters (cdr n)))
+      ((endp n)
+       t)
+    (dolist (rhs n)
+      (check-type rhs character)
+      (when (char-equal lhs rhs)
+        (return-from char-not-equal nil)))))
 
 (macrolet ((def (name comparator)
              `(defun ,name (character &rest more-characters)
@@ -222,7 +255,7 @@
   (def char-not-greaterp <=)
   (def char-not-lessp >=))
 
-(defun base-char-p (character)
+(defun latin1-char-p (character)
   (check-type character character)
   (and (zerop (char-bits character))
        (< (char-code character) 256)))
@@ -235,19 +268,50 @@
 
 (defun graphic-char-p (char)
   "Returns true if CHAR is a graphic character."
-  ;; Treat everything but the Latin1 control characters as graphic characters.
-  (and (zerop (char-bits char))
-       (not (or (<= #x00 (char-code char) #x1F)
-                (<= #x7F (char-code char) #x9F)))))
+  (when (not (zerop (char-bits char)))
+    ;; Control bits set, not graphic.
+    (return-from graphic-char-p nil))
+  ;; Fast path for ASCII.
+  (if (<= (char-code char) #x7F)
+      ;; Control characters are non-graphic.
+      (not (or (<= #x00 (char-code char) #x1F)
+               (eql (char-code char) #x7F)))
+      (member (unicode-char-general-category char)
+              '(:uppercase-letter
+                :lowercase-letter
+                :titlecase-letter
+                :modifier-letter
+                :other-letter
+                :nonspacing-mark
+                :spacing-mark
+                :enclosing-mark
+                :decimal-number
+                :letter-number
+                :other-number
+                :connector-punctuation
+                :dash-punctuation
+                :open-punctuation
+                :close-punctuation
+                :initial-punctuation
+                :final-punctuation
+                :other-punctuation
+                :math-symbol
+                :currency-symbol
+                :modifier-symbol
+                :other-symbol
+                :space-separator))))
 
 (defun alpha-char-p (char)
   "Returns true if CHAR is an alphabetic character."
   ;; Fast path for ASCII.
   (if (<= (char-code char) #x7F)
       (or (char<= #\A char #\Z) (char<= #\a char #\z))
-      ;; Assume all Unicode characters are alphabetic.
-      ;; TODO.
-      t))
+      (member (unicode-char-general-category char)
+              '(:uppercase-letter
+                :lowercase-letter
+                :titlecase-letter
+                :modifier-letter
+                :other-letter))))
 
 (defun digit-char-p (char &optional (radix 10))
   "Tests whether CHAR is a digit in the specified RADIX.
@@ -258,6 +322,12 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
       ((>= weight radix))
     (when (char= (char-upcase char) (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight))
       (return weight))))
+
+(defun digit-char (weight &optional (radix 10))
+  (check-type weight (integer 0))
+  (check-type radix (integer 2 36) "a radix")
+  (when (< weight radix)
+    (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight)))
 
 (defun alphanumericp (char)
   (or (digit-char-p char) (alpha-char-p char)))
@@ -418,12 +488,12 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
   "Returns a string that is the name of CHARACTER, or NIL if CHARACTER has no name."
   (declare (type character character))
   (let* ((code (char-code character))
-	 ;; Prioritize the CL names over the Unicode names.
-	 (name (or (cadr (assoc code *char-name-alist*))
-		   (unicode-char-name character :space-char #\_)
-		   (if (> code #xFFFF)
-		       (format nil "U~8,'0X" code)
-		       (format nil "U~4,'0X" code)))))
+         ;; Prioritize the CL names over the Unicode names.
+         (name (or (cadr (assoc code *char-name-alist*))
+                   (unicode-char-name character :space-char #\_)
+                   (if (> code #xFFFF)
+                       (format nil "U~8,'0X" code)
+                       (format nil "U~4,'0X" code)))))
     (when (char-bit character :hyper)
       (setf name (concatenate 'string "H-" name)))
     (when (char-bit character :super)
@@ -445,85 +515,90 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
 (defun name-char (name)
   "Returns the character whose name is NAME or NIL if no such character exists."
   (let ((start 0)
-	(control nil) (meta nil) (super nil) (hyper nil))
+        (control nil) (meta nil) (super nil) (hyper nil))
     ;; TODO: Allow prefixes in any order.
     (when (and (> (- (length name) start) 2)
-	       (string= "C-" name :start2 start :end2 (+ start 2)))
+               (string= "C-" name :start2 start :end2 (+ start 2)))
       (setf control t)
       (incf start 2))
     (when (and (> (- (length name) start) 2)
-	       (string= "M-" name :start2 start :end2 (+ start 2)))
+               (string= "M-" name :start2 start :end2 (+ start 2)))
       (setf meta t)
       (incf start 2))
     (when (and (> (- (length name) start) 2)
-	       (string= "S-" name :start2 start :end2 (+ start 2)))
+               (string= "S-" name :start2 start :end2 (+ start 2)))
       (setf super t)
       (incf start 2))
     (when (and (> (- (length name) start) 2)
-	       (string= "H-" name :start2 start :end2 (+ start 2)))
+               (string= "H-" name :start2 start :end2 (+ start 2)))
       (setf hyper t)
       (incf start 2))
     (when (= start (length name))
       (return-from name-char nil))
     (when (= start (1- (length name)))
       (return-from name-char (make-character (char-code (char name start))
-					     :control control
-					     :meta meta
-					     :super super
-					     :hyper hyper)))
+                                             :control control
+                                             :meta meta
+                                             :super super
+                                             :hyper hyper)))
     ;; SBCL-style Unicode notation (Java style?)
     ;; #\uXXXX or #\uXXXXXXXX
     ;; TODO: catch invalid Unicode codepoints
     (when (and (char-equal (char name start) #\U)
-	       (or (= (- (length name) start) 5) (= (- (length name) start) 9))
-	       (valid-codepoint-p name (1+ start)))
+               (or (= (- (length name) start) 5) (= (- (length name) start) 9))
+               (valid-codepoint-p name (1+ start)))
       (multiple-value-bind (value end)
-	  (parse-integer name :start (1+ start) :radix 16)
-	(when (and value (= end (length name)))
-	  (return-from name-char (make-character value
-						 :control control
-						 :meta meta
-						 :super super
-						 :hyper hyper)))))
+          (parse-integer name :start (1+ start) :radix 16)
+        (when (and value (= end (length name)))
+          (return-from name-char (make-character value
+                                                 :control control
+                                                 :meta meta
+                                                 :super super
+                                                 :hyper hyper)))))
     (dolist (names *char-name-alist*)
       (dolist (ch (cdr names))
-	(when (string-equal ch name :start2 start)
-	  (return-from name-char (make-character (car names)
-						 :control control
-						 :meta meta
-						 :super super
-						 :hyper hyper)))))
+        (when (string-equal ch name :start2 start)
+          (return-from name-char (make-character (car names)
+                                                 :control control
+                                                 :meta meta
+                                                 :super super
+                                                 :hyper hyper)))))
     (let ((codepoint (match-unicode-name name *unicode-name-trie* :start start)))
       (when codepoint
-	(return-from name-char (make-character codepoint
-					       :control control
-					       :meta meta
-					       :super super
-					       :hyper hyper))))))
+        (return-from name-char (make-character codepoint
+                                               :control control
+                                               :meta meta
+                                               :super super
+                                               :hyper hyper))))))
 
 ;;; Unicode support functions and data.
 
 (defun unicode-char-info (char)
   (let* ((code (char-code char))
-	 (plane (ash (logand #x1F0000 code) -16))
-	 (row (ash (logand #xFF00 code) -8))
-	 (cell (logand #xFF code)))
+         (plane (ash (logand #x1F0000 code) -16))
+         (row (ash (logand #xFF00 code) -8))
+         (cell (logand #xFF code)))
     (when (aref *unicode-info* plane)
       (when (aref (aref *unicode-info* plane) row)
-	(let ((info (aref (aref (aref *unicode-info* plane) row) cell)))
-	  (if (eql 0 info)
-	      nil
-	      info))))))
+        (let ((info (aref (aref (aref *unicode-info* plane) row) cell)))
+          (if (eql 0 info)
+              nil
+              info))))))
+
+(defun unicode-char-general-category (char)
+  (let ((info (unicode-char-info char)))
+    (when info
+      (unicode-general-category-decode (ldb +unicode-info-general-category+ info)))))
 
 (defun unicode-char-name (char &key (space-char #\Space))
   (let ((info (unicode-char-info char)))
     (when info
-      (let ((start (logand info #xFFFFF))
-	    (length (ash (logand info #x3F00000) -20)))
-	(decode-unicode-name *unicode-name-store* *unicode-encoding-table*
-			     :start start
-			     :end (+ start length)
-			     :space-char space-char)))))
+      (let ((start (ldb +unicode-info-name-offset+ info))
+            (length (ldb +unicode-info-name-length+ info)))
+        (decode-unicode-name *unicode-name-store* *unicode-encoding-table*
+                             :start start
+                             :end (+ start length)
+                             :space-char space-char)))))
 
 (defparameter *unicode-direct-name-codes* "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789- ")
 
@@ -532,55 +607,64 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
   (let ((name (make-array 8 :element-type 'base-char :fill-pointer 0 :adjustable t)))
     (dotimes (i (- end start))
       (let ((short (if (eql (aref encoded (+ i start)) 0)
-		       (find (aref encoded (+ (incf i) start)) encoding-table
-			     :key (lambda (x) (when (consp (car x)) (caar x))))
-		       (find (aref encoded (+ i start)) encoding-table :key #'car))))
-	(if short
-	    (dotimes (j (length (cdr short)))
-	      (if (eql (char (cdr short) j) #\Space)
-		  (vector-push-extend space-char name)
-		  (vector-push-extend (char (cdr short) j) name)))
-	    (let ((decoded-char (aref *unicode-direct-name-codes* (1- (aref encoded (+ i start))))))
-	      (if (eql decoded-char #\Space)
-		  (vector-push-extend space-char name)
-		  (vector-push-extend decoded-char name))))))
+                       (find (aref encoded (+ (incf i) start)) encoding-table
+                             :key (lambda (x) (when (consp (car x)) (caar x))))
+                       (find (aref encoded (+ i start)) encoding-table :key #'car))))
+        (if short
+            (dotimes (j (length (cdr short)))
+              (if (eql (char (cdr short) j) #\Space)
+                  (vector-push-extend space-char name)
+                  (vector-push-extend (char (cdr short) j) name)))
+            (let ((decoded-char (aref *unicode-direct-name-codes* (1- (aref encoded (+ i start))))))
+              (if (eql decoded-char #\Space)
+                  (vector-push-extend space-char name)
+                  (vector-push-extend decoded-char name))))))
     name))
 
 (defun match-unicode-name (name trie &key (start 0) end)
   "Match a character name against the Unicode name trie using the fuzzy match algorithm."
   (let ((prev-was-letter t)
-	(node 0))
+        (node 0))
     (unless end (setf end (length name)))
     (do ((i start (1+ i)))
-	((>= i end)
-	 (when (eql (logand (aref trie node) #xFC000000) #xFC000000)
-	   (let ((codepoint (logand (aref trie node) #x00FFFFFF)))
-	     (when (eql codepoint #x116C)
-	       ;; Disambiguate U+1180 HANGUL JUNGSEONG O-E
-	       ;; Skip trailing spaces.
-	       (let ((end (length name)))
-		 (do ()
-		     ((or (eql 0 end)
-			  (not (eql #\Space (char name (1- end))))))
-		   (decf end))
-		 (when (and (> end 3)
-			    (string-equal "O-E" name :start2 (- end 3) :end2 end))
-		   (setf codepoint #x1180))))
-	     codepoint)))
+        ((>= i end)
+         (when (eql (logand (aref trie node) #xFC000000) #xFC000000)
+           (let ((codepoint (logand (aref trie node) #x00FFFFFF)))
+             (when (eql codepoint #x116C)
+               ;; Disambiguate U+1180 HANGUL JUNGSEONG O-E
+               ;; Skip trailing spaces.
+               (let ((end (length name)))
+                 (do ()
+                     ((or (eql 0 end)
+                          (not (eql #\Space (char name (1- end))))))
+                   (decf end))
+                 (when (and (> end 3)
+                            (string-equal "O-E" name :start2 (- end 3) :end2 end))
+                   (setf codepoint #x1180))))
+             codepoint)))
       (flet ((advance (ch)
-	       (let ((ofs (1+ (position ch *unicode-direct-name-codes*))))
-		 (if (eql (ash (logand (aref trie (+ node ofs)) #xFC000000) -26) ofs)
-		     (setf node (logand (aref trie (+ node ofs)) #x00FFFFFF))
-		     (return-from match-unicode-name nil)))))
-	(let ((ch (char name i)))
-	  ;; Ignore spaces and medial hyphens
-	  (cond ((eql ch #\-)
-		 (unless (and prev-was-letter (not (eql (char name (1+ i)) #\Space)))
-		   (advance #\-)))
-		((or (eql ch #\Space)
-		     (eql ch #\_))
-		 (setf prev-was-letter nil))
-		((find (char-upcase ch) *unicode-direct-name-codes*)
-		 (advance (char-upcase ch))
-		 (setf prev-was-letter t))
-		(t (return-from match-unicode-name nil))))))))
+               (let ((ofs (1+ (position ch *unicode-direct-name-codes*))))
+                 (if (eql (ash (logand (aref trie (+ node ofs)) #xFC000000) -26) ofs)
+                     (setf node (logand (aref trie (+ node ofs)) #x00FFFFFF))
+                     (return-from match-unicode-name nil))))
+             (peek-next ()
+               (if (eql (1+ i) end)
+                   nil
+                   (char name (1+ i))))
+             (spacep (char)
+               (or (eql char #\Space)
+                   (eql char #\_))))
+        (let ((ch (char name i)))
+          ;; Ignore spaces and medial hyphens
+          (cond ((eql ch #\-)
+                 (when (not (or (and prev-was-letter
+                                     (not (spacep (peek-next))))
+                                (and (not prev-was-letter)
+                                     (spacep (peek-next)))))
+                   (advance #\-)))
+                ((spacep ch)
+                 (setf prev-was-letter nil))
+                ((find (char-upcase ch) *unicode-direct-name-codes*)
+                 (advance (char-upcase ch))
+                 (setf prev-was-letter t))
+                (t (return-from match-unicode-name nil))))))))

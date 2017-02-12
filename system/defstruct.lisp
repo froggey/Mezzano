@@ -11,9 +11,9 @@
 
 (defun parse-defstruct-options (name-and-options)
   (let ((name nil)
-	(suppress-constructors nil)
-	(constructors '())
-	(predicate-name t)
+        (suppress-constructors nil)
+        (constructors '())
+        (predicate-name t)
         (copier-name t)
         (area nil)
         (conc-namep t)
@@ -27,76 +27,76 @@
         (type nil)
         (named nil))
     (if (symbolp name-and-options)
-	(setf name name-and-options)
-	(progn
-	  (setf name (first name-and-options))
-	  (dolist (option (rest name-and-options))
-	    (cond
-	      ;; :constructor or (:constructor)
-	      ;; Empty option, ignored.
-	      ((or (eq :constructor option)
-		   (and (consp option)
-			(eq :constructor (first option))
-			(null (rest option)))))
-	      ;; (:constructor name)
-	      ;; A constructor with an explicit name and default argument list.
-	      ((and (consp option)
-		    (eq :constructor (first option))
-		    (cdr option)
-		    (null (cddr option)))
-	       (if (eq (second option) 'nil)
-		   ;; Disable the constructor.
-		   (setf suppress-constructors t)
-		   (push (second option) constructors)))
-	      ;; (:constructor name BOA-lambda-list)
-	      ((and (consp option)
-		    (eq :constructor (first option))
-		    (cddr option)
-		    (null (cdddr option)))
-	       (if (eq (second option) 'nil)
-		   (setf suppress-constructors t)
-		   (push (rest option) constructors)))
-	      ;; :predicate or (:predicate)
-	      ;; Empty option, ignored.
-	      ((or (eq :predicate option)
-		   (and (consp option)
-			(eq :predicate (first option))
-			(null (cdr option)))))
-	      ;; (:predicate name)
-	      ((and (consp option)
-		    (eq :predicate (car option))
-		    (cdr option)
-		    (null (cddr option)))
-	       (cond ((eq (second option) 'nil)
-		      (setf predicate-name nil))
-		     ((null predicate-name)
-		      (error "Predicate option ~S conflicts with (:predicate nil) used earlier." option))
-		     ((eq predicate-name t)
-		      (setf predicate-name (second option)))
-		     (t (error "Multiple predicate options supplied."))))
-	      ;; :copier or (:copier)
-	      ;; Empty option, ignored.
-	      ((or (eq :copier option)
-		   (and (consp option)
-			(eq :copier (first option))
-			(null (rest option)))))
-	      ;; (:copier name)
-	      ((and (consp option)
-		    (eq :copier (first option))
-		    (cdr option)
-		    (null (cddr option)))
-	       (cond ((eq (second option) 'nil)
-		      (setf copier-name nil))
-		     ((null copier-name)
-		      (error "Copier option ~S conflicts with (:copier nil) used earlier." option))
-		     ((eq copier-name t)
-		      (setf copier-name (second option)))
-		     (t (error "Multiple copier options supplied."))))
+        (setf name name-and-options)
+        (progn
+          (setf name (first name-and-options))
+          (dolist (option (rest name-and-options))
+            (cond
+              ;; :constructor or (:constructor)
+              ;; Empty option, ignored.
+              ((or (eq :constructor option)
+                   (and (consp option)
+                        (eq :constructor (first option))
+                        (null (rest option)))))
+              ;; (:constructor name)
+              ;; A constructor with an explicit name and default argument list.
+              ((and (consp option)
+                    (eq :constructor (first option))
+                    (cdr option)
+                    (null (cddr option)))
+               (if (eq (second option) 'nil)
+                   ;; Disable the constructor.
+                   (setf suppress-constructors t)
+                   (push (second option) constructors)))
+              ;; (:constructor name BOA-lambda-list)
+              ((and (consp option)
+                    (eq :constructor (first option))
+                    (cddr option)
+                    (null (cdddr option)))
+               (if (eq (second option) 'nil)
+                   (setf suppress-constructors t)
+                   (push (rest option) constructors)))
+              ;; :predicate or (:predicate)
+              ;; Empty option, ignored.
+              ((or (eq :predicate option)
+                   (and (consp option)
+                        (eq :predicate (first option))
+                        (null (cdr option)))))
+              ;; (:predicate name)
+              ((and (consp option)
+                    (eq :predicate (car option))
+                    (cdr option)
+                    (null (cddr option)))
+               (cond ((eq (second option) 'nil)
+                      (setf predicate-name nil))
+                     ((null predicate-name)
+                      (error "Predicate option ~S conflicts with (:predicate nil) used earlier." option))
+                     ((eq predicate-name t)
+                      (setf predicate-name (second option)))
+                     (t (error "Multiple predicate options supplied."))))
+              ;; :copier or (:copier)
+              ;; Empty option, ignored.
+              ((or (eq :copier option)
+                   (and (consp option)
+                        (eq :copier (first option))
+                        (null (rest option)))))
+              ;; (:copier name)
+              ((and (consp option)
+                    (eq :copier (first option))
+                    (cdr option)
+                    (null (cddr option)))
+               (cond ((eq (second option) 'nil)
+                      (setf copier-name nil))
+                     ((null copier-name)
+                      (error "Copier option ~S conflicts with (:copier nil) used earlier." option))
+                     ((eq copier-name t)
+                      (setf copier-name (second option)))
+                     (t (error "Multiple copier options supplied."))))
               ;; (:area name)
               ((and (consp option)
-		    (eq :area (first option))
-		    (cdr option)
-		    (null (cddr option)))
+                    (eq :area (first option))
+                    (cdr option)
+                    (null (cddr option)))
                (setf area (second option)))
               ;; :conc-name, same as (:conc-name nil). no prefix.
               ((eql option :conc-name)
@@ -156,42 +156,42 @@
                                 (eql (first type) 'vector)
                                 (= (length type) 2)))
                  (error "Invalid :TYPE option ~S.%" option)))
-	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
+              (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
             (if conc-namep
                 (intern (string (or conc-name
                                     (concat-symbols name '-))))
                 (make-symbol ""))
-	    (cond
-	      ;; No constructor.
-	      (suppress-constructors
-	       (when constructors
-		 (error "Constructor options supplied conflict with (:constructor nil)."))
-	       '())
-	      ;; Explicit constructors.
-	      (constructors)
-	      ;; Default constructor.
-	      (t (list (concat-symbols 'make- name))))
-	    (cond
-	      ;; No predicate.
-	      ((null predicate-name)
-	       nil)
-	      ;; Default predicate.
-	      ((eq predicate-name 't)
+            (cond
+              ;; No constructor.
+              (suppress-constructors
+               (when constructors
+                 (error "Constructor options supplied conflict with (:constructor nil)."))
+               '())
+              ;; Explicit constructors.
+              (constructors)
+              ;; Default constructor.
+              (t (list (concat-symbols 'make- name))))
+            (cond
+              ;; No predicate.
+              ((null predicate-name)
+               nil)
+              ;; Default predicate.
+              ((eq predicate-name 't)
                (when (or (null type) named)
                  (concat-symbols name '-p)))
-	      ;; Explicit predicate.
-	      (t predicate-name))
+              ;; Explicit predicate.
+              (t predicate-name))
             area
-	    (cond
-	      ;; No copier.
-	      ((null copier-name)
-	       nil)
-	      ;; Default copier.
-	      ((eq copier-name 't)
-	       (concat-symbols 'copy- name))
-	      ;; Explicit copier.
-	      (t copier-name))
+            (cond
+              ;; No copier.
+              ((null copier-name)
+               nil)
+              ;; Default copier.
+              ((eq copier-name 't)
+               (concat-symbols 'copy- name))
+              ;; Explicit copier.
+              (t copier-name))
             included-structure-name included-slot-descriptions
             print-object print-function print-object-specializer
             named type)))
@@ -208,7 +208,7 @@
 (defun generate-simple-defstruct-constructor (struct-type name area)
   (let ((tmp (gensym)))
     `(defun ,name (&key ,@(when (eql area 't)
-                            (list 'area))
+                                (list 'area))
                      ,@(mapcar (lambda (slot)
                                  (list (structure-slot-name slot) (structure-slot-initform slot)))
                                (structure-slots struct-type)))
@@ -216,13 +216,13 @@
                                  ,(if (eql area 't)
                                       'area
                                       `',area))))
-	 (setf (%struct-slot ,tmp 0) ',struct-type)
-	 ,@(let ((n 0))
-	     (mapcar (lambda (slot)
-		       (setf n (1+ n))
-		       `(setf (%struct-slot ,tmp ,n) ,(structure-slot-name slot)))
-		     (structure-slots struct-type)))
-	 ,tmp))))
+         (setf (%struct-slot ,tmp 0) ',struct-type)
+         ,@(let ((n 0))
+                (mapcar (lambda (slot)
+                          (setf n (1+ n))
+                          `(setf (%struct-slot ,tmp ,n) ,(structure-slot-name slot)))
+                        (structure-slots struct-type)))
+         ,tmp))))
 
 (defun generate-defstruct-constructor (struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -230,14 +230,14 @@
     (declare (ignore enable-keys allow-other-keys))
     ;; Pick out the slot names and compute the slots without a lambda variable
     (let* ((assigned-slots (append required
-				   (mapcar #'first optional)
-				   (remove 'nil (mapcar #'third optional))
-				   (when rest (list rest))
-				   (mapcar #'cadar keys)
-				   (remove 'nil (mapcar #'third keys))
-				   (mapcar #'first aux)))
-	   (default-slots (set-difference (mapcar #'structure-slot-name (structure-slots struct-type)) assigned-slots))
-	   (tmp (gensym)))
+                                   (mapcar #'first optional)
+                                   (remove 'nil (mapcar #'third optional))
+                                   (when rest (list rest))
+                                   (mapcar #'cadar keys)
+                                   (remove 'nil (mapcar #'third keys))
+                                   (mapcar #'first aux)))
+           (default-slots (set-difference (mapcar #'structure-slot-name (structure-slots struct-type)) assigned-slots))
+           (tmp (gensym)))
       `(defun ,name ,lambda-list
          (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
            (setf (%struct-slot ,tmp 0) ',struct-type)
@@ -263,13 +263,13 @@
     (declare (ignore enable-keys allow-other-keys))
     ;; Pick out the slot names and compute the slots without a lambda variable
     (let* ((assigned-slots (append required
-				   (mapcar #'first optional)
-				   (remove 'nil (mapcar #'third optional))
-				   (when rest (list rest))
-				   (mapcar #'cadar keys)
-				   (remove 'nil (mapcar #'third keys))
-				   (mapcar #'first aux)))
-	   (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
+                                   (mapcar #'first optional)
+                                   (remove 'nil (mapcar #'third optional))
+                                   (when rest (list rest))
+                                   (mapcar #'cadar keys)
+                                   (remove 'nil (mapcar #'third keys))
+                                   (mapcar #'first aux)))
+           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
       `(defun ,name ,lambda-list
          (list ,@(when leader-name (list `',leader-name))
                ,@(mapcar (lambda (s)
@@ -291,13 +291,13 @@
     (declare (ignore enable-keys allow-other-keys))
     ;; Pick out the slot names and compute the slots without a lambda variable
     (let* ((assigned-slots (append required
-				   (mapcar #'first optional)
-				   (remove 'nil (mapcar #'third optional))
-				   (when rest (list rest))
-				   (mapcar #'cadar keys)
-				   (remove 'nil (mapcar #'third keys))
-				   (mapcar #'first aux)))
-	   (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
+                                   (mapcar #'first optional)
+                                   (remove 'nil (mapcar #'third optional))
+                                   (when rest (list rest))
+                                   (mapcar #'cadar keys)
+                                   (remove 'nil (mapcar #'third keys))
+                                   (mapcar #'first aux)))
+           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
       `(defun ,name ,lambda-list
          (vector ,@(when leader-name (list `',leader-name))
                  ,@(mapcar (lambda (s)
@@ -307,79 +307,89 @@
                            slots))))))
 
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
-  (when included-slot-descriptions
-    (error "Included slot-descriptions not supported yet."))
-  (mapcar (lambda (s)
-            (parse-defstruct-slot conc-name s))
-          (append (when included-structure
-                    (mapcar (lambda (x)
-                              (list (structure-slot-name x)
-                                    (structure-slot-initform x)
-                                    :type (structure-slot-type x)
-                                    :read-only (structure-slot-read-only x)))
-                            (structure-slots included-structure)))
-                  slot-descriptions)))
+  (let ((included-slots (when included-structure
+                          (mapcar (lambda (x)
+                                    (list (structure-slot-name x)
+                                          (structure-slot-initform x)
+                                          :type (structure-slot-type x)
+                                          :read-only (structure-slot-read-only x)))
+                                  (structure-slots included-structure)))))
+    (dolist (is included-slot-descriptions)
+      (let* ((slot-name (first is))
+             (def (assoc slot-name included-slots)))
+        (assert def () "Included slot definition ~S refers to unknown slot ~S."
+                is slot-name)
+        (when (rest is)
+          (setf (second def) (second is)))))
+    (mapcar (lambda (s)
+              (parse-defstruct-slot conc-name s))
+            (append included-slots
+                    slot-descriptions))))
 
 (defmacro check-struct-type (place struct-type)
   (let ((value (gensym))
         (struct-type-sym (gensym "struct-type")))
-    ;; FIXME: Place evaluation.
-    `(do ((,value ,place ,place)
-          (,struct-type-sym ,struct-type))
-	 ((structure-type-p ,value ,struct-type-sym))
-       (setf ,place (check-type-error ',place ,value (structure-name ,struct-type-sym) nil)))))
+    `(let ((,value ,place)
+           (,struct-type-sym ,struct-type))
+       (when (not (and (structure-object-p ,value)
+                       (or (eql (%struct-slot ,value 0) ,struct-type-sym)
+                           (structure-type-p ,value ,struct-type-sym))))
+         (raise-type-error ,value (structure-name ,struct-type-sym))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer)
-    (let* ((included-structure (when included-structure-name
-                                 (get-structure-type included-structure-name)))
-           (slots (compute-defstruct-slots conc-name
-                                           slot-descriptions
-                                           included-structure
-                                           included-slot-descriptions))
-	   (struct-type (or (get name 'structure-type)
-                            (make-struct-definition name slots included-structure area))))
-      `(progn
-	 (eval-when (:compile-toplevel :load-toplevel :execute)
-	   (%defstruct ',struct-type))
-	 ,@(when predicate
-	      (list `(defun ,predicate (object)
-                       (structure-type-p object ',struct-type))))
-         ,@(when copier
-             (list `(defun ,copier (object)
-                      (check-type object ,name)
-                      (copy-structure object))))
-         ,@(when print-object
-             (list `(defmethod print-object ((object ,name) stream)
-                      (funcall (function ,print-object) object stream))))
-         ,@(when print-function
-             (list `(defmethod print-object ((object ,name) stream)
-                      (funcall (function ,print-function) object stream 0))))
-	 ,@(let ((n 0))
-	     (mapcar (lambda (s)
-		       (setf n (1+ n))
-		       `(progn
-			  (defun ,(structure-slot-accessor s) (object)
-                            (check-struct-type object ',struct-type)
-			    (the ,(structure-slot-type s) (%struct-slot (the ,name object) ,n)))
-			  ,@(unless (structure-slot-read-only s)
-			      (list `(defun (setf ,(structure-slot-accessor s)) (new-value object)
-                                       (check-struct-type object ',struct-type)
-				       (setf (%struct-slot (the ,name object) ,n)
-                                             (the ,(structure-slot-type s) new-value)))
-                                    `(defun (cas ,(structure-slot-accessor s)) (old new object)
-                                       (check-struct-type object ',struct-type)
-				       (cas (%struct-slot (the ,name object) ,n)
-                                            (the ,(structure-slot-type s) old)
-                                            (the ,(structure-slot-type s) new)))))))
-		     slots))
-	 ,@(mapcar (lambda (x)
-		     (if (symbolp x)
-			 (generate-simple-defstruct-constructor struct-type x area)
-			 (generate-defstruct-constructor struct-type (first x) (second x) area)))
-		   constructors)
-	 ',name)))
+  (let* ((included-structure (when included-structure-name
+                               (get-structure-type included-structure-name)))
+         (slots (compute-defstruct-slots conc-name
+                                         slot-descriptions
+                                         included-structure
+                                         included-slot-descriptions))
+         (struct-type (or (get name 'structure-type)
+                          (make-struct-definition name slots included-structure area))))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (%defstruct ',struct-type))
+       ,@(when predicate
+               (list `(defun ,predicate (object)
+                        (structure-type-p object ',struct-type))))
+       ,@(when copier
+               (list `(defun ,copier (object)
+                        (check-type object ,name)
+                        (copy-structure object))))
+       ,@(when print-object
+               (list `(defmethod print-object ((object ,name) stream)
+                        (funcall (function ,print-object) object stream))))
+       ,@(when print-function
+               (list `(defmethod print-object ((object ,name) stream)
+                        (funcall (function ,print-function) object stream 0))))
+       ,@(let ((n 0))
+              (mapcar (lambda (s)
+                        (setf n (1+ n))
+                        `(progn
+                           (declaim (inline ,(structure-slot-accessor s)))
+                           (defun ,(structure-slot-accessor s) (object)
+                             (check-struct-type object ',struct-type)
+                             (the ,(structure-slot-type s) (%struct-slot (the ,name object) ,n)))
+                           ,@(unless (structure-slot-read-only s)
+                                     (list `(declaim (inline (setf ,(structure-slot-accessor s))))
+                                           `(defun (setf ,(structure-slot-accessor s)) (new-value object)
+                                              (check-struct-type object ',struct-type)
+                                              (setf (%struct-slot (the ,name object) ,n)
+                                                    (the ,(structure-slot-type s) new-value)))
+                                           `(declaim (inline (cas ,(structure-slot-accessor s))))
+                                           `(defun (cas ,(structure-slot-accessor s)) (old new object)
+                                              (check-struct-type object ',struct-type)
+                                              (cas (%struct-slot (the ,name object) ,n)
+                                                   (the ,(structure-slot-type s) old)
+                                                   (the ,(structure-slot-type s) new)))))))
+                      slots))
+       ,@(mapcar (lambda (x)
+                   (if (symbolp x)
+                       (generate-simple-defstruct-constructor struct-type x area)
+                       (generate-defstruct-constructor struct-type (first x) (second x) area)))
+                 constructors)
+       ',name)))
 
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                 included-structure-name included-slot-descriptions

@@ -2,37 +2,87 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :cold-generator
-  (:use :cl :iterate :nibbles))
+  (:use :cl :iterate :nibbles)
+  (:export #:make-image
+           #:allocate
+           #:word
+           #:array-header
+           #:make-value
+           #:function-reference
+           #:symbol-address
+           #:cold-symbol-value
+           #:compile-lap-function
+           #:set-up-cross-compiler))
+
+(defpackage :cold-generator.x86-64
+  (:use :cl :cold-generator)
+  (:export #:*undefined-function-thunk*
+           #:*closure-trampoline*
+           #:*funcallable-instance-trampoline*
+           #:create-low-level-interrupt-support))
+
+(defpackage :cold-generator.arm64
+  (:use :cl :cold-generator)
+  (:export #:*undefined-function-thunk*
+           #:*closure-trampoline*
+           #:*funcallable-instance-trampoline*))
 
 (in-package :cold-generator)
 
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
-    "supervisor/cpu.lisp"
+    ("supervisor/x86-64/cpu.lisp" :x86-64)
+    ("supervisor/arm64/cpu.lisp" :arm64)
     "supervisor/interrupts.lisp"
+    ("supervisor/x86-64/interrupts.lisp" :x86-64)
+    ("supervisor/arm64/interrupts.lisp" :arm64)
+    ("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
-    "supervisor/serial.lisp"
+    ("supervisor/serial.lisp" :x86-64)
+    ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
+    "supervisor/partition.lisp"
     "supervisor/ata.lisp"
     "supervisor/ahci.lisp"
+    "supervisor/cdrom.lisp"
     "supervisor/thread.lisp"
+    ("supervisor/x86-64/thread.lisp" :x86-64)
+    ("supervisor/arm64/thread.lisp" :arm64)
+    "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
+    ("supervisor/x86-64/snapshot.lisp" :x86-64)
+    ("supervisor/arm64/snapshot.lisp" :arm64)
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
+    ("supervisor/x86-64/pager.lisp" :x86-64)
+    ("supervisor/arm64/pager.lisp" :arm64)
     "supervisor/time.lisp"
+    ("supervisor/x86-64/time.lisp" :x86-64)
+    ("supervisor/arm64/time.lisp" :arm64)
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
     "supervisor/virtio.lisp"
-    "supervisor/virtio-net.lisp"
+    "supervisor/virtio-pci.lisp"
+    "supervisor/virtio-mmio.lisp"
+    "supervisor/virtio-block.lisp"
+    "supervisor/virtio-input.lisp"
+    "supervisor/virtio-gpu.lisp"
+    "supervisor/virtualbox.lisp"
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"
-    "supervisor/rtl8168.lisp"
     "supervisor/acpi.lisp"
+    "supervisor/efi.lisp"
+    ("supervisor/x86-64/platform.lisp" :x86-64)
+    ("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
+    ("runtime/runtime-x86-64.lisp" :x86-64)
+    ("runtime/runtime-arm64.lisp" :arm64)
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
+    ("runtime/float-x86-64.lisp" :x86-64)
+    ("runtime/float-arm64.lisp" :arm64)
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
@@ -40,8 +90,9 @@
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
+    "system/data-types.lisp"
     "system/defstruct.lisp"
-    "system/early-cons.lisp"
+    "system/cons.lisp"
     "system/sequence.lisp"
     "system/runtime-array.lisp"
     "system/array.lisp"
@@ -54,31 +105,33 @@
     "system/string.lisp"
     "system/hash-table.lisp"
     "system/runtime-numbers.lisp"
+    ("system/bignum-x86-64.lisp" :x86-64)
+    ("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
-    "system/data-types.lisp"
     "system/gc.lisp"
     "system/room.lisp"
     "system/reader.lisp"
     "system/character.lisp"
     "system/backquote.lisp"
     "system/format.lisp"
-    "system/cons-compiler-macros.lisp"
     "system/defmacro.lisp"
     "system/basic-macros.lisp"
     "system/parse.lisp"
-    "system/describe.lisp"
     "system/load.lisp"
     "system/time.lisp"
-    "system/profiler.lisp"
 ))
 
 (defparameter *special-source-files*
   '(("system/packages.lisp" sys.int::*package-system*)))
 
 (defparameter *warm-source-files*
-  '("system/clos-package.lisp"
-    "system/single-dispatch-emf-table.lisp"
-    "system/closette.lisp"
+  '("system/clos/package.lisp"
+    "system/clos/macros.lisp"
+    "system/clos/single-dispatch-emf-table.lisp"
+    "system/clos/boot.lisp"
+    "system/clos/closette.lisp"
+    "system/clos/method-combination.lisp"
+    "system/describe.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
     "system/restarts.lisp"
@@ -91,11 +144,14 @@
     "system/stream.lisp"
     "system/ansi-loop.lisp"
     "system/environment.lisp"
-    "system/pprint.lisp"
     "compiler/package.lisp"
-    "lap.lisp"
-    "lap-x86.lisp"
+    "compiler/lap.lisp"
+    "compiler/lap-x86.lisp"
+    "compiler/lap-arm64.lisp"
     "compiler/compiler.lisp"
+    "compiler/environment.lisp"
+    "compiler/global-environment.lisp"
+    "compiler/ast.lisp"
     "compiler/ast-generator.lisp"
     "compiler/pass1.lisp"
     "compiler/constprop.lisp"
@@ -103,29 +159,53 @@
     "compiler/lift.lisp"
     "compiler/inline.lisp"
     "compiler/kill-temps.lisp"
-    "compiler/codegen.lisp"
-    "compiler/builtins/builtins.lisp"
-    "compiler/builtins/array.lisp"
-    "compiler/builtins/character.lisp"
-    "compiler/builtins/cons.lisp"
-    "compiler/builtins/memory.lisp"
-    "compiler/builtins/misc.lisp"
-    "compiler/builtins/numbers.lisp"
-    "compiler/builtins/objects.lisp"
-    "compiler/builtins/symbols.lisp"
-    "compiler/builtins/unwind.lisp"
+    "compiler/keyword-arguments.lisp"
+    "compiler/simplify-arguments.lisp"
+    "compiler/codegen-x86-64.lisp"
+    "compiler/builtins-x86-64/builtins.lisp"
+    "compiler/builtins-x86-64/array.lisp"
+    "compiler/builtins-x86-64/character.lisp"
+    "compiler/builtins-x86-64/cons.lisp"
+    "compiler/builtins-x86-64/memory.lisp"
+    "compiler/builtins-x86-64/misc.lisp"
+    "compiler/builtins-x86-64/numbers.lisp"
+    "compiler/builtins-x86-64/objects.lisp"
+    "compiler/builtins-x86-64/unwind.lisp"
     "compiler/branch-tension.lisp"
+    "compiler/codegen-arm64.lisp"
+    "compiler/builtins-arm64/builtins.lisp"
+    "compiler/builtins-arm64/cons.lisp"
+    "compiler/builtins-arm64/memory.lisp"
+    "compiler/builtins-arm64/misc.lisp"
+    "compiler/builtins-arm64/numbers.lisp"
+    "compiler/builtins-arm64/objects.lisp"
+    "compiler/builtins-arm64/unwind.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"
     "compiler/simplify-control-flow.lisp"
+    "compiler/transforms.lisp"
     "system/file-compiler.lisp"
+    "system/xp-package.lisp"
+    "system/xp.lisp"
+    "system/xp-format.lisp"
+    "system/xp-printers.lisp"
+    "system/profiler.lisp"
+    "drivers/network-card.lisp"
+    "drivers/virtio-net.lisp"
+    "drivers/rtl8168.lisp"
+    "drivers/intel-hda.lisp"
     "gui/package.lisp"
     "gui/colour.lisp"
     "gui/surface.lisp"
     "gui/blit.lisp"
+    ("gui/blit-x86-64.lisp" :x86-64)
+    ("gui/blit-generic.lisp" :arm64)
+    "gui/keymaps.lisp"
     "gui/compositor.lisp"
-    "gui/input-drivers.lisp"
+    ("gui/input-drivers.lisp" :x86-64)
+    ("gui/input-drivers-virtio.lisp" :arm64)
+    ("gui/virtualbox-guest-helper.lisp" :x86-64)
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
     "net/package.lisp"
@@ -157,43 +237,12 @@
         (format t "~A is out of date will be recompiled.~%" llf-path)
         (sys.c::cross-compile-file file)))))
 
-;; FIXME! Save args.
-(defparameter *undefined-function-thunk*
-  `(;; Pass invoked-through as the first argument.
-    (sys.lap-x86:mov64 :r8 :r13)
-    (sys.lap-x86:mov32 :ecx ,(ash 1 sys.int::+n-fixnum-bits+))
-    ;; Tail call through to RAISE-UNDEFINED-FUNCTION and let that
-    ;; handle the heavy work.
-    (sys.lap-x86:mov64 :r13 (:function sys.int::raise-undefined-function))
-    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
-                               8
-                               (* sys.int::+fref-entry-point+ 8)))))
-  "Code for the undefined function thunk.")
-
-(defparameter *closure-trampoline*
-  `(;; Load the real function from the fref.
-    (sys.lap-x86:mov64 :rbx (:object :r13 ,sys.int::+fref-function+))
-    ;; Invoke the real function via the FUNCTION calling convention.
-    ;; This will work even if the fref was altered or made funbound.
-    ;; (SETF FUNCTION-REFERENCE-FUNCTION) will set the function to the
-    ;; undefined-function thunk in that case, so everything works fine.
-    (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
-  "Trampoline used for calling a closure or funcallable-instance via an fref.")
-
-(defparameter *funcallable-instance-trampoline*
-  `(;; Load the real function from the funcallable-instance.
-    (sys.lap-x86:mov64 :rbx (:object :rbx ,sys.int::+funcallable-instance-function+))
-    ;; Invoke the real function via the FUNCTION calling convention.
-    (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
-  "Trampoline used for calling a closure or funcallable-instance via a funcallable-instance.")
-
 (defvar *symbol-table*)
 (defvar *reverse-symbol-table*)
 ;; Hash-table mapping function names to function references.
 (defvar *fref-table*)
 (defvar *struct-table*)
 (defvar *unbound-value-address*)
-(defvar *unbound-tls-slot-address*)
 (defvar *undefined-function-address*)
 (defvar *closure-trampoline-address*)
 (defvar *f-i-trampoline-address*)
@@ -337,20 +386,27 @@
       (area-for-address address)
     (ub64ref/le data-vector (* offset 8))))
 
+(defun assemble (code-list &rest args)
+  (let ((sys.lap:*function-reference-resolver* #'sys.c::resolve-fref))
+    (ecase sys.c::*target-architecture*
+      (:x86-64
+       (apply #'sys.lap-x86:assemble code-list args))
+      (:arm64
+       (apply #'mezzano.lap.arm64:assemble code-list args)))))
+
 (defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t) (name 'sys.int::support-function))
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (let ((base-address (if position-independent
                           0
                           *wired-area-bump*)))
     (multiple-value-bind (mc constants fixups symbols gc-info)
-        (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
-          (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
-            :base-address base-address
-            :initial-symbols (list* '(nil . :fixup)
-                                    '(t . :fixup)
-                                    extra-symbols)
-            ;; Name & debug info.
-            :info (list name nil)))
+        (assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
+          :base-address base-address
+          :initial-symbols (list* '(nil . :fixup)
+                                  '(t . :fixup)
+                                  extra-symbols)
+          ;; Name & debug info.
+          :info (list name nil))
       (declare (ignore symbols))
       (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
       (let ((total-size (+ (* (truncate (length mc) 16) 2)
@@ -454,21 +510,27 @@
         address)))
 
 (defun allocate-symbol (name package)
-  (let ((address (allocate 6 :wired)))
+  (let ((address (allocate 8 :wired)))
     (setf (gethash address *reverse-symbol-table*) (cons name package)
           (gethash (cons name package) *symbol-table*) address)
     address))
 
 (defun populate-symbol (address name package value &optional is-constant)
-  (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
-                                           (if is-constant
-                                               (ash sys.int::+symbol-mode-constant+ sys.int::+symbol-header-mode-position+)
-                                               0)) ; flags & header
-        (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
-        (word (+ address 2)) (vsym package) ; package
-        (word (+ address 3)) value ; value
-        (word (+ address 4)) (vsym nil) ; function
-        (word (+ address 5)) (vsym nil))) ; plist
+  (let ((global-cell (allocate 4 :wired)))
+    (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
+                                             (if is-constant
+                                                 (ash sys.int::+symbol-mode-constant+ (cross-cl:byte-position sys.int::+symbol-header-mode+))
+                                                 0)) ; flags & header
+          (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
+          (word (+ address 2)) (vsym package) ; package
+          (word (+ address 3)) (make-value global-cell sys.int::+tag-object+) ; value
+          (word (+ address 4)) (vsym nil) ; function
+          (word (+ address 5)) (vsym nil) ; plist
+          (word (+ address 6)) (vsym t)) ;type
+    (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
+          (word (+ global-cell 1)) (vsym nil)
+          (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
+          (word (+ global-cell 3)) value)))
 
 (defun populate-structure-definition (address name slots parent area)
   (setf (word (+ address 0)) (array-header sys.int::+object-tag-structure-object+ 6)
@@ -499,12 +561,22 @@
   (setf *unbound-value-address* (allocate 2 :wired))
   (setf (word *unbound-value-address*) (array-header sys.int::+object-tag-unbound-value+ 0))
   (format t "UBV at word ~X~%" *unbound-value-address*)
-  (setf *unbound-tls-slot-address* (allocate 2 :wired))
-  (setf (word *unbound-tls-slot-address*) (array-header sys.int::+object-tag-unbound-value+ 1))
   ;; Create trampoline functions.
-  (setf *undefined-function-address* (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline)
-        *closure-trampoline-address* (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline)
-        *f-i-trampoline-address* (compile-lap-function *funcallable-instance-trampoline* :area :wired :name 'sys.int::%%funcallable-instance-trampoline))
+  (setf *undefined-function-address* (compile-lap-function (ecase sys.c::*target-architecture*
+                                                             (:x86-64 cold-generator.x86-64:*undefined-function-thunk*)
+                                                             (:arm64 cold-generator.arm64:*undefined-function-thunk*))
+                                                           :area :wired
+                                                           :name 'sys.int::%%undefined-function-trampoline)
+        *closure-trampoline-address* (compile-lap-function (ecase sys.c::*target-architecture*
+                                                             (:x86-64 cold-generator.x86-64:*closure-trampoline*)
+                                                             (:arm64 cold-generator.arm64:*closure-trampoline*))
+                                                           :area :wired
+                                                           :name 'sys.int::%%closure-trampoline)
+        *f-i-trampoline-address* (compile-lap-function (ecase sys.c::*target-architecture*
+                                                         (:x86-64 cold-generator.x86-64:*funcallable-instance-trampoline*)
+                                                         (:arm64 cold-generator.arm64:*funcallable-instance-trampoline*))
+                                                       :area :wired
+                                                       :name 'sys.int::%%funcallable-instance-trampoline))
   (format t "UDF at word ~X~%" *undefined-function-address*)
   ;; And finally the initial structure definitions.
   (setf *structure-definition-definition* (allocate 7 :wired)
@@ -573,9 +645,7 @@
            (let* ((next-block *store-bump*))
              (incf *store-bump* #x1000)
              (write-block-map s image-offset next-block e)
-             (setf (nibbles:ub64ref/le data (* i 8)) (logior (ash (/ next-block #x1000) sys.int::+block-map-id-shift+)
-                                                             sys.int::+block-map-present+
-                                                             sys.int::+block-map-writable+))))
+             (setf (nibbles:ub64ref/le data (* i 8)) (ash (/ next-block #x1000) sys.int::+block-map-id-shift+))))
           ((unsigned-byte 64)
            ;; Value.
            (setf (nibbles:ub64ref/le data (* i 8)) e)))))
@@ -588,7 +658,8 @@
       (read-sequence data s)
       data)))
 
-(defun write-image (s entry-fref initial-thread image-size header-path)
+(defun write-image (s entry-fref initial-thread image-size header-path uuid)
+  (format t "Writing image file to ~A.~%" (namestring s))
   (let* ((image-header-data (when header-path
                               (load-image-header header-path)))
          (image-offset (if image-header-data
@@ -602,7 +673,7 @@
       ;; When a header is used, a full disk image is being created, not
       ;; a stand-alone image.
       ;; Set a reasonably sensible default image size if none was provided.
-      (setf image-size (* 256 1024 1024)))
+      (setf image-size (* 512 1024 1024)))
     (when image-size
       (decf image-size image-offset)
       (format t "Generating ~:D byte image.~%" image-size))
@@ -612,8 +683,8 @@
     (format t "FBL  at offset ~X~%" free-block-list)
     (when image-header-data
       (write-sequence image-header-data s)
-      ;; Update the size of the second partition entry, the Mezzano partiton.
-      (file-position s #x1DA)
+      ;; Update the size of the third partition entry, the Mezzano partiton.
+      (file-position s #x1EA)
       (nibbles:write-ub32/le (truncate image-size 512) s))
     (incf *store-bump* #x2000)
     (when image-size
@@ -626,17 +697,11 @@
       (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
                :start1 0)
       ;; UUID.
-      (dotimes (i 16)
-        (setf (aref header (+ 16 i)) (case i
-                                       (9 (logior #x40 (random 16)))
-                                       (7 (logior (random 64) #x80))
-                                       (t (random 256)))))
+      (replace header uuid :start1 16)
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 22)
-      ;; Number of extents.
-      (setf (ub32ref/le header 36) 2)
+      (setf (ub16ref/le header 34) 23)
       ;; Entry fref.
       (setf (ub64ref/le header 40) entry-fref)
       ;; Initial thread.
@@ -644,21 +709,15 @@
       ;; NIL.
       (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
                                                sys.int::+tag-object+))
-      ;; 64-96 free.
+      ;; Architecture.
+      (setf (ub32ref/le header 64) (ecase sys.c::*target-architecture*
+                                     (:x86-64 sys.int::+llf-arch-x86-64+)
+                                     (:arm64 sys.int::+llf-arch-arm64+)))
+      ;; 65-96 free.
       ;; Top-level block map.
       (setf (ub64ref/le header 96) (/ bml4-block #x1000))
       ;; Free block list.
       (setf (ub64ref/le header 104) (/ free-block-list #x1000))
-      (flet ((extent (id virtual-base size flags &optional (extra 0))
-               (setf (ub64ref/le header (+ 112 (* id 32) 0)) virtual-base
-                     (ub64ref/le header (+ 112 (* id 32) 8)) size
-                     (ub64ref/le header (+ 112 (* id 32) 16)) flags
-                     (ub64ref/le header (+ 112 (* id 32) 24)) extra)))
-        (extent 0 +wired-area-base+ (- +wired-area-limit+ +wired-area-base+) 0)
-        (extent 1
-                (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-                (- +wired-stack-area-limit+ +wired-stack-area-base+)
-                0))
       ;; Write it out.
       (write-sequence header s))
     ;; Write areas.
@@ -686,7 +745,8 @@
                              +wired-area-base+
                              (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
                              (logior sys.int::+block-map-present+
-                                     sys.int::+block-map-writable+))
+                                     sys.int::+block-map-writable+
+                                     sys.int::+block-map-wired+))
     (add-region-to-block-map bml4
                              (/ *pinned-area-store* #x1000)
                              +pinned-area-base+
@@ -724,7 +784,8 @@
                                (/ (stack-size stack) #x1000)
                                (logior sys.int::+block-map-present+
                                        sys.int::+block-map-writable+
-                                       sys.int::+block-map-zero-fill+)))
+                                       sys.int::+block-map-zero-fill+
+                                       sys.int::+block-map-wired+)))
     ;; Now write it out.
     (write-block-map s image-offset bml4-block bml4)
     ;; Create the freelist.
@@ -757,7 +818,7 @@
     ;; Array tag.
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
-    (setf (word (+ address 1)) (make-value (store-string name)
+    (setf (word (+ address 1)) (make-value (store-string name :wired)
                                            sys.int::+tag-object+))
     ;; State.
     (setf (word (+ address 2)) (vsym initial-state))
@@ -771,6 +832,8 @@
     ;; +6, unused
     ;; Special stack pointer.
     (setf (word (+ address 7)) (vsym 'nil))
+    ;; +8 self.
+    (setf (word (+ address 9)) (make-value address sys.int::+tag-object+))
     ;; Next.
     (setf (word (+ address 10)) (vsym 'nil))
     ;; Prev.
@@ -799,8 +862,6 @@
            "COMMON-LISP")
           ((eql package (find-package "SYS.INT"))
            "SYSTEM.INTERNALS")
-          ((eql package (find-package "SYSTEM"))
-           "SYSTEM")
           ((eql package (find-package "SYS.FORMAT"))
            "SYS.FORMAT")
           (t (error "Not touching package ~S (for symbol ~A)." package symbol)))))
@@ -810,11 +871,11 @@
               sys.int::+tag-object+))
 
 (defun (setf cold-symbol-value) (value symbol)
-  (setf (word (+ (symbol-address (symbol-name symbol)
-                                 (canonical-symbol-package symbol))
-                 1
-                 sys.int::+symbol-value+))
-        value))
+  (let ((global-cell (word (+ (symbol-address (symbol-name symbol)
+                                              (canonical-symbol-package symbol))
+                              1
+                              sys.int::+symbol-value+))))
+    (setf (word (+ (pointer-part global-cell) 3)) value)))
 
 (defun generate-toplevel-form-array (functions symbol)
   ;; Generate array of toplevel forms to eval.
@@ -862,6 +923,7 @@
   (with-open-file (s pathname
                      :direction :output
                      :if-exists :supersede)
+    (format t "Writing map file to ~A.~%" (namestring s))
     (let ((*print-right-margin* 10000))
       (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
             (format s "~X ~A~%" (* (+ addr 2) 8)
@@ -871,7 +933,8 @@
 
 ;; Ugh.
 (defun load-compiler-builtins ()
-  (sys.c::save-compiler-builtins "%%compiler-builtins.llf")
+  (sys.c::save-compiler-builtins "%%compiler-builtins.llf"
+                                 sys.c::*target-architecture*)
   (load-source-file "%%compiler-builtins.llf" t t))
 
 (defun save-ub1-vector (vec &optional area)
@@ -1016,210 +1079,12 @@
                                                    #xFFFFFFFF)))))))
     (setf (cold-symbol-value 'sys.int::*debug-8x8-font*) (save-object font-array :wired))))
 
-
-;; Handlers for the defined CPU exceptions, a bool indicating if they take
-;; an error code or not and the IST to use.
-(defparameter *cpu-exception-info*
-  '((sys.int::%divide-error-handler nil)           ; 0
-    (sys.int::%debug-exception-handler nil)        ; 1
-    (sys.int::%nonmaskable-interrupt-handler nil)  ; 2
-    (sys.int::%breakpoint-handler nil)             ; 3
-    (sys.int::%overflow-handler nil)               ; 4
-    (sys.int::%bound-exception-handler nil)        ; 5
-    (sys.int::%invalid-opcode-handler nil)         ; 6
-    (sys.int::%device-not-available-handler nil)   ; 7
-    (sys.int::%double-fault-handler t)             ; 8
-    nil                                            ; 9
-    (sys.int::%invalid-tss-handler t)              ; 10
-    (sys.int::%segment-not-present-handler t)      ; 11
-    (sys.int::%stack-segment-fault-handler t)      ; 12
-    (sys.int::%general-protection-fault-handler t) ; 13
-    (sys.int::%page-fault-handler t 1)             ; 14
-    nil                                            ; 15
-    (sys.int::%math-fault-handler nil)             ; 16
-    (sys.int::%alignment-check-handler t)          ; 17
-    (sys.int::%machine-check-handler nil)          ; 18
-    (sys.int::%simd-exception-handler nil)         ; 19
-    nil                                            ; 20
-    nil                                            ; 21
-    nil                                            ; 22
-    nil                                            ; 23
-    nil                                            ; 24
-    nil                                            ; 25
-    nil                                            ; 26
-    nil                                            ; 27
-    nil                                            ; 28
-    nil                                            ; 29
-    nil                                            ; 30
-    nil))                                          ; 31
-
-(defparameter *common-interrupt-code*
-  `(;; Common code for all interrupts.
-    ;; There's an interrupt frame set up, a per-interrupt value in r9, and an fref for the high-level handler in r13.
-    ;; Generate a DX interrupt frame object, then call the handler with it.
-    ;; Realign the stack.
-    (sys.lap-x86:and64 :rsp ,(lognot 15))
-    (sys.lap-x86:sub64 :rsp 16) ; 2 elements.
-    (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+object-type-shift+)) ; header
-    (sys.lap-x86:lea64 :rax (:rbp :rbp)) ; Convert frame pointer to fixnum.
-    (sys.lap-x86:mov64 (:rsp 8) :rax) ; 2nd element.
-    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
-    (sys.lap-x86:mov32 :ecx ,(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args.
-    (:gc :frame :interrupt t)
-    (sys.lap-x86:call (:object :r13 ,sys.int::+fref-entry-point+))
-    ;; Restore registers, then return.
-    (sys.lap-x86:mov64 :r15 (:rbp -112))
-    (sys.lap-x86:mov64 :r14 (:rbp -104))
-    (sys.lap-x86:mov64 :r13 (:rbp -96))
-    (sys.lap-x86:mov64 :r12 (:rbp -88))
-    (sys.lap-x86:mov64 :r11 (:rbp -80))
-    (sys.lap-x86:mov64 :r10 (:rbp -72))
-    (sys.lap-x86:mov64 :r9 (:rbp -64))
-    (sys.lap-x86:mov64 :r8 (:rbp -56))
-    (sys.lap-x86:mov64 :rdi (:rbp -48))
-    (sys.lap-x86:mov64 :rsi (:rbp -40))
-    (sys.lap-x86:mov64 :rbx (:rbp -32))
-    (sys.lap-x86:mov64 :rdx (:rbp -24))
-    (sys.lap-x86:mov64 :rcx (:rbp -16))
-    (sys.lap-x86:mov64 :rax (:rbp -8))
-    (sys.lap-x86:leave)
-    (sys.lap-x86:iret)))
-
-(defparameter *common-user-interrupt-code*
-  `(;; Common code for interrupts 32+.
-    ;; There's an incomplete interrupt frame set up and an interrupt number in rax (fixnum).
-    ;; Save registers to fill in the rest of the interrupt frame.
-    (sys.lap-x86:push :rcx) ; -16 (-2)
-    (sys.lap-x86:push :rdx) ; -24 (-3)
-    (sys.lap-x86:push :rbx) ; -32 (-4)
-    (sys.lap-x86:push :rsi) ; -40 (-5)
-    (sys.lap-x86:push :rdi) ; -48 (-6)
-    (sys.lap-x86:push :r8)  ; -56 (-7)
-    (sys.lap-x86:push :r9)  ; -64 (-8)
-    (sys.lap-x86:push :r10) ; -72 (-9)
-    (sys.lap-x86:push :r11) ; -80 (-10)
-    (sys.lap-x86:push :r12) ; -88 (-11)
-    (sys.lap-x86:push :r13) ; -96 (-12)
-    (sys.lap-x86:push :r14) ; -104 (-13)
-    (sys.lap-x86:push :r15) ; -112 (-14)
-    ;; Fall into the common interrupt code.
-    (sys.lap-x86:mov64 :r9 :rax)
-    (sys.lap-x86:mov64 :r13 (:function sys.int::%user-interrupt-handler))
-    (sys.lap-x86:jmp interrupt-common)))
-
-(defun create-exception-isr (handler error-code-p)
-  (append
-   (if error-code-p
-       ;; Create interrupt frame and pull error code off the stack.
-       ;; There aren't any free registers yet, so we have to shuffle things around.
-       ;; Don't use xchg, because that has an implicit lock (slow).
-       '((sys.lap-x86:push :rax)
-         (sys.lap-x86:mov64 :rax (:rsp 8))  ; load error code into rax, freeing up the fp location
-         (sys.lap-x86:mov64 (:rsp 8) :rbp)  ; really create the stack frame.
-         (sys.lap-x86:lea64 :rbp (:rsp 8))) ; rsp is slightly offset because of the push rax.
-       ;; Create interrupt frame. No error code, so no shuffling needed.
-       '((sys.lap-x86:push :rbp)
-         (sys.lap-x86:mov64 :rbp :rsp)
-         (sys.lap-x86:push :rax)))
-   ;; Frame looks like:
-   ;; +40 SS
-   ;; +32 RSP
-   ;; +24 RFlags
-   ;; +16 CS
-   ;; +8  RIP
-   ;; +0  RBP
-   ;; -8  RAX
-   ;; Save registers to fill in the rest of the interrupt frame.
-   ;; RAX holds the saved error code (if any).
-   `((sys.lap-x86:push :rcx) ; -16 (-2)
-     (sys.lap-x86:push :rdx) ; -24 (-3)
-     (sys.lap-x86:push :rbx) ; -32 (-4)
-     (sys.lap-x86:push :rsi) ; -40 (-5)
-     (sys.lap-x86:push :rdi) ; -48 (-6)
-     (sys.lap-x86:push :r8)  ; -56 (-7)
-     (sys.lap-x86:push :r9)  ; -64 (-8)
-     (sys.lap-x86:push :r10) ; -72 (-9)
-     (sys.lap-x86:push :r11) ; -80 (-10)
-     (sys.lap-x86:push :r12) ; -88 (-11)
-     (sys.lap-x86:push :r13) ; -96 (-12)
-     (sys.lap-x86:push :r14) ; -104 (-13)
-     (sys.lap-x86:push :r15) ; -112 (-14)
-     ;; Jump to the common exception code.
-     (sys.lap-x86:mov64 :r13 (:function ,handler)))
-   (if error-code-p
-       '((sys.lap-x86:lea64 :r9 (:rax :rax))) ; Convert error code to fixnum.
-       '((sys.lap-x86:mov32 :r9d nil))) ; Nothing interesting
-   '((sys.lap-x86:jmp interrupt-common))))
-
-(defun create-user-interrupt-isr (index)
-  ;; Create interrupt frame. No error code, so no shuffling needed.
-  `((sys.lap-x86:push :rbp)
-    (sys.lap-x86:mov64 :rbp :rsp)
-    ;; Frame looks like:
-    ;; +40 SS
-    ;; +32 RSP
-    ;; +24 RFlags
-    ;; +16 CS
-    ;; +8  RIP
-    ;; +0  RBP
-    ;; Save RAX, then jump to common code with the interrupt number.
-    (sys.lap-x86:push :rax) ; -8 (-1)
-    (sys.lap-x86:mov32 :eax ,(ash index sys.int::+n-fixnum-bits+))
-    (sys.lap-x86:jmp user-interrupt-common)))
-
-(defun create-low-level-interrupt-support ()
-  "Generate the ISR thunks that call into Lisp."
-  ;; For maximum flexibility, create ISRs for all the IDT entries.
-  (let* ((idt-size 256)
-         (isr-table (allocate (1+ idt-size) :wired)))
-    ;; Create the ISR table.
-    (setf (word isr-table) (array-header sys.int::+object-tag-array-t+ idt-size))
-    (setf (cold-symbol-value 'sys.int::*interrupt-service-routines*) (make-value isr-table sys.int::+tag-object+))
-    ;; Generate the ISR thunks.
-    (let* ((exception-isrs (loop
-                              for (handler error-code-p ist) in *cpu-exception-info*
-                              collect
-                                (when handler
-                                  (create-exception-isr handler error-code-p))))
-           (user-interrupt-isrs (loop
-                                   for i from 32 below idt-size
-                                   collect (create-user-interrupt-isr i)))
-           (common-code (compile-lap-function *common-interrupt-code*
-                                              :area :wired
-                                              :position-independent nil
-                                              :name 'sys.int::%%common-isr-thunk))
-           (common-user-code (compile-lap-function *common-user-interrupt-code*
-                                                   :area :wired
-                                                   :position-independent nil
-                                                   :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16)))
-                                                   :name 'sys.int::%%common-user-isr-thunk)))
-      (let ((fref (function-reference 'sys.int::%%common-isr-thunk)))
-        (setf (word (+ fref 1 sys.int::+fref-function+)) (make-value common-code sys.int::+tag-object+)
-              (word (+ fref 1 sys.int::+fref-entry-point+)) (+ (* common-code 8) 16)))
-      (let ((fref (function-reference 'sys.int::%%common-user-isr-thunk)))
-        (setf (word (+ fref 1 sys.int::+fref-function+)) (make-value common-user-code sys.int::+tag-object+)
-              (word (+ fref 1 sys.int::+fref-entry-point+)) (+ (* common-user-code 8) 16)))
-      (loop
-         for isr in (append exception-isrs user-interrupt-isrs)
-         for i from 0
-         when isr do
-           ;; Assemble the ISR and update the ISR entry.
-           (let ((addr (compile-lap-function isr
-                                             :area :wired
-                                             :position-independent nil
-                                             :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
-                                                                  (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))
-                                             :name (intern (format nil "%%ISR-THUNK-~D" i) "SYS.INT"))))
-             (setf (word (+ isr-table 1 i)) (make-value addr sys.int::+tag-object+)))
-         else do
-           (setf (word (+ isr-table 1 i)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))))))
-
 (defun finalize-areas ()
   "Assign store addresses to each area, and build pinned/wired area freelists."
   ;; Ensure a minium amount of free space in :wired.
   ;; And :pinned as well, but that matters less.
-  (let ((wired-free-area (allocate (* 2048 1024) :wired))
-        (pinned-free-area (allocate (* 1024 1024) :pinned)))
+  (let ((wired-free-area (allocate (* 2 1024 1024) :wired))
+        (pinned-free-area (allocate 4 :pinned)))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
     (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                          (ash (truncate (- *wired-area-bump*
@@ -1250,8 +1115,55 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files header-path image-size map-file-name)
-  (let* ((*wired-area-bump* +wired-area-base+)
+(defun generate-uuid ()
+  (let ((uuid (make-array 16 :element-type '(unsigned-byte 8))))
+    (dotimes (i 16)
+      (setf (aref uuid i) (case i
+                            (9 (logior #x40 (random 16)))
+                            (7 (logior (random 64) #x80))
+                            (t (random 256)))))
+    uuid))
+
+(defun format-uuid (stream object &optional colon-p at-sign-p)
+  (declare (ignore colon-p at-sign-p))
+  ;; Printed UUIDs are super weird.
+  (format stream "~2,'0X~2,'0X~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X"
+          ;; Byteswapped.
+          (aref object 3) (aref object 2) (aref object 1) (aref object 0)
+          (aref object 5) (aref object 4)
+          (aref object 7) (aref object 6)
+          ;; Not byteswapped.
+          (aref object 8) (aref object 9)
+          (aref object 10) (aref object 11) (aref object 12) (aref object 13) (aref object 14) (aref object 15)))
+
+(defun parse-uuid (string)
+  (assert (eql (length string) 36))
+  (assert (eql (char string 8) #\-))
+  (assert (eql (char string 13) #\-))
+  (assert (eql (char string 18) #\-))
+  (assert (eql (char string 23) #\-))
+  (flet ((b (start)
+           (parse-integer string :radix 16 :start start :end (+ start 2))))
+    (vector
+     ;; First group. Byteswapped.
+     (b 6) (b 4) (b 2) (b 0)
+     ;; Second group. Byteswapped.
+     (b 11) (b 9)
+     ;; Third group. Byteswapped.
+     (b 16) (b 14)
+     ;; Fourth group. Not byteswapped.
+     (b 19) (b 21)
+     ;; Fifth group. Not byteswapped.
+     (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))
+
+(defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64) uuid)
+  (cond ((stringp uuid)
+         (setf uuid (parse-uuid uuid)))
+        ((not uuid)
+         (setf uuid (generate-uuid))))
+  (let* ((sys.c::*target-architecture* architecture)
+         (sys.int::*features* (list* sys.c::*target-architecture* sys.int::*features*))
+         (*wired-area-bump* +wired-area-base+)
          (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*wired-area-store* nil)
          (*pinned-area-bump* +pinned-area-base+)
@@ -1279,17 +1191,16 @@
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
          (cl-symbol-names (with-open-file (s *cl-symbol-list-file*) (read s)))
-         (system-symbol-names (remove-duplicates
-                               (iter (for sym in-package :system external-only t)
-                                     (collect (symbol-name sym)))
-                               :test #'string=))
          (pf-exception-stack (create-stack (* 128 1024)))
          (irq-stack (create-stack (* 128 1024)))
          (wired-stack (create-stack (* 128 1024)))
          (*image-to-cross-slot-definitions* (make-hash-table)))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
-    (create-low-level-interrupt-support)
+    (ecase sys.c::*target-architecture*
+      (:x86-64
+       (cold-generator.x86-64:create-low-level-interrupt-support))
+      (:arm64))
     (setf (cold-symbol-value 'sys.int::*exception-stack-base*) (make-fixnum (stack-base pf-exception-stack))
           (cold-symbol-value 'sys.int::*exception-stack-size*) (make-fixnum (stack-size pf-exception-stack)))
     (setf (cold-symbol-value 'sys.int::*irq-stack-base*) (make-fixnum (stack-base irq-stack))
@@ -1329,7 +1240,14 @@
             (cold-symbol-value 'sys.int::*unicode-name-trie*) (save-object name-trie :pinned)))
     ;; Bake the compiled warm source files in.
     (let ((warm-files (make-array 10 :adjustable t :fill-pointer 0)))
-      (dolist (file *warm-source-files*)
+      (dolist (file (mapcar (lambda (x)
+                              (if (consp x)
+                                  (first x)
+                                  x))
+                            (remove-if-not (lambda (x)
+                                             (or (not (consp x))
+                                                 (member sys.c::*target-architecture* (rest x))))
+                                           *warm-source-files*)))
         (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
           (when (or (not (probe-file llf-path))
                     (<= (file-write-date llf-path) (file-write-date file)))
@@ -1341,11 +1259,12 @@
               (read-sequence vec warm)
               (vector-push-extend (cons (pathname-name llf-path) vec) warm-files)))))
       (setf (cold-symbol-value 'sys.int::*warm-llf-files*) (save-object warm-files :pinned)))
-    #+nil(format t "Saving PCI IDs...~%")
-    #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*))
-           (object (save-object pci-ids :static)))
+    (format t "Saving PCI IDs...~%")
+    (let* ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*))
+           (object (save-object pci-ids :wired)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist. This avoids memory allocation after finalize-areas runs.
+    (format t "Final tweaks...~%")
     (mapc (lambda (sym) (symbol-address (string sym) (package-name (symbol-package sym))))
           '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
@@ -1357,7 +1276,6 @@
             sys.int::*pager-thread*
             sys.int::*disk-io-thread*
             sys.int::*initial-areas*
-            sys.int::*next-symbol-tls-slot*
             sys.int::*wired-area-freelist*
             sys.int::*wired-area-bump*
             sys.int::*pinned-area-freelist*
@@ -1375,6 +1293,11 @@
                  (symbolp (second what)))
        do (symbol-address (string (second what))
                           (package-name (symbol-package (second what)))))
+    (setf (cold-symbol-value 'sys.int::*supervisor-log-buffer*)
+          (save-object (make-array (* 1024 1024)
+                                   :element-type '(unsigned-byte 8)
+                                   :initial-element 0)
+                       :wired))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
                          :stack-size (* 16 1024)))
@@ -1392,7 +1315,8 @@
                          :initial-state :sleeping))
     (setf (cold-symbol-value 'sys.int::*bsp-info-vector*)
           (save-object (make-array (1- (/ (* 2 #x1000) 8))
-                                   :element-type '(unsigned-byte 64))
+                                   :element-type '(unsigned-byte 64)
+                                   :initial-element 0)
                        :wired))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
@@ -1400,8 +1324,6 @@
     ;; Poke all the CL & SYSTEM symbols
     (dolist (name cl-symbol-names)
       (symbol-address name "COMMON-LISP"))
-    (dolist (name system-symbol-names)
-      (symbol-address name "SYSTEM"))
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
@@ -1410,7 +1332,6 @@
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANO.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
       (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
       (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)
@@ -1421,13 +1342,15 @@
     (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
     (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
+    (format t "UUID ~/cold-generator::format-uuid/~%" uuid)
     (if (streamp image-name)
         (write-image image-name
                      (make-value (function-reference 'sys.int::bootloader-entry-point)
                                  sys.int::+tag-object+)
                      initial-thread
                      image-size
-                     header-path)
+                     header-path
+                     uuid)
         (with-open-file (s (make-pathname :type "image" :defaults image-name)
                            :direction :output
                            :element-type '(unsigned-byte 8)
@@ -1437,10 +1360,16 @@
                                    sys.int::+tag-object+)
                        initial-thread
                        image-size
-                       header-path)))))
+                       header-path
+                       uuid)))))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
-  (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
+  (dolist (f files)
+    (cond ((consp f)
+           (when (member sys.c::*target-architecture* (rest f))
+             (load-source-file (first f) set-fdefinitions wired)))
+          (t
+           (load-source-file f set-fdefinitions wired)))))
 
 (defvar *load-should-set-fdefinitions*)
 
@@ -1531,9 +1460,22 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
+(defun structure-slot-equal (x y)
+  (and (eql (sys.c::structure-slot-name x)
+            (sys.c::structure-slot-name y))
+       (or (eql (sys.c::structure-slot-type x)
+                (sys.c::structure-slot-type y))
+           ;; FIXME: This needs to be a proper type comparison...
+           (equal (extract-object (sys.c::structure-slot-type x))
+                  (extract-object (sys.c::structure-slot-type y))))
+       (eql (sys.c::structure-slot-read-only x)
+            (sys.c::structure-slot-read-only y))))
+
 (defun ensure-structure-layout-compatible (definition slots)
-  (unless (equal (third definition) slots)
-    (error "Incompatible redefinition of structure. ~S ~S~%" definition slots)))
+  (let ((definition-slots (third definition)))
+    (unless (and (eql (length definition-slots) (length slots))
+                 (every #'structure-slot-equal slots definition-slots))
+      (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))))
 
 (defun load-structure-definition (name* slots* parent* area*)
   (let* ((name (extract-object name*))
@@ -1563,6 +1505,17 @@
         (setf (aref array i) (ldb (byte element-width (* offset element-width))
                                   (word (+ address 1 word))))))
     array))
+
+(defun value-is-function-p (value)
+  (and (eql (tag-part value) sys.int::+tag-object+)
+       (let* ((address (pointer-part value))
+              (header (word address))
+              (tag (ldb (byte sys.int::+object-type-size+
+                              sys.int::+object-type-shift+)
+                        header)))
+         (or (eql tag sys.int::+object-tag-function+)
+             (eql tag sys.int::+object-tag-closure+)
+             (eql tag sys.int::+object-tag-funcallable-instance+)))))
 
 (defun extract-object (value)
   (let ((slot-def (gethash value *image-to-cross-slot-definitions*)))
@@ -1626,6 +1579,47 @@
       (vcons (first args) (apply 'vlist (rest args)))
       (vintern "NIL" "COMMON-LISP")))
 
+(defun vlist* (arg &rest args)
+  (if args
+      (vcons arg (apply 'vlist* args))
+      arg))
+
+(defun cross-value-p (value)
+  (and (consp value)
+       (eql (first value) :cross-value)))
+
+(defun convert-host-tree-to-cross (tree)
+  (cond ((cross-value-p tree)
+         (second tree))
+        ((consp tree)
+         (vcons (convert-host-tree-to-cross (car tree))
+                (convert-host-tree-to-cross (cdr tree))))
+        ((symbolp tree)
+         (vintern (symbol-name tree)
+                  (canonical-symbol-package tree)))
+        (t
+         (error "Unsupported object ~S" tree))))
+
+(defun stack-pop (stack &optional (evaluation-mode :force))
+  (let ((value (vector-pop stack)))
+    (cond ((integerp value)
+           (if (eql evaluation-mode :lazy)
+               `(:cross-value ,value)
+               value))
+          (t
+           (ecase evaluation-mode
+             (:force
+              ;; TODO: Evaluate if possible, error otherwise.
+              (error "Force evaluation of ~S." value))
+             (:load
+              ;; Put it in load-time-evals.
+              ;; TODO: Try to constant-fold as much as possible.
+              (push (convert-host-tree-to-cross (first value))
+                    *load-time-evals*)
+              nil)
+             (:lazy
+              (first value)))))))
+
 (defun load-llf-function (stream stack)
   ;; n constants on stack.
   ;; list of fixups on stack.
@@ -1646,15 +1640,15 @@
          (gc-info-length (load-integer stream))
          (gc-info (make-array (* (ceiling gc-info-length 8) 8)
                               :element-type '(unsigned-byte 8)))
-         (fixups (vector-pop stack))
+         (fixups (stack-pop stack))
          ;; Pull n constants off the value stack.
-         (constants (subseq stack (- (length stack) n-constants)))
+         (constants (reverse (loop
+                                repeat n-constants
+                                collect (stack-pop stack))))
          (total-size (+ (* (ceiling (+ mc-length 16) 16) 2)
                         n-constants
                         (ceiling gc-info-length 8)))
          (address (allocate total-size *default-pinned-allocation-area*)))
-    ;; Pop constants off.
-    (decf (fill-pointer stack) n-constants)
     ;; Read mc bytes.
     (read-sequence mc stream :start 16 :end (+ 16 mc-length))
     ;; Copy machine code bytes.
@@ -1687,15 +1681,15 @@
     ;; Set constant pool.
     (dotimes (i (length constants))
       (setf (word (+ address (* (ceiling (+ mc-length 16) 16) 2) i))
-            (aref constants i))
+            (elt constants i))
       (lock-word (+ address (* (ceiling (+ mc-length 16) 16) 2) i)))
     ;; Add to the function map.
-    (push (list address (extract-object (aref constants 0)))
+    (push (list address (extract-object (elt constants 0)))
           *function-map*)
     ;; Add fixups to the list.
     (dolist (fixup (extract-object fixups))
       (assert (>= (cdr fixup) 16))
-      (push (list (car fixup) address (cdr fixup) :signed32 (aref constants 1))
+      (push (list (car fixup) address (cdr fixup) :signed32 (elt constants 1))
             *pending-fixups*))
     ;; Done.
     (make-value address sys.int::+tag-object+)))
@@ -1756,13 +1750,29 @@ Tag with +TAG-OBJECT+."
     (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
     image-def))
 
+(defun maybe-eval-funcall-n (name name-value args-values)
+  (cond ((and *load-should-set-fdefinitions*
+              (eql name 'sys.int::%defun)
+              (eql (length args-values) 2)
+              (cross-value-p (elt args-values 0))
+              (cross-value-p (elt args-values 1)))
+         (let* ((defun-name-value (second (elt args-values 0)))
+                (fn-value (second (elt args-values 1)))
+                (defun-name (extract-object defun-name-value))
+                (fref (function-reference defun-name)))
+           (setf (word (+ fref 2)) fn-value
+                 (word (+ fref 3)) (word (1+ (pointer-part fn-value)))))
+         name-value)
+        (t
+         nil)))
+
 (defun load-one-object (command stream stack)
   (ecase command
     (#.sys.int::+llf-function+
      (load-llf-function stream stack))
     (#.sys.int::+llf-cons+
-     (let* ((car (vector-pop stack))
-            (cdr (vector-pop stack)))
+     (let* ((car (stack-pop stack))
+            (cdr (stack-pop stack)))
        (vcons car cdr)))
     (#.sys.int::+llf-symbol+
      (let* ((name (load-string* stream))
@@ -1770,18 +1780,19 @@ Tag with +TAG-OBJECT+."
        (make-value (symbol-address name package)
                    sys.int::+tag-object+)))
     (#.sys.int::+llf-uninterned-symbol+
-     (let ((plist (vector-pop stack))
-           (fn (vector-pop stack))
-           (value (vector-pop stack))
-           (name (vector-pop stack))
-           (address (allocate 6 :wired)))
+     (let ((plist (stack-pop stack))
+           (fn (stack-pop stack))
+           (value (stack-pop stack))
+           (name (stack-pop stack))
+           (address (allocate 8 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
              (word (+ address 1)) name
              (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
              (word (+ address 3)) value
              (word (+ address 4)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-             (word (+ address 5)) plist)
+             (word (+ address 5)) plist
+             (word (+ address 6)) (vsym t))
        (unless (eql fn (unbound-value))
          (error "Uninterned symbol with function not supported."))
        (make-value address sys.int::+tag-object+)))
@@ -1792,55 +1803,38 @@ Tag with +TAG-OBJECT+."
        (typecase value
          ((signed-byte 63) (make-fixnum value))
          (t (make-bignum value)))))
-    (#.sys.int::+llf-invoke+
-     ;; `(funcall ',fn)
-     (let* ((fn (vector-pop stack))
-            (form (vlist (vintern "FUNCALL" "COMMON-LISP")
-                         (vlist (vintern "QUOTE" "COMMON-LISP")
-                                fn))))
-       (push form *load-time-evals*))
-     nil)
-    (#.sys.int::+llf-setf-fdefinition+
-     (let* ((base-name (vector-pop stack))
-            (fn-value (vector-pop stack))
-            (name (extract-object base-name)))
-       (cond (*load-should-set-fdefinitions*
-              (let ((fref (function-reference name)))
-                (setf (word (+ fref 2)) fn-value
-                      (word (+ fref 3)) (word (1+ (pointer-part fn-value))))))
-             (t ;; `(funcall #'(setf symbol-function) ',fn-value ',name)
-              (push (vlist (vintern "FUNCALL" "COMMON-LISP")
-                           (vlist (vintern "FUNCTION" "COMMON-LISP") (vlist (vintern "SETF" "COMMON-LISP") (vintern "FDEFINITION" "COMMON-LISP")))
-                           (vlist (vintern "QUOTE" "COMMON-LISP") fn-value)
-                           (vlist (vintern "QUOTE" "COMMON-LISP") base-name))
-                    *load-time-evals*))))
-     nil)
     (#.sys.int::+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.sys.int::+llf-character+
      (logior (ash (load-character stream) 4)
              sys.int::+tag-character+))
     (#.sys.int::+llf-structure-definition+
-     (let ((area (vector-pop stack))
-           (parent (vector-pop stack))
-           (slots (vector-pop stack))
-           (name (vector-pop stack)))
+     (let ((area (stack-pop stack))
+           (parent (stack-pop stack))
+           (slots (stack-pop stack))
+           (name (stack-pop stack)))
        (load-structure-definition name slots parent area)))
     (#.sys.int::+llf-structure-slot-definition+
-     (let ((read-only (vector-pop stack))
-           (type (vector-pop stack))
-           (initform (vector-pop stack))
-           (accessor (vector-pop stack))
-           (name (vector-pop stack)))
+     (let ((read-only (stack-pop stack))
+           (type (stack-pop stack))
+           (initform (stack-pop stack))
+           (accessor (stack-pop stack))
+           (name (stack-pop stack)))
        (load-structure-slot-definition name accessor initform type read-only)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              sys.int::+tag-single-float+))
+    (#.sys.int::+llf-double-float+
+     (let* ((bits (load-integer stream))
+            (address (allocate 2)))
+       (setf (word address) (array-header sys.int::+object-tag-double-float+ 0)
+             (word (1+ address)) bits)
+       (make-value address sys.int::+tag-object+)))
     (#.sys.int::+llf-proper-list+
      (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
            (length (load-integer stream)))
        (dotimes (i length)
-         (setf list (vcons (vector-pop stack) list)))
+         (setf list (vcons (stack-pop stack) list)))
        list))
     (#.sys.int::+llf-integer-vector+
      (let* ((len (load-integer stream))
@@ -1867,10 +1861,81 @@ Tag with +TAG-OBJECT+."
                    octet))))
        (make-value address sys.int::+tag-object+)))
     (#.sys.int::+llf-function-reference+
-     (let* ((name (vector-pop stack))
+     (let* ((name (stack-pop stack))
             (truname (extract-object name)))
        (make-value (function-reference truname)
-                   sys.int::+tag-object+)))))
+                   sys.int::+tag-object+)))
+    (#.sys.int::+llf-byte+
+     (let ((size (load-integer stream))
+           (position (load-integer stream)))
+       (logior (ash size 4)
+               (ash position 18)
+               sys.int::+tag-byte-specifier+)))
+    (#.sys.int::+llf-funcall-n+
+     (let* ((n-args-value (stack-pop stack))
+            (n-args (extract-object n-args-value))
+            (fn-name-value (stack-pop stack))
+            (fn-name (and (not (value-is-function-p fn-name-value))
+                          (extract-object fn-name-value)))
+            (args-values (reverse (loop
+                                     repeat n-args
+                                     collect (stack-pop stack :lazy))))
+            (value (and fn-name
+                        (maybe-eval-funcall-n fn-name fn-name-value args-values))))
+       (cond (value)
+             (t
+              ;; Not able to evaluate the function.
+              (list
+               `(funcall ,(if (value-is-function-p fn-name-value)
+                              `(:cross-value ,fn-name-value)
+                              `#'(:cross-value ,fn-name-value))
+                         ,@(loop
+                              for arg in args-values
+                              collect (if (cross-value-p arg)
+                                          `',arg
+                                          arg))))))))
+    (#.sys.int::+llf-drop+
+     (stack-pop stack :load)
+     nil)
+    (#.sys.int::+llf-complex-rational+
+     (let* ((realpart-numerator (load-integer stream))
+            (realpart-denominator (load-integer stream))
+            (imagpart-numerator (load-integer stream))
+            (imagpart-denominator (load-integer stream))
+            (address (allocate 4)))
+       ;; TODO: Support ratios.
+       (assert (eql realpart-denominator 1))
+       (assert (eql imagpart-denominator 1))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-rational+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) (typecase realpart-numerator
+                                    ((signed-byte 63) (make-fixnum realpart-numerator))
+                                    (t (make-bignum realpart-numerator)))
+             (word (+ address 2)) (typecase imagpart-numerator
+                                    ((signed-byte 63) (make-fixnum imagpart-numerator))
+                                    (t (make-bignum imagpart-numerator))))
+       (make-value address sys.int::+tag-object+)))
+    (#.sys.int::+llf-complex-single-float+
+     (let* ((realpart (load-integer stream))
+            (imagpart (load-integer stream))
+            (address (allocate 2)))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-single-float+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) (logior realpart
+                                          (ash imagpart 32)))
+       (make-value address sys.int::+tag-object+)))
+    (#.sys.int::+llf-complex-double-float+
+     (let* ((realpart (load-integer stream))
+            (imagpart (load-integer stream))
+            (address (allocate 4)))
+       ;; Header word.
+       (setf (word address) (ash sys.int::+object-tag-complex-double-float+
+                                 sys.int::+object-type-shift+))
+       (setf (word (+ address 1)) realpart
+             (word (+ address 2)) imagpart)
+       (make-value address sys.int::+tag-object+)))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))
@@ -1893,7 +1958,7 @@ Tag with +TAG-OBJECT+."
                    (declare (ignore existing-value))
                    (when existing-value-p
                      (error "Duplicate backlink ID ~D." id)))
-                 (setf (gethash id omap) (vector-pop stack))))
+                 (setf (gethash id omap) (stack-pop stack))))
               (t (let ((value (load-one-object command stream stack)))
                    (when value
                      (vector-push-extend value stack)))))))))
@@ -1922,6 +1987,13 @@ Tag with +TAG-OBJECT+."
         (assert (eql version sys.int::*llf-version*)
                 ()
                 "Bad LLF version ~D, wanted version ~D." version sys.int::*llf-version*))
+      (let ((arch (case (load-integer s)
+                    (#.sys.int::+llf-arch-x86-64+ :x86-64)
+                    (#.sys.int::+llf-arch-arm64+ :arm64)
+                    (t :unknown))))
+        (assert (eql arch sys.c::*target-architecture*) ()
+                "LLF compiled for wrong architecture ~S. Wanted ~S."
+                arch sys.c::*target-architecture*))
       ;; Read forms.
       (load-llf s))))
 
@@ -1944,9 +2016,6 @@ Tag with +TAG-OBJECT+."
                       (ecase what
                         ((nil t) (make-value (symbol-address (symbol-name what) "COMMON-LISP")
                                              sys.int::+tag-object+))
-                        (:unbound-tls-slot
-                         (make-value *unbound-tls-slot-address*
-                                     sys.int::+tag-object+))
                         (:unbound-value (unbound-value))
                         ((:undefined-function undefined-function)
                          (make-value *undefined-function-address* sys.int::+tag-object+))
@@ -1964,3 +2033,59 @@ Tag with +TAG-OBJECT+."
             (truncate (+ byte-offset byte) 8)
           (setf (ldb (byte 8 (* byten 8)) (word (+ address word)))
                 (ldb (byte 8 (* byte 8)) value)))))))
+
+(defparameter *cross-source-files*
+  '("system/basic-macros.lisp"
+    "system/defmacro.lisp"
+    "system/backquote.lisp"
+    "system/setf.lisp"
+    "system/cas.lisp"
+    "system/defstruct.lisp"
+    "system/condition.lisp"
+    "system/restarts.lisp"
+    "system/error.lisp"
+    "system/type.lisp"
+    "system/array.lisp"
+    "system/sequence.lisp"
+    "system/hash-table.lisp"
+    "system/packages.lisp"
+    "system/stream.lisp"
+    "system/reader.lisp"
+    "system/printer.lisp"
+    "system/numbers.lisp"
+    "system/character.lisp"
+    "system/clos/package.lisp"
+    "system/clos/macros.lisp"
+    "system/clos/closette.lisp"
+    "system/data-types.lisp"
+    "system/gc.lisp"
+    "system/cold-start.lisp"
+    "system/cons.lisp"
+    "system/runtime-numbers.lisp"
+    "supervisor/x86-64/cpu.lisp"
+    "supervisor/arm64/cpu.lisp"
+    "supervisor/thread.lisp"
+    "supervisor/interrupts.lisp"
+    "supervisor/entry.lisp"
+    "supervisor/physical.lisp"
+    "supervisor/support.lisp"
+    "runtime/struct.lisp"
+    "runtime/array.lisp"
+    "runtime/symbol.lisp"
+    "system/stuff.lisp"
+)
+  "These files are loaded into the compiler environment so other source
+files will be compiled correctly.")
+
+(defun set-up-cross-compiler ()
+  (with-compilation-unit ()
+    (flet ((load-files (file-list)
+             (dolist (f file-list)
+               (cond ((consp f)
+                      (sys.c::load-for-cross-compiler (first f)))
+                     (t
+                      (sys.c::load-for-cross-compiler f))))))
+      (load-files *cross-source-files*)
+      (load-files *supervisor-source-files*)
+      (load-files *source-files*)
+      (load-files *warm-source-files*))))

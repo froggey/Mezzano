@@ -1,0 +1,16 @@
+#!/bin/bash
+
+dd if=/dev/zero of=efi-part.raw bs=1k count=15k
+mkfs.vfat efi-part.raw
+mmd -i efi-part.raw ::efi
+mmd -i efi-part.raw ::efi/boot
+mcopy -i efi-part.raw kbootx64.efi ::efi/boot/bootx64.efi
+mcopy -i efi-part.raw kboot.cfg ::efi/boot/kboot.cfg
+
+dd if=/dev/zero of=gpt-test.raw bs=1k count=512k
+parted gpt-test.raw mklabel GPT
+parted gpt-test.raw mkpart ESP fat16 1MiB 16MiB
+parted gpt-test.raw set 1 boot on
+parted gpt-test.raw mkpart primary 16MiB 100%
+
+dd if=efi-part.raw of=gpt-test.raw bs=1k seek=1k conv=notrunc

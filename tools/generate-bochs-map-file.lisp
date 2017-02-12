@@ -10,6 +10,7 @@
     (dolist (area '(:wired :pinned))
       (walk-area area
                  (lambda (object address size)
+                   (declare (ignore address size))
                    (when (and (functionp object)
                               (eql (%object-tag object) +object-tag-function+))
                      (incf total-functions)))))
@@ -18,6 +19,7 @@
       (dolist (area '(:wired :pinned))
         (walk-area area
                    (lambda (object address size)
+                   (declare (ignore address size))
                      (when (and (functionp object)
                                 (eql (%object-tag object) +object-tag-function+))
                        (vector-push object functions)))))

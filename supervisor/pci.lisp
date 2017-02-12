@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.supervisor)
@@ -43,27 +43,33 @@
 
 (defconstant +pci-command-bus-master+ 2)
 
-(defvar *pci-config-lock*)
+(sys.int::defglobal *pci-config-lock*)
 
-(defvar *pci-devices*)
+(sys.int::defglobal *pci-devices*)
+(sys.int::defglobal *pci-late-probe-devices*)
 
 (defstruct (pci-device
              (:area :wired))
   address
-  boot-id)
+  vendor-id
+  device-id
+  vendor-name
+  device-name
+  boot-id
+  claimed)
 
 (defun make-pci-address (bus device function)
   (declare (type (integer 0 255) bus register)
-	   (type (integer 0 31) device)
-	   (type (integer 0 7) function))
+           (type (integer 0 31) device)
+           (type (integer 0 7) function))
   (logior #x80000000
-	  (ash bus 16)
-	  (ash device 11)
-	  (ash function 8)))
+          (ash bus 16)
+          (ash device 11)
+          (ash function 8)))
 
 (defun pci-set-config-address (address register)
-  (setf (system:io-port/32 +pci-config-address+) (logior address
-                                                  (logand register #b11111100))))
+  (setf (sys.int::io-port/32 +pci-config-address+) (logior address
+                                                           (logand register #b11111100))))
 
 (defun pci-device-location (device)
   (let ((address (pci-device-address device)))
@@ -76,7 +82,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
+        (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
 
 (defun pci-config/16 (device register)
   (when (logtest register #b01)
@@ -85,7 +91,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
+        (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
 
 (defun pci-config/32 (device register)
   (when (logtest register #b11)
@@ -94,14 +100,14 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (system:io-port/32 +pci-config-data+)))))
+        (sys.int::io-port/32 +pci-config-data+)))))
 
 (defun (setf pci-config/8) (value device register)
   (safe-without-interrupts (value device register)
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
+        (setf (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
 
 (defun (setf pci-config/16) (value device register)
   (when (logtest register #b01)
@@ -110,7 +116,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
+        (setf (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
 
 (defun (setf pci-config/32) (value device register)
   (when (logtest register #b11)
@@ -119,7 +125,7 @@
     (when (eql (pci-device-boot-id device) *boot-id*)
       (with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
-        (setf (system:io-port/32 +pci-config-data+) value)))))
+        (setf (sys.int::io-port/32 +pci-config-data+) value)))))
 
 (defun pci-base-class (device)
   (ldb (byte 8 24) (pci-config/32 device +pci-config-revid+)))
@@ -150,67 +156,69 @@
 (defun pci-intr-line (device)
   (pci-config/8 device +pci-config-intr-line+))
 
+(defconstant +pci-command-bus-master-enable+ (ash 1 2))
+
+(defun pci-bus-master-enabled (device)
+  (logtest (pci-config/16 device +pci-config-command+)
+           +pci-command-bus-master-enable+))
+
+(defun (setf pci-bus-master-enabled) (value device)
+  (let ((prev (pci-config/16 device +pci-config-command+)))
+    (setf (pci-config/16 device +pci-config-command+)
+          (if value
+              (logior prev +pci-command-bus-master-enable+)
+              (logand prev (lognot +pci-command-bus-master-enable+))))
+    value))
+
 (defun pci-io-region/8 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/8 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
-                                          (logand location (lognot #b1111))
-                                          offset)
-                                       0)))
+      (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                          offset))))
 
 (defun pci-io-region/16 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/16 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
-                                           (logand location (lognot #b1111))
-                                           offset)
-                                        0)))
+      (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                           offset))))
 
 (defun pci-io-region/32 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (system:io-port/32 (+ (logand location (lognot #b11)) offset))
+      (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
-                                           (logand location (lognot #b1111))
-                                           offset)
-                                       0)))
+      (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                           offset))))
 
 (defun (setf pci-io-region/8) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/8 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
-                                                (logand location (lognot #b1111))
-                                                offset)
-                                             0)
+      (setf (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                                offset))
             value)))
 
 (defun (setf pci-io-region/16) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/16 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
-                                                 (logand location (lognot #b1111))
-                                                 offset)
-                                              0)
+      (setf (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                                 offset))
             value)))
 
 (defun (setf pci-io-region/32) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
-      (setf (system:io-port/32 (+ (logand location (lognot #b11)) offset)) value)
+      (setf (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
-                                                 (logand location (lognot #b1111))
-                                                 offset)
-                                              0)
+      (setf (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                                 offset))
             value)))
 
 (defun map-pci-devices (fn)
@@ -228,10 +236,16 @@
                           do (funcall callback device))))))
 
 (defun initialize-pci ()
+  (when (not (boundp '*pci-drivers*))
+    (setf *pci-drivers* '()))
   (setf *pci-config-lock* :unlocked)
-  (setf (system:io-port/32 +pci-config-address+) #x80000000)
-  (setf *pci-devices* '())
-  (when (eql (system:io-port/32 +pci-config-address+) #x80000000)
+  (setf *pci-devices* '()
+        *pci-late-probe-devices* '())
+  (add-deferred-boot-action 'pci-late-probe))
+
+(defun pci-detect ()
+  (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
+  (when (eql (sys.int::io-port/32 +pci-config-address+) #x80000000)
     (debug-print-line "Begin PCI scan.")
     (labels ((scan-bus (bus)
                (dotimes (device-nr 32)
@@ -247,7 +261,13 @@
                             (device-id (pci-config/16 device +pci-config-deviceid+))
                             (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
                        (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-                         (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id)
+                         (setf (pci-device-vendor-id device) vendor-id
+                               (pci-device-device-id device) device-id)
+                         (multiple-value-bind (vendor-name device-name)
+                             (pci-find-device-name vendor-id device-id)
+                           (setf (pci-device-vendor-name device) vendor-name
+                                 (pci-device-device-name device) device-name)
+                           (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id " " vendor-name " - " device-name))
                          (push-wired device *pci-devices*)
                          (when (eql header-type +pci-bridge-htype+)
                            ;; Bridge device, scan the other side.
@@ -272,11 +292,13 @@
          (cond ((and (eql vendor-id #x1AF4)
                      (<= #x1000 device-id #x103F))
                 ;; Some kind of virtio-device.
-                (virtio-pci-register device))
+                (virtio-pci-register device)
+                (setf (pci-device-claimed device) :virtio-pci))
                ((and (eql base-class-code #x01)
                      (eql sub-class-code #x01))
                 ;; A PATA controller.
-                (ata-pci-register device))
+                (ata-pci-register device)
+                (setf (pci-device-claimed device) :ata))
                ((or
                  ;; SATA controller implementing AHCI 1.0.
                  (and (eql base-class-code #x01)
@@ -286,9 +308,130 @@
                  (and (eql vendor-id #x8086)
                       (eql device-id #x2822)))
                 ;; An AHCI controller.
-                (ahci-pci-register device))
-               ((and (eql vendor-id #x10EC)
-                     (eql device-id #x8168))
-                ;; The NIC in my test machine.
-                (rtl8168-pci-register device))
-               (t (debug-print-line "PCI device not supported."))))))))
+                (ahci-pci-register device)
+                (setf (pci-device-claimed device) :ahci))
+               ((and (eql vendor-id #x80EE)
+                     (eql device-id #xCAFE))
+                ;; VirtualBox Guest Service.
+                (setf (pci-device-claimed device)
+                      (virtualbox-guest-register device)))
+               ((and (eql vendor-id #x80EE)
+                     (eql device-id #xBEEF))
+                ;; VirtualBox Graphics Adapter.
+                (setf (pci-device-claimed device)
+                      (virtualbox-graphics-register device)))
+               (t
+                (push-wired device *pci-late-probe-devices*))))))))
+
+;; These devices must be probed late because their drivers may not be in wired memory.
+(defun pci-late-probe ()
+  (dolist (dev *pci-late-probe-devices*)
+    (dolist (drv *pci-drivers*
+             (debug-print-line "PCI device " (pci-config/16 dev +pci-config-vendorid+) ":" (pci-config/16 dev +pci-config-deviceid+) " not supported."))
+      (when (and (not (pci-device-claimed dev))
+                 (pci-driver-compatible-p drv dev)
+                 (sys.int::log-and-ignore-errors
+                  (funcall (pci-driver-probe drv) dev)))
+        (setf (pci-device-claimed dev) drv)
+        (return)))))
+
+;; FIXME: Access to this needs to be protected.
+;; I'm not sure a mutex will cut it, it needs to be accessible
+;; during boot-time device probing.
+(sys.int::defglobal *pci-drivers* '())
+
+(defstruct (pci-driver
+             (:area :wired))
+  name
+  probe
+  pci-ids
+  classes)
+
+(defun pci-driver-compatible-p (driver device)
+  (or
+   (loop
+      for (base-class sub-class pi) in (pci-driver-classes driver)
+      do
+        (when (and (or (not base-class)
+                       (eql (pci-base-class device) base-class))
+                   (or (not sub-class)
+                       (eql (pci-sub-class device) sub-class))
+                   (or (not pi)
+                       (eql (pci-programming-interface device) pi)))
+          (return t)))
+   (loop
+      for (vid did) in (pci-driver-pci-ids driver)
+      do
+        (when (and (eql (pci-config/16 device +pci-config-vendorid+) vid)
+                   (eql (pci-config/16 device +pci-config-deviceid+) did))
+          (return t)))))
+
+(defun probe-pci-driver (driver)
+  (dolist (dev *pci-devices*)
+    (when (and (not (pci-device-claimed dev))
+               (pci-driver-compatible-p driver dev)
+               (sys.int::log-and-ignore-errors
+                (funcall (pci-driver-probe driver) dev)))
+      (setf (pci-device-claimed dev) driver))))
+
+(defmacro define-pci-driver (name probe-function pci-ids classes)
+  `(register-pci-driver ',name ',probe-function ',pci-ids ',classes))
+
+(defun register-pci-driver (name probe-function pci-ids classes)
+  (dolist (drv *pci-drivers*)
+    (when (eql (pci-driver-name drv) name)
+      (when (not (eql (pci-driver-probe drv) probe-function))
+        ;; TODO: Detach current driver and reprobe?
+        (error "Incompatible redefinition of virtio driver ~S." name))
+      (probe-pci-driver drv)
+      (return-from register-pci-driver name)))
+  (let ((driver (make-pci-driver
+                 :name name
+                 :probe probe-function
+                 :pci-ids pci-ids
+                 :classes classes)))
+    (debug-print-line "Registered new pci driver " name)
+    (push-wired driver *pci-drivers*)
+    (probe-pci-driver driver)
+    name))
+
+(declaim (special sys.int::*pci-ids*))
+
+(defun bsearch (item vector &key (start 0) end (stride 1))
+  "Locate ITEM using a binary search through VECTOR."
+  ;; IMIN/IMAX are inclusive indicies.
+  (do ((imin start)
+       (imax (1- (truncate (or end (sys.int::simple-vector-length vector)) stride))))
+      ((< imax imin)
+       nil)
+    (let* ((imid (truncate (+ imin imax) 2))
+           (elt (svref vector (* imid stride))))
+      (cond ((< elt item) (setf imin (1+ imid)))
+            ((> elt item) (setf imax (1- imid)))
+            (t (return (* imid stride)))))))
+
+(defun pci-find-vendor-name (id &optional (ids sys.int::*pci-ids*))
+  (let ((position (bsearch id ids :stride 3)))
+    (when position
+      (values (svref ids (+ position 1))
+              (svref ids (+ position 2))))))
+
+(defun pci-find-device-name (vid did &optional (ids sys.int::*pci-ids*))
+  (multiple-value-bind (vname devices)
+      (pci-find-vendor-name vid ids)
+    (when (and vname devices)
+      (let ((position (bsearch did devices :stride 3)))
+        (when position
+          (values vname
+                  (svref devices (+ position 1))
+                  (svref devices (+ position 2))))))))
+
+(defun pci-find-subsystem-name (vid did svid sdid &optional (ids sys.int::*pci-ids*))
+  (multiple-value-bind (vname dname subsystems)
+      (pci-find-device-name vid did ids)
+    (when (and vname subsystems)
+      (let ((position (bsearch (logior (ash svid 16) sdid) subsystems
+                               :stride 2)))
+        (if position
+            (values vname dname (svref subsystems (1+ position)))
+            (values vname dname nil))))))

@@ -24,7 +24,7 @@
     ;; (block foo <constantish>) => 'nil
     ((typep (body form) '(or ast-quote ast-function lexical-variable lambda-information))
      (change-made)
-     (ast '(quote nil)))
+     (ast '(quote nil) form))
     ;; (block foo (return-from foo form)) => (block foo form)
     ((and (typep (body form) 'ast-return-from)
           (eql (info form) (info (body form))))
@@ -52,14 +52,13 @@
   (let ((test-form (test form)))
     (typecase test-form
       (ast-let
-       (when (find-if (lambda (x) (typep x 'special-variable))
-                      (bindings test-form)
-                      :key #'first)
+       (when (let-binds-special-variable-p test-form)
          (return-from hoist-form-out-of-if nil))
        (ast `(let ,(bindings test-form)
                (if ,(body test-form)
                    ,(if-then form)
-                   ,(if-else form)))))
+                   ,(if-else form)))
+            form))
       (ast-multiple-value-bind
        (when (find-if (lambda (x) (typep x 'special-variable))
                       (bindings test-form))
@@ -68,13 +67,15 @@
                  ,(value-form test-form)
                (if ,(body test-form)
                    ,(if-then form)
-                   ,(if-else form)))))
+                   ,(if-else form)))
+            form))
       (ast-progn
        (if (forms test-form)
            (ast `(progn ,@(append (butlast (forms test-form))
                                   (list `(if ,(first (last (forms test-form)))
                                              ,(if-then form)
-                                             ,(if-else form))))))
+                                             ,(if-else form)))))
+                form)
            ;; No body forms, must evaluate to NIL!
            ;; Fold away the IF.
            (if-else form))))))
@@ -101,7 +102,8 @@
                                                   (go then-tag if-tagbody)
                                                   (go else-tag if-tagbody))))
                                    (then-tag (return-from if-escape ,(if-then form) if-escape))
-                                   (else-tag (return-from if-escape ,(if-else form) if-escape))))))))
+                                   (else-tag (return-from if-escape ,(if-else form) if-escape))))
+                             form))))
           ((and (typep (if-then form) 'ast-go)
                 (typep (if-else form) 'ast-go)
                 (eql (target (if-then form)) (target (if-else form)))
@@ -122,42 +124,78 @@
                  (if-else form) (simp-form (if-else form)))
            form))))
 
+(defun pure-p (form)
+  (let ((unwrapped (unwrap-the form)))
+    (or (lambda-information-p unwrapped)
+        (typep unwrapped 'ast-quote)
+        (typep unwrapped 'ast-function)
+        (and (lexical-variable-p unwrapped)
+             (localp unwrapped)
+             (eql (lexical-variable-write-count unwrapped) 0)))))
+
 (defmethod simp-form ((form ast-let))
   ;; Merge nested LETs when possible, do not merge special bindings!
   (do ((nested-form (body form) (body form)))
       ((or (not (typep nested-form 'ast-let))
-           (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form)))
-	   (and (bindings nested-form)
+           (let-binds-special-variable-p form)
+           (and (bindings nested-form)
                 (typep (first (first (bindings nested-form))) 'special-variable))))
     (change-made)
     (if (null (bindings nested-form))
-	(setf (body form) (body nested-form))
-	(setf (bindings form) (nconc (bindings form) (list (first (bindings nested-form))))
-	      (bindings nested-form) (rest (bindings nested-form)))))
+        (setf (body form) (body nested-form))
+        (setf (bindings form) (nconc (bindings form) (list (first (bindings nested-form))))
+              (bindings nested-form) (rest (bindings nested-form)))))
   ;; Remove unused values with no side-effects.
   (setf (bindings form) (remove-if (lambda (b)
                                      (let ((var (first b))
                                            (val (second b)))
-                                       (and (lexical-variable-p var)
-                                            (or (lambda-information-p val)
-                                                (typep val 'ast-quote)
-                                                (typep val 'ast-function)
-                                                (and (lexical-variable-p val)
-                                                     (localp val)
-                                                     (eql (lexical-variable-write-count val) 0)))
-                                            (eql (lexical-variable-use-count var) 0)
-                                            (progn (change-made)
-                                                   t))))
+                                       (cond ((and (lexical-variable-p var)
+                                                   (pure-p val)
+                                                   (eql (lexical-variable-use-count var) 0))
+                                              (change-made)
+                                              t)
+                                             (t nil))))
                                    (bindings form)))
   (dolist (b (bindings form))
     (setf (second b) (simp-form (second b))))
+  (setf (body form) (simp-form (body form)))
+  ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
+  (when (not (let-binds-special-variable-p form))
+    (loop
+       for binding-position from 0
+       for (variable initform) in (bindings form)
+       when (typep initform 'ast-progn)
+       do
+         (change-made)
+         (return-from simp-form
+           (ast `(let ,(subseq (bindings form) 0 binding-position)
+                   (progn
+                     ,@(butlast (ast-forms initform))
+                     (let ((,variable ,(first (last (ast-forms initform))))
+                           ,@(subseq (bindings form) (1+ binding-position)))
+                       ,(ast-body form))))
+                form))
+       when (and (typep initform 'ast-let)
+                 (not (let-binds-special-variable-p initform)))
+       do
+         (change-made)
+         (return-from simp-form
+           (ast `(let (,@(subseq (bindings form) 0 binding-position)
+                       ,@(bindings initform)
+                       (,variable ,(ast-body initform))
+                       ,@(subseq (bindings form) (1+ binding-position)))
+                   ,(ast-body form))
+                form))))
   ;; Remove the LET if there are no values.
   (cond ((bindings form)
-         (setf (body form) (simp-form (body form)))
          form)
         (t
          (change-made)
-         (simp-form (body form)))))
+         (body form))))
+
+(defun let-binds-special-variable-p (let-form)
+  (some (lambda (x) (typep (first x) 'special-variable))
+        (bindings let-form)))
 
 (defmethod simp-form ((form ast-multiple-value-bind))
   ;; If no variables are used, or there are no variables then
@@ -168,7 +206,8 @@
                 (bindings form))
          (change-made)
          (simp-form (ast `(progn ,(value-form form)
-                                 ,(body form)))))
+                                 ,(body form))
+                         form)))
         ;; M-V-B forms with only one variable can be lowered to LET.
         ((and (bindings form)
               (every (lambda (var)
@@ -177,14 +216,18 @@
                      (rest (bindings form))))
          (change-made)
          (simp-form (ast `(let ((,(first (bindings form)) ,(value-form form)))
-                            ,(body form)))))
+                            ,(body form))
+                         form)))
         ;; Use an inner LET form to bind any special variables.
         ((some (lambda (x) (typep x 'special-variable)) (bindings form))
          (change-made)
-         (let* ((specials (remove-if-not (lambda (x) (typep x 'special-variable)) (bindings form)))
-                (replacements (loop for s in specials
+         (let* ((specials (remove-if-not (lambda (x) (typep x 'special-variable))
+                                         (bindings form)))
+                (replacements (loop
+                                 for s in specials
                                  collect (make-instance 'lexical-variable
-                                                        :name s
+                                                        :inherit s
+                                                        :name (name s)
                                                         :definition-point *current-lambda*
                                                         :use-count 1)))
                 ;; Also doubles up as an alist mapping specials to replacements.
@@ -194,9 +237,11 @@
                                   (if (typep var 'special-variable)
                                       (second (assoc var bindings))
                                       var))
-                                (second form))
+                                (bindings form))
+                     ,(value-form form)
                      (let ,bindings
-                       ,(simp-form (body form)))))))
+                       ,(simp-form (body form))))
+                form)))
         (t (setf (value-form form) (simp-form (value-form form))
                  (body form) (simp-form (body form)))
            form)))
@@ -214,13 +259,15 @@
          (change-made)
          (ast `(progn ,@(butlast (forms (value-form form)))
                       (multiple-value-prog1 ,(car (last (forms (value-form form))))
-                        ,(body form)))))
+                        ,(body form)))
+              form))
         ((typep (value-form form) 'ast-multiple-value-prog1)
          ;; If the first form is a M-V-PROG1, then splice it in.
          (change-made)
          (ast `(multiple-value-prog1 ,(value-form (value-form form))
                  (progn ,(body (value-form form))
-                        ,(body form)))))
+                        ,(body form)))
+              form))
         ((typep (body form) '(or ast-quote ast-function lexical-variable lambda-information))
          ;; If the body form is mostly constant, then kill this completely.
          (change-made)
@@ -267,14 +314,14 @@
     (cond ((endp new-forms)
            ;; Flush empty PROGNs.
            (change-made)
-           (ast `(quote nil)))
+           (ast `(quote nil) form))
           ((endp (rest new-forms))
            ;; Reduce single form PROGNs.
            (change-made)
            (first new-forms))
           (t
            (setf (forms form) new-forms)
-	   form))))
+           form))))
 
 (defmethod simp-form ((form ast-quote))
   form)
@@ -311,13 +358,15 @@
                           (ast-tagbody
                            ;; Reached a tagbody.
                            ;; Jump from the current tag to the tagbody's entry tag.
-                           (push (ast `(go ,(first (first (statements subform))) ,(info form)))
+                           (push (ast `(go ,(first (first (statements subform))) ,(info form))
+                                      subform)
                                  accum)
                            (incf (go-tag-use-count (first (first (statements subform)))))
                            ;; Finish accumulating the forms before this tagbody.
-                           (push (list current-go-tag (ast `(progn ,@(reverse accum)))) new-stmts)
+                           (push (list current-go-tag (ast `(progn ,@(reverse accum)) subform)) new-stmts)
                            ;; Create a new go-tag that is *after* this tagbody.
                            (setf current-go-tag (make-instance 'go-tag
+                                                               :inherit subform
                                                                :name (gensym "tagbody-resume")
                                                                :use-count 1
                                                                :tagbody (info form))
@@ -333,16 +382,17 @@
                                 (incf (go-tag-use-count current-go-tag))
                                 (push (list new-go-tag (ast `(progn
                                                                ,new-statement
-                                                               (go ,current-go-tag ,(info form)))))
+                                                               (go ,current-go-tag ,(info form)))
+                                                            new-statement))
                                       new-stmts)))
                           (t ;; Normal form, accumulate it.
                            (push subform accum))))
                       ;; Finish the current tag.
-                      (push (list current-go-tag (ast `(progn ,@(reverse accum) 'nil))) new-stmts)))
+                      (push (list current-go-tag (ast `(progn ,@(reverse accum) 'nil) statement)) new-stmts)))
                    (t (push (list go-tag statement) new-stmts))))
             (ast-tagbody
              ;; Get this one.
-             (push (list go-tag (ast `(go ,(first (first (statements statement))) ,(info form)))) new-stmts)
+             (push (list go-tag (ast `(go ,(first (first (statements statement))) ,(info form)) statement)) new-stmts)
              (incf (go-tag-use-count (first (first (statements statement)))))
              (loop
                 for (new-go-tag new-statement) in (statements statement)
@@ -363,15 +413,48 @@
          (change-made)
          (ast `(progn
                  ,(second (first (statements form)))
-                 'nil)))
+                 'nil)
+              form))
         (t form)))
 
+(defun values-type-p (type)
+  (and (consp type)
+       (eql (first type) 'values)))
+
+(defun merge-the-types (type-1 type-2)
+  (cond ((equal type-1 type-2)
+         type-1)
+        ((or (values-type-p type-1)
+             (values-type-p type-2))
+         (when (not (values-type-p type-1))
+           (setf type-1 `(values ,type-1)))
+         (when (not (values-type-p type-2))
+           (setf type-2 `(values ,type-2)))
+         (do ((i (rest type-1) (rest i))
+              (j (rest type-2) (rest j))
+              (result '()))
+             ((and (endp i)
+                   (endp j))
+              `(values ,@(reverse result)))
+           (push (merge-the-types (if i (first i) 't)
+                                  (if j (first j) 't))
+                 result)))
+        (t
+         `(and ,type-1 ,type-2))))
+
 (defmethod simp-form ((form ast-the))
-  (cond ((eql (the-type form) 't)
+  (cond ((compiler-subtypep 't (the-type form))
          (change-made)
          (simp-form (value form)))
-        (t (setf (value form) (simp-form (value form)))
-           form)))
+        ((typep (value form) 'ast-the)
+         (change-made)
+         (setf (the-type form) (merge-the-types (the-type form)
+                                                (the-type (value form)))
+               (value form) (simp-form (value (value form))))
+         form)
+        (t
+         (setf (value form) (simp-form (value form)))
+         form)))
 
 (defmethod simp-form ((form ast-unwind-protect))
   (setf (protected-form form) (simp-form (protected-form form))
@@ -398,6 +481,23 @@
       (setf (name form) 'eq)))
   form)
 
+(defun simp-ash (form)
+  (simp-form-list (arguments form))
+  (when (and (eql (list-length (arguments form)) 2)
+             (quoted-form-p (second (arguments form)))
+             (integerp (value (second (arguments form)))))
+    ;; (ash value known-count) => left-shift or right-shift.
+    (change-made)
+    (cond ((plusp (value (second (arguments form))))
+           (setf (name form) 'mezzano.runtime::left-shift))
+          (t
+           (setf (name form) 'mezzano.runtime::right-shift
+                 (arguments form) (list (first (arguments form))
+                                        (make-instance 'ast-quote
+                                                       :inherit form
+                                                       :value (- (value (second (arguments form))))))))))
+  form)
+
 (defmethod simp-form ((form ast-call))
   ;; (funcall 'symbol ...) -> (symbol ...)
   ;; (funcall #'name ...) -> (name ...)
@@ -412,11 +512,43 @@
                         (value (first (arguments form))))
                        (ast-function
                         (name (first (arguments form)))))))
-           (ast `(call ,name ,@(rest (arguments form))))))
+           (ast `(call ,name ,@(rest (arguments form))) form)))
         ((eql (name form) 'eql)
          (simp-eql form))
-        (t (simp-form-list (arguments form))
-           form)))
+        ((eql (name form) 'ash)
+         (simp-ash form))
+        (t
+         (simp-form-list (arguments form))
+         ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
+         (loop
+            for arg-position from 0
+            for arg in (arguments form)
+            when (typep arg 'ast-progn)
+            do
+              (change-made)
+              (return-from simp-form
+                (ast `(progn
+                        ,@(butlast (ast-forms arg))
+                        (call ,(ast-name form)
+                              ,@(subseq (arguments form) 0 arg-position)
+                              ,(first (last (ast-forms arg)))
+                              ,@(subseq (arguments form) (1+ arg-position))))
+                     form))
+            when (and (typep arg 'ast-let)
+                      (not (let-binds-special-variable-p arg)))
+            do
+              (change-made)
+              (return-from simp-form
+                (ast `(let ,(ast-bindings arg)
+                        (call ,(ast-name form)
+                              ,@(subseq (arguments form) 0 arg-position)
+                              ,(ast-body arg)
+                              ,@(subseq (arguments form) (1+ arg-position))))
+                     form))
+            ;; Bail when a non-pure arg is seen. Arguments after this one can't safely be hoisted.
+            when (not (pure-p arg))
+            do (return))
+         form)))
 
 (defmethod simp-form ((form ast-jump-table))
   (setf (value form) (simp-form (value form)))
