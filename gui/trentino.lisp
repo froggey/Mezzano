@@ -39,9 +39,35 @@
     (values (+ left (max 32 (mezzano.gui:surface-width image)) right)
             (+ top (max 32 (mezzano.gui:surface-height image)) bottom))))
 
-(defun main (path)
-  (decode-file pathname :player-callback #'(lambda (avi)
-					     (play-audio-stream avi) (play-video-stream avi))))
+(defmethod play-audio-stream ((avi avi-mjpeg-stream))
+  (let ((audio-rec (find-pcm-stream-record avi))
+	astream)
+    (when audio-rec
+      (bt:make-thread
+       #'(lambda ()
+	   (portaudio:initialize)
+	   (stream-playback-start audio-rec)
+	   (setf astream
+		 (portaudio:open-default-stream 0 (number-of-channels audio-rec) :float (coerce (sample-rate audio-rec) 'double-float)
+						(/ (/ (rate audio-rec) (scale audio-rec)) (number-of-channels audio-rec))))
+	   (sleep (* (start audio-rec) (/ (scale audio-rec) (rate audio-rec))))
+	   (unwind-protect
+		(loop for cur = (if (pause avi) cur (pop (rcursor audio-rec)))
+		   for src = (frame cur)
+		   until (finish avi) do
+		   ;; pause synching protocol w/video stream
+		     (bt:acquire-lock (pause-lock avi))
+		   ;; send the audio frame
+		     (mezzano.driver.intel-hda::play-sound src (first mezzano.driver.intel-hda::*cards*))
+		     (loop while (pause avi) do (sleep 0.2))
+		     (bt:release-lock (pause-lock avi))
+		   ;; advance the cursor lock
+		     (bt:acquire-lock (vacancy-lock (car (rcursor audio-rec))))
+		     (bt:release-lock (vacancy-lock cur))
+		     (when (eql cur (final audio-rec))
+		       (return))
+		     (sleep (/ (scale audio-rec) (rate audio-rec))))
+	     (stream-playback-stop audio-rec)))))))
 
 (defmethod play-video-stream ((avi avi-mjpeg-stream))
   (with-simple-restart (abort "Close media player")
@@ -106,6 +132,10 @@
 			(bt:acquire-lock (pause-lock avi))
 			(bt:release-lock (pause-lock avi))
 			(return-from main)))))))))))
+
+(defun main (path)
+  (decode-file pathname :player-callback #'(lambda (avi)
+					     (play-audio-stream avi) (play-video-stream avi))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))
