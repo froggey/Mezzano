@@ -35,13 +35,6 @@
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   (declare (ignore window event)))
 
-(defun compute-window-size (image)
-  ;; Make a fake frame to get the frame size.
-  (multiple-value-bind (left right top bottom)
-      (mezzano.gui.widgets:frame-size (make-instance 'mezzano.gui.widgets:frame))
-    (values (+ left (max 32 (mezzano.gui:surface-width image)) right)
-            (+ top (max 32 (mezzano.gui:surface-height image)) bottom))))
-
 (defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
   (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
     (when audio-rec
@@ -104,11 +97,11 @@
 			 (multiple-value-bind (left right top bottom)
 			     (mezzano.gui.widgets:frame-size frame)
 			   (mezzano.gui:bitblt :set
-					       (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
-					       image 0 0
+					       (mezzano.gui:surface-width buffer) (mezzano.gui:surface-height buffer)
+					       buffer 0 0
 					       framebuffer
-					       (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
-					       (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2))))
+					       (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width buffer) 2)))
+					       (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height buffer) 2))))
 			   (mezzano.gui.widgets:draw-frame frame)
 			   (mezzano.gui.compositor:damage-window window
 								 0 0
