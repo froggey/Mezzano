@@ -40,48 +40,72 @@
             (+ top (max 32 (mezzano.gui:surface-height image)) bottom))))
 
 (defun main (path)
+  (decode-file pathname :player-callback #'(lambda (avi)
+					     (play-audio-stream avi) (play-video-stream avi))))
+
+(defmethod play-video-stream ((avi avi-mjpeg-stream))
   (with-simple-restart (abort "Close media player")
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
-          (fifo (mezzano.supervisor:make-fifo 50))
-          (image (mezzano.gui.desktop::load-image path)))
-      (multiple-value-bind (width height)
-          (compute-window-size image)
-        (mezzano.gui.compositor:with-window (window fifo width height)
-          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzano.gui.widgets:frame
-                                       :framebuffer framebuffer
-                                       :title (namestring path)
-                                       :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                 (viewer (make-instance 'media-player
-                                        :fifo fifo
-                                        :window window
-                                        :thread (mezzano.supervisor:current-thread)
-                                        :font font
-                                        :frame frame)))
-            (multiple-value-bind (left right top bottom)
-                (mezzano.gui.widgets:frame-size frame)
-              (mezzano.gui:bitblt :set
-                                  (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
-                                  image 0 0
-                                  framebuffer
-                                  (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
-                                  (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2))))
-              (mezzano.gui.widgets:draw-frame frame)
-              (mezzano.gui.compositor:damage-window window
-                                                    0 0
-                                                    width height))
-            (loop
-               (handler-case
-                   (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
-                 (error (c)
-                   (ignore-errors
-                     (format t "Error: ~A~%" c)))
-                 ;; Exit when the close button is clicked.
-                 (mezzano.gui.widgets:close-button-clicked ()
-                   (return-from main))))))))))
+          (fifo (mezzano.supervisor:make-fifo 50)))
+      (bt:make-trhread
+       #'(lambda (avi)
+	   (mezzano.gui.compositor:with-window (window fifo (width avi) (height avi))
+	     (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+		    (frame (make-instance 'mezzano.gui.widgets:frame
+					  :framebuffer framebuffer
+					  :title (namestring path)
+					  :close-button-p t
+					  :damage-function (mezzano.gui.widgets:default-damage-function window)))
+		    (viewer (make-instance 'media-player
+					   :fifo fifo
+					   :window window
+					   :thread (mezzano.supervisor:current-thread)
+					   :font font
+					   :frame frame))
+		    (rec (find-mjpeg-stream-record avi)))
+	       (sleep (* (start rec) (/ (scale rec) (rate rec)))) ;stream delay, if any
+	       (stream-playback-start rec)
+	       
+	       (loop for cur = (if (pause avi) cur (pop (rcursor rec)))
+		  for src = (frame cur)
+		  with quit = nil until quit do
+		    (loop for i from 0 below height do
+			 (loop for j from 0 below width
+			    for spos = (* 3 (+ j (* width i))) do
+			      (setf (aref buffer i j)
+				    (logior (ash (aref src (+ 2 spos)) 16) (ash (aref src (1+ spos)) 8) (aref src spos)))))
+		    (multiple-value-bind (left right top bottom)
+			(mezzano.gui.widgets:frame-size frame)
+		      (mezzano.gui:bitblt :set
+					  (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
+					  image 0 0
+					  framebuffer
+					  (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
+					  (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2))))
+		      (mezzano.gui.widgets:draw-frame frame)
+		      (mezzano.gui.compositor:damage-window window
+							    0 0
+							    width height))
+		    (unless (pause avi)
+		      (bt:acquire-lock (vacancy-lock (car (rcursor rec))))
+		      (bt:release-lock (vacancy-lock cur)))
+		    (when (eql cur (final rec))
+		      (return))
+		    (sleep (/ (scale rec) (rate rec)))
+		    
+		    (handler-case
+			(dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
+		      (error (c)
+			(ignore-errors
+			  (format t "Error: ~A~%" c)))
+		      ;; Exit when the close button is clicked.
+		      (mezzano.gui.widgets:close-button-clicked ()
+			(setf (pause avi) (not (pause avi)))
+			(bt:acquire-lock (pause-lock avi))
+			(bt:release-lock (pause-lock avi))
+			(return-from main)))))))))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))
