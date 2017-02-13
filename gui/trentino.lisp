@@ -39,37 +39,32 @@
     (values (+ left (max 32 (mezzano.gui:surface-width image)) right)
             (+ top (max 32 (mezzano.gui:surface-height image)) bottom))))
 
-(defmethod play-audio-stream ((avi avi-mjpeg-stream))
-  (let ((audio-rec (find-pcm-stream-record avi))
-	astream)
+(defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
+  (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
     (when audio-rec
       (bt:make-thread
        #'(lambda ()
-	   (portaudio:initialize)
-	   (stream-playback-start audio-rec)
-	   (setf astream
-		 (portaudio:open-default-stream 0 (number-of-channels audio-rec) :float (coerce (sample-rate audio-rec) 'double-float)
-						(/ (/ (rate audio-rec) (scale audio-rec)) (number-of-channels audio-rec))))
-	   (sleep (* (start audio-rec) (/ (scale audio-rec) (rate audio-rec))))
+	   (cl-video:stream-playback-start audio-rec)
+	   (sleep (* (cl-video:start audio-rec) (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
 	   (unwind-protect
-		(loop for cur = (if (pause avi) cur (pop (rcursor audio-rec)))
-		   for src = (frame cur)
-		   until (finish avi) do
+		(loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor audio-rec)))
+		   for src = (cl-video:frame cur)
+		   until (cl-video:finish avi) do
 		   ;; pause synching protocol w/video stream
-		     (bt:acquire-lock (pause-lock avi))
+		     (bt:acquire-lock (cl-video:pause-lock avi))
 		   ;; send the audio frame
 		     (mezzano.driver.intel-hda::play-sound src (first mezzano.driver.intel-hda::*cards*))
-		     (loop while (pause avi) do (sleep 0.2))
-		     (bt:release-lock (pause-lock avi))
+		     (loop while (cl-video:pause avi) do (sleep 0.2))
+		     (bt:release-lock (cl-video:pause-lock avi))
 		   ;; advance the cursor lock
-		     (bt:acquire-lock (vacancy-lock (car (rcursor audio-rec))))
-		     (bt:release-lock (vacancy-lock cur))
-		     (when (eql cur (final audio-rec))
+		     (bt:acquire-lock (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
+		     (bt:release-lock (cl-video:vacancy-lock cur))
+		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
-		     (sleep (/ (scale audio-rec) (rate audio-rec))))
-	     (stream-playback-stop audio-rec)))))))
+		     (sleep (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
+	     (cl-video:stream-playback-stop audio-rec)))))))
 
-(defmethod play-video-stream ((avi avi-mjpeg-stream))
+(defmethod play-video-stream ((avi cl-video:avi-mjpeg-stream))
   (with-simple-restart (abort "Close media player")
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
@@ -77,11 +72,11 @@
           (fifo (mezzano.supervisor:make-fifo 50)))
       (bt:make-trhread
        #'(lambda (avi)
-	   (mezzano.gui.compositor:with-window (window fifo (width avi) (height avi))
+	   (mezzano.gui.compositor:with-window (window fifo (cl-video:width avi) (cl-video:height avi))
 	     (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
 		    (frame (make-instance 'mezzano.gui.widgets:frame
 					  :framebuffer framebuffer
-					  :title (namestring path)
+					  :title (pathname-name path)
 					  :close-button-p t
 					  :damage-function (mezzano.gui.widgets:default-damage-function window)))
 		    (viewer (make-instance 'media-player
@@ -90,12 +85,12 @@
 					   :thread (mezzano.supervisor:current-thread)
 					   :font font
 					   :frame frame))
-		    (rec (find-mjpeg-stream-record avi)))
-	       (sleep (* (start rec) (/ (scale rec) (rate rec)))) ;stream delay, if any
-	       (stream-playback-start rec)
+		    (rec (cl-video:find-mjpeg-stream-record avi)))
+	       (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
+	       (cl-video:stream-playback-start rec)
 	       
-	       (loop for cur = (if (pause avi) cur (pop (rcursor rec)))
-		  for src = (frame cur)
+	       (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
+		  for src = (cl-video:frame cur)
 		  with quit = nil until quit do
 		    (loop for i from 0 below height do
 			 (loop for j from 0 below width
@@ -114,12 +109,12 @@
 		      (mezzano.gui.compositor:damage-window window
 							    0 0
 							    width height))
-		    (unless (pause avi)
-		      (bt:acquire-lock (vacancy-lock (car (rcursor rec))))
-		      (bt:release-lock (vacancy-lock cur)))
-		    (when (eql cur (final rec))
+		    (unless (cl-video:pause avi)
+		      (bt:acquire-lock (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
+		      (bt:release-lock (cl-video:vacancy-lock cur)))
+		    (when (eql cur (cl-video:final rec))
 		      (return))
-		    (sleep (/ (scale rec) (rate rec)))
+		    (sleep (/ (cl-video:scale rec) (cl-video:rate rec)))
 		    
 		    (handler-case
 			(dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
@@ -128,9 +123,9 @@
 			  (format t "Error: ~A~%" c)))
 		      ;; Exit when the close button is clicked.
 		      (mezzano.gui.widgets:close-button-clicked ()
-			(setf (pause avi) (not (pause avi)))
-			(bt:acquire-lock (pause-lock avi))
-			(bt:release-lock (pause-lock avi))
+			(setf (cl-video:pause avi) (not (cl-video:pause avi)))
+			(bt:acquire-lock (cl-video:pause-lock avi))
+			(bt:release-lock (cl-video:pause-lock avi))
 			(return-from main)))))))))))
 
 (defun main (path)
