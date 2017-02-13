@@ -7,6 +7,9 @@
   (:use #:cl #:mezzano.gui.font #:cl-video)
   (:export #:spawn))
 
+;;; Trentino video player, makes use of CL-VIDEO library
+;;; 2017 Eugene Zaikonnikov <eugene@funcall.org>
+
 (in-package #:mezzano.gui.trentino)
 
 (defclass media-player ()
