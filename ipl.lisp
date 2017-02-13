@@ -124,6 +124,7 @@ Make sure there is a virtio-net NIC attached.~%")
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)
+(require :cl-video)
 (require :swank)
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
