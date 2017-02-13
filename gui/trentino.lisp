@@ -85,7 +85,8 @@
 					   :thread (mezzano.supervisor:current-thread)
 					   :font font
 					   :frame frame))
-		    (rec (cl-video:find-mjpeg-stream-record avi)))
+		    (rec (cl-video:find-mjpeg-stream-record avi))
+		    (buffer (make-array (list (cl-video:height avi) (cl-video:width avi)) :element-type '(unsigned-byte 32))))
 	       (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 	       (cl-video:stream-playback-start rec)
 	       (unwind-protect
@@ -96,7 +97,7 @@
 			      (loop for j from 0 below width
 				 for spos = (* 3 (+ j (* width i))) do
 				   (setf (aref buffer i j)
-					 (logior (ash (aref src (+ 2 spos)) 16) (ash (aref src (1+ spos)) 8) (aref src spos)))))
+					 (logior #xff000000 (ash (aref src (+ 2 spos)) 16) (ash (aref src (1+ spos)) 8) (aref src spos)))))
 			 (multiple-value-bind (left right top bottom)
 			     (mezzano.gui.widgets:frame-size frame)
 			   (mezzano.gui:bitblt :set
