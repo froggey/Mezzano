@@ -61,13 +61,13 @@
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (fifo (mezzano.supervisor:make-fifo 50)))
-      (mezzano.supervisor:make-trhread
+      (mezzano.supervisor:make-thread
        #'(lambda (avi)
 	   (mezzano.gui.compositor:with-window (window fifo (cl-video:width avi) (cl-video:height avi))
 	     (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
 		    (frame (make-instance 'mezzano.gui.widgets:frame
 					  :framebuffer framebuffer
-					  :title (pathname-name path)
+					  :title (pathname-name (cl-video:filename avi))
 					  :close-button-p t
 					  :damage-function (mezzano.gui.widgets:default-damage-function window)))
 		    (viewer (make-instance 'media-player
@@ -84,9 +84,9 @@
 		    (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
 		       for src = (cl-video:frame cur)
 		       with quit = nil until quit do
-			 (loop for i from 0 below height do
-			      (loop for j from 0 below width
-				 for spos = (* 3 (+ j (* width i))) do
+			 (loop for i from 0 below (cl-video:height avi) do
+			      (loop for j from 0 below (cl-video:width avi)
+				 for spos = (* 3 (+ j (* (cl-video:width avi) i))) do
 				   (setf (aref buffer i j)
 					 (logior #xff000000 (ash (aref src (+ 2 spos)) 16) (ash (aref src (1+ spos)) 8) (aref src spos)))))
 			 (multiple-value-bind (left right top bottom)
@@ -95,12 +95,14 @@
 					       (mezzano.gui:surface-width buffer) (mezzano.gui:surface-height buffer)
 					       buffer 0 0
 					       framebuffer
-					       (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width buffer) 2)))
-					       (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height buffer) 2))))
+					       (+ left (- (truncate (- (cl-video:width avi) left right) 2)
+							  (truncate (mezzano.gui:surface-width buffer) 2)))
+					       (+ top (- (truncate (- (cl-video:height avi) top bottom) 2)
+							 (truncate (mezzano.gui:surface-height buffer) 2))))
 			   (mezzano.gui.widgets:draw-frame frame)
 			   (mezzano.gui.compositor:damage-window window
 								 0 0
-								 width height))
+								 (cl-video:width avi) (cl-video:height avi)))
 			 (unless (cl-video:pause avi)
 			   (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
 			   (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur)))
@@ -118,12 +120,12 @@
 			     (setf (cl-video:pause avi) (not (cl-video:pause avi)))
 			     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
 			     (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))
-			     (return-from main))))
-		 (stream-playback-stop rec)))))))))
+			     (return-from play-video-stream))))
+		 (cl-video:stream-playback-stop rec)))))))))
 
 (defun main (path)
-  (decode-file pathname :player-callback #'(lambda (avi)
-					     (play-audio-stream avi) (play-video-stream avi))))
+  (cl-video:decode-file path :player-callback #'(lambda (avi)
+						  (play-audio-stream avi) (play-video-stream avi))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))
