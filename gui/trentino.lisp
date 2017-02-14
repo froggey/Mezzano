@@ -1,7 +1,16 @@
 (defpackage faux-bordeaux
   (:nicknames #:bt)
-  (:import-from #:mezzano.supervisor #:make-thread #:make-lock #:acquire-lock #:release-lock)
+  (:import-from #:mezzano.supervisor #:make-thread)
   (:export #:make-thread #:make-lock #:acquire-lock #:release-lock))
+
+(defun faux-bordeaux:acquire-lock (mutex &optional (wait-p t))
+  (mezzano.supervisor:acquire-mutex mutex wait-p))
+
+(defun faux-bordeaux:release-lock (mutex)
+  (mezzano.supervisor:release-mutex mutex))
+
+(defun faux-bordeaux:make-lock (&optional name)
+  (mezzano.supervisor:make-mutex name))
 
 (defpackage mezzano.gui.trentino
   (:use #:cl #:mezzano.gui.font #:cl-video)
@@ -38,7 +47,7 @@
 (defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
   (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
     (when audio-rec
-      (bt:make-thread
+      (mezzano.supervisor:make-thread
        #'(lambda ()
 	   (cl-video:stream-playback-start audio-rec)
 	   (sleep (* (cl-video:start audio-rec) (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
@@ -47,14 +56,14 @@
 		   for src = (cl-video:frame cur)
 		   until (cl-video:finish avi) do
 		   ;; pause synching protocol w/video stream
-		     (bt:acquire-lock (cl-video:pause-lock avi))
+		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
 		   ;; send the audio frame
 		     (mezzano.driver.intel-hda::play-sound src (first mezzano.driver.intel-hda::*cards*))
 		     (loop while (cl-video:pause avi) do (sleep 0.2))
-		     (bt:release-lock (cl-video:pause-lock avi))
+		     (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))
 		   ;; advance the cursor lock
-		     (bt:acquire-lock (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
-		     (bt:release-lock (cl-video:vacancy-lock cur))
+		     (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
+		     (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur))
 		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
 		     (sleep (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
@@ -66,7 +75,7 @@
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (fifo (mezzano.supervisor:make-fifo 50)))
-      (bt:make-trhread
+      (mezzano.supervisor:make-trhread
        #'(lambda (avi)
 	   (mezzano.gui.compositor:with-window (window fifo (cl-video:width avi) (cl-video:height avi))
 	     (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
@@ -107,8 +116,8 @@
 								 0 0
 								 width height))
 			 (unless (cl-video:pause avi)
-			   (bt:acquire-lock (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
-			   (bt:release-lock (cl-video:vacancy-lock cur)))
+			   (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
+			   (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur)))
 			 (when (eql cur (cl-video:final rec))
 			   (return))
 			 (sleep (/ (cl-video:scale rec) (cl-video:rate rec)))
@@ -121,8 +130,8 @@
 			   ;; Exit when the close button is clicked.
 			   (mezzano.gui.widgets:close-button-clicked ()
 			     (setf (cl-video:pause avi) (not (cl-video:pause avi)))
-			     (bt:acquire-lock (cl-video:pause-lock avi))
-			     (bt:release-lock (cl-video:pause-lock avi))
+			     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
+			     (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))
 			     (return-from main))))
 		 (stream-playback-stop rec)))))))))
 
