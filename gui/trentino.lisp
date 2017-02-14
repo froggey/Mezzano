@@ -1,23 +1,9 @@
-(defpackage faux-bordeaux
-  (:nicknames #:bt)
-  (:import-from #:mezzano.supervisor #:make-thread)
-  (:export #:make-thread #:make-lock #:acquire-lock #:release-lock))
-
-(defun faux-bordeaux:acquire-lock (mutex &optional (wait-p t))
-  (mezzano.supervisor:acquire-mutex mutex wait-p))
-
-(defun faux-bordeaux:release-lock (mutex)
-  (mezzano.supervisor:release-mutex mutex))
-
-(defun faux-bordeaux:make-lock (&optional name)
-  (mezzano.supervisor:make-mutex name))
-
-(defpackage mezzano.gui.trentino
-  (:use #:cl #:mezzano.gui.font #:cl-video)
-  (:export #:spawn))
-
 ;;; Trentino video player, makes use of CL-VIDEO library
 ;;; 2017 Eugene Zaikonnikov <eugene@funcall.org>
+
+(defpackage mezzano.gui.trentino
+  (:use #:cl)
+  (:export #:spawn))
 
 (in-package #:mezzano.gui.trentino)
 
