@@ -13,8 +13,8 @@
   size)
 
 (defun %allocate-stack-1 (aligned-size bump-sym)
-  (safe-without-interrupts (aligned-size bump-sym)
-    (with-symbol-spinlock (mezzano.runtime::*wired-allocator-lock*)
+  (mezzano.supervisor:without-footholds
+    (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
       (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
                      (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
         (incf (symbol-value bump-sym) aligned-size)))))

@@ -17,7 +17,6 @@
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
 
-(sys.int::defglobal *wired-allocator-lock*)
 (sys.int::defglobal *allocator-lock*)
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
@@ -69,21 +68,20 @@
   (ash (sys.int::memref-unsigned-byte-64 entry 0) (- sys.int::+object-data-shift+)))
 
 (defun first-run-initialize-allocator ()
-  (setf *wired-allocator-lock* :unlocked
-        sys.int::*gc-in-progress* nil
+  (setf sys.int::*gc-in-progress* nil
         sys.int::*pinned-mark-bit* 0
         sys.int::*dynamic-mark-bit* 0
         sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         *enable-allocation-profiling* nil
-        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *general-area-expansion-granularity* (* 128 1024 1024)
         *cons-area-expansion-granularity* (* 128 1024 1024)
         *general-fast-path-hits* 0
         *general-allocation-count* 0
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
-        *bytes-consed* 0))
+        *bytes-consed* 0
+        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
@@ -196,14 +194,23 @@
          (cerror "Retry allocation" 'storage-condition))
        (sys.int::gc)))
 
+(defun %allocate-from-wired-area-unlocked (tag data words)
+  (when *paranoid-allocation*
+    (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
+  (let ((address (%allocate-from-freelist-area tag data words 'sys.int::*wired-area-freelist*)))
+    (when address
+      (sys.int::%%assemble-value address sys.int::+tag-object+))))
+
 (defun %allocate-from-wired-area-1 (tag data words)
-  (mezzano.supervisor::safe-without-interrupts (tag data words)
-    (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
-      (when *paranoid-allocation*
-        (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
-      (let ((address (%allocate-from-freelist-area tag data words 'sys.int::*wired-area-freelist*)))
-        (when address
-          (sys.int::%%assemble-value address sys.int::+tag-object+))))))
+  (when (or (not (boundp '*allocator-lock*))
+            (eql mezzano.supervisor::*world-stopper*
+                 (mezzano.supervisor:current-thread)))
+    (return-from %allocate-from-wired-area-1
+      (%allocate-from-wired-area-unlocked tag data words)))
+  (mezzano.supervisor:without-footholds
+    (mezzano.supervisor:with-mutex (*allocator-lock*)
+      (mezzano.supervisor:with-pseudo-atomic
+        (%allocate-from-wired-area-unlocked tag data words)))))
 
 (defun %allocate-from-wired-area (tag data words)
   (log-allocation-profile-entry)
