@@ -28,7 +28,10 @@
   (throw 'mezzano.supervisor::terminate-thread nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
-  (declare (ignore window event)))
+  (when (not (mezzano.gui.compositor:key-releasep event))
+    (let* ((ch (mezzano.gui.compositor:key-key event)))
+      (cond ((char= ch #\Space)
+             (throw 'pause nil))))))
 
 (defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
   (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
@@ -115,12 +118,14 @@
 			   (error (c)
 			     (ignore-errors
 			       (format t "Error: ~A~%" c)))
-			   ;; Exit when the close button is clicked.
 			   (mezzano.gui.widgets:close-button-clicked ()
-			     (setf (cl-video:pause avi) (not (cl-video:pause avi)))
-			     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
-			     (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))
-			     (return-from play-video-stream))))
+			     (setf (cl-video:finish avi) t)
+			     (setf quit t)
+			     (return-from play-video-stream)))
+			 (catch 'pause
+			   (setf (cl-video:pause avi) (not (cl-video:pause avi)))
+			   (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
+			   (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))))
 		 (cl-video:stream-playback-stop rec)))))))))
 
 (defun main (path)
