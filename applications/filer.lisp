@@ -80,6 +80,9 @@
 (defmethod view ((type (eql :image)) path)
   (funcall (read-from-string "mezzano.gui.image-viewer:spawn") path))
 
+(defmethod view ((type (eql :video)) path)
+  (funcall (read-from-string "mezzano.gui.trentino:spawn") path))
+
 (defun click (viewer thing)
   (cond ((functionp thing)
          (funcall thing viewer))
