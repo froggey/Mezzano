@@ -199,14 +199,20 @@
            #:without-footholds
            #:establish-thread-foothold
            #:terminate-thread
+           #:mutex
+           #:mutex-p
            #:make-mutex
            #:with-mutex
            #:mutex-held-p
            #:acquire-mutex
            #:release-mutex
+           #:condition-variable
+           #:condition-variable-p
            #:make-condition-variable
            #:condition-wait
            #:condition-notify
+           #:latch
+           #:latch-p
            #:make-latch
            #:latch-reset
            #:latch-wait
@@ -217,6 +223,8 @@
            #:release-memory-range
            #:debug-print-line
            #:panic
+           #:fifo
+           #:fifo-p
            #:make-fifo
            #:fifo-push
            #:fifo-pop
