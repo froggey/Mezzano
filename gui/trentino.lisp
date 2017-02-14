@@ -37,6 +37,29 @@
       (cond ((char= ch #\Space)
              (signal 'pause-event))))))
 
+;;; we speccialize own class & method to resample stream as necessary for Intel HDA
+;;; but we still want to run decode in another thread
+(defclass hda-pcm-stream-record (cl-video:audio-stream-record)
+  ())
+
+(defmethod decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
+  (let* ((chunk (pop (cl-video:wcursor rec)))
+	 (cur-lock (cl-video:vacancy-lock chunk))
+	 (new-chunk (car (cl-video:wcursor rec))))
+    (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock new-chunk))
+    (read-sequence (cl-video:buffer rec) input-stream :end fsize)
+    (flexi-streams:with-input-from-sequence (is (cl-video:buffer rec))
+      (let ((sample-size (/ (cl-video:block-align rec) (cl-video:number-of-channels rec))))
+	(loop for i from 0 below fsize do
+	     (setf (aref (cl-video:frame chunk) i) (if (= sample-size 1)
+					    (read-byte is)
+					    (error "No support for stereo sound yet"))))))
+    (mezzano.supervisor:release-mutex cur-lock)))
+
+(defmethod find-hda-pcm-stream-record ((avi cl-video:avi-mjpeg-stream))
+  (find-if #'(lambda (x) (and (eql (type-of x) 'hda-pcm-stream-record)
+			      (eql (cl-video:compression-code x) cl-video:+pcmi-uncompressed+))) (cl-video:stream-records avi)))
+
 (defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
   (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
     (when audio-rec
