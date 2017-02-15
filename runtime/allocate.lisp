@@ -6,9 +6,9 @@
 (sys.int::defglobal *paranoid-allocation*)
 
 (sys.int::defglobal sys.int::*wired-area-bump*)
-(sys.int::defglobal sys.int::*wired-area-freelist*)
+(sys.int::defglobal sys.int::*wired-area-free-bins*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)
-(sys.int::defglobal sys.int::*pinned-area-freelist*)
+(sys.int::defglobal sys.int::*pinned-area-free-bins*)
 (sys.int::defglobal sys.int::*general-area-bump*)
 (sys.int::defglobal sys.int::*general-area-limit*)
 (sys.int::defglobal sys.int::*cons-area-bump*)
@@ -17,7 +17,6 @@
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
 
-(sys.int::defglobal *wired-allocator-lock*)
 (sys.int::defglobal *allocator-lock*)
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
@@ -69,21 +68,20 @@
   (ash (sys.int::memref-unsigned-byte-64 entry 0) (- sys.int::+object-data-shift+)))
 
 (defun first-run-initialize-allocator ()
-  (setf *wired-allocator-lock* :unlocked
-        sys.int::*gc-in-progress* nil
+  (setf sys.int::*gc-in-progress* nil
         sys.int::*pinned-mark-bit* 0
         sys.int::*dynamic-mark-bit* 0
         sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         *enable-allocation-profiling* nil
-        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *general-area-expansion-granularity* (* 128 1024 1024)
         *cons-area-expansion-granularity* (* 128 1024 1024)
         *general-fast-path-hits* 0
         *general-allocation-count* 0
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
-        *bytes-consed* 0))
+        *bytes-consed* 0
+        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
@@ -116,42 +114,46 @@
                                                              (ash (ldb (byte (- 32 sys.int::+object-data-shift+) 0) data) sys.int::+object-data-shift+))
         (sys.int::memref-unsigned-byte-32 address 1) (ldb (byte 32 (- 32 sys.int::+object-data-shift+)) data)))
 
-;; Simple first-fit freelist allocator for pinned areas.
-(defun %allocate-from-freelist-area (tag data words freelist-symbol)
-  ;; Traverse the freelist.
-  (do ((freelist (symbol-value freelist-symbol) (freelist-entry-next freelist))
-       (prev nil freelist))
-      ((null freelist)
-       nil)
-    (let ((size (freelist-entry-size freelist)))
-      (when (>= size words)
-        ;; This freelist entry is large enough, use it.
-        (let ((next (cond ((eql size words)
-                           ;; Entry is exactly the right size.
-                           (freelist-entry-next freelist))
-                          (t
-                           ;; Entry is too large, split it.
-                           ;; Always create new entries with the pinned mark bit
-                           ;; set. A GC will flip it, making all the freelist
-                           ;; entries unmarked. No object can ever point to a freelist entry, so
-                           ;; they will never be marked during a gc.
-                           (let ((next (+ freelist (* words 8))))
-                             (setf (sys.int::memref-unsigned-byte-64 next 0) (logior sys.int::*pinned-mark-bit*
-                                                                                     (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
-                                                                                     (ash (- size words) sys.int::+object-data-shift+))
-                                   (sys.int::memref-t next 1) (freelist-entry-next freelist))
-                             next)))))
-          ;; Update the prev's next pointer.
-          (cond (prev
-                 (setf (freelist-entry-next prev) next))
-                (t
-                 (setf (symbol-value freelist-symbol) next))))
-        ;; Write object header.
-        (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
-        ;; Clear data.
-        (sys.int::%fill-words (+ freelist 8) 0 (1- words))
-        ;; Return address.
-        (return freelist)))))
+;; Simple first-fit binning freelist allocator for pinned areas.
+(defun %allocate-from-freelist-area (tag data words bins)
+  (let ((log2-len (integer-length words)))
+    ;; Loop over each bin from log2-len up to 64 looking for a freelist entry that's large enough.
+    (loop
+       (when (>= log2-len 64)
+         (return nil))
+       ;; Traverse this bin.
+       (do ((freelist (svref bins log2-len) (freelist-entry-next freelist))
+            (prev nil freelist))
+           ((null freelist))
+         (let ((size (freelist-entry-size freelist)))
+           (when (>= size words)
+             ;; This freelist entry is large enough, use it.
+             ;; Remove it from the bin.
+             (cond (prev
+                    (setf (freelist-entry-next prev) (freelist-entry-next freelist)))
+                   (t
+                    (setf (svref bins log2-len) (freelist-entry-next freelist))))
+             (when (not (eql size words))
+               ;; Entry is too large, split it.
+               ;; Always create new entries with the pinned mark bit
+               ;; set. A GC will flip it, making all the freelist
+               ;; entries unmarked. No object can ever point to a freelist entry, so
+               ;; they will never be marked during a gc.
+               (let* ((new-size (- size words))
+                      (new-bin (integer-length new-size))
+                      (next (+ freelist (* words 8))))
+                 (setf (sys.int::memref-unsigned-byte-64 next 0) (logior sys.int::*pinned-mark-bit*
+                                                                         (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
+                                                                         (ash (- size words) sys.int::+object-data-shift+))
+                       (sys.int::memref-t next 1) (svref bins new-bin))
+                 (setf (svref bins new-bin) next)))
+             ;; Write object header.
+             (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
+             ;; Clear data.
+             (sys.int::%fill-words (+ freelist 8) 0 (1- words))
+             ;; Return address.
+             (return-from %allocate-from-freelist-area freelist))))
+       (incf log2-len))))
 
 (defun %allocate-from-pinned-area-1 (tag data words)
   (mezzano.supervisor:without-footholds
@@ -159,7 +161,7 @@
       (mezzano.supervisor:with-pseudo-atomic
         (when *paranoid-allocation*
           (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*))
-        (let ((address (%allocate-from-freelist-area tag data words 'sys.int::*pinned-area-freelist*)))
+        (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
           (when address
             (sys.int::%%assemble-value address sys.int::+tag-object+)))))))
 
@@ -196,14 +198,23 @@
          (cerror "Retry allocation" 'storage-condition))
        (sys.int::gc)))
 
+(defun %allocate-from-wired-area-unlocked (tag data words)
+  (when *paranoid-allocation*
+    (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
+  (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
+    (when address
+      (sys.int::%%assemble-value address sys.int::+tag-object+))))
+
 (defun %allocate-from-wired-area-1 (tag data words)
-  (mezzano.supervisor::safe-without-interrupts (tag data words)
-    (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
-      (when *paranoid-allocation*
-        (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
-      (let ((address (%allocate-from-freelist-area tag data words 'sys.int::*wired-area-freelist*)))
-        (when address
-          (sys.int::%%assemble-value address sys.int::+tag-object+))))))
+  (when (or (not (boundp '*allocator-lock*))
+            (eql mezzano.supervisor::*world-stopper*
+                 (mezzano.supervisor:current-thread)))
+    (return-from %allocate-from-wired-area-1
+      (%allocate-from-wired-area-unlocked tag data words)))
+  (mezzano.supervisor:without-footholds
+    (mezzano.supervisor:with-mutex (*allocator-lock*)
+      (mezzano.supervisor:with-pseudo-atomic
+        (%allocate-from-wired-area-unlocked tag data words)))))
 
 (defun %allocate-from-wired-area (tag data words)
   (log-allocation-profile-entry)

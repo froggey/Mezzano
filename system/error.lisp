@@ -58,6 +58,18 @@
                  (format stream "No applicable restart named ~S"
                          (bad-restart-error-identifier condition))))))
 
+(define-condition unavailable-go-tag-error (control-error)
+  ((tag :initarg :tag
+        :reader unavailable-go-tag-error-tag))
+  (:report (lambda (condition stream)
+             (format stream "GO to out-of-scope go-tag ~S." (unavailable-go-tag-error-tag condition)))))
+
+(define-condition unavailable-block-error (control-error)
+  ((tag :initarg :tag
+        :reader unavailable-block-error-tag))
+  (:report (lambda (condition stream)
+             (format stream "RETURN-FROM to out-of-scope block ~S." (unavailable-block-error-tag condition)))))
+
 (define-condition division-by-zero (arithmetic-error)
   ())
 
@@ -273,3 +285,9 @@
 
 (defun raise-bounds-error (array index)
   (error "Index ~D out of bounds for array ~S." index array))
+
+(defun raise-bad-go-tag (name)
+  (error 'unavailable-go-tag-error :tag name))
+
+(defun raise-bad-block (name)
+  (error 'unavailable-block-error :tag name))
