@@ -1789,15 +1789,20 @@ Tag with +TAG-OBJECT+."
            (fn (stack-pop stack))
            (value (stack-pop stack))
            (name (stack-pop stack))
-           (address (allocate 8 :wired)))
+           (address (allocate 8 :wired))
+           (global-cell (allocate 4 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
              (word (+ address 1)) name
              (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-             (word (+ address 3)) value
+             (word (+ address 3)) (make-value global-cell sys.int::+tag-object+)
              (word (+ address 4)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
              (word (+ address 5)) plist
              (word (+ address 6)) (vsym t))
+       (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
+             (word (+ global-cell 1)) (vsym nil)
+             (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
+             (word (+ global-cell 3)) value)
        (unless (eql fn (unbound-value))
          (error "Uninterned symbol with function not supported."))
        (make-value address sys.int::+tag-object+)))
