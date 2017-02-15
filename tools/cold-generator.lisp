@@ -1081,26 +1081,31 @@
 
 (defun finalize-areas ()
   "Assign store addresses to each area, and build pinned/wired area freelists."
-  ;; Ensure a minium amount of free space in :wired.
-  ;; And :pinned as well, but that matters less.
-  (let ((wired-free-area (allocate (* 2 1024 1024) :wired))
+  (let ((wired-free-bins (allocate (1+ 64) :wired))
+        (pinned-free-bins (allocate (1+ 64) :wired))
+        ;; Ensure a minium amount of free space in :wired.
+        ;; And :pinned as well, but that matters less.
+        (wired-free-area (allocate (* 2 1024 1024) :wired))
         (pinned-free-area (allocate 4 :pinned)))
+    (setf (word wired-free-bins) (array-header sys.int::+object-tag-array-t+ 64)
+          (word pinned-free-bins) (array-header sys.int::+object-tag-array-t+ 64))
+    (dotimes (i 64)
+      (setf (word (+ wired-free-bins 1 i)) (vsym nil))
+      (setf (word (+ pinned-free-bins 1 i)) (vsym nil)))
+    (setf (cold-symbol-value 'sys.int::*wired-area-free-bins*) (make-value wired-free-bins sys.int::+tag-object+)
+          (cold-symbol-value 'sys.int::*pinned-area-free-bins*) (make-value pinned-free-bins sys.int::+tag-object+))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
-    (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
-                                         (ash (truncate (- *wired-area-bump*
-                                                           (ldb (byte 44 0) (* wired-free-area 8)))
-                                                        8)
-                                              sys.int::+object-data-shift+))
-          (word (1+ wired-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-    (setf (cold-symbol-value 'sys.int::*wired-area-freelist*) (make-fixnum (* wired-free-area 8)))
+    (let ((wired-size (truncate (- *wired-area-bump* (ldb (byte 44 0) (* wired-free-area 8))) 8)))
+      (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
+                                           (ash wired-size sys.int::+object-data-shift+))
+            (word (1+ wired-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+      (setf (word (+ wired-free-bins 1 (integer-length wired-size))) (make-fixnum (* wired-free-area 8))))
     (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
-    (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
-                                          (ash (truncate (- *pinned-area-bump*
-                                                            (ldb (byte 44 0) (* pinned-free-area 8)))
-                                                         8)
-                                               sys.int::+object-data-shift+))
-          (word (1+ pinned-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-    (setf (cold-symbol-value 'sys.int::*pinned-area-freelist*) (make-fixnum (* pinned-free-area 8)))
+    (let ((pinned-size (truncate (- *pinned-area-bump* (ldb (byte 44 0) (* pinned-free-area 8))) 8)))
+      (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
+                                            (ash pinned-size sys.int::+object-data-shift+))
+            (word (1+ pinned-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+      (setf (word (+ pinned-free-bins 1 (integer-length pinned-size))) (make-fixnum (* pinned-free-area 8))))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
     (setf *wired-area-store* *store-bump*)
     (incf *store-bump* (- *wired-area-bump* +wired-area-base+))
@@ -1276,9 +1281,7 @@
             sys.int::*pager-thread*
             sys.int::*disk-io-thread*
             sys.int::*initial-areas*
-            sys.int::*wired-area-freelist*
             sys.int::*wired-area-bump*
-            sys.int::*pinned-area-freelist*
             sys.int::*pinned-area-bump*
             sys.int::*general-area-bump*
             sys.int::*cons-area-bump*
@@ -1286,6 +1289,8 @@
             :wired :pinned :general :cons :nursery :stack
             sys.int::*structure-type-type*
             sys.int::*structure-slot-type*
+            sys.int::*wired-area-free-bins*
+            sys.int::*pinned-area-free-bins*
             ))
     (loop
        for (what address byte-offset type debug-info) in *pending-fixups*

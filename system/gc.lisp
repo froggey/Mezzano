@@ -14,7 +14,7 @@
 
 (defglobal *gc-debug-scavenge-stack* nil)
 (defglobal *gc-debug-freelist-rebuild* nil)
-(defglobal *gc-debug-metadata* t)
+(defglobal *gc-debug-metadata* nil)
 
 (defglobal *gc-enable-logging* nil)
 
@@ -1037,58 +1037,55 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                    (mezzano.runtime::freelist-entry-next offset)))
          (incf offset (* (align-up size 2) 8))))))
 
-(defun rebuild-freelist (freelist-symbol base limit)
+(defun finish-freelist-entry (bins start len)
+  (let ((bin (integer-length len)))
+    (when *gc-debug-freelist-rebuild*
+      (gc-log "finalize entry @" start "  len " len " bin " bin))
+    (setf (memref-unsigned-byte-64 start 0) (make-freelist-header len)
+          (memref-t start 1) (svref bins bin))
+    (setf (svref bins bin) start)))
+
+(defun rebuild-freelist (bins name base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist."
-  (gc-log "rebuild freelist " freelist-symbol)
-  (when mezzano.runtime::*paranoid-allocation*
-    (mezzano.runtime::verify-freelist (symbol-value freelist-symbol) base limit))
-  ;; Set initial freelist entry.
-  (let ((initial (find-next-free-object base limit)))
-    (when (not initial)
-      (setf (symbol-value freelist-symbol) '())
+  (gc-log "rebuild freelist " name)
+  (dotimes (i 64)
+    (setf (svref bins i) nil))
+  ;; Build the freelist.
+  (let* ((entry-start (find-next-free-object base limit))
+         (entry-len 0)
+         (current entry-start))
+    (when (not entry-start)
       (when *gc-debug-freelist-rebuild*
         (gc-log "done (empty)"))
       (return-from rebuild-freelist))
     (when *gc-debug-freelist-rebuild*
-      (gc-log "initial: " initial))
-    (setf (memref-unsigned-byte-64 initial 0) (make-freelist-header (size-of-pinned-area-allocation initial))
-          (memref-t initial 1) '()
-          (symbol-value freelist-symbol) initial))
-  ;; Build the freelist.
-  (let ((current (symbol-value freelist-symbol)))
+      (gc-log "begin at " current))
     (loop
        ;; Expand this entry as much as possible.
-       (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +object-data-shift+)))
+       (let* ((len (align-up (size-of-pinned-area-allocation current) 2))
               (next-addr (+ current (* len 8))))
          (when *gc-debug-freelist-rebuild*
-           (gc-log "len: " len "  next: " next-addr))
-         (when (>= next-addr limit)
-           (when *gc-debug-freelist-rebuild*
-             (gc-log "done (limit)"))
-           (when mezzano.runtime::*paranoid-allocation*
-             (dotimes (i (- len 2))
-               (setf (memref-signed-byte-64 current (+ i 2)) -1)))
-           (return))
-         ;; Test the mark bit.
-         (cond ((eql (logand (memref-unsigned-byte-8 next-addr 0) +pinned-object-mark-bit+)
-                     *pinned-mark-bit*)
-                ;; Is marked, finish this entry and start the next one.
-                (setf next-addr (find-next-free-object current limit))
-                (when (not next-addr)
-                  (when *gc-debug-freelist-rebuild*
-                    (gc-log "done"))
-                  (when mezzano.runtime::*paranoid-allocation*
-                    (dotimes (i (- len 2))
-                      (setf (memref-signed-byte-64 current (+ i 2)) -1)))
-                  (return))
-                (when *gc-debug-freelist-rebuild*
-                  (gc-log "adv: " next-addr))
-                (setf (memref-unsigned-byte-64 next-addr 0) (make-freelist-header (size-of-pinned-area-allocation next-addr))
-                      (memref-t next-addr 1) '())
-                (setf (memref-t current 1) next-addr
-                      current next-addr))
-               (t ;; Not marked, expand to cover this entry.
-                (setf (memref-unsigned-byte-64 current 0) (make-freelist-header (+ len (size-of-pinned-area-allocation next-addr))))))))))
+           (gc-log "cur: " current " len: " len " next: " next-addr))
+         (incf entry-len len)
+         (cond
+           ((>= next-addr limit)
+            (finish-freelist-entry bins entry-start entry-len)
+            (return))
+           ;; Test the mark bit.
+           ((eql (logand (memref-unsigned-byte-8 next-addr 0) +pinned-object-mark-bit+)
+                 *pinned-mark-bit*)
+            ;; Is marked, finish this entry and start the next one.
+            (setf current (find-next-free-object next-addr limit))
+            (when *gc-debug-freelist-rebuild*
+              (gc-log "marked, next is " current))
+            (finish-freelist-entry bins entry-start entry-len)
+            (when (not current)
+              (return))
+            (setf entry-start current
+                  entry-len 0))
+           (t
+            ;; Advance to the next object
+            (setf current next-addr)))))))
 
 (defun gc-cycle ()
   (mezzano.supervisor::set-gc-light t)
@@ -1141,8 +1138,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                            *cons-area-limit*
                                            +block-map-zero-fill+)
   ;; Rebuild freelists.
-  (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
-  (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
+  (rebuild-freelist *wired-area-free-bins* :wired (* 2 1024 1024) *wired-area-bump*)
+  (rebuild-freelist *pinned-area-free-bins* :pinned (* 2 1024 1024 1024) *pinned-area-bump*)
   ;; Trim the dynamic areas.
   (let ((new-limit (align-up *general-area-bump* #x200000)))
     (mezzano.supervisor:release-memory-range (logior new-limit
