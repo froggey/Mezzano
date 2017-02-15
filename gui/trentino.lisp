@@ -157,7 +157,7 @@
                                (mezzano.gui.widgets:close-button-clicked ()
                                  (setf (cl-video:finish avi) t)
                                  (setf quit t)
-                                 (return-from play-video-stream))
+                                 )
                                (pause-event ()
                                  (setf should-pause t)))
                              (when should-pause
