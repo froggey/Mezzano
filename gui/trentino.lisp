@@ -97,74 +97,78 @@
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
-          (fifo (mezzano.supervisor:make-fifo 50)))
+          (fifo (mezzano.supervisor:make-fifo 50))
+	  (should-pause nil))
       (mezzano.supervisor:make-thread
-       #'(lambda ()
-           ;; Window needs to be slightly larger than the video to account for the frame.
-           (multiple-value-bind (window-width window-height)
-               (compute-window-size avi)
-             (mezzano.gui.compositor:with-window (window fifo window-width window-height)
-               (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                      (frame (make-instance 'mezzano.gui.widgets:frame
-                                            :framebuffer framebuffer
-                                            :title (pathname-name (cl-video:filename avi))
-                                            :close-button-p t
-                                            :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                      (viewer (make-instance 'media-player
-                                             :fifo fifo
-                                             :window window
-                                             :thread (mezzano.supervisor:current-thread)
-                                             :font font
-                                             :frame frame))
-                      (rec (cl-video:find-mjpeg-stream-record avi))
-                      (avi-width (cl-video:width avi))
-                      (avi-height (cl-video:height avi)))
-                 (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
-                 (cl-video:stream-playback-start rec)
-                 (unwind-protect
-                      (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
-                         for src = (cl-video:frame cur)
-                         with quit = nil until quit do
-                           (multiple-value-bind (left right top bottom)
-                               (mezzano.gui.widgets:frame-size frame)
-                             (declare (ignore right bottom))
-                             (loop for i from 0 below avi-height do
-                                  (loop for j from 0 below avi-width
-                                     for spos = (* 3 (+ j (* avi-width i))) do
-                                       ;; Write pixels directly to the framebuffer, avoid a copy.
-                                       (setf (mezzano.gui:surface-pixel framebuffer (+ left j) (+ i top))
-                                             (logior #xff000000
-                                                     (ash (aref src (+ 2 spos)) 16)
-                                                     (ash (aref src (1+ spos)) 8)
-                                                     (aref src spos)))))
-                             (mezzano.gui.widgets:draw-frame frame)
-                             (mezzano.gui.compositor:damage-window window
-                                                                   0 0
-                                                                   (cl-video:width avi) (cl-video:height avi)))
-                           (unless (cl-video:pause avi)
-                             (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
-                             (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur)))
-                           (when (eql cur (cl-video:final rec))
-                             (return))
-                           (sleep (/ (cl-video:scale rec) (cl-video:rate rec)))
-                           (let ((should-pause nil))
-                             (handler-case
-                                 ;; Don't block when reading the fifo.
-                                 (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo nil))
-                               (error (c)
-                                 (ignore-errors
-                                   (format t "Error: ~A~%" c)))
-                               (mezzano.gui.widgets:close-button-clicked ()
-                                 (setf (cl-video:finish avi) t)
-                                 (setf quit t)
-                                 )
-                               (pause-event ()
-                                 (setf should-pause t)))
-                             (when should-pause
-                               (setf (cl-video:pause avi) (not (cl-video:pause avi)))
-                               (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
-                               (mezzano.supervisor:release-mutex (cl-video:pause-lock avi)))))
-		 (cl-video:stream-playback-stop rec))))))))))
+	   #'(lambda ()
+	       ;; Window needs to be slightly larger than the video to account for the frame.
+	       (multiple-value-bind (window-width window-height)
+		   (compute-window-size avi)
+		 (mezzano.gui.compositor:with-window (window fifo window-width window-height)
+		   (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+			  (frame (make-instance 'mezzano.gui.widgets:frame
+						:framebuffer framebuffer
+						:title (pathname-name (cl-video:filename avi))
+						:close-button-p t
+						:damage-function (mezzano.gui.widgets:default-damage-function window)))
+			  (viewer (make-instance 'media-player
+						 :fifo fifo
+						 :window window
+						 :thread (mezzano.supervisor:current-thread)
+						 :font font
+						 :frame frame))
+			  (rec (cl-video:find-mjpeg-stream-record avi))
+			  (avi-width (cl-video:width avi))
+			  (avi-height (cl-video:height avi)))
+
+		     ;; Handling the window events in own thread
+		     (mezzano.supervisor:make-thread
+		      #'(lambda ()
+			  (handler-case
+			      ;; Don't block when reading the fifo.
+			      (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo nil))
+			    (error (c)
+			      (ignore-errors
+				(format t "Error: ~A~%" c)))
+			    (mezzano.gui.widgets:close-button-clicked ()
+			      (setf (cl-video:finish avi) t)
+			      (setf quit t))
+			    (pause-event ()
+			      (setf should-pause t)))))
+
+		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
+		     (cl-video:stream-playback-start rec)
+		     (unwind-protect
+			  (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
+			     for src = (cl-video:frame cur)
+			     with quit = nil until quit do
+			       (multiple-value-bind (left right top bottom)
+				   (mezzano.gui.widgets:frame-size frame)
+				 (declare (ignore right bottom))
+				 (loop for i from 0 below avi-height do
+				      (loop for j from 0 below avi-width
+					 for spos = (* 3 (+ j (* avi-width i))) do
+					 ;; Write pixels directly to the framebuffer, avoid a copy.
+					   (setf (mezzano.gui:surface-pixel framebuffer (+ left j) (+ i top))
+						 (logior #xff000000
+							 (ash (aref src (+ 2 spos)) 16)
+							 (ash (aref src (1+ spos)) 8)
+							 (aref src spos)))))
+				 (mezzano.gui.widgets:draw-frame frame)
+				 (mezzano.gui.compositor:damage-window window
+								       0 0
+								       (cl-video:width avi) (cl-video:height avi)))
+			       (unless (cl-video:pause avi)
+				 (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
+				 (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur)))
+			       (when (eql cur (cl-video:final rec))
+				 (return))
+			       (sleep (/ (cl-video:scale rec) (cl-video:rate rec)))
+			       (when should-pause
+				 (setf (cl-video:pause avi) (not (cl-video:pause avi)))
+				 (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
+				 (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))))
+		       (cl-video:stream-playback-stop rec))))))))))
 
 (defun main (path)
   (cl-video:decode-file path :player-callback #'(lambda (avi)
