@@ -21,10 +21,6 @@
     ((eql (lexical-variable-use-count (info form)) 0)
      (change-made)
      (simp-form (body form)))
-    ;; (block foo <constantish>) => 'nil
-    ((typep (body form) '(or ast-quote ast-function lexical-variable lambda-information))
-     (change-made)
-     (ast '(quote nil) form))
     ;; (block foo (return-from foo form)) => (block foo form)
     ((and (typep (body form) 'ast-return-from)
           (eql (info form) (info (body form))))
