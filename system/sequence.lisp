@@ -469,10 +469,17 @@
     (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i))))
   sequence-1)
 
+(declaim (inline fill))
 (defun fill (sequence item &key (start 0) end)
-  (unless end (setf end (length sequence)))
-  (dotimes (i (- end start))
-    (setf (elt sequence (+ i start)) item))
+  (etypecase sequence
+    (list
+     (let ((end (or end (length sequence))))
+       (dotimes (i (- end start))
+         (setf (elt sequence (+ i start)) item))))
+    (vector
+     (let ((end (or end (length sequence))))
+       (dotimes (i (- end start))
+         (setf (aref sequence (+ i start)) item)))))
   sequence)
 
 (defun map (result-type function first-sequence &rest more-sequences)
