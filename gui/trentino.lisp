@@ -119,7 +119,8 @@
 						 :frame frame))
 			  (rec (cl-video:find-mjpeg-stream-record avi))
 			  (avi-width (cl-video:width avi))
-			  (avi-height (cl-video:height avi)))
+			  (avi-height (cl-video:height avi))
+			  (quit nil))
 
 		     ;; Handling the window events in own thread
 		     (mezzano.supervisor:make-thread
@@ -141,7 +142,7 @@
 		     (unwind-protect
 			  (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
 			     for src = (cl-video:frame cur)
-			     with quit = nil until quit do
+			     until quit do
 			       (multiple-value-bind (left right top bottom)
 				   (mezzano.gui.widgets:frame-size frame)
 				 (declare (ignore right bottom))
