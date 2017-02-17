@@ -141,9 +141,9 @@
 		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 		     (cl-video:stream-playback-start rec)
 		     (unwind-protect
-			  (loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
-			     for src = (cl-video:frame cur)
-			     until quit do
+			  (loop until quit
+			     for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
+			     for src = (cl-video:frame cur) do
 			       (multiple-value-bind (left right top bottom)
 				   (mezzano.gui.widgets:frame-size frame)
 				 (declare (ignore right bottom))
