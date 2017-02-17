@@ -125,17 +125,18 @@
 		     ;; Handling the window events in own thread
 		     (mezzano.supervisor:make-thread
 		      #'(lambda ()
-			  (handler-case
-			      ;; Don't block when reading the fifo.
-			      (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo nil))
-			    (error (c)
-			      (ignore-errors
-				(format t "Error: ~A~%" c)))
-			    (mezzano.gui.widgets:close-button-clicked ()
-			      (setf (cl-video:finish avi) t)
-			      (setf quit t))
-			    (pause-event ()
-			      (setf should-pause t)))))
+			  (loop until quit do
+			       (handler-case
+				   ;; Don't block when reading the fifo.
+				   (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
+				 (error (c)
+				   (ignore-errors
+				     (format t "Error: ~A~%" c)))
+				 (mezzano.gui.widgets:close-button-clicked ()
+				   (setf (cl-video:finish avi) t)
+				   (setf quit t))
+				 (pause-event ()
+				   (setf should-pause t))))))
 
 		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 		     (cl-video:stream-playback-start rec)
