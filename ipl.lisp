@@ -129,6 +129,7 @@ Make sure there is a virtio-net NIC attached.~%")
 
 ;; And the GUI.
 (sys.int::cal "sys:source;gui;font.lisp")
+(sys.int::cal "sys:source;gui;image.lisp")
 (sys.int::cal "sys:source;gui;widgets.lisp")
 (sys.int::cal "sys:source;line-edit-mixin.lisp")
 (sys.int::cal "sys:source;gui;popup-io-stream.lisp")
