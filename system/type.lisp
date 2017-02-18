@@ -138,7 +138,7 @@
           (when (rest max)
             (error "Bad ~S type: ~S." name type))
           (setf max (1- (first max))))
-        (unless (or (eql max '*) (typep min name))
+        (unless (or (eql max '*) (typep max name))
           (error "Bad ~S type: ~S." name type))
         (values min max))
       (values '* '*)))
