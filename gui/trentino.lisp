@@ -83,7 +83,8 @@
 		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
 		     (sleep (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
-	     (cl-video:stream-playback-stop audio-rec)))))))
+	     (cl-video:stream-playback-stop audio-rec)))
+       :name "Trentino audio worker"))))
 
 (defun compute-window-size (avi)
   ;; Make a fake frame to get the frame size.
@@ -136,7 +137,8 @@
 				   (setf (cl-video:finish avi) t)
 				   (setf quit t))
 				 (pause-event ()
-				   (setf should-pause t))))))
+				   (setf should-pause t)))))
+              :name "Trentino event worker")
 
 		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 		     (cl-video:stream-playback-start rec)
@@ -170,7 +172,8 @@
 				 (setf (cl-video:pause avi) (not (cl-video:pause avi)))
 				 (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
 				 (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))))
-		       (cl-video:stream-playback-stop rec))))))))))
+		       (cl-video:stream-playback-stop rec))))))
+       :name "Trentino video worker"))))
 
 (defun main (path)
   (cl-video:decode-file path :player-callback #'(lambda (avi)
