@@ -515,6 +515,16 @@
            (subtypep `(or ,@(loop for object in (rest t1)
                                collect `(eql ,object)))
                      t2))
+          ((and (consp t2)
+                (eql (first t2) 'not))
+           (cond ((not (subtypep t1 (second t2)))
+                  (multiple-value-bind (subtype-p valid-p)
+                      (subtypep (second t2) t1)
+                    (if valid-p
+                        (values (not subtype-p) t)
+                        (values nil nil))))
+                 (t
+                  (values nil t))))
           ((and (consp t1)
                 (eql (first t1) 'or))
            (dolist (type (rest t1) (values t t))
@@ -553,16 +563,6 @@
           ((and (consp t1)
                 (eql (first t1) 'not))
            (values nil nil))
-          ((and (consp t2)
-                (eql (first t2) 'not))
-           (cond ((not (subtypep t1 (second t2)))
-                  (multiple-value-bind (subtype-p valid-p)
-                      (subtypep (second t2) t1)
-                    (if valid-p
-                        (values (not subtype-p) t)
-                        (values nil nil))))
-                 (t
-                  (values nil t))))
           ((and (symbolp t1)
                 (find-class t1 nil)
                 (symbolp t2)
