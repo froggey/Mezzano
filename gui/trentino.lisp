@@ -190,4 +190,5 @@
                                                       (*error-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*trace-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))
+                                  :priority :low))
