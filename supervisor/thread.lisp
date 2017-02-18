@@ -738,18 +738,22 @@ Interrupts must be off, the current thread must be locked."
 ;;; reader/writer lock over the whole system.
 
 (defmacro with-world-stop-lock (&body body)
-  `(unwind-protect
-        (progn
-          (loop
-             ;; Spin on the lock to prevent threads stacking up on wait list.
-             ;; Threads sleeping on the mutex will never wake up if the world
-             ;; is stopped.
-             ;; Mutexes and cvars probably aren't the right thing to use here.
-             (when (acquire-mutex *world-stop-lock* nil)
-               (return))
-             (thread-yield))
-          ,@body)
-     (release-mutex *world-stop-lock*)))
+  ;; Run with boosted priority to prevent livelocking with other threads spinning against the lock.
+  `(let ((%prev-priority (thread-priority (current-thread))))
+     (unwind-protect
+          (progn
+            (setf (thread-priority (current-thread)) :high)
+            (loop
+               ;; Spin on the lock to prevent threads stacking up on wait list.
+               ;; Threads sleeping on the mutex will never wake up if the world
+               ;; is stopped.
+               ;; Mutexes and cvars probably aren't the right thing to use here.
+               (when (acquire-mutex *world-stop-lock* nil)
+                 (return))
+               (thread-yield))
+            ,@body)
+       (release-mutex *world-stop-lock*)
+       (setf (thread-priority (current-thread)) %prev-priority))))
 
 (defun call-with-world-stopped (thunk)
   (let ((self (current-thread)))
@@ -801,7 +805,7 @@ Interrupts must be off, the current thread must be locked."
   (unwind-protect
        (let ((*pseudo-atomic* t))
          (funcall thunk))
-    (with-mutex (*world-stop-lock*)
+    (with-world-stop-lock ()
       (decf *pseudo-atomic-thread-count*)
       (condition-notify *world-stop-cvar* t))))
 
