@@ -448,6 +448,13 @@
                                                 (the-type (value form)))
                (value form) (simp-form (value (value form))))
          form)
+        ((typep (value form) 'ast-let)
+         ;; Turn (the ... (let (...) ...)) inside-out: (let (...) (the ... ...))
+         (change-made)
+         (ast `(let ,(ast-bindings (value form))
+                 (the ,(the-type form)
+                      ,(ast-body (value form))))
+              form))
         (t
          (setf (value form) (simp-form (value form)))
          form)))
