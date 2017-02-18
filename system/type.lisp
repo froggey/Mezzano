@@ -251,8 +251,10 @@
              (typep (cdr object) cdr-type)))))
 (%define-compound-type 'cons 'cons-type-p)
 
+(deftype null ()
+  '(eql nil))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'null 'null)
 (%define-type-symbol 'list 'listp)
 (%define-type-symbol 'cons 'consp)
 (%define-type-symbol 'symbol 'symbolp)
