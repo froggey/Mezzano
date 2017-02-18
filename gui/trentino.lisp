@@ -149,15 +149,9 @@
 			       (multiple-value-bind (left right top bottom)
 				   (mezzano.gui.widgets:frame-size frame)
 				 (declare (ignore right bottom))
-				 (loop for i from 0 below avi-height do
-				      (loop for j from 0 below avi-width
-					 for spos = (* 3 (+ j (* avi-width i))) do
-					 ;; Write pixels directly to the framebuffer, avoid a copy.
-					   (setf (mezzano.gui:surface-pixel framebuffer (+ left j) (+ i top))
-						 (logior #xff000000
-							 (ash (aref src (+ 2 spos)) 16)
-							 (ash (aref src (1+ spos)) 8)
-							 (aref src spos)))))
+				 (mezzano.gui.image:transcode-cl-jpeg-buffer
+				  framebuffer left top
+				  src avi-width avi-height 3)
 				 (mezzano.gui.widgets:draw-frame frame)
 				 (mezzano.gui.compositor:damage-window window
 								       0 0
