@@ -479,19 +479,36 @@
 
 (defun simp-ash (form)
   (simp-form-list (arguments form))
-  (when (and (eql (list-length (arguments form)) 2)
-             (quoted-form-p (second (arguments form)))
-             (integerp (value (second (arguments form)))))
-    ;; (ash value known-count) => left-shift or right-shift.
-    (change-made)
-    (cond ((plusp (value (second (arguments form))))
-           (setf (name form) 'mezzano.runtime::left-shift))
-          (t
-           (setf (name form) 'mezzano.runtime::right-shift
-                 (arguments form) (list (first (arguments form))
-                                        (make-instance 'ast-quote
-                                                       :inherit form
-                                                       :value (- (value (second (arguments form))))))))))
+  (cond ((and (eql (list-length (arguments form)) 2)
+              (quoted-form-p (second (arguments form)))
+              (integerp (value (second (arguments form)))))
+         ;; (ash value known-count) => left-shift or right-shift.
+         (change-made)
+         (cond ((plusp (value (second (arguments form))))
+                (setf (name form) 'mezzano.runtime::left-shift))
+               (t
+                (setf (name form) 'mezzano.runtime::right-shift
+                      (arguments form) (list (first (arguments form))
+                                             (make-instance 'ast-quote
+                                                            :inherit form
+                                                            :value (- (value (second (arguments form))))))))))
+        ((and (eql (list-length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (typep (second (arguments form)) 'ast-the)
+              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer 0)))
+         ;; (ash value known-non-negative-integer) => left-shift
+         (change-made)
+         (setf (name form) 'mezzano.runtime::left-shift))
+        ((and (eql (list-length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (typep (second (arguments form)) 'ast-the)
+              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer * 0)))
+         ;; (ash value known-non-positive-integer) => right-shift
+         (change-made)
+         (setf (name form) 'mezzano.runtime::right-shift
+               (arguments form) (list (first (arguments form))
+                                      (ast `(call sys.int::binary-- '0 ,(second (arguments form)))
+                                           form)))))
   form)
 
 (defmethod simp-form ((form ast-call))
