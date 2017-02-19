@@ -141,19 +141,19 @@
        (when (funcall predicate (funcall key e))
          (return e))))
     (vector
-     (assert (<= 0 start))
+     (assert (<= 0 start (length sequence)))
      (when end
-       (assert (<= end (length sequence))))
+       (assert (<= start end (length sequence))))
      (let ((end (or end (length sequence))))
        (cond (from-end
               (loop
-                 for i from (1- (or end (length sequence))) downto start
+                 for i fixnum from (1- end) downto start
                  for val = (aref sequence i)
                  when (funcall predicate (funcall key val))
                  do (return val)))
              (t
               (loop
-                 for i from start below (or end (length sequence))
+                 for i fixnum from start below end
                  for val = (aref sequence i)
                  when (funcall predicate (funcall key val))
                  do (return val))))))))
