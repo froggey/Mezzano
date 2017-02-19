@@ -83,7 +83,8 @@
 		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
 		     (sleep (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
-	     (cl-video:stream-playback-stop audio-rec)))))))
+	     (cl-video:stream-playback-stop audio-rec)))
+       :name "Trentino audio worker"))))
 
 (defun compute-window-size (avi)
   ;; Make a fake frame to get the frame size.
@@ -136,7 +137,8 @@
 				   (setf (cl-video:finish avi) t)
 				   (setf quit t))
 				 (pause-event ()
-				   (setf should-pause t))))))
+				   (setf should-pause t)))))
+              :name "Trentino event worker")
 
 		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 		     (cl-video:stream-playback-start rec)
@@ -147,15 +149,9 @@
 			       (multiple-value-bind (left right top bottom)
 				   (mezzano.gui.widgets:frame-size frame)
 				 (declare (ignore right bottom))
-				 (loop for i from 0 below avi-height do
-				      (loop for j from 0 below avi-width
-					 for spos = (* 3 (+ j (* avi-width i))) do
-					 ;; Write pixels directly to the framebuffer, avoid a copy.
-					   (setf (mezzano.gui:surface-pixel framebuffer (+ left j) (+ i top))
-						 (logior #xff000000
-							 (ash (aref src (+ 2 spos)) 16)
-							 (ash (aref src (1+ spos)) 8)
-							 (aref src spos)))))
+				 (mezzano.gui.image:transcode-cl-jpeg-buffer
+				  framebuffer left top
+				  src avi-width avi-height 3)
 				 (mezzano.gui.widgets:draw-frame frame)
 				 (mezzano.gui.compositor:damage-window window
 								       0 0
@@ -170,7 +166,8 @@
 				 (setf (cl-video:pause avi) (not (cl-video:pause avi)))
 				 (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
 				 (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))))
-		       (cl-video:stream-playback-stop rec))))))))))
+		       (cl-video:stream-playback-stop rec))))))
+       :name "Trentino video worker"))))
 
 (defun main (path)
   (cl-video:decode-file path :player-callback #'(lambda (avi)
@@ -187,4 +184,5 @@
                                                       (*error-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*trace-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))
+                                  :priority :low))

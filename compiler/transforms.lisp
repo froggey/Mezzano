@@ -180,8 +180,8 @@
 (defun register-transform (transform)
   (push transform *transforms*))
 
-(defun match-optimize-settings (call transform)
-  (dolist (setting (transform-optimize transform)
+(defun match-optimize-settings (call optimize-qualities)
+  (dolist (setting optimize-qualities
            t)
     (when (not (funcall (first setting)
                         (if (integerp (second setting))
@@ -207,7 +207,7 @@
   (and (equal (transform-function transform) (ast-name call))
        (or (eql (transform-architecture transform) 't)
            (member target-architecture (transform-architecture transform)))
-       (match-optimize-settings call transform)
+       (match-optimize-settings call (transform-optimize transform))
        (match-transform-type (transform-result-type transform) result-type)
        (eql (length (arguments call)) (length (transform-lambda-list transform)))
        (every #'match-transform-argument

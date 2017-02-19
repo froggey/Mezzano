@@ -97,9 +97,11 @@
   (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
                                    offset))
 
+(defun boot-field (field)
+  (sys.int::memref-t (+ *boot-information-page* field)))
+
 (defun boot-option (option)
-  (logtest (sys.int::memref-t (+ *boot-information-page* +boot-information-options+))
-           option))
+  (logtest (boot-field +boot-information-options+) option))
 
 (sys.int::defglobal *boot-hook-lock*)
 (sys.int::defglobal *early-boot-hooks*)

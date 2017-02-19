@@ -21,10 +21,6 @@
     ((eql (lexical-variable-use-count (info form)) 0)
      (change-made)
      (simp-form (body form)))
-    ;; (block foo <constantish>) => 'nil
-    ((typep (body form) '(or ast-quote ast-function lexical-variable lambda-information))
-     (change-made)
-     (ast '(quote nil) form))
     ;; (block foo (return-from foo form)) => (block foo form)
     ((and (typep (body form) 'ast-return-from)
           (eql (info form) (info (body form))))
@@ -452,6 +448,13 @@
                                                 (the-type (value form)))
                (value form) (simp-form (value (value form))))
          form)
+        ((typep (value form) 'ast-let)
+         ;; Turn (the ... (let (...) ...)) inside-out: (let (...) (the ... ...))
+         (change-made)
+         (ast `(let ,(ast-bindings (value form))
+                 (the ,(the-type form)
+                      ,(ast-body (value form))))
+              form))
         (t
          (setf (value form) (simp-form (value form)))
          form)))
@@ -483,19 +486,36 @@
 
 (defun simp-ash (form)
   (simp-form-list (arguments form))
-  (when (and (eql (list-length (arguments form)) 2)
-             (quoted-form-p (second (arguments form)))
-             (integerp (value (second (arguments form)))))
-    ;; (ash value known-count) => left-shift or right-shift.
-    (change-made)
-    (cond ((plusp (value (second (arguments form))))
-           (setf (name form) 'mezzano.runtime::left-shift))
-          (t
-           (setf (name form) 'mezzano.runtime::right-shift
-                 (arguments form) (list (first (arguments form))
-                                        (make-instance 'ast-quote
-                                                       :inherit form
-                                                       :value (- (value (second (arguments form))))))))))
+  (cond ((and (eql (list-length (arguments form)) 2)
+              (quoted-form-p (second (arguments form)))
+              (integerp (value (second (arguments form)))))
+         ;; (ash value known-count) => left-shift or right-shift.
+         (change-made)
+         (cond ((plusp (value (second (arguments form))))
+                (setf (name form) 'mezzano.runtime::left-shift))
+               (t
+                (setf (name form) 'mezzano.runtime::right-shift
+                      (arguments form) (list (first (arguments form))
+                                             (make-instance 'ast-quote
+                                                            :inherit form
+                                                            :value (- (value (second (arguments form))))))))))
+        ((and (eql (list-length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (typep (second (arguments form)) 'ast-the)
+              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer 0)))
+         ;; (ash value known-non-negative-integer) => left-shift
+         (change-made)
+         (setf (name form) 'mezzano.runtime::left-shift))
+        ((and (eql (list-length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (typep (second (arguments form)) 'ast-the)
+              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer * 0)))
+         ;; (ash value known-non-positive-integer) => right-shift
+         (change-made)
+         (setf (name form) 'mezzano.runtime::right-shift
+               (arguments form) (list (first (arguments form))
+                                      (ast `(call sys.int::binary-- '0 ,(second (arguments form)))
+                                           form)))))
   form)
 
 (defmethod simp-form ((form ast-call))

@@ -6,11 +6,11 @@
   (:export #:spawn)
   (:local-nicknames (:gui :mezzano.gui)
                     (:comp :mezzano.gui.compositor)
-                    (:font :mezzano.gui.font)))
+                    (:font :mezzano.gui.font))
+  (:import-from :mezzano.gui.image
+                #:load-image))
 
 (in-package :mezzano.gui.desktop)
-
-(defvar *image-cache* (make-hash-table :test 'equal))
 
 (defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzano.gui.fancy-repl:spawn)")
                   ("LOCAL:>Icons>Chat.png" "IRC" "(irc-client:spawn)")
@@ -20,58 +20,6 @@
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
                   ("LOCAL:>Icons>Filer.png" "Filer" "(mezzano.gui.filer:spawn)")
                   ("LOCAL:>Icons>Telnet.png" "Telnet" "(telnet:spawn)")))
-
-(defun load-jpeg (path)
-  (ignore-errors
-    (with-open-file (stream path :element-type '(unsigned-byte 8))
-      (multiple-value-bind (data height width channels)
-          (jpeg:decode-stream stream)
-        (when (not (eql channels 3))
-          (error "Unsupported JPEG image, too many or too few channels."))
-        ;; Transcode the image to a proper ARGB array.
-        (let ((array (make-array (list height width) :element-type '(unsigned-byte 32))))
-          (dotimes (y height)
-            (dotimes (x width)
-              (setf (aref array y x) (logior #xFF000000
-                                             (ash (aref data (+ (* (+ (* y width) x) 3) 2)) 16)
-                                             (ash (aref data (+ (* (+ (* y width) x) 3) 1)) 8)
-                                             (aref data (* (+ (* y width) x) 3))))))
-          array)))))
-
-(defun load-png (path)
-  (ignore-errors
-    (let* ((png (png-read:read-png-file path))
-           (data (png-read:image-data png))
-           (width (png-read:width png))
-           (height (png-read:height png))
-           (array (make-array (list height width) :element-type '(unsigned-byte 32))))
-      (ecase (png-read:colour-type png)
-        (:truecolor-alpha
-         (dotimes (y height)
-           (dotimes (x width)
-             (setf (aref array y x) (logior (ash (aref data x y 0) 16)
-                                            (ash (aref data x y 1) 8)
-                                            (aref data x y 2)
-                                            (ash (aref data x y 3) 24))))))
-        (:truecolor
-         (dotimes (y height)
-           (dotimes (x width)
-             (setf (aref array y x) (logior (ash (aref data x y 0) 16)
-                                            (ash (aref data x y 1) 8)
-                                            (aref data x y 2)
-                                            (ash #xFF 24)))))))
-      array)))
-
-(defun load-image (path)
-  (let* ((truename (truename path))
-         (image (gethash truename *image-cache*)))
-    (unless image
-      (setf image (gui:make-surface-from-array
-                   (or (load-jpeg truename)
-                       (load-png truename)
-                       (error "Unable to load ~S." path))))
-      (setf (gethash truename *image-cache*) image))
-    image))
 
 ;;; Events for modifying the desktop.
 

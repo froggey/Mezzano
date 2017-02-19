@@ -29,6 +29,8 @@
            #:surface
            #:make-surface
            #:make-surface-from-array
+           #:surface-format
+           #:surface-pixels
            #:surface-width
            #:surface-height
            #:surface-pixel))
