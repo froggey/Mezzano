@@ -8,7 +8,7 @@
 (defvar *tagbody-statement-stack* '())
 
 (defun simplify-control-flow (form)
-  (simplify-control-flow-1 form '() '() '()))
+  (simplify-control-flow-1 form '() '() '() nil))
 
 (defun simplify-control-flow-get-replacement-go-tag (go-tag renames)
   (let ((new (assoc go-tag renames)))
@@ -16,23 +16,23 @@
         (simplify-control-flow-get-replacement-go-tag (second new) renames)
         go-tag)))
 
-(defgeneric simplify-control-flow-1 (form ti/tb-mapping permitted-hoist-tagbodys renames))
+(defgeneric simplify-control-flow-1 (form ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody))
 
-(defmethod simplify-control-flow-1 ((form ast-block) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-block) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (body form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (body form) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
     (declare (ignore control-terminates))
     (setf (body form) new-form))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-function) ti/tb-mapping permitted-hoist-tagbodys renames)
-  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames))
+(defmethod simplify-control-flow-1 ((form ast-function) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-go) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-go) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (setf (target form) (simplify-control-flow-get-replacement-go-tag (target form) renames))
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (info form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (info form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1 (values new-form t)))
@@ -51,7 +51,13 @@
                      (typep (value stmt) 'ast-quote)))
         (change-made)
         (return-from simplify-control-flow-1
-          (simplify-control-flow-1 (copy-form stmt) ti/tb-mapping permitted-hoist-tagbodys renames)))
+          (simplify-control-flow-1 (copy-form stmt) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)))
+      ;; If it is a simple value leaving the current tagbody, then replace with that.
+      (when (and (eql tb-ast leaving-tagbody)
+                 (typep stmt 'ast-quote))
+        (change-made)
+        (return-from simplify-control-flow-1
+          (simplify-control-flow-1 (copy-form stmt) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)))
       ;; If this tagbody is on the permitted list and the go-tag has one use (this go),
       ;; the the entire statement can be moved here.
       ;; The old statement is replaced with 'NIL and a GO to it is inserted at the end
@@ -64,34 +70,35 @@
         (let ((new-stmt (ast `(progn ,stmt ,form) stmt)))
           (setf (second stmt-pair) (ast `(quote nil) new-stmt))
           (return-from simplify-control-flow-1
-            (simplify-control-flow-1 new-stmt ti/tb-mapping permitted-hoist-tagbodys renames))))))
+            (simplify-control-flow-1 new-stmt ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody))))))
   (values form t))
 
-(defmethod simplify-control-flow-1 ((form ast-if) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-if) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (test form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (test form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1 (values new-form t)))
     (setf (test form) new-form))
   (multiple-value-bind (new-then-form then-control-terminates)
-      (simplify-control-flow-1 (if-then form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (if-then form) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
     (setf (if-then form) new-then-form)
     (multiple-value-bind (new-else-form else-control-terminates)
-        (simplify-control-flow-1 (if-else form) ti/tb-mapping permitted-hoist-tagbodys renames)
+        (simplify-control-flow-1 (if-else form) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
       (setf (if-else form) new-else-form)
       (values form
               (and then-control-terminates else-control-terminates)))))
 
-(defmethod simplify-control-flow-1 ((form ast-let) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-let) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (let ((new-bindings '()))
     (loop
        for (variable init-form) in (bindings form)
        do (multiple-value-bind (new-form control-terminates)
               (simplify-control-flow-1 init-form
-                              ti/tb-mapping
-                              permitted-hoist-tagbodys
-                              renames)
+                                       ti/tb-mapping
+                                       permitted-hoist-tagbodys
+                                       renames
+                                       nil)
             (push (list variable new-form) new-bindings)
             (when control-terminates
               (change-made)
@@ -105,21 +112,23 @@
     (setf (bindings form) (reverse new-bindings)))
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (body form)
-                      ti/tb-mapping
-                      (if (some (lambda (x) (typep (first x) 'special-variable))
-                                (bindings form))
-                          '()
-                          permitted-hoist-tagbodys)
-                      renames)
+                               ti/tb-mapping
+                               (if (some (lambda (x) (typep (first x) 'special-variable))
+                                         (bindings form))
+                                   '()
+                                   permitted-hoist-tagbodys)
+                               renames
+                               leaving-tagbody)
     (setf (body form) new-form)
     (values form control-terminates)))
 
-(defmethod simplify-control-flow-1 ((form ast-multiple-value-bind) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-multiple-value-bind) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (value-form form)
-                      ti/tb-mapping
-                      permitted-hoist-tagbodys
-                      renames)
+                               ti/tb-mapping
+                               permitted-hoist-tagbodys
+                               renames
+                               nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -127,20 +136,22 @@
     (setf (value-form form) new-form))
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (body form) ti/tb-mapping
-                      (if (some (lambda (x) (typep x 'special-variable))
-                                (bindings form))
-                          '()
-                          permitted-hoist-tagbodys)
-                      renames)
+                               (if (some (lambda (x) (typep x 'special-variable))
+                                         (bindings form))
+                                   '()
+                                   permitted-hoist-tagbodys)
+                               renames
+                               leaving-tagbody)
     (setf (body form) new-form)
     (values form control-terminates)))
 
-(defmethod simplify-control-flow-1 ((form ast-multiple-value-call) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-multiple-value-call) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (function-form form)
-                                             ti/tb-mapping
-                                             permitted-hoist-tagbodys
-                                             renames)
+                               ti/tb-mapping
+                               permitted-hoist-tagbodys
+                               renames
+                               nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -148,18 +159,20 @@
     (setf (function-form form) new-form))
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (value-form form)
-                      ti/tb-mapping
-                      permitted-hoist-tagbodys
-                      renames)
+                               ti/tb-mapping
+                               permitted-hoist-tagbodys
+                               renames
+                               nil)
     (setf (value-form form) new-form)
     (values form control-terminates)))
 
-(defmethod simplify-control-flow-1 ((form ast-multiple-value-prog1) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-multiple-value-prog1) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (value-form form)
-                      ti/tb-mapping
-                      permitted-hoist-tagbodys
-                      renames)
+                               ti/tb-mapping
+                               permitted-hoist-tagbodys
+                               renames
+                               nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -167,9 +180,10 @@
     (setf (value-form form) new-form))
   (multiple-value-bind (new-form control-terminates)
       (simplify-control-flow-1 (body form)
-                      ti/tb-mapping
-                      permitted-hoist-tagbodys
-                      renames)
+                               ti/tb-mapping
+                               permitted-hoist-tagbodys
+                               renames
+                               leaving-tagbody)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -180,12 +194,16 @@
     (setf (body form) new-form))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-progn) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-progn) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (let ((new-subforms '()))
     (loop
        for subform in (forms form)
        do (multiple-value-bind (new-form control-terminates)
-              (simplify-control-flow-1 subform ti/tb-mapping permitted-hoist-tagbodys renames)
+              (simplify-control-flow-1 subform ti/tb-mapping permitted-hoist-tagbodys renames
+                                       ;; last form
+                                       (if (eql (length new-subforms) (1- (length (forms form))))
+                                           leaving-tagbody
+                                           nil))
             (push new-form new-subforms)
             (when control-terminates
               (when (not (eql (length new-subforms) (length (forms form))))
@@ -199,20 +217,21 @@
     (setf (forms form) (reverse new-subforms)))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-quote) ti/tb-mapping permitted-hoist-tagbodys renames)
-  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames))
+(defmethod simplify-control-flow-1 ((form ast-quote) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-return-from) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-return-from) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore leaving-tagbody))
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
         (values new-form t)))
     (setf (value form) new-form))
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (info form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (info form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -223,16 +242,18 @@
     (setf (info form) new-form))
   (values form t))
 
-(defmethod simplify-control-flow-1 ((form ast-setq) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-setq) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore leaving-tagbody))
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1 (values new-form t)))
     (setf (value form) new-form))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-tagbody) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-tagbody) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore leaving-tagbody))
   (push (cons (info form) form) ti/tb-mapping)
   (push form permitted-hoist-tagbodys)
   ;; Snap statements that're GO forms jumping to another statement in this tagbody.
@@ -272,12 +293,13 @@
           (setf (second statements) (simplify-control-flow-1 (second statements)
                                                              ti/tb-mapping
                                                              permitted-hoist-tagbodys
-                                                             renames))))
+                                                             renames
+                                                             form))))
   form)
 
-(defmethod simplify-control-flow-1 ((form ast-the) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-the) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -285,22 +307,23 @@
     (setf (value form) new-form))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-unwind-protect) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-unwind-protect) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (protected-form form) ti/tb-mapping '() renames)
+      (simplify-control-flow-1 (protected-form form) ti/tb-mapping '() renames nil)
     (setf (protected-form form) new-form
           (cleanup-function form) (simplify-control-flow-1 (cleanup-function form)
-                                                  ti/tb-mapping
-                                                  permitted-hoist-tagbodys
-                                                  renames))
+                                                           ti/tb-mapping
+                                                           permitted-hoist-tagbodys
+                                                           renames
+                                                           nil))
     (values form control-terminates)))
 
-(defmethod simplify-control-flow-1 ((form ast-call) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-call) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (let ((new-arguments '()))
     (loop
        for argument in (arguments form)
        do (multiple-value-bind (new-form control-terminates)
-              (simplify-control-flow-1 argument ti/tb-mapping permitted-hoist-tagbodys renames)
+              (simplify-control-flow-1 argument ti/tb-mapping permitted-hoist-tagbodys renames nil)
             (push new-form new-arguments)
             (when control-terminates
               (when (not (eql (length new-arguments) (length (arguments form))))
@@ -315,9 +338,9 @@
   ;; TODO: This is where no-return functions can be handled.
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form ast-jump-table) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form ast-jump-table) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (multiple-value-bind (new-form control-terminates)
-      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames)
+      (simplify-control-flow-1 (value form) ti/tb-mapping permitted-hoist-tagbodys renames nil)
     (when control-terminates
       (change-made)
       (return-from simplify-control-flow-1
@@ -329,22 +352,23 @@
      do (setf (target target) (simplify-control-flow-get-replacement-go-tag (target target) renames)))
   (values form t))
 
-(defmethod simplify-control-flow-1 ((form lexical-variable) ti/tb-mapping permitted-hoist-tagbodys renames)
-  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames))
+(defmethod simplify-control-flow-1 ((form lexical-variable) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
+  (declare (ignore ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody))
   (values form nil))
 
-(defmethod simplify-control-flow-1 ((form lambda-information) ti/tb-mapping permitted-hoist-tagbodys renames)
+(defmethod simplify-control-flow-1 ((form lambda-information) ti/tb-mapping permitted-hoist-tagbodys renames leaving-tagbody)
   (let ((*current-lambda* form))
     (loop
        for arg in (lambda-information-optional-args form)
        ;; init-form
-       do (setf (second arg) (simplify-control-flow-1 (second arg) ti/tb-mapping '() renames)))
+       do (setf (second arg) (simplify-control-flow-1 (second arg) ti/tb-mapping '() renames nil)))
     (loop
        for arg in (lambda-information-key-args form)
        ;; init-form
-       do (setf (second arg) (simplify-control-flow-1 (second arg) ti/tb-mapping '() renames)))
+       do (setf (second arg) (simplify-control-flow-1 (second arg) ti/tb-mapping '() renames nil)))
     (setf (lambda-information-body form) (simplify-control-flow-1 (lambda-information-body form)
-                                                         ti/tb-mapping
-                                                         '()
-                                                          renames))
+                                                                  ti/tb-mapping
+                                                                  '()
+                                                                  renames
+                                                                  nil))
     (values form nil)))
