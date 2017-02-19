@@ -1527,11 +1527,7 @@ Returns an appropriate tag."
     (apply fn (nreverse args))))
 
 (defun cg-funcall (form)
-  (let* ((fn-tag (let ((*for-value* t)) (cg-form (if (typep (first (ast-arguments form)) 'lambda-information)
-                                                     (first (ast-arguments form))
-                                                     (make-instance 'ast-call
-                                                                    :name 'sys.int::%coerce-to-callable
-                                                                    :arguments (list (first (ast-arguments form)))))))))
+  (let* ((fn-tag (let ((*for-value* t)) (cg-form (first (ast-arguments form))))))
     (cond ((prep-arguments-for-call (rest (ast-arguments form)))
            (comment 'funcall)
            (load-in-reg :rbx fn-tag t)
@@ -1581,11 +1577,11 @@ Returns an appropriate tag."
            (cg-null/not form))
           (fn
            (cg-builtin fn form))
-          ((and (eql (ast-name form) 'funcall)
-            (ast-arguments form))
-       (cg-funcall form))
-      ((eql (ast-name form) 'values)
-       (cg-values (ast-arguments form)))
+          ((and (eql (ast-name form) 'mezzano.runtime::%funcall)
+                (ast-arguments form))
+           (cg-funcall form))
+          ((eql (ast-name form) 'values)
+           (cg-values (ast-arguments form)))
           (t (cg-call form)))))
 
 (defun can-tail-call (args)

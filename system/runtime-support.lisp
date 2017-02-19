@@ -117,6 +117,10 @@
   (declare (dynamic-extent arguments))
   (apply function arguments))
 
+(defun mezzano.runtime::%funcall (function &rest arguments)
+  (declare (dynamic-extent arguments))
+  (apply function arguments))
+
 (defun values (&rest values)
   (declare (dynamic-extent values))
   (values-list values))

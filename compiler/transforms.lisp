@@ -402,3 +402,7 @@
 (define-type-predicate-transform consp cons)
 (define-type-predicate-transform vectorp vector)
 (define-type-predicate-transform sys.int::fixnump fixnum)
+
+(define-transform sys.int::%coerce-to-callable ((object function))
+    ((:optimize (= safety 0) (= speed 3)))
+  object)

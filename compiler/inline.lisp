@@ -102,22 +102,24 @@
                                     (:x86-64 mezzano.compiler.codegen.x86-64::*builtins*)
                                     (:arm64 mezzano.compiler.codegen.arm64::*builtins*)))))
       (cond (expansion
-             (ast `(call funcall ,(pass1-lambda expansion
-                                                (extend-environment
-                                                 nil
-                                                 :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
-                                                                                collect (list quality value))))))
+             (ast `(call mezzano.runtime::%funcall
+                         ,(pass1-lambda expansion
+                                        (extend-environment
+                                         nil
+                                         :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                                                        collect (list quality value))))))
                          ,@arg-list)
                   form))
             ((fboundp name)
              (multiple-value-bind (expansion closurep)
                  (function-lambda-expression (fdefinition name))
                (when (and expansion (not closurep))
-                 (ast `(call funcall ,(pass1-lambda expansion
-                                                    (extend-environment
-                                                     nil
-                                                     :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
-                                                                                    collect (list quality value))))))
+                 (ast `(call mezzano.runtime::%funcall
+                             ,(pass1-lambda expansion
+                                            (extend-environment
+                                             nil
+                                             :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                                                            collect (list quality value))))))
                              ,@arg-list)
                       form))))))))
 

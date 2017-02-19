@@ -121,7 +121,7 @@ of statements opens a new contour."
   (compute-environment-layout (cleanup-function form)))
 
 (defmethod compute-environment-layout ((form ast-call))
-  (cond ((and (eql (name form) 'funcall)
+  (cond ((and (eql (name form) 'mezzano.runtime::%funcall)
               (lambda-information-p (first (arguments form))))
          (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
            (setf (getf (lambda-information-plist (first (arguments form))) 'extent) :dynamic))

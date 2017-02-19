@@ -274,7 +274,7 @@
 (defmethod ll-form ((form ast-call))
   (ll-implicit-progn (arguments form))
   (if *should-inline-functions*
-      (or (and (eql (name form) 'funcall)
+      (or (and (eql (name form) 'mezzano.runtime::%funcall)
                (lambda-information-p (first (arguments form)))
                (lift-lambda (first (arguments form)) (rest (arguments form))))
           ;; Couldn't lift.
