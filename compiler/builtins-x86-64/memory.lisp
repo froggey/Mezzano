@@ -299,11 +299,9 @@
        (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
-           (load-in-reg :r10 offset t)
-           (fixnum-check :r10)
+           (load-in-reg :rdi offset t)
            ;; Convert to unboxed integer.
-           (emit `(sys.lap-x86:mov64 :rdi :r10)
-                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
          (load-in-reg :r9 object t)
          (smash-r8)
          ;; Read.
@@ -315,26 +313,16 @@
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
      (defbuiltin (setf ,name) (new-value object offset) ()
-       (let ((type-error-label (gensym))
-             (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
-         (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(unsigned-byte ,(* width 8))))
          (unless constant-offset
-           (load-in-reg :r10 offset t)
-           (fixnum-check :r10)
+           (load-in-reg :rdi offset t)
            ;; Convert to unboxed integer.
-           (emit `(sys.lap-x86:mov64 :rdi :r10)
-                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
          (load-in-reg :r9 object t)
+         ;; Convert to raw integer.
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
-               `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 (* width 8))))
-               '(sys.lap-x86:cmp64 :rax :rsi)
-               `(sys.lap-x86:jae ,type-error-label)
-               ;; Convert to raw integer.
                '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+))
          ;; Write.
          (cond (constant-offset
@@ -343,19 +331,17 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rdi ,width)) ,register))))
          *r8-value*))))
 
-(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
-(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
-(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
+(define-u-b-object-ref sys.int::%%object-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
+(define-u-b-object-ref sys.int::%%object-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
+(define-u-b-object-ref sys.int::%%object-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%object-ref-unsigned-byte-64 (object offset) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r8 object t)
     ;; Read.
     (cond (constant-offset
@@ -405,11 +391,9 @@
             type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
@@ -433,11 +417,9 @@
        (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
-           (load-in-reg :r10 offset t)
-           (fixnum-check :r10)
+           (load-in-reg :rdi offset t)
            ;; Convert to unboxed integer.
-           (emit `(sys.lap-x86:mov64 :rdi :r10)
-                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
          (load-in-reg :r9 object t)
          (smash-r8)
          ;; Read.
@@ -450,30 +432,16 @@
          (setf *r8-value* (list (gensym)))))
      ;; Write function.
      (defbuiltin (setf ,name) (new-value object offset) ()
-       (let ((type-error-label (gensym))
-             (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
-           (load-in-reg :r10 offset t)
-           (fixnum-check :r10)
+           (load-in-reg :rcx offset t)
            ;; Convert to unboxed integer.
-           (emit `(sys.lap-x86:mov64 :rcx :r10)
-                 `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)))
-         (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(signed-byte ,(* width 8))))
+           (emit `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)))
          (load-in-reg :r9 object t)
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
-               `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
-               '(sys.lap-x86:mov64 :rsi :rax)
-               '(sys.lap-x86:mov64 :rdi ,(ash 1 (1- (* width 8))))
-               '(sys.lap-x86:cmp64 :rsi :rdi)
-               `(sys.lap-x86:jge ,type-error-label)
-               '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- (* width 8)))))
-               '(sys.lap-x86:cmp64 :rsi :rdi)
-               `(sys.lap-x86:jl ,type-error-label))
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+))
          ;; Write
          (cond (constant-offset
                 (emit `(,',write-op ,(list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))) ,',register)))
@@ -481,9 +449,9 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))))
          *r8-value*))))
 
-(define-s-b-object-ref sys.int::%object-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
-(define-s-b-object-ref sys.int::%object-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
-(define-s-b-object-ref sys.int::%object-ref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
+(define-s-b-object-ref sys.int::%%object-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
+(define-s-b-object-ref sys.int::%%object-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
+(define-s-b-object-ref sys.int::%%object-ref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
   (let ((overflow-label (gensym))
@@ -497,11 +465,9 @@
             `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
             `(sys.lap-x86:jmp ,resume)))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r8 object t)
     (smash-r8)
     ;; Read.
@@ -542,11 +508,9 @@
             type-error-label)
       (raise-type-error :r8 '(signed-byte 64)))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
@@ -566,11 +530,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r8 object t)
     (smash-r8)
     ;; Read.
@@ -584,11 +546,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     ;; Write.
@@ -612,11 +572,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-reg :r8 delta t)
     (fixnum-check :r8)
@@ -638,11 +596,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-reg :r8 new t)
     (smash-r8)
@@ -667,11 +623,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 object t)
     (load-in-reg :r11 new t)
     (load-in-reg :r8 old t)
@@ -713,11 +667,9 @@
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
-      (load-in-reg :r10 offset t)
-      (fixnum-check :r10)
+      (load-in-reg :rdi offset t)
       ;; Convert to unboxed integer.
-      (emit `(sys.lap-x86:mov64 :rdi :r10)
-            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+      (emit `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r8 object t)
     ;; Carefully load registers to avoid exposing the GC to a raw value.
     (load-in-reg :rbx new-1 t) ; rbx loaded (rbx is a value register).

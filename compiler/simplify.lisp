@@ -535,6 +535,7 @@
   form)
 
 (defmethod simp-form ((form ast-call))
+  (simp-form-list (arguments form))
   (cond ((eql (name form) 'eql)
          (simp-eql form))
         ((eql (name form) 'ash)
@@ -586,7 +587,6 @@
                      ,@(rest (arguments form)))
               form))
         (t
-         (simp-form-list (arguments form))
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
          (loop
             for arg-position from 0
