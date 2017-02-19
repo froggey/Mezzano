@@ -7,9 +7,9 @@
 
 (in-package :mezzano.gui.filer)
 
-(defvar *up-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 Up.png"))
-(defvar *file-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 File.png"))
-(defvar *folder-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 Folder.png"))
+(defvar *up-icon* (mezzano.gui.image:load-image "LOCAL:>Icons>16x16 Up.png"))
+(defvar *file-icon* (mezzano.gui.image:load-image "LOCAL:>Icons>16x16 File.png"))
+(defvar *folder-icon* (mezzano.gui.image:load-image "LOCAL:>Icons>16x16 Folder.png"))
 
 (defvar *directory-colour* mezzano.gui:*default-foreground-colour*)
 

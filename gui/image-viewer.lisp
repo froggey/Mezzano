@@ -43,7 +43,7 @@
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (fifo (mezzano.supervisor:make-fifo 50))
-          (image (mezzano.gui.desktop::load-image path)))
+          (image (mezzano.gui.image:load-image path)))
       (multiple-value-bind (width height)
           (compute-window-size image)
         (mezzano.gui.compositor:with-window (window fifo width height)

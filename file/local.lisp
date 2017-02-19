@@ -604,15 +604,22 @@
       (incf (stream-position stream) (- end start))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-#+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
+(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :input))
-  (let ((file (local-stream-file stream)))
+  (let ((file (local-stream-file stream))
+        (end (or end (length sequence))))
     (mezzano.supervisor:with-mutex ((file-lock file))
-      (cond ((< (stream-position stream)
-                (length (file-storage file)))
-             (prog1 (aref (file-storage file) (stream-position stream))
-               (incf (stream-position stream))))
-            (t :eof)))))
+      (let* ((pos (stream-position stream))
+             (storage (file-storage file))
+             (file-size (length storage))
+             (requested-n-bytes (- end start))
+             (n-bytes (max 0 (min requested-n-bytes (- file-size pos)))))
+        (replace sequence storage
+                 :start1 start
+                 :start2 pos
+                 :end2 (+ pos n-bytes))
+        (incf (stream-position stream) n-bytes)
+        (+ start n-bytes)))))
 
 (defmethod sys.gray:stream-element-type ((stream local-stream))
   (array-element-type (file-storage (local-stream-file stream))))

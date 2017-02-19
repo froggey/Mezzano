@@ -88,8 +88,11 @@
   (multiple-value-bind (rc xres yres bpp)
       (vbox-issue-get-display-change vbox 1)
     (declare (ignore rc))
-    (when (not (and (eql *vbox-screen-xres* xres)
-                    (eql *vbox-screen-yres* yres)))
+    (when (not (or (zerop xres)
+                   (zerop yres)
+                   (zerop bpp)
+                   (and (eql *vbox-screen-xres* xres)
+                        (eql *vbox-screen-yres* yres))))
       ;; Screen size has changed. Resize the display and send an event
       ;; to the listener thread to update the video framebuffer.
       (debug-print-line "New screen geometry is " xres "x" yres "x" bpp)
@@ -103,8 +106,8 @@
       (declare (ignore rc))
       ;; Provided mouse coordinates are scaled to [0,#xFFFF], scale them
       ;; back to the screen geometry.
-      (let ((scaled-x (truncate (* x xres) #xFFFF))
-            (scaled-y (truncate (* y yres) #xFFFF)))
+      (let ((scaled-x (truncate (* x *vbox-screen-xres*) #xFFFF))
+            (scaled-y (truncate (* y *vbox-screen-yres*) #xFFFF)))
         (irq-fifo-push (logior (logand scaled-x #xFFFF)
                                (ash (logand scaled-y #xFFFF) 16))
                        *vbox-event-fifo*))))
@@ -151,8 +154,9 @@
     (debug-print-line "VirtualBox Guest Device detected at " device " using IRQ " irq)
     (i8259-hook-irq irq handler)
     (i8259-unmask-irq irq)
-    (setf *vbox-screen-xres* -1
-          *vbox-screen-yres* -1)
+    ;; Take the initial screen dimensions from the bootloader's framebuffer.
+    (setf *vbox-screen-xres* (boot-field +boot-information-framebuffer-width+)
+          *vbox-screen-yres* (boot-field +boot-information-framebuffer-height+))
     ;; This is an Unknown 64-bit OS.
     (vbox-issue-guest-info vbox +vbox-vmmdev-version+ #x100)
     ;; Support auto-resize guest display.

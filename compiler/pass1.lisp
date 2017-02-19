@@ -493,14 +493,27 @@
                           '(nil :special))))
     (error-program-error "Attemting to bind ~S variable ~S." (sys.int::symbol-mode (name var)) (name var))))
 
+(defun filter-let-type-declarations (declares names)
+  (let ((result '()))
+    (loop
+       for dec in declares
+       when (eql (first dec) 'type)
+       do (push `(type ,(second dec) ,@(remove-if (lambda (x) (member x names)) (cddr dec))) result)
+       when (non-type-type-declaration-p (first dec))
+       do (push `(type ,(first dec) ,@(remove-if (lambda (x) (member x names)) (rest dec))) result))
+    (reverse result)))
+
 (defun pass1-let (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (parse-declares forms)
-      (let* ((env (extend-environment env
-                                      :declarations (remove-if-not (lambda (x) (eql x 'optimize))
-                                                                   declares
-                                                                   :key #'first)))
+      (let* ((names (loop for binding in bindings collect (parse-let-binding binding)))
+             (env (extend-environment env
+                                      :declarations (append
+                                                     (remove-if-not (lambda (x) (eql x 'optimize))
+                                                                    declares
+                                                                    :key #'first)
+                                                     (filter-let-type-declarations declares names))))
              (variables (mapcar (lambda (binding)
                                   (multiple-value-bind (name init-form)
                                       (parse-let-binding binding)

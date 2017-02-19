@@ -230,6 +230,7 @@
           (ast `(quote ,(apply function
                                (mapcar (lambda (thing type)
                                          ;; Bail out if thing is non-constant or does not match the type.
+                                         (setf thing (unwrap-the thing))
                                          (unless (and (typep thing 'ast-quote)
                                                       (typep (value thing) type))
                                            (return-from constant-fold nil))
@@ -244,10 +245,11 @@
              (let ((const-args '())
                    (nonconst-args '())
                    (value nil))
-               (dolist (i arg-list)
-                 (if (typep i 'ast-quote)
-                     (push (value i) const-args)
-                     (push i nonconst-args)))
+               (dolist (arg arg-list)
+                 (let ((unwrapped (unwrap-the arg)))
+                   (if (typep unwrapped 'ast-quote)
+                       (push (value unwrapped) const-args)
+                       (push arg nonconst-args))))
                (setf const-args (nreverse const-args)
                      nonconst-args (nreverse nonconst-args))
                (when (or const-args (not nonconst-args))
@@ -264,16 +266,17 @@
              (if arg-list
                  (let ((constant-accu '())
                        (arg-accu '()))
-                   (dolist (i arg-list)
-                     (cond ((typep i 'ast-quote)
-                            (push (value i) constant-accu))
-                           (t
-                            (when constant-accu
-                              (push (ast `(quote ,(apply function (nreverse constant-accu)))
-                                         form)
-                                    arg-accu)
-                              (setf constant-accu nil))
-                            (push i arg-accu))))
+                   (dolist (arg arg-list)
+                     (let ((unwrapped (unwrap-the arg)))
+                       (cond ((typep unwrapped 'ast-quote)
+                              (push (value unwrapped) constant-accu))
+                             (t
+                              (when constant-accu
+                                (push (ast `(quote ,(apply function (nreverse constant-accu)))
+                                           form)
+                                      arg-accu)
+                                (setf constant-accu nil))
+                              (push arg arg-accu)))))
                    (if arg-accu
                        (ast `(call ,function
                                    ,@(nreverse arg-accu)
