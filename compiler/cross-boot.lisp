@@ -285,9 +285,5 @@
 (defun sys.int::binary-logxor (x y) (logxor x y))
 (defun mezzano.runtime::%fixnum-< (x y) (< x y))
 
-(defun upgraded-array-element-type (typespec &optional environment)
-  ;; Oh so very wrong.
-  (cl:upgraded-array-element-type (sys.int::typeexpand typespec environment)))
-
 (defun mezzano.clos:class-precedence-list (class)
   (sb-mop:class-precedence-list class))

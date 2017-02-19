@@ -129,6 +129,7 @@
 (%define-compound-type-optimizer 'array 'compile-array-type)
 )
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun upgraded-array-info (typespec &optional environment)
   ;; Pick off a few obvious cases.
   (case typespec
@@ -145,6 +146,7 @@
 
 (defun upgraded-array-element-type (typespec &optional environment)
   (first (upgraded-array-info typespec environment)))
+)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
