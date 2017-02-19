@@ -1225,6 +1225,7 @@ Returns an appropriate tag."
          (emit (second (assoc go-tag *rename-list*)))
          (when (cg-form stmt)
            (setf need-exit-label t)
+           (smash-r8)
            (emit `(sys.lap-x86:jmp ,exit-label))))
     (when escapes
       ;; Emit the jump-table.
