@@ -15,12 +15,15 @@
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
 (defvar *active-nl-exits* nil)
+(defvar *last-gc-info* '())
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
-    (push i *code-accum*)))
+    (push i *code-accum*)
+    (when (symbolp i)
+      (apply #'emit-gc-info *last-gc-info*))))
 
 (defun comment (&rest stuff)
   (emit `(:comment ,@stuff)))
@@ -98,7 +101,8 @@
          (*trailers* '())
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
          (*gc-info-fixups* '())
-         (*active-nl-exits* '()))
+         (*active-nl-exits* '())
+         (*last-gc-info* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -244,6 +248,7 @@
        :x86-64))))
 
 (defun emit-gc-info (&rest extra-stuff)
+  (setf *last-gc-info* extra-stuff)
   (let ((thing (list* :gc :frame extra-stuff)))
     (push thing *gc-info-fixups*)
     (emit thing)))
