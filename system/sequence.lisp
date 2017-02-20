@@ -308,11 +308,8 @@
       (subseq-vector sequence start end)))
 
 (defun (setf subseq) (value sequence start &optional end)
-  (let ((count (min (- (or end (length sequence)) start)
-                    (length value))))
-    (dotimes (i count)
-      (setf (elt sequence (+ start i)) (elt value i)))
-    value))
+  (replace sequence value :start1 start :end1 end)
+  value)
 
 ;; Selection sort!
 (defun sort (sequence predicate &key key)
