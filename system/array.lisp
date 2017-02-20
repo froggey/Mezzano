@@ -268,6 +268,58 @@
        do (setf (%complex-array-dimension array rank) d))
     array))
 
+(define-compiler-macro make-array (&whole whole dimensions
+                                          &key
+                                          (element-type ''t)
+                                          (initial-element nil initial-element-p)
+                                          (initial-contents nil initial-contents-p)
+                                          adjustable
+                                          fill-pointer
+                                          displaced-to displaced-index-offset
+                                          area)
+  (cond ((or (not (or (eql element-type 't)
+                      (and (consp element-type)
+                           (eql (first element-type) 'quote))))
+             ;; One or the other.
+             (and initial-element-p
+                  initial-contents-p)
+             adjustable
+             fill-pointer
+             displaced-to displaced-index-offset)
+         whole)
+        (t
+         (let ((array-sym (gensym "ARRAY"))
+               (info (upgraded-array-info (if (consp element-type)
+                                              (second element-type)
+                                              element-type))))
+           (when (not (second info))
+             (return-from make-array whole))
+           `(let ((,array-sym (make-array-with-known-element-type
+                               ,dimensions ,element-type ',info ,area
+                               ,(if initial-element-p
+                                    initial-element
+                                    `',(fifth info)))))
+              ,@(when initial-contents-p
+                  `((initialize-from-initial-contents ,array-sym ,initial-contents)))
+              ,array-sym)))))
+
+(defun make-array-with-known-element-type (dimensions element-type info area initial-element)
+  (when (and (consp dimensions)
+             (integerp (first dimensions))
+             (endp (rest dimensions)))
+    (setf dimensions (first dimensions)))
+  (cond ((integerp dimensions)
+         (assert (<= 0 dimensions))
+         (let ((array (make-simple-array-1 dimensions info area)))
+           (when (not (eql initial-element (fifth info)))
+             (fill array initial-element))
+           array))
+        (t
+         (make-array dimensions
+                     :element-type element-type
+                     :initial-element initial-element
+                     :area area))))
+
 (defun make-array (dimensions &key
                                 (element-type t)
                                 (initial-element nil initial-element-p)
