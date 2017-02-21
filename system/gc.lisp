@@ -389,7 +389,7 @@ This is required to make the GC interrupt safe."
                 (gc-log "Unwinding through no-frame function")
                 ;; Frame pointer remains unchanged.
                 ;; Return address should be above the layout variables.
-                (setf return-address (memref-unsigned-byte-64 stack-pointer layout-length))
+                (setf return-address (memref-unsigned-byte-64 stack-pointer (1- layout-length)))
                 ;; Stack pointer needs the return address popped off,
                 ;; and any layout variables.
                 (setf stack-pointer (+ stack-pointer (* layout-length 8)))))))))
