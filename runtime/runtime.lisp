@@ -309,9 +309,17 @@ Arguments to FUNCTION:
 
 (declaim (inline %object-ref-single-float (setf %object-ref-single-float)))
 (defun %object-ref-single-float (object index)
-  (%integer-as-single-float (%object-ref-unsigned-byte-32 object index)))
+  (%%object-ref-single-float object index))
 (defun (setf %object-ref-single-float) (value object index)
-  (setf (%object-ref-unsigned-byte-32 object index)
+  (check-type value single-float)
+  (setf (%%object-ref-single-float object index) value)
+  value)
+
+(declaim (inline %%object-ref-single-float (setf %%object-ref-single-float)))
+(defun %%object-ref-single-float (object index)
+  (%integer-as-single-float (%%object-ref-unsigned-byte-32 object index)))
+(defun (setf %%object-ref-single-float) (value object index)
+  (setf (%%object-ref-unsigned-byte-32 object index)
         (%single-float-as-integer value))
   value)
 

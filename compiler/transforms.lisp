@@ -301,6 +301,11 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(the single-float (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number)))
 
+(define-transform sys.int::%truncate ((number single-float) (divisor (eql 1)))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%truncate-single-float ,number))
+
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
   `(call eq ,lhs ,rhs))
@@ -380,8 +385,8 @@
 (define-fast-array-transform (signed-byte 32) sys.int::%%object-ref-signed-byte-32)
 (define-fast-array-transform (signed-byte 16) sys.int::%%object-ref-signed-byte-16)
 (define-fast-array-transform (signed-byte 8) sys.int::%%object-ref-signed-byte-8)
-(define-fast-array-transform single-float sys.int::%object-ref-single-float)
-(define-fast-array-transform double-float sys.int::%object-ref-double-float)
+(define-fast-array-transform single-float sys.int::%%object-ref-single-float)
+(define-fast-array-transform double-float sys.int::%%object-ref-double-float)
 
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))
