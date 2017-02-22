@@ -194,6 +194,7 @@
     "drivers/network-card.lisp"
     "drivers/virtio-net.lisp"
     "drivers/rtl8168.lisp"
+    "drivers/sound.lisp"
     "drivers/intel-hda.lisp"
     "gui/package.lisp"
     "gui/colour.lisp"
