@@ -29,16 +29,39 @@
 )
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-array-type-1 (object base-predicate element-type dimensions)
+  `(and (,base-predicate ,object)
+        ,@(when (not (eql element-type '*))
+            ;; Parse-array-type returns the upgraded element type.
+            `((equal (array-element-type ,object) ',element-type)))
+        ,@(when (not (eql dimensions '*))
+            `((eql (array-rank ,object) ',(length dimensions))))
+        ,@(when (not (eql dimensions '*))
+            (loop
+               for dim in dimensions
+               for i from 0
+               unless (eql dim '*)
+               collect `(eql (array-dimension ,object ',i) ',dim)))))
+
+(defun compile-array-type (object type)
+  (multiple-value-bind (element-type dimensions)
+      (parse-array-type type)
+    `(or (typep ,object '(simple-array ,element-type ,dimensions))
+         ,(compile-array-type-1 object 'arrayp element-type dimensions))))
+(%define-compound-type-optimizer 'array 'compile-array-type)
+
 (defun compile-simple-array-type (object type)
-  (destructuring-bind (&optional (element-type '*) (dimensions '*)) (rest type)
-    (check-type dimensions (or list (eql *)))
+  (multiple-value-bind (element-type dimensions)
+      (parse-array-type type)
     (when (or (eql element-type '*)
               (eql dimensions '*)
               (not (eql (length dimensions) 1)))
-      (return-from compile-simple-array-type nil))
+      (return-from compile-simple-array-type
+        (compile-array-type-1 object 'simple-array-p element-type dimensions)))
     (let ((info (upgraded-array-info element-type)))
       (when (not (second info))
-        (return-from compile-simple-array-type nil))
+        (return-from compile-simple-array-type
+          (compile-array-type-1 object 'simple-array-p element-type dimensions)))
       (cond ((eql (first dimensions) '*)
              `(sys.int::%object-of-type-p ,object ,(second info)))
             (t
