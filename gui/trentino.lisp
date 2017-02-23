@@ -68,9 +68,9 @@
 	   (cl-video:stream-playback-start audio-rec)
 	   (sleep (* (cl-video:start audio-rec) (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
 	   (unwind-protect
-		(loop for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor audio-rec)))
-		   for src = (cl-video:frame cur)
-		   until (cl-video:finish avi) do
+		(loop until (cl-video:finish avi)
+		   for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor audio-rec)))
+		   for src = (cl-video:frame cur) do
 		   ;; pause synching protocol w/video stream
 		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
 		   ;; send the audio frame
