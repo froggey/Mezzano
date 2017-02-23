@@ -52,7 +52,11 @@
       (let ((sample-size (/ (cl-video:block-align rec) (cl-video:number-of-channels rec))))
 	(loop for i from 0 below fsize do
 	     (setf (aref (cl-video:frame chunk) i) (if (= sample-size 1)
-					    (read-byte is)
+						       (case (cl-video:significant-bits-per-sample rec)
+							 (8 (ash (- (read-byte is) 128) 8))
+							 (16 (read-byte is))
+							 (24 (floor (read-byte is) 256))
+							 (otherwise (error "Unsupported sample size")))
 					    (error "No support for stereo sound yet"))))))
     (mezzano.supervisor:release-mutex cur-lock)))
 
@@ -171,6 +175,8 @@
 
 (defun main (path)
   (cl-video:decode-file path :player-callback #'(lambda (avi)
+						  (let ((a (find-pcm-stream-record avi)))
+						    (when a (change-class a 'hda-pcm-stream-record)))
 						  (play-audio-stream avi) (play-video-stream avi))))
 
 (defun spawn (path)
