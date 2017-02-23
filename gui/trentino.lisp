@@ -175,7 +175,7 @@
 
 (defun main (path)
   (cl-video:decode-file path :player-callback #'(lambda (avi)
-						  (let ((a (find-pcm-stream-record avi)))
+						  (let ((a (cl-video:find-pcm-stream-record avi)))
 						    (when a (change-class a 'hda-pcm-stream-record)))
 						  (play-audio-stream avi) (play-video-stream avi))))
 
