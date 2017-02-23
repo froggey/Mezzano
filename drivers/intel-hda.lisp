@@ -1052,7 +1052,7 @@ Returns NIL if there is no output path."
 (defmethod mezzano.driver.sound:sound-card-run ((hda hda) buffer-fill-callback)
   (handler-case
       (let* ((buffer (hda-dma-buffer-phys hda))
-             (buf-len #x20000);(hda-dma-buffer-size hda))
+             (buf-len #x2000);(hda-dma-buffer-size hda))
              (half-buf-len (truncate buf-len 2))
              (n-samples (truncate half-buf-len 2)) ; buf-len is in bytes (2 per sample) and we want to fill only half the buffer at once
              (float-sample-buffer (make-array n-samples :element-type 'single-float))
@@ -1061,19 +1061,25 @@ Returns NIL if there is no output path."
              (buffer-offset 0)
              (stop-countdown nil))
         (labels ((store-sample (sample offset)
-                   (let* ((sample-integer (truncate (if (< sample 0)
-                                                        (* sample 32768)
-                                                        (* sample 32767))))
-                          ;; Clamp to limits, don't wrap.
-                          (sample-16bit (max (min sample-integer
-                                                  (1- (ash 1 15)))
-                                             (- (ash 1 15)))))
+                   ;; Clamp to limits, don't wrap.
+                   (let* ((sample-clamped (max (min sample 1.0f0) -1.0f0))
+                          (sample-rescaled (if (< sample-clamped 0.0f0)
+                                               (* sample-clamped 32768.0f0)
+                                               (* sample-clamped 32767.0f0)))
+                          (sample-16bit (truncate sample-rescaled)))
+                     (declare (optimize speed (safety 0))
+                              (type single-float sample-clamped sample-rescaled)
+                              (type fixnum sample-16bit))
                      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset)) (ldb (byte 8 0) sample-16bit)
                            (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset 1)) (ldb (byte 8 8) sample-16bit))))
                  (refill-fifo ()
                    (with-hda-access (hda)
-                     (dotimes (i n-samples)
-                       (store-sample (aref float-sample-buffer i) i)))
+                     (locally
+                         (declare (optimize speed (safety 0))
+                                  (type (simple-array single-float (*)) float-sample-buffer)
+                                  (type fixnum n-samples))
+                       (dotimes (i n-samples)
+                         (store-sample (aref float-sample-buffer i) i))))
                    (cond ((eql buffer-offset 0)
                           (setf buffer-offset half-buf-len))
                          (t

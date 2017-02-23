@@ -39,8 +39,19 @@
           start2 0))
   (assert (<= 0 start1 end1 (length dest)))
   (assert (<= 0 start2 end2 (length source)))
-  (dotimes (i (min (- end1 start1) (- end2 start2)))
-    (incf (elt dest (+ start1 i)) (* (elt source (+ start2 i)) volume)))
+  (check-type dest (simple-array single-float (*)))
+  (check-type source (simple-array single-float (*)))
+  (check-type volume single-float)
+  (locally
+      (declare (optimize speed (safety 0))
+               (type (simple-array single-float (*)) dest source)
+               (type fixnum start1 end1 start2 end2)
+               (type single-float volume))
+    (loop
+       for i fixnum from start1 below end1
+       for j fixnum from start2 below end2
+       do
+         (incf (aref dest i) (* (aref source j) volume))))
   dest)
 
 (defun mix-out-of-sink (sink samples start end)
@@ -85,7 +96,13 @@
 (defgeneric sound-card-run (card buffer-fill-callback))
 
 (defun refill-sound-output-buffer (buffer start end)
-  (fill buffer 0.0 :start start :end end)
+  (check-type buffer (simple-array single-float (*)))
+  (assert (<= 0 start end (length buffer)))
+  (locally
+      (declare (optimize speed (safety 0))
+               (type (simple-array single-float (*)) buffer)
+               (type fixnum start end))
+    (fill buffer 0.0 :start start :end end))
   (prog1
       (mezzano.supervisor:with-mutex (*sink-lock*)
         (cond ((endp *sinks*)
