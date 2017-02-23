@@ -42,6 +42,11 @@
 (defclass hda-pcm-stream-record (cl-video:audio-stream-record)
   ())
 
+(defmethod shared-initialize :after ((rec hda-pcm-stream-record) slots &key &allow-other-keys)
+  (declare (ignorable slots))
+  (setf  (cl-video:buffer rec) (make-array (cl-video:suggested-buffer-size rec) :element-type '(unsigned-byte 8)))
+  (initialize-ring rec 16 (ceiling (suggested-buffer-size rec) 2) '(signed-byte 16)))
+
 (defmethod decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
   (let* ((chunk (pop (cl-video:wcursor rec)))
 	 (cur-lock (cl-video:vacancy-lock chunk))
@@ -177,6 +182,7 @@
   (cl-video:decode-file path :player-callback #'(lambda (avi)
 						  (let ((a (cl-video:find-pcm-stream-record avi)))
 						    (when a (change-class a 'hda-pcm-stream-record)))
+						  (cl-video:prime-all-streams avi)
 						  (play-audio-stream avi) (play-video-stream avi))))
 
 (defun spawn (path)
