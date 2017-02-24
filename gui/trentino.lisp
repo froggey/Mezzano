@@ -1,5 +1,6 @@
 ;;; Trentino video player, makes use of CL-VIDEO library
 ;;; 2017 Eugene Zaikonnikov <eugene@funcall.org>
+;;;; This code is licensed under the MIT license.
 
 (defpackage mezzano.gui.trentino
   (:use #:cl)
