@@ -45,9 +45,9 @@
 (defmethod shared-initialize :after ((rec hda-pcm-stream-record) slots &key &allow-other-keys)
   (declare (ignorable slots))
   (setf  (cl-video:buffer rec) (make-array (cl-video:suggested-buffer-size rec) :element-type '(unsigned-byte 8)))
-  (initialize-ring rec 16 (ceiling (suggested-buffer-size rec) 2) '(signed-byte 16)))
+  (cl-video:initialize-ring rec 16 (cl-video:suggested-buffer-size rec) '(signed-byte 16)))
 
-(defmethod decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
+(defmethod cl-video:decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
   (let* ((chunk (pop (cl-video:wcursor rec)))
 	 (cur-lock (cl-video:vacancy-lock chunk))
 	 (new-chunk (car (cl-video:wcursor rec))))
@@ -55,6 +55,7 @@
     (read-sequence (cl-video:buffer rec) input-stream :end fsize)
     (flexi-streams:with-input-from-sequence (is (cl-video:buffer rec))
       (let ((sample-size (/ (cl-video:block-align rec) (cl-video:number-of-channels rec))))
+	(cl-video::debug-log (format nil "sbps ~D " (cl-video:significant-bits-per-sample rec)))
 	(loop for i from 0 below fsize do
 	     (setf (aref (cl-video:frame chunk) i) (if (= sample-size 1)
 						       (case (cl-video:significant-bits-per-sample rec)
