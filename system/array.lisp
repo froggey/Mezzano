@@ -28,6 +28,48 @@
 (%define-type-symbol 'simple-vector 'simple-vector-p)
 )
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-array-type-1 (object base-predicate element-type dimensions)
+  `(and (,base-predicate ,object)
+        ,@(when (not (eql element-type '*))
+            ;; Parse-array-type returns the upgraded element type.
+            `((equal (array-element-type ,object) ',element-type)))
+        ,@(when (not (eql dimensions '*))
+            `((eql (array-rank ,object) ',(length dimensions))))
+        ,@(when (not (eql dimensions '*))
+            (loop
+               for dim in dimensions
+               for i from 0
+               unless (eql dim '*)
+               collect `(eql (array-dimension ,object ',i) ',dim)))))
+
+(defun compile-array-type (object type)
+  (multiple-value-bind (element-type dimensions)
+      (parse-array-type type)
+    `(or (typep ,object '(simple-array ,element-type ,dimensions))
+         ,(compile-array-type-1 object 'arrayp element-type dimensions))))
+(%define-compound-type-optimizer 'array 'compile-array-type)
+
+(defun compile-simple-array-type (object type)
+  (multiple-value-bind (element-type dimensions)
+      (parse-array-type type)
+    (when (or (eql element-type '*)
+              (eql dimensions '*)
+              (not (eql (length dimensions) 1)))
+      (return-from compile-simple-array-type
+        (compile-array-type-1 object 'simple-array-p element-type dimensions)))
+    (let ((info (upgraded-array-info element-type)))
+      (when (not (second info))
+        (return-from compile-simple-array-type
+          (compile-array-type-1 object 'simple-array-p element-type dimensions)))
+      (cond ((eql (first dimensions) '*)
+             `(sys.int::%object-of-type-p ,object ,(second info)))
+            (t
+             `(and (sys.int::%object-of-type-p ,object ,(second info))
+                   (eq (%object-header-data ,object) ,(first dimensions))))))))
+(%define-compound-type-optimizer 'simple-array 'compile-simple-array-type)
+)
+
 (deftype vector (&optional element-type size)
   (check-type size (or non-negative-fixnum (eql *)))
   `(array ,element-type (,size)))
@@ -129,6 +171,7 @@
 (%define-compound-type-optimizer 'array 'compile-array-type)
 )
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun upgraded-array-info (typespec &optional environment)
   ;; Pick off a few obvious cases.
   (case typespec
@@ -145,6 +188,7 @@
 
 (defun upgraded-array-element-type (typespec &optional environment)
   (first (upgraded-array-info typespec environment)))
+)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
@@ -246,6 +290,58 @@
        for d in dimensions
        do (setf (%complex-array-dimension array rank) d))
     array))
+
+(define-compiler-macro make-array (&whole whole dimensions
+                                          &key
+                                          (element-type ''t)
+                                          (initial-element nil initial-element-p)
+                                          (initial-contents nil initial-contents-p)
+                                          adjustable
+                                          fill-pointer
+                                          displaced-to displaced-index-offset
+                                          area)
+  (cond ((or (not (or (eql element-type 't)
+                      (and (consp element-type)
+                           (eql (first element-type) 'quote))))
+             ;; One or the other.
+             (and initial-element-p
+                  initial-contents-p)
+             adjustable
+             fill-pointer
+             displaced-to displaced-index-offset)
+         whole)
+        (t
+         (let ((array-sym (gensym "ARRAY"))
+               (info (upgraded-array-info (if (consp element-type)
+                                              (second element-type)
+                                              element-type))))
+           (when (not (second info))
+             (return-from make-array whole))
+           `(let ((,array-sym (make-array-with-known-element-type
+                               ,dimensions ,element-type ',info ,area
+                               ,(if initial-element-p
+                                    initial-element
+                                    `',(fifth info)))))
+              ,@(when initial-contents-p
+                  `((initialize-from-initial-contents ,array-sym ,initial-contents)))
+              ,array-sym)))))
+
+(defun make-array-with-known-element-type (dimensions element-type info area initial-element)
+  (when (and (consp dimensions)
+             (integerp (first dimensions))
+             (endp (rest dimensions)))
+    (setf dimensions (first dimensions)))
+  (cond ((integerp dimensions)
+         (assert (<= 0 dimensions))
+         (let ((array (make-simple-array-1 dimensions info area)))
+           (when (not (eql initial-element (fifth info)))
+             (fill array initial-element))
+           array))
+        (t
+         (make-array dimensions
+                     :element-type element-type
+                     :initial-element initial-element
+                     :area area))))
 
 (defun make-array (dimensions &key
                                 (element-type t)

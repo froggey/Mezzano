@@ -141,19 +141,19 @@
        (when (funcall predicate (funcall key e))
          (return e))))
     (vector
-     (assert (<= 0 start))
+     (assert (<= 0 start (length sequence)))
      (when end
-       (assert (<= end (length sequence))))
+       (assert (<= start end (length sequence))))
      (let ((end (or end (length sequence))))
        (cond (from-end
               (loop
-                 for i from (1- (or end (length sequence))) downto start
+                 for i fixnum from (1- end) downto start
                  for val = (aref sequence i)
                  when (funcall predicate (funcall key val))
                  do (return val)))
              (t
               (loop
-                 for i from start below (or end (length sequence))
+                 for i fixnum from start below end
                  for val = (aref sequence i)
                  when (funcall predicate (funcall key val))
                  do (return val))))))))
@@ -308,11 +308,8 @@
       (subseq-vector sequence start end)))
 
 (defun (setf subseq) (value sequence start &optional end)
-  (let ((count (min (- (or end (length sequence)) start)
-                    (length value))))
-    (dotimes (i count)
-      (setf (elt sequence (+ start i)) (elt value i)))
-    value))
+  (replace sequence value :start1 start :end1 end)
+  value)
 
 ;; Selection sort!
 (defun sort (sequence predicate &key key)
@@ -465,8 +462,43 @@
     (setf sequence-2 (subseq sequence-2 start2 end2)
           end2 (- end2 start2)
           start2 0))
-  (dotimes (i (min (- end1 start1) (- end2 start2)))
-    (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i))))
+  (assert (<= 0 start1 end1 (length sequence-1)))
+  (assert (<= 0 start2 end2 (length sequence-2)))
+  (macrolet ((fast-vector (type)
+               `(if (and (typep sequence-1 '(array ,type (*)))
+                         (not (array-displacement sequence-1))
+                         (typep sequence-2 '(array ,type (*)))
+                         (not (array-displacement sequence-2)))
+                    (let ((simple-vector-1 (if (typep sequence-1 '(simple-array ,type (*)))
+                                               sequence-1
+                                               (sys.int::%complex-array-storage sequence-1)))
+                          (simple-vector-2 (if (typep sequence-2 '(simple-array ,type (*)))
+                                               sequence-2
+                                               (sys.int::%complex-array-storage sequence-2))))
+                      (declare (type (simple-array ,type (*)) simple-vector-1 simple-vector-2)
+                               (type fixnum start1 end1 start2 end2)
+                               (optimize speed (safety 0)))
+                      (loop
+                         for i fixnum below (min (the fixnum (- end1 start1)) (the fixnum (- end2 start2)))
+                         do
+                           (setf (aref simple-vector-1 (the fixnum (+ start1 i)))
+                                 (aref simple-vector-2 (the fixnum (+ start2 i)))))
+                      t)
+                    nil)))
+    (cond ((fast-vector (unsigned-byte 8)))
+          ((fast-vector (unsigned-byte 16)))
+          ((fast-vector (unsigned-byte 32)))
+          ((fast-vector (unsigned-byte 64)))
+          ((fast-vector (signed-byte 8)))
+          ((fast-vector (signed-byte 16)))
+          ((fast-vector (signed-byte 32)))
+          ((fast-vector (signed-byte 64)))
+          ((fast-vector t))
+          ((fast-vector single-float))
+          ((fast-vector double-float))
+          (t
+           (dotimes (i (min (- end1 start1) (- end2 start2)))
+             (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i)))))))
   sequence-1)
 
 (declaim (inline fill))

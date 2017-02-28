@@ -21,6 +21,7 @@
     (:font (mezzano.gui:make-colour-from-octets #x7F #x9F #x7F))
     (:image (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
     (:video (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
+    (:audio (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
     (t mezzano.gui:*default-foreground-colour*)))
 
 (defclass filer ()
@@ -46,6 +47,7 @@
     (:font "ttf")
     (:image "png" "jpeg" "jpg")
     (:video "avi")))
+    (:audio "wav")))
 
 (defun canonical-type-from-pathname-type (type-string)
   (when (or (not type-string)
@@ -82,6 +84,9 @@
 
 (defmethod view ((type (eql :video)) path)
   (funcall (read-from-string "mezzano.gui.trentino:spawn") path))
+
+(defmethod view ((type (eql :audio)) path)
+  (funcall (read-from-string "mezzano.gui.music-player:spawn") path))
 
 (defun click (viewer thing)
   (cond ((functionp thing)

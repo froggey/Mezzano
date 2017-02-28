@@ -32,7 +32,8 @@
     (mezzano.clos::1-effective-discriminator 0 5 nil)
     (mezzano.clos::1-effective-discriminator 0 5 t)
     sys.int::%progv
-    sys.int::%catch))
+    sys.int::%catch
+    mezzano.supervisor::call-with-snapshot-inhibited))
 
 (defstruct thread-sample
   thread

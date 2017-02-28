@@ -48,6 +48,10 @@
   (setf  (cl-video:buffer rec) (make-array (cl-video:suggested-buffer-size rec) :element-type '(unsigned-byte 8)))
   (cl-video:initialize-ring rec 16 (cl-video:suggested-buffer-size rec) '(signed-byte 16)))
 
+(defun resample (from to sample)
+  (let ((ratio (/ to from)))
+    (decimate (upsample sample (numerator ratio)) (denominator ratio))))
+
 (defmethod cl-video:decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
   (let* ((chunk (pop (cl-video:wcursor rec)))
 	 (cur-lock (cl-video:vacancy-lock chunk))

@@ -3,6 +3,9 @@
 
 (in-package :sys.int)
 
+;; Required for the cross-compiler.
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 ;; Information about the various specialized arrays.
 ;; A list of (type tag size-in-bits 16-byte-aligned-p zero-value) lists.
 ;; This must be sorted from most-specific type to least-specific type.
@@ -72,6 +75,12 @@
           (complex short-float)
           (complex long-float)
           xmm-vector)))
+
+;; Only for the benefit of the cross-compiler,
+;; this is the very first thing INITIALIZE-LISP calls.
+(cold-array-initialization)
+
+)
 
 (defun make-simple-array-1 (length info area)
   (let* ((total-size (+ (if (fourth info) 64 0) ; padding for alignment.

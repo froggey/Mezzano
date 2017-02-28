@@ -136,9 +136,11 @@
     (do ((i program (cdr i)))
         ((null i))
       (when (symbolp (car i))
-        ;; Search forward until a non-label is found.
+        ;; Search forward until a non-label, non-:gc is found.
         (do ((j i (cdr j)))
-            ((or (not (symbolp (car j)))
+            ((or (not (or (symbolp (car j))
+                          (and (consp (car j))
+                               (eql (first (car j)) :gc))))
                  (null j))
              (setf (gethash (car i) targets) j)))))
     targets))

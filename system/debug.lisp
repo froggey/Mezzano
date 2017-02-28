@@ -194,6 +194,7 @@ Returns NIL if the function captures no variables."
                         (format t "  :write     Write a variable by id (from :vars) to the current frame.~%")
                         (format t "  :bt        Print a complete backtrace.~%")
                         (format t "  :condition Condition that caused the debugger to be invoked.~%")
+                        (format t "  :terminate Terminate the current thread.~%")
                         (format t "Integers are treated at restart IDs.~%")
                         (format t "Good luck.~%"))
                        (:restarts
@@ -263,6 +264,8 @@ Returns NIL if the function captures no variables."
                             (dolist (v result)
                               (fresh-line)
                               (write v)))))
+                       (:terminate
+                        (throw 'mezzano.supervisor:terminate-thread nil))
                        (t (format t "Unknown command ~S~%" form))))
                     (t (let ((result (multiple-value-list (let ((- form))
                                                             (eval form)))))
@@ -282,11 +285,11 @@ Returns NIL if the function captures no variables."
 
 (defun show-restarts (restarts)
   (let ((restart-count (length restarts)))
-    (write-string "Available restarts:")(terpri)
-    (do ((i 0 (1+ i))
-         (r restarts (cdr r)))
-        ((null r))
-      (format t "~S ~S: ~A~%" (- restart-count i 1) (restart-name (car r)) (car r)))))
+    (format t "Available restarts:~%")
+    (loop
+       for i from 0
+       for restart in restarts
+       do (format t "~S ~S: ~A~%" (- restart-count i 1) (restart-name restart) restart))))
 
 (defun map-backtrace (fn)
   (do ((i 0 (1+ i))
