@@ -47,7 +47,7 @@
     (:font "ttf")
     (:image "png" "jpeg" "jpg")
     (:video "avi")))
-    (:audio "wav")))
+    (:audio "wav" "gif")))
 
 (defun canonical-type-from-pathname-type (type-string)
   (when (or (not type-string)
