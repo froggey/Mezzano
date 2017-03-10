@@ -46,8 +46,8 @@
     (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown" "md" "el")
     (:font "ttf")
     (:image "png" "jpeg" "jpg")
-    (:video "avi")))
-    (:audio "wav" "gif")))
+    (:video "avi" "gif")
+    (:audio "wav")))
 
 (defun canonical-type-from-pathname-type (type-string)
   (when (or (not type-string)
