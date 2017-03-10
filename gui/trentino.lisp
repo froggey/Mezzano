@@ -132,7 +132,7 @@
 						 :thread (mezzano.supervisor:current-thread)
 						 :font font
 						 :frame frame))
-			  (rec (cl-video:find-mjpeg-stream-record container))
+			  (rec (cl-video:find-video-stream-record container))
 			  (video-width (cl-video:width container))
 			  (video-height (cl-video:height container))
 			  (quit nil))
