@@ -71,44 +71,43 @@
 					    (error "No support for stereo sound yet"))))))
     (mezzano.supervisor:release-mutex cur-lock)))
 
-(defmethod find-hda-pcm-stream-record ((avi cl-video:avi-mjpeg-stream))
+(defmethod find-hda-pcm-stream-record ((container cl-video:av-container))
   (find-if #'(lambda (x) (and (eql (type-of x) 'hda-pcm-stream-record)
-			      (eql (cl-video:compression-code x) cl-video:+pcmi-uncompressed+))) (cl-video:stream-records avi)))
+			      (eql (cl-video:compression-code x) cl-video:+pcmi-uncompressed+))) (cl-video:stream-records container)))
 
-(defmethod play-audio-stream ((avi cl-video:avi-mjpeg-stream))
-  (let ((audio-rec (cl-video:find-pcm-stream-record avi)))
+(defmethod play-audio-stream ((container cl-video:av-container))
+  (let ((audio-rec (cl-video:find-pcm-stream-record container)))
     (when audio-rec
       (mezzano.supervisor:make-thread
        #'(lambda ()
 	   (cl-video:stream-playback-start audio-rec)
-	   (sleep (* (cl-video:start audio-rec) (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
 	   (unwind-protect
-		(loop until (cl-video:finish avi)
-		   for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor audio-rec)))
+		(loop until (cl-video:finish container)
+		   for cur = (if (cl-video:pause container) cur (cl-video:pop-chunk-rcursor audio-rec))
 		   for src = (cl-video:frame cur) do
 		   ;; pause synching protocol w/video stream
-		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
+		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock container))
 		   ;; send the audio frame
 		     (mezzano.driver.intel-hda::play-sound src (first mezzano.driver.intel-hda::*cards*))
-		     (loop while (cl-video:pause avi) do (sleep 0.2))
-		     (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))
+		     (loop while (cl-video:pause container) do (sleep 0.2))
+		     (mezzano.supervisor:release-mutex (cl-video:pause-lock container))
 		   ;; advance the cursor lock
 		     (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
 		     (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur))
 		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
-		     (sleep (/ (cl-video:scale audio-rec) (cl-video:rate audio-rec))))
+		     (sleep (cl-video:frame-delay audio-rec)))
 	     (cl-video:stream-playback-stop audio-rec)))
        :name "Trentino audio worker"))))
 
-(defun compute-window-size (avi)
+(defun compute-window-size (container)
   ;; Make a fake frame to get the frame size.
   (multiple-value-bind (left right top bottom)
       (mezzano.gui.widgets:frame-size (make-instance 'mezzano.gui.widgets:frame))
-    (values (+ left (max 32 (cl-video:width avi)) right)
-            (+ top (max 32 (cl-video:height avi)) bottom))))
+    (values (+ left (max 32 (cl-video:width container)) right)
+            (+ top (max 32 (cl-video:height container)) bottom))))
 
-(defmethod play-video-stream ((avi cl-video:avi-mjpeg-stream))
+(defmethod play-video-stream ((container cl-video:av-container))
   (with-simple-restart (abort "Close media player")
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
@@ -119,12 +118,12 @@
 	   #'(lambda ()
 	       ;; Window needs to be slightly larger than the video to account for the frame.
 	       (multiple-value-bind (window-width window-height)
-		   (compute-window-size avi)
+		   (compute-window-size container)
 		 (mezzano.gui.compositor:with-window (window fifo window-width window-height)
 		   (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
 			  (frame (make-instance 'mezzano.gui.widgets:frame
 						:framebuffer framebuffer
-						:title (pathname-name (cl-video:filename avi))
+						:title (pathname-name (cl-video:filename container))
 						:close-button-p t
 						:damage-function (mezzano.gui.widgets:default-damage-function window)))
 			  (viewer (make-instance 'media-player
@@ -133,9 +132,9 @@
 						 :thread (mezzano.supervisor:current-thread)
 						 :font font
 						 :frame frame))
-			  (rec (cl-video:find-mjpeg-stream-record avi))
-			  (avi-width (cl-video:width avi))
-			  (avi-height (cl-video:height avi))
+			  (rec (cl-video:find-mjpeg-stream-record container))
+			  (video-width (cl-video:width container))
+			  (video-height (cl-video:height container))
 			  (quit nil))
 
 		     ;; Handling the window events in own thread
@@ -149,47 +148,51 @@
 				   (ignore-errors
 				     (format t "Error: ~A~%" c)))
 				 (mezzano.gui.widgets:close-button-clicked ()
-				   (setf (cl-video:finish avi) t)
+				   (setf (cl-video:finish container) t)
 				   (setf quit t))
 				 (pause-event ()
 				   (setf should-pause t)))))
               :name "Trentino event worker")
-
-		     (sleep (* (cl-video:start rec) (/ (cl-video:scale rec) (cl-video:rate rec)))) ;stream delay, if any
 		     (cl-video:stream-playback-start rec)
 		     (unwind-protect
 			  (loop until quit
-			     for cur = (if (cl-video:pause avi) cur (pop (cl-video:rcursor rec)))
+			     for cur = (if (cl-video:pause container) cur (cl-video:pop-chunk-rcursor rec))
 			     for src = (cl-video:frame cur) do
 			       (multiple-value-bind (left right top bottom)
 				   (mezzano.gui.widgets:frame-size frame)
 				 (declare (ignore right bottom))
 				 (mezzano.gui.image:transcode-cl-jpeg-buffer
 				  framebuffer left top
-				  src avi-width avi-height 3)
+				  src video-width video-height 3)
 				 (mezzano.gui.widgets:draw-frame frame)
 				 (mezzano.gui.compositor:damage-window window
 								       0 0
-								       (cl-video:width avi) (cl-video:height avi)))
-			       (unless (cl-video:pause avi)
+								       (cl-video:width container) (cl-video:height container)))
+			       (unless (cl-video:pause container)
 				 (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor rec))))
 				 (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur)))
 			       (when (eql cur (cl-video:final rec))
 				 (return))
-			       (sleep (/ (cl-video:scale rec) (cl-video:rate rec)))
+			       (sleep (cl-video:frame-delay rec))
 			       (when should-pause
-				 (setf (cl-video:pause avi) (not (cl-video:pause avi)))
-				 (mezzano.supervisor:acquire-mutex (cl-video:pause-lock avi))
-				 (mezzano.supervisor:release-mutex (cl-video:pause-lock avi))))
+				 (setf (cl-video:pause container) (not (cl-video:pause container)))
+				 (mezzano.supervisor:acquire-mutex (cl-video:pause-lock container))
+				 (mezzano.supervisor:release-mutex (cl-video:pause-lock container))))
 		       (cl-video:stream-playback-stop rec))))))
        :name "Trentino video worker"))))
 
+(defun decode-file (pathname &key player-callback)
+  (let ((container (make-instance (cond  ((string-equal "avi" (pathname-type pathname)) 'cl-video:avi-mjpeg-container)
+					 ((string-equal "gif" (pathname-type pathname)) 'cl-video:gif-container)
+					 (t (error 'unrecognized-file-format))) :filename pathname :player-callback player-callback)))
+    (cl-video:decode container)))
+
 (defun main (path)
-  (cl-video:decode-file path :player-callback #'(lambda (avi)
-						  (let ((a (cl-video:find-pcm-stream-record avi)))
+  (decode-file path :player-callback #'(lambda (video)
+						  (let ((a (cl-video:find-pcm-stream-record video)))
 						    (when a (change-class a 'hda-pcm-stream-record)))
-						  (cl-video:prime-all-streams avi)
-						  (play-audio-stream avi) (play-video-stream avi))))
+						  (cl-video:prime-all-streams video)
+						  (play-audio-stream video) (play-video-stream video))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))
