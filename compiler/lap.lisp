@@ -21,6 +21,8 @@
 (defvar *fixups* nil)
 (defvar *gc-data* nil)
 
+(defparameter *settle-limit* 50)
+
 (defun emit (&rest bytes)
   "Emit bytes to the output stream."
   (dolist (i bytes)
@@ -71,8 +73,8 @@ a vector of constants and an alist of symbols & addresses."
                  alist)
                (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
                       (mapcar 'encode-gc-info *gc-data*))))
-    (when (> attempt 50)
-      (error "Internal assembler error. Code has not settled after 50 iterations."))
+    (when (> attempt *settle-limit*)
+      (error "Internal assembler error. Code has not settled after ~D iterations." attempt))
     (setf prev-bytes-emitted *bytes-emitted*
           *bytes-emitted* 0
           prev-mc *machine-code*
