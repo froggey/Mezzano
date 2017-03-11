@@ -7,11 +7,15 @@
 
 (sys.int::defglobal *heartbeat-wait-queue*)
 (sys.int::defglobal *run-time*)
+(sys.int::defglobal *run-time-at-boot*)
+(sys.int::defglobal *boot-time*)
 
 (defun initialize-time ()
   (when (not (boundp '*run-time*))
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
-    (setf *run-time* 0)))
+    (setf *run-time* 0))
+  (setf *run-time-at-boot* *run-time*
+        *boot-time* (get-universal-time)))
 
 (defun beat-heartbeat (run-time-advance)
   (incf *run-time* run-time-advance)
@@ -36,7 +40,8 @@
    nil))
 
 (defun get-internal-real-time ()
-  (* (get-universal-time) internal-time-units-per-second))
+  (+ (- *run-time* *run-time-at-boot*)
+     (* *boot-time* internal-time-units-per-second)))
 
 (defun get-internal-run-time ()
   *run-time*)
