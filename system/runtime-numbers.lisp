@@ -90,12 +90,20 @@
      (error "Type specifier ~S is not a subtype of REAL." typespec))))
 
 (defun expt (base power)
-  (check-type power integer)
-  (cond ((minusp power)
-         (/ (expt base (- power))))
-        (t (let ((accum 1))
-             (dotimes (i power accum)
-               (setf accum (* accum base)))))))
+  (etypecase power
+    (integer
+     (cond ((minusp power)
+            (/ (expt base (- power))))
+           (t (let ((accum 1))
+                (dotimes (i power accum)
+                  (setf accum (* accum base)))))))
+    (float
+     (cond ((eql (float (truncate power) power) power)
+            ;; Moderately integer-like?
+            (expt base (truncate power)))
+           (t
+            ;; Slower...
+            (exp (* power (log base))))))))
 
 (defstruct (large-byte (:constructor make-large-byte (size position)))
   (size 0 :type (integer 0) :read-only t)
@@ -838,6 +846,44 @@ Implements the dumb mp_div algorithm from BigNum Math."
      (cos-double-float x))
     (real
      (cos-single-float (float x)))))
+
+(defconstant +sleef-r-ln2f+ 1.442695040888963407359924681001892137426645954152985934135449406931f0)
+(defconstant +sleef-l2uf+ 0.693145751953125f0)
+(defconstant +sleef-l2lf+ 1.428606765330187045f-06)
+
+(defun sleef-ldexpkf (x q)
+  (let (u m)
+    (setf m (ash q -31))
+    (setf m (ash (- (ash (+ m q) -6) m) 4))
+    (setf q (- q (ash m 2)))
+    (incf m 127)
+    (setf m (if (< m 0) 0 m))
+    (setf m (if (> m 255) 255 m))
+    (setf u (sys.int::%integer-as-single-float (ash m 23)))
+    (setf x (* x u u u u))
+    (setf u (sys.int::%integer-as-single-float (ash (+ q #x7f) 23)))
+    (* x u)))
+
+(defun exp (d)
+  (let (q s u)
+    (setf q (sleef-rintf (* d +sleef-r-ln2f+)))
+    (setf s (sleef-mlaf q (- +sleef-l2uf+) d))
+    (setf s (sleef-mlaf q (- +sleef-l2lf+) s))
+
+    (setf u 0.000198527617612853646278381f0)
+    (setf u (sleef-mlaf u s 0.00139304355252534151077271f0))
+    (setf u (sleef-mlaf u s 0.00833336077630519866943359f0))
+    (setf u (sleef-mlaf u s 0.0416664853692054748535156f0))
+    (setf u (sleef-mlaf u s 0.166666671633720397949219f0))
+    (setf u (sleef-mlaf u s 0.5f0))
+
+    (setf u (+ (* s s u) s 1.0f0))
+    (setf u (sleef-ldexpkf u q))
+
+    (if (< d -104) (setf u 0))
+    (if (> d  104) (setf u single-float-positive-infinity))
+
+    u))
 
 ;;; http://en.literateprograms.org/Logarithm_Function_(Python)
 (defun log-e (x)
