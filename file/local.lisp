@@ -312,10 +312,14 @@
                      dir)
                   (let ((next (read-directory-entry dir (car element) "directory")))
                     (when (not next)
-                      (error 'simple-file-error
-                             :pathname pathname
-                             :format-control "Subdirectory ~S does not exist."
-                             :format-arguments (list element)))
+                      (ecase if-does-not-exist
+                        ((:error :create)
+                         (error 'simple-file-error
+                                :pathname pathname
+                                :format-control "Subdirectory ~S does not exist."
+                                :format-arguments (list element)))
+                        ((nil)
+                         (return-from open-using-host nil))))
                     (setf dir next))))
            (file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname)))
            (createdp nil)
