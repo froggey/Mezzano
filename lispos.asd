@@ -36,6 +36,7 @@
                (:file "compiler/lower-environment")
                (:file "compiler/lower-special-bindings")
                (:file "compiler/simplify-control-flow")
+               (:file "compiler/blexit")
                (:file "compiler/transforms")
                (:file "compiler/codegen-x86-64")
                (:file "compiler/branch-tension")

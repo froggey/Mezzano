@@ -184,6 +184,7 @@
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"
     "compiler/simplify-control-flow.lisp"
+    "compiler/blexit.lisp"
     "compiler/transforms.lisp"
     "system/file-compiler.lisp"
     "system/xp-package.lisp"
