@@ -260,6 +260,14 @@
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
 
+(define-transform mezzano.runtime::%fixnum-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
+(define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
 ;;; Fixnum comparisons.
 
 (define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))

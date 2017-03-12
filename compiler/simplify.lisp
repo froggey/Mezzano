@@ -540,12 +540,66 @@
                                            form)))))
   form)
 
+(defparameter *mod-n-arithmetic-functions*
+  '(sys.int::binary-+ sys.int::binary--
+    sys.int::binary-* sys.int::%truncate rem
+    sys.int::binary-logior sys.int::binary-logxor sys.int::binary-logand
+    mezzano.runtime::%fixnum-left-shift))
+
+(defun mod-n-transform-candidate-p (value mask)
+  ;; Mask must be a known positive power-of-two minus 1 fixnum.
+  (when (not (and (typep mask 'ast-quote)
+                  (typep (ast-value mask) 'fixnum)
+                  (> (ast-value mask) 0)
+                  (zerop (logand (ast-value mask)
+                                 (1+ (ast-value mask))))))
+    (return-from mod-n-transform-candidate-p
+      nil))
+  ;; The value must be a call to one of the arithmetic functions.
+  ;; Both sides must be fixnums. This will cause the fixnum arithmetic
+  ;; transforms to fire, and the calls to be transformed to their
+  ;; fixnum-appropriate functions.
+  (when (not (and (typep value 'ast-call)
+                  (member (name value) *mod-n-arithmetic-functions*)
+                  (eql (length (arguments value)) 2)
+                  (match-transform-argument 'fixnum (first (arguments value)))
+                  (match-transform-argument 'fixnum (second (arguments value)))))
+    (return-from mod-n-transform-candidate-p
+      nil))
+  t)
+
+;;; Fast(ish) mod-n arithmetic.
+;;; (logand (1- some-known-fixnum-power-of-two) (+ (the fixnum foo) (the fixnum bar)))
+;;;   =>
+;;; (logand (1- some-known-fixnum-power-of-two) (the fixnum (+ (the fixnum foo) (the fixnum bar))))
+;;; Any fixnum LOGAND a fixnum will produce a fixnum result.
+;;; This relies on the arithmetic function being transformed to a function
+;;; that really does only produce a fixnum result.
+(defun simp-logand (form)
+  (let ((lhs (first (arguments form)))
+        (rhs (second (arguments form))))
+    (cond ((mod-n-transform-candidate-p rhs lhs)
+           ;; Insert appropriate THE form.
+           (change-made)
+           (setf (second (arguments form)) (ast `(the fixnum ,rhs)
+                                                rhs)))
+          ((mod-n-transform-candidate-p lhs rhs)
+           ;; Insert appropriate THE form.
+           (change-made)
+           (setf (first (arguments form)) (ast `(the fixnum ,lhs)
+                                               lhs))))
+    form))
+
 (defmethod simp-form ((form ast-call))
   (simp-form-list (arguments form))
   (cond ((eql (name form) 'eql)
          (simp-eql form))
         ((eql (name form) 'ash)
          (simp-ash form))
+        ((and (member (name form) '(sys.int::binary-logand %fast-fixnum-logand))
+              (eql (length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3))))
+         (simp-logand form))
         ;; (%coerce-to-callable 'foo) => #'foo
         ((and (eql (name form) 'sys.int::%coerce-to-callable)
               (eql (length (arguments form)) 1)
