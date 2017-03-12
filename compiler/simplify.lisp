@@ -104,9 +104,15 @@
                 (typep (if-else form) 'ast-go)
                 (eql (target (if-then form)) (target (if-else form)))
                 (eql (info (if-then form)) (info (if-else form))))
-           ;; Rewrite (if x (go A-TAG) (go A-TAG)) => (go A-TAG)
+           ;; Rewrite (if x (go A-TAG) (go A-TAG)) => (progn x (go A-TAG))
            (change-made)
-           (simp-form (if-then form)))
+           (simp-form (ast `(progn ,(test form) ,(if-then form))
+                           form)))
+          ((eql (if-then form) (if-else form))
+           ;; Rewrite (if x foo foo) => (progn x foo)
+           (change-made)
+           (simp-form (ast `(progn ,(test form) ,(if-then form))
+                           form)))
           ((typep (test form) 'ast-quote)
            ;; (if 'not-nil then else) => then
            ;; (if 'nil then else) => else
