@@ -125,7 +125,9 @@
 
 (defmethod apply-transforms-1 ((form ast-jump-table) target-architecture)
   (setf (value form) (apply-transforms-1 (value form) target-architecture))
-  (setf (targets form) (kt-implicit-progn (targets form) target-architecture))
+  (setf (targets form) (loop
+                          for target in (targets form)
+                          collect (apply-transforms-1 target target-architecture)))
   form)
 
 (defclass transform ()
