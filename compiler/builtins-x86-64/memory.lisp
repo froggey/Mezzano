@@ -296,7 +296,7 @@
 (defmacro define-u-b-object-ref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -313,7 +313,7 @@
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
      (defbuiltin ,(intern (format nil "~A-UNSCALED" name) (symbol-package name)) (object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -330,7 +330,7 @@
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
      (defbuiltin (setf ,name) (new-value object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -348,7 +348,7 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rdi ,width)) ,register))))
          *r8-value*))
      (defbuiltin (setf ,(intern (format nil "~A-UNSCALED" name) (symbol-package name))) (new-value object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -371,7 +371,7 @@
 (define-u-b-object-ref sys.int::%%object-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%object-ref-unsigned-byte-64 (object offset) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -391,7 +391,7 @@
         (bignum-path (gensym "alr-ub64-bignum"))
         (len-2-bignum (gensym "alr-ub64-len-2-bignum"))
         (value-extracted (gensym "alr-ub64-value-extracted"))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
@@ -446,7 +446,7 @@
     *r8-value*))
 
 (defbuiltin sys.int::%object-ref-unsigned-byte-64-unscaled (object offset) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -466,7 +466,7 @@
         (bignum-path (gensym "alr-ub64-bignum"))
         (len-2-bignum (gensym "alr-ub64-len-2-bignum"))
         (value-extracted (gensym "alr-ub64-value-extracted"))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
@@ -524,7 +524,7 @@
   `(progn
      ;; Read function.
      (defbuiltin ,name (object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -541,7 +541,7 @@
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
      (defbuiltin ,(intern (format nil "~A-UNSCALED" name) (symbol-package name)) (object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rdi offset t)
@@ -559,7 +559,7 @@
          (setf *r8-value* (list (gensym)))))
      ;; Write function.
      (defbuiltin (setf ,name) (new-value object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rcx offset t)
@@ -576,7 +576,7 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))))
          *r8-value*))
      (defbuiltin (setf ,(intern (format nil "~A-UNSCALED" name) (symbol-package name))) (new-value object offset) ()
-       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
            (load-in-reg :rcx offset t)
@@ -600,7 +600,7 @@
 (defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (overflow-label)
       ;; Undo the shift, then call the helper.
@@ -631,7 +631,7 @@
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-sb64-bignum"))
         (value-extracted (gensym "alr-sb64-value-extracted"))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
@@ -673,7 +673,7 @@
 (defbuiltin sys.int::%object-ref-signed-byte-64-unscaled (object offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (overflow-label)
       ;; Undo the shift, then call the helper.
@@ -704,7 +704,7 @@
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-sb64-bignum"))
         (value-extracted (gensym "alr-sb64-value-extracted"))
-        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
@@ -744,7 +744,7 @@
     *r8-value*))
 
 (defbuiltin sys.int::%object-ref-t (object offset) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -760,7 +760,7 @@
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf sys.int::%object-ref-t) (new-value object offset) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -786,7 +786,7 @@
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (incf (%object-ref-t object slot) delta)))
 (defbuiltin sys.int::%atomic-fixnum-add-object (object offset delta) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -810,7 +810,7 @@
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (setf (%object-ref-t object slot) new)))
 (defbuiltin sys.int::%xchg-object (object offset new) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -837,7 +837,7 @@
 ;;                   (t nil))
 ;;             slot-value)))
 (defbuiltin sys.int::%cas-object (object offset old new) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
@@ -881,7 +881,7 @@
 ;;             slot-value-1
 ;;             slot-value-2)))
 (defbuiltin sys.int::%dcas-object (object offset old-1 old-2 new-1 new-2) ()
-  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 32 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
       (load-in-reg :rdi offset t)
