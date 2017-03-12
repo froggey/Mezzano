@@ -158,17 +158,6 @@
 (%define-compound-type 'array 'array-type-p)
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
-(defun compile-array-type (object type)
-  (multiple-value-bind (element-type dimension-spec)
-      (parse-array-type type)
-    (when (not (eql dimension-spec '*))
-      ;; Bail on complicated dimensions.
-      (return-from compile-array-type nil))
-    (case element-type
-      ((*) `(arrayp ,object))
-      ((bit) `(bit-array-p ,object))
-      (t nil))))
-(%define-compound-type-optimizer 'array 'compile-array-type)
 )
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
