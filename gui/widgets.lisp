@@ -17,6 +17,7 @@
            #:close-button-clicked
            #:draw-frame
            #:frame-size
+           #:resize-frame
            #:text-widget
            #:reset
            #:cursor-visible))
@@ -24,6 +25,7 @@
 (in-package :mezzano.gui.widgets)
 
 (defgeneric draw-frame (frame))
+(defgeneric resize-frame (frame new-framebuffer))
 (defgeneric frame-size (frame))
 (defgeneric frame-mouse-event (frame mouse-event))
 (defgeneric reset (object))
@@ -40,12 +42,20 @@
    (%title :initarg :title :accessor frame-title)
    (%close-button-p :initarg :close-button-p :accessor close-button-p)
    (%close-button-hover :initarg :close-button-hover :accessor close-button-hover)
-   (%activep :initarg :activep :accessor activep))
+   (%activep :initarg :activep :accessor activep)
+   (%resizablep :initarg :resizablep :accessor resizablep))
   (:default-initargs
     :title ""
     :close-button-p nil
     :close-button-hover nil
-    :activep nil))
+    :activep nil
+    :resizablep nil))
+
+(defmethod slot-unbound ((frame frame) instance slot-name)
+  (cond ((eql slot-name '%resizablep)
+         (setf (resizablep frame) nil))
+        (t
+         (call-next-method))))
 
 (defvar *frame-title-font* (open-font *default-font* *default-font-size*))
 
@@ -206,6 +216,10 @@
     ;; Damage the whole window.
     (funcall (damage-function frame) 0 0 win-width win-height)))
 
+(defmethod resize-frame ((frame frame) new-framebuffer)
+  (setf (slot-value frame '%framebuffer) new-framebuffer)
+  (draw-frame frame))
+
 (defmethod frame-size ((frame frame))
   ;; left, right, top, bottom.
   (values 1 1 19 1))
@@ -227,6 +241,43 @@
       (frame-size frame)
     (declare (ignore left right bottom))
     (< y top)))
+
+(defparameter *border-thickness* 3)
+(defparameter *border-corner-size* 10)
+
+(defun in-frame-border-p (frame x y)
+  (let* ((framebuffer (framebuffer frame))
+         (win-width (mezzano.gui:surface-width framebuffer))
+         (win-height (mezzano.gui:surface-height framebuffer)))
+    (labels ((near (coord size dist)
+               (declare (ignore size))
+               (< coord dist))
+             (far (coord size dist)
+               (>= coord (- size dist)))
+             (corner (x y width-fn height-fn)
+               (or
+                (and (funcall width-fn x win-width *border-thickness*)
+                     (funcall height-fn y win-height *border-corner-size*))
+                (and (funcall height-fn y win-height *border-thickness*)
+                     (funcall width-fn x win-width *border-corner-size*)))))
+      (cond
+        ;; Corners first.
+        ((corner x y #'near #'near)
+         :top-left)
+        ((corner x y #'far #'near)
+         :top-right)
+        ((corner x y #'far #'far)
+         :bottom-right)
+        ((corner x y #'near #'far)
+         :bottom-left)
+        ((near x win-width *border-thickness*)
+         :left)
+        ((far x win-width *border-thickness*)
+         :right)
+        ((near y win-height *border-thickness*)
+         :top)
+        ((far y win-height *border-thickness*)
+         :bottom)))))
 
 (defmethod frame-mouse-event ((frame frame) event)
   (cond ((in-frame-close-button frame
@@ -251,15 +302,25 @@
                     0 0
                     (mezzano.gui:surface-width (framebuffer frame)) 19))
          ;; Check for drag start.
-         (when (and (in-frame-header-p frame
-                                (mouse-x-position event)
-                                (mouse-y-position event))
-                    (logbitp 0 (mouse-button-change event))
-                    ;; Mouse1 down
-                    (logbitp 0 (mouse-button-state event)))
-           (let ((win (mezzano.gui.compositor:window event)))
-             (when win
-               (mezzano.gui.compositor:begin-window-drag win)))))))
+         (let ((border (in-frame-border-p frame
+                                          (mouse-x-position event)
+                                          (mouse-y-position event)))
+               (win (mezzano.gui.compositor:window event)))
+           (cond ((not win))
+                 ((not (and (logbitp 0 (mouse-button-change event))
+                            ;; Mouse1 down
+                            (logbitp 0 (mouse-button-state event)))))
+                 ((and (resizablep frame)
+                       border)
+                  (mezzano.gui.compositor:begin-window-drag
+                   win
+                   :mode border))
+                 ((in-frame-header-p frame
+                                     (mouse-x-position event)
+                                     (mouse-y-position event))
+                  (mezzano.gui.compositor:begin-window-drag
+                   win
+                   :mode :move)))))))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)

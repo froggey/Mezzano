@@ -65,6 +65,10 @@
            #:state
            #:damage-window
            #:begin-window-drag
+           #:resize-request-event
+           #:resize-event
+           #:resize-origin
+           #:resize-window
            #:subscribe-notification
            #:unsubscribe-notification
            #:get-window-by-kind

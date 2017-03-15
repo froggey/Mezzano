@@ -263,6 +263,7 @@
 (defvar *passive-drag* nil
   "Set to true when the drag was compositor-initiated.
 A passive drag sends no drag events to the window.")
+(defvar *resize-origin* nil)
 
 (defun activate-window (window)
   "Make WINDOW the active window."
@@ -280,6 +281,44 @@ A passive drag sends no drag events to the window.")
       (push window *window-list*)
       ;; Layering change, redraw the whole window.
       (expand-clip-rectangle-by-window window))))
+
+(defun compute-resized-window-geometry ()
+  (let* ((win *drag-window*)
+         (old-width (width *drag-window*))
+         (old-height (height *drag-window*)))
+    (ecase *resize-origin*
+      (:top-left
+       (values :bottom-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:top-right
+       (values :bottom-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom-right
+       (values :top-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom-left
+       (values :top-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*)))))
+      (:left
+       (values :bottom-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               old-height))
+      (:right
+       (values :top-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+                old-height))
+      (:top
+       (values :bottom-right
+               old-width
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom
+       (values :top-left
+               old-width
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*))))))))
 
 (defmethod process-event ((event mouse-event))
   ;; Update positions and buttons
@@ -314,7 +353,8 @@ A passive drag sends no drag events to the window.")
                 *drag-y-origin* *mouse-y*
                 *drag-window* win
                 (values *drag-x* *drag-y*) (screen-to-window-coordinates win *mouse-x* *mouse-y*)
-                *passive-drag* t)
+                *passive-drag* t
+                *resize-origin* nil)
           (activate-window win))
         (when (and (logbitp 0 buttons)
                    (logbitp 0 changes)
@@ -344,11 +384,20 @@ A passive drag sends no drag events to the window.")
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       (when *drag-window*
-        (expand-clip-rectangle-by-window *drag-window*)
-        ;; Use clipped mouse coordinates instead of relative motion.
-        (setf (window-x *drag-window*) (- *mouse-x* *drag-x*))
-        (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
-        (expand-clip-rectangle-by-window *drag-window*))
+        (cond (*resize-origin*
+               (multiple-value-bind (origin new-width new-height)
+                   (compute-resized-window-geometry)
+                 (send-event *drag-window* (make-instance 'resize-request-event
+                                                          :window *drag-window*
+                                                          :origin origin
+                                                          :width new-width
+                                                          :height new-height))))
+              (t
+               (expand-clip-rectangle-by-window *drag-window*)
+               ;; Use clipped mouse coordinates instead of relative motion.
+               (setf (window-x *drag-window*) (- *mouse-x* *drag-x*))
+               (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
+               (expand-clip-rectangle-by-window *drag-window*))))
       ;; Mouse position changed, redraw the screen.
       (expand-clip-rectangle old-x old-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*))
       (expand-clip-rectangle new-x new-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*)))
@@ -504,21 +553,97 @@ A passive drag sends no drag events to the window.")
    (%mode :initarg :mode :reader mode)))
 
 (defmethod process-event ((event begin-drag-event))
-  (let ((window (window event)))
+  (let ((window (window event))
+        (mode (mode event)))
     (when (and (eql window *active-window*)
                (not *drag-window*)
-               (eql (mode event) :move))
+               (member mode '(:move
+                              :top-left
+                              :top-right
+                              :bottom-right
+                              :bottom-left
+                              :left
+                              :right
+                              :top
+                              :bottom)))
       (setf *drag-x-origin* *mouse-x*
             *drag-y-origin* *mouse-y*
             *drag-window* window
             (values *drag-x* *drag-y*) (screen-to-window-coordinates window *mouse-x* *mouse-y*)
-            *passive-drag* nil))))
+            *passive-drag* nil
+            *resize-origin* (if (eql mode :move)
+                                nil
+                                mode)))))
 
 (defun begin-window-drag (window &key (mode :move))
   "Send a begin drag event to the compositor."
   (submit-compositor-event (make-instance 'begin-drag-event
                                           :window window
                                           :mode mode)))
+
+;;;; Window resizing.
+
+(defclass resize-request-event ()
+  ((%window :initarg :window :reader window)
+   (%origin :initarg :origin :reader resize-origin)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
+(defclass resize-event ()
+  ((%window :initarg :window :reader window)
+   (%origin :initarg :origin :reader resize-origin)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)
+   (%new-fb :initarg :new-fb :reader resize-new-fb)))
+
+(defmethod process-event ((event resize-event))
+  (let* ((window (window event))
+         (origin (resize-origin event))
+         (old-framebuffer (window-buffer window))
+         (new-framebuffer (resize-new-fb event))
+         (delta-w (- (mezzano.gui:surface-width old-framebuffer)
+                     (mezzano.gui:surface-width new-framebuffer)))
+         (delta-h (- (mezzano.gui:surface-height old-framebuffer)
+                     (mezzano.gui:surface-height new-framebuffer))))
+    (assert (eql (mezzano.gui:surface-format new-framebuffer) :argb32))
+    ;; Window size and position is going to change.
+    (expand-clip-rectangle-by-window window)
+    ;; Move window and update drag variables based on origin.
+    (when (eql *drag-window* window)
+      (case origin
+        (:top-left
+         (decf *drag-x-origin* delta-w)
+         (decf *drag-y-origin* delta-h))
+        (:bottom-left
+         (decf *drag-x-origin* delta-w)
+         (incf *drag-y-origin* delta-h))
+        (:bottom-right
+         (incf *drag-x-origin* delta-w)
+         (incf *drag-y-origin* delta-h))
+        (:top-right
+         (incf *drag-x-origin* delta-w)
+         (decf *drag-y-origin* delta-h))))
+    (case origin
+      (:bottom-right
+       (incf (window-x window) delta-w)
+       (incf (window-y window) delta-h))
+      (:top-right
+       (incf (window-x window) delta-w))
+      (:bottom-left
+       (incf (window-y window) delta-h)))
+    ;; Switch over to the new framebuffer.
+    (setf (slot-value window '%buffer) new-framebuffer)
+    ;; Update display based on new position & geometry.
+    (expand-clip-rectangle-by-window window)
+    ;; Notify the client that the resize has completed here.
+    (send-event (window event) event)))
+
+(defun resize-window (window new-framebuffer &key (origin :top-left))
+  (assert (eql (mezzano.gui:surface-format new-framebuffer) :argb32))
+  (submit-compositor-event (make-instance 'resize-event
+                                          :window window
+                                          :origin origin
+                                          :new-fb new-framebuffer)))
 
 ;;;; Internal redisplay timer event.
 
