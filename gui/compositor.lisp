@@ -17,6 +17,9 @@
 (defvar *event-queue* (mezzano.supervisor:make-fifo 50)
   "Internal FIFO used to submit events to the compositor.")
 
+(defun submit-compositor-event (event)
+  (mezzano.supervisor:fifo-push event *event-queue*))
+
 (defclass window ()
   ((%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
@@ -226,10 +229,9 @@
 
 (defun submit-key (scancode releasep)
   "Submit a key event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'key-event
-                                               :scancode scancode
-                                               :releasep releasep)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'key-event
+                                          :scancode scancode
+                                          :releasep releasep)))
 
 ;;;; Mouse events
 
@@ -358,18 +360,16 @@ A passive drag sends no drag events to the window.")
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
-                                               :button-state buttons
-                                               :x-motion x-motion
-                                               :y-motion y-motion)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'mouse-event
+                                          :button-state buttons
+                                          :x-motion x-motion
+                                          :y-motion y-motion)))
 
 (defun submit-mouse-absolute (x-position y-position)
   "Submit a mouse event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
-                                               :x-position x-position
-                                               :y-position y-position)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'mouse-event
+                                          :x-position x-position
+                                          :y-position y-position)))
 
 (defun global-mouse-state ()
   "Fetch the current mouse state."
@@ -433,10 +433,9 @@ A passive drag sends no drag events to the window.")
                                :buffer (mezzano.gui:make-surface width height)
                                :layer layer
                                :kind kind)))
-    (mezzano.supervisor:fifo-push (make-instance 'window-create-event
-                                                 :window window
-                                                 :initial-z-order (or initial-z-order :top))
-                                  *event-queue*)
+    (submit-compositor-event (make-instance 'window-create-event
+                                            :window window
+                                            :initial-z-order (or initial-z-order :top)))
     window))
 
 ;;;; Window close event.
@@ -462,9 +461,8 @@ A passive drag sends no drag events to the window.")
   (send-event (window event) event))
 
 (defun close-window (window)
-  (mezzano.supervisor:fifo-push (make-instance 'window-close-event
-                                               :window window)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'window-close-event
+                                          :window window)))
 
 ;;;; Window activation changed.
 
@@ -492,34 +490,35 @@ A passive drag sends no drag events to the window.")
 
 (defun damage-window (window x y width height)
   "Send a window damage event to the compositor."
-  (mezzano.supervisor:fifo-push (make-instance 'damage-event
-                                               :window window
-                                               :x x
-                                               :y y
-                                               :width width
-                                               :height height)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'damage-event
+                                          :window window
+                                          :x x
+                                          :y y
+                                          :width width
+                                          :height height)))
 
 ;;;; Window dragging.
 
 (defclass begin-drag-event ()
-  ((%window :initarg :window :reader window)))
+  ((%window :initarg :window :reader window)
+   (%mode :initarg :mode :reader mode)))
 
 (defmethod process-event ((event begin-drag-event))
   (let ((window (window event)))
     (when (and (eql window *active-window*)
-               (not *drag-window*))
+               (not *drag-window*)
+               (eql (mode event) :move))
       (setf *drag-x-origin* *mouse-x*
             *drag-y-origin* *mouse-y*
             *drag-window* window
             (values *drag-x* *drag-y*) (screen-to-window-coordinates window *mouse-x* *mouse-y*)
             *passive-drag* nil))))
 
-(defun begin-window-drag (window)
+(defun begin-window-drag (window &key (mode :move))
   "Send a begin drag event to the compositor."
-  (mezzano.supervisor:fifo-push (make-instance 'begin-drag-event
-                                               :window window)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'begin-drag-event
+                                          :window window
+                                          :mode mode)))
 
 ;;;; Internal redisplay timer event.
 
@@ -531,8 +530,7 @@ A passive drag sends no drag events to the window.")
   (recompose-windows (redisplay-time-event-fullp event)))
 
 (defun force-redisplay (&optional full)
-  (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event :full full)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'redisplay-time-event :full full)))
 
 ;;;; Notifications.
 
@@ -541,10 +539,9 @@ A passive drag sends no drag events to the window.")
    (%category :initarg :category :reader category)))
 
 (defun subscribe-notification (window category)
-  (mezzano.supervisor:fifo-push (make-instance 'subscribe-event
-                                               :window window
-                                               :category category)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'subscribe-event
+                                          :window window
+                                          :category category)))
 
 (defmethod process-event ((event subscribe-event))
   (pushnew (category event) (slot-value (window event) '%subscribed-notifications))
@@ -559,10 +556,9 @@ A passive drag sends no drag events to the window.")
    (%category :initarg :category :reader category)))
 
 (defun unsubscribe-notification (window category)
-  (mezzano.supervisor:fifo-push (make-instance 'unsubscribe-event
-                                               :window window
-                                               :category category)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'unsubscribe-event
+                                          :window window
+                                          :category category)))
 
 (defmethod process-event ((event unsubscribe-event))
   (setf (slot-value (window event) '%subscribed-notifications)
@@ -734,8 +730,7 @@ A passive drag sends no drag events to the window.")
      (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
                (and (not (zerop *clip-rect-width*))
                     (not (zerop *clip-rect-height*))))
-       (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event)
-                                     *event-queue*))))
+       (submit-compositor-event (make-instance 'redisplay-time-event)))))
 
 (when (not *compositor*)
   (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
