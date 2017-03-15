@@ -41,7 +41,11 @@
    (%close-button-p :initarg :close-button-p :accessor close-button-p)
    (%close-button-hover :initarg :close-button-hover :accessor close-button-hover)
    (%activep :initarg :activep :accessor activep))
-  (:default-initargs :title "" :close-button-p nil :close-button-hover nil :activep nil))
+  (:default-initargs
+    :title ""
+    :close-button-p nil
+    :close-button-hover nil
+    :activep nil))
 
 (defvar *frame-title-font* (open-font *default-font* *default-font-size*))
 
@@ -217,6 +221,13 @@
            (mezzano.gui:surface-pixel *close-button* (- x *close-button-x*) (- y *close-button-y*)))
           0.5)))
 
+(defun in-frame-header-p (frame x y)
+  (declare (ignore x))
+  (multiple-value-bind (left right top bottom)
+      (frame-size frame)
+    (declare (ignore left right bottom))
+    (< y top)))
+
 (defmethod frame-mouse-event ((frame frame) event)
   (cond ((in-frame-close-button frame
                                 (mouse-x-position event)
@@ -232,12 +243,23 @@
                     ;; Mouse1 up
                     (not (logbitp 0 (mouse-button-state event))))
            (signal 'close-button-clicked)))
-        ((close-button-hover frame)
-         (setf (close-button-hover frame) nil)
-         (draw-frame frame)
-         (funcall (damage-function frame)
-                  0 0
-                  (mezzano.gui:surface-width (framebuffer frame)) 19))))
+        (t
+         (when (close-button-hover frame)
+           (setf (close-button-hover frame) nil)
+           (draw-frame frame)
+           (funcall (damage-function frame)
+                    0 0
+                    (mezzano.gui:surface-width (framebuffer frame)) 19))
+         ;; Check for drag start.
+         (when (and (in-frame-header-p frame
+                                (mouse-x-position event)
+                                (mouse-y-position event))
+                    (logbitp 0 (mouse-button-change event))
+                    ;; Mouse1 down
+                    (logbitp 0 (mouse-button-state event)))
+           (let ((win (mezzano.gui.compositor:window event)))
+             (when win
+               (mezzano.gui.compositor:begin-window-drag win)))))))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)

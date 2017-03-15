@@ -314,10 +314,16 @@ A passive drag sends no drag events to the window.")
                 (values *drag-x* *drag-y*) (screen-to-window-coordinates win *mouse-x* *mouse-y*)
                 *passive-drag* t)
           (activate-window win))
-        (when (and (not (logbitp 0 buttons))
+        (when (and (logbitp 0 buttons)
                    (logbitp 0 changes)
                    (not (eql win *active-window*)))
-          ;; On left click release, select window.
+          ;; On left click press, select window.
+          (activate-window win))
+        (when (and (not (logbitp 0 buttons))
+                   (logbitp 0 changes)
+                   (not (eql win *active-window*))
+                   (not *drag-window*))
+          ;; On left click release, select window, unless dragging.
           (activate-window win))
         (when (and win
                    (or (not (zerop x-motion))
@@ -492,6 +498,27 @@ A passive drag sends no drag events to the window.")
                                                :y y
                                                :width width
                                                :height height)
+                                *event-queue*))
+
+;;;; Window dragging.
+
+(defclass begin-drag-event ()
+  ((%window :initarg :window :reader window)))
+
+(defmethod process-event ((event begin-drag-event))
+  (let ((window (window event)))
+    (when (and (eql window *active-window*)
+               (not *drag-window*))
+      (setf *drag-x-origin* *mouse-x*
+            *drag-y-origin* *mouse-y*
+            *drag-window* window
+            (values *drag-x* *drag-y*) (screen-to-window-coordinates window *mouse-x* *mouse-y*)
+            *passive-drag* nil))))
+
+(defun begin-window-drag (window)
+  "Send a begin drag event to the compositor."
+  (mezzano.supervisor:fifo-push (make-instance 'begin-drag-event
+                                               :window window)
                                 *event-queue*))
 
 ;;;; Internal redisplay timer event.

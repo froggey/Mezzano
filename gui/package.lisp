@@ -64,6 +64,7 @@
            #:window-activation-event
            #:state
            #:damage-window
+           #:begin-window-drag
            #:subscribe-notification
            #:unsubscribe-notification
            #:get-window-by-kind
