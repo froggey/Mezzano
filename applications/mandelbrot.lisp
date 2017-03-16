@@ -138,7 +138,8 @@
                                        :title "Mandelbrot"
                                        :close-button-p t
                                        :resizablep t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window)
+                                       :set-cursor-function (mezzano.gui.widgets:default-cursor-function window)))
                  (app (make-instance 'mandelbrot
                                      :fifo fifo
                                      :window window

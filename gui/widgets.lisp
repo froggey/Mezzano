@@ -8,6 +8,7 @@
                 #:mouse-x-position #:mouse-y-position
                 #:mouse-button-state #:mouse-button-change)
   (:export #:default-damage-function
+           #:default-cursor-function
            #:frame
            #:frame-title
            #:close-button-p
@@ -34,11 +35,16 @@
   (lambda (&rest args)
     (apply #'mezzano.gui.compositor:damage-window window args)))
 
+(defun default-cursor-function (window)
+  (lambda (cursor)
+    (mezzano.gui.compositor:set-window-data window :cursor cursor)))
+
 (define-condition close-button-clicked () ())
 
 (defclass frame ()
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
    (%damage-function :initarg :damage-function :reader damage-function)
+   (%set-cursor-function :initarg :set-cursor-function :reader set-cursor-function)
    (%title :initarg :title :accessor frame-title)
    (%close-button-p :initarg :close-button-p :accessor close-button-p)
    (%close-button-hover :initarg :close-button-hover :accessor close-button-hover)
@@ -50,12 +56,6 @@
     :close-button-hover nil
     :activep nil
     :resizablep nil))
-
-(defmethod slot-unbound ((frame frame) instance slot-name)
-  (cond ((eql slot-name '%resizablep)
-         (setf (resizablep frame) nil))
-        (t
-         (call-next-method))))
 
 (defvar *frame-title-font* (open-font *default-font* *default-font-size*))
 
@@ -279,6 +279,18 @@
         ((far y win-height *border-thickness*)
          :bottom)))))
 
+(defun border-to-cursor (border)
+  (case border
+    (:top-left     :arrow-up-left)
+    (:top-right    :arrow-up-right)
+    (:bottom-right :arrow-down-right)
+    (:bottom-left  :arrow-down-left)
+    (:left         :arrow-left)
+    (:right        :arrow-right)
+    (:top          :arrow-up)
+    (:bottom       :arrow-down)
+    (t             :default)))
+
 (defmethod frame-mouse-event ((frame frame) event)
   (cond ((in-frame-close-button frame
                                 (mouse-x-position event)
@@ -306,6 +318,11 @@
                                           (mouse-x-position event)
                                           (mouse-y-position event)))
                (win (mezzano.gui.compositor:window event)))
+           (when (resizablep frame)
+             (funcall (set-cursor-function frame)
+                      (if border
+                          (border-to-cursor border)
+                          :default)))
            (cond ((not win))
                  ((not (and (logbitp 0 (mouse-button-change event))
                             ;; Mouse1 down

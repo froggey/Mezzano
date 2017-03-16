@@ -131,6 +131,24 @@ Make sure there is a virtio-net NIC attached.~%")
 ;; And the GUI.
 (sys.int::cal "sys:source;gui;font.lisp")
 (sys.int::cal "sys:source;gui;image.lisp")
+
+;: Mouse cursors.
+(flet ((load-cursor (path name &optional (hot-x 0) (hot-y 0))
+         (let ((surf (funcall (read-from-string "mezzano.gui.image:load-image")
+                              (merge-pathnames path "LOCAL:>Icons>"))))
+           (mezzano.gui.compositor:register-mouse-cursor
+            (mezzano.gui.compositor:make-mouse-cursor surf :hot-x hot-x :hot-y hot-y)
+            name))))
+  (load-cursor "cursor-upleft.png"    :arrow-up-left     0   0)
+  (load-cursor "cursor-upright.png"   :arrow-up-right    16  0)
+  (load-cursor "cursor-downright.png" :arrow-down-right  16 16)
+  (load-cursor "cursor-downleft.png"  :arrow-down-left   0  16)
+  (load-cursor "cursor-up.png"        :arrow-up          8   0)
+  (load-cursor "cursor-right.png"     :arrow-right       16  8)
+  (load-cursor "cursor-down.png"      :arrow-down        8  16)
+  (load-cursor "cursor-left.png"      :arrow-left        0   8))
+
+;; Remaining GUI files.
 (sys.int::cal "sys:source;gui;widgets.lisp")
 (sys.int::cal "sys:source;line-edit-mixin.lisp")
 (sys.int::cal "sys:source;gui;popup-io-stream.lisp")

@@ -27,6 +27,7 @@
            #:colour-alpha
            #:colour-alpha-as-octet
            #:surface
+           #:surface-p
            #:make-surface
            #:make-surface-from-array
            #:surface-format
@@ -69,6 +70,9 @@
            #:resize-event
            #:resize-origin
            #:resize-window
+           #:set-window-data
+           #:make-mouse-cursor
+           #:register-mouse-cursor
            #:subscribe-notification
            #:unsubscribe-notification
            #:get-window-by-kind

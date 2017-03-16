@@ -29,11 +29,13 @@
    (%layer :initarg :layer :reader layer)
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
    (%unresponsive :initarg :unresponsive :accessor window-unresponsive)
-   (%kind :initarg :kind :reader kind))
+   (%kind :initarg :kind :reader kind)
+   (%cursor :initarg :cursor :accessor cursor))
   (:default-initargs :layer nil
                      :notifications '()
                      :unresponsive nil
-                     :thread nil))
+                     :thread nil
+                     :cursor :default))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -95,7 +97,24 @@
                 :element-type element-type
                 :initial-contents data)))
 
-(defvar *mouse-pointer*
+(defclass mouse-cursor ()
+  ((%surface :initarg :surface :reader mouse-cursor-surface)
+   (%hot-x :initarg :hot-x :reader mouse-cursor-hot-x)
+   (%hot-y :initarg :hot-y :reader mouse-cursor-hot-y)))
+
+(defvar *mouse-cursor-library* (make-hash-table))
+
+(defun make-mouse-cursor (surface &key (hot-x 0) (hot-y 0))
+  (assert (eql (mezzano.gui:surface-format surface) :argb32))
+  (make-instance 'mouse-cursor
+                 :surface surface
+                 :hot-x hot-x
+                 :hot-y hot-y))
+
+(defun register-mouse-cursor (cursor name)
+  (setf (gethash name *mouse-cursor-library*) cursor))
+
+(defvar *default-mouse-pointer-surface*
   (mezzano.gui:make-surface-from-array
    (2d-array '((#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
@@ -116,9 +135,24 @@
               (#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000))
             '(unsigned-byte 32))))
 
-;;; Position of the "hot" pixel in *MOUSE-POINTER*, this is where clicks actually occur.
-(defvar *mouse-hot-x* 0)
-(defvar *mouse-hot-y* 0)
+(defvar *default-mouse-pointer*
+  (make-instance 'mouse-cursor
+                 :surface *default-mouse-pointer-surface*
+                 :hot-x 0
+                 :hot-y 0))
+
+(defvar *none-mouse-pointer-surface*
+  (mezzano.gui:make-surface-from-array
+   (2d-array '(())
+             '(unsigned-byte 32))))
+
+(defvar *none-mouse-pointer*
+  (make-instance 'mouse-cursor
+                 :surface *none-mouse-pointer-surface*
+                 :hot-x 0
+                 :hot-y 0))
+
+(defvar *mouse-pointer* *default-mouse-pointer*)
 
 (defgeneric process-event (event))
 
@@ -399,8 +433,14 @@ A passive drag sends no drag events to the window.")
                (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
                (expand-clip-rectangle-by-window *drag-window*))))
       ;; Mouse position changed, redraw the screen.
-      (expand-clip-rectangle old-x old-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*))
-      (expand-clip-rectangle new-x new-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*)))
+      (update-mouse-cursor)
+      (let* ((cursor-surface (mouse-cursor-surface *mouse-pointer*))
+             (hot-x (mouse-cursor-hot-x *mouse-pointer*))
+             (hot-y (mouse-cursor-hot-y *mouse-pointer*))
+             (cursor-width (mezzano.gui:surface-width cursor-surface))
+             (cursor-height (mezzano.gui:surface-height cursor-surface)))
+        (expand-clip-rectangle (- old-x hot-x) (- old-y hot-y) cursor-width cursor-height)
+        (expand-clip-rectangle (- new-x hot-x) (- new-y hot-y) cursor-width cursor-height)))
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
                *drag-window*)
@@ -423,6 +463,20 @@ A passive drag sends no drag events to the window.")
 (defun global-mouse-state ()
   "Fetch the current mouse state."
   (values *mouse-buttons* *mouse-x* *mouse-y*))
+
+(defun update-mouse-cursor ()
+  ;; Get cursor style under mouse.
+  (let* ((mwin (window-at-point *mouse-x* *mouse-y*))
+         (style (if mwin
+                    (or (cursor mwin) :default)
+                    :default)))
+    (when (eql style :default)
+      (setf style *default-mouse-pointer*))
+    (when (eql style :none)
+      (setf style *none-mouse-pointer*))
+    (when (not (eql style *mouse-pointer*))
+      (setf *mouse-pointer* style)
+      (recompose-windows t))))
 
 ;;;; Window creation event.
 ;;;; From clients to the compositor.
@@ -636,7 +690,9 @@ A passive drag sends no drag events to the window.")
     ;; Update display based on new position & geometry.
     (expand-clip-rectangle-by-window window)
     ;; Notify the client that the resize has completed here.
-    (send-event (window event) event)))
+    (send-event (window event) event)
+    ;; Mouse cursor may or may not be over a different window now.
+    (update-mouse-cursor)))
 
 (defun resize-window (window new-framebuffer &key (origin :top-left))
   (assert (eql (mezzano.gui:surface-format new-framebuffer) :argb32))
@@ -644,6 +700,34 @@ A passive drag sends no drag events to the window.")
                                           :window window
                                           :origin origin
                                           :new-fb new-framebuffer)))
+
+;;;; Window data.
+
+(defclass set-window-data-event ()
+  ((%window :initarg :window :reader window)
+   (%data :initarg :data :reader window-data)))
+
+(defun lookup-cursor (cursor)
+  (cond ((typep cursor 'mouse-cursor)
+         cursor)
+        (t (case cursor
+             (:default :default)
+             (:none :none)
+             (t (gethash cursor *mouse-cursor-library*))))))
+
+(defun real-set-window-data (window &key cursor)
+  (when cursor
+    (setf (cursor window) (or (lookup-cursor cursor)
+                              :default))
+    (update-mouse-cursor)))
+
+(defmethod process-event ((event set-window-data-event))
+  (apply #'real-set-window-data (window event) (window-data event)))
+
+(defun set-window-data (window &rest data &key &allow-other-keys)
+  (submit-compositor-event (make-instance 'set-window-data-event
+                                          :window window
+                                          :data data)))
 
 ;;;; Internal redisplay timer event.
 
@@ -813,9 +897,12 @@ A passive drag sends no drag events to the window.")
                       (mezzano.gui:make-colour 0 0 0 0.5)
                       (window-x window) (window-y window))))
   ;; Then the mouse pointer on top.
-  (blit-with-clip (surface-width *mouse-pointer*) (surface-height *mouse-pointer*)
-                  *mouse-pointer*
-                  (- *mouse-x* *mouse-hot-x*) (- *mouse-y* *mouse-hot-y*))
+  (let ((mouse-surface (mouse-cursor-surface *mouse-pointer*))
+        (hot-x (mouse-cursor-hot-x *mouse-pointer*))
+        (hot-y (mouse-cursor-hot-y *mouse-pointer*)))
+    (blit-with-clip (surface-width mouse-surface) (surface-height mouse-surface)
+                    mouse-surface
+                    (- *mouse-x* hot-x) (- *mouse-y* hot-y)))
   ;; Update the actual screen.
   (mezzano.supervisor:framebuffer-blit *main-screen*
                                        *clip-rect-height*
