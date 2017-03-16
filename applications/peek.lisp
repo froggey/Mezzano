@@ -277,6 +277,36 @@
     (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))
+  (let ((old-width (mezzano.gui.compositor:width (window app)))
+        (old-height (mezzano.gui.compositor:height (window app)))
+        (new-width (max 100 (mezzano.gui.compositor:width event)))
+        (new-height (max 100 (mezzano.gui.compositor:height event))))
+    (when (or (not (eql old-width new-width))
+              (not (eql old-height new-height)))
+      (let ((new-framebuffer (mezzano.gui:make-surface
+                              new-width new-height)))
+        (mezzano.gui.widgets:resize-frame (frame app) new-framebuffer)
+        (mezzano.gui.compositor:resize-window
+         (window app) new-framebuffer
+         :origin (mezzano.gui.compositor:resize-origin event))))))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
+  (let* ((fb (mezzano.gui.compositor:window-buffer (window app)))
+         (new-width (mezzano.gui:surface-width fb))
+         (new-height (mezzano.gui:surface-height fb)))
+    (mezzano.gui.widgets:resize-text-widget (text-pane app)
+                                            fb
+                                            (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
+                                            (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
+                                            (- new-width
+                                               (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
+                                               (nth-value 1 (mezzano.gui.widgets:frame-size (frame app))))
+                                            (- new-height
+                                               (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
+                                               (nth-value 3 (mezzano.gui.widgets:frame-size (frame app))))))
+  (setf (redraw app) t))
+
 (defmethod dispatch-event (peek (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
@@ -293,7 +323,9 @@
                                        :framebuffer framebuffer
                                        :title "Peek"
                                        :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                                       :resizablep t
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window)
+                                       :set-cursor-function (mezzano.gui.widgets:default-cursor-function window)))
                  (peek (make-instance 'peek-window
                                       :window window
                                       :frame frame))
@@ -329,8 +361,17 @@
                    (fresh-line)
                    (ignore-errors
                      (funcall (mode peek)))))
-               (dispatch-event peek (mezzano.supervisor:fifo-pop fifo)))))))))
+               (when (not (redraw peek))
+                 (dispatch-event peek (mezzano.supervisor:fifo-pop fifo))))))))))
 
 (defun spawn ()
   (mezzano.supervisor:make-thread 'peek-main
-                                  :name "Peek"))
+                                  :name "Peek"
+                                  :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                     :title "Peek console"))
+                                                      (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                      (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))

@@ -20,6 +20,7 @@
            #:frame-size
            #:resize-frame
            #:text-widget
+           #:resize-text-widget
            #:reset
            #:cursor-visible))
 
@@ -612,6 +613,16 @@
                  (funcall (damage-function stream) (+ left x) (+ top y) object-width line-height)
                  (incf (cursor-x stream) object-width)
                  (incf (cursor-column stream)))))))))
+
+(defgeneric resize-text-widget (widget framebuffer x-position y-position width height))
+
+(defmethod resize-text-widget ((widget text-widget) framebuffer x-position y-position width height)
+  (setf (slot-value widget '%framebuffer) framebuffer
+        (slot-value widget '%x-position) x-position
+        (slot-value widget '%y-position) y-position
+        (slot-value widget '%width) width
+        (slot-value widget '%height) height)
+  (reset widget))
 
 (defmethod reset ((widget text-widget))
   (setf (cursor-x widget) 0
