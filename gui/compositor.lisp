@@ -219,7 +219,11 @@
            (setf *keyboard-modifier-state*
                  (if (key-releasep event)
                      (remove (second modifier) *keyboard-modifier-state*)
-                     (list* (second modifier) *keyboard-modifier-state*))))
+                     (list* (second modifier) *keyboard-modifier-state*)))
+           (when (and (key-releasep event)
+                      (eql (second modifier) :meta))
+             (setf *m-tab-active* nil
+                   *m-tab-list* '())))
           (t ;; Normal key, try to translate it.
            (let ((translated (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))
              (when translated
@@ -252,6 +256,22 @@
                           *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
                           *clip-rect-x* 0
                           *clip-rect-y* 0)))
+                 ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\Tab))
+                  (when (not (key-releasep event))
+                    (when (not *m-tab-active*)
+                      (setf *m-tab-active* t
+                            *m-tab-list* (remove-if-not #'allow-m-tab (copy-list *window-list*))))
+                    (let* ((p (position *active-window* *m-tab-list*))
+                           (n-windows (length *m-tab-list*))
+                           (next (if p
+                                     (elt *m-tab-list* (rem (+ p
+                                                               (if (member :shift *keyboard-modifier-state*)
+                                                                   -1
+                                                                   +1))
+                                                            n-windows))
+                                     (first *m-tab-list*))))
+                      (activate-window next))))
                  ;; Otherwise, dispatch to active window.
                  (*active-window*
                   (send-event *active-window*
@@ -298,6 +318,13 @@
   "Set to true when the drag was compositor-initiated.
 A passive drag sends no drag events to the window.")
 (defvar *resize-origin* nil)
+
+(defvar *m-tab-active* nil)
+(defvar *m-tab-list* nil)
+
+(defun allow-m-tab (window)
+  (not (and (zerop (width window))
+            (zerop (height window)))))
 
 (defun activate-window (window)
   "Make WINDOW the active window."
@@ -514,6 +541,9 @@ A passive drag sends no drag events to the window.")
       (send-event win (make-instance 'window-activation-event
                                      :window win
                                      :state t)))
+    (when (and *m-tab-active*
+               (allow-m-tab win))
+      (push win *m-tab-list*))
     (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
           *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
           *clip-rect-x* 0
@@ -557,6 +587,7 @@ A passive drag sends no drag events to the window.")
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
                                                  :state t))))
+  (setf *m-tab-list* (remove (window event) *window-list*))
   (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
         *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
         *clip-rect-x* 0
