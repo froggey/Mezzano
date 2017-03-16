@@ -30,12 +30,18 @@
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
    (%unresponsive :initarg :unresponsive :accessor window-unresponsive)
    (%kind :initarg :kind :reader kind)
-   (%cursor :initarg :cursor :accessor cursor))
+   (%cursor :initarg :cursor :accessor cursor)
+   (%grabp :initarg :grabp :accessor grabp)
+   (%grab-x1 :initarg :grab-x1 :accessor grab-x1)
+   (%grab-y1 :initarg :grab-y1 :accessor grab-y1)
+   (%grab-x2 :initarg :grab-x2 :accessor grab-x2)
+   (%grab-y2 :initarg :grab-y2 :accessor grab-y2))
   (:default-initargs :layer nil
                      :notifications '()
                      :unresponsive nil
                      :thread nil
-                     :cursor :default))
+                     :cursor :default
+                     :grabp nil))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -407,6 +413,14 @@ A passive drag sends no drag events to the window.")
                             (- (mouse-y-position event) old-y))
                        (mouse-y-motion event)))
          (new-y (+ *mouse-y* y-motion)))
+    (when (and *active-window*
+               (grabp *active-window*))
+      (multiple-value-bind (x1 y1)
+          (window-to-screen-coordinates *active-window* (grab-x1 *active-window*) (grab-y1 *active-window*))
+        (multiple-value-bind (x2 y2)
+            (window-to-screen-coordinates *active-window* (grab-x2 *active-window*) (grab-y2 *active-window*))
+          (setf new-x (clamp new-x x1 x2)
+                new-y (clamp new-y y1 y2)))))
     (multiple-value-bind (width height)
         (screen-dimensions)
       (setf *mouse-x* (clamp new-x 0 width)
@@ -732,7 +746,15 @@ A passive drag sends no drag events to the window.")
     ;; Update display based on new position & geometry.
     (expand-clip-rectangle-by-window window)
     ;; Notify the client that the resize has completed here.
-    (send-event (window event) event)
+    (send-event window event)
+    ;; Adjust the window's grab region, keeping it clamped to the
+    ;; window geometry.
+    ;; TODO: Make use of origin when adjusting it?
+    (when (grabp window)
+      (setf (grab-x1 window) (min (grab-x1 window) (width window))
+            (grab-y1 window) (min (grab-y1 window) (height window))
+            (grab-x2 window) (min (grab-x2 window) (width window))
+            (grab-y2 window) (min (grab-y2 window) (height window))))
     ;; Mouse cursor may or may not be over a different window now.
     (update-mouse-cursor)))
 
@@ -757,7 +779,7 @@ A passive drag sends no drag events to the window.")
              (:none :none)
              (t (gethash cursor *mouse-cursor-library*))))))
 
-(defun real-set-window-data (window &key cursor)
+(defun real-set-window-data (window &key cursor &allow-other-keys)
   (when cursor
     (setf (cursor window) (or (lookup-cursor cursor)
                               :default))
@@ -770,6 +792,40 @@ A passive drag sends no drag events to the window.")
   (submit-compositor-event (make-instance 'set-window-data-event
                                           :window window
                                           :data data)))
+
+;;;; Cursor control.
+
+(defclass grab-cursor-event ()
+  ((%window :initarg :window :reader window)
+   (%grabp :initarg :grabp :reader grabp)
+   (%x :initarg :x :reader x)
+   (%y :initarg :y :reader y)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
+(defmethod process-event ((event grab-cursor-event))
+  (let* ((win (window event))
+         (x1 (or (x event) 0))
+         (y1 (or (y event) 0))
+         (x2 (+ x1 (or (width event) (width win))))
+         (y2 (+ y1 (or (height event) (height win)))))
+    (setf (grabp win) (grabp event)
+          (grab-x1 win) (clamp x1 0 (width win))
+          (grab-y1 win) (clamp y1 0 (height win))
+          (grab-x2 win) (clamp x2 0 (width win))
+          (grab-y2 win) (clamp y2 0 (height win)))))
+
+(defun grab-cursor (window grabp &optional x y w h)
+  "Grab or release the cursor.
+Prevents the cursor from leaving the window boundary.
+Only works when the window is active."
+  (submit-compositor-event (make-instance 'grab-cursor-event
+                                          :window window
+                                          :grabp grabp
+                                          :x x
+                                          :y y
+                                          :width w
+                                          :height h)))
 
 ;;;; Quit event, sent by the compositor when the user wants to close the window.
 
