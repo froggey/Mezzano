@@ -35,7 +35,6 @@
   ((%fifo :initarg :fifo :reader fifo)
    (%font :initarg :font :accessor font)
    (%window :initarg :window :reader window)
-   (%notification-window :initarg :notification-window :reader notification-window)
    (%colour :initarg :colour :reader colour)
    (%image :initarg :image :reader image)
    (%image-pathname :initarg :image-pathname :reader image-pathname)
@@ -63,20 +62,14 @@
   (redraw-desktop-window desktop))
 
 (defmethod dispatch-event (desktop (event comp:screen-geometry-update))
-  (let ((new-window (comp:make-window (fifo desktop)
-                                                        (comp:width event)
-                                                        (comp:height event)
-                                                        :layer :bottom
-                                                        :initial-z-order :below-current
-                                                        :kind :desktop))
-        (old-window (window desktop)))
-    (setf (slot-value desktop '%window) new-window)
-    (redraw-desktop-window desktop)
-    (comp:close-window old-window)))
+  (let ((new-framebuffer (mezzano.gui:make-surface (comp:width event) (comp:height event))))
+    (comp:resize-window (window desktop) new-framebuffer)))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
+  (redraw-desktop-window app))
 
 (defmethod dispatch-event (desktop (event comp:window-close-event))
-  (when (or (eql (comp:window event) (window desktop))
-            (eql (comp:window event) (notification-window desktop)))
+  (when (eql (comp:window event) (window desktop))
     ;; Either the desktop window or the notification window was closed. Exit.
     (throw 'quitting-time nil)))
 
@@ -176,20 +169,18 @@
                 (* font:*default-font-size* 2)))
          (fifo (fifo desktop)))
     (setf (font desktop) font)
-    ;; Create a zero-size window for listening on system notifications.
-    (setf (slot-value desktop '%notification-window) (comp:make-window fifo 0 0
-                                                                                         :initial-z-order :below-current))
     ;; And a dummy window before we know the screen geometry.
     (setf (slot-value desktop '%window) (comp:make-window fifo 0 0
-                                                                            :initial-z-order :below-current))
+                                                          :layer :bottom
+                                                          :initial-z-order :below-current
+                                                          :kind :desktop))
     ;; Subscribe to screen geometry change notifications.
-    (comp:subscribe-notification (notification-window desktop) :screen-geometry)
+    (comp:subscribe-notification (window desktop) :screen-geometry)
     (unwind-protect
          (catch 'quitting-time
            (loop
               (sys.int::log-and-ignore-errors
                (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo)))))
-      (comp:close-window (notification-window desktop))
       (comp:close-window (window desktop)))))
 
 (defun spawn (&key (colour #xFF011172) image)
