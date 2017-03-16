@@ -492,6 +492,9 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 (defmethod dispatch-event (irc (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(defmethod dispatch-event (irc (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
 (defmethod dispatch-event (irc (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
   (when (not (mezzano.gui.compositor:key-releasep event))

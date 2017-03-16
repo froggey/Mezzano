@@ -88,6 +88,9 @@
 (defmethod dispatch-event (app (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(defmethod dispatch-event (app (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
 (define-condition must-redraw () ())
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))

@@ -310,6 +310,9 @@
 (defmethod dispatch-event (peek (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(defmethod dispatch-event (peek (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
 (defun peek-main ()
   (with-simple-restart (abort "Close peek")
     (catch 'quit

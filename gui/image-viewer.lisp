@@ -24,7 +24,9 @@
   (mezzano.gui.widgets:frame-mouse-event (frame window) event))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-close-event))
-  (declare (ignore window event))
+  (throw 'mezzano.supervisor::terminate-thread nil))
+
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
   (throw 'mezzano.supervisor::terminate-thread nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))

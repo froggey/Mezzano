@@ -190,6 +190,9 @@ party to perform, the indicated option.")
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
 (define-condition typed-key ()
   ((%key :initarg :key :reader typed-key)))
 

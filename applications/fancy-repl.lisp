@@ -126,6 +126,9 @@
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-close-event))
   (throw 'mezzano.supervisor:terminate-thread nil))
 
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
+  (throw 'mezzano.supervisor:terminate-thread nil))
+
 (defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))
   (let ((old-width (mezzano.gui.compositor:width (window app)))
         (old-height (mezzano.gui.compositor:height (window app)))

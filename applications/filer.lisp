@@ -104,7 +104,9 @@
              (return (click window thing)))))))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-close-event))
-  (declare (ignore window event))
+  (throw 'mezzano.supervisor::terminate-thread nil))
+
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
   (throw 'mezzano.supervisor::terminate-thread nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))

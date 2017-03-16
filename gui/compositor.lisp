@@ -257,6 +257,17 @@
                           *clip-rect-x* 0
                           *clip-rect-y* 0)))
                  ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\F4))
+                  (when *active-window*
+                    (cond ((member :control *keyboard-modifier-state*)
+                           ;; Zap the window.
+                           (process-event (make-instance 'window-close-event
+                                                         :window window)))
+                          (t
+                           ;; Send a quit request.
+                           (send-event *active-window*
+                                       (make-instance 'quit-event :window *active-window*))))))
+                 ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\Tab))
                   (when (not (key-releasep event))
                     (when (not *m-tab-active*)
@@ -759,6 +770,11 @@ A passive drag sends no drag events to the window.")
   (submit-compositor-event (make-instance 'set-window-data-event
                                           :window window
                                           :data data)))
+
+;;;; Quit event, sent by the compositor when the user wants to close the window.
+
+(defclass quit-event ()
+  ((%window :initarg :window :reader window)))
 
 ;;;; Internal redisplay timer event.
 

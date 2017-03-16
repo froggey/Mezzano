@@ -73,6 +73,7 @@
            #:set-window-data
            #:make-mouse-cursor
            #:register-mouse-cursor
+           #:quit-event
            #:subscribe-notification
            #:unsubscribe-notification
            #:get-window-by-kind
