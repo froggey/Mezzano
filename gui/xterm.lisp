@@ -6,6 +6,9 @@
 (defpackage :mezzano.gui.xterm
   (:use :cl)
   (:export #:xterm-terminal
+           #:xterm-resize
+           #:terminal-width
+           #:terminal-height
            #:input-translate
            #:receive-char))
 
@@ -46,16 +49,7 @@
    (autowrap :initarg :autowrap :accessor autowrap) ; DECAWM (7)
    )
   (:default-initargs
-   :queued-bytes '()
-   :foreground nil
-   :background nil
-   :bold nil
-   :inverse nil
-   :underline nil
-   :charset :us-ascii
-   :scroll-start 0
-   :scroll-end nil
-   :x 0 :y 0))
+   :queued-bytes '()))
 
 (defvar *xterm-translations*
   '((#\Up-Arrow    (#\Esc #\[ #\A))
@@ -105,7 +99,17 @@ Calls FN with each output character."
 
 (defun soft-reset (terminal)
   "Reset the terminal to the default state."
-  (setf (autowrap terminal) nil))
+  (setf (autowrap terminal) nil
+        (foreground-colour terminal) nil
+        (background-colour terminal) nil
+        (bold terminal) nil
+        (inverse terminal) nil
+        (underline terminal) nil
+        (charset terminal) :us-ascii
+        (scroll-start terminal) 0
+        (scroll-end terminal) nil
+        (x-pos terminal) 0
+        (y-pos terminal) 0))
 
 (defun generate-xterm-colour-table ()
   (let ((colours (make-array 256 :element-type '(unsigned-byte 32))))
@@ -223,6 +227,28 @@ Calls FN with each output character."
              (x-offset term) (y-offset term)
              (* (terminal-width term) (cell-pixel-width term))
              (* (terminal-height term) (cell-pixel-height term)))))
+
+(defun xterm-resize (term new-framebuffer x y width height)
+  (mezzano.gui:bitset :set
+                        (* width (cell-pixel-width term))
+                        (* height (cell-pixel-height term))
+                        (true-background-colour term)
+                        new-framebuffer
+                        x y)
+  (mezzano.gui:bitblt :set
+                      (* (min (terminal-width term) width)
+                         (cell-pixel-width term))
+                      (* (min (terminal-height term) height)
+                         (cell-pixel-height term))
+                      (terminal-framebuffer term)
+                      (x-offset term) (y-offset term)
+                      new-framebuffer
+                      x y)
+  (setf (slot-value term 'width) width
+        (slot-value term 'height) height
+        (slot-value term 'x-offs) x
+        (slot-value term 'y-offs) y
+        (slot-value term 'framebuffer) new-framebuffer))
 
 (defun report-unknown-escape (term)
   (format t "Failed to parse escape sequence ~S in state ~S.~%"
