@@ -548,13 +548,18 @@ A passive drag sends no drag events to the window.")
        (setf *window-list* (append *window-list* (list win))))
       (:top
        (push win *window-list*))
-      (t (setf (slot-value win '%layer) nil)
-         (cond ((and (eql (initial-z-order event) :below-current)
-                     *window-list*)
-                (setf *window-list* (list* (first *window-list*)
-                                           win
-                                           (rest *window-list*))))
-               (t (push win *window-list*)))))
+      (t
+       (setf (slot-value win '%layer) nil)
+       (cond ((and (eql (initial-z-order event) :below-current)
+                   *window-list*)
+              (setf *window-list* (list* (first *window-list*)
+                                         win
+                                         (rest *window-list*))))
+             (t (push win *window-list*)))
+       (setf (window-x win) (- (truncate (mezzano.supervisor:framebuffer-width *main-screen*) 2)
+                               (truncate (width win) 2))
+             (window-y win) (- (truncate (mezzano.supervisor:framebuffer-height *main-screen*) 2)
+                               (truncate (height win) 2)))))
     (when (and *active-window*
                (eql (initial-z-order event) :top))
       (send-event *active-window* (make-instance 'window-activation-event
