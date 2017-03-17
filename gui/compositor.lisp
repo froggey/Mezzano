@@ -894,9 +894,6 @@ Only works when the window is active."
   "Send an event to a window."
   (cond ((mezzano.supervisor:fifo-push event (fifo window) nil)
          (when (window-unresponsive window)
-           (format t "Window ~S/FIFO ~S is accepting events again.~%"
-                   window (with-output-to-string (s)
-                            (print-unreadable-object ((fifo window) s :type t :identity t))))
            (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
                  *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
                  *clip-rect-x* 0
@@ -904,9 +901,6 @@ Only works when the window is active."
            (setf (window-unresponsive window) nil)))
         ((not (window-unresponsive window))
          (setf (window-unresponsive window) t)
-         (format t "Window ~S/FIFO ~A has stopped accepting events.~%"
-                 window (with-output-to-string (s)
-                          (print-unreadable-object ((fifo window) s :type t :identity t))))
          (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
                *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
                *clip-rect-x* 0
