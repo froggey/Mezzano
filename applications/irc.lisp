@@ -542,54 +542,48 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
     (when (or (not (eql old-width new-width))
               (not (eql old-height new-height)))
       (let ((new-framebuffer (mezzano.gui:make-surface
-                              new-width new-height)))
+                              new-width new-height))
+            (frame (frame app))
+            (font (font app)))
         (mezzano.gui.widgets:resize-frame (frame app) new-framebuffer)
+        (mezzano.gui.widgets:resize-text-widget (display-pane app)
+                                                new-framebuffer
+                                                (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                (- new-width
+                                                   (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                   (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                                (- new-height
+                                                   (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                   (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                                   1
+                                                   (mezzano.gui.font:line-height font)))
+        (mezzano.gui.widgets:resize-text-widget (input-pane app)
+                                                new-framebuffer
+                                                (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                   (- new-height
+                                                      (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                      (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                                      (mezzano.gui.font:line-height font)))
+                                                (- new-width
+                                                   (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                   (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                                (mezzano.gui.font:line-height font))
+        (draw-seperating-line app new-width new-height new-framebuffer)
         (mezzano.gui.compositor:resize-window
          (window app) new-framebuffer
          :origin (mezzano.gui.compositor:resize-origin event))))))
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
-  (let* ((window (window app))
-         (fb (mezzano.gui.compositor:window-buffer window))
-         (frame (frame app))
-         (font (font app))
-         (new-width (mezzano.gui:surface-width fb))
-         (new-height (mezzano.gui:surface-height fb)))
-    (draw-seperating-line app)
-    (mezzano.gui.widgets:resize-text-widget (display-pane app)
-                                            fb
-                                            (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                            (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                            (- (mezzano.gui.compositor:width window)
-                                               (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                               (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                            (- (mezzano.gui.compositor:height window)
-                                               (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                               (nth-value 3 (mezzano.gui.widgets:frame-size frame))
-                                               1
-                                               (mezzano.gui.font:line-height font)))
-    (mezzano.gui.widgets:resize-text-widget (input-pane app)
-                                            fb
-                                            (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                            (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                               (- (mezzano.gui.compositor:height window)
-                                                  (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                  (nth-value 3 (mezzano.gui.widgets:frame-size frame))
-                                                  (mezzano.gui.font:line-height font)))
-                                            (- (mezzano.gui.compositor:width window)
-                                               (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                               (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                            (mezzano.gui.font:line-height font)))
   (reset-input app))
 
-(defun draw-seperating-line (irc)
-  (let* ((window (window irc))
-         (frame (frame irc))
-         (font (font irc))
-         (framebuffer (mezzano.gui.compositor:window-buffer window)))
+(defun draw-seperating-line (irc width height framebuffer)
+  (let* ((frame (frame irc))
+         (font (font irc)))
     ;; Line seperating display and input panes.
     (mezzano.gui:bitset :set
-                        (- (mezzano.gui.compositor:width window)
+                        (- width
                            (nth-value 0 (mezzano.gui.widgets:frame-size frame))
                            (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
                         1
@@ -597,7 +591,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                         framebuffer
                         (nth-value 0 (mezzano.gui.widgets:frame-size frame))
                         (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                           (- (mezzano.gui.compositor:height window)
+                           (- height
                               (nth-value 2 (mezzano.gui.widgets:frame-size frame))
                               (nth-value 3 (mezzano.gui.widgets:frame-size frame))
                               (mezzano.gui.font:line-height font)
@@ -655,7 +649,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                    :display-pane display-pane
                                    :input-pane input-pane)))
           (setf (slot-value input-pane '%irc) irc)
-          (draw-seperating-line irc)
+          (draw-seperating-line irc (mezzano.gui.compositor:width window) (mezzano.gui.compositor:height window) framebuffer)
           (mezzano.gui.widgets:draw-frame frame)
           (mezzano.gui.compositor:damage-window window
                                                 0 0

@@ -617,12 +617,33 @@
 (defgeneric resize-text-widget (widget framebuffer x-position y-position width height))
 
 (defmethod resize-text-widget ((widget text-widget) framebuffer x-position y-position width height)
+  ;; Fill the new framebuffer with the background colour.
+  ;; The copy from the old framebuffer might not cover the entire new area.
+  (mezzano.gui:bitset :set
+                      width height
+                      (background-colour widget)
+                      framebuffer
+                      x-position y-position)
+  ;; Copy the old framebuffer to the new framebuffer,
+  ;; and adjust the cursor position to be within limits.
+  (let* ((y (cursor-y widget))
+         (line-height (line-height (font widget)))
+         (adjusted-y (min y (* (1- (truncate height line-height)) line-height)))
+         (y-delta (- y adjusted-y)))
+    (setf (cursor-y widget) adjusted-y)
+    (incf (cursor-line widget) y-delta)
+    (mezzano.gui:bitblt :set
+                        (min width (width widget)) (min height (- (height widget) y-delta))
+                        (framebuffer widget)
+                        (x-position widget) (+ (y-position widget) y-delta)
+                        framebuffer
+                        x-position y-position))
   (setf (slot-value widget '%framebuffer) framebuffer
         (slot-value widget '%x-position) x-position
         (slot-value widget '%y-position) y-position
         (slot-value widget '%width) width
         (slot-value widget '%height) height)
-  (reset widget))
+  (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))
 
 (defmethod reset ((widget text-widget))
   (setf (cursor-x widget) 0
