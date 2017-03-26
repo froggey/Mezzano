@@ -268,7 +268,7 @@
                     (cond ((member :control *keyboard-modifier-state*)
                            ;; Zap the window.
                            (process-event (make-instance 'window-close-event
-                                                         :window window)))
+                                                         :window *active-window*)))
                           (t
                            ;; Send a quit request.
                            (send-event *active-window*
@@ -282,7 +282,7 @@
                     (let* ((p (position *active-window* *m-tab-list*))
                            (n-windows (length *m-tab-list*))
                            (next (if p
-                                     (elt *m-tab-list* (rem (+ p
+                                     (elt *m-tab-list* (mod (+ p
                                                                (if (member :shift *keyboard-modifier-state*)
                                                                    -1
                                                                    +1))
