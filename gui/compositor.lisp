@@ -63,6 +63,12 @@
 (defvar *clip-rect-width* 0)
 (defvar *clip-rect-height* 0)
 
+(defun damage-whole-screen ()
+  (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+        *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
+        *clip-rect-x* 0
+        *clip-rect-y* 0))
+
 (defun expand-clip-rectangle (x y w h)
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
@@ -257,11 +263,7 @@
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F1))
                   (when (key-releasep event)
-                    ;; Redraw the whole screen
-                    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-                          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-                          *clip-rect-x* 0
-                          *clip-rect-y* 0)))
+                    (damage-whole-screen)))
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F4))
                   (when *active-window*
@@ -574,10 +576,7 @@ A passive drag sends no drag events to the window.")
     (when (and *m-tab-active*
                (allow-m-tab win))
       (push win *m-tab-list*))
-    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-          *clip-rect-x* 0
-          *clip-rect-y* 0)))
+    (expand-clip-rectangle-by-window win)))
 
 (defmacro with-window ((window fifo width height &rest options) &body body)
   `(let (,window)
@@ -607,22 +606,20 @@ A passive drag sends no drag events to the window.")
   ((%window :initarg :window :reader window)))
 
 (defmethod process-event ((event window-close-event))
-  (format t "Closing window ~S. Goodbye!~%" (window event))
-  (setf *window-list* (remove (window event) *window-list*))
-  (when (eql *drag-window* (window event))
-    (setf *drag-window* nil))
-  (when (eql *active-window* (window event))
-    (setf *active-window* (first *window-list*))
-    (when *active-window*
-      (send-event *active-window* (make-instance 'window-activation-event
-                                                 :window *active-window*
-                                                 :state t))))
-  (setf *m-tab-list* (remove (window event) *window-list*))
-  (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-        *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-        *clip-rect-x* 0
-        *clip-rect-y* 0)
-  (send-event (window event) event))
+  (let ((win (window event)))
+    (format t "Closing window ~S. Goodbye!~%" win)
+    (setf *window-list* (remove win *window-list*))
+    (when (eql *drag-window* win)
+      (setf *drag-window* nil))
+    (when (eql *active-window* win)
+      (setf *active-window* (first *window-list*))
+      (when *active-window*
+        (send-event *active-window* (make-instance 'window-activation-event
+                                                   :window *active-window*
+                                                   :state t))))
+    (expand-clip-rectangle-by-window win)
+    (setf *m-tab-list* (remove win *window-list*))
+    (send-event win event)))
 
 (defun close-window (window)
   (submit-compositor-event (make-instance 'window-close-event
@@ -899,17 +896,11 @@ Only works when the window is active."
   "Send an event to a window."
   (cond ((mezzano.supervisor:fifo-push event (fifo window) nil)
          (when (window-unresponsive window)
-           (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-                 *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-                 *clip-rect-x* 0
-                 *clip-rect-y* 0)
+           (expand-clip-rectangle-by-window window)
            (setf (window-unresponsive window) nil)))
         ((not (window-unresponsive window))
          (setf (window-unresponsive window) t)
-         (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-               *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-               *clip-rect-x* 0
-               *clip-rect-y* 0))))
+         (expand-clip-rectangle-by-window window))))
 
 ;; FIXME: This really shouldn't be synchronous.
 (defun get-window-by-kind (kind)
@@ -981,11 +972,7 @@ Only works when the window is active."
 
 (defun recompose-windows (&optional full)
   (when full
-    ;; Expand the cliprect to the entire screen.
-    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-          *clip-rect-x* 0
-          *clip-rect-y* 0))
+    (damage-whole-screen))
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
     (return-from recompose-windows))
