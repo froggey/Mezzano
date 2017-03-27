@@ -577,6 +577,14 @@
                                  (1+ (ast-value mask))))))
     (return-from mod-n-transform-candidate-p
       nil))
+  (when (and (typep value 'ast-call)
+             (eql (name value) 'sys.int::%truncate)
+             (eql (length (arguments value)) 2)
+             (match-transform-argument 'float (first (arguments value)))
+             (match-transform-argument '(eql 1) (second (arguments value))))
+    ;; Conversion from single-float to integer.
+    (return-from mod-n-transform-candidate-p
+      t))
   ;; The value must be a call to one of the arithmetic functions.
   ;; Both sides must be fixnums. This will cause the fixnum arithmetic
   ;; transforms to fire, and the calls to be transformed to their
