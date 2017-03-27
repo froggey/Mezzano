@@ -797,12 +797,6 @@
   (loop
      (case (read-char stream t nil t)
        (#\#
-        ;; Could be followed by | after an integer argument.
-        (loop
-           ;; Eat any decimal digits immediately after.
-           (when (not (digit-char-p (peek-char nil stream t nil t) 10))
-             (return))
-           (read-char stream))
         ;; Look for | and recurse.
         (when (eql (peek-char nil stream t nil t) #\|)
           (read-char stream) ; eat |.
