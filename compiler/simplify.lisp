@@ -509,6 +509,28 @@
 (defun simp-ash (form)
   (simp-form-list (arguments form))
   (cond ((and (eql (list-length (arguments form)) 2)
+              (or (and (typep (second (arguments form)) 'ast-the)
+                       (match-optimize-settings form '((= safety 0) (= speed 3)))
+                       (compiler-subtypep (ast-the-type (second (arguments form))) '(eql 0)))
+                  (and (quoted-form-p (second (arguments form)))
+                       (eql (value (second (arguments form))) 0))))
+         ;; (ash value 0) => (progn (type-check value integer) value)
+         (change-made)
+         (return-from simp-ash
+           (if (match-optimize-settings form '((= safety 0) (= speed 3)))
+               (ast `(let ((value ,(first (arguments form))))
+                       (progn
+                         ,(second (arguments form))
+                         value))
+                    form)
+               (ast `(let ((value ,(first (arguments form))))
+                       (progn
+                         ,(second (arguments form))
+                         (if (call integerp value)
+                             value
+                             (call sys.int::raise-type-error value 'integer))))
+                    form))))
+        ((and (eql (list-length (arguments form)) 2)
               (quoted-form-p (second (arguments form)))
               (integerp (value (second (arguments form)))))
          ;; (ash value known-count) => left-shift or right-shift.
