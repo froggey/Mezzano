@@ -64,41 +64,6 @@
 
 ;;; we speccialize own class & method to resample stream as necessary for Intel HDA
 ;;; but we still want to run decode in another thread
-#|(defclass hda-pcm-stream-record (cl-video:audio-stream-record)
-  ())
-
-(defmethod shared-initialize :after ((rec hda-pcm-stream-record) slots &key &allow-other-keys)
-  (declare (ignorable slots))
-  (setf  (cl-video:buffer rec) (make-array (cl-video:suggested-buffer-size rec) :element-type '(unsigned-byte 8)))
-  (cl-video:initialize-ring rec 16 (cl-video:suggested-buffer-size rec) '(signed-byte 16)))
-
-(defun resample (from to sample)
-  (let ((ratio (/ to from)))
-    (decimate (upsample sample (numerator ratio)) (denominator ratio))))
-
-(defmethod cl-video:decode-media-stream ((rec hda-pcm-stream-record) fsize input-stream)
-  (let* ((chunk (pop (cl-video:wcursor rec)))
-	 (cur-lock (cl-video:vacancy-lock chunk))
-	 (new-chunk (car (cl-video:wcursor rec))))
-    (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock new-chunk))
-    (read-sequence (cl-video:buffer rec) input-stream :end fsize)
-    (flexi-streams:with-input-from-sequence (is (cl-video:buffer rec))
-      (let ((sample-size (/ (cl-video:block-align rec) (cl-video:number-of-channels rec))))
-	(cl-video::debug-log (format nil "sbps ~D " (cl-video:significant-bits-per-sample rec)))
-	(loop for i from 0 below fsize do
-	     (setf (aref (cl-video:frame chunk) i) (if (= sample-size 1)
-						       (case (cl-video:significant-bits-per-sample rec)
-							 (8 (ash (- (read-byte is) 128) 8))
-							 (16 (read-byte is))
-							 (24 (floor (read-byte is) 256))
-							 (otherwise (error "Unsupported sample size")))
-					    (error "No support for stereo sound yet"))))))
-    (mezzano.supervisor:release-mutex cur-lock)))
-
-(defmethod find-hda-pcm-stream-record ((container cl-video:av-container))
-  (find-if #'(lambda (x) (and (eql (type-of x) 'hda-pcm-stream-record)
-			      (eql (cl-video:compression-code x) cl-video:+pcmi-uncompressed+))) (cl-video:stream-records container)))
-|#
 
 (defmethod play-audio-stream ((container cl-video:av-container))
   (let ((aout (cl-video:audio-out container))
@@ -106,29 +71,26 @@
     (when audio-rec
       (mezzano.supervisor:make-thread
        #'(lambda ()
-	   (when (not (and (eql compression 1) ; uncompressed
-			   (eql channels 2)
-			   (eql sample-rate 44100)
-			   (member sample-size '(8 16))))
-	     (format t "Unsupported wav file. ~S ~S ~S ~S ~S~%" fmt compression channels sample-rate sample-size)
-	     (return-from play-audio-stream))
 	   (cl-video:stream-playback-start audio-rec)
 	   (unwind-protect
-		(loop until (cl-video:finish container)
-		   for cur = (if (cl-video:pause container) cur (cl-video:pop-chunk-rcursor audio-rec))
-		   for src = (cl-video:frame cur) do
-		   ;; pause synching protocol w/video stream
-		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock container))
-		   ;; send the audio frame
-		     (cl-video:sink-frame aout src)
-		     (loop while (cl-video:pause container) do (sleep 0.2))
-		     (mezzano.supervisor:release-mutex (cl-video:pause-lock container))
-		   ;; advance the cursor lock
-		     (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
-		     (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur))
-		     (when (eql cur (cl-video:final audio-rec))
-		       (return))
-		     (sleep (cl-video:frame-delay audio-rec)))
+		(unless (not (and (eql compression 1) ; uncompressed
+				  (eql sample-rate 44100)
+				  (member sample-size '(8 16))))
+		  (loop until (cl-video:finish container)
+		     for cur = (if (cl-video:pause container) cur (cl-video:pop-chunk-rcursor audio-rec))
+		     for src = (cl-video:frame cur) do
+		     ;; pause synching protocol w/video stream
+		       (mezzano.supervisor:acquire-mutex (cl-video:pause-lock container))
+		     ;; send the audio frame
+		       (cl-video:sink-frame aout src)
+		       (loop while (cl-video:pause container) do (sleep 0.2))
+		       (mezzano.supervisor:release-mutex (cl-video:pause-lock container))
+		     ;; advance the cursor lock
+		       (mezzano.supervisor:acquire-mutex (cl-video:vacancy-lock (car (cl-video:rcursor audio-rec))))
+		       (mezzano.supervisor:release-mutex (cl-video:vacancy-lock cur))
+		       (when (eql cur (cl-video:final audio-rec))
+			 (return))
+		       (sleep (cl-video:frame-delay audio-rec))))
 	     (cl-video:stream-playback-stop audio-rec)
 	     (cl-video:close-sink aout)))
        :name "Trentino audio worker"))))
@@ -220,7 +182,7 @@
 					 ((string-equal "wav" (pathname-type pathname)) 'cl-video:wav-container)
 					 (t (error 'unrecognized-file-format)))
 				  :filename pathname :player-callback player-callback
-				  :audio-out (make-instance 'mezzano-pcm-output)))
+				  :audio-out (make-instance 'mezzano-pcm-output))))
     (cl-video:decode container)))
 
 (defun main (path)
