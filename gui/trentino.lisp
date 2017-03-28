@@ -38,9 +38,33 @@
       (cond ((char= ch #\Space)
              (signal 'pause-event))))))
 
+(defclass mezzano-pcm-output (cl-video:audio-output)
+  ((astream :accessor astream)))
+
+(defmethod cl-video:sink-frame-element-type ((aout mezzano-pcm-output))
+  'float)
+
+(defmethod cl-video:initialize-sink ((aout mezzano-pcm-output))
+  (setf (astream aout) (mezzano.driver.sound:make-sound-output-sink
+			:buffer-size-in-samples 
+			:format (ecase (cl-video:significant-bits-per-sample (cl-video:audio-rec aout))
+				  (8 :pcm-u8)
+				  (16 :pcm-s16le)))))
+
+(defmethod cl-video:sink-frame ((aout mezzano-pcm-output) frame)
+  (mezzano.driver.sound:output-sound frame (astream aout) :end (length frame)))
+
+(defmethod cl-video:close-sink ((aout mezzano-pcm-output))
+  )
+
+(defmethod cl-video:translate-source-frame ((aout mezzano-pcm-output) frame)
+  (with-slots (audio-rec) aout
+    (loop for i from 0 below (length frame)
+	 do (setf (aref frame i) (aref (cl-video:buffer audio-rec))))))
+
 ;;; we speccialize own class & method to resample stream as necessary for Intel HDA
 ;;; but we still want to run decode in another thread
-(defclass hda-pcm-stream-record (cl-video:audio-stream-record)
+#|(defclass hda-pcm-stream-record (cl-video:audio-stream-record)
   ())
 
 (defmethod shared-initialize :after ((rec hda-pcm-stream-record) slots &key &allow-other-keys)
@@ -74,12 +98,20 @@
 (defmethod find-hda-pcm-stream-record ((container cl-video:av-container))
   (find-if #'(lambda (x) (and (eql (type-of x) 'hda-pcm-stream-record)
 			      (eql (cl-video:compression-code x) cl-video:+pcmi-uncompressed+))) (cl-video:stream-records container)))
+|#
 
 (defmethod play-audio-stream ((container cl-video:av-container))
-  (let ((audio-rec (cl-video:find-pcm-stream-record container)))
+  (let ((aout (cl-video:audio-out container))
+	(audio-rec (cl-video:audio-rec container)))
     (when audio-rec
       (mezzano.supervisor:make-thread
        #'(lambda ()
+	   (when (not (and (eql compression 1) ; uncompressed
+			   (eql channels 2)
+			   (eql sample-rate 44100)
+			   (member sample-size '(8 16))))
+	     (format t "Unsupported wav file. ~S ~S ~S ~S ~S~%" fmt compression channels sample-rate sample-size)
+	     (return-from play-audio-stream))
 	   (cl-video:stream-playback-start audio-rec)
 	   (unwind-protect
 		(loop until (cl-video:finish container)
@@ -88,7 +120,7 @@
 		   ;; pause synching protocol w/video stream
 		     (mezzano.supervisor:acquire-mutex (cl-video:pause-lock container))
 		   ;; send the audio frame
-		     (mezzano.driver.intel-hda::play-sound src (first mezzano.driver.intel-hda::*cards*))
+		     (cl-video:sink-frame aout src)
 		     (loop while (cl-video:pause container) do (sleep 0.2))
 		     (mezzano.supervisor:release-mutex (cl-video:pause-lock container))
 		   ;; advance the cursor lock
@@ -97,7 +129,8 @@
 		     (when (eql cur (cl-video:final audio-rec))
 		       (return))
 		     (sleep (cl-video:frame-delay audio-rec)))
-	     (cl-video:stream-playback-stop audio-rec)))
+	     (cl-video:stream-playback-stop audio-rec)
+	     (cl-video:close-sink aout)))
        :name "Trentino audio worker"))))
 
 (defun compute-window-size (container)
@@ -184,13 +217,16 @@
 (defun decode-file (pathname &key player-callback)
   (let ((container (make-instance (cond  ((string-equal "avi" (pathname-type pathname)) 'cl-video:avi-mjpeg-container)
 					 ((string-equal "gif" (pathname-type pathname)) 'cl-video:gif-container)
-					 (t (error 'unrecognized-file-format))) :filename pathname :player-callback player-callback)))
+					 ((string-equal "wav" (pathname-type pathname)) 'cl-video:wav-container)
+					 (t (error 'unrecognized-file-format)))
+				  :filename pathname :player-callback player-callback
+				  :audio-out (make-instance 'mezzano-pcm-output)))
     (cl-video:decode container)))
 
 (defun main (path)
   (decode-file path :player-callback #'(lambda (video)
 						  (let ((a (cl-video:find-pcm-stream-record video)))
-						    (when a (change-class a 'hda-pcm-stream-record)))
+						    (when a (setf (cl-video:audio-rec (cl-video:audio-out video)) a)))
 						  (cl-video:prime-all-streams video)
 						  (play-audio-stream video) (play-video-stream video))))
 
