@@ -271,7 +271,11 @@
     (let ((key (cons (pathname-name truename) (pathname-type truename)))
           (file (make-instance 'local-file
                                :truename truename
-                               :storage (make-array 0 :element-type element-type :adjustable t :fill-pointer 0)
+                               :storage (make-array 0
+                                                    :element-type element-type
+                                                    :adjustable t
+                                                    :fill-pointer 0
+                                                    :area :pinned)
                                :plist (list :creation-time time
                                             :write-time time))))
       (cond (container
@@ -312,10 +316,14 @@
                      dir)
                   (let ((next (read-directory-entry dir (car element) "directory")))
                     (when (not next)
-                      (error 'simple-file-error
-                             :pathname pathname
-                             :format-control "Subdirectory ~S does not exist."
-                             :format-arguments (list element)))
+                      (ecase if-does-not-exist
+                        ((:error :create)
+                         (error 'simple-file-error
+                                :pathname pathname
+                                :format-control "Subdirectory ~S does not exist."
+                                :format-arguments (list element)))
+                        ((nil)
+                         (return-from open-using-host nil))))
                     (setf dir next))))
            (file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname)))
            (createdp nil)
@@ -350,7 +358,11 @@
            (setf superseded-file file
                  file (make-instance 'local-file
                                      :truename (file-truename file)
-                                     :storage (make-array 0 :element-type element-type :adjustable t :fill-pointer 0))))
+                                     :storage (make-array 0
+                                                          :element-type element-type
+                                                          :adjustable t
+                                                          :fill-pointer 0
+                                                          :area :pinned))))
           ((:overwrite :append)
            ???)
           ((nil) (return-from open-using-host nil))))

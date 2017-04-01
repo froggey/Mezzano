@@ -148,6 +148,8 @@
         (cleanup-function form) (value-aware-lowering-1 (cleanup-function form) :single))
   form)
 
+(defparameter *pure-functions* '(consp sys.int::fixnump))
+
 (defmethod value-aware-lowering-1 ((form ast-call) mode)
   (cond ((and (eql (name form) 'values)
               (not (eql mode :multiple)))
@@ -167,6 +169,12 @@
                            result-value))
                       form)
                  mode))))
+        ((and (eql mode :effect)
+              (member (name form) *pure-functions* :test #'equal))
+         ;; (call <pure-function> ...) => (progn ...)
+         (value-aware-lowering-1 (ast `(progn ,@(arguments form))
+                                      form)
+                                 mode))
         (t
          (setf (arguments form) (loop
                                    for arg in (arguments form)

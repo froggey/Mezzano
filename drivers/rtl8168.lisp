@@ -312,12 +312,11 @@
     (nic:register-network-card wrapper))
   t)
 
-(defun rtl8168-transmit  (nic packet)
+(defun rtl8168-transmit (nic packet)
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len
-                           :element-type '(unsigned-byte 8)
-                           :area :wired))
+                           :element-type '(unsigned-byte 8)))
          (cons (cons data nil)))
     (when (> len +rtl8168-mtu+)
       (error "Packet exceeds MTU."))

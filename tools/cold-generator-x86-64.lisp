@@ -4,14 +4,16 @@
 (in-package :cold-generator.x86-64)
 
 (defparameter *undefined-function-thunk*
-  `(;; Call helper using the function calling convention, leaving fref intact.
+  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
+    ;; Call helper using the function calling convention, leaving fref intact.
     (sys.lap-x86:mov64 :rbx (:function sys.int::raise-undefined-function))
     (sys.lap-x86:mov64 :rbx (:object :rbx ,sys.int::+fref-function+))
     (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
   "Code for the undefined function thunk.")
 
 (defparameter *closure-trampoline*
-  `(;; Load the real function from the fref.
+  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
+    ;; Load the real function from the fref.
     (sys.lap-x86:mov64 :rbx (:object :r13 ,sys.int::+fref-function+))
     ;; Invoke the real function via the FUNCTION calling convention.
     ;; This will work even if the fref was altered or made funbound.
@@ -21,7 +23,8 @@
   "Trampoline used for calling a closure or funcallable-instance via an fref.")
 
 (defparameter *funcallable-instance-trampoline*
-  `(;; Load the real function from the funcallable-instance.
+  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
+    ;; Load the real function from the funcallable-instance.
     (sys.lap-x86:mov64 :rbx (:object :rbx ,sys.int::+funcallable-instance-function+))
     ;; Invoke the real function via the FUNCTION calling convention.
     (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))

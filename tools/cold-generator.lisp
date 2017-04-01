@@ -184,6 +184,7 @@
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"
     "compiler/simplify-control-flow.lisp"
+    "compiler/blexit.lisp"
     "compiler/transforms.lisp"
     "system/file-compiler.lisp"
     "system/xp-package.lisp"
@@ -1086,7 +1087,7 @@
         (pinned-free-bins (allocate (1+ 64) :wired))
         ;; Ensure a minium amount of free space in :wired.
         ;; And :pinned as well, but that matters less.
-        (wired-free-area (allocate (* 2 1024 1024) :wired))
+        (wired-free-area (allocate (* 4 1024 1024) :wired))
         (pinned-free-area (allocate 4 :pinned)))
     (setf (word wired-free-bins) (array-header sys.int::+object-tag-array-t+ 64)
           (word pinned-free-bins) (array-header sys.int::+object-tag-array-t+ 64))

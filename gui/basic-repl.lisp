@@ -32,6 +32,9 @@
   (when (not (mezzano.gui.compositor:key-releasep event))
     (mezzano.supervisor:fifo-push (mezzano.gui.compositor:key-key event) (input-buffer window) nil)))
 
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
+  (throw 'mezzano.supervisor:terminate-thread nil))
+
 (defun pump-event-loop (window)
   "Read & dispatch window events until there are no more waiting events."
   (loop

@@ -90,12 +90,20 @@
      (error "Type specifier ~S is not a subtype of REAL." typespec))))
 
 (defun expt (base power)
-  (check-type power integer)
-  (cond ((minusp power)
-         (/ (expt base (- power))))
-        (t (let ((accum 1))
-             (dotimes (i power accum)
-               (setf accum (* accum base)))))))
+  (etypecase power
+    (integer
+     (cond ((minusp power)
+            (/ (expt base (- power))))
+           (t (let ((accum 1))
+                (dotimes (i power accum)
+                  (setf accum (* accum base)))))))
+    (float
+     (cond ((eql (float (truncate power) power) power)
+            ;; Moderately integer-like?
+            (expt base (truncate power)))
+           (t
+            ;; Slower...
+            (exp (* power (log base))))))))
 
 (defstruct (large-byte (:constructor make-large-byte (size position)))
   (size 0 :type (integer 0) :read-only t)
@@ -696,6 +704,16 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defconstant +sleef-pi4-cf+ 3.7747668102383613586f-08)
 (defconstant +sleef-pi4-df+ 1.2816720341285448015f-12)
 
+(defun sleef-mulsignf (x y)
+  (sys.int::%integer-as-single-float
+   (logxor
+    (sys.int::%single-float-as-integer x)
+    (logand (sys.int::%single-float-as-integer y)
+            (ash 1 31)))))
+
+(defun sleef-signf (d)
+  (sleef-mulsignf 1.0f0 d))
+
 (defun sleef-mlaf (x y z)
   (+ (* x y) z))
 
@@ -721,7 +739,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (let ((q 0)
         (u 0.0f0)
         (s 0.0f0))
-    (setf q (sleef-rintf (* d (/ (float pi)))))
+    (setf q (sleef-rintf (* d (/ (float pi 0.0f0)))))
 
     (setf d (sleef-mlaf q (* +sleef-pi4-af+ -4) d))
     (setf d (sleef-mlaf q (* +sleef-pi4-bf+ -4) d))
@@ -790,10 +808,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
         (s 0.0d0))
     (setf q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
 
-    (setf d (sleef-mla q (* +sleef-pi4-a+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-b+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-c+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-d+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-a+ -2) d))
+    (setf d (sleef-mla q (* +sleef-pi4-b+ -2) d))
+    (setf d (sleef-mla q (* +sleef-pi4-c+ -2) d))
+    (setf d (sleef-mla q (* +sleef-pi4-d+ -2) d))
 
     (setf s (* d d))
 
@@ -825,7 +843,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (double-float
      (sin-double-float x))
     (real
-     (sin-single-float (float x)))))
+     (sin-single-float (float x 0.0f0)))))
 
 (defun cos (x)
   (etypecase x
@@ -837,50 +855,159 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (double-float
      (cos-double-float x))
     (real
-     (cos-single-float (float x)))))
+     (cos-single-float (float x 0.0f0)))))
 
-;;; http://en.literateprograms.org/Logarithm_Function_(Python)
-(defun log-e (x)
-  (let ((base 2.71828)
-        (epsilon 0.000000000001)
-        (integer 0)
-        (partial 0.5)
-        (decimal 0.0))
-    (loop (when (>= x 1) (return))
-       (decf integer)
-       (setf x (* x base)))
-    (loop (when (< x base) (return))
-       (incf integer)
-       (setf x (/ x base)))
-    (setf x (* x x))
-    (loop (when (<= partial epsilon) (return))
-       (when (>= x base) ;If X >= base then a_k is 1
-         (incf decimal partial) ;Insert partial to the front of the list
-         (setf x (/ x base))) ;Since a_k is 1, we divide the number by the base
-       (setf partial (* partial 0.5))
-       (setf x (* x x)))
-    (+ integer decimal)))
+(defun tan (d)
+  (let (q u s x)
+    (setf q (sleef-rintf (* d 2 (/ (float pi 0.0f0)))))
+
+    (setf x d)
+
+    (setf x (sleef-mlaf q (* +sleef-pi4-af+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q (* +sleef-pi4-bf+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q (* +sleef-pi4-cf+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q (* +sleef-pi4-df+ -4 0.5f0) x))
+
+    (setf s (* x x))
+
+    (when (not (eql (logand q 1) 0))
+      (setf x (- x)))
+
+    (setf u 0.00927245803177356719970703f0)
+    (setf u (sleef-mlaf u s 0.00331984995864331722259521f0))
+    (setf u (sleef-mlaf u s 0.0242998078465461730957031f0))
+    (setf u (sleef-mlaf u s 0.0534495301544666290283203f0))
+    (setf u (sleef-mlaf u s 0.133383005857467651367188f0))
+    (setf u (sleef-mlaf u s 0.333331853151321411132812f0))
+
+    (setf u (sleef-mlaf s (* u x) x))
+
+    (when (not (eql (logand q 1) 0))
+      (setf u (/ u)))
+
+    (when (float-infinity-p d)
+      (setf u (/ 0.0f0 0.0f0)))
+
+    u))
+
+(defconstant +sleef-r-ln2f+ 1.442695040888963407359924681001892137426645954152985934135449406931f0)
+(defconstant +sleef-l2uf+ 0.693145751953125f0)
+(defconstant +sleef-l2lf+ 1.428606765330187045f-06)
+
+(defun sleef-ldexpkf (x q)
+  (let (u m)
+    (setf m (ash q -31))
+    (setf m (ash (- (ash (+ m q) -6) m) 4))
+    (setf q (- q (ash m 2)))
+    (incf m 127)
+    (setf m (if (< m 0) 0 m))
+    (setf m (if (> m 255) 255 m))
+    (setf u (sys.int::%integer-as-single-float (ash m 23)))
+    (setf x (* x u u u u))
+    (setf u (sys.int::%integer-as-single-float (ash (+ q #x7f) 23)))
+    (* x u)))
+
+(defun sleef-ilogbkf (d)
+  (let (m q)
+    (setf m (< d 5.421010862427522f-20))
+    (setf d (if m
+                (* 1.8446744073709552f19 d)
+                d))
+    (setf q (logand (ash (sys.int::%single-float-as-integer d) -23) #xFF))
+    (if m
+        (- q (+ 64 #x7F))
+        (- q #x7F))))
+
+(defun exp (number)
+  (let ((d (float number 0.0f0))
+        q s u)
+    (setf q (sleef-rintf (* d +sleef-r-ln2f+)))
+    (setf s (sleef-mlaf q (- +sleef-l2uf+) d))
+    (setf s (sleef-mlaf q (- +sleef-l2lf+) s))
+
+    (setf u 0.000198527617612853646278381f0)
+    (setf u (sleef-mlaf u s 0.00139304355252534151077271f0))
+    (setf u (sleef-mlaf u s 0.00833336077630519866943359f0))
+    (setf u (sleef-mlaf u s 0.0416664853692054748535156f0))
+    (setf u (sleef-mlaf u s 0.166666671633720397949219f0))
+    (setf u (sleef-mlaf u s 0.5f0))
+
+    (setf u (+ (* s s u) s 1.0f0))
+    (setf u (sleef-ldexpkf u q))
+
+    (if (< d -104) (setf u 0))
+    (if (> d  104) (setf u single-float-positive-infinity))
+
+    (if (floatp number)
+        (float u number)
+        u)))
+
+(defun log-e (number)
+  (let ((d (float number 0.0f0))
+        x x2 tt m e)
+    (setf e (sleef-ilogbkf (* d (/ 0.75f0))))
+    (setf m (sleef-ldexpkf d (- e)))
+
+    (setf x (/ (- m 1.0f0) (+ m 1.0f0)))
+    (setf x2 (* x x))
+
+    (setf tt 0.2392828464508056640625f0)
+    (setf tt (sleef-mlaf tt x2 0.28518211841583251953125f0))
+    (setf tt (sleef-mlaf tt x2 0.400005877017974853515625f0))
+    (setf tt (sleef-mlaf tt x2 0.666666686534881591796875f0))
+    (setf tt (sleef-mlaf tt x2 2.0f0))
+
+    (setf x (+ (* x tt) (* 0.693147180559945286226764f0 e)))
+
+    (when (float-infinity-p d)
+      (setf x single-float-positive-infinity))
+    (when (< d 0)
+      (setf x (/ 0.0f0 0.0f0)))
+    (when (= d 0)
+      (setf x single-float-negative-infinity))
+
+    (if (floatp number)
+        (float x number)
+        x)))
 
 (defun log (number &optional base)
   (if base
       (/ (log number) (log base))
       (log-e number)))
 
-;;; http://forums.devshed.com/c-programming-42/implementing-an-atan-function-200106.html
 (defun atan (number1 &optional number2)
   (if number2
       (atan2 number1 number2)
-      (let ((x number1)
-            (y 0.0))
-        (when (zerop number1)
-          (return-from atan 0))
-        (when (< x 0)
-          (return-from atan (- (atan (- x)))))
-        (setf x (/ (- x 1.0) (+ x 1.0))
-              y (* x x))
-        (setf x (* (+ (* (- (* (+ (* (- (* (+ (* (- (* (+ (* (- (* 0.0028662257 y) 0.0161657367) y) 0.0429096138) y) 0.0752896400) y) 0.1065626393) y) 0.1420889944) y) 0.1999355085) y) 0.3333314528) y) 1) x))
-        (setf x (+ 0.785398163397 x))
-        x)))
+      (let ((s (float number1 0.0f0))
+            (q 0)
+            tt u)
+        (when (= (sleef-signf s) -1)
+          (setf s (- s))
+          (setf q 2))
+        (when (> s 1)
+          (setf s (/ s))
+          (setf q (logior q 1)))
+
+        (setf tt (* s s))
+
+        (setf u 0.00282363896258175373077393f0)
+        (setf u (sleef-mlaf u tt -0.0159569028764963150024414f0))
+        (setf u (sleef-mlaf u tt 0.0425049886107444763183594f0))
+        (setf u (sleef-mlaf u tt -0.0748900920152664184570312f0))
+        (setf u (sleef-mlaf u tt 0.106347933411598205566406f0))
+        (setf u (sleef-mlaf u tt -0.142027363181114196777344f0))
+        (setf u (sleef-mlaf u tt 0.199926957488059997558594f0))
+        (setf u (sleef-mlaf u tt -0.333331018686294555664062f0))
+
+        (setf tt (+ s (* s tt u)))
+
+        (when (not (eql (logand q 1) 0))
+          (setf tt (- 1.570796326794896557998982f0 tt)))
+        (when (not (eql (logand q 2) 0))
+          (setf tt (- tt)))
+        (if (floatp number1)
+            (float tt number1)
+            tt))))
 
 (defun atan2 (y x)
   (cond ((> x 0) (atan (/ y x)))

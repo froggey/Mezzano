@@ -455,6 +455,7 @@
 (defun finalize-primordial-class (class)
   (when (not (primordial-slot-value class 'finalized-p))
     (dolist (super (primordial-slot-value class 'direct-superclasses))
+      (push class (primordial-slot-value super 'direct-subclasses))
       (finalize-primordial-class super))
     ;;(format t "Finalizing class ~S.~%" (primordial-slot-value class 'name))
     (setf (primordial-slot-value class 'class-precedence-list)

@@ -17,6 +17,9 @@
 (defvar *event-queue* (mezzano.supervisor:make-fifo 50)
   "Internal FIFO used to submit events to the compositor.")
 
+(defun submit-compositor-event (event)
+  (mezzano.supervisor:fifo-push event *event-queue*))
+
 (defclass window ()
   ((%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
@@ -26,11 +29,19 @@
    (%layer :initarg :layer :reader layer)
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
    (%unresponsive :initarg :unresponsive :accessor window-unresponsive)
-   (%kind :initarg :kind :reader kind))
+   (%kind :initarg :kind :reader kind)
+   (%cursor :initarg :cursor :accessor cursor)
+   (%grabp :initarg :grabp :accessor grabp)
+   (%grab-x1 :initarg :grab-x1 :accessor grab-x1)
+   (%grab-y1 :initarg :grab-y1 :accessor grab-y1)
+   (%grab-x2 :initarg :grab-x2 :accessor grab-x2)
+   (%grab-y2 :initarg :grab-y2 :accessor grab-y2))
   (:default-initargs :layer nil
                      :notifications '()
                      :unresponsive nil
-                     :thread nil))
+                     :thread nil
+                     :cursor :default
+                     :grabp nil))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -51,6 +62,12 @@
 (defvar *clip-rect-y* 0)
 (defvar *clip-rect-width* 0)
 (defvar *clip-rect-height* 0)
+
+(defun damage-whole-screen ()
+  (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+        *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
+        *clip-rect-x* 0
+        *clip-rect-y* 0))
 
 (defun expand-clip-rectangle (x y w h)
   (when (or (zerop *clip-rect-width*)
@@ -92,7 +109,24 @@
                 :element-type element-type
                 :initial-contents data)))
 
-(defvar *mouse-pointer*
+(defclass mouse-cursor ()
+  ((%surface :initarg :surface :reader mouse-cursor-surface)
+   (%hot-x :initarg :hot-x :reader mouse-cursor-hot-x)
+   (%hot-y :initarg :hot-y :reader mouse-cursor-hot-y)))
+
+(defvar *mouse-cursor-library* (make-hash-table))
+
+(defun make-mouse-cursor (surface &key (hot-x 0) (hot-y 0))
+  (assert (eql (mezzano.gui:surface-format surface) :argb32))
+  (make-instance 'mouse-cursor
+                 :surface surface
+                 :hot-x hot-x
+                 :hot-y hot-y))
+
+(defun register-mouse-cursor (cursor name)
+  (setf (gethash name *mouse-cursor-library*) cursor))
+
+(defvar *default-mouse-pointer-surface*
   (mezzano.gui:make-surface-from-array
    (2d-array '((#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
@@ -113,9 +147,24 @@
               (#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000))
             '(unsigned-byte 32))))
 
-;;; Position of the "hot" pixel in *MOUSE-POINTER*, this is where clicks actually occur.
-(defvar *mouse-hot-x* 0)
-(defvar *mouse-hot-y* 0)
+(defvar *default-mouse-pointer*
+  (make-instance 'mouse-cursor
+                 :surface *default-mouse-pointer-surface*
+                 :hot-x 0
+                 :hot-y 0))
+
+(defvar *none-mouse-pointer-surface*
+  (mezzano.gui:make-surface-from-array
+   (2d-array '(())
+             '(unsigned-byte 32))))
+
+(defvar *none-mouse-pointer*
+  (make-instance 'mouse-cursor
+                 :surface *none-mouse-pointer-surface*
+                 :hot-x 0
+                 :hot-y 0))
+
+(defvar *mouse-pointer* *default-mouse-pointer*)
 
 (defgeneric process-event (event))
 
@@ -182,7 +231,11 @@
            (setf *keyboard-modifier-state*
                  (if (key-releasep event)
                      (remove (second modifier) *keyboard-modifier-state*)
-                     (list* (second modifier) *keyboard-modifier-state*))))
+                     (list* (second modifier) *keyboard-modifier-state*)))
+           (when (and (key-releasep event)
+                      (eql (second modifier) :meta))
+             (setf *m-tab-active* nil
+                   *m-tab-list* '())))
           (t ;; Normal key, try to translate it.
            (let ((translated (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))
              (when translated
@@ -210,11 +263,34 @@
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F1))
                   (when (key-releasep event)
-                    ;; Redraw the whole screen
-                    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-                          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-                          *clip-rect-x* 0
-                          *clip-rect-y* 0)))
+                    (damage-whole-screen)))
+                 ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\F4))
+                  (when *active-window*
+                    (cond ((member :control *keyboard-modifier-state*)
+                           ;; Zap the window.
+                           (process-event (make-instance 'window-close-event
+                                                         :window *active-window*)))
+                          (t
+                           ;; Send a quit request.
+                           (send-event *active-window*
+                                       (make-instance 'quit-event :window *active-window*))))))
+                 ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\Tab))
+                  (when (not (key-releasep event))
+                    (when (not *m-tab-active*)
+                      (setf *m-tab-active* t
+                            *m-tab-list* (remove-if-not #'allow-m-tab (copy-list *window-list*))))
+                    (let* ((p (position *active-window* *m-tab-list*))
+                           (n-windows (length *m-tab-list*))
+                           (next (if p
+                                     (elt *m-tab-list* (mod (+ p
+                                                               (if (member :shift *keyboard-modifier-state*)
+                                                                   -1
+                                                                   +1))
+                                                            n-windows))
+                                     (first *m-tab-list*))))
+                      (activate-window next))))
                  ;; Otherwise, dispatch to active window.
                  (*active-window*
                   (send-event *active-window*
@@ -226,10 +302,9 @@
 
 (defun submit-key (scancode releasep)
   "Submit a key event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'key-event
-                                               :scancode scancode
-                                               :releasep releasep)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'key-event
+                                          :scancode scancode
+                                          :releasep releasep)))
 
 ;;;; Mouse events
 
@@ -261,6 +336,14 @@
 (defvar *passive-drag* nil
   "Set to true when the drag was compositor-initiated.
 A passive drag sends no drag events to the window.")
+(defvar *resize-origin* nil)
+
+(defvar *m-tab-active* nil)
+(defvar *m-tab-list* nil)
+
+(defun allow-m-tab (window)
+  (not (and (zerop (width window))
+            (zerop (height window)))))
 
 (defun activate-window (window)
   "Make WINDOW the active window."
@@ -279,6 +362,44 @@ A passive drag sends no drag events to the window.")
       ;; Layering change, redraw the whole window.
       (expand-clip-rectangle-by-window window))))
 
+(defun compute-resized-window-geometry ()
+  (let* ((win *drag-window*)
+         (old-width (width *drag-window*))
+         (old-height (height *drag-window*)))
+    (ecase *resize-origin*
+      (:top-left
+       (values :bottom-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:top-right
+       (values :bottom-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom-right
+       (values :top-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom-left
+       (values :top-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*)))))
+      (:left
+       (values :bottom-right
+               (max 1 (+ old-width (- *drag-x-origin* *mouse-x*)))
+               old-height))
+      (:right
+       (values :top-left
+               (max 1 (- old-width (- *drag-x-origin* *mouse-x*)))
+                old-height))
+      (:top
+       (values :bottom-right
+               old-width
+               (max 1 (+ old-height (- *drag-y-origin* *mouse-y*)))))
+      (:bottom
+       (values :top-left
+               old-width
+               (max 1 (- old-height (- *drag-y-origin* *mouse-y*))))))))
+
 (defmethod process-event ((event mouse-event))
   ;; Update positions and buttons
   (let* ((buttons (or (mouse-button-state event)
@@ -294,6 +415,14 @@ A passive drag sends no drag events to the window.")
                             (- (mouse-y-position event) old-y))
                        (mouse-y-motion event)))
          (new-y (+ *mouse-y* y-motion)))
+    (when (and *active-window*
+               (grabp *active-window*))
+      (multiple-value-bind (x1 y1)
+          (window-to-screen-coordinates *active-window* (grab-x1 *active-window*) (grab-y1 *active-window*))
+        (multiple-value-bind (x2 y2)
+            (window-to-screen-coordinates *active-window* (grab-x2 *active-window*) (grab-y2 *active-window*))
+          (setf new-x (clamp new-x x1 x2)
+                new-y (clamp new-y y1 y2)))))
     (multiple-value-bind (width height)
         (screen-dimensions)
       (setf *mouse-x* (clamp new-x 0 width)
@@ -312,12 +441,19 @@ A passive drag sends no drag events to the window.")
                 *drag-y-origin* *mouse-y*
                 *drag-window* win
                 (values *drag-x* *drag-y*) (screen-to-window-coordinates win *mouse-x* *mouse-y*)
-                *passive-drag* t)
+                *passive-drag* t
+                *resize-origin* nil)
+          (activate-window win))
+        (when (and (logbitp 0 buttons)
+                   (logbitp 0 changes)
+                   (not (eql win *active-window*)))
+          ;; On left click press, select window.
           (activate-window win))
         (when (and (not (logbitp 0 buttons))
                    (logbitp 0 changes)
-                   (not (eql win *active-window*)))
-          ;; On left click release, select window.
+                   (not (eql win *active-window*))
+                   (not *drag-window*))
+          ;; On left click release, select window, unless dragging.
           (activate-window win))
         (when (and win
                    (or (not (zerop x-motion))
@@ -336,14 +472,29 @@ A passive drag sends no drag events to the window.")
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       (when *drag-window*
-        (expand-clip-rectangle-by-window *drag-window*)
-        ;; Use clipped mouse coordinates instead of relative motion.
-        (setf (window-x *drag-window*) (- *mouse-x* *drag-x*))
-        (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
-        (expand-clip-rectangle-by-window *drag-window*))
+        (cond (*resize-origin*
+               (multiple-value-bind (origin new-width new-height)
+                   (compute-resized-window-geometry)
+                 (send-event *drag-window* (make-instance 'resize-request-event
+                                                          :window *drag-window*
+                                                          :origin origin
+                                                          :width new-width
+                                                          :height new-height))))
+              (t
+               (expand-clip-rectangle-by-window *drag-window*)
+               ;; Use clipped mouse coordinates instead of relative motion.
+               (setf (window-x *drag-window*) (- *mouse-x* *drag-x*))
+               (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
+               (expand-clip-rectangle-by-window *drag-window*))))
       ;; Mouse position changed, redraw the screen.
-      (expand-clip-rectangle old-x old-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*))
-      (expand-clip-rectangle new-x new-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*)))
+      (update-mouse-cursor)
+      (let* ((cursor-surface (mouse-cursor-surface *mouse-pointer*))
+             (hot-x (mouse-cursor-hot-x *mouse-pointer*))
+             (hot-y (mouse-cursor-hot-y *mouse-pointer*))
+             (cursor-width (mezzano.gui:surface-width cursor-surface))
+             (cursor-height (mezzano.gui:surface-height cursor-surface)))
+        (expand-clip-rectangle (- old-x hot-x) (- old-y hot-y) cursor-width cursor-height)
+        (expand-clip-rectangle (- new-x hot-x) (- new-y hot-y) cursor-width cursor-height)))
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
                *drag-window*)
@@ -352,22 +503,34 @@ A passive drag sends no drag events to the window.")
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
-                                               :button-state buttons
-                                               :x-motion x-motion
-                                               :y-motion y-motion)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'mouse-event
+                                          :button-state buttons
+                                          :x-motion x-motion
+                                          :y-motion y-motion)))
 
 (defun submit-mouse-absolute (x-position y-position)
   "Submit a mouse event into the input system."
-  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
-                                               :x-position x-position
-                                               :y-position y-position)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'mouse-event
+                                          :x-position x-position
+                                          :y-position y-position)))
 
 (defun global-mouse-state ()
   "Fetch the current mouse state."
   (values *mouse-buttons* *mouse-x* *mouse-y*))
+
+(defun update-mouse-cursor ()
+  ;; Get cursor style under mouse.
+  (let* ((mwin (window-at-point *mouse-x* *mouse-y*))
+         (style (if mwin
+                    (or (cursor mwin) :default)
+                    :default)))
+    (when (eql style :default)
+      (setf style *default-mouse-pointer*))
+    (when (eql style :none)
+      (setf style *none-mouse-pointer*))
+    (when (not (eql style *mouse-pointer*))
+      (setf *mouse-pointer* style)
+      (recompose-windows t))))
 
 ;;;; Window creation event.
 ;;;; From clients to the compositor.
@@ -387,13 +550,18 @@ A passive drag sends no drag events to the window.")
        (setf *window-list* (append *window-list* (list win))))
       (:top
        (push win *window-list*))
-      (t (setf (slot-value win '%layer) nil)
-         (cond ((and (eql (initial-z-order event) :below-current)
-                     *window-list*)
-                (setf *window-list* (list* (first *window-list*)
-                                           win
-                                           (rest *window-list*))))
-               (t (push win *window-list*)))))
+      (t
+       (setf (slot-value win '%layer) nil)
+       (cond ((and (eql (initial-z-order event) :below-current)
+                   *window-list*)
+              (setf *window-list* (list* (first *window-list*)
+                                         win
+                                         (rest *window-list*))))
+             (t (push win *window-list*)))
+       (setf (window-x win) (- (truncate (mezzano.supervisor:framebuffer-width *main-screen*) 2)
+                               (truncate (width win) 2))
+             (window-y win) (- (truncate (mezzano.supervisor:framebuffer-height *main-screen*) 2)
+                               (truncate (height win) 2)))))
     (when (and *active-window*
                (eql (initial-z-order event) :top))
       (send-event *active-window* (make-instance 'window-activation-event
@@ -405,10 +573,10 @@ A passive drag sends no drag events to the window.")
       (send-event win (make-instance 'window-activation-event
                                      :window win
                                      :state t)))
-    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-          *clip-rect-x* 0
-          *clip-rect-y* 0)))
+    (when (and *m-tab-active*
+               (allow-m-tab win))
+      (push win *m-tab-list*))
+    (expand-clip-rectangle-by-window win)))
 
 (defmacro with-window ((window fifo width height &rest options) &body body)
   `(let (,window)
@@ -427,10 +595,9 @@ A passive drag sends no drag events to the window.")
                                :buffer (mezzano.gui:make-surface width height)
                                :layer layer
                                :kind kind)))
-    (mezzano.supervisor:fifo-push (make-instance 'window-create-event
-                                                 :window window
-                                                 :initial-z-order (or initial-z-order :top))
-                                  *event-queue*)
+    (submit-compositor-event (make-instance 'window-create-event
+                                            :window window
+                                            :initial-z-order (or initial-z-order :top)))
     window))
 
 ;;;; Window close event.
@@ -439,26 +606,24 @@ A passive drag sends no drag events to the window.")
   ((%window :initarg :window :reader window)))
 
 (defmethod process-event ((event window-close-event))
-  (format t "Closing window ~S. Goodbye!~%" (window event))
-  (setf *window-list* (remove (window event) *window-list*))
-  (when (eql *drag-window* (window event))
-    (setf *drag-window* nil))
-  (when (eql *active-window* (window event))
-    (setf *active-window* (first *window-list*))
-    (when *active-window*
-      (send-event *active-window* (make-instance 'window-activation-event
-                                                 :window *active-window*
-                                                 :state t))))
-  (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-        *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-        *clip-rect-x* 0
-        *clip-rect-y* 0)
-  (send-event (window event) event))
+  (let ((win (window event)))
+    (format t "Closing window ~S. Goodbye!~%" win)
+    (setf *window-list* (remove win *window-list*))
+    (when (eql *drag-window* win)
+      (setf *drag-window* nil))
+    (when (eql *active-window* win)
+      (setf *active-window* (first *window-list*))
+      (when *active-window*
+        (send-event *active-window* (make-instance 'window-activation-event
+                                                   :window *active-window*
+                                                   :state t))))
+    (expand-clip-rectangle-by-window win)
+    (setf *m-tab-list* (remove win *window-list*))
+    (send-event win event)))
 
 (defun close-window (window)
-  (mezzano.supervisor:fifo-push (make-instance 'window-close-event
-                                               :window window)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'window-close-event
+                                          :window window)))
 
 ;;;; Window activation changed.
 
@@ -486,13 +651,188 @@ A passive drag sends no drag events to the window.")
 
 (defun damage-window (window x y width height)
   "Send a window damage event to the compositor."
-  (mezzano.supervisor:fifo-push (make-instance 'damage-event
-                                               :window window
-                                               :x x
-                                               :y y
-                                               :width width
-                                               :height height)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'damage-event
+                                          :window window
+                                          :x x
+                                          :y y
+                                          :width width
+                                          :height height)))
+
+;;;; Window dragging.
+
+(defclass begin-drag-event ()
+  ((%window :initarg :window :reader window)
+   (%mode :initarg :mode :reader mode)))
+
+(defmethod process-event ((event begin-drag-event))
+  (let ((window (window event))
+        (mode (mode event)))
+    (when (and (eql window *active-window*)
+               (not *drag-window*)
+               (member mode '(:move
+                              :top-left
+                              :top-right
+                              :bottom-right
+                              :bottom-left
+                              :left
+                              :right
+                              :top
+                              :bottom)))
+      (setf *drag-x-origin* *mouse-x*
+            *drag-y-origin* *mouse-y*
+            *drag-window* window
+            (values *drag-x* *drag-y*) (screen-to-window-coordinates window *mouse-x* *mouse-y*)
+            *passive-drag* nil
+            *resize-origin* (if (eql mode :move)
+                                nil
+                                mode)))))
+
+(defun begin-window-drag (window &key (mode :move))
+  "Send a begin drag event to the compositor."
+  (submit-compositor-event (make-instance 'begin-drag-event
+                                          :window window
+                                          :mode mode)))
+
+;;;; Window resizing.
+
+(defclass resize-request-event ()
+  ((%window :initarg :window :reader window)
+   (%origin :initarg :origin :reader resize-origin)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
+(defclass resize-event ()
+  ((%window :initarg :window :reader window)
+   (%origin :initarg :origin :reader resize-origin)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)
+   (%new-fb :initarg :new-fb :reader resize-new-fb)))
+
+(defmethod process-event ((event resize-event))
+  (let* ((window (window event))
+         (origin (resize-origin event))
+         (old-framebuffer (window-buffer window))
+         (new-framebuffer (resize-new-fb event))
+         (delta-w (- (mezzano.gui:surface-width old-framebuffer)
+                     (mezzano.gui:surface-width new-framebuffer)))
+         (delta-h (- (mezzano.gui:surface-height old-framebuffer)
+                     (mezzano.gui:surface-height new-framebuffer))))
+    (assert (eql (mezzano.gui:surface-format new-framebuffer) :argb32))
+    ;; Window size and position is going to change.
+    (expand-clip-rectangle-by-window window)
+    ;; Move window and update drag variables based on origin.
+    (when (eql *drag-window* window)
+      (case origin
+        (:top-left
+         (decf *drag-x-origin* delta-w)
+         (decf *drag-y-origin* delta-h))
+        (:bottom-left
+         (decf *drag-x-origin* delta-w)
+         (incf *drag-y-origin* delta-h))
+        (:bottom-right
+         (incf *drag-x-origin* delta-w)
+         (incf *drag-y-origin* delta-h))
+        (:top-right
+         (incf *drag-x-origin* delta-w)
+         (decf *drag-y-origin* delta-h))))
+    (case origin
+      (:bottom-right
+       (incf (window-x window) delta-w)
+       (incf (window-y window) delta-h))
+      (:top-right
+       (incf (window-x window) delta-w))
+      (:bottom-left
+       (incf (window-y window) delta-h)))
+    ;; Switch over to the new framebuffer.
+    (setf (slot-value window '%buffer) new-framebuffer)
+    ;; Update display based on new position & geometry.
+    (expand-clip-rectangle-by-window window)
+    ;; Notify the client that the resize has completed here.
+    (send-event window event)
+    ;; Adjust the window's grab region, keeping it clamped to the
+    ;; window geometry.
+    ;; TODO: Make use of origin when adjusting it?
+    (when (grabp window)
+      (setf (grab-x1 window) (min (grab-x1 window) (width window))
+            (grab-y1 window) (min (grab-y1 window) (height window))
+            (grab-x2 window) (min (grab-x2 window) (width window))
+            (grab-y2 window) (min (grab-y2 window) (height window))))
+    ;; Mouse cursor may or may not be over a different window now.
+    (update-mouse-cursor)))
+
+(defun resize-window (window new-framebuffer &key (origin :top-left))
+  (assert (eql (mezzano.gui:surface-format new-framebuffer) :argb32))
+  (submit-compositor-event (make-instance 'resize-event
+                                          :window window
+                                          :origin origin
+                                          :new-fb new-framebuffer)))
+
+;;;; Window data.
+
+(defclass set-window-data-event ()
+  ((%window :initarg :window :reader window)
+   (%data :initarg :data :reader window-data)))
+
+(defun lookup-cursor (cursor)
+  (cond ((typep cursor 'mouse-cursor)
+         cursor)
+        (t (case cursor
+             (:default :default)
+             (:none :none)
+             (t (gethash cursor *mouse-cursor-library*))))))
+
+(defun real-set-window-data (window &key cursor &allow-other-keys)
+  (when cursor
+    (setf (cursor window) (or (lookup-cursor cursor)
+                              :default))
+    (update-mouse-cursor)))
+
+(defmethod process-event ((event set-window-data-event))
+  (apply #'real-set-window-data (window event) (window-data event)))
+
+(defun set-window-data (window &rest data &key &allow-other-keys)
+  (submit-compositor-event (make-instance 'set-window-data-event
+                                          :window window
+                                          :data data)))
+
+;;;; Cursor control.
+
+(defclass grab-cursor-event ()
+  ((%window :initarg :window :reader window)
+   (%grabp :initarg :grabp :reader grabp)
+   (%x :initarg :x :reader x)
+   (%y :initarg :y :reader y)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
+(defmethod process-event ((event grab-cursor-event))
+  (let* ((win (window event))
+         (x1 (or (x event) 0))
+         (y1 (or (y event) 0))
+         (x2 (+ x1 (or (width event) (width win))))
+         (y2 (+ y1 (or (height event) (height win)))))
+    (setf (grabp win) (grabp event)
+          (grab-x1 win) (clamp x1 0 (width win))
+          (grab-y1 win) (clamp y1 0 (height win))
+          (grab-x2 win) (clamp x2 0 (width win))
+          (grab-y2 win) (clamp y2 0 (height win)))))
+
+(defun grab-cursor (window grabp &optional x y w h)
+  "Grab or release the cursor.
+Prevents the cursor from leaving the window boundary.
+Only works when the window is active."
+  (submit-compositor-event (make-instance 'grab-cursor-event
+                                          :window window
+                                          :grabp grabp
+                                          :x x
+                                          :y y
+                                          :width w
+                                          :height h)))
+
+;;;; Quit event, sent by the compositor when the user wants to close the window.
+
+(defclass quit-event ()
+  ((%window :initarg :window :reader window)))
 
 ;;;; Internal redisplay timer event.
 
@@ -504,8 +844,7 @@ A passive drag sends no drag events to the window.")
   (recompose-windows (redisplay-time-event-fullp event)))
 
 (defun force-redisplay (&optional full)
-  (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event :full full)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'redisplay-time-event :full full)))
 
 ;;;; Notifications.
 
@@ -514,10 +853,9 @@ A passive drag sends no drag events to the window.")
    (%category :initarg :category :reader category)))
 
 (defun subscribe-notification (window category)
-  (mezzano.supervisor:fifo-push (make-instance 'subscribe-event
-                                               :window window
-                                               :category category)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'subscribe-event
+                                          :window window
+                                          :category category)))
 
 (defmethod process-event ((event subscribe-event))
   (pushnew (category event) (slot-value (window event) '%subscribed-notifications))
@@ -532,10 +870,9 @@ A passive drag sends no drag events to the window.")
    (%category :initarg :category :reader category)))
 
 (defun unsubscribe-notification (window category)
-  (mezzano.supervisor:fifo-push (make-instance 'unsubscribe-event
-                                               :window window
-                                               :category category)
-                                *event-queue*))
+  (submit-compositor-event (make-instance 'unsubscribe-event
+                                          :window window
+                                          :category category)))
 
 (defmethod process-event ((event unsubscribe-event))
   (setf (slot-value (window event) '%subscribed-notifications)
@@ -559,23 +896,11 @@ A passive drag sends no drag events to the window.")
   "Send an event to a window."
   (cond ((mezzano.supervisor:fifo-push event (fifo window) nil)
          (when (window-unresponsive window)
-           (format t "Window ~S/FIFO ~S is accepting events again.~%"
-                   window (with-output-to-string (s)
-                            (print-unreadable-object ((fifo window) s :type t :identity t))))
-           (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-                 *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-                 *clip-rect-x* 0
-                 *clip-rect-y* 0)
+           (expand-clip-rectangle-by-window window)
            (setf (window-unresponsive window) nil)))
         ((not (window-unresponsive window))
          (setf (window-unresponsive window) t)
-         (format t "Window ~S/FIFO ~A has stopped accepting events.~%"
-                 window (with-output-to-string (s)
-                          (print-unreadable-object ((fifo window) s :type t :identity t))))
-         (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-               *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-               *clip-rect-x* 0
-               *clip-rect-y* 0))))
+         (expand-clip-rectangle-by-window window))))
 
 ;; FIXME: This really shouldn't be synchronous.
 (defun get-window-by-kind (kind)
@@ -647,11 +972,7 @@ A passive drag sends no drag events to the window.")
 
 (defun recompose-windows (&optional full)
   (when full
-    ;; Expand the cliprect to the entire screen.
-    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
-          *clip-rect-x* 0
-          *clip-rect-y* 0))
+    (damage-whole-screen))
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
     (return-from recompose-windows))
@@ -665,9 +986,12 @@ A passive drag sends no drag events to the window.")
                       (mezzano.gui:make-colour 0 0 0 0.5)
                       (window-x window) (window-y window))))
   ;; Then the mouse pointer on top.
-  (blit-with-clip (surface-width *mouse-pointer*) (surface-height *mouse-pointer*)
-                  *mouse-pointer*
-                  (- *mouse-x* *mouse-hot-x*) (- *mouse-y* *mouse-hot-y*))
+  (let ((mouse-surface (mouse-cursor-surface *mouse-pointer*))
+        (hot-x (mouse-cursor-hot-x *mouse-pointer*))
+        (hot-y (mouse-cursor-hot-y *mouse-pointer*)))
+    (blit-with-clip (surface-width mouse-surface) (surface-height mouse-surface)
+                    mouse-surface
+                    (- *mouse-x* hot-x) (- *mouse-y* hot-y)))
   ;; Update the actual screen.
   (mezzano.supervisor:framebuffer-blit *main-screen*
                                        *clip-rect-height*
@@ -707,8 +1031,7 @@ A passive drag sends no drag events to the window.")
      (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
                (and (not (zerop *clip-rect-width*))
                     (not (zerop *clip-rect-height*))))
-       (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event)
-                                     *event-queue*))))
+       (submit-compositor-event (make-instance 'redisplay-time-event)))))
 
 (when (not *compositor*)
   (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread

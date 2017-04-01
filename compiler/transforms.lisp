@@ -125,7 +125,9 @@
 
 (defmethod apply-transforms-1 ((form ast-jump-table) target-architecture)
   (setf (value form) (apply-transforms-1 (value form) target-architecture))
-  (setf (targets form) (kt-implicit-progn (targets form) target-architecture))
+  (setf (targets form) (loop
+                          for target in (targets form)
+                          collect (apply-transforms-1 target target-architecture)))
   form)
 
 (defclass transform ()
@@ -257,6 +259,14 @@
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
+
+(define-transform mezzano.runtime::%fixnum-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
+(define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
 
 ;;; Fixnum comparisons.
 

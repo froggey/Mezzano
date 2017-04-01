@@ -208,6 +208,7 @@
     (initialize-acpi)
     (initialize-virtio)
     (initialize-platform)
+    (initialize-time-late)
     (when (not (boot-option +boot-option-no-detect+))
       (detect-disk-partitions))
     (initialize-paging-system)

@@ -111,8 +111,39 @@
   (mezzano.gui.widgets:frame-mouse-event (frame window) event))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-close-event))
-  (throw 'mezzano.supervisor::terminate-thread nil)
-  (setf (window-closed window) t))
+  (throw 'mezzano.supervisor:terminate-thread nil))
+
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
+  (throw 'mezzano.supervisor:terminate-thread nil))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))
+  (let ((old-width (mezzano.gui.compositor:width (window app)))
+        (old-height (mezzano.gui.compositor:height (window app)))
+        (new-width (max 100 (mezzano.gui.compositor:width event)))
+        (new-height (max 100 (mezzano.gui.compositor:height event))))
+    (when (or (not (eql old-width new-width))
+              (not (eql old-height new-height)))
+      (let ((new-framebuffer (mezzano.gui:make-surface
+                              new-width new-height))
+            (frame (frame app)))
+        (mezzano.gui.widgets:resize-frame frame new-framebuffer)
+        (mezzano.gui.widgets:resize-text-widget
+         app
+         new-framebuffer
+         (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+         (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+         (- new-width
+            (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+            (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+         (- new-height
+            (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+            (nth-value 3 (mezzano.gui.widgets:frame-size frame))))
+        (mezzano.gui.compositor:resize-window
+         (window app) new-framebuffer
+         :origin (mezzano.gui.compositor:resize-origin event))))))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
+  )
 
 (defun pump-event-loop (window)
   "Read & dispatch window events until there are no more waiting events."
@@ -129,6 +160,7 @@
          (loop
             ;; Catch up with window manager events.
             (pump-event-loop stream)
+            (setf (mezzano.gui.widgets:cursor-visible stream) t)
             (when (window-closed stream)
               (return :eof))
             ;; Check for an available character.
@@ -173,7 +205,9 @@
                                    :framebuffer framebuffer
                                    :title (string (or title initial-function "REPL"))
                                    :close-button-p t
-                                   :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                                   :resizablep t
+                                   :damage-function (mezzano.gui.widgets:default-damage-function window)
+                                   :set-cursor-function (mezzano.gui.widgets:default-cursor-function window)))
              (term (make-instance 'fancy-repl
                                   :fifo fifo
                                   :window window

@@ -9,28 +9,53 @@
 
 (in-package :mezzano.gui.memory-monitor)
 
-(defgeneric dispatch-event (frame event)
+(defclass memory-monitor ()
+  ((%frame :initarg :frame :accessor frame)
+   (%window :initarg :window :accessor window)
+   (%fifo :initarg :fifo :accessor fifo)))
+
+(defgeneric dispatch-event (app event)
   (:method (f e)))
 
-(defmethod dispatch-event (frame (event mezzano.gui.compositor:key-event))
+(defmethod dispatch-event (app (event mezzano.gui.compositor:key-event))
   (when (not (mezzano.gui.compositor:key-releasep event))
     (let* ((ch (mezzano.gui.compositor:key-key event)))
       (cond ((char= ch #\Space)
              ;; refresh current window
              (throw 'redraw nil))))))
 
-(defmethod dispatch-event (frame (event mezzano.gui.compositor:window-activation-event))
-  (setf (mezzano.gui.widgets:activep frame) (mezzano.gui.compositor:state event))
-  (mezzano.gui.widgets:draw-frame frame))
+(defmethod dispatch-event (app (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep (frame app)) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame (frame app)))
 
-(defmethod dispatch-event (frame (event mezzano.gui.compositor:mouse-event))
+(defmethod dispatch-event (app (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzano.gui.widgets:frame-mouse-event frame event)
+      (mezzano.gui.widgets:frame-mouse-event (frame app) event)
     (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (frame (event mezzano.gui.compositor:window-close-event))
+(defmethod dispatch-event (app (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))
+  (let ((old-width (mezzano.gui.compositor:width (window app)))
+        (old-height (mezzano.gui.compositor:height (window app)))
+        (new-width (max 100 (mezzano.gui.compositor:width event)))
+        (new-height (max 100 (mezzano.gui.compositor:height event))))
+    (when (or (not (eql old-width new-width))
+              (not (eql old-height new-height)))
+      (let ((new-framebuffer (mezzano.gui:make-surface
+                              new-width new-height)))
+        (mezzano.gui.widgets:resize-frame (frame app) new-framebuffer)
+        (mezzano.gui.compositor:resize-window
+         (window app) new-framebuffer
+         :origin (mezzano.gui.compositor:resize-origin event))))))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
+  (throw 'redraw nil))
 
 (defun get-maximum-physical-address ()
   ;; Iterate the memory map. Highest address wins.
@@ -97,22 +122,28 @@
     (catch 'quit
       (let ((fifo (mezzano.supervisor:make-fifo 50)))
         (mezzano.gui.compositor:with-window (window fifo (or open-width 500) (or open-height 500))
-          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzano.gui.widgets:frame
-                                       :framebuffer framebuffer
+          (let* ((frame (make-instance 'mezzano.gui.widgets:frame
+                                       :framebuffer (mezzano.gui.compositor:window-buffer window)
                                        :title "Memory monitor"
                                        :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window))))
+                                       :resizablep t
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window)
+                                       :set-cursor-function (mezzano.gui.widgets:default-cursor-function window)))
+                 (app (make-instance 'memory-monitor
+                                     :fifo fifo
+                                     :window window
+                                     :frame frame)))
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window
                                                   0 0
                                                   (mezzano.gui.compositor:width window)
                                                   (mezzano.gui.compositor:height window))
-            (multiple-value-bind (left right top bottom)
-                (mezzano.gui.widgets:frame-size frame)
-              (let ((width (- (mezzano.gui.compositor:width window) left right))
-                    (height (- (mezzano.gui.compositor:height window) top bottom)))
-                (loop
+            (loop
+               (multiple-value-bind (left right top bottom)
+                   (mezzano.gui.widgets:frame-size frame)
+                 (let ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                       (width (- (mezzano.gui.compositor:width window) left right))
+                       (height (- (mezzano.gui.compositor:height window) top bottom)))
                    ;; FIXME: Should do this in a seperate thread.
                    (update-display framebuffer left top width height)
                    (mezzano.gui.compositor:damage-window window
@@ -120,7 +151,7 @@
                                                          width height)
                    (catch 'redraw
                      (loop
-                        (dispatch-event frame (mezzano.supervisor:fifo-pop fifo)))))))))))))
+                        (dispatch-event app (mezzano.supervisor:fifo-pop fifo)))))))))))))
 
 (defun spawn (&optional width height)
   (mezzano.supervisor:make-thread (lambda () (main width height))

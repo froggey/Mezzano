@@ -82,7 +82,7 @@ party to perform, the indicated option.")
            (#.+option-terminal-type+
             (write-sequence (apply 'vector
                                    (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
-                                           (map 'list 'char-code "xterm-color") ; what's a "color"?
+                                           (map 'list 'char-code (terminal-type telnet))
                                            (list +command-iac+ +command-se+)))
                             connection))
            (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
@@ -96,20 +96,18 @@ party to perform, the indicated option.")
                                     +option-terminal-type+)
                             connection))
            (#.+option-window-size+
-            (write-sequence (apply 'vector
-                                   (append (list +command-iac+ +command-sb+ +option-window-size+)
-                                           (let ((width (mezzano.gui.xterm::terminal-width (xterm telnet)))
-                                                 (height (mezzano.gui.xterm::terminal-height (xterm telnet))))
-                                             (list (ldb (byte 8 8) width) (ldb (byte 8 0) width)
-                                                   (ldb (byte 8 8) height) (ldb (byte 8 0) height)))
-                                           (list +command-iac+ +command-se+)))
-                            connection))
+            (when (eql option +option-window-size+)
+              (setf (do-window-size-updates telnet) t))
+            (send-window-size telnet))
            (t (write-sequence (vector +command-iac+ +command-wont+ option)
                               connection)))))
       (#.+command-dont+
-       (write-sequence (vector +command-iac+ +command-wont+
-                               (read-byte connection))
-                       connection))
+       (let ((option (read-byte connection)))
+         (when (eql option +option-window-size+)
+           (setf (do-window-size-updates telnet) nil))
+         (write-sequence (vector +command-iac+ +command-wont+
+                                 option)
+                         connection)))
       (#.+command-will+
        (read-byte connection)
        #+nil(write-sequence (vector +command-iac+ +command-wont+
@@ -119,13 +117,26 @@ party to perform, the indicated option.")
        #+nil(write-sequence (vector +command-iac+ +command-wont+
                                     (read-byte connection)))))))
 
+(defun send-window-size (telnet)
+  (write-sequence (apply 'vector
+                         (append (list +command-iac+ +command-sb+ +option-window-size+)
+                                 (let ((width (mezzano.gui.xterm:terminal-width (xterm telnet)))
+                                       (height (mezzano.gui.xterm:terminal-height (xterm telnet))))
+                                   (list (ldb (byte 8 8) width) (ldb (byte 8 0) width)
+                                         (ldb (byte 8 8) height) (ldb (byte 8 0) height)))
+                                 (list +command-iac+ +command-se+)))
+                  (connection telnet)))
+
 (defclass telnet-client ()
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
+   (%font :initarg :font :reader font)
    (%frame :initarg :frame :reader frame)
    (%xterm :initarg :xterm :reader xterm)
+   (%terminal-type :initarg :terminal-type :reader terminal-type)
    (%connection :initarg :connection :accessor connection)
-   (%receive-thread :initarg :receive-thread :accessor receive-thread))
+   (%receive-thread :initarg :receive-thread :accessor receive-thread)
+   (%do-window-size-updates :initarg :do-window-size-updates :accessor do-window-size-updates))
   (:default-initargs :connection nil))
 
 (defclass server-disconnect-event ()
@@ -179,6 +190,9 @@ party to perform, the indicated option.")
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:quit-event))
+  (throw 'quit nil))
+
 (define-condition typed-key ()
   ((%key :initarg :key :reader typed-key)))
 
@@ -196,6 +210,39 @@ party to perform, the indicated option.")
 (defmethod dispatch-event (telnet (event server-disconnect-event))
   (setf (connection telnet) nil)
   (telnet-write-string telnet (format nil "~%Disconnected from server")))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-request-event))
+  (let ((old-width (mezzano.gui.compositor:width (window app)))
+        (old-height (mezzano.gui.compositor:height (window app)))
+        (new-width (max 100 (mezzano.gui.compositor:width event)))
+        (new-height (max 100 (mezzano.gui.compositor:height event))))
+    ;; Snap dimensions to multiples of the font size.
+    (multiple-value-bind (left right top bottom)
+        (mezzano.gui.widgets:frame-size (frame app))
+      (let* ((font (font app))
+             (ch-width (mezzano.gui.font:glyph-advance
+                        (mezzano.gui.font:character-to-glyph font #\M)))
+             (ch-height (mezzano.gui.font:line-height font))
+             (visible-width (truncate (- new-width left right) ch-width))
+             (visible-height (truncate (- new-height top bottom) ch-height))
+             (real-new-width (+ left right (* visible-width ch-width)))
+             (real-new-height (+ top bottom (* visible-height ch-height))))
+        (when (or (not (eql old-width real-new-width))
+                  (not (eql old-height real-new-height)))
+          (let ((new-framebuffer (mezzano.gui:make-surface
+                                  real-new-width real-new-height)))
+            (mezzano.gui.xterm:xterm-resize (xterm app)
+                                            new-framebuffer
+                                            left top
+                                            visible-width visible-height)
+            (mezzano.gui.widgets:resize-frame (frame app) new-framebuffer)
+            (mezzano.gui.compositor:resize-window
+             (window app) new-framebuffer
+             :origin (mezzano.gui.compositor:resize-origin event))))))))
+
+(defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
+  (when (do-window-size-updates app)
+    (send-window-size app)))
 
 (defun telnet-receive (telnet)
   (handler-case
@@ -267,7 +314,9 @@ party to perform, the indicated option.")
                                          :framebuffer framebuffer
                                          :title "Telnet"
                                          :close-button-p t
-                                         :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                                         :resizablep t
+                                         :damage-function (mezzano.gui.widgets:default-damage-function window)
+                                         :set-cursor-function (mezzano.gui.widgets:default-cursor-function window)))
                    (xterm (make-instance 'mezzano.gui.xterm:xterm-terminal
                                          :framebuffer framebuffer
                                          :font font
@@ -279,8 +328,10 @@ party to perform, the indicated option.")
                    (telnet (make-instance 'telnet-client
                                           :fifo fifo
                                           :window window
+                                          :font font
                                           :frame frame
-                                          :xterm xterm)))
+                                          :xterm xterm
+                                          :terminal-type terminal-type)))
               (mezzano.gui.widgets:draw-frame frame)
               (mezzano.gui.compositor:damage-window window
                                                     0 0

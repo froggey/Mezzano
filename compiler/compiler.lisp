@@ -141,6 +141,7 @@ A list of any declaration-specifiers."
       (setf form (kill-temporaries (detect-uses form)))
       (setf form (value-aware-lowering (detect-uses form)))
       (setf form (simplify-control-flow (detect-uses form)))
+      (setf form (blexit (detect-uses form)))
       (setf form (apply-transforms (detect-uses form) target-architecture))
       (detect-uses form)
       (when (eql *change-count* 0)

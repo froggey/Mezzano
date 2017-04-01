@@ -209,8 +209,7 @@ and then some alignment.")
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len
-                           :element-type '(unsigned-byte 8)
-                           :area :wired))
+                           :element-type '(unsigned-byte 8)))
          (cons (cons data nil)))
     (when (> len +virtio-net-mtu+)
       (error "Packet exceeds MTU."))
