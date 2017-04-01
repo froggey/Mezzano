@@ -58,9 +58,9 @@
   )
 
 (defmethod cl-video:translate-source-frame ((aout mezzano-pcm-output) frame)
-  (with-slots (audio-rec) aout
+  (with-slots (cl-video:audio-rec) aout
     (loop for i from 0 below (length frame)
-	 do (setf (aref frame i) (aref (cl-video:buffer audio-rec))))))
+	 do (setf (aref frame i) (aref (cl-video:buffer cl-video:audio-rec))))))
 
 ;;; we speccialize own class & method to resample stream as necessary for Intel HDA
 ;;; but we still want to run decode in another thread
