@@ -66,16 +66,16 @@
 ;;; but we still want to run decode in another thread
 
 (defmethod play-audio-stream ((container cl-video:av-container))
-  (let ((aout (cl-video:audio-out container))
-	(audio-rec (cl-video:audio-rec aout)))
+  (let* ((aout (cl-video:audio-out container))
+	 (audio-rec (cl-video:audio-rec aout)))
     (when audio-rec
       (mezzano.supervisor:make-thread
        #'(lambda ()
 	   (cl-video:stream-playback-start audio-rec)
 	   (unwind-protect
-		(unless (not (and (eql compression 1) ; uncompressed
-				  (eql sample-rate 44100)
-				  (member sample-size '(8 16))))
+		(unless (not (and (eql (cl-video:compression-code audio-rec) 1) ; uncompressed
+				  (eql (cl-video:sample-rate audio-rec) 44100)
+				  (member (cl-video:significant-bits-per-sample audio-rec) '(8 16))))
 		  (loop until (cl-video:finish container)
 		     for cur = (if (cl-video:pause container) cur (cl-video:pop-chunk-rcursor audio-rec))
 		     for src = (cl-video:frame cur) do
