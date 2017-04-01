@@ -709,3 +709,18 @@ VALUE may be nil to make the fref unbound."
        multiple-value-call multiple-value-prog1
        progn progv quote return-from setq symbol-macrolet
        tagbody the throw unwind-protect))
+
+(defun object-allocation-area (object)
+  (cond ((or (%value-has-tag-p object +tag-cons+)
+             (%value-has-tag-p object +tag-object+))
+         (case (ldb (byte +address-tag-size+ +address-tag-shift+)
+                    (lisp-object-address object))
+           (#.+address-tag-pinned+
+            (if (< (lisp-object-address object) #x80000000)
+                :wired
+                :pinned))
+           (#.+address-tag-stack+
+            :dynamic-extent)
+           (t nil)))
+        (t
+         :immediate)))

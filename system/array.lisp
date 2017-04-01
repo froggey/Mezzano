@@ -422,7 +422,8 @@
                      (element-type (array-element-type array))
                      (initial-element nil initial-element-p)
                      (initial-contents nil initial-contents-p)
-                     fill-pointer)
+                     fill-pointer
+                     (area (object-allocation-area array)))
   (when (integerp new-dimensions)
     (setf new-dimensions (list new-dimensions)))
   (when (not (eql (array-rank array) (length new-dimensions)))
@@ -450,8 +451,8 @@
            (fill-pointer array) array new-dimensions))
   (cond ((%simple-1d-array-p array)
          (let ((new-array (if initial-element-p
-                              (make-simple-array (first new-dimensions) element-type nil initial-element)
-                              (make-simple-array (first new-dimensions) element-type nil))))
+                              (make-simple-array (first new-dimensions) element-type area initial-element)
+                              (make-simple-array (first new-dimensions) element-type area))))
            (cond (initial-contents-p
                   (initialize-from-initial-contents new-array initial-contents))
                  (t
@@ -462,7 +463,7 @@
               (character-array-p array))
          (setf (%complex-array-storage array) (if initial-element-p
                                                   (adjust-array (%complex-array-storage array) new-dimensions
-                                                            :initial-element (char-int initial-element))
+                                                                :initial-element (char-int initial-element))
                                                   (adjust-array (%complex-array-storage array) new-dimensions))
                (%complex-array-dimension array 0) (first new-dimensions))
          (when initial-contents-p
