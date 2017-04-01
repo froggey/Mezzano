@@ -271,7 +271,11 @@
     (let ((key (cons (pathname-name truename) (pathname-type truename)))
           (file (make-instance 'local-file
                                :truename truename
-                               :storage (make-array 0 :element-type element-type :adjustable t :fill-pointer 0)
+                               :storage (make-array 0
+                                                    :element-type element-type
+                                                    :adjustable t
+                                                    :fill-pointer 0
+                                                    :area :pinned)
                                :plist (list :creation-time time
                                             :write-time time))))
       (cond (container
@@ -354,7 +358,11 @@
            (setf superseded-file file
                  file (make-instance 'local-file
                                      :truename (file-truename file)
-                                     :storage (make-array 0 :element-type element-type :adjustable t :fill-pointer 0))))
+                                     :storage (make-array 0
+                                                          :element-type element-type
+                                                          :adjustable t
+                                                          :fill-pointer 0
+                                                          :area :pinned))))
           ((:overwrite :append)
            ???)
           ((nil) (return-from open-using-host nil))))
