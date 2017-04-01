@@ -201,24 +201,35 @@
                                                    (lognot 127))))
 (defconstant +io-buffer-size+ (+ +bdl-offset+ (* +maximum-n-streams+ +bdl-entry-size+ +max-bdl-entries+)))
 
-(defvar *cards* '())
+(defclass hda (mezzano.driver.sound:sound-card)
+  ((pci-device :initarg :pci-device :accessor hda-pci-device)
+   (register-set :initarg :register-set :accessor hda-register-set)
+   ;; CORB, RIRB & DMA Position in Current Buffer share the same DMA allocation.
+   ;; CORB starts at 0, RIRB starts at 1k and position starts at 3k.
+   (corb/rirb/dmap :initarg :corb/rirb/dmap :accessor hda-corb/rirb/dmap)
+   (corb/rirb/dmap-physical :initarg :corb/rirb/dmap-physical :accessor hda-corb/rirb/dmap-physical)
+   (corbsize :initarg :corbsize :accessor hda-corbsize)
+   (rirbsize :initarg :rirbsize :accessor hda-rirbsize)
+   (rirb-read-pointer :initarg :rirb-read-pointer :accessor hda-rirb-read-pointer)
+   (codecs :initarg :codecs :accessor hda-codecs)
+   (interrupt-latch :initarg :interrupt-latch :accessor hda-interrupt-latch)
+   (interrupt-handler :initarg :interrupt-handler :accessor hda-interrupt-handler)
+   (dma-buffer-phys :initarg :dma-buffer-phys :accessor hda-dma-buffer-phys)
+   (dma-buffer-virt :initarg :dma-buffer-virt :accessor hda-dma-buffer-virt)
+   (dma-buffer-size :initarg :dma-buffer-size :accessor hda-dma-buffer-size))
+  (:default-initargs :codecs (make-array 15 :initial-element nil)))
 
-(defstruct hda
-  pci-device
-  register-set
-  ;; CORB, RIRB & DMA Position in Current Buffer share the same DMA allocation.
-  ;; CORB starts at 0, RIRB starts at 1k and position starts at 3k.
-  corb/rirb/dmap
-  corb/rirb/dmap-physical
-  corbsize
-  rirbsize
-  rirb-read-pointer
-  (codecs (make-array 15 :initial-element nil))
-  interrupt-latch
-  interrupt-handler
-  dma-buffer-phys
-  dma-buffer-virt
-  dma-buffer-size)
+(define-condition device-disconnect () ())
+
+(defun check-hda-presence (hda)
+  (when (not (eql (mezzano.supervisor::pci-device-boot-id (hda-pci-device hda))
+                  (mezzano.supervisor:current-boot-id)))
+    (signal 'device-disconnect)))
+
+(defmacro with-hda-access ((hda) &body body)
+  `(mezzano.supervisor:with-snapshot-inhibited ()
+     (check-hda-presence ,hda)
+     ,@body))
 
 (defun global-reg/8 (hda reg)
   (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg))
@@ -828,7 +839,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun intel-hda-probe (device)
   ;; FIXME: Flush old cards first.
   (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
-         (hda (make-hda :pci-device device :register-set bar0)))
+         (hda (make-instance 'hda :pci-device device :register-set bar0)))
     (setf (hda-interrupt-latch hda) (mezzano.supervisor:make-latch "HDA IRQ latch"))
     (setf (hda-interrupt-handler hda) (mezzano.supervisor:make-simple-irq (mezzano.supervisor:pci-intr-line device) (hda-interrupt-latch hda)))
     (format t "Found Intel HDA controller at ~S.~%" device)
@@ -863,7 +874,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
            (dma-virt (mezzano.supervisor::convert-to-pmap-address dma-phys)))
       (setf (hda-corb/rirb/dmap hda) dma-virt
             (hda-corb/rirb/dmap-physical hda) dma-phys))
-    (let* ((buf-size #x20000) ; play-sound assumes the buffer is this big.
+    (let* ((buf-size #x20000)
            (buf-phys (* (or (mezzano.supervisor::allocate-physical-pages
                              (ceiling buf-size mezzano.supervisor::+4k-page-size+)
                              :32-bit-only (zerop (gcap-64ok (global-reg/16 hda +gcap+))))
@@ -885,7 +896,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
        for i from 0 below +maximum-n-codecs+
        when (logbitp i statest)
        do (setf (aref (hda-codecs hda) i) (enumerate-codec hda i)))
-    (push hda *cards*))
+    (mezzano.driver.sound:register-sound-card hda))
   t)
 
 (mezzano.supervisor:define-pci-driver intel-hda intel-hda-probe
@@ -911,9 +922,10 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
             (sys.int::memref-unsigned-byte-32 array (+ offset 3)))))
 
 (defun dma-position (hda stream)
-  (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
-         (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
-    (sys.int::memref-unsigned-byte-32 virt (* stream 2))))
+  (with-hda-access (hda)
+    (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
+           (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
+      (sys.int::memref-unsigned-byte-32 virt (* stream 2)))))
 
 (defun (setf dma-position) (value hda stream)
   (let* ((phys (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+))
@@ -933,7 +945,11 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (setf (sd-reg/32 hda stream-id +sdnctlsts+)
         (logand (sd-reg/32 hda stream-id +sdnctlsts+)
                 (lognot 2)))
+  ;; Reset the stream.
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) 1)
+  (loop
+     (when (logtest (sd-reg/32 hda stream-id +sdnctlsts+) 1)
+       (return)))
   (setf (sd-reg/32 hda stream-id +sdnctlsts+) 0)
   (setf (global-reg/32 hda +intctl+) 0))
 
@@ -946,90 +962,40 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   0)
 
 (defun first-output-stream (hda)
-  (gcap-iss (global-reg/16 hda +gcap+)))
+  (with-hda-access (hda)
+    (gcap-iss (global-reg/16 hda +gcap+))))
 
-(defun start-playback (hda buffer codec dac pin &optional mixer)
-  (stream-reset hda (first-output-stream hda))
-  ;(write-bdl hda 0 #x200000 #x80000)
-  ;(write-bdl hda 1 #x400000 #x80000)
-  (write-bdl hda 0 buffer #x10000)
-  (write-bdl hda 1 (+ buffer #x10000) #x10000)
-  (prep-stream hda (first-output-stream hda) 0 1 #x20000)
-  (when mixer
-    (command hda codec mixer #x3F07F)) ; unmute L/R out/in
-  (command hda codec dac #x70610) ; stream=1
-  (command hda codec dac #x24011) ; format
-  (command hda codec dac #x3b07f) ; unmute L/R out
-  (command hda codec pin #x3b07f) ; unmute L/R out
-  (command hda codec pin #x70740) ; enable output
-  ;; Enable global and stream interrupts.
-  (setf (global-reg/32 hda +intctl+) (logior #x80000000 (ash 1 (first-output-stream hda))))
-  (stream-go hda (first-output-stream hda)))
+(defun start-playback (hda buffer buffer-size codec dac pin &optional mixer)
+  (with-hda-access (hda)
+    (stream-reset hda (first-output-stream hda))
+    (write-bdl hda 0 buffer (truncate buffer-size 2))
+    (write-bdl hda 1 (+ buffer (truncate buffer-size 2)) (truncate buffer-size 2))
+    (prep-stream hda (first-output-stream hda) 0 1 buffer-size)
+    (when mixer
+      (command hda codec mixer #x3F07F)) ; unmute L/R out/in
+    (command hda codec dac #x70610) ; stream=1
+    (command hda codec dac #x24011) ; format
+    (command hda codec dac #x3b07f) ; unmute L/R out
+    (command hda codec pin #x3b07f) ; unmute L/R out
+    (command hda codec pin #x70740) ; enable output
+    ;; Enable global and stream interrupts.
+    (setf (global-reg/32 hda +intctl+) (logior #x80000000 (ash 1 (first-output-stream hda))))
+    (stream-go hda (first-output-stream hda))))
 
 (defun wait-for-buffer-interrupt (hda)
   (let ((latch (hda-interrupt-latch hda))
         (stream (first-output-stream hda)))
     (loop
-       (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda))
+       (with-hda-access (hda)
+         (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))
        (mezzano.supervisor:latch-wait latch)
        (mezzano.supervisor:latch-reset latch)
-       (when (logbitp stream (global-reg/32 hda +intsts+))
-         ;; qemu is picky and requires a write to the 8-bit status part of
-         ;; the register.
-         (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2)) ; bcis
-         (return)))))
-
-;; TODO: This should stream to anything that looks vaugely output-like, instead
-;; of a single pin.
-(defun play-sound (sound hda)
-  (let ((buffer (hda-dma-buffer-phys hda))
-        (buf-len (hda-dma-buffer-size hda))
-        (output-pin (default-output-pin hda))
-        (buffer-offset 0)
-        (sound-position nil)
-        (sound-len (length sound))
-        (at-end nil))
-    (dotimes (i buf-len)
-      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0))
-    (dotimes (i (min sound-len buf-len))
-      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i)
-            (aref sound i)))
-    (setf sound-position buf-len)
-    (multiple-value-bind (converter mixer)
-        (output-path output-pin)
-      (start-playback hda buffer (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))))
-    (unwind-protect
-         (loop
-            ;; Wait for the dma position to move from the
-            ;; current buffer to the other buffer.
-            (let* ((dmap (dma-position hda 4))
-                   (current-offset (truncate dmap (truncate buf-len 2))))
-              (when (not (eql current-offset (truncate buffer-offset (truncate buf-len 2))))
-                (when at-end
-                  (return))
-                ;; Refill buffer.
-                (cond ((>= sound-position sound-len)
-                       ;; Nearing the end?
-                       (setf at-end t)
-                       (dotimes (i (truncate buf-len 2))
-                         (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer buffer-offset) i) 0)))
-                      (t
-                       (let* ((true-end (min sound-len
-                                             (+ sound-position (truncate buf-len 2))))
-                              (true-len (- true-end sound-position))
-                              (pad-len (- (truncate buf-len 2) true-len)))
-                         (dotimes (i true-len)
-                           (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer buffer-offset) i)
-                                 (aref sound (+ i sound-position))))
-                         (dotimes (i pad-len)
-                           (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 (+ buffer true-len buffer-offset) i) 0))
-                         (incf sound-position true-len))))
-                (cond ((eql buffer-offset 0)
-                       (setf buffer-offset (truncate buf-len 2)))
-                      (t
-                       (setf buffer-offset 0)))))
-            (wait-for-buffer-interrupt hda))
-      (stream-reset hda (first-output-stream hda)))))
+       (with-hda-access (hda)
+         (when (logbitp stream (global-reg/32 hda +intsts+))
+           ;; qemu is picky and requires a write to the 8-bit status part of
+           ;; the register.
+           (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2)) ; bcis
+           (return))))))
 
 ;; Return a list of all pin widgets.
 (defun pin-widgets (hda)
@@ -1080,3 +1046,74 @@ Returns NIL if there is no output path."
                  (return (values (first indirect-converters) mixer))))))
           (t
            (values (first direct-converters) nil)))))
+
+;; TODO: This should stream to anything that looks vaugely output-like, instead
+;; of a single pin.
+(defmethod mezzano.driver.sound:sound-card-run ((hda hda) buffer-fill-callback)
+  (handler-case
+      (let* ((buffer (hda-dma-buffer-phys hda))
+             (buf-len #x2000);(hda-dma-buffer-size hda))
+             (half-buf-len (truncate buf-len 2))
+             (n-samples (truncate half-buf-len 2)) ; buf-len is in bytes (2 per sample) and we want to fill only half the buffer at once
+             (float-sample-buffer (make-array n-samples :element-type 'single-float))
+             (output-pin (default-output-pin hda))
+             (output-stream (first-output-stream hda))
+             (buffer-offset 0)
+             (stop-countdown nil))
+        (labels ((store-sample (sample offset)
+                   ;; Clamp to limits, don't wrap.
+                   (let* ((sample-clamped (max (min sample 1.0f0) -1.0f0))
+                          (sample-rescaled (if (< sample-clamped 0.0f0)
+                                               (* sample-clamped 32768.0f0)
+                                               (* sample-clamped 32767.0f0)))
+                          (sample-16bit (truncate sample-rescaled)))
+                     (declare (optimize speed (safety 0))
+                              (type single-float sample-clamped sample-rescaled)
+                              (type fixnum sample-16bit))
+                     (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset)) (ldb (byte 8 0) sample-16bit)
+                           (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset 1)) (ldb (byte 8 8) sample-16bit))))
+                 (refill-fifo ()
+                   (with-hda-access (hda)
+                     (locally
+                         (declare (optimize speed (safety 0))
+                                  (type (simple-array single-float (*)) float-sample-buffer)
+                                  (type fixnum n-samples))
+                       (dotimes (i n-samples)
+                         (store-sample (aref float-sample-buffer i) i))))
+                   (cond ((eql buffer-offset 0)
+                          (setf buffer-offset half-buf-len))
+                         (t
+                          (setf buffer-offset 0)))
+                   (cond ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
+                          (setf stop-countdown nil))
+                         ((not stop-countdown)
+                          (setf stop-countdown 4)))))
+          ;; Prepopulate the initial buffer.
+          (funcall buffer-fill-callback float-sample-buffer 0 n-samples)
+          ;; Clear the whole buffer.
+          (with-hda-access (hda)
+            (dotimes (i buf-len)
+              (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0)))
+          ;; Begin playback.
+          (multiple-value-bind (converter mixer)
+              (output-path output-pin)
+            (start-playback hda buffer buf-len (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))))
+          (unwind-protect
+               (loop
+                  ;; Wait for the dma position to move from the
+                  ;; current buffer to the other buffer.
+                  (let* ((dmap (dma-position hda output-stream))
+                         (current-offset (truncate dmap half-buf-len)))
+                    (when (not (eql current-offset (truncate buffer-offset half-buf-len)))
+                      (when stop-countdown
+                        (when (zerop stop-countdown)
+                          (return))
+                        (decf stop-countdown))
+                      ;; Refill buffer.
+                      (refill-fifo)))
+                  (wait-for-buffer-interrupt hda))
+            (with-hda-access (hda)
+              (stream-reset hda (first-output-stream hda))))))
+    (device-disconnect ()
+      (format t "HDA ~S disconnected.~%" hda)
+      (throw 'mezzano.supervisor:terminate-thread nil))))

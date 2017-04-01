@@ -15,12 +15,15 @@
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
 (defvar *active-nl-exits* nil)
+(defvar *last-gc-info* '())
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
-    (push i *code-accum*)))
+    (push i *code-accum*)
+    (when (symbolp i)
+      (apply #'emit-gc-info *last-gc-info*))))
 
 (defun comment (&rest stuff)
   (emit `(:comment ,@stuff)))
@@ -98,7 +101,8 @@
          (*trailers* '())
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
          (*gc-info-fixups* '())
-         (*active-nl-exits* '()))
+         (*active-nl-exits* '())
+         (*last-gc-info* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -244,6 +248,7 @@
        :x86-64))))
 
 (defun emit-gc-info (&rest extra-stuff)
+  (setf *last-gc-info* extra-stuff)
   (let ((thing (list* :gc :frame extra-stuff)))
     (push thing *gc-info-fixups*)
     (emit thing)))
@@ -1225,6 +1230,7 @@ Returns an appropriate tag."
          (emit (second (assoc go-tag *rename-list*)))
          (when (cg-form stmt)
            (setf need-exit-label t)
+           (smash-r8)
            (emit `(sys.lap-x86:jmp ,exit-label))))
     (when escapes
       ;; Emit the jump-table.
@@ -1526,11 +1532,7 @@ Returns an appropriate tag."
     (apply fn (nreverse args))))
 
 (defun cg-funcall (form)
-  (let* ((fn-tag (let ((*for-value* t)) (cg-form (if (typep (first (ast-arguments form)) 'lambda-information)
-                                                     (first (ast-arguments form))
-                                                     (make-instance 'ast-call
-                                                                    :name 'sys.int::%coerce-to-callable
-                                                                    :arguments (list (first (ast-arguments form)))))))))
+  (let* ((fn-tag (let ((*for-value* t)) (cg-form (first (ast-arguments form))))))
     (cond ((prep-arguments-for-call (rest (ast-arguments form)))
            (comment 'funcall)
            (load-in-reg :rbx fn-tag t)
@@ -1580,11 +1582,11 @@ Returns an appropriate tag."
            (cg-null/not form))
           (fn
            (cg-builtin fn form))
-          ((and (eql (ast-name form) 'funcall)
-            (ast-arguments form))
-       (cg-funcall form))
-      ((eql (ast-name form) 'values)
-       (cg-values (ast-arguments form)))
+          ((and (eql (ast-name form) 'mezzano.runtime::%funcall)
+                (ast-arguments form))
+           (cg-funcall form))
+          ((eql (ast-name form) 'values)
+           (cg-values (ast-arguments form)))
           (t (cg-call form)))))
 
 (defun can-tail-call (args)

@@ -202,8 +202,9 @@
   (let ((val (assoc (ast-value form) *known-variables*)))
     (cond ((and val
                 (typep (second val) 'ast-the)
-                (compiler-subtypep (the-type (second val)) (the-type form))
-                (compiler-subtypep (the-type form) (the-type (second val)))
+                (or (and (compiler-subtypep (the-type (second val)) (the-type form))
+                         (compiler-subtypep (the-type form) (the-type (second val))))
+                    (compiler-subtypep (the-type form) (the-type (second val))))
                 (eql (ast-value (second val)) (ast-value form))
                 (typep (ast-value form) 'lexical-variable))
            ;; Don't do anything. This would replace this form with an identical nested THE.

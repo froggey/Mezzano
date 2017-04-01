@@ -24,14 +24,31 @@
                  t))
         (t (values form nil))))
 
-(defun kt-implicit-progn (x &optional target-variable replacement-form)
-  (when x
-    ;; Only push through the first form.
-    (multiple-value-bind (first-form did-replace)
-        (kt-form (first x) target-variable replacement-form)
-      (values (list* first-form
-                     (mapcar #'kt-form (rest x)))
-              did-replace))))
+(defun kt-implicit-progn (forms &optional target-variable replacement-form)
+  (let ((did-something nil))
+    (values
+     (loop
+        with saw-impure = nil
+        for form in forms
+        collect (cond
+                  ((or saw-impure
+                       did-something
+                       (typep (unwrap-the form) '(or ast-quote ast-function lambda-information)))
+                   (kt-form form))
+                  ((typep (unwrap-the form) 'lexical-variable)
+                   (multiple-value-bind (new did-replace)
+                       (kt-form form target-variable replacement-form)
+                     (when did-replace
+                       (setf did-something t))
+                     new))
+                  (t
+                   (setf saw-impure t)
+                   (multiple-value-bind (new did-replace)
+                       (kt-form form target-variable replacement-form)
+                     (when did-replace
+                       (setf did-something t))
+                     new))))
+     did-something)))
 
 (defmethod kt-form ((form lambda-information) &optional target-variable replacement-form)
   (declare (ignore target-variable replacement-form))

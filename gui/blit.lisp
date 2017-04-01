@@ -99,13 +99,13 @@
 (declaim (inline simple-ub32-vector-p simple-ub8-vector-p simple-ub1-vector-p))
 
 (defun simple-ub32-vector-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-array-unsigned-byte-32+))
+  (typep object '(simple-array (unsigned-byte 32) (*))))
 
 (defun simple-ub8-vector-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-array-unsigned-byte-8+))
+  (typep object '(simple-array (unsigned-byte 8) (*))))
 
 (defun simple-ub1-vector-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-array-bit+))
+  (typep object '(simple-array (unsigned-byte 1) (*))))
 
 ;;; High-level functions.
 

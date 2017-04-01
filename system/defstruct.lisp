@@ -326,14 +326,20 @@
             (append included-slots
                     slot-descriptions))))
 
+;; The compiler will replace calls to this function with NIL or T
+;; depending on the current SAFETY setting.
+(defun enable-unsafe-struct-access ()
+  nil)
+
 (defmacro check-struct-type (place struct-type)
   (let ((value (gensym))
         (struct-type-sym (gensym "struct-type")))
     `(let ((,value ,place)
            (,struct-type-sym ,struct-type))
-       (when (not (and (structure-object-p ,value)
-                       (or (eql (%struct-slot ,value 0) ,struct-type-sym)
-                           (structure-type-p ,value ,struct-type-sym))))
+       (when (not (or (enable-unsafe-struct-access)
+                      (and (structure-object-p ,value)
+                           (or (eql (%struct-slot ,value 0) ,struct-type-sym)
+                               (structure-type-p ,value ,struct-type-sym)))))
          (raise-type-error ,value (structure-name ,struct-type-sym))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
