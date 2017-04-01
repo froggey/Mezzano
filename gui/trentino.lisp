@@ -67,7 +67,7 @@
 
 (defmethod play-audio-stream ((container cl-video:av-container))
   (let ((aout (cl-video:audio-out container))
-	(audio-rec (cl-video:audio-rec container)))
+	(audio-rec (cl-video:audio-rec aout)))
     (when audio-rec
       (mezzano.supervisor:make-thread
        #'(lambda ()
