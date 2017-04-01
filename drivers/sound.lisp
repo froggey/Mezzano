@@ -209,12 +209,13 @@
 
 (defun make-sound-output-sink (&key
                                  (buffer-duration 0.2)
+				 buffer-size-in-samples
                                  (volume 1.0)
                                  (format :pcm-single-float))
   (make-instance 'sound-output-sink
                  :volume volume
                  :format format
-                 :buffer (make-array (* (truncate (* 44100 buffer-duration)) 2)
+                 :buffer (make-array (or buffer-size-in-samples (* (truncate (* 44100 buffer-duration)) 2))
                                      :element-type 'single-float)
                  :buffer-empty t
                  :buffer-head 0
