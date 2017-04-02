@@ -545,6 +545,7 @@
 
 (defun array-row-major-index (array &rest subscripts)
   (declare (dynamic-extent subscripts))
+  (assert (eql (array-rank array) (length subscripts)))
   (apply #'+ (maplist (lambda (x y)
                         (unless (<= 0 (car x) (1- (car y)))
                           (error "Subscript ~S is invalid for axis, should be non-negative and less than ~S."
