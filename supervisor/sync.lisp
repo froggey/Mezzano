@@ -50,6 +50,8 @@
               ,@body)
          (unlock-wait-queue ,sym)))))
 
+(sys.int::defglobal *lock-violations-are-fatal* nil)
+
 (defstruct (mutex
              (:include wait-queue)
              (:constructor make-mutex (&optional name))
@@ -78,7 +80,12 @@
       (return-from acquire-mutex t))
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
-      (panic "Recursive locking detected on " mutex " " (mutex-name mutex)))
+      (if *lock-violations-are-fatal*
+          (panic "Recursive locking detected on " mutex " " (mutex-name mutex))
+          (error 'sys.int::mutex-error
+                 :mutex mutex
+                 :format-control "Recursive locking detected on ~S ~S"
+                 :format-arguments (list mutex (mutex-name mutex)))))
     ;; Increment MUTEX-CONTESTED-COUNT
     (sys.int::%atomic-fixnum-add-object mutex 8 1)
     (when wait-p
@@ -118,8 +125,21 @@
   (eql (mutex-owner mutex) (current-thread)))
 
 (defun release-mutex (mutex)
-  (unless (mutex-held-p mutex)
-    (panic "Trying to release mutex " mutex " not held by thread."))
+  (let ((current-owner (mutex-owner mutex)))
+    (cond ((not current-owner)
+           (if *lock-violations-are-fatal*
+               (panic "Trying to release unheld mutex " mutex)
+               (error 'sys.int::mutex-error
+                      :mutex mutex
+                      :format-control "Trying to release unheld mutex ~S ~S"
+                      :format-arguments (list mutex (mutex-name mutex)))))
+          ((not (eql current-owner (current-thread)))
+           (if *lock-violations-are-fatal*
+               (panic "Trying to release mutex " mutex " held by other thread " current-owner)
+               (error 'sys.int::mutex-error
+                      :mutex mutex
+                      :format-control "Trying to release mutex ~S ~S held by other thread ~S"
+                      :format-arguments (list mutex (mutex-name mutex) current-owner))))))
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
     ;; Mutex must be in the contested state.

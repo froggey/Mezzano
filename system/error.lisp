@@ -185,6 +185,10 @@
 (define-condition floating-point-overflow (arithmetic-error) ())
 (define-condition floating-point-underflow (arithmetic-error) ())
 
+(define-condition mutex-error (simple-error)
+  ((mutex :initarg :mutex
+          :reader mutex-error-mutex)))
+
 (defun error (datum &rest arguments)
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))
