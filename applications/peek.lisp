@@ -34,9 +34,7 @@
   (dolist (thread (mezzano.supervisor:all-threads))
     (format t " ~A~24T~A~%" (mezzano.supervisor:thread-name thread) (mezzano.supervisor:thread-state thread))
     (when (eql (mezzano.supervisor:thread-state thread) :sleeping)
-      (format t "  Waiting on ")
-      (print-unreadable-object ((mezzano.supervisor:thread-wait-item thread) *standard-output* :type t :identity t))
-      (terpri))))
+      (format t "  Waiting on ~S~%" (mezzano.supervisor:thread-wait-item thread)))))
 
 (defun peek-memory ()
   (room))

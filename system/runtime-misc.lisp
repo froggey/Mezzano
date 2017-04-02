@@ -60,6 +60,22 @@
     (when (typep (mezzano.supervisor::disk-device object) 'mezzano.supervisor::partition)
       (format stream " Partition on ~S" (mezzano.supervisor::partition-disk (mezzano.supervisor::disk-device object))))))
 
+(defmethod print-object ((object mezzano.supervisor::wait-queue) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (mezzano.supervisor::wait-queue-name object))))
+
+(defmethod print-object ((object mezzano.supervisor::mutex) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (mezzano.supervisor::mutex-name object))
+    (let ((owner (mezzano.supervisor::mutex-owner object)))
+      (if owner
+          (format stream " held by ~S" owner)
+          (format stream " unlocked")))))
+
+(defmethod print-object ((object mezzano.supervisor::condition-variable) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (mezzano.supervisor::condition-variable-name object))))
+
 (defmethod print-object ((object package) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~:(~S~)" (package-shortest-name object))))
