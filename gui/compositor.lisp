@@ -553,7 +553,8 @@ A passive drag sends no drag events to the window.")
       (t
        (setf (slot-value win '%layer) nil)
        (cond ((and (eql (initial-z-order event) :below-current)
-                   *window-list*)
+                   *window-list*
+                   (not (eql (layer (first *window-list*)) :bottom)))
               (setf *window-list* (list* (first *window-list*)
                                          win
                                          (rest *window-list*))))
