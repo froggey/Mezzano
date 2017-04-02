@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-;;; The interface that all network card drivers must conform to.
+;;; The interface that all sound device drivers must conform to.
 
 (defpackage :mezzano.driver.sound
   (:use :cl)
@@ -12,7 +12,8 @@
            #:make-sound-output-sink
            #:sink-volume
            #:output-sound
-           #:flush-sink))
+           #:flush-sink
+           #:sound-format-error))
 
 (in-package :mezzano.driver.sound)
 
@@ -29,6 +30,14 @@
 (defmethod (setf sink-volume) :around (value (sink sound-output-sink))
   (check-type value single-float)
   (call-next-method))
+
+(define-condition sound-format-error (simple-error)
+  ((%format :initarg :format
+            :reader sound-format-error-format)
+   (%channels :initarg :channels
+              :reader sound-format-error-channels)
+   (%sample-rate :initarg :sample-rate
+                 :reader sound-format-error-sample-rate)))
 
 (defvar *cards* '())
 
@@ -209,13 +218,28 @@
 
 (defun make-sound-output-sink (&key
                                  (buffer-duration 0.2)
-				 buffer-size-in-samples
+                                 buffer-size-in-samples
                                  (volume 1.0)
-                                 (format :pcm-single-float))
+                                 (format :pcm-single-float)
+                                 (channels 2)
+                                 (sample-rate 44100))
+  (unless (eql channels 2)
+    (error 'sound-format-error
+           :format format
+           :channels channels
+           :sample-rate sample-rate
+           :format-control "Non-stereo sound formats not supported."))
+  (unless (eql sample-rate 44100)
+    (error 'sound-format-error
+           :format format
+           :channels channels
+           :sample-rate sample-rate
+           :format-control "Non-44.1kHz sound formats not supported."))
   (make-instance 'sound-output-sink
                  :volume volume
                  :format format
-                 :buffer (make-array (or buffer-size-in-samples (* (truncate (* 44100 buffer-duration)) 2))
+                 :buffer (make-array (or buffer-size-in-samples
+                                         (* (truncate (* 44100 buffer-duration)) 2))
                                      :element-type 'single-float)
                  :buffer-empty t
                  :buffer-head 0
