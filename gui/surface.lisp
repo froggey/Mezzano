@@ -17,8 +17,7 @@ The surface will be filled with INITIAL-COLOUR, which defaults to fully transpar
                                                      (:argb32 '(unsigned-byte 32))
                                                      (:a8 '(unsigned-byte 8))
                                                      (:a1 'bit))
-                                     :initial-element initial-colour
-                                     :area :pinned)
+                                     :initial-element initial-colour)
                  :format format))
 
 (defun make-surface-from-array (array &key (format :argb32) premultiplied)
@@ -30,8 +29,7 @@ premultiplied alpha unless PREMULTIPLIED is true."
                   (:argb32
                    (check-type array (array (unsigned-byte 32) (* *)))
                    (let ((pixels (make-array (array-dimensions array)
-                                             :element-type '(unsigned-byte 32)
-                                             :area :pinned)))
+                                             :element-type '(unsigned-byte 32))))
                      ;; Fill pixels with premultiplied colour.
                      (dotimes (y (array-dimension array 0))
                        (dotimes (x (array-dimension array 1))
@@ -47,16 +45,14 @@ premultiplied alpha unless PREMULTIPLIED is true."
                   (:a8
                    (check-type array (array (unsigned-byte 8) (* *)))
                    (let ((new (make-array (array-dimensions array)
-                                          :element-type '(unsigned-byte 8)
-                                          :area :pinned)))
+                                          :element-type '(unsigned-byte 8))))
                      (dotimes (i (array-total-size array))
                        (setf (row-major-aref new i) (row-major-aref array i)))
                      new))
                   (:a1
                    (check-type array (array (unsigned-byte 1) (* *)))
                    (let ((new (make-array (array-dimensions array)
-                                          :element-type '(unsigned-byte 1)
-                                          :area :pinned)))
+                                          :element-type '(unsigned-byte 1))))
                      (dotimes (i (array-total-size array))
                        (setf (row-major-aref new i) (row-major-aref array i)))
                      new)))))
