@@ -42,11 +42,11 @@
   ((astream :accessor astream)))
 
 (defmethod cl-video:sink-frame-element-type ((aout mezzano-pcm-output))
-  'float)
+  '(unsigned-byte 8))
 
 (defmethod cl-video:initialize-sink ((aout mezzano-pcm-output))
   (setf (astream aout) (mezzano.driver.sound:make-sound-output-sink
-			:buffer-size-in-samples 
+			; :buffer-size-in-samples
 			:format (ecase (cl-video:significant-bits-per-sample (cl-video:audio-rec aout))
 				  (8 :pcm-u8)
 				  (16 :pcm-s16le)))))
@@ -60,7 +60,7 @@
 (defmethod cl-video:translate-source-frame ((aout mezzano-pcm-output) frame)
   (with-slots (cl-video:audio-rec) aout
     (loop for i from 0 below (length frame)
-	 do (setf (aref frame i) (aref (cl-video:buffer cl-video:audio-rec))))))
+	 do (setf (aref frame i) (aref (cl-video:buffer cl-video:audio-rec) i)))))
 
 ;;; we speccialize own class & method to resample stream as necessary for Intel HDA
 ;;; but we still want to run decode in another thread
@@ -72,6 +72,7 @@
       (mezzano.supervisor:make-thread
        #'(lambda ()
 	   (cl-video:stream-playback-start audio-rec)
+           (cl-video:initialize-sink aout)
 	   (unwind-protect
 		(unless (not (and (eql (cl-video:compression-code audio-rec) 1) ; uncompressed
 				  (eql (cl-video:sample-rate audio-rec) 44100)
