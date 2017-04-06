@@ -119,6 +119,7 @@
                    ;; Left shift.
                    ;; Perform the shift one bit at a time so that overflow can be checked for.
                    `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+                   `(sys.lap-x86:jz ,really-done)
                    shift-left
                    `(sys.lap-x86:shl64 :rax 1)
                    `(sys.lap-x86:jo ,ovfl)
