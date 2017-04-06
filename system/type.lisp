@@ -546,7 +546,7 @@
                           ((subtypep rhs lhs environment)
                            (subtypep rhs t2 environment))
                           (t
-                           (subtypep 'nil t2 environment)))))
+                           (subtypep 't2 nil environment)))))
                  (t
                   (subtypep `(and (and (second t1) (third t1))
                                   ,@(rest (rest (rest t1))))
