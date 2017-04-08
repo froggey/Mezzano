@@ -1,14 +1,13 @@
 #Mezzano, an operating system written in Common Lisp.
 
-[![Picture of Emacs REPL](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)
-
 `C-<key>` means to hold the control key while typing `<key>`.
 
 `M-<key>` means to hold the alt or meta key while typing `<key>`.
 
 Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the same key, while `C-!` and `C-1` are different.
 
-The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, PanCyr, and German keymaps. Windows can be moved by holding the Alt key and dragging.
+The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, PanCyr, German, and ES-ESP keymaps.
+Windows can be moved by dragging their titlebar or by holding the Alt key and dragging.
 
 For help & support, join #mezzano on Freenode (irc.freenode.net)
 
@@ -143,6 +142,15 @@ machine's settings. In VirtualBox this is done throught the port
 forwarding settings, which can be accessed through
 Settings -> Network -> Advanced -> Port Forwarding
 
+#Major changes since Demo 2
+Trentino, a media player, has been implemented by Eugene Zaikonnikov.
+Further improvements to conformance, stability and performance.
+The CLOS implementation follows the MOP much more closely.
+More traditional window management.
+Booting from CD/USB on real hardware is now possible.
+Driver support for Intel HDA audio devices.
+VirtualBox guest (mouse & display) integration.
+
 #Major changes since Demo 1
 
 Many improvements to conformance, stability and performance.
@@ -203,27 +211,9 @@ See the MBuild repo for installation: (https://github.com/froggey/MBuild)
 
 #Included Libraries
 
-ASDF 2.26
-
-Alexandria 5a17c07
-
-Babel 6aaea30
-
-Chipz 0.7.4
-
-cl-jpeg 1.27
-
-cl-vectors 0fda45f
-
-iterate 1.4.3
-
-png-read 991ba74
-
-trivial-features 0.8
-
-Slime 3c65fcb
-
-zpb-ttf 1.0.2
+ASDF 3, Alexandria, Babel, Bordeaux-threads, Chipz, cl-jpeg, cl-riff,
+cl-vectors, flexi-streams, iterate, png-read, skippy, slime,
+trivial-features, trivial-gray-streams, and zpb-ttf.
 
 Full source code is available under LOCAL:>Source>
 
@@ -239,19 +229,11 @@ Includes Dejavu Fonts 2.35 (http://dejavu-fonts.org/)
 Some icons from Icojam (http://www.icojam.com)
 
 
-#Experimental whole-system transparent persistence support
+#Whole-system transparent persistence support
 
-You might wreck your install if you try using this feature.
-Take a snapshot using your virtual machine before using it, or back up your disk.
-
-Close all running programs (optional, strongly recommended).
 Run `(mezzano.supervisor:snapshot)` in a REPL.
 Wait for the yellow light to turn off.
 Reboot.
 
-If the system does not boot properly then restore your backup and try again.
-
-
-
-Development continues!
-===
+This will take a snapshot of the current machine state, saving it to disk.
+It will be restored when the machine is booted.
