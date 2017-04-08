@@ -380,10 +380,14 @@
   `(progn
      (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
-       `(the ,',type (call ,',accessor ,array ,index)))
+       `(progn
+          (call sys.int::%bounds-check ,array ,index)
+          (the ,',type (call ,',accessor ,array ,index))))
      (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) index)
          ((:optimize (= safety 0) (= speed 3)))
-       `(the ,',type (call (setf ,',accessor) ,value ,array ,index)))))
+       `(progn
+          (call sys.int::%bounds-check ,array ,index)
+          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
