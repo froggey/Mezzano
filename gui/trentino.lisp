@@ -30,6 +30,10 @@
   (declare (ignore window event))
   (throw 'mezzano.supervisor::terminate-thread nil))
 
+(defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
+  (declare (ignore window event))
+  (throw 'mezzano.supervisor::terminate-thread nil))
+
 (define-condition pause-event () ())
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
