@@ -15,7 +15,7 @@
           (pathname-directory base))))
 
 (defun guess-element-type-from-extension (type-name)
-  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf" "ttf" "gz") :test #'string-equal)
+  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf" "ttf" "gz" "avi" "wav") :test #'string-equal)
       '(unsigned-byte 8)
       'character))
 
@@ -60,4 +60,9 @@
                       (member "Fonts" (pathname-directory path) :test #'string-equal)
                       (eql (pathname-version path) :previous)
                       (string-equal (pathname-name path) ".git")
-                      (string-equal (pathname-type path) "llf")))))
+                      (string-equal (pathname-type path) "llf")
+                      (string-equal (pathname-type path) "avi")))))
+
+(copy-many (merge-pathnames "*.avi" (user-homedir-pathname))
+           (user-homedir-pathname)
+           #p"LOCAL:>Videos>")
