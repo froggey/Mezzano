@@ -296,6 +296,8 @@
   (cond ((in-frame-close-button frame
                                 (mouse-x-position event)
                                 (mouse-y-position event))
+         (when (resizablep frame)
+           (funcall (set-cursor-function frame) :default))
          (when (not (close-button-hover frame))
            (setf (close-button-hover frame) t)
            (draw-frame frame)
