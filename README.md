@@ -1,4 +1,4 @@
-#Mezzano, an operating system written in Common Lisp.
+# Mezzano, an operating system written in Common Lisp.
 
 `C-<key>` means to hold the control key while typing `<key>`.
 
@@ -14,8 +14,8 @@ For help & support, join #mezzano on Freenode (irc.freenode.net)
 `M-Esc` will attempt to interrupt the thread associated with the current window.
 This won't work if the thread is stuck in a tight loop or if the thread is blocked.
 
-#Line editing
-===
+# Line editing
+
 The line editor supports most standard line navigation and editing commands.
 
 `C-F`          Move forward (right) one character, also bound to Right-Arrow.
@@ -50,8 +50,8 @@ The line editor supports most standard line navigation and editing commands.
 
 `Tab`          Cycle through completions for the current symbol.
 
-#Editor commands
-===
+# Editor commands
+
 The editor mostly follows Emacs conventions.
 
 `C-F`          Move forward (right) one character, also bound to Right-Arrow.
@@ -132,7 +132,7 @@ the newline if the point is at the end of the line.
 
 `M-x repl`     Create an editor-based REPL.
 
-#Swank
+# Swank
 
 This release includes Swank 2016-03-04.
 The Swank server is listening on port 4005.
@@ -142,7 +142,7 @@ machine's settings. In VirtualBox this is done throught the port
 forwarding settings, which can be accessed through
 Settings -> Network -> Advanced -> Port Forwarding
 
-#Major changes since Demo 2
+# Major changes since Demo 2
 Trentino, a media player, has been implemented by Eugene Zaikonnikov.
 Further improvements to conformance, stability and performance.
 The CLOS implementation follows the MOP much more closely.
@@ -151,7 +151,7 @@ Booting from CD/USB on real hardware is now possible.
 Driver support for Intel HDA audio devices.
 VirtualBox guest (mouse & display) integration.
 
-#Major changes since Demo 1
+# Major changes since Demo 1
 
 Many improvements to conformance, stability and performance.
 The editor has been greatly improved, thanks to Burton Samograd.
@@ -162,7 +162,7 @@ memory, with far fewer GC cycles occuring.
 Transparency and premultiplied alpha support in the GUI.
 And more!
 
-#Blinkenlights
+# Blinkenlights
 
 A number of status lights are displayed at the top left of the screen.
 From left to right:
@@ -182,7 +182,7 @@ From left to right:
 
 * The entire top line will turn red if the system panics.
 
-#Memory Monitor
+# Memory Monitor
 
 The memory monitor displays a bitmap indicating how each page of physical memory
 is used. Colours indicate type.
@@ -206,10 +206,10 @@ is used. Colours indicate type.
 
 `Black`        Unused or not present.
 
-#Installation
+# Installation
 See the MBuild repo for installation: (https://github.com/froggey/MBuild)
 
-#Included Libraries
+# Included Libraries
 
 ASDF 3, Alexandria, Babel, Bordeaux-threads, Chipz, cl-jpeg, cl-riff,
 cl-vectors, flexi-streams, iterate, png-read, skippy, slime,
@@ -229,7 +229,7 @@ Includes Dejavu Fonts 2.35 (http://dejavu-fonts.org/)
 Some icons from Icojam (http://www.icojam.com)
 
 
-#Whole-system transparent persistence support
+# Whole-system transparent persistence support
 
 Run `(mezzano.supervisor:snapshot)` in a REPL.
 Wait for the yellow light to turn off.
