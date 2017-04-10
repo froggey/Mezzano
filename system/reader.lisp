@@ -713,9 +713,17 @@
       (the rational (read stream t nil t)))))
 
 (defun read-#-left-parenthesis (stream ch p)
-  (let ((foo (read-left-parenthesis stream #\()))
+  (declare (ignore ch))
+  (let* ((foo (read-left-parenthesis stream #\())
+         (len (length foo)))
     (unless *read-suppress*
-      (apply #'vector foo))))
+      (when p
+        (cond ((> len p)
+               (error "Too many elements to initialize an array of length ~D." p))
+              ((< len p)
+               (error "Not implemented, too few elements to initialize an array of length ~D." p))))
+      (make-array len
+                  :initial-contents foo))))
 
 (defun read-#-complex (stream ch p)
   "Read a complex number."
