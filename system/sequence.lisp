@@ -199,7 +199,8 @@
                            (>= (decf count) 0))))
         do
           (vector-push e result)
-          (decf count)
+          (when count
+            (decf count))
         finally (return (if from-end
                             (reverse result)
                             result))))))
