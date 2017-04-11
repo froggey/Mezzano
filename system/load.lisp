@@ -217,8 +217,6 @@
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
 (defun load-one-object (command stream stack)
-  (when *noisy-load*
-    (format t "~S~%" (llf-command-name command)))
   (ecase command
     (#.+llf-function+
      (load-llf-function stream stack))
@@ -362,9 +360,14 @@
                  (when *noisy-load*
                    (format t "ADD-BACKLINK ~S~%" id))
                  (setf (gethash id omap) (vector-pop stack))))
-              (t (let ((value (multiple-value-list (load-one-object command stream stack))))
-                   (when value
-                     (vector-push-extend (first value) stack)))))))))
+              (t
+               (when *noisy-load*
+                 (format t "~S => " (llf-command-name command)))
+               (let ((value (multiple-value-list (load-one-object command stream stack))))
+                 (when *noisy-load*
+                   (format t "~S~%" value))
+                 (when value
+                   (vector-push-extend (first value) stack)))))))))
 
 (defun load-lisp-source (stream)
   (let ((*readtable* *readtable*)
