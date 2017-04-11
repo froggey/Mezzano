@@ -4,12 +4,17 @@
 (defpackage :mezzano.gui.image
   (:use :cl)
   (:export #:load-image
+           #:flush-image-cache
            #:transcode-cl-jpeg-buffer))
 
 (in-package :mezzano.gui.image)
 
 ;; FIXME: This should probably be weak.
 (defvar *image-cache* (make-hash-table :test 'equal))
+
+(defun flush-image-cache ()
+  (clrhash *image-cache*)
+  (values))
 
 (defun load-jpeg (path)
   (ignore-errors
