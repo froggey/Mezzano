@@ -514,14 +514,16 @@ NAMESTRING as the second."
 (defun delete-file (filespec &rest args &key &allow-other-keys)
   (let ((path (translate-logical-pathname (merge-pathnames filespec))))
     (assert (not (wild-pathname-p path)))
-    (apply #'delete-file-using-host (pathname-host path) path args)))
+    (apply #'delete-file-using-host (pathname-host path) path args))
+  t)
 
 (defgeneric expunge-directory-using-host (host path &key))
 
 (defun expunge-directory (filespec &rest args &key &allow-other-keys)
   (let ((path (translate-logical-pathname (merge-pathnames filespec))))
     (assert (not (wild-pathname-p path)))
-    (apply #'expunge-directory-using-host (pathname-host path) path args)))
+    (apply #'expunge-directory-using-host (pathname-host path) path args))
+  t)
 
 (defvar *home-directory* nil)
 
