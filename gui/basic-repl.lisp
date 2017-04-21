@@ -208,5 +208,3 @@
 (defun spawn (&rest args)
   (mezzano.supervisor:make-thread (lambda () (apply #'repl-main args))
                                   :name "Lisp Listener"))
-
-(spawn)

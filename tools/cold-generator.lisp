@@ -197,19 +197,6 @@
     "drivers/rtl8168.lisp"
     "drivers/sound.lisp"
     "drivers/intel-hda.lisp"
-    "gui/package.lisp"
-    "gui/colour.lisp"
-    "gui/surface.lisp"
-    "gui/blit.lisp"
-    ("gui/blit-x86-64.lisp" :x86-64)
-    ("gui/blit-generic.lisp" :arm64)
-    "gui/keymaps.lisp"
-    "gui/compositor.lisp"
-    ("gui/input-drivers.lisp" :x86-64)
-    ("gui/input-drivers-virtio.lisp" :arm64)
-    ("gui/virtualbox-guest-helper.lisp" :x86-64)
-    "system/unifont.lisp"
-    "gui/basic-repl.lisp"
     "net/package.lisp"
     "net/network.lisp"
     "net/ethernet.lisp"

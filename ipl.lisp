@@ -79,30 +79,6 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;local.lisp")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
-;; Fonts. Loaded from the home directory.
-(ensure-directories-exist "LOCAL:>Fonts>")
-(dolist (f (directory (merge-pathnames "Fonts/**/*.ttf" (user-homedir-pathname))))
-  (sys.int::copy-file f
-             (merge-pathnames "LOCAL:>Fonts>" f)
-             '(unsigned-byte 8)))
-(sys.int::copy-file (merge-pathnames "Fonts/LICENSE" (user-homedir-pathname))
-                    "LOCAL:>Fonts>LICENSE"
-                    'character)
-
-;; Icons. Loaded from the source tree.
-(ensure-directories-exist "LOCAL:>Icons>")
-(dolist (f (directory "sys:source;gui;*.png"))
-  (sys.int::copy-file f
-                      (merge-pathnames "LOCAL:>Icons>" f)
-                      '(unsigned-byte 8)))
-
-;; Other stuff.
-;; The desktop image, this can be removed or replaced.
-;; If it is removed, then the line below that starts the desktop must be updated.
-(sys.int::copy-file (merge-pathnames "Ducks.jpg" (user-homedir-pathname))
-                    "LOCAL:>Desktop.jpeg"
-                    '(unsigned-byte 8))
-
 ;; ASDF.
 (sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
 (defun home-source-registry ()
@@ -134,8 +110,44 @@ Make sure there is a virtio-net NIC attached.~%")
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
+(sys.int::cal "gui/package.lisp")
+(sys.int::cal "gui/colour.lisp")
+(sys.int::cal "gui/surface.lisp")
+(sys.int::cal "gui/blit.lisp")
+#+x86-64
+(sys.int::cal "gui/blit-x86-64.lisp")
+#+arm64
+(sys.int::cal "gui/blit-generic.lisp")
+(sys.int::cal "gui/keymaps.lisp")
+(sys.int::cal "gui/compositor.lisp")
+#+x86-64
+(sys.int::cal "gui/input-drivers.lisp")
+#+arm64
+(sys.int::cal "gui/input-drivers-virtio.lisp")
+#+x86-64
+(sys.int::cal "gui/virtualbox-guest-helper.lisp")
+(sys.int::cal "system/unifont.lisp")
+(sys.int::cal "gui/basic-repl.lisp")
+(mezzano.gui.basic-repl:spawn)
 (sys.int::cal "sys:source;gui;font.lisp")
 (sys.int::cal "sys:source;gui;image.lisp")
+
+;; Fonts. Loaded from the home directory.
+(ensure-directories-exist "LOCAL:>Fonts>")
+(dolist (f (directory (merge-pathnames "Fonts/**/*.ttf" (user-homedir-pathname))))
+  (sys.int::copy-file f
+             (merge-pathnames "LOCAL:>Fonts>" f)
+             '(unsigned-byte 8)))
+(sys.int::copy-file (merge-pathnames "Fonts/LICENSE" (user-homedir-pathname))
+                    "LOCAL:>Fonts>LICENSE"
+                    'character)
+
+;; Icons. Loaded from the source tree.
+(ensure-directories-exist "LOCAL:>Icons>")
+(dolist (f (directory "sys:source;gui;*.png"))
+  (sys.int::copy-file f
+                      (merge-pathnames "LOCAL:>Icons>" f)
+                      '(unsigned-byte 8)))
 
 ;: Mouse cursors.
 (flet ((load-cursor (path name &optional (hot-x 0) (hot-y 0))
@@ -171,8 +183,11 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;applications;filer.lisp")
 (sys.int::cal "sys:source;applications;memory-monitor.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
-;; If the desktop image was removed above, then remove the :IMAGE argument
-;; from here.
+
+;; Load the desktop image and start the desktop.
+(sys.int::copy-file (merge-pathnames "Ducks.jpg" (user-homedir-pathname))
+                    "LOCAL:>Desktop.jpeg"
+                    '(unsigned-byte 8))
 (defvar sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
 
 (defvar sys.int::*init-file-path* "SYS:HOME;INIT.LISP")
