@@ -189,10 +189,13 @@ Inherit source locations/etc from INHERIT."
                                                 (convert-ast-form statement inherit new-variables))))))
 
 (defun convert-ast-the (inherit new-variables type value)
-  (make-instance 'ast-the
-                 :inherit inherit
-                 :type (sys.int::typeexpand type)
-                 :value (convert-ast-form value inherit new-variables)))
+  (cond ((eql type 't)
+         (convert-ast-form value inherit new-variables))
+        (t
+         (make-instance 'ast-the
+                        :inherit inherit
+                        :type (sys.int::typeexpand type)
+                        :value (convert-ast-form value inherit new-variables)))))
 
 (defun convert-ast-unwind-protect (inherit new-variables protected-form cleanup-function)
   (make-instance 'ast-unwind-protect
