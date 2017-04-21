@@ -57,23 +57,23 @@ A list of any declaration-specifiers."
 
 ;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-1 (lambda &optional env target-architecture)
-  (detect-uses
-   (simplify
-    (detect-uses
-     ;; Make the dynamic environment explicit.
-     (lower-special-bindings
+  (let* ((form (pass1-lambda lambda env))
+         ;; Don't optimize at (compiliation-speed 3).
+         (run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3))))
+    (when run-optimizations
+      (setf form (run-optimizers form (default-architecture target-architecture))))
+    ;; Lower complex lambda lists.
+    (setf form (lower-arguments (detect-uses form)))
+    ;; Lower closed-over variables.
+    (setf form (lower-environment (detect-uses form)))
+    (when run-optimizations
       ;; Run a final simplify pass to kill off any useless bindings.
-      (detect-uses
-       (simplify
-        (detect-uses
-         ;; Lower closed-over variables.
-         (lower-environment
-          (detect-uses
-           (lower-arguments
-            (detect-uses
-             (run-optimizers
-              (pass1-lambda lambda env)
-              (default-architecture target-architecture))))))))))))))
+      (setf form (simplify (detect-uses form))))
+    ;; Make the dynamic environment explicit.
+    (setf form (lower-special-bindings (detect-uses form)))
+    (when run-optimizations
+      (setf form (simplify (detect-uses form))))
+    form))
 
 (defun eval-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
