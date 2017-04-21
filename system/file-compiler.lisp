@@ -457,7 +457,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                      docstring)
                                nil
                                #+x86-64 :x86-64
-                               #+arm64 :arm64))))))
+                               #+arm64 :arm64))
+          env))))
     (t
      (compile-top-level-form-for-value form env)
      (add-to-llf sys.int::+llf-drop+))))
