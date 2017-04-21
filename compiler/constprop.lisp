@@ -105,6 +105,15 @@
        (return form))
      (setf form (ast-value form))))
 
+(defun unwrapped-the-type (form)
+  (cond ((typep form 'ast-the)
+         (cond ((typep (ast-value form) 'ast-the)
+                `(and ,(ast-the-type form)
+                      ,(unwrapped-the-type (ast-value form))))
+               (t
+                (ast-the-type form))))
+        (t 't)))
+
 (defun copyable-value-p (form)
   (let ((unwrapped (unwrap-the form)))
     (and (pure-p unwrapped)

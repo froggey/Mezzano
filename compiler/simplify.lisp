@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;;;; Simplifiy the ast by removing empty nodes and unused variables.
@@ -13,7 +13,15 @@
 (defun simp-form-list (x)
   (do ((i x (cdr i)))
       ((endp i))
-    (setf (car i) (simp-form (car i)))))
+    (setf (car i) (cond ((and (typep (car i) 'ast-let)
+                              (typep (ast-body (car i)) 'ast-the))
+                         ;; Hoist the forms out of lets.
+                         (change-made)
+                         (ast `(the ,(the-type (ast-body (car i)))
+                                    ,(simp-form (car i)))
+                              (car i)))
+                        (t
+                         (simp-form (car i)))))))
 
 (defmethod simp-form ((form ast-block))
   (cond
@@ -138,15 +146,17 @@
 (defmethod simp-form ((form ast-let))
   ;; Merge nested LETs when possible, do not merge special bindings!
   (do ((nested-form (body form) (body form)))
-      ((or (not (typep nested-form 'ast-let))
+      ((or (not (typep (unwrap-the nested-form) 'ast-let))
            (let-binds-special-variable-p form)
-           (and (bindings nested-form)
-                (typep (first (first (bindings nested-form))) 'special-variable))))
+           (and (bindings (unwrap-the nested-form))
+                (typep (first (first (bindings (unwrap-the nested-form)))) 'special-variable))))
     (change-made)
-    (if (null (bindings nested-form))
-        (setf (body form) (body nested-form))
-        (setf (bindings form) (nconc (bindings form) (list (first (bindings nested-form))))
-              (bindings nested-form) (rest (bindings nested-form)))))
+    (if (null (bindings (unwrap-the nested-form)))
+        (setf (body form) (ast `(the ,(unwrapped-the-type nested-form)
+                                     ,(body (unwrap-the nested-form)))
+                               nested-form))
+        (setf (bindings form) (nconc (bindings form) (list (first (bindings (unwrap-the nested-form)))))
+              (bindings (unwrap-the nested-form)) (rest (bindings (unwrap-the nested-form))))))
   ;; Remove unused values with no side-effects.
   (setf (bindings form) (remove-if (lambda (b)
                                      (let ((var (first b))
@@ -334,8 +344,34 @@
   form)
 
 (defmethod simp-form ((form ast-setq))
-  (setf (value form) (simp-form (value form)))
-  form)
+  (let ((unwrapped-val (unwrap-the (value form))))
+    (cond ((and (typep unwrapped-val 'ast-let)
+                (not (let-binds-special-variable-p unwrapped-val)))
+           ;; (setq foo (let ... x)) => (let ... (setq foo x))
+           (change-made)
+           (let ((the-type (unwrapped-the-type (value form))))
+             (simp-form
+              (ast `(the ,the-type
+                         (let ,(bindings unwrapped-val)
+                           (setq ,(setq-variable form)
+                                 (the ,the-type
+                                      ,(body unwrapped-val)))))
+                   unwrapped-val))))
+          ((typep unwrapped-val 'ast-progn)
+           ;; (setq foo (progn ... x)) => (progn ... (setq foo x))
+           (change-made)
+           (let ((the-type (unwrapped-the-type (value form))))
+             (simp-form
+              (ast `(the ,the-type
+                         (progn
+                           ,@(butlast (ast-forms unwrapped-val))
+                           (setq ,(setq-variable form)
+                                 (the ,the-type
+                                      ,(first (last (ast-forms unwrapped-val)))))))
+                   unwrapped-val))))
+          (t
+           (setf (value form) (simp-form (value form)))
+           form))))
 
 (defmethod simp-form ((form ast-tagbody))
   ;; Remove unused go-tags.
@@ -682,30 +718,34 @@
          (loop
             for arg-position from 0
             for arg in (arguments form)
-            when (typep arg 'ast-progn)
+            for type = (unwrapped-the-type arg)
+            for unwrapped-arg = (unwrap-the arg)
+            when (typep unwrapped-arg 'ast-progn)
             do
               (change-made)
               (return-from simp-form
-                (ast `(progn
-                        ,@(butlast (ast-forms arg))
-                        (call ,(ast-name form)
-                              ,@(subseq (arguments form) 0 arg-position)
-                              ,(first (last (ast-forms arg)))
-                              ,@(subseq (arguments form) (1+ arg-position))))
-                     form))
-            when (and (typep arg 'ast-let)
-                      (not (let-binds-special-variable-p arg)))
+                (simp-form
+                 (ast `(progn
+                         ,@(butlast (ast-forms unwrapped-arg))
+                         (call ,(ast-name form)
+                               ,@(subseq (arguments form) 0 arg-position)
+                               (the ,type ,(first (last (ast-forms unwrapped-arg))))
+                               ,@(subseq (arguments form) (1+ arg-position))))
+                      form)))
+            when (and (typep unwrapped-arg 'ast-let)
+                      (not (let-binds-special-variable-p unwrapped-arg)))
             do
               (change-made)
               (return-from simp-form
-                (ast `(let ,(ast-bindings arg)
-                        (call ,(ast-name form)
-                              ,@(subseq (arguments form) 0 arg-position)
-                              ,(ast-body arg)
-                              ,@(subseq (arguments form) (1+ arg-position))))
-                     form))
+                (simp-form
+                 (ast `(let ,(ast-bindings unwrapped-arg)
+                         (call ,(ast-name form)
+                               ,@(subseq (arguments form) 0 arg-position)
+                               (the ,type ,(ast-body unwrapped-arg))
+                               ,@(subseq (arguments form) (1+ arg-position))))
+                      form)))
             ;; Bail when a non-pure arg is seen. Arguments after this one can't safely be hoisted.
-            when (not (pure-p arg))
+            when (not (pure-p unwrapped-arg))
             do (return))
          form)))
 
