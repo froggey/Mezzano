@@ -1627,24 +1627,51 @@ Returns an appropriate tag."
     (emit `(sys.lap-x86:test64 ,reg ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,type-error-label))))
 
+(defun local-go-p (form)
+  (and (typep form 'ast-go)
+       (assoc (ast-target form) *rename-list*)))
+
 (defun cg-jump-table (form)
   (let* ((value (ast-value form))
          (jumps (ast-targets form))
          (tag (let ((*for-value* t))
                 (cg-form value)))
+         (exit-label (gensym "jump-table-exit"))
+         (need-exit nil)
+         (targets
+          (loop
+             for j in jumps
+             collect (if (local-go-p j)
+                         (second (assoc (ast-target j) *rename-list*))
+                         (gensym))))
          (jump-table (gensym "jump-table")))
     ;; Build the jump table.
     ;; Every jump entry must be a local GO with no special bindings.
     (emit-trailer (jump-table nil)
-      (dolist (j jumps)
-        (assert (typep j 'ast-go))
-        (let ((go-tag (assoc (ast-target j) *rename-list*)))
-          (assert go-tag () "GO tag not local")
-          (emit `(:d64/le (- ,(second go-tag) ,jump-table))))))
+      (loop
+         for j in jumps
+         for targ in targets
+         do
+           (emit `(:d64/le (- ,targ ,jump-table)))))
     ;; Jump.
     (load-in-r8 tag t)
     (smash-r8)
     (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
           `(sys.lap-x86:add64 :rax (:rax (:r8 ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
           `(sys.lap-x86:jmp :rax))
-    nil))
+    (loop
+       for j in jumps
+       for targ in targets
+       when (not (local-go-p j))
+       do
+         (emit targ)
+         (let ((tag (let ((*for-value* nil))
+                      (cg-form j))))
+           (when tag
+             (setf need-exit t)
+             (emit `(sys.lap-x86:jmp ,exit-label)))))
+    (cond (need-exit
+           (emit exit-label)
+           ''nil)
+          (t
+           nil))))
