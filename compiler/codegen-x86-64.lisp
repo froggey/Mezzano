@@ -640,6 +640,9 @@
                  (emit exit-label)
                  (setf *stack-values* (copy-stack-values stack-slots)
                        *r8-value* (list (gensym))))
+                (tag
+                 ;; Exit is reached normally, but no return-from forms were reached.
+                 ''nil)
                 ;; No value returned, no return-from forms reached.
                 (t nil)))
       (when escapes
