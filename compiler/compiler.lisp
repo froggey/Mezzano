@@ -49,6 +49,7 @@ A list of any declaration-specifiers."
       #+arm64 :arm64))
 
 (defun codegen-lambda (lambda &optional target-architecture)
+  (detect-uses lambda)
   (ecase (default-architecture target-architecture)
     (:x86-64
      (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))
@@ -62,6 +63,8 @@ A list of any declaration-specifiers."
          (run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3))))
     (when run-optimizations
       (setf form (run-optimizers form (default-architecture target-architecture))))
+    (unless run-optimizations
+      (setf form (lower-keyword-arguments form)))
     ;; Lower complex lambda lists.
     (setf form (lower-arguments (detect-uses form)))
     ;; Lower closed-over variables.
@@ -123,8 +126,6 @@ A list of any declaration-specifiers."
   (optimize-quality-1 (ast-optimize ast-node) quality))
 
 (defun run-optimizers (form target-architecture)
-  (when (eql (optimize-quality form 'compiliation-speed) 3)
-    (return-from run-optimizers form))
   (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
                               :format-control "Possible optimizer infinite loop."
                               :format-arguments '())

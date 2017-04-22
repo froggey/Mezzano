@@ -281,7 +281,7 @@
       (setf (lambda-information-enable-keys form) nil
             (lambda-information-key-args form) '()
             (lambda-information-allow-other-keys form) nil)
-      (incf *change-count*))
+      (change-made))
     (dolist (arg (lambda-information-optional-args form))
       (lower-keyword-arguments-1 (second arg)))
     (lower-keyword-arguments-1 (lambda-information-body form))))
