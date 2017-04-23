@@ -38,9 +38,6 @@
       (when (or (and  (mezzano.network.ip:address-equal
 		       mezzano.network.dhcp::+ipv4-broadcast-local-network+
 		       local-ip)
-		      #+nil(mezzano.network.ip:address-equal
-		       (local-address connection)
-		       local-ip)
 		      (eql (local-port connection) local-port))
 		(and (mezzano.network.ip:address-equal
 		      (remote-address connection)
