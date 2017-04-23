@@ -140,7 +140,7 @@
 		 (let* ((ack (sys.net:receive connection 4))
 			(ack-options (decode-all-options ack))
 			(confirmation (get-option ack-options +opt-dhcp-message-type+)))
-		   (if (= confirmation +dhcp-ack+)
+		   (if (= (aref confirmation 0) +dhcp-ack+)
 		       (values yiaddr (get-option options +opt-netmask+) (get-option options +opt-router+)
 			       (get-option options +opt-dns-servers+) (get-option options +opt-dhcp-server+)
 			       (get-option options +opt-ntp-server+))
