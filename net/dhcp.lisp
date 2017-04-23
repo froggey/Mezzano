@@ -81,11 +81,12 @@
 	  (aref option 1) size)
     (setf (subseq option 2)
 	  (make-array size :element-type '(unsigned-byte 8)
-		      :initial-contents (cond ((= 1 size) (list value))
+		      :initial-contents (cond ((arrayp value) value)
+					      ((= 1 size) (list value))
 					      ((= 2 size) (list (ash value -8) (logand value #xff)))
 					      ((= 4 size) (list (ldb (byte 8 24) value) (ldb (byte 8 16) value)
 								(ldb (byte 8 8) value) (logand value #xff)))
-					      (t value)))) ;;array
+					      (t (cerror "Invalid option format ~A ~A" type value)))))
     option))
 
 (defun send-broadcast-dhcp-packet (sequence interface)
