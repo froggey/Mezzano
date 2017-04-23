@@ -97,3 +97,11 @@
                 #:ub64ref/be #:ub64ref/le)
   (:export #:resolve-address
            #:*dns-servers*))
+
+(defpackage :mezzano.network.dhcp
+  (:use :cl)
+  (:import-from :sys.int
+                #:ub16ref/be #:ub16ref/le
+                #:ub32ref/be #:ub32ref/le
+                #:ub64ref/be #:ub64ref/le)
+  (:export #:acquire-lease))
