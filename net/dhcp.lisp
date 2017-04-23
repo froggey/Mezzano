@@ -26,6 +26,7 @@
 (defconstant +opt-tftp-server+ 66)
 (defconstant +opt-parameter-request-list+ 55)
 (defconstant +opt-host-name+ 12)
+(defconstant +opt-domain-name+ 15)
 (defconstant +opt-end+ 255)
 
 (defun build-dhcp-packet (&key mac-address options (siaddr 0))
@@ -49,7 +50,7 @@
        do (setf (subseq packet pos) option))
     packet))
 
-(defun decodce-dhcp-option (buffer position)
+(defun decode-dhcp-option (buffer position)
   "Returns (VALUES type value next-option-position)"
   (if (zerop (aref buffer position))
       (values 0 nil (1+ position))
@@ -70,15 +71,21 @@
   (let* ((size (cond ((zerop type) -1)
 		     ((arrayp value) (length value))
 		     ((typep value '(unsigned-byte 8)) 1)
+		     ((typep value '(unsigned-byte 16)) 2)
+		     ((typep value '(unsigned-byte 32)) 4)
 		     (t (cerror "Invalid DHCP option format ~A ~A" type value))))
 	 (option (make-array (+ 2 size) :element-type '(unsigned-byte 8) :initial-element 0)))
-    (when (zerop size)
-      (return option))
+    (when (minusp size)
+      (return-from make-dhcp-option option))
     (setf (aref option 0) type
 	  (aref option 1) size)
-    (if (= 1 size)
-	(setf (aref option 2) value)	;assume scalar
-	(setf (subseq option 2) value))
+    (setf (subseq option 2)
+	  (make-array size :element-type '(unsigned-byte 8)
+		      :initial-contents (cond ((= 1 size) (list value))
+					      ((= 2 size) (list (ash value -8) (logand value #xff)))
+					      ((= 4 size) (list (ldb (byte 8 24) value) (ldb (byte 8 16) value)
+								(ldb (byte 8 8) value) (logand value #xff)))
+					      (t value)))) ;;array
     option))
 
 (defun send-broadcast-dhcp-packet (sequence interface)
@@ -111,8 +118,9 @@
 				   :local-port +dhcp-client-port+)))
     (mezzano.supervisor:with-mutex (mezzano.network.udp::*udp-connection-lock*)
       (push connection mezzano.network.udp::*udp-connections*))
-    (dhcp-send (list (make-dhcp-option 53 :size 1 :value 1)
-		     (make-dhcp-option 55 :size 5 :value #(1 4 3 15 6))))
+    (dhcp-send (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-discover+)
+		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-server+ #.+opt-router+
+								      #.+opt-domain-name+ #.+opt-dns-servers+))))
     (unwind-protect
 	 (let* ((offer (sys.net:receive connection 4))
 		(siaddr (ub32ref/be offer 20))
