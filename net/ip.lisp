@@ -297,7 +297,8 @@
         (return-from ipv4-receive))
       ;; Is it address to one of our interfaces?
       ;; If not, forward or reject it.
-      (when (not (ipv4-address-interface dest-ip nil))
+      (when (and (not (= (ipv4-address-address dest-ip) #xffffffff)) ;;not broadcast
+		 (not (ipv4-address-interface dest-ip nil)))
         (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
         (return-from ipv4-receive))
       (case protocol
