@@ -104,4 +104,6 @@
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:export #:acquire-lease))
+  (:export #:acquire-lease #:renew-lease #:dhcp-lease #:start-dhcp-interaction
+	   #:dhcp-invalid-option #:dhcp-error #:ip-address #:netmask #:gateway #:interface #:ntp-servers
+	   #:dns-serveer #:dhcp-server #:lease-timeout #:lease-timestamp))
