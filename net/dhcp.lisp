@@ -178,9 +178,19 @@
 		       nil)))))
       (sys.net:disconnect connection))))
 
-(defun renew-lease (dhcp-server)
-  (let ((xid (make-xid)))
-    (mezzano.network.udp:with-udp-connection )))
+(defmethod renew-lease ((lease dhcp-lease))
+  (let* ((xid (make-xid))
+	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
+				    :options options)))
+    (mezzano.network.udp:with-udp-connection (connection (dhcp-server lease) +dhcp-server-port+)
+      (send packet connection)
+      (let ((reply (receive connection 4)))
+	(if reply
+	    (progn
+	      (setf (lease-timestamp lease) (get-universal-time)
+		    (lease-timeout (get-option options +opt-lease-time+)))
+	      lease)
+	    nil)))))
 
 (defun dhcp-interaction ()
   (make-thread
