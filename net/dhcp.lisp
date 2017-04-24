@@ -81,7 +81,7 @@
 (defun decode-all-options (buffer)
   (loop with pos = 240
      with padcount = 0
-     while (and (< padcount 4) (< pos (length buffer)))
+     while (and (not (= (aref buffer pos) +opt-end+)) (< padcount 4) (< pos (length buffer)))
      appending (multiple-value-bind (type value newpos) (decode-dhcp-option buffer pos)
 		 (setf pos newpos)
 		 (cond ((zerop type) (incf padcount) (list))
