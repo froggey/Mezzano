@@ -29,14 +29,34 @@
 (defconstant +opt-domain-name+ 15)
 (defconstant +opt-end+ 255)
 
-(defun build-dhcp-packet (&key mac-address options (siaddr 0))
+(define-condition dhcp-error ()
+  ())
+
+(define-condition dhcp-invalid-option (dhcp-error) 
+  ((type :reader type :initarg :type)
+   (value :reader value :initarg :value))
+  (:report (lambda (condition stream)
+	     (format stream "Invalid DHCP option: ~A ~A" (type condition) (value condition)))))
+
+(defclass dhcp-lease ()
+  ((ip-address :reader ip-address :initarg :ip-address)
+   (netmask :reader netmask :initarg :netmask)
+   (gateway :reader gateway :initarg :gateway)
+   (interface :reader interface :initarg :interface)
+   (ntp-servers :reader ntp-servers :initarg :ntp-servers)
+   (dns-servers :reader dns-servers :initarg :dns-servers)
+   (dhcp-server :reader dhcp-server :initarg :dhcp-server)
+   (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
+   (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
+
+(defun build-dhcp-packet (&key xid mac-address options (siaddr 0))
   (assert (typep mac-address '(simple-array (unsigned-byte 8) (6))))
   (let ((packet (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0)))
     (setf (aref packet 0) #x01 ;OP
           (aref packet 1) #x01 ;HTYPE
           (aref packet 2) #x06 ;HLEN
           (aref packet 3) #x00 ;HOPS
-          (ub32ref/be packet 4) #xdeadbeef ;XID
+          (ub32ref/be packet 4) xid
 	  (ub16ref/be packet 8) #x0000 ;SECS
 	  (ub16ref/be packet 10) #x8000 ;FLAGS
           (ub32ref/be packet 12) #x00000000 ;CIADDR
@@ -73,7 +93,7 @@
 		     ((typep value '(unsigned-byte 8)) 1)
 		     ((typep value '(unsigned-byte 16)) 2)
 		     ((typep value '(unsigned-byte 32)) 4)
-		     (t (cerror "Invalid DHCP option format ~A ~A" type value))))
+		     (t (error 'dhcp-invalid-option :type type :value value))))
 	 (option (make-array (+ 2 size) :element-type '(unsigned-byte 8) :initial-element 0)))
     (when (minusp size)
       (return-from make-dhcp-option option))
@@ -86,7 +106,7 @@
 					      ((= 2 size) (list (ash value -8) (logand value #xff)))
 					      ((= 4 size) (list (ldb (byte 8 24) value) (ldb (byte 8 16) value)
 								(ldb (byte 8 8) value) (logand value #xff)))
-					      (t (cerror "Invalid option format ~A ~A" type value)))))
+					      (t (error 'dhcp-invalid-option :type type :value value)))))
     option))
 
 (defun send-broadcast-dhcp-packet (sequence interface)
@@ -103,25 +123,31 @@
 			   mezzano.network.ip:+ip-protocol-udp+
 			   packet))))
 
-(defun dhcp-send (options &key (siaddr 0))
-  (let* ((iface (first mezzano.driver.network-card::*nics*))	 
-	 (packet (build-dhcp-packet :mac-address (mezzano.network.ethernet:ethernet-mac iface) :options options :siaddr siaddr)))
+(defun dhcp-send (options iface xid &key (siaddr 0))
+  (let* ((packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac iface) :options options :siaddr siaddr)))
     (send-broadcast-dhcp-packet packet iface)))
 
 (defun get-option (alist option)
   (cdr (find option alist :key #'car)))
 
+(defun make-xid ()
+  (+ #xdeadbeef (- #x8000 (random #xffff))))
+
 (defun acquire-lease ()
   (let ((connection (make-instance 'mezzano.network.udp::udp4-connection
-				   :remote-address +ipv4-broadcast-source+ ;;not necessary, just to avoid the stack down choking
+				   :remote-address +ipv4-broadcast-source+ ;;unnecessary, but just to avoid the stack down choking
 				   :remote-port +dhcp-server-port+
 				   :local-address +ipv4-broadcast-local-network+
-				   :local-port +dhcp-client-port+)))
+				   :local-port +dhcp-client-port+))
+	(interface (first mezzano.driver.network-card::*nics*))
+	(xid (make-xid)))
     (mezzano.supervisor:with-mutex (mezzano.network.udp::*udp-connection-lock*)
       (push connection mezzano.network.udp::*udp-connections*))
-    (dhcp-send (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-discover+)
+    (dhcp-send interface
+	       (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-discover+)
 		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-server+ #.+opt-router+
-								      #.+opt-domain-name+ #.+opt-dns-servers+))))
+								      #.+opt-domain-name+ #.+opt-dns-servers+)))
+	       xid)
     (unwind-protect
 	 (let* ((offer (sys.net:receive connection 4))
 		(siaddr (ub32ref/be offer 20))
@@ -133,16 +159,40 @@
 	   (if (zerop yiaddr)
 	       nil
 	       (progn
-		 (dhcp-send (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
+		 (dhcp-send interface
+			    (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
 				  (make-dhcp-option +opt-ip-address+ oaddr)
 				  (make-dhcp-option +opt-dhcp-server+ dhcpserver))
+			    xid
 			    :siaddr siaddr)
 		 (let* ((ack (sys.net:receive connection 4))
 			(ack-options (decode-all-options ack))
 			(confirmation (get-option ack-options +opt-dhcp-message-type+)))
 		   (if (= (aref confirmation 0) +dhcp-ack+)
-		       (values yiaddr (get-option options +opt-netmask+) (get-option options +opt-router+)
-			       (get-option options +opt-dns-servers+) (get-option options +opt-dhcp-server+)
-			       (get-option options +opt-ntp-server+))
+		       (make-instance 'dhcp-lease :ip-address yiaddr :netmask (get-option options +opt-netmask+)
+				      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
+				      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
+				      :ntp-servers (get-option options +opt-ntp-server+)
+				      :lease-timestamp (get-universal-time) :lease-timeout (get-option options +opt-lease-time+))
+		       
 		       nil)))))
       (sys.net:disconnect connection))))
+
+(defun renew-lease (dhcp-server)
+  (let ((xid (make-xid)))
+    (mezzano.network.udp:with-udp-connection )))
+
+(defun dhcp-interaction ()
+  (make-thread
+   #'(lambda ()
+       (let (lease)
+	 (loop
+	    (loop for pause = 2 then (min 60 (* 2 pause))
+	       for lease = 
+	       until lease do
+		 (setf lease (acquire-lease))
+		 (sleep pause))
+	 
+	    (loop while lease do
+		 (sleep (lease-timeout lease))
+		 (setf lease (renew-lease lease))))))))
