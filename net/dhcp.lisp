@@ -173,7 +173,8 @@
 				      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
 				      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
 				      :ntp-servers (get-option options +opt-ntp-server+)
-				      :lease-timestamp (get-universal-time) :lease-timeout (get-option options +opt-lease-time+))
+				      :lease-timestamp (get-universal-time)
+				      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
 		       
 		       nil)))))
       (sys.net:disconnect connection))))
@@ -182,7 +183,9 @@
   (let* ((xid (make-xid))
 	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
 				    :options options)))
-    (mezzano.network.udp:with-udp-connection (connection (dhcp-server lease) +dhcp-server-port+)
+    (mezzano.network.udp:with-udp-connection (connection
+					      (mezzano.network.ip:make-ipv4-address (ub32ref/be (dhcp-server lease) 0))
+					      +dhcp-server-port+)
       (send packet connection)
       (let ((reply (receive connection 4)))
 	(if reply
