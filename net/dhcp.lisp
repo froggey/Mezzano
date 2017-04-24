@@ -4,6 +4,7 @@
 (in-package :mezzano.network.dhcp)
 
 (defconstant +magic-cookie+ #x63825363)
+
 (defconstant +ipv4-broadcast-source+ (mezzano.network.ip:make-ipv4-address #x00000000))
 (defconstant +ipv4-broadcast-local-network+ (mezzano.network.ip:make-ipv4-address #xffffffff))
 (defconstant +dhcp-client-port+ 68)
@@ -15,18 +16,18 @@
 (defconstant +dhcp-ack+ 5)
 (defconstant +dhcp-nak+ 6)
 
-(defconstant +opt-dhcp-server+ 54)
-(defconstant +opt-ntp-server+ 4)
 (defconstant +opt-netmask+ 1)
 (defconstant +opt-router+ 3)
+(defconstant +opt-ntp-server+ 4)
 (defconstant +opt-dns-servers+ 6)
-(defconstant +opt-lease-time+ 51)
-(defconstant +opt-ip-address+ 50)
-(defconstant +opt-dhcp-message-type+ 53)
-(defconstant +opt-tftp-server+ 66)
-(defconstant +opt-parameter-request-list+ 55)
 (defconstant +opt-host-name+ 12)
 (defconstant +opt-domain-name+ 15)
+(defconstant +opt-ip-address+ 50)
+(defconstant +opt-lease-time+ 51)
+(defconstant +opt-dhcp-message-type+ 53)
+(defconstant +opt-dhcp-server+ 54)
+(defconstant +opt-parameter-request-list+ 55)
+(defconstant +opt-tftp-server+ 66)
 (defconstant +opt-end+ 255)
 
 (define-condition dhcp-error ()
@@ -123,7 +124,7 @@
 			   mezzano.network.ip:+ip-protocol-udp+
 			   packet))))
 
-(defun dhcp-send (options iface xid &key (siaddr 0))
+(defun dhcp-send (iface options xid &key (siaddr 0))
   (let* ((packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac iface) :options options :siaddr siaddr)))
     (send-broadcast-dhcp-packet packet iface)))
 
@@ -169,7 +170,7 @@
 			(ack-options (decode-all-options ack))
 			(confirmation (get-option ack-options +opt-dhcp-message-type+)))
 		   (if (= (aref confirmation 0) +dhcp-ack+)
-		       (make-instance 'dhcp-lease :ip-address yiaddr :netmask (get-option options +opt-netmask+)
+		       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
 				      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
 				      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
 				      :ntp-servers (get-option options +opt-ntp-server+)
@@ -181,31 +182,34 @@
 
 (defmethod renew-lease ((lease dhcp-lease))
   (let* ((xid (make-xid))
+	 (options (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
+			(make-dhcp-option +opt-ip-address+ (ip-address lease))
+			(make-dhcp-option +opt-dhcp-server+ (dhcp-server lease))))
 	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
 				    :options options)))
     (mezzano.network.udp:with-udp-connection (connection
 					      (mezzano.network.ip:make-ipv4-address (ub32ref/be (dhcp-server lease) 0))
 					      +dhcp-server-port+)
-      (send packet connection)
-      (let ((reply (receive connection 4)))
+      (sys.net:send packet connection)
+      (let ((reply (sys.net:receive connection 4)))
 	(if reply
-	    (progn
+	    (let ((reply-options (decode-all-options reply)))
 	      (setf (lease-timestamp lease) (get-universal-time)
-		    (lease-timeout (get-option options +opt-lease-time+)))
+		    (lease-timeout lease) (get-option reply-options +opt-lease-time+))
 	      lease)
 	    nil)))))
 
-(defun dhcp-interaction ()
-  (make-thread
+(defun start-dhcp-interaction ()
+  (mezzano.supervisor:make-thread
    #'(lambda ()
        (let (lease)
 	 (loop
 	    (loop for pause = 2 then (min 60 (* 2 pause))
-	       for lease = 
 	       until lease do
 		 (setf lease (acquire-lease))
 		 (sleep pause))
 	 
 	    (loop while lease do
-		 (sleep (lease-timeout lease))
-		 (setf lease (renew-lease lease))))))))
+		 (sleep (ceiling (lease-timeout lease) 2))
+		 (setf lease (renew-lease lease))))))
+   :name "DHCP interaction thread"))
