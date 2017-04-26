@@ -150,34 +150,36 @@
 								      #.+opt-domain-name+ #.+opt-dns-servers+)))
 	       xid)
     (unwind-protect
-	 (let* ((offer (sys.net:receive connection 4))
-		(siaddr (ub32ref/be offer 20))
-		(yiaddr (ub32ref/be offer 16))
-		(oaddr (make-array 4 :element-type '(unsigned-byte 8)))
-		(options (decode-all-options offer))
-		(dhcpserver (get-option options +opt-dhcp-server+)))
-	   (setf (ub32ref/be oaddr 0) yiaddr)
-	   (if (zerop yiaddr)
-	       nil
-	       (progn
-		 (dhcp-send interface
-			    (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
-				  (make-dhcp-option +opt-ip-address+ oaddr)
-				  (make-dhcp-option +opt-dhcp-server+ dhcpserver))
-			    xid
-			    :siaddr siaddr)
-		 (let* ((ack (sys.net:receive connection 4))
-			(ack-options (decode-all-options ack))
-			(confirmation (get-option ack-options +opt-dhcp-message-type+)))
-		   (if (= (aref confirmation 0) +dhcp-ack+)
-		       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
-				      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
-				      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
-				      :ntp-servers (get-option options +opt-ntp-server+)
-				      :lease-timestamp (get-universal-time)
-				      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
+	 (let ((offer (sys.net:receive connection 4)))
+	   (when offer
+	     (let* ((siaddr (ub32ref/be offer 20))
+		    (yiaddr (ub32ref/be offer 16))
+		    (oaddr (make-array 4 :element-type '(unsigned-byte 8)))
+		    (options (decode-all-options offer))
+		    (dhcpserver (get-option options +opt-dhcp-server+)))
+	       (setf (ub32ref/be oaddr 0) yiaddr)
+	       (if (zerop yiaddr)
+		   nil
+		   (progn
+		     (dhcp-send interface
+				(list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
+				      (make-dhcp-option +opt-ip-address+ oaddr)
+				      (make-dhcp-option +opt-dhcp-server+ dhcpserver))
+				xid
+				:siaddr siaddr)
+		     (let ((ack (sys.net:receive connection 4)))
+		       (when ack
+			 (let* ((ack-options (decode-all-options ack))
+				(confirmation (get-option ack-options +opt-dhcp-message-type+)))
+			   (if (= (aref confirmation 0) +dhcp-ack+)
+			       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
+					      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
+					      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
+					      :ntp-servers (get-option options +opt-ntp-server+)
+					      :lease-timestamp (get-universal-time)
+					      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
 		       
-		       nil)))))
+			       nil)))))))))
       (sys.net:disconnect connection))))
 
 (defmethod renew-lease ((lease dhcp-lease))
@@ -191,9 +193,6 @@
 				    :local-port +dhcp-client-port+)) 
 	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
 				    :options options :ciaddr (ub32ref/be (ip-address lease) 0))))
-    ;; (mezzano.network.udp:with-udp-connection (connection
-    ;; 					      (mezzano.network.ip:make-ipv4-address (ub32ref/be (dhcp-server lease) 0))
-    ;; 					      +dhcp-server-port+)
     (unwind-protect
 	 (progn
 	   (sys.net:send packet connection)
