@@ -35,14 +35,18 @@
 (defun get-udp-connection (remote-ip remote-port local-ip local-port)
   (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (dolist (connection *udp-connections*)
-      (when (and (mezzano.network.ip:address-equal
-                       (remote-address connection)
-                       remote-ip)
-                 (eql (remote-port connection) remote-port)
-                 (mezzano.network.ip:address-equal
-                       (local-address connection)
-                       local-ip)
-                 (eql (local-port connection) local-port))
+      (when (or (and  (mezzano.network.ip:address-equal
+		       mezzano.network.dhcp::+ipv4-broadcast-local-network+
+		       local-ip)
+		      (eql (local-port connection) local-port))
+		(and (mezzano.network.ip:address-equal
+		      (remote-address connection)
+		      remote-ip)
+		     (eql (remote-port connection) remote-port)
+		     (mezzano.network.ip:address-equal
+		      (local-address connection)
+		      local-ip)
+		     (eql (local-port connection) local-port)))
         (return connection)))))
 
 (defmacro with-udp-connection ((connection remote-host remote-port) &body body)
