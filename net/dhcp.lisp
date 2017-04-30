@@ -53,6 +53,9 @@
    (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
    (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
 
+(defun convert-to-ipv4-address (vector)
+  (mezzano.network.ip:make-ipv4-address (ub32ref/be vector 0)))
+
 (defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0))
   (assert (typep mac-address '(simple-array (unsigned-byte 8) (6))))
   (let ((packet (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0)))
@@ -137,13 +140,13 @@
 (defun make-xid ()
   (+ #xdeadbeef (- #x8000 (random #xffff))))
 
-(defun acquire-lease ()
+(defun acquire-lease (interface)
   (let ((connection (make-instance 'mezzano.network.udp::udp4-connection
 				   :remote-address +ipv4-broadcast-source+ ;;unnecessary, but just to avoid the stack down choking
 				   :remote-port +dhcp-server-port+
 				   :local-address +ipv4-broadcast-local-network+
 				   :local-port +dhcp-client-port+))
-	(interface (first mezzano.driver.network-card::*nics*))
+	;;(interface (first mezzano.driver.network-card::*nics*))
 	(xid (make-xid)))
     (mezzano.supervisor:with-mutex (mezzano.network.udp::*udp-connection-lock*)
       (push connection mezzano.network.udp::*udp-connections*))
@@ -208,10 +211,11 @@
 		 nil)))
       (sys.net:disconnect connection))))
 
-(defun start-dhcp-interaction ()
+(defun start-dhcp-interaction (interface)
   (mezzano.supervisor:make-thread
    #'(lambda ()
        (loop with lease do
+	    (mezzano.network.ip::ifdown interface)
 	    (loop for pause = 2 then (* 2 pause)
 	       until lease
 	       if (<= 16 pause) do
@@ -219,7 +223,10 @@
 		 (sleep (+ pause (random 1.0)))
 	       else do
 		 (sleep (* 5 60)))
+	    (mezzano.network.ip::ifup interface (convert-to-ipv4-address (ip-address lease)))
+	    (loop for server in (dns-servers lease) do
+		 (pushnew (convert-to-ipv4-address server) mezzano.network.dns:*dns-servers*))
 	    (loop while lease do
 		 (sleep (ceiling (lease-timeout lease) 2))
 		 (setf lease (renew-lease lease)))))
-   :name "DHCP interaction thread"))
+   :name (format nil "DHCP interaction thread on interface ~A" interface)))
