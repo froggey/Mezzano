@@ -13,8 +13,11 @@
 (defconstant +dhcp-discover+ 1)
 (defconstant +dhcp-offer+ 2)
 (defconstant +dhcp-request+ 3)
+(defconstant +dhcp-decline+ 4)
 (defconstant +dhcp-ack+ 5)
 (defconstant +dhcp-nak+ 6)
+(defconstant +dhcp-release+ 7)
+(defconstant +dhcp-inform+ 8)
 
 (defconstant +opt-netmask+ 1)
 (defconstant +opt-router+ 3)
@@ -208,13 +211,15 @@
 (defun start-dhcp-interaction ()
   (mezzano.supervisor:make-thread
    #'(lambda ()
-       (let (lease)
-	 (loop
-	    (loop for pause = 2 then (min 60 (* 2 pause))
-	       until lease do
+       (loop with lease do
+	    (loop for pause = 2 then (* 2 pause)
+	       until lease
+	       if (<= 16 pause) do
 		 (setf lease (acquire-lease))
-		 (sleep pause))
+		 (sleep (+ pause (random 1.0)))
+	       else do
+		 (sleep (* 5 60)))
 	    (loop while lease do
 		 (sleep (ceiling (lease-timeout lease) 2))
-		 (setf lease (renew-lease lease))))))
+		 (setf lease (renew-lease lease)))))
    :name "DHCP interaction thread"))
