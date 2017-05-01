@@ -21,7 +21,7 @@
 
 (defconstant +opt-netmask+ 1)
 (defconstant +opt-router+ 3)
-(defconstant +opt-ntp-server+ 4)
+(defconstant +opt-ntp-servers+ 42)
 (defconstant +opt-dns-servers+ 6)
 (defconstant +opt-host-name+ 12)
 (defconstant +opt-domain-name+ 15)
@@ -31,6 +31,7 @@
 (defconstant +opt-dhcp-server+ 54)
 (defconstant +opt-parameter-request-list+ 55)
 (defconstant +opt-tftp-server+ 66)
+(defconstant +opt-custom-mezzano-server+ 212)
 (defconstant +opt-end+ 255)
 
 (define-condition dhcp-error ()
@@ -50,6 +51,7 @@
    (ntp-servers :reader ntp-servers :initarg :ntp-servers)
    (dns-servers :reader dns-servers :initarg :dns-servers)
    (dhcp-server :reader dhcp-server :initarg :dhcp-server)
+   (mezzano-server :reader mezzano-server :initarg :mezzano-server)
    (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
    (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
 
@@ -152,8 +154,9 @@
       (push connection mezzano.network.udp::*udp-connections*))
     (dhcp-send interface
 	       (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-discover+)
-		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-server+ #.+opt-router+
-								      #.+opt-domain-name+ #.+opt-dns-servers+)))
+		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-servers+ #.+opt-router+
+								      #.+opt-domain-name+ #.+opt-dns-servers+
+								      #.+opt-custom-mezzano-server+)))
 	       xid)
     (unwind-protect
 	 (let ((offer (sys.net:receive connection 4)))
@@ -181,7 +184,8 @@
 			       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
 					      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
 					      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
-					      :ntp-servers (get-option options +opt-ntp-server+)
+					      :ntp-servers (get-option options +opt-ntp-servers+)
+					      :mezzano-server (get-option options +opt-custom-mezzano-server+)
 					      :lease-timestamp (get-universal-time)
 					      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
 		       
@@ -223,6 +227,8 @@
 		 (sleep (+ pause (random 1.0)))
 	       else do
 		 (sleep (* 5 60)))
+	    (when (mezzano-server lease)
+	      (setf sys.int::*file-server-host-ip* (convert-to-ipv4-address (mezzano-server lease))))
 	    (mezzano.network.ip::ifup interface (convert-to-ipv4-address (ip-address lease)))
 	    (loop for server in (dns-servers lease) do
 		 (pushnew (convert-to-ipv4-address server) mezzano.network.dns:*dns-servers*))
