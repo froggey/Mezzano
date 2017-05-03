@@ -114,7 +114,7 @@
        form))
 
 (defmethod lsb-form ((form ast-let))
-  (let ((*special-bindings* *special-bindings*))
+  (let ((updated-special-bindings *special-bindings*))
     (labels ((frob (bindings)
                (cond (bindings
                       (let* ((binding (first bindings))
@@ -127,7 +127,7 @@
                                 form))
                           (special-variable
                            (push (list :special (first binding))
-                                 *special-bindings*)
+                                 updated-special-bindings)
                            (ast `(progn
                                    (call sys.int::%%bind
                                          (quote ,(name variable))
@@ -135,7 +135,9 @@
                                    (multiple-value-prog1 ,(frob (rest bindings))
                                      (call sys.int::%%unbind)))
                                 form)))))
-                     (t (lsb-form (body form))))))
+                     (t
+                      (let ((*special-bindings* updated-special-bindings))
+                        (lsb-form (body form)))))))
       (frob (bindings form)))))
 
 (defmethod lsb-form ((form ast-multiple-value-bind))
