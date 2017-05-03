@@ -87,7 +87,7 @@
                     (not (eql did +virtio-dev-id-invalid+))))
       (return-from virtio-mmio-register nil))
     (debug-print-line "mmio virtio device at " address " did: " did " vid: " vid)
-    (virtio-device-register dev did)))
+    (virtio-device-register dev)))
 
 (defun virtio-mmio-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
