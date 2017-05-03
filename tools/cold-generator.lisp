@@ -194,9 +194,9 @@
     "system/profiler.lisp"
     "drivers/network-card.lisp"
     "drivers/virtio-net.lisp"
-    "drivers/rtl8168.lisp"
+    ("drivers/rtl8168.lisp" :x86-64)
     "drivers/sound.lisp"
-    "drivers/intel-hda.lisp"
+    ("drivers/intel-hda.lisp" :x86-64)
     "net/package.lisp"
     "net/network.lisp"
     "net/ethernet.lisp"
