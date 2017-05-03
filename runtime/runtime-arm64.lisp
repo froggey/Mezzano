@@ -250,16 +250,6 @@
                sys.int::+last-numeric-object-tag+)
            (= x y))))
 
-(declaim (inline sys.int::%value-has-tag-p))
-(defun sys.int::%value-has-tag-p (value tag)
-  (eq (sys.int::%tag-field value) tag))
-
-(declaim (inline sys.int::%type-check))
-(defun sys.int::%type-check (object object-tag expected-type)
-  (unless (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-               (eq (sys.int::%object-tag object) object-tag))
-    (sys.int::raise-type-error object expected-type)))
-
 (declaim (inline lognot))
 (defun lognot (integer)
   (logxor integer -1))
@@ -278,15 +268,12 @@
 
 (declaim (inline simple-vector-p))
 (defun simple-vector-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (eq (sys.int::%object-tag object) sys.int::+object-tag-array-t+)))
+  (sys.int::%object-of-type-p object sys.int::+object-tag-array-t+))
 
 (declaim (inline sys.int::character-array-p))
 (defun sys.int::character-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (let ((tag (sys.int::%object-tag object)))
-         (or (eq tag sys.int::+object-tag-simple-string+)
-             (eq tag sys.int::+object-tag-string+)))))
+  (or (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+)
+      (sys.int::%object-of-type-p object sys.int::+object-tag-string+)))
 
 (declaim (inline arrayp))
 (defun arrayp (object)
@@ -299,13 +286,6 @@
        (<= sys.int::+first-complex-array-object-tag+
            (sys.int::%object-tag object)
            sys.int::+last-complex-array-object-tag+)))
-
-(declaim (inline sys.int::%bounds-check))
-(defun sys.int::%bounds-check (object slot)
-  (unless (sys.int::fixnump slot)
-    (sys.int::raise-type-error slot 'fixnum))
-  (unless (< slot (sys.int::%object-header-data object))
-    (sys.int::raise-bounds-error object slot)))
 
 (declaim (inline characterp))
 (defun characterp (object)
@@ -324,11 +304,6 @@
        (<= sys.int::+first-function-object-tag+
            (sys.int::%object-tag object)
            sys.int::+last-function-object-tag+)))
-
-(declaim (inline sys.int::%object-of-type-p))
-(defun sys.int::%object-of-type-p (object object-tag)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (eq (sys.int::%object-tag object) object-tag)))
 
 (defun sys.int::%copy-words (destination-address source-address count)
   (dotimes (i count)

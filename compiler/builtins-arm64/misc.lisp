@@ -61,6 +61,26 @@
   (emit `(lap:add :x0 :xzr :x0 :lsl ,sys.int::+n-fixnum-bits+))
   (setf *x0-value* (list (gensym))))
 
+;; (eql (%tag-field value) tag)
+(defbuiltin sys.int::%value-has-tag-p (value tag) ()
+  (cond ((constant-type-p tag `(unsigned-byte 4))
+         ;; Fast case where the tag is a constant.
+         (load-in-reg :x0 value t)
+         ;; Test tag
+         (emit `(lap:and :x11 :x0 #b1111)
+               `(lap:subs :xzr :x11 ,(second tag)))
+         (predicate-result :eq))
+        (t ;; Slow path.
+         (load-in-reg :x0 value t)
+         (load-in-reg :x2 tag t)
+         ;; Convert value to fixnum.
+         (emit `(lap:add :x9 :xzr :x0 :lsl ,sys.int::+n-fixnum-bits+))
+         ;; Mask away all but tag bits (as fixnum).
+         (emit `(lap:and :x9 :x0 #b11110))
+         ;; Compare against tag (which must be a fixnum).
+         (emit `(lap:subs :xzr :x9 :x2))
+         (predicate-result :eq))))
+
 ;;; Grovelling in the machine.
 
 (defbuiltin system.internals::read-frame-pointer () (nil)
