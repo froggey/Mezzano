@@ -1465,11 +1465,7 @@ Returns an appropriate tag."
 
 (defun cg-funcall (form)
   (let* ((fn-tag (let ((*for-value* t))
-                   (cg-form (if (typep (first (ast-arguments form)) 'lambda-information)
-                                (first (ast-arguments form))
-                                (make-instance 'ast-call
-                                               :name 'sys.int::%coerce-to-callable
-                                               :arguments (list (first (ast-arguments form)))))))))
+                   (cg-form (first (ast-arguments form))))))
     (cond ((prep-arguments-for-call (rest (ast-arguments form)))
            (comment 'funcall)
            (load-in-reg :x6 fn-tag t)
@@ -1518,7 +1514,7 @@ Returns an appropriate tag."
            (cg-make-dx-simple-vector form))
           (fn
            (cg-builtin fn form))
-          ((and (eql (ast-name form) 'funcall)
+          ((and (eql (ast-name form) 'mezzano.runtime::%funcall)
                 (ast-arguments form))
            (cg-funcall form))
           ((eql (ast-name form) 'values)

@@ -233,3 +233,97 @@
         `(lap:add :x0 :xzr :x9 :lsl 32)
         `(lap:add :x0 :x0 ,sys.int::+tag-single-float+))
   (setf *x0-value* (list (gensym))))
+
+;;; Fast fixnum arithmetic.
+
+(defbuiltin sys.c::%fast-fixnum-+ (x y) ()
+  (when (constant-type-p y 'fixnum)
+    (rotatef x y))
+  (cond ((constant-type-p x 'fixnum)
+         (load-in-x0 y t)
+         (smash-x0)
+         (cond ((<= -4095 (fixnum-to-raw (second x)) 4095)
+                ;; Small integers can be encoded directly into the instruction.
+                (if (minusp (second x))
+                    (emit `(lap:subs :x0 :x0 ,(- (fixnum-to-raw (second x)))))
+                    (emit `(lap:adds :x0 :x0 ,(fixnum-to-raw (second x))))))
+               (t
+                (load-literal :x9 (fixnum-to-raw (second x)))
+                (emit `(lap:adds :x0 :x0 :x9)))))
+        (t (load-in-reg :x1 y t)
+           (load-in-reg :x0 x t)
+           (smash-x0)
+           (emit `(lap:adds :x0 :x0 :x1))))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin sys.c::%fast-fixnum-- (x y) ()
+  (load-in-reg :x0 x t)
+  (load-in-reg :x1 y t)
+  (smash-x0)
+  (emit `(lap:subs :x0 :x0 :x1))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin sys.c::%fast-fixnum-* (x y) ()
+  (load-in-reg :x1 y t)
+  (load-in-reg :x0 x t)
+  (smash-x0)
+  ;; Convert X0 to raw integer, leaving X1 as a fixnum.
+  ;; This will cause the result to be a fixnum.
+  (emit `(lap:add :x9 :xzr :x0 :asr 1)
+        `(lap:madd :x0 :xzr :x9 :x1))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin sys.c::%fast-fixnum-truncate (number divisor) ()
+  (load-in-reg :x1 divisor t)
+  (load-in-reg :x0 number t)
+  (smash-x0)
+  (emit `(lap:sdiv :x9 :x0 :x1)
+        ;; Compute the remainder.
+        ;; remainder = numerator - (quotient * denominator)
+        ;; :x9 holds the quotient as a integer.
+        ;; :x1 holds the remainder as a fixnum.
+        `(lap:msub :x1 :x0 :x9 :x1)
+        `(lap:add :x0 :xzr :x9 :lsl ,sys.int::+n-fixnum-bits+))
+  (cond ((member *for-value* '(:multiple :tail))
+         (load-constant :x5 2)
+         :multiple)
+        (t
+         (setf *x0-value* (list (gensym))))))
+
+(defbuiltin sys.c::%fast-fixnum-rem (number divisor) ()
+  (load-in-reg :x1 divisor t)
+  (load-in-reg :x0 number t)
+  (smash-x0)
+  (emit `(lap:sdiv :x9 :x0 :x1)
+        ;; Compute the remainder.
+        ;; remainder = numerator - (quotient * denominator)
+        `(lap:msub :x0 :x0 :x9 :x1))
+  (setf *x0-value* (list (gensym))))
+
+(defmacro define-two-arg-fast-bitwise-op (name instruction)
+  `(defbuiltin ,name (x y) ()
+     ;; Constants on the left hand side.
+     (when (constant-type-p y 'fixnum)
+       (rotatef x y))
+     (cond ((constant-type-p x 'fixnum)
+            (load-in-x0 y t)
+            (smash-x0)
+            ;; TODO: Detect bitfields and use them directly.
+            (load-literal :x9 (fixnum-to-raw (second x)))
+            (emit `(,',instruction :x0 :x0 :x9)))
+           (t (load-in-reg :x1 y t)
+              (load-in-reg :x0 x t)
+              (smash-x0)
+              (emit `(,',instruction :x0 :x0 :x1))))
+     (setf *x0-value* (list (gensym)))))
+
+(define-two-arg-fast-bitwise-op sys.c::%fast-fixnum-logior lap:orr)
+(define-two-arg-fast-bitwise-op sys.c::%fast-fixnum-logxor lap:eor)
+(define-two-arg-fast-bitwise-op sys.c::%fast-fixnum-logand lap:and)
+
+(defbuiltin sys.c::%fast-fixnum-left-shift (integer count) ()
+  (load-in-reg :x9 count t)
+  (load-in-reg :x0 integer t)
+  (smash-x0)
+  (emit `(lap:lslv :x0 :x0 :x9))
+  (setf *x0-value* (list (gensym))))
