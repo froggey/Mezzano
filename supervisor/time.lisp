@@ -4,7 +4,7 @@
 (in-package :sys.int)
 
 (defglobal *rtc-is-utc* t "True if the RTC holds UTC, not local time.")
-(defglobal *time-zone* 0 "CL time zone.")
+(defglobal sys.int::*time-zone* 0 "CL time zone.")
 
 (defglobal *days-before-month*)
 
@@ -101,9 +101,3 @@
          (hours (+ hour (* days 24)))
          (time (+ second (* (+ minute (* (+ hours time-zone) 60)) 60))))
     time))
-
-(defun get-universal-time ()
-  (multiple-value-bind (second minute hour day month year)
-      (mezzano.supervisor:read-rtc-time)
-    (encode-universal-time second minute hour day month year
-                           (if sys.int::*rtc-is-utc* 0 sys.int::*time-zone*))))

@@ -66,9 +66,8 @@
     ;; Enable the timer.
     (setf (%cntp-ctl) 1)))
 
-(defun read-rtc-time ()
-  (let ((seconds (+ *rtc-adjust* (truncate (%cntpct) *generic-timer-rate*))))
-    (decode-universal-time seconds)))
+(defun get-universal-time ()
+  (+ *rtc-adjust* (truncate (%cntpct) *generic-timer-rate*)))
 
 (defun sys.int::tsc ()
   ;; This isn't the cycle counter, but it's close enough for now.

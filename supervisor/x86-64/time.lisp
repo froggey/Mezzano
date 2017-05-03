@@ -172,3 +172,9 @@ It should be the current year, or earlier."
         (incf year century)
         (when (< year century-boundary) (incf year 100)))
       (values second minute hour day month year))))
+
+(defun get-universal-time ()
+  (multiple-value-bind (second minute hour day month year)
+      (read-rtc-time)
+    (encode-universal-time second minute hour day month year
+                           (if sys.int::*rtc-is-utc* 0 sys.int::*time-zone*))))
