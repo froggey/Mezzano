@@ -22,7 +22,7 @@
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace
     #\Tab #\Q #\W #\E #\R #\T #\Y #\U #\I #\O #\P #\[ #\] #\Newline
     #\Left-Control #\A #\S #\D #\F #\G #\H #\J #\K #\L #\; #\' #\`
-    #\Left-Shift #\\ #\Z #\X #\C #\V #\B #\N #\M #\, #\. #\/ #\Right-Shift #\KP-Multiply
+    #\Left-Shift #\# #\Z #\X #\C #\V #\B #\N #\M #\, #\. #\/ #\Right-Shift #\KP-Multiply
     #\Left-Meta #\Space #\Caps-Lock
     #\F1 #\F2 #\F3 #\F4 #\F5 #\F6 #\F7 #\F8 #\F9 #\F10
     ;; Num lock
@@ -35,7 +35,7 @@
     #\KP-0 #\KP-Period
     nil ; 84 not assigned
     nil ; 85 ZENKAKUHANKAKU
-    nil ; 86 102ND
+    #\\ ; 86 102ND
     #\F11 ; 87 F11
     #\F12 ; 88 F12
     nil ; 89 RO
