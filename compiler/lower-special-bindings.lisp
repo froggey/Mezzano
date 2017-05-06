@@ -184,12 +184,18 @@
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
            ;; Note: Unwinding one-past the location so as to pop the block as well.
-           (ast `(return-from ,tag
-                   (multiple-value-prog1
-                       ,(lsb-form value-form)
-                     (progn ,@(lsb-unwind-to (cdr (lsb-find-b-or-t-binding tag)))))
-                   ,location)
-                form)))))
+           ;; Avoid generating M-V-P1 if there's nothing to unwind.
+           (let ((converted-value-form (lsb-form value-form))
+                 (unwind-forms (lsb-unwind-to (cdr (lsb-find-b-or-t-binding tag)))))
+             (if unwind-forms
+                 (ast `(return-from ,tag
+                         (multiple-value-prog1
+                             ,converted-value-form
+                           (progn ,@unwind-forms))
+                         ,location)
+                      form)
+                 (ast `(return-from ,tag ,converted-value-form ,location)
+                      form)))))))
 
 (defmethod lsb-form ((form ast-setq))
   (ast `(setq ,(setq-variable form) ,(lsb-form (value form)))
