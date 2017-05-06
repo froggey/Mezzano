@@ -196,6 +196,13 @@
 
 (defvar *current-keymap* *engb-keymap*)
 
+(defvar *m-tab-active* nil)
+(defvar *m-tab-list* nil)
+
+(defun allow-m-tab (window)
+  (not (and (zerop (width window))
+            (zerop (height window)))))
+
 (defgeneric convert-scancode-to-key (keymap scancode modifier-state))
 
 (defmethod convert-scancode-to-key ((keymap simple-keymap) scancode modifier-state)
@@ -337,13 +344,6 @@
   "Set to true when the drag was compositor-initiated.
 A passive drag sends no drag events to the window.")
 (defvar *resize-origin* nil)
-
-(defvar *m-tab-active* nil)
-(defvar *m-tab-list* nil)
-
-(defun allow-m-tab (window)
-  (not (and (zerop (width window))
-            (zerop (height window)))))
 
 (defun activate-window (window)
   "Make WINDOW the active window."
