@@ -691,4 +691,7 @@
                          `(sys.int::&closure ,(unparse-compiler-form (lambda-information-closure-arg form))))
                        (when (lambda-information-count-arg form)
                          `(sys.int::&count ,(unparse-compiler-form (lambda-information-count-arg form)))))
+        (declare (sys.int::lambda-name ,(lambda-information-name form))
+                 ,@(when (ast-optimize form)
+                     `((optimize ,@(ast-optimize form)))))
         ,(unparse-compiler-form (lambda-information-body form))))))
