@@ -155,21 +155,26 @@
 ;;; DEFGENERIC
 
 (defmacro defgeneric (function-name lambda-list &rest options-and-methods)
-  (let ((methods (remove :method options-and-methods
-                         :key #'first :test-not #'eql))
-        (options (remove :method options-and-methods
-                         :key #'first))
-        (gf (gensym "GF")))
-    `(let ((,gf (ensure-generic-function
-                 ',function-name
-                 :lambda-list ',lambda-list
-                 ,@(loop
-                      for opt in options
-                      append (canonicalize-defgeneric-option opt)))))
-       ,@(loop
-            for meth in methods
-            collect (expand-defgeneric-method function-name meth))
-       ,gf)))
+  (let* ((methods (remove :method options-and-methods
+                          :key #'first :test-not #'eql))
+         (options (remove :method options-and-methods
+                          :key #'first))
+         (gf (gensym "GF"))
+         (egf-form `(ensure-generic-function
+                     ',function-name
+                     :lambda-list ',lambda-list
+                     ,@(loop
+                          for opt in options
+                          append (canonicalize-defgeneric-option opt)))))
+    ;; Try to keep E-G-F at the top-level, avoids a trip through the compiler
+    ;; when file-compiling.
+    (cond (methods
+           `(let ((,gf ,egf-form))
+              ,@(loop
+                   for meth in methods
+                   collect (expand-defgeneric-method function-name meth))
+              ,gf))
+          (t egf-form))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
