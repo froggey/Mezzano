@@ -6,6 +6,11 @@
 (deftype colour ()
   '(unsigned-byte 32))
 
+(defconstant +colour-alpha-bits+ (byte 8 24))
+(defconstant +colour-red-bits+   (byte 8 16))
+(defconstant +colour-green-bits+ (byte 8 8))
+(defconstant +colour-blue-bits+  (byte 8 0))
+
 (defun make-colour (&optional (red 0.0) (green 0.0) (blue 0.0) (alpha 1.0) premultiplied)
   "Return a new colour object with the specified components.
 Components should be reals in the range [0,1].
@@ -52,7 +57,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun colour-alpha-as-octet (colour)
   "Return the alpha component of COLOUR as an octet."
   (check-type colour colour)
-  (ldb (byte 8 24) colour))
+  (ldb +colour-alpha-bits+ colour))
 
 (defun colour-red (colour)
   "Return the red component of COLOUR as a single float in [0,1]."
@@ -61,7 +66,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun colour-red-as-octet (colour)
   "Return the red component of COLOUR as an octet."
   (check-type colour colour)
-  (ldb (byte 8 16) colour))
+  (ldb +colour-red-bits+ colour))
 
 (defun colour-green (colour)
   "Return the green component of COLOUR as a single float in [0,1]."
@@ -70,7 +75,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun colour-green-as-octet (colour)
   "Return the green component of COLOUR as an octet."
   (check-type colour colour)
-  (ldb (byte 8 8) colour))
+  (ldb +colour-green-bits+ colour))
 
 (defun colour-blue (colour)
   "Return the blue component of COLOUR as a single float in [0,1]."
@@ -79,4 +84,4 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun colour-blue-as-octet (colour)
   "Return the blue component of COLOUR as an octet."
   (check-type colour colour)
-  (ldb (byte 8 0) colour))
+  (ldb +colour-blue-bits+ colour))

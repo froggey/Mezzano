@@ -15,6 +15,10 @@
            #:*default-foreground-colour*
            #:*default-background-colour*
            #:colour
+           #:+colour-alpha-bits+
+           #:+colour-red-bits+
+           #:+colour-green-bits+
+           #:+colour-blue-bits+
            #:make-colour
            #:make-colour-from-octets
            #:colour-equal
