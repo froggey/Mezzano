@@ -5,8 +5,6 @@
 
 (defconstant +magic-cookie+ #x63825363)
 
-(defconstant +ipv4-broadcast-source+ (mezzano.network.ip:make-ipv4-address #x00000000))
-(defconstant +ipv4-broadcast-local-network+ (mezzano.network.ip:make-ipv4-address #xffffffff))
 (defconstant +dhcp-client-port+ 68)
 (defconstant +dhcp-server-port+ 67)
 
@@ -119,10 +117,10 @@
           (ub16ref/be header 6) 0)
     (mezzano.network.ethernet:transmit-ethernet-packet
      interface mezzano.network.ethernet:*ethernet-broadcast* mezzano.network.ethernet:+ethertype-ipv4+
-     (mezzano.network.ip::assemble-ipv4-packet +ipv4-broadcast-source+
-			   +ipv4-broadcast-local-network+
-			   mezzano.network.ip:+ip-protocol-udp+
-			   packet))))
+     (mezzano.network.ip::assemble-ipv4-packet mezzano.network.ip:+ipv4-broadcast-source+
+                                               mezzano.network.ip:+ipv4-broadcast-local-network+
+                                               mezzano.network.ip:+ip-protocol-udp+
+                                               packet))))
 
 (defun dhcp-send (iface options xid &key (siaddr 0))
   (let* ((packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac iface) :options options :siaddr siaddr)))
@@ -136,9 +134,9 @@
 
 (defun acquire-lease ()
   (let ((connection (make-instance 'mezzano.network.udp::udp4-connection
-				   :remote-address +ipv4-broadcast-source+ ;;unnecessary, but just to avoid the stack down choking
+				   :remote-address mezzano.network.ip:+ipv4-broadcast-source+ ;;unnecessary, but just to avoid the stack down choking
 				   :remote-port +dhcp-server-port+
-				   :local-address +ipv4-broadcast-local-network+
+				   :local-address mezzano.network.ip:+ipv4-broadcast-local-network+
 				   :local-port +dhcp-client-port+))
 	(interface (first mezzano.driver.network-card::*nics*))
 	(xid (make-xid)))

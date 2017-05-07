@@ -412,6 +412,10 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (check-type value (unsigned-byte 32))
     value))
 
+;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
+(defparameter +ipv4-broadcast-source+ (mezzano.network.ip:make-ipv4-address #x00000000))
+(defparameter +ipv4-broadcast-local-network+ (mezzano.network.ip:make-ipv4-address #xffffffff))
+
 (defgeneric address-equal (x y))
 
 (defgeneric address-network (local-ip prefix-length)

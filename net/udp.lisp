@@ -36,7 +36,7 @@
   (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (dolist (connection *udp-connections*)
       (when (or (and  (mezzano.network.ip:address-equal
-		       mezzano.network.dhcp::+ipv4-broadcast-local-network+
+		       mezzano.network.ip:+ipv4-broadcast-local-network+
 		       local-ip)
 		      (eql (local-port connection) local-port))
 		(and (mezzano.network.ip:address-equal

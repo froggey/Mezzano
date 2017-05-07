@@ -61,7 +61,9 @@
            #:+ip-protocol-igmp+
            #:+ip-protocol-tcp+
            #:+ip-protocol-udp+
-           #:ping-host))
+           #:ping-host
+           #:+ipv4-broadcast-source+
+           #:+ipv4-broadcast-local-network+))
 
 (defpackage :mezzano.network.tcp
   (:use :cl)
