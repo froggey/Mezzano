@@ -81,7 +81,7 @@
   (sys.lap-x86:cli)
   ;; Switch over to the wired stack.
   (sys.lap-x86:fs)
-  (sys.lap-x86:mov64 :rsp (#.+cpu-info-wired-stack-offset+))
+  (sys.lap-x86:mov64 :rsp (:object nil #.+cpu-info-wired-stack-offset+))
   ;; Call function, argument were setup above.
   (sys.lap-x86:call (:object :rbx 0))
   (:gc :frame :multiple-values 0)

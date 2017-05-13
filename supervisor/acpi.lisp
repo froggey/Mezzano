@@ -319,6 +319,8 @@
         (setf (svref entries i) (physical-memref-unsigned-byte-64 (+ address +acpi-header-length+) i)))
       (values header entries))))
 
+(defconstant +acpi-madt-processor-lapic-flag-enabled+ 0)
+
 (defstruct (acpi-madt-processor-lapic
              (:area :wired))
   acpi-processor-id

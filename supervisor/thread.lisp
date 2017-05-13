@@ -201,7 +201,6 @@
                                +thread-lock+
                                :unlocked
                                current-thread))
-      (panic "thread lock " thread " held by " (sys.int::%object-ref-t thread +thread-lock+))
       (sys.int::cpu-relax))))
 
 (defun %unlock-thread (thread)
@@ -449,7 +448,7 @@ Interrupts must be off, the current thread must be locked."
           (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
           (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
           (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
-    (reset-ephemeral-thread thread entry-point initial-state)
+    (reset-ephemeral-thread thread entry-point initial-state priority)
     thread))
 
 ;; MAKE-THREAD arranges for new threads to call this function with the thread's
@@ -623,7 +622,8 @@ Interrupts must be off, the current thread must be locked."
     (with-thread-lock (thread)
       (with-symbol-spinlock (*global-thread-lock*)
         (setf (thread-state thread) :runnable)
-        (push-run-queue thread)))))
+        (push-run-queue thread)
+        (broadcast-wakeup-ipi)))))
 
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."

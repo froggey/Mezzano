@@ -66,7 +66,7 @@ RETURN-FROM/GO must not be used to leave this form."
                ;; Prev value was :unlocked, have locked the lock.
                (return))
              (when (eq ,old-value ,self)
-               (panic "Spinlock " ',place " held by self!")))
+               (panic "Spinlock " ',place " held by self. " ,self " " (local-cpu-object))))
            ;; Loop until acquired.
            (loop
               ;; Read (don't CAS) the place until it goes back to :unlocked.

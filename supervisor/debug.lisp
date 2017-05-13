@@ -269,6 +269,7 @@
 
 (defun panic-1 (things extra)
   (safe-without-interrupts (things extra)
+    (broadcast-panic-ipi)
     (when (and (boundp '*panic-in-progress*)
                *panic-in-progress*)
       (loop (%arch-panic-stop)))

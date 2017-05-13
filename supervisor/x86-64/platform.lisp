@@ -22,6 +22,7 @@
          (debug-print-line "ACPI IA-PC boot flags: " (acpi-fadt-table-iapc-boot-arch fadt))))
       (t
        (debug-print-line "No ACPI FADT table detected.")))
+    (initialize-cpu)
     (initialize-platform-time)
     (initialize-ps/2)
     (when (or (not fadt)
