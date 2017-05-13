@@ -712,7 +712,7 @@ It will put the thread to sleep, while it waits for the page."
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
 ;;; When false, the system will continue on and leave the thread in limbo.
-(defvar *panic-on-unhandled-paging-requests* t)
+(sys.int::defglobal *panic-on-unhandled-paging-requests* t)
 
 (defun handle-pager-request ()
   (setf (thread-pager-argument-1 *pager-current-thread*)
@@ -750,7 +750,8 @@ It will put the thread to sleep, while it waits for the page."
             ;; Release the thread.
             (wake-thread *pager-current-thread*))
            ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
-           (*panic-on-unhandled-paging-requests*
+           ((or (not (boundp '*panic-on-unhandled-paging-requests*))
+                *panic-on-unhandled-paging-requests*)
             ;; This strange contortion is here to get a dynamic-extent list that can be passed
             ;; to PANIC-1. Need to implement DX list allocation in the compiler.
             ((lambda (&rest stuff)
