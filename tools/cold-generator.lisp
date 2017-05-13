@@ -86,7 +86,8 @@
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
-    "runtime/symbol.lisp"))
+    "runtime/symbol.lisp"
+    "runtime/function.lisp"))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
