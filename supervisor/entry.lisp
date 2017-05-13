@@ -201,7 +201,7 @@
     (%enable-interrupts)
     ;;(debug-set-output-pseudostream #'debug-video-stream)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
-    (debug-write-line "Hello, Debug World!")
+    (debug-print-line "Hello, Debug World!")
     (initialize-time)
     (initialize-video)
     (initialize-efi)

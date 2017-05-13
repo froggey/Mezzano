@@ -91,11 +91,6 @@
   (debug-log-buffer-write-char char)
   (call-debug-pseudostream :write-char char))
 
-(defun debug-write-line (string)
-  (debug-write-string string)
-  (debug-write-char #\Newline)
-  (debug-force-output))
-
 ;;; Print a negative fixnum. Use negative numbers to avoid problems
 ;;; near most-negative-fixnum.
 (defun debug-write-fixnum-1 (fixnum base)

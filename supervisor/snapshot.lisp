@@ -332,7 +332,7 @@ Returns 4 values:
     (with-mutex (*vm-lock*)
       (store-release-deferred-blocks previously-deferred-free-blocks)))
   (set-snapshot-light nil)
-  (debug-write-line "End snapshot."))
+  (debug-print-line "End snapshot."))
 
 (defun snapshot-thread ()
   (loop
