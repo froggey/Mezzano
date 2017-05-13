@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.supervisor)
@@ -38,6 +38,7 @@
 
 (defconstant +cpu-info-self-offset+ 8)
 (defconstant +cpu-info-wired-stack-offset+ 16)
+(defconstant +cpu-info-idle-thread-offset+ 24)
 (defconstant +cpu-info-gdt-offset+ 128)
 (defconstant +cpu-info-tss-offset+ 256)
 (defconstant +cpu-info-tss-size+ 104)
@@ -48,6 +49,14 @@
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:fs)
   (sys.lap-x86:mov64 :r8 (#.+cpu-info-self-offset+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function local-cpu-idle-thread (())
+  "Return the idle thread associated with the local CPU."
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:fs)
+  (sys.lap-x86:mov64 :r8 (#.+cpu-info-idle-thread-offset+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
@@ -113,7 +122,7 @@
 
 (defconstant +tss-io-map-base+ 102)
 
-(defun populate-cpu-info-vector (addr wired-stack-pointer exception-stack-pointer irq-stack-pointer)
+(defun populate-cpu-info-vector (addr wired-stack-pointer exception-stack-pointer irq-stack-pointer idle-thread)
   (let* ((tss-base (+ addr +cpu-info-tss-offset+)))
     ;; IDT completely fills the second page (256 * 16)
     (dotimes (i 256)
@@ -154,6 +163,7 @@
     (setf (sys.int::memref-t (+ addr +cpu-info-self-offset+) 0) addr)
     (setf (sys.int::memref-signed-byte-64 (+ addr +cpu-info-wired-stack-offset+) 0)
           wired-stack-pointer)
+    (setf (sys.int::memref-t (+ addr +cpu-info-idle-thread-offset+) 0) idle-thread)
     ;; Shove the cpu info page into FS.
     (setf (sys.int::msr +msr-ia32-fs-base+) addr)))
 
@@ -165,7 +175,8 @@
     (populate-cpu-info-vector addr
                               (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
                               (+ sys.int::*exception-stack-base* sys.int::*exception-stack-size*)
-                              (+ sys.int::*irq-stack-base* sys.int::*irq-stack-size*))
+                              (+ sys.int::*irq-stack-base* sys.int::*irq-stack-size*)
+                              sys.int::*bsp-idle-thread*)
     ;; Load various bits.
     (load-cpu-bits addr)))
 

@@ -546,6 +546,20 @@ This is required to make the GC interrupt safe."
             (t (when *gc-debug-scavenge-stack*
                  (gc-log "Done scav stack.")))))))
 
+(defun scavengable-thread-p (object)
+  (not (or (eql object (mezzano.supervisor:current-thread))
+           ;; Don't even think about looking at the stacks of these
+           ;; threads. They may run at any time, even with the world
+           ;; stopped.
+           ;; Things aren't so bad though, they (should) only contain
+           ;; pointers to wired objects, and the objects they do point
+           ;; to should be pointed to by other live objects.
+           ;; FIXME: All avoid all idle threads.
+           (eql object sys.int::*bsp-idle-thread*)
+           (eql object sys.int::*pager-thread*)
+           (eql object sys.int::*disk-io-thread*)
+           (eql object sys.int::*snapshot-thread*))))
+
 (defun scan-thread (object)
   (when *gc-debug-scavenge-stack* (gc-log "Scav thread " object))
   ;; Scavenge various parts of the thread.
@@ -575,17 +589,7 @@ This is required to make the GC interrupt safe."
      ;; data registers may contain live references.
      (scavenge-thread-data-registers object))
     (t
-     (when (not (or (eql object (mezzano.supervisor:current-thread))
-                    ;; Don't even think about looking at the stacks of these
-                    ;; threads. They may run at any time, even with the world
-                    ;; stopped.
-                    ;; Things aren't so bad though, they (should) only contain
-                    ;; pointers to wired objects, and the objects they do point
-                    ;; to should be pointed to by other live objects.
-                    (eql object sys.int::*bsp-idle-thread*)
-                    (eql object sys.int::*pager-thread*)
-                    (eql object sys.int::*disk-io-thread*)
-                    (eql object sys.int::*snapshot-thread*)))
+     (when (scavengable-thread-p object)
        (cond ((mezzano.supervisor:thread-full-save-p object)
               (scavenge-full-save-thread object))
              (t (let* ((stack-pointer (mezzano.supervisor:thread-stack-pointer object))

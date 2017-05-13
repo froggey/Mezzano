@@ -286,10 +286,10 @@ Interrupts must be off, the current thread must be locked."
                     ;; The world stopper is ready.
                     *world-stopper*)
                    (t ;; Switch to idle.
-                    sys.int::*bsp-idle-thread*)))
+                    (local-cpu-idle-thread))))
             (t
              ;; Return the current thread to the run queue and fetch the next thread.
-             (when (eql current sys.int::*bsp-idle-thread*)
+             (when (eql current (local-cpu-idle-thread))
                (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
              (when (eql (thread-state current) :runnable)
                (push-run-queue current))
@@ -297,7 +297,7 @@ Interrupts must be off, the current thread must be locked."
               ;; Try taking from the run queue.
               (pop-run-queue)
               ;; Fall back on idle.
-              sys.int::*bsp-idle-thread*))))))
+              (local-cpu-idle-thread)))))))
 
 ;;; Thread switching.
 
@@ -346,7 +346,7 @@ Interrupts must be off, the current thread must be locked."
   (let ((current (current-thread)))
     (when (not (or (eql current *world-stopper*)
                    (eql (thread-priority current) :supervisor)
-                   (eql current sys.int::*bsp-idle-thread*)))
+                   (eql current (local-cpu-idle-thread))))
       (%lock-thread current)
       (setf (thread-state current) :runnable)
       (%reschedule-via-interrupt interrupt-frame))))
@@ -499,11 +499,11 @@ Interrupts must be off, the current thread must be locked."
        (cond (next
               (set-run-light t)
               ;; Switch to thread.
-              (%lock-thread sys.int::*bsp-idle-thread*)
+              (%lock-thread (local-cpu-idle-thread))
               (%lock-thread next)
               (setf (thread-state next) :active)
               (%run-on-wired-stack-without-interrupts (sp fp next)
-                (%%switch-to-thread-via-wired-stack sys.int::*bsp-idle-thread* sp fp next))
+                (%%switch-to-thread-via-wired-stack (local-cpu-idle-thread) sp fp next))
               (%disable-interrupts)
               (when (boundp '*light-run*)
                 ;; Clear the run light immediately so it doesn't stay on between
