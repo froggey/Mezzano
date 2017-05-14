@@ -168,17 +168,16 @@
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
     ;; Mutex must be in the contested state.
-    (with-wait-queue-lock (mutex)
-      ;; Look for a thread to wake.
-      (let ((thread (pop-wait-queue mutex)))
-        (cond (thread
-               ;; Found one, wake it & transfer the lock.
-               (setf (mutex-owner mutex) thread)
-               (wake-thread-1 thread))
-              (t
-               ;; No threads sleeping, just drop the lock.
-               ;; Any threads trying to lock will be spinning on the wait queue lock.
-               (setf (mutex-state mutex) :unlocked)))))))
+    ;; Look for a thread to wake.
+    (let ((thread (pop-wait-queue mutex)))
+      (cond (thread
+             ;; Found one, wake it & transfer the lock.
+             (setf (mutex-owner mutex) thread)
+             (wake-thread-1 thread))
+            (t
+             ;; No threads sleeping, just drop the lock.
+             ;; Any threads trying to lock will be spinning on the wait queue lock.
+             (setf (mutex-state mutex) :unlocked))))))
 
 (defun call-with-mutex (thunk mutex wait-p)
   (unwind-protect
@@ -210,6 +209,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
        (%run-on-wired-stack-without-interrupts (sp fp condition-variable mutex)
         (let ((self (current-thread)))
           (lock-wait-queue condition-variable)
+          (lock-wait-queue mutex)
           (acquire-global-thread-lock)
           ;; Attach to the list.
           (push-wait-queue self condition-variable)
@@ -220,6 +220,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
           ;; with the lock unlocked would be quite bad.
           (setf (thread-wait-item self) condition-variable
                 (thread-state self) :sleeping)
+          (unlock-wait-queue mutex)
           (unlock-wait-queue condition-variable)
           (%reschedule-via-wired-stack sp fp)))
     ;; Got woken up. Reacquire the mutex.
