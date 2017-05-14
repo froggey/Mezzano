@@ -8,6 +8,7 @@
 (defconstant +msr-ia32-fs-base+   #xC0000100)
 (defconstant +msr-ia32-gs-base+   #xC0000101)
 
+(sys.int::defglobal *n-up-cpus*)
 (sys.int::defglobal *cpus*)
 (sys.int::defglobal *bsp-cpu*)
 
@@ -88,6 +89,9 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +panic-ipi-vector+ #x81
   "Broadcast to all CPUs when a panic occurs.")
 
+(defconstant +quiesce-ipi-vector+ #x82
+  "Sent to CPUs to bring them to a quiescent state.")
+
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)
                          (interrupt-gate-p t))
@@ -124,11 +128,15 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                                                               (ash type 8)
                                                               vector)))
 
-(defun broadcast-wakeup-ipi ()
+(defun broadcast-ipi (vector &optional including-self)
   (dolist (cpu *cpus*)
     (when (and (eql (cpu-state cpu) :online)
-               (not (eql cpu (local-cpu-object))))
-      (send-ipi (cpu-apic-id cpu) 0 +wakeup-ipi-vector+))))
+               (or including-self
+                   (not (eql cpu (local-cpu-object)))))
+      (send-ipi (cpu-apic-id cpu) 0 vector))))
+
+(defun broadcast-wakeup-ipi ()
+  (broadcast-ipi +wakeup-ipi-vector+))
 
 (defun wakeup-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -136,15 +144,30 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   (maybe-preempt-via-interrupt interrupt-frame))
 
 (defun broadcast-panic-ipi ()
-  (dolist (cpu *cpus*)
-    (when (and (eql (cpu-state cpu) :online)
-               (not (eql cpu (local-cpu-object))))
-      (send-ipi (cpu-apic-id cpu) 0 +panic-ipi-vector+))))
+  (broadcast-ipi +panic-ipi-vector+))
 
 (defun panic-ipi-handler (interrupt-frame info)
   (declare (ignore interrupt-frame info))
   (lapic-eoi)
   (loop (%arch-panic-stop)))
+
+(sys.int::defglobal *non-quiescent-cpus-remaining*)
+
+(defun quiesce-cpus-for-world-stop ()
+  ;; Bring all CPUs to a consistent state to stop the world.
+  (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
+  (broadcast-ipi +quiesce-ipi-vector+)
+  (loop
+     (when (eql *non-quiescent-cpus-remaining* 0)
+       (return))
+     (sys.int::cpu-relax)))
+
+(defun quiesce-ipi-handler (interrupt-frame info)
+  (declare (ignore info))
+  (lapic-eoi)
+  (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
+                                      -1)
+  (maybe-preempt-via-interrupt interrupt-frame))
 
 (sys.int::define-lap-function local-cpu-info (())
   "Return the address of the local CPU's info vector."
@@ -463,10 +486,11 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
       ;; The system decided that this CPU failed to come up for some reason.
       (loop
          (%hlt))))
+  (incf *n-up-cpus*)
   ;; Perform the initial thread switch to the idle thread.
   (let ((idle-thread (local-cpu-idle-thread)))
     (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle-thread))
-    (%lock-thread idle-thread)
+    (acquire-global-thread-lock)
     (%%switch-to-thread-common idle-thread idle-thread)))
 
 (defun generate-initial-pml4 ()
@@ -536,8 +560,10 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   (debug-print-line "BSP has LAPIC ID " (cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
+  (setf *n-up-cpus* 1)
   (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
-  (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler))
+  (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
+  (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler))
 
 (defun load-cpu-bits (vector)
   (let* ((addr (- (sys.int::lisp-object-address vector)

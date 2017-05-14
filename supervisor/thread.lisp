@@ -251,12 +251,15 @@ return the next thread to run.
 Interrupts must be off and the global thread lock must be held."
   (ensure-global-thread-lock-held)
   (let ((current (current-thread)))
+    (when (eql current (local-cpu-idle-thread))
+      (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
+    ;; Return the current thread to the run queue and fetch the next thread.
+    (when (and (not (eql current *world-stopper*))
+               (eql (thread-state current) :runnable))
+      (push-run-queue current))
     (cond (*world-stopper*
            ;; World is stopped, the only runnable threads are the world stopper
            ;; or any thread at :supervisor priority.
-           (unless (or (eql current *world-stopper*)
-                       (eql (thread-priority current) :supervisor))
-             (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
            ;; Supervisor priority threads first.
            (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
                  ((eql (thread-state *world-stopper*) :runnable)
@@ -265,11 +268,6 @@ Interrupts must be off and the global thread lock must be held."
                  (t ;; Switch to idle.
                   (local-cpu-idle-thread))))
           (t
-           ;; Return the current thread to the run queue and fetch the next thread.
-           (when (eql current (local-cpu-idle-thread))
-             (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
-           (when (eql (thread-state current) :runnable)
-             (push-run-queue current))
            (or
             ;; Try taking from the run queue.
             (pop-run-queue)
@@ -765,14 +763,16 @@ Interrupts must be off and the global thread lock must be held."
            (setf *world-stopper* self
                  *world-stop-pending* nil)
            (return))
-         (condition-wait *world-stop-cvar* *world-stop-lock*)))
+         (condition-wait *world-stop-cvar* *world-stop-lock*))
+      (quiesce-cpus-for-world-stop))
     ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
     (multiple-value-prog1
         (funcall thunk)
       (with-mutex (*world-stop-lock*)
         ;; Release the dogs!
         (setf *world-stopper* nil)
-        (condition-notify *world-stop-cvar* t)))))
+        (condition-notify *world-stop-cvar* t)
+        (broadcast-wakeup-ipi)))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
