@@ -187,6 +187,8 @@
         (push (elt feature-seq i) features)))))
 
 (defun peek-cpu ()
+  (dolist (cpu mezzano.supervisor::*cpus*)
+    (format t "~S~%" cpu))
   (let ((features '())
         (extended-cpuid-max nil))
     (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)

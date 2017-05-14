@@ -111,6 +111,10 @@
                   ""
                   " (stale)")))))
 
+(defmethod print-object ((object mezzano.supervisor::cpu) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~D ~S" (mezzano.supervisor::cpu-apic-id object) (mezzano.supervisor::cpu-state object))))
+
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
 To be run this in the basic repl after ipl completes."
