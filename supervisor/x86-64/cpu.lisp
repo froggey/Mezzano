@@ -39,6 +39,13 @@
 (defconstant +lapic-reg-timer-current-count+ #x39)
 (defconstant +lapic-reg-timer-divide-configuration+ #x3E)
 
+(defconstant +ipi-type-fixed+ 0)
+(defconstant +ipi-type-lowest-priority+ 1)
+(defconstant +ipi-type-smi+ 2)
+(defconstant +ipi-type-nmi+ 4)
+(defconstant +ipi-type-init+ 5)
+(defconstant +ipi-type-sipi+ 6)
+
 ;; Cold generator provided objects.
 (sys.int::defglobal sys.int::*interrupt-service-routines*)
 
@@ -128,15 +135,15 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                                                               (ash type 8)
                                                               vector)))
 
-(defun broadcast-ipi (vector &optional including-self)
+(defun broadcast-ipi (type vector &optional including-self)
   (dolist (cpu *cpus*)
     (when (and (eql (cpu-state cpu) :online)
                (or including-self
                    (not (eql cpu (local-cpu-object)))))
-      (send-ipi (cpu-apic-id cpu) 0 vector))))
+      (send-ipi (cpu-apic-id cpu) type vector))))
 
 (defun broadcast-wakeup-ipi ()
-  (broadcast-ipi +wakeup-ipi-vector+))
+  (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
 
 (defun wakeup-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -144,7 +151,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   (maybe-preempt-via-interrupt interrupt-frame))
 
 (defun broadcast-panic-ipi ()
-  (broadcast-ipi +panic-ipi-vector+))
+  (broadcast-ipi +ipi-type-fixed+ +panic-ipi-vector+))
 
 (defun panic-ipi-handler (interrupt-frame info)
   (declare (ignore interrupt-frame info))
@@ -156,7 +163,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defun quiesce-cpus-for-world-stop ()
   ;; Bring all CPUs to a consistent state to stop the world.
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
-  (broadcast-ipi +quiesce-ipi-vector+)
+  (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
        (return))
@@ -615,9 +622,9 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
         (cpu-info-vector cpu))
   ;; FIXME: Delay after sending.
   (let ((boot-vector (ash +ap-trampoline-physical-address+ -12)))
-    (send-ipi (cpu-apic-id cpu) 5 0) ; INIT
-    (send-ipi (cpu-apic-id cpu) 6 boot-vector) ; SIPI 1
-    (send-ipi (cpu-apic-id cpu) 6 boot-vector)) ; SIPI 2
+    (send-ipi (cpu-apic-id cpu) +ipi-type-init+ 0)
+    (send-ipi (cpu-apic-id cpu) +ipi-type-sipi+ boot-vector)
+    (send-ipi (cpu-apic-id cpu) +ipi-type-sipi+ boot-vector))
   ;; Wait for the CPU to come up.
   (let ((start-time (get-internal-run-time)))
     (loop
