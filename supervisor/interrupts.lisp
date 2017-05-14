@@ -227,8 +227,8 @@ RETURN-FROM/GO must not be used to leave this form."
                                        :latch latch))
          (fn (lambda (interrupt-frame irq)
                (declare (ignore interrupt-frame))
-               (latch-trigger (simple-irq-latch simple-irq))
-               (platform-mask-irq irq))))
+               (platform-mask-irq irq)
+               (latch-trigger (simple-irq-latch simple-irq)))))
     (setf (simple-irq-function simple-irq) fn)
     simple-irq))
 

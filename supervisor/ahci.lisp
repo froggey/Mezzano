@@ -739,11 +739,11 @@
   (let ((state (ahci-port-register ahci port +ahci-register-PxIS+)))
     (when (not (zerop state))
       #+(or)(debug-print-line "AHCI IRQ for port " port ": " state)
+      ;; Ack interrupts.
+      (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)
       ;; Need to do something with error interrupts here as well.
       ;; Wake sleepers.
-      (latch-trigger (ahci-port-irq-latch (ahci-port ahci port)))
-      ;; Ack interrupts.
-      (setf (ahci-port-register ahci port +ahci-register-PxIS+) state))))
+      (latch-trigger (ahci-port-irq-latch (ahci-port ahci port))))))
 
 (defun ahci-irq-handler (ahci)
   (let ((pending (ahci-global-register ahci +ahci-register-IS+))
