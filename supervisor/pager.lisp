@@ -299,14 +299,19 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                   sys.int::+block-map-committed+))
                   flags))))
 
-(defun release-vm-page (frame)
+(defun release-vm-page (frame &optional allow-wired)
   (case (physical-page-frame-type frame)
     (:active
      (remove-from-page-replacement-list frame)
      (release-physical-pages frame 1))
     (:active-writeback
      (setf (physical-page-frame-type frame) :inactive-writeback))
-    (t (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
+    (:wired
+     (when (not allow-wired)
+       (panic "Releasing page wired " frame))
+     (release-physical-pages frame 1))
+    (t
+     (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
 
 (defun pager-rpc (fn &optional arg1 arg2 arg3)
   (without-footholds
@@ -402,14 +407,20 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (declare (ignore ignore3))
   (pager-log "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
-    (dotimes (i (truncate length #x1000))
-      ;; Update block map.
-      (release-block-at-virtual-address (+ base (* i #x1000)))
-      ;; Update page tables and release pages if possible.
-      (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (page-present-p pte 0))
-          (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
-          (setf (page-table-entry pte 0) 0))))
+    (let ((stackp (eql (ldb (byte sys.int::+address-tag-size+
+                                  sys.int::+address-tag-shift+)
+                            base)
+                       sys.int::+address-tag-stack+)))
+      (dotimes (i (truncate length #x1000))
+        ;; Update block map.
+        (release-block-at-virtual-address (+ base (* i #x1000)))
+        ;; Update page tables and release pages if possible.
+        (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
+          (when (and pte (page-present-p pte 0))
+            (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
+                             ;; Allow wired stacks to be freed.
+                             stackp)
+            (setf (page-table-entry pte 0) 0)))))
     (flush-tlb)))
 
 (defun protect-memory-range (base length flags)
