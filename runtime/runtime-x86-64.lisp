@@ -104,19 +104,19 @@
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2)
   too-many-values
   (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
   (sys.lap-x86:mov64 :r9 (:stack 0))
   (sys.lap-x86:mov64 :r13 (:function error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2)
   bad-arguments
   (:gc :frame)
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
 (sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
@@ -393,7 +393,7 @@
   ;; If there are 5 or fewer arguments (ie, only register args) the function can be tail-called to.
   (sys.lap-x86:cmp64 :rcx #.(ash 5 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jbe do-tail-call)
-  (sys.lap-x86:call (:rbx #.(+ (- sys.int::+tag-object+) 8)))
+  (sys.lap-x86:call (:object :rbx #.sys.int::+function-entry-point+))
   (:gc :frame)
   ;; Finish up & return.
   (sys.lap-x86:leave)
@@ -403,7 +403,7 @@
   (:gc :frame)
   (sys.lap-x86:leave)
   (:gc :no-frame :layout #*0)
-  (sys.lap-x86:jmp (:rbx #.(+ (- sys.int::+tag-object+) 8)))
+  (sys.lap-x86:jmp (:object :rbx #.sys.int::+function-entry-point+))
   ;; R8 = function, R9 = arg-list.
   ;; (raise-type-error arg-list 'proper-list)
   list-type-error
@@ -415,7 +415,7 @@
   (sys.lap-x86:mov64 :r9 (:constant sys.int::proper-list))
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
 (sys.int::define-lap-function sys.int::%copy-words ((destination-address source-address count))

@@ -28,7 +28,7 @@
   ;; Jump to common function.
   (sys.lap-x86:mov64 :r9 :r11)
   (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 ;;; current-thread interrupt-frame next-thread
 ;;; Interrupts must be off, current & next must be locked.
@@ -50,7 +50,7 @@
   ;; Jump to common function.
   (sys.lap-x86:mov64 :r9 :r10) ; next-thread
   (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 ;; (current-thread new-thread)
 (sys.int::define-lap-function %%switch-to-thread-common ()
@@ -102,7 +102,7 @@
   (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
   ;; TODO: How to deal with footholds here? The stack might be paged out here.
   FULL-RESTORE
