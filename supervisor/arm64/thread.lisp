@@ -82,13 +82,11 @@
   (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-arm64-fpcr+))
   (mezzano.lap.arm64:ldr :x9 (:x1 :x10))
   (mezzano.lap.arm64:msr :fpcr :x9)
-  ;; Drop the locks on both threads. Must be done before touching the thread stack.
+  ;; Drop the global thread lock. Must be done before touching the thread stack.
   (mezzano.lap.arm64:ldr :x2 (:constant :unlocked))
-  (mezzano.lap.arm64:subs :xzr :x1 :x0)
-  (mezzano.lap.arm64:b.eq SWITCH-TO-SAME-THREAD)
-  (mezzano.lap.arm64:str :x2 (:object :x1 #.+thread-lock+))
-  SWITCH-TO-SAME-THREAD
-  (mezzano.lap.arm64:str :x2 (:object :x0 #.+thread-lock+))
+  (mezzano.lap.arm64:ldr :x3 (:constant *global-thread-lock*))
+  (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:str (:object :x3 #.sys.int::+symbol-value-cell-value+) :x2)
   ;; Switch back to SP_EL0, restoring the original value of SP_EL1.
   (mezzano.lap.arm64:add :sp :x27 0)
   (mezzano.lap.arm64:msr :spsel 0)
