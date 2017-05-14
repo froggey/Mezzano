@@ -165,6 +165,7 @@
      (%run-on-wired-stack-without-interrupts (sp fp)
       (let ((self (current-thread)))
         (decf *snapshot-inhibit*)
+        (acquire-global-thread-lock)
         (setf (thread-wait-item self) "Next boot"
               (thread-state self) :sleeping)
         (%reschedule-via-wired-stack sp fp)))))

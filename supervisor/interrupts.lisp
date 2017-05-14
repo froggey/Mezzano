@@ -94,10 +94,27 @@ RETURN-FROM/GO must not be used to leave this form."
           (progn ,@body)
        (release-place-spinlock ,place))))
 
+(defmacro ensure-place-spinlock-held (place)
+  (let ((holder (gensym)))
+    `(let ((,holder ,place))
+       (ensure (eql ,holder (local-cpu-info)) "Expected lock " ',place " to be held by " (local-cpu-info) " but is held by " ,holder))))
+
+(defmacro acquire-symbol-spinlock (lock)
+  (check-type lock symbol)
+  `(acquire-place-spinlock (sys.int::symbol-global-value ',lock)))
+
+(defmacro release-symbol-spinlock (lock)
+  (check-type lock symbol)
+  `(release-place-spinlock (sys.int::symbol-global-value ',lock)))
+
 (defmacro with-symbol-spinlock ((lock) &body body)
   (check-type lock symbol)
   `(with-place-spinlock ((sys.int::symbol-global-value ',lock))
      ,@body))
+
+(defmacro ensure-symbol-spinlock-held (lock)
+  (check-type lock symbol)
+  `(ensure-place-spinlock-held (sys.int::symbol-global-value ',lock)))
 
 (sys.int::defglobal *page-fault-hook* nil)
 

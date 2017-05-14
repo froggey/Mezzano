@@ -53,7 +53,7 @@
      (let ((self (current-thread)))
        (lock-wait-queue *heartbeat-wait-queue*)
        (push-wait-queue self *heartbeat-wait-queue*)
-       (%lock-thread self)
+       (acquire-global-thread-lock)
        (unlock-wait-queue *heartbeat-wait-queue*)
        (setf (thread-wait-item self) *heartbeat-wait-queue*
              (thread-state self) :sleeping)

@@ -317,17 +317,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (%run-on-wired-stack-without-interrupts (sp fp fn)
      (let ((self (current-thread)))
        (with-symbol-spinlock (*pager-lock*)
-         (%lock-thread self)
+         (acquire-global-thread-lock)
          (setf (thread-state self) :pager-request
                (thread-wait-item self) fn
                (thread-%next self) *pager-waiting-threads*
                *pager-waiting-threads* self)
-         (with-thread-lock (sys.int::*pager-thread*)
-           (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
-                      (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
-             (setf (thread-state sys.int::*pager-thread*) :runnable)
-             (with-symbol-spinlock (*global-thread-lock*)
-               (push-run-queue sys.int::*pager-thread*)))))
+         (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                    (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+           (setf (thread-state sys.int::*pager-thread*) :runnable)
+           (push-run-queue sys.int::*pager-thread*)))
        (%reschedule-via-wired-stack sp fp)))
     (thread-pager-argument-1 (current-thread))))
 
@@ -658,17 +656,15 @@ It will put the thread to sleep, while it waits for the page."
       (return-from wait-for-page-via-interrupt))
     (incf *pager-fast-path-misses*)
     (with-symbol-spinlock (*pager-lock*)
-      (%lock-thread self)
+      (acquire-global-thread-lock)
       (setf (thread-state self) :waiting-for-page
             (thread-wait-item self) address
             (thread-%next self) *pager-waiting-threads*
             *pager-waiting-threads* self)
-      (with-thread-lock (pager)
-        (when (and (eql (thread-state pager) :sleeping)
-                   (eql (thread-wait-item pager) '*pager-waiting-threads*))
-          (setf (thread-state pager) :runnable)
-          (with-symbol-spinlock (*global-thread-lock*)
-            (push-run-queue pager)))))
+      (when (and (eql (thread-state pager) :sleeping)
+                 (eql (thread-wait-item pager) '*pager-waiting-threads*))
+        (setf (thread-state pager) :runnable)
+        (push-run-queue pager)))
     (%reschedule-via-interrupt interrupt-frame)))
 
 (defun map-physical-memory (base size name)
@@ -701,9 +697,6 @@ It will put the thread to sleep, while it waits for the page."
           *pager-waiting-threads* *pager-current-thread*
           *pager-current-thread* nil))
   (setf *pager-disk-request* (make-disk-request))
-  ;; Don't let the pager run until the paging disk has been found.
-  (setf (thread-state sys.int::*pager-thread*) :sleeping
-        (thread-wait-item sys.int::*pager-thread*) "Waiting for paging disk")
   ;; The VM lock is recreated each boot because it is only held by
   ;; the ephemeral pager and snapshot threads.
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
@@ -735,7 +728,7 @@ It will put the thread to sleep, while it waits for the page."
               (return))
             (set-paging-light nil)
             ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
-            (%lock-thread sys.int::*pager-thread*)
+            (acquire-global-thread-lock)
             (release-place-spinlock (sys.int::symbol-global-value '*pager-lock*))
             (setf (thread-state sys.int::*pager-thread*) :sleeping
                   (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)

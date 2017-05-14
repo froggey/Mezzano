@@ -4,7 +4,7 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::defglobal *global-thread-lock* nil
-  "This lock protects the special variables that make up the thread list and run queues.")
+  "This lock protects the special variables that make up the thread list/run queues and the thread objects.")
 (sys.int::defglobal *supervisor-priority-run-queue*)
 (sys.int::defglobal *high-priority-run-queue*)
 (sys.int::defglobal *normal-priority-run-queue*)
@@ -32,7 +32,6 @@
 (sys.int::defglobal sys.int::*pager-thread*)
 (sys.int::defglobal sys.int::*snapshot-thread*)
 (sys.int::defglobal sys.int::*disk-io-thread*)
-;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
 (sys.int::defglobal sys.int::*bsp-idle-thread*)
 
@@ -41,10 +40,6 @@
 
 (defun threadp (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-thread+))
-
-;;; Thread locking.
-;;;
-;;; Each thread has a per-thread spinlock (the thread-lock field), and there is the *GLOBAL-THREAD-LOCK*.
 
 (macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%object-ref-t))
              (let ((field-name (intern (format nil "+THREAD-~A+" (symbol-name name))
@@ -77,8 +72,7 @@
   ;;   :waiting-for-page - the thread is waiting for memory to be paged in.
   ;;   :pager-request - the thread is waiting for a pager RPC call to complete.
   (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request :stopped))
-  ;; Spinlock protecting access to the thread.
-  (field lock                     2)
+  ;; 2 - free
   ;; Stack object for the stack.
   (field stack                    3)
   ;; 4 - magic field used by bootloader.
@@ -177,36 +171,20 @@
 (defun (setf thread-stack-pointer) (value thread)
   (setf (thread-state-rsp thread) value))
 
-;;; Locking macros.
+;;; Locking.
+
+(defun acquire-global-thread-lock ()
+  (acquire-symbol-spinlock *global-thread-lock*))
+
+(defun release-global-thread-lock ()
+  (release-symbol-spinlock *global-thread-lock*))
 
 (defmacro with-global-thread-lock ((&optional) &body body)
   `(with-symbol-spinlock (*global-thread-lock*)
      ,@body))
 
-(defmacro with-thread-lock ((thread) &body body)
-  (let ((sym (gensym "thread")))
-    `(let ((,sym ,thread))
-       (unwind-protect
-            (progn
-              (%lock-thread ,sym)
-              ,@body)
-         (%unlock-thread ,sym)))))
-
-(defun %lock-thread (thread)
-  (check-type thread thread)
-  (ensure-interrupts-disabled)
-  (let ((current-thread (current-thread)))
-    (do ()
-        ((sys.int::%cas-object thread
-                               +thread-lock+
-                               :unlocked
-                               current-thread))
-      (sys.int::cpu-relax))))
-
-(defun %unlock-thread (thread)
-  (assert (eql (sys.int::%object-ref-t thread +thread-lock+)
-               (current-thread)))
-  (setf (sys.int::%object-ref-t thread +thread-lock+) :unlocked))
+(defun ensure-global-thread-lock-held ()
+  (ensure-symbol-spinlock-held *global-thread-lock*))
 
 ;;; Run queue management.
 
@@ -270,33 +248,33 @@
 (defun %update-run-queue ()
   "Possibly return the current thread to the run queue, and
 return the next thread to run.
-Interrupts must be off, the current thread must be locked."
+Interrupts must be off and the global thread lock must be held."
+  (ensure-global-thread-lock-held)
   (let ((current (current-thread)))
-    (with-symbol-spinlock (*global-thread-lock*)
-      (cond (*world-stopper*
-             ;; World is stopped, the only runnable threads are the world stopper
-             ;; or any thread at :supervisor priority.
-             (unless (or (eql current *world-stopper*)
-                         (eql (thread-priority current) :supervisor))
-               (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
-             ;; Supervisor priority threads first.
-             (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
-                   ((eql (thread-state *world-stopper*) :runnable)
-                    ;; The world stopper is ready.
-                    *world-stopper*)
-                   (t ;; Switch to idle.
-                    (local-cpu-idle-thread))))
-            (t
-             ;; Return the current thread to the run queue and fetch the next thread.
-             (when (eql current (local-cpu-idle-thread))
-               (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
-             (when (eql (thread-state current) :runnable)
-               (push-run-queue current))
-             (or
-              ;; Try taking from the run queue.
-              (pop-run-queue)
-              ;; Fall back on idle.
-              (local-cpu-idle-thread)))))))
+    (cond (*world-stopper*
+           ;; World is stopped, the only runnable threads are the world stopper
+           ;; or any thread at :supervisor priority.
+           (unless (or (eql current *world-stopper*)
+                       (eql (thread-priority current) :supervisor))
+             (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
+           ;; Supervisor priority threads first.
+           (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
+                 ((eql (thread-state *world-stopper*) :runnable)
+                  ;; The world stopper is ready.
+                  *world-stopper*)
+                 (t ;; Switch to idle.
+                  (local-cpu-idle-thread))))
+          (t
+           ;; Return the current thread to the run queue and fetch the next thread.
+           (when (eql current (local-cpu-idle-thread))
+             (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
+           (when (eql (thread-state current) :runnable)
+             (push-run-queue current))
+           (or
+            ;; Try taking from the run queue.
+            (pop-run-queue)
+            ;; Fall back on idle.
+            (local-cpu-idle-thread))))))
 
 ;;; Thread switching.
 
@@ -304,49 +282,51 @@ Interrupts must be off, the current thread must be locked."
   "Call this to give up the remainder of the current thread's timeslice and possibly switch to another runnable thread."
   (%run-on-wired-stack-without-interrupts (sp fp)
    (let ((current (current-thread)))
-     (%lock-thread current)
+     (acquire-global-thread-lock)
      (setf (thread-state current) :runnable)
      (%reschedule-via-wired-stack sp fp))))
 
 (defun %reschedule-via-wired-stack (sp fp)
   ;; Switch to the next thread saving minimal state.
-  ;; Interrupts must be off and the current thread's lock must be held.
+  ;; Interrupts must be off and the global thread lock must be held.
   ;; Releases the thread lock and reenables interrupts.
+  (ensure-global-thread-lock-held)
   (let ((current (current-thread))
         (next (%update-run-queue)))
     ;; todo: reset preemption timer here.
     (when (eql next current)
       ;; Staying on the same thread, unlock and return.
-      (%unlock-thread current)
+      (release-global-thread-lock)
       (%%return-to-same-thread sp fp)
       (panic "unreachable"))
     (when (<= sys.int::*exception-stack-base*
               (thread-stack-pointer next)
               (1- sys.int::*exception-stack-size*))
       (panic "Other thread " next " stopped on exception stack!!!"))
-    (%lock-thread next)
+    (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next))
     (setf (thread-state next) :active)
     (%%switch-to-thread-via-wired-stack current sp fp next)))
 
 (defun %reschedule-via-interrupt (interrupt-frame)
   ;; Switch to the next thread saving the full state.
-  ;; Interrupts must be off and the current thread's lock must be held.
+  ;; Interrupts must be off and the global thread lock must be held.
   ;; Releases the thread lock and reenables interrupts.
+  (ensure-global-thread-lock-held)
   (let ((current (current-thread))
         (next (%update-run-queue)))
     ;; todo: reset preemption timer here.
-    ;; Avoid double-locking the thread when returning to the current thread.
     (when (not (eql next current))
-      (%lock-thread next))
+      (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next)))
     (setf (thread-state next) :active)
     (%%switch-to-thread-via-interrupt current interrupt-frame next)))
 
 (defun maybe-preempt-via-interrupt (interrupt-frame)
   (let ((current (current-thread)))
-    (when (not (or (eql current *world-stopper*)
+    (when (not (or (and *world-stopper*
+                        (eql current *world-stopper*))
                    (eql (thread-priority current) :supervisor)
                    (eql current (local-cpu-idle-thread))))
-      (%lock-thread current)
+      (acquire-global-thread-lock)
       (setf (thread-state current) :runnable)
       (%reschedule-via-interrupt interrupt-frame))))
 
@@ -364,7 +344,6 @@ Interrupts must be off, the current thread must be locked."
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
     (setf (sys.int::%object-ref-t thread +thread-name+) name
-          (sys.int::%object-ref-t thread +thread-lock+) :unlocked
           (sys.int::%object-ref-t thread +thread-stack+) stack
           (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
           (sys.int::%object-ref-t thread +thread-self+) thread
@@ -436,7 +415,6 @@ Interrupts must be off, the current thread must be locked."
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size t)))
     (setf (sys.int::%object-ref-t thread +thread-name+) name
-          (sys.int::%object-ref-t thread +thread-lock+) :unlocked
           (sys.int::%object-ref-t thread +thread-stack+) stack
           (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
           (sys.int::%object-ref-t thread +thread-self+) thread
@@ -467,16 +445,15 @@ Interrupts must be off, the current thread must be locked."
 (defun thread-final-cleanup ()
   (%run-on-wired-stack-without-interrupts (sp fp)
     (let ((self (current-thread)))
-      (%lock-thread self)
+      (acquire-global-thread-lock)
       (setf (thread-state self) :dead)
       ;; Remove thread from the global list.
-      (with-symbol-spinlock (*global-thread-lock*)
-        (when (thread-global-next self)
-          (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
-        (when (thread-global-prev self)
-          (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
-        (when (eql self *all-threads*)
-          (setf *all-threads* (thread-global-next self))))
+      (when (thread-global-next self)
+        (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
+      (when (thread-global-prev self)
+        (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
+      (when (eql self *all-threads*)
+        (setf *all-threads* (thread-global-next self)))
       (%reschedule-via-wired-stack sp fp))))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
@@ -487,20 +464,19 @@ Interrupts must be off, the current thread must be locked."
   (%disable-interrupts)
   (loop
      ;; Look for a thread to switch to.
-     (let ((next (with-symbol-spinlock (*global-thread-lock*)
-                   (cond (*world-stopper*
-                          (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
-                                ((eql (thread-state *world-stopper*) :runnable)
-                                 *world-stopper*)
-                                (t nil)))
-                         (t
-                          (pop-run-queue))))))
+     (acquire-global-thread-lock)
+     (let ((next (cond (*world-stopper*
+                        (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
+                              ((eql (thread-state *world-stopper*) :runnable)
+                               *world-stopper*)
+                              (t nil)))
+                       (t
+                        (pop-run-queue)))))
        (cond (next
               (set-run-light t)
               ;; Switch to thread.
-              (%lock-thread (local-cpu-idle-thread))
-              (%lock-thread next)
               (setf (thread-state next) :active)
+              (setf (thread-state (local-cpu-idle-thread)) :runnable)
               (%run-on-wired-stack-without-interrupts (sp fp next)
                 (%%switch-to-thread-via-wired-stack (local-cpu-idle-thread) sp fp next))
               (%disable-interrupts)
@@ -509,6 +485,7 @@ Interrupts must be off, the current thread must be locked."
                 ;; GUI screen updates.
                 (clear-light *light-run*)))
              (t ;; Wait for an interrupt.
+              (release-global-thread-lock)
               (%wait-for-interrupt)
               (%disable-interrupts))))))
 
@@ -573,7 +550,8 @@ Interrupts must be off, the current thread must be locked."
         (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
         (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
         (thread-full-save-p thread) t)
-  (when priority
+  (when (and priority
+             (eql state :runnable))
     (push-run-queue thread))
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
@@ -610,20 +588,30 @@ Interrupts must be off, the current thread must be locked."
           (thread-global-next sys.int::*disk-io-thread*) nil
           (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*)
     (setf *default-stack-size* (* 256 1024)))
-  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping nil)
+  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :runnable nil)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
-  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable :supervisor)
+  ;; Don't let the pager run until the paging disk has been found.
+  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :sleeping :supervisor)
+  (setf (thread-wait-item sys.int::*pager-thread*) "Waiting for paging disk")
   (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable :supervisor)
   (condition-notify *world-stop-cvar* t))
 
 (defun wake-thread (thread)
   "Wake a sleeping thread."
   (without-interrupts
-    (with-thread-lock (thread)
-      (with-symbol-spinlock (*global-thread-lock*)
-        (setf (thread-state thread) :runnable)
-        (push-run-queue thread)
-        (broadcast-wakeup-ipi)))))
+    (with-symbol-spinlock (*global-thread-lock*)
+      (wake-thread-1 thread))))
+
+(defun wake-thread-1 (thread)
+  "Wake a sleeping thread, with locks held."
+  (ensure-interrupts-disabled)
+  (ensure-global-thread-lock-held)
+  (ensure (not (or (eql (thread-state thread) :runnable)
+                   (eql (thread-state thread) :active)))
+          "Thread " thread " not sleeping.")
+  (setf (thread-state thread) :runnable)
+  (push-run-queue thread)
+  (broadcast-wakeup-ipi))
 
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
@@ -641,7 +629,7 @@ Interrupts must be off, the current thread must be locked."
   (let ((thread (current-thread)))
     (setf *world-stopper* nil)
     (%disable-interrupts)
-    (%lock-thread thread)
+    (acquire-global-thread-lock)
     (setf (thread-wait-item thread) "The start of a new world"
           (thread-state thread) :sleeping)
     (%run-on-wired-stack-without-interrupts (sp fp)
@@ -702,7 +690,7 @@ Interrupts must be off, the current thread must be locked."
 (defun stop-current-thread ()
   (%run-on-wired-stack-without-interrupts (sp fp)
    (let ((current (current-thread)))
-     (%lock-thread current)
+     (acquire-global-thread-lock)
      (setf (thread-state current) :stopped)
      (%reschedule-via-wired-stack sp fp))))
 
@@ -714,7 +702,7 @@ Interrupts must be off, the current thread must be locked."
                              (lambda ()
                                (%run-on-wired-stack-without-interrupts (sp fp)
                                 (let ((self (current-thread)))
-                                  (%lock-thread self)
+                                  (acquire-global-thread-lock)
                                   (setf (thread-wait-item self) :stopped
                                         (thread-state self) :stopped)
                                   (%reschedule-via-wired-stack sp fp)))))

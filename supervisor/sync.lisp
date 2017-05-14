@@ -50,7 +50,7 @@
               ,@body)
          (unlock-wait-queue ,sym)))))
 
-(sys.int::defglobal *lock-violations-are-fatal* nil)
+(sys.int::defglobal *lock-violations-are-fatal* t)
 
 (defstruct (mutex
              (:include wait-queue)
@@ -114,7 +114,7 @@
   ;; Must take the thread lock before dropping the mutex lock or release
   ;; may be able to remove the thread from the sleep queue before it goes
   ;; to sleep.
-  (%lock-thread self)
+  (acquire-global-thread-lock)
   (unlock-wait-queue mutex)
   (setf (thread-wait-item self) mutex
         (thread-state self) :sleeping)
@@ -124,7 +124,7 @@
   "Return true if this thread holds MUTEX."
   (eql (mutex-owner mutex) (current-thread)))
 
-(defun release-mutex (mutex)
+(defun check-mutex-release-consistence (mutex)
   (let ((current-owner (mutex-owner mutex)))
     (cond ((not current-owner)
            (if *lock-violations-are-fatal*
@@ -139,7 +139,10 @@
                (error 'sys.int::mutex-error
                       :mutex mutex
                       :format-control "Trying to release mutex ~S ~S held by other thread ~S"
-                      :format-arguments (list mutex (mutex-name mutex) current-owner))))))
+                      :format-arguments (list mutex (mutex-name mutex) current-owner)))))))
+
+(defun release-mutex (mutex)
+  (check-mutex-release-consistence mutex)
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
     ;; Mutex must be in the contested state.
@@ -156,6 +159,22 @@
                ;; Found one, wake it & transfer the lock.
                (setf (mutex-owner mutex) thread)
                (wake-thread thread))
+              (t
+               ;; No threads sleeping, just drop the lock.
+               ;; Any threads trying to lock will be spinning on the wait queue lock.
+               (setf (mutex-state mutex) :unlocked)))))))
+
+(defun release-mutex-for-condition-variable (mutex)
+  (setf (mutex-owner mutex) nil)
+  (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
+    ;; Mutex must be in the contested state.
+    (with-wait-queue-lock (mutex)
+      ;; Look for a thread to wake.
+      (let ((thread (pop-wait-queue mutex)))
+        (cond (thread
+               ;; Found one, wake it & transfer the lock.
+               (setf (mutex-owner mutex) thread)
+               (wake-thread-1 thread))
               (t
                ;; No threads sleeping, just drop the lock.
                ;; Any threads trying to lock will be spinning on the wait queue lock.
@@ -185,16 +204,17 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
 
 (defun condition-wait (condition-variable mutex)
   (assert (mutex-held-p mutex))
+  (check-mutex-release-consistence mutex)
   (ensure-interrupts-enabled)
   (unwind-protect
        (%run-on-wired-stack-without-interrupts (sp fp condition-variable mutex)
         (let ((self (current-thread)))
           (lock-wait-queue condition-variable)
-          (%lock-thread self)
+          (acquire-global-thread-lock)
           ;; Attach to the list.
           (push-wait-queue self condition-variable)
           ;; Drop the mutex.
-          (release-mutex mutex)
+          (release-mutex-for-condition-variable mutex)
           ;; Sleep.
           ;; need to be careful with that, returning or unwinding from condition-wait
           ;; with the lock unlocked would be quite bad.
@@ -266,7 +286,7 @@ May be used from an interrupt handler."
                  ;; Must take the thread lock before dropping the semaphore lock or up
                  ;; may be able to remove the thread from the sleep queue before it goes
                  ;; to sleep.
-                 (%lock-thread self)
+                 (acquire-global-thread-lock)
                  (unlock-wait-queue semaphore)
                  (setf (thread-wait-item self) semaphore
                        (thread-state self) :sleeping)
@@ -298,7 +318,7 @@ May be used from an interrupt handler."
             ;; Don't sleep.
             (unlock-wait-queue latch))
            (t ;; Latch is closed, sleep.
-            (%lock-thread self)
+            (acquire-global-thread-lock)
             ;; Attach to the list.
             (push-wait-queue self latch)
             ;; Sleep.

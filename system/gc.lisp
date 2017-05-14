@@ -565,7 +565,6 @@ This is required to make the GC interrupt safe."
   ;; Scavenge various parts of the thread.
   (scavengef (mezzano.supervisor:thread-name object))
   (scavengef (mezzano.supervisor:thread-state object))
-  (scavengef (mezzano.supervisor:thread-lock object))
   ;; FIXME: Mark stack.
   (scavengef (mezzano.supervisor:thread-stack object))
   (scavengef (mezzano.supervisor:thread-special-stack-pointer object))
