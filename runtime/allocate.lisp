@@ -316,7 +316,7 @@
   ;; R8 = tag; R9 = data; R10 = words
   ;; Check argument count.
   (sys.lap-x86:cmp64 :rcx #.(ash 3 #.sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:jne SLOW-PATH)
+  (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
   ;; Update allocation meter.
   ;; *BYTES-CONSED* is updated elsewhere.
   (sys.lap-x86:mov64 :rbx (:constant *general-allocation-count*))
@@ -347,8 +347,9 @@
   (sys.lap-x86:ret)
   SLOW-PATH
   ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
-  (sys.lap-x86:mov64 :r13 (:function %slow-allocate-from-general-area))
   (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (sys.lap-x86:mov64 :r13 (:function %slow-allocate-from-general-area))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 #+(and arm64 (or))
@@ -650,7 +651,7 @@
   ;; R8 = car; R9 = cdr
   ;; Check argument count.
   (sys.lap-x86:cmp64 :rcx #.(ash 2 #.sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:jne SLOW-PATH)
+  (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
   ;; Update allocation meter.
   (sys.lap-x86:mov64 :rbx (:constant *cons-allocation-count*))
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
@@ -687,8 +688,9 @@
   (sys.lap-x86:ret)
   SLOW-PATH
   ;; Tail call into SLOW-CONS.
-  (sys.lap-x86:mov64 :r13 (:function slow-cons))
   (sys.lap-x86:mov32 :ecx #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (sys.lap-x86:mov64 :r13 (:function slow-cons))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 #+(and arm64 (or))
