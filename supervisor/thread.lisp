@@ -10,6 +10,7 @@
 (sys.int::defglobal *normal-priority-run-queue*)
 (sys.int::defglobal *low-priority-run-queue*)
 (sys.int::defglobal *all-threads*)
+(sys.int::defglobal *n-running-cpus*)
 
 (sys.int::defglobal *world-stop-lock*)
 (sys.int::defglobal *world-stop-cvar*)
@@ -457,9 +458,9 @@ Interrupts must be off and the global thread lock must be held."
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
 ;; idle thread will be run.
-;; FIXME: SMP-safety.
 (defun idle-thread ()
   (%disable-interrupts)
+  (decrement-n-running-cpus)
   (loop
      ;; Look for a thread to switch to.
      (acquire-global-thread-lock)
@@ -471,21 +472,31 @@ Interrupts must be off and the global thread lock must be held."
                        (t
                         (pop-run-queue)))))
        (cond (next
-              (set-run-light t)
+              (increment-n-running-cpus)
               ;; Switch to thread.
               (setf (thread-state next) :active)
               (setf (thread-state (local-cpu-idle-thread)) :runnable)
               (%run-on-wired-stack-without-interrupts (sp fp next)
                 (%%switch-to-thread-via-wired-stack (local-cpu-idle-thread) sp fp next))
               (%disable-interrupts)
-              (when (boundp '*light-run*)
-                ;; Clear the run light immediately so it doesn't stay on between
-                ;; GUI screen updates.
-                (clear-light *light-run*)))
+              (decrement-n-running-cpus))
              (t ;; Wait for an interrupt.
               (release-global-thread-lock)
               (%wait-for-interrupt)
               (%disable-interrupts))))))
+
+(defun increment-n-running-cpus ()
+  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* 1)))
+    (when (zerop prev)
+      (set-run-light t))))
+
+(defun decrement-n-running-cpus ()
+  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* -1)))
+    (when (and (eql prev 1)
+               (boundp '*light-run*))
+      ;; Clear the run light immediately so it doesn't stay on between
+      ;; GUI screen updates.
+      (clear-light *light-run*))))
 
 (defun reset-ephemeral-thread (thread entry-point state priority)
   ;; Threads created by the cold-generator have conses instead of real stack
@@ -586,6 +597,7 @@ Interrupts must be off and the global thread lock must be held."
           (thread-global-next sys.int::*disk-io-thread*) nil
           (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*)
     (setf *default-stack-size* (* 256 1024)))
+  (setf *n-running-cpus* 1)
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :runnable nil)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
   ;; Don't let the pager run until the paging disk has been found.

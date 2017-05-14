@@ -490,6 +490,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   ;; Perform the initial thread switch to the idle thread.
   (let ((idle-thread (local-cpu-idle-thread)))
     (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle-thread))
+    (increment-n-running-cpus)
     (acquire-global-thread-lock)
     (%%switch-to-thread-common idle-thread idle-thread)))
 
