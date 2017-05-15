@@ -202,6 +202,10 @@
   (setf (macro-function name) function)
   name)
 
+(defun %define-compiler-macro (name function)
+  (setf (compiler-macro-function name) function)
+  name)
+
 (defun %compiler-defun (name source-lambda)
   "Compile-time defun code. Store the inline form if required."
   (multiple-value-bind (sym mode-name form-name)

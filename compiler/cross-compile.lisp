@@ -360,6 +360,10 @@
 (defmethod optimize-qualities-in-environment ((environment null))
   '())
 
+(defun sys.int::%define-compiler-macro (name function)
+  (setf (compiler-macro-function name) function)
+  name)
+
 (defun compiler-macro-function (name &optional env)
   (compiler-macro-function-in-environment name env))
 
