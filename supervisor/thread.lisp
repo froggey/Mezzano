@@ -104,7 +104,7 @@
   (field global-prev             15)
   ;; Thread's priority, can be :supervisor, :high, :normal, or :low.
   ;; Threads at :supervisor have priority over all other threads.
-  (field priority                16 :type (member :low :normal :high :supervisor))
+  (field priority                16 :type (member :low :normal :high :supervisor :idle))
   ;; Arguments passed to the pager when performing an RPC.
   (field pager-argument-1        17)
   (field pager-argument-2        18)
@@ -530,7 +530,7 @@ Interrupts must be off and the global thread lock must be held."
           (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
   ;; Remove the thread from any potential run queue it may be on.
-  (when priority
+  (when (not (eql priority :idle))
     (let ((rq (run-queue-for-priority (thread-priority thread))))
       (cond ((and (eql (run-queue-head rq) thread)
                   (eql (run-queue-tail rq) thread))
@@ -559,7 +559,7 @@ Interrupts must be off and the global thread lock must be held."
         (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
         (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
         (thread-full-save-p thread) t)
-  (when (and priority
+  (when (and (not (eql priority :idle))
              (eql state :runnable))
     (push-run-queue thread))
   ;; Initialize the FXSAVE area.
@@ -598,7 +598,7 @@ Interrupts must be off and the global thread lock must be held."
           (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*)
     (setf *default-stack-size* (* 256 1024)))
   (setf *n-running-cpus* 1)
-  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :runnable nil)
+  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :runnable :idle)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
   ;; Don't let the pager run until the paging disk has been found.
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :sleeping :supervisor)

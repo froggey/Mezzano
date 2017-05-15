@@ -554,11 +554,8 @@ This is required to make the GC interrupt safe."
            ;; Things aren't so bad though, they (should) only contain
            ;; pointers to wired objects, and the objects they do point
            ;; to should be pointed to by other live objects.
-           ;; FIXME: All avoid all idle threads.
-           (eql object sys.int::*bsp-idle-thread*)
-           (eql object sys.int::*pager-thread*)
-           (eql object sys.int::*disk-io-thread*)
-           (eql object sys.int::*snapshot-thread*))))
+           (eql (mezzano.supervisor:thread-priority object) :supervisor)
+           (eql (mezzano.supervisor:thread-priority object) :idle))))
 
 (defun scan-thread (object)
   (when *gc-debug-scavenge-stack* (gc-log "Scav thread " object))

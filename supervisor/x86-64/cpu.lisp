@@ -615,7 +615,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                 sys.int::+object-tag-array-unsigned-byte-64+
                 1023 1023
                 :wired))
-         (idle-thread (make-ephemeral-thread #'idle-thread :runnable :name "AP Idle Thread" :priority nil))
+         (idle-thread (make-ephemeral-thread #'idle-thread :runnable :name "AP Idle Thread" :priority :idle))
          (wired-stack (%allocate-stack (* 128 1024) t))
          (exception-stack (%allocate-stack (* 128 1024) t))
          (irq-stack (%allocate-stack (* 128 1024) t))
