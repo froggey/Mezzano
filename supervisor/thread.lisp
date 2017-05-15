@@ -72,6 +72,7 @@
   ;;   :dead      - the thread has exited or been killed and cannot run.
   ;;   :waiting-for-page - the thread is waiting for memory to be paged in.
   ;;   :pager-request - the thread is waiting for a pager RPC call to complete.
+  ;;   :stopped   - the thread has been stopped for inspection by a debugger.
   (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request :stopped))
   ;; 2 - free
   ;; Stack object for the stack.
@@ -209,6 +210,7 @@
                (run-queue-tail rq) thread))))
 
 (defun push-run-queue (thread)
+  (ensure-global-thread-lock-held)
   (when (eql thread *world-stopper*)
     (return-from push-run-queue))
   (push-run-queue-1 thread (run-queue-for-priority (thread-priority thread))))
@@ -321,13 +323,15 @@ Interrupts must be off and the global thread lock must be held."
 
 (defun maybe-preempt-via-interrupt (interrupt-frame)
   (let ((current (current-thread)))
-    (when (not (or (and *world-stopper*
-                        (eql current *world-stopper*))
-                   (eql (thread-priority current) :supervisor)
-                   (eql current (local-cpu-idle-thread))))
-      (acquire-global-thread-lock)
-      (setf (thread-state current) :runnable)
-      (%reschedule-via-interrupt interrupt-frame))))
+    (acquire-global-thread-lock)
+    (cond ((or (and *world-stopper*
+                    (eql current *world-stopper*))
+               (eql (thread-priority current) :supervisor)
+               (eql current (local-cpu-idle-thread)))
+           (release-global-thread-lock))
+          (t
+           (setf (thread-state current) :runnable)
+           (%reschedule-via-interrupt interrupt-frame)))))
 
 ;;; Stuff.
 
@@ -561,7 +565,10 @@ Interrupts must be off and the global thread lock must be held."
         (thread-full-save-p thread) t)
   (when (and (not (eql priority :idle))
              (eql state :runnable))
-    (push-run-queue thread))
+    (safe-without-interrupts (thread)
+      (acquire-global-thread-lock)
+      (push-run-queue thread)
+      (release-global-thread-lock)))
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
   ;; x87 using 80 bit precision (long-float).
@@ -772,17 +779,23 @@ Interrupts must be off and the global thread lock must be held."
       ;; Now wait for any PA threads to finish.
       (loop
          (when (zerop *pseudo-atomic-thread-count*)
-           (setf *world-stopper* self
-                 *world-stop-pending* nil)
            (return))
          (condition-wait *world-stop-cvar* *world-stop-lock*))
+      (safe-without-interrupts (self)
+        (acquire-global-thread-lock)
+        (setf *world-stopper* self
+              *world-stop-pending* nil)
+        (release-global-thread-lock))
       (quiesce-cpus-for-world-stop))
     ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
     (multiple-value-prog1
         (funcall thunk)
       (with-mutex (*world-stop-lock*)
         ;; Release the dogs!
-        (setf *world-stopper* nil)
+        (safe-without-interrupts (self)
+          (acquire-global-thread-lock)
+          (setf *world-stopper* nil)
+          (release-global-thread-lock))
         (condition-notify *world-stop-cvar* t)
         (broadcast-wakeup-ipi)))))
 

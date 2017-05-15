@@ -180,7 +180,7 @@
 
 (defun stop-thread-for-single-step (interrupt-frame)
   (let ((self (current-thread)))
-    (%lock-thread self)
+    (acquire-global-thread-lock)
     (setf (thread-state self) :stopped
           (thread-wait-item self) :single-step-trap))
     (%reschedule-via-interrupt interrupt-frame))

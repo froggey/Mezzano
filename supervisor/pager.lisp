@@ -154,8 +154,7 @@ the data. Free the page with FREE-PAGE when done."
              (setf *store-fudge-factor* (+ allocated-blocks 256))))))
   (debug-print-line "Set fudge factor to " *store-fudge-factor*)
   (debug-print-line "Waking pager thread.")
-  (setf (thread-state sys.int::*pager-thread*) :runnable)
-  (push-run-queue sys.int::*pager-thread*))
+  (wake-thread sys.int::*pager-thread*))
 
 (defun detect-paging-disk ()
   (debug-print-line "Looking for paging disk with UUID "
