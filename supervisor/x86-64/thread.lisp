@@ -3,6 +3,18 @@
 
 (in-package :mezzano.supervisor)
 
+(sys.int::define-lap-function fxsave ((address))
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:fxsave (:rax))
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function fxrstor ((address))
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:fxrstor (:rax))
+  (sys.lap-x86:ret))
+
 (sys.int::define-lap-function %%return-to-same-thread ()
   (sys.lap-x86:mov64 :rsp :r8)
   (sys.lap-x86:mov64 :rbp :r9)
@@ -12,79 +24,91 @@
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
-(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
-  ;; Save frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :r10)
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Save stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :r9)
-  ;; Only partial state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r9 :r11)
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+(declaim (inline %object-slot-address))
+(defun %object-slot-address (object slot)
+  (+ (sys.int::lisp-object-address object)
+     (- sys.int::+tag-object+)
+     8
+     (* slot 8)))
 
-;;; current-thread interrupt-frame next-thread
-;;; Interrupts must be off, current & next must be locked.
-(sys.int::define-lap-function %%switch-to-thread-via-interrupt ()
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
+(defun save-fpu-state (thread)
+  (fxsave (%object-slot-address thread +thread-fx-save-area+)))
+
+(defun save-interrupted-state (thread interrupt-frame)
   ;; Copy the interrupt frame over to the save area.
-  (sys.lap-x86:mov64 :rsi (:object :r9 0))
-  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:sub64 :rsi #.(* 14 8)) ; 14 registers below the pointer, 6 above.
-  (sys.lap-x86:lea64 :rdi (:object :r8 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:mov32 :ecx 20) ; 20 values to copy.
-  (sys.lap-x86:rep)
-  (sys.lap-x86:movs64)
+  (sys.int::%copy-words (%object-slot-address thread +thread-interrupt-save-area+)
+                        (- (interrupt-frame-pointer interrupt-frame)
+                           ;; 14 registers below the pointer, 6 above.
+                           (* 14 8))
+                        ;; For a total of 20 values to copy.
+                        20)
   ;; Full state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) t)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r9 :r10) ; next-thread
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (setf (thread-full-save-p thread) t))
 
-;; (current-thread new-thread)
-(sys.int::define-lap-function %%switch-to-thread-common ()
-  ;; Old thread's state has been saved, restore the new-thread's state.
+(defun %%switch-to-thread-via-wired-stack (current-thread sp fp next-thread)
+  ;; Save frame pointer.
+  (setf (thread-state-rbp-value current-thread) fp)
+  ;; Save FPU state.
+  ;; FIXME: FPU state doesn't need to be completely saved for voluntary task switches.
+  ;; Only MXCSR & FCW need to be preserved.
+  (save-fpu-state current-thread)
+  ;; Save stack pointer.
+  (setf (thread-state-rsp-value current-thread) sp)
+  ;; Only partial state was saved.
+  (setf (thread-full-save-p current-thread) nil)
+  ;; Jump to common function.
+  (%%switch-to-thread-common current-thread next-thread))
+
+(defun %%switch-to-thread-via-interrupt (current-thread interrupt-frame next-thread)
+  (save-fpu-state current-thread)
+  (save-interrupted-state current-thread interrupt-frame)
+  ;; Jump to common function.
+  (%%switch-to-thread-common current-thread next-thread))
+
+(defun %%switch-to-thread-common (current-thread new-thread)
+  ;; Current thread's state has been saved, restore the new-thread's state.
   ;; Switch threads.
-  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
-  (sys.lap-x86:mov64 :rax :r9)
-  (sys.lap-x86:mov64 :rdx :r9)
-  (sys.lap-x86:shr64 :rdx 32)
-  (sys.lap-x86:wrmsr)
-  ;; Restore fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
+  (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address new-thread))
+  ;; Restore FPU state.
+  (fxrstor (%object-slot-address new-thread +thread-fx-save-area+))
   ;; Drop the global thread lock.
-  (sys.lap-x86:mov64 :r10 (:constant :unlocked))
-  (sys.lap-x86:mov64 :r11 (:constant *global-thread-lock*))
-  (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 (:object :r11 #.sys.int::+symbol-value-cell-value+) :r10)
-  ;; Check if the thread is in the interrupt save area.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-full-save-p+) nil)
-  (sys.lap-x86:jne FULL-RESTORE)
+  (release-global-thread-lock)
+  ;; Check if the thread is full-save.
+  (if (thread-full-save-p new-thread)
+      (%%restore-full-save-thread new-thread)
+      (%%restore-partial-save-thread new-thread)))
+
+(sys.int::define-lap-function %%restore-full-save-thread ((thread))
+  ;; Returning to an interrupted thread. Restore saved registers and stuff.
+  ;; TODO: How to deal with footholds here? The stack might be paged out here.
+  (sys.lap-x86:lea64 :rsp (:object :r8 #.+thread-interrupt-save-area+))
+  (sys.lap-x86:pop :r15)
+  (sys.lap-x86:pop :r14)
+  (sys.lap-x86:pop :r13)
+  (sys.lap-x86:pop :r12)
+  (sys.lap-x86:pop :r11)
+  (sys.lap-x86:pop :r10)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:pop :r8)
+  (sys.lap-x86:pop :rdi)
+  (sys.lap-x86:pop :rsi)
+  (sys.lap-x86:pop :rbx)
+  (sys.lap-x86:pop :rdx)
+  (sys.lap-x86:pop :rcx)
+  (sys.lap-x86:pop :rax)
+  (sys.lap-x86:pop :rbp)
+  (sys.lap-x86:iret))
+
+(sys.int::define-lap-function %%restore-partial-save-thread ((thread))
   ;; Restore stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-state-rsp+))
+  (sys.lap-x86:mov64 :rsp (:object :r8 #.+thread-state-rsp+))
   ;; Restore frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rbp (:object nil #.+thread-state-rbp+))
+  (sys.lap-x86:mov64 :rbp (:object :r8 #.+thread-state-rbp+))
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
   (:gc :no-frame :layout #*0)
   ;; Check for pending footholds.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
+  (sys.lap-x86:cmp64 (:object :r8 #.+thread-pending-footholds+) nil)
   (sys.lap-x86:jne RUN-FOOTHOLDS)
   ;; No value return.
   NORMAL-RETURN
@@ -102,27 +126,7 @@
   (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
-  ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  ;; TODO: How to deal with footholds here? The stack might be paged out here.
-  FULL-RESTORE
-  (sys.lap-x86:lea64 :rsp (:object :r9 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:pop :r15)
-  (sys.lap-x86:pop :r14)
-  (sys.lap-x86:pop :r13)
-  (sys.lap-x86:pop :r12)
-  (sys.lap-x86:pop :r11)
-  (sys.lap-x86:pop :r10)
-  (sys.lap-x86:pop :r9)
-  (sys.lap-x86:pop :r8)
-  (sys.lap-x86:pop :rdi)
-  (sys.lap-x86:pop :rsi)
-  (sys.lap-x86:pop :rbx)
-  (sys.lap-x86:pop :rdx)
-  (sys.lap-x86:pop :rcx)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rbp)
-  (sys.lap-x86:iret))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 (sys.int::define-lap-function current-thread (())
   (:gc :no-frame :layout #*0)

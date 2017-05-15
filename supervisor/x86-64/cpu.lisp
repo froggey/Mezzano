@@ -169,12 +169,6 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
        (return))
      (sys.int::cpu-relax)))
 
-(sys.int::define-lap-function fxsave ((address))
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:fxsave (:rax))
-  (sys.lap-x86:ret))
-
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -188,18 +182,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
       (setf (thread-state current) :runnable)
       (push-run-queue current)
       ;; Save thread state.
-      (sys.int::%copy-words (+ (sys.int::lisp-object-address current)
-                               (- sys.int::+tag-object+)
-                               8
-                               (* +thread-interrupt-save-area+ 8))
-                            (- (interrupt-frame-pointer interrupt-frame)
-                               (* 14 8))
-                            20)
-      (fxsave (+ (sys.int::lisp-object-address current)
-                 (- sys.int::+tag-object+)
-                 8
-                 (* +thread-fx-save-area+ 8)))
-      (setf (thread-full-save-p current) t)
+      (save-fpu-state current)
+      (save-interrupted-state current interrupt-frame)
       ;; Partially switch to the idle thread.
       (setf (thread-state idle) :active)
       (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
