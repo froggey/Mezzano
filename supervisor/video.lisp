@@ -291,14 +291,20 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 An integer, measured in internal time units.")
 (sys.int::defglobal *lights* '())
 
+(defun decay-light (light dt)
+  (let ((current-state (light-state light)))
+    (when (integerp current-state)
+      (let ((new-state (- current-state dt)))
+        (cond ((<= new-state 0)
+               (clear-light light))
+              (t
+               (sys.int::cas (light-state light) current-state new-state)))))))
+
 (defun decay-lights (dt)
   (when (boundp '*lights*)
     (loop
        for light in *lights*
-       do (when (integerp (light-state light))
-            (decf (light-state light) dt)
-            (when (<= (light-state light) 0)
-              (clear-light light))))))
+       do (decay-light light dt))))
 
 (defun set-light (light state)
   (setf (light-state light) (if state
