@@ -24,6 +24,24 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3))
 
+(defun compiler-state-bindings ()
+  (let ((symbols '(*should-inline-functions*
+                   *perform-tce*
+                   *suppress-builtins*
+                   *enable-branch-tensioner*
+                   *enable-stack-alignment-checking*
+                   *trace-asm*
+                   *jump-table-size-min*
+                   *jump-table-size-max*
+                   *load-time-value-hook*
+                   *optimize-restrictions*
+                   *optimize-policy*
+                   *verify-special-stack*
+                   *constprop-lambda-copy-limit*)))
+    (loop
+       for sym in symbols
+       collect (list sym (symbol-value sym)))))
+
 (defun parse-declares (forms)
   "Extract any leading declare forms.
 Returns 2 values:
@@ -43,6 +61,9 @@ A list of any declaration-specifiers."
 (defun compile-lambda (lambda &optional env target-architecture)
   (codegen-lambda (compile-lambda-1 lambda env target-architecture) target-architecture))
 
+(defun compile-ast (ast &optional target-architecture)
+  (codegen-lambda (compile-lambda-2 ast target-architecture) target-architecture))
+
 (defun default-architecture (architecture)
   (or architecture
       #+x86-64 :x86-64
@@ -56,11 +77,13 @@ A list of any declaration-specifiers."
     (:arm64
      (mezzano.compiler.codegen.arm64:codegen-lambda lambda))))
 
-;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-1 (lambda &optional env target-architecture)
-  (let* ((form (pass1-lambda lambda env))
-         ;; Don't optimize at (compiliation-speed 3).
-         (run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3))))
+  (compile-lambda-2 (pass1-lambda lambda env) target-architecture))
+
+;; Parse lambda and optimize, but do not do codegen.
+(defun compile-lambda-2 (form &optional target-architecture)
+  ;; Don't optimize at (compiliation-speed 3).
+  (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3))))
     (when run-optimizations
       (setf form (run-optimizers form (default-architecture target-architecture))))
     (unless run-optimizations

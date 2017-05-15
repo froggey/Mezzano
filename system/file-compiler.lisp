@@ -3,6 +3,7 @@
 
 (in-package :sys.int)
 
+(defvar *compile-parallel* nil)
 (defvar *top-level-form-number* nil)
 
 (defun expand-macrolet-function (function)
@@ -400,6 +401,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (write-byte +llf-funcall-n+ stream)))
 
 (defun save-object (object omap stream)
+  (when (typep object 'deferred-function)
+    (assert (deferred-function-function object))
+    (return-from save-object
+      (save-object (deferred-function-function object) omap stream)))
   (when (null (gethash object omap))
     (setf (gethash object omap) (list (hash-table-count omap) 0 nil)))
   (let ((info (gethash object omap)))
@@ -501,7 +506,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       ((and (eql (first expansion) 'function)
             (consp (second expansion))
             (eql (first (second expansion)) 'lambda))
-       (add-to-llf nil (sys.c::compile-lambda (second expansion) env)))
+       (add-to-llf nil (add-deferred-lambda (second expansion) env)))
       ((eql (first expansion) 'setq)
        (compile-top-level-form-for-value `(funcall #'(setf symbol-value)
                                                    ,(third form)
@@ -511,7 +516,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        ;; Can't convert this, convert it to a zero-argument function and
        ;; call that. PROGN to avoid problems with DECLARE.
        (add-to-llf sys.int::+llf-funcall-n+
-                   (sys.c::compile-lambda
+                   (add-deferred-lambda
                     `(lambda ()
                        (declare (lambda-name
                                  (sys.int::toplevel ,(when *compile-file-pathname*
@@ -537,17 +542,48 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (compile-top-level-form-for-value arg env))
          (add-to-llf sys.int::+llf-funcall-n+ name (length args)))))))
 
+(defvar *deferred-functions*)
+
+(defclass deferred-function ()
+  ((%ast :initarg :ast :reader deferred-function-ast)
+   (%compiled-function :initarg :compiled-function :accessor deferred-function-function))
+  (:default-initargs :compiled-function nil))
+
+(defun add-deferred-lambda (lambda env)
+  (if *compile-parallel*
+      (let ((fn (make-instance 'deferred-function
+                               :ast (sys.c::pass1-lambda lambda env))))
+        (push fn *deferred-functions*)
+        fn)
+      (sys.c::compile-lambda lambda env)))
+
+(defun compile-file-worker (work-fifo return-fifo)
+  (unwind-protect
+       (loop
+          (let ((work (mezzano.supervisor:fifo-pop work-fifo)))
+            (when (eql work :finished)
+              (format t "Compile file worker thread ~S completed."
+                      (return)))
+            ;(format t "Compiling deferred function ~S~%" (deferred-function-ast work))
+            (setf (deferred-function-function work)
+                  (sys.c::compile-ast (deferred-function-ast work)))
+            (mezzano.supervisor:fifo-push work return-fifo)))
+    (mezzano.supervisor:fifo-push :exit return-fifo)))
+
 (defun compile-file (input-file &key
                                   (output-file (compile-file-pathname input-file))
                                   (verbose *compile-verbose*)
                                   (print *compile-print*)
-                                  (external-format :default))
+                                  (external-format :default)
+                                  (parallel *compile-parallel*))
   (with-open-file (input-stream input-file :external-format external-format)
     (format t ";; Compiling file ~S.~%" input-file)
     (let* ((*package* *package*)
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
            (*compile-print* print)
+           (*compile-parallel* parallel)
+           (*deferred-functions* '())
            (*llf-forms* nil)
            (omap (make-hash-table))
            (eof-marker (cons nil nil))
@@ -570,6 +606,40 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                (lambda (f env)
                                  (eval-in-lexenv f env)))
         (incf *top-level-form-number*))
+      (when *deferred-functions*
+        (let* ((n-functions (length *deferred-functions*))
+               (n-workers mezzano.supervisor::*n-up-cpus*)
+               (work-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
+               (return-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
+               (workers '()))
+          (unwind-protect
+               (progn
+                 (loop
+                    repeat n-workers
+                    do (push (mezzano.supervisor:make-thread (lambda () (compile-file-worker work-fifo return-fifo))
+                                                             :name (format nil "Compile file worker")
+                                                             :initial-bindings `((*terminal-io* ,*terminal-io*)
+                                                                                 (*debug-io* ,*debug-io*)
+                                                                                 (*error-output* ,*error-output*)
+                                                                                 (*query-io* ,*query-io*)
+                                                                                 (*standard-input* ,*standard-input*)
+                                                                                 (*standard-output* ,*standard-output*)
+                                                                                 (*trace-output* ,*trace-output*)
+                                                                                 ,@(sys.c::compiler-state-bindings))
+                                                             :priority :low)
+                             workers))
+                 (loop
+                    for fn in *deferred-functions*
+                    do (mezzano.supervisor:fifo-push fn work-fifo))
+                 (loop
+                    repeat n-functions
+                    do (mezzano.supervisor:fifo-pop return-fifo))
+                 (loop
+                    repeat n-workers
+                    do (mezzano.supervisor:fifo-push :finished work-fifo)))
+            (loop
+               for worker in workers
+               do (mezzano.supervisor:terminate-thread worker)))))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
       (let ((commands (reverse *llf-forms*)))
