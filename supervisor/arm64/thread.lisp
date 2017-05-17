@@ -77,42 +77,9 @@
   ;; Full state was saved.
   (setf (thread-full-save-p thread) t))
 
-(defun %%switch-to-thread-via-wired-stack (current-thread sp fp next-thread)
-  ;; Save frame pointer.
-  (setf (thread-state-rbp-value current-thread) fp)
-  ;; Save FPU state.
-  ;; FIXME: FPU state doesn't need to be completely saved for voluntary task switches.
-  ;; Only FPCR needs to be preserved.
-  (save-fpu-state current-thread)
-  ;; Save stack pointer.
-  (setf (thread-state-rsp-value current-thread) sp)
-  ;; Only partial state was saved.
-  (setf (thread-full-save-p current-thread) nil)
-  ;; Jump to common function.
-  (%%switch-to-thread-common current-thread next-thread))
-
-(defun %%switch-to-thread-via-interrupt (current-thread interrupt-frame next-thread)
-  (save-fpu-state current-thread)
-  (save-interrupted-state current-thread interrupt-frame)
-  ;; Jump to common function.
-  (%%switch-to-thread-common current-thread next-thread))
-
 (sys.int::define-lap-function set-current-thread ((thread))
   (mezzano.lap.arm64:orr :x28 :xzr :x0)
   (mezzano.lap.arm64:ret))
-
-(defun %%switch-to-thread-common (current-thread new-thread)
-  ;; Current thread's state has been saved, restore the new-thread's state.
-  ;; Switch threads.
-  (set-current-thread new-thread)
-  ;; Restore FPU state.
-  (restore-fpu-state new-thread)
-  ;; Drop the global thread lock.
-  (release-global-thread-lock)
-  ;; Check if the thread is full-save.
-  (if (thread-full-save-p new-thread)
-      (%%restore-full-save-thread new-thread)
-      (%%restore-partial-save-thread new-thread)))
 
 (sys.int::define-lap-function %%restore-full-save-thread ((thread))
   ;; Switch back to SP_EL0, restoring the original value of SP_EL1.
