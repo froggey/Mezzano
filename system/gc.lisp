@@ -14,7 +14,7 @@
 
 (defglobal *gc-debug-scavenge-stack* nil)
 (defglobal *gc-debug-freelist-rebuild* nil)
-(defglobal *gc-debug-metadata* nil)
+(defglobal *gc-debug-metadata* t)
 
 (defglobal *gc-enable-logging* nil)
 
@@ -312,6 +312,195 @@ This is required to make the GC interrupt safe."
         (gc-log "restart")
         (gc-log "no-restart"))))
 
+(defun scavenge-interrupt-stack-frame (interrupt-frame-pointer)
+  ;; Thread has stopped due to an interrupt.
+  ;; Examine it, then perform normal stack scavenging.
+  (when *gc-debug-scavenge-stack* (gc-log "Scav interrupted frame... " interrupt-frame-pointer))
+  (let* ((return-address (memref-unsigned-byte-64 interrupt-frame-pointer 15))
+         (frame-pointer (memref-unsigned-byte-64 interrupt-frame-pointer 14))
+         (stack-pointer (memref-unsigned-byte-64 interrupt-frame-pointer 18))
+         (fn (return-address-to-function return-address))
+         (fn-address (logand (lisp-object-address fn) -16))
+         (fn-offset (- return-address fn-address)))
+    (when *gc-debug-scavenge-stack*
+      (gc-log "RA: " return-address)
+      (gc-log "FP: " frame-pointer)
+      (gc-log "SP: " stack-pointer)
+      (gc-log "FNa: " fn-address)
+      (gc-log "FNo: " fn-offset))
+    (multiple-value-bind (framep interruptp pushed-values pushed-values-register
+                          layout-address layout-length
+                          multiple-values incoming-arguments
+                          block-or-tagbody-thunk extra-registers
+                          entry-offset restart)
+        (gc-info-for-function-offset fn fn-offset)
+      (when *gc-debug-metadata*
+        (flet ((bad-metadata (message)
+                 (setf *gc-debug-scavenge-stack* t
+                       *gc-enable-logging* t)
+                 (gc-log "RA: " return-address)
+                 (gc-log "FP: " frame-pointer)
+                 (gc-log "SP: " stack-pointer)
+                 (gc-log "FNa: " fn-address)
+                 (gc-log "FNo: " fn-offset)
+                 (debug-stack-frame framep interruptp pushed-values pushed-values-register
+                                    layout-address layout-length
+                                    multiple-values incoming-arguments
+                                    block-or-tagbody-thunk extra-registers
+                                    entry-offset restart)
+                 (mezzano.supervisor:panic "Bad GC metadata: " message)))
+          (declare (dynamic-extent #'bad-metadata))
+          ;; Validate metadata.
+          (cond (interruptp
+                 (when (not (eql layout-length 0))
+                   (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
+                 (when (not (eql pushed-values 0))
+                   (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
+                 (when pushed-values-register
+                   (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
+                 (when multiple-values
+                   (bad-metadata ":MULTIPLE-VALUES invalid in an :INTERRUPT frame"))
+                 (when incoming-arguments
+                   (bad-metadata ":INCOMING-ARGUMENTS invalid in an :INTERRUPT frame"))
+                 (when block-or-tagbody-thunk
+                   (bad-metadata ":BLOCK-OR-TAGBODY-THUNK invalid in an :INTERRUPT frame"))
+                 (when extra-registers
+                   (bad-metadata ":EXTRA-REGISTERS invalid in an :INTERRUPT frame"))
+                 (when restart
+                   (bad-metadata ":RESTART invalid in an :INTERRUPT frame")))
+                (t
+                 ;; arm64 uses a link register
+                 #-arm64
+                 (when (and (not framep)
+                            (eql layout-length 0))
+                   (bad-metadata "Tried to unwind through function with no available return address"))
+                 (when (and (not framep)
+                            (not (eql pushed-values 0)))
+                   (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
+                 (when (and (not framep)
+                            pushed-values-register)
+                   (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
+                 ;; Not all settings are valid in arm64.
+                 #+arm64
+                 (when (or (not (eql extra-registers nil))
+                           (not (eql extra-registers :rax)))
+                   (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))))
+      (when interruptp
+        ;; Thread is partway through popping an interrupt frame.
+        ;; Finish the rest of the work and retry.
+        ;; See %%PARTIAL-SAVE-RETURN-THUNK.
+        (cond (framep
+               ;; MV, FPU & GPR state not restored. Copy to save area.
+               (sys.int::%copy-words interrupt-frame-pointer
+                                     stack-pointer
+                                     20)
+               (sys.int::%copy-words (+ interrupt-frame-pointer (* 20 8))
+                                     (+ stack-pointer (* 20 8))
+                                     (truncate 512 8))
+               (sys.int::%copy-words (+ interrupt-frame-pointer (* 20 8) 512)
+                                     (+ stack-pointer (* 20 8) 512)
+                                     (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
+              (t
+               ;; Only the iret frame remains on the stack.
+               (sys.int::%copy-words (+ interrupt-frame-pointer (* 15 8))
+                                        (* 15 8))
+                                     stack-pointer
+                                     5))
+        (return-from scavenge-interrupt-stack-frame
+          (scavenge-interrupt-stack-frame interrupt-frame-pointer)))
+      ;; Unconditionally scavenge the saved data registers.
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 7)) ; r8
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 6)) ; r9
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 5)) ; r10
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 4)) ; r11
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 3)) ; r12
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 2)) ; r13
+      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 10)) ; rbx
+      #+x86-64
+      (ecase extra-registers
+        ((nil))
+        ((:rax)
+         (scavengef (memref-t interrupt-frame-pointer 13))) ; rax
+        ((:rax-rcx)
+         (scavengef (memref-t interrupt-frame-pointer 13)) ; rax
+         (scavengef (memref-t interrupt-frame-pointer 12))) ; rcx
+        ((:rax-rcx-rdx)
+         (scavengef (memref-t interrupt-frame-pointer 13)) ; rax
+         (scavengef (memref-t interrupt-frame-pointer 12)) ; rcx
+         (scavengef (memref-t interrupt-frame-pointer 11)))) ; rdx
+      #+arm64
+      (ecase extra-registers
+        ((nil))
+        ((:rax)
+         ;; x9 (rax) contains an interior pointer into :x1 (r9)
+         (let ((offset (- (memref-signed-byte-64 interrupt-frame-pointer 13) ; x9
+                          (memref-signed-byte-64 interrupt-frame-pointer 6)))) ; x1
+           (scavengef (memref-signed-byte-64 interrupt-frame-pointer 6))
+           (setf (memref-signed-byte-64 interrupt-frame-pointer 13)
+                 (+ (memref-signed-byte-64 interrupt-frame-pointer 6)
+                    offset)))))
+      (when block-or-tagbody-thunk
+        ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
+        ;; pointed to by RAX.
+        (let ((nlx-info (memref-signed-byte-64 interrupt-frame-pointer 13)))
+          (setf stack-pointer (memref-signed-byte-64 nlx-info 2)
+                frame-pointer (memref-signed-byte-64 nlx-info 3))))
+      (when multiple-values
+        ;; Scavenge the MV area.
+        (let* ((n-values (+ (memref-t interrupt-frame-pointer 12) multiple-values))
+               (n-mv-area-values (max 0 (- n-values 5))))
+          (scavenge-many (+ interrupt-frame-pointer
+                            (* 20 8)
+                            512)
+                         n-mv-area-values)))
+      (when (eql incoming-arguments :rcx)
+        ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
+        (setf incoming-arguments nil)
+        (when *gc-debug-scavenge-stack*
+          (gc-log "ia-count " (memref-t interrupt-frame-pointer 12)))
+        (scavenge-stack-n-incoming-arguments
+         frame-pointer stack-pointer framep
+         layout-length
+         (memref-t interrupt-frame-pointer 12)))
+      (when restart
+        ;; rip
+        (setf (memref-t interrupt-frame-pointer 15) (+ fn-address entry-offset)))
+      (scavenge-regular-stack-frame frame-pointer stack-pointer framep
+                                    layout-address layout-length
+                                    incoming-arguments
+                                    (+ pushed-values
+                                       (if pushed-values-register
+                                           (memref-t interrupt-frame-pointer 12)
+                                           0)))
+      (cond #+arm64
+            ((and (not framep)
+                  (eql layout-length 0))
+             ;; Special case: lr contains the return address and there is no return address on the stack.
+             (scavenge-stack
+              ;; Stack pointer needs the return address popped off,
+              ;; and any layout variables.
+              stack-pointer
+              ;; Frame pointer should be unchanged.
+              frame-pointer
+              ;; Return address in x30.
+              (memref-t interrupt-frame-pointer 16)))
+            ((not framep)
+             ;; No frame, carefully pick out the new values.
+             (scavenge-stack
+              ;; Stack pointer needs the return address popped off,
+              ;; and any layout variables.
+              (+ stack-pointer (* layout-length 8))
+              ;; Frame pointer should be unchanged.
+              frame-pointer
+              ;; Return address should be above the layout variables.
+              (memref-unsigned-byte-64 stack-pointer (1- layout-length))))
+            ((not (zerop frame-pointer))
+             (scavenge-stack (+ frame-pointer 16) ; sp
+                             (memref-unsigned-byte-64 frame-pointer 0) ; fp
+                             (memref-unsigned-byte-64 frame-pointer 1))) ; ra
+            (t (when *gc-debug-scavenge-stack*
+                 (gc-log "Done scav stack.")))))))
+
 (defun scavenge-stack (stack-pointer frame-pointer return-address)
   (when *gc-debug-scavenge-stack* (gc-log "Scav stack..."))
   (loop
@@ -352,47 +541,69 @@ This is required to make the GC interrupt safe."
                     (mezzano.supervisor:panic "Bad GC metadata: " message)))
              (declare (dynamic-extent #'bad-metadata))
              ;; Validate metadata.
-             (when interruptp
-               (bad-metadata ":INTERRUPT not defined or implemented."))
-             (when (and (not framep)
-                        (not (eql pushed-values 0)))
-               (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
-             ;; The remaining tests are because they refer to registers.
-             ;; Functions seen by SCAVENGE-STACK are all in the middle of call instructions, so
-             ;; referring to registers makes no sense.
-             (when pushed-values-register
-               (bad-metadata "PUSHED-VALUES-REGISTER seen outside full-save'd function."))
-             (when (and multiple-values (not (eql multiple-values 0)))
-               ;; :MULTIPLE-VALUES 0 is permitted, but ignored.
-               ;; This occurs immediately after call instructions that expect a multiple-value result.
-               (bad-metadata "Non-zero/non-nil :MULTIPLE-VALUES seen outside full-save'd function."))
-             (when block-or-tagbody-thunk
-               (bad-metadata ":BLOCK-OR-TAGBODY-THUNK seen outside full-save'd function."))
-             (when (eql incoming-arguments :rcx)
-               (bad-metadata ":INCOMING-ARGUMENTS :RCX seen outside full-save'd function."))
-             (when extra-registers
-               (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))
-             (when restart
-               (bad-metadata ":RESTART seen outside full-save'd function."))
-             (when (and (not framep)
-                        (eql layout-length 0))
-               (bad-metadata "Tried to unwind through function with no available return address"))))
-         (scavenge-regular-stack-frame frame-pointer stack-pointer framep
-                                       layout-address layout-length
-                                       incoming-arguments pushed-values)
-         (cond (framep
-                (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
-                       stack-pointer (+ frame-pointer 16)
-                       frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))
+             (cond (interruptp
+                    (when (not framep)
+                      (bad-metadata "Interrupted :NO-FRAME :INTERRUPTED frame"))
+                    (when (not (eql layout-length 0))
+                      (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
+                    (when (not (eql pushed-values 0))
+                      (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
+                    (when pushed-values-register
+                      (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
+                    (when multiple-values
+                      (bad-metadata ":MULTIPLE-VALUES invalid in an :INTERRUPT frame"))
+                    (when incoming-arguments
+                      (bad-metadata ":INCOMING-ARGUMENTS invalid in an :INTERRUPT frame"))
+                    (when block-or-tagbody-thunk
+                      (bad-metadata ":BLOCK-OR-TAGBODY-THUNK invalid in an :INTERRUPT frame"))
+                    (when extra-registers
+                      (bad-metadata ":EXTRA-REGISTERS invalid in an :INTERRUPT frame"))
+                    (when restart
+                      (bad-metadata ":RESTART invalid in an :INTERRUPT frame")))
+                   (t
+                    (when (and (not framep)
+                               (not (eql pushed-values 0)))
+                      (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
+                    ;; The remaining tests are because they refer to registers.
+                    ;; Functions seen by SCAVENGE-STACK are all in the middle of call instructions, so
+                    ;; referring to registers makes no sense.
+                    (when pushed-values-register
+                      (bad-metadata "PUSHED-VALUES-REGISTER seen outside full-save'd function."))
+                    (when (and multiple-values (not (eql multiple-values 0)))
+                      ;; :MULTIPLE-VALUES 0 is permitted, but ignored.
+                      ;; This occurs immediately after call instructions that expect a multiple-value result.
+                      (bad-metadata "Non-zero/non-nil :MULTIPLE-VALUES seen outside full-save'd function."))
+                    (when block-or-tagbody-thunk
+                      (bad-metadata ":BLOCK-OR-TAGBODY-THUNK seen outside full-save'd function."))
+                    (when (eql incoming-arguments :rcx)
+                      (bad-metadata ":INCOMING-ARGUMENTS :RCX seen outside full-save'd function."))
+                    (when extra-registers
+                      (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))
+                    (when restart
+                      (bad-metadata ":RESTART seen outside full-save'd function."))
+                    (when (and (not framep)
+                               (eql layout-length 0))
+                      (bad-metadata "Tried to unwind through function with no available return address"))))))
+         (cond (interruptp
+                (scavenge-interrupt-stack-frame stack-pointer)
+                (return))
                (t
-                ;; No frame, carefully pick out the new values.
-                (gc-log "Unwinding through no-frame function")
-                ;; Frame pointer remains unchanged.
-                ;; Return address should be above the layout variables.
-                (setf return-address (memref-unsigned-byte-64 stack-pointer (1- layout-length)))
-                ;; Stack pointer needs the return address popped off,
-                ;; and any layout variables.
-                (setf stack-pointer (+ stack-pointer (* layout-length 8)))))))))
+                (scavenge-regular-stack-frame frame-pointer stack-pointer framep
+                                              layout-address layout-length
+                                              incoming-arguments pushed-values)
+                (cond (framep
+                       (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
+                              stack-pointer (+ frame-pointer 16)
+                              frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))
+                      (t
+                       ;; No frame, carefully pick out the new values.
+                       (gc-log "Unwinding through no-frame function")
+                       ;; Frame pointer remains unchanged.
+                       ;; Return address should be above the layout variables.
+                       (setf return-address (memref-unsigned-byte-64 stack-pointer (1- layout-length)))
+                       ;; Stack pointer needs the return address popped off,
+                       ;; and any layout variables.
+                       (setf stack-pointer (+ stack-pointer (* layout-length 8)))))))))))
 
 (defun scavenge-thread-data-registers (thread)
   (scavengef (mezzano.supervisor:thread-state-r8-value thread))
@@ -419,8 +630,6 @@ This is required to make the GC interrupt safe."
       (gc-log "SP: " stack-pointer)
       (gc-log "FNa: " fn-address)
       (gc-log "FNo: " fn-offset))
-    ;; Unconditionally scavenge the saved data registers.
-    (scavenge-thread-data-registers thread)
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
@@ -444,24 +653,65 @@ This is required to make the GC interrupt safe."
                  (mezzano.supervisor:panic "Bad GC metadata: " message)))
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
-          (when interruptp
-            (bad-metadata ":INTERRUPT not defined or implemented."))
-          (when (and (not framep)
-                     (not (eql pushed-values 0)))
-            (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
-          (when (and (not framep)
-                     pushed-values-register)
-            (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
-          ;; arm64 uses a link register
-          #-arm64
-          (when (and (not framep)
-                     (eql layout-length 0))
-            (bad-metadata "Tried to unwind through function with no available return address"))
-          ;; Not all settings are valid in arm64.
-          #+arm64
-          (when (or (not (eql extra-registers nil))
-                    (not (eql extra-registers :rax)))
-            (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))
+          (cond (interruptp
+                 (when (not (eql layout-length 0))
+                   (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
+                 (when (not (eql pushed-values 0))
+                   (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
+                 (when pushed-values-register
+                   (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
+                 (when multiple-values
+                   (bad-metadata ":MULTIPLE-VALUES invalid in an :INTERRUPT frame"))
+                 (when incoming-arguments
+                   (bad-metadata ":INCOMING-ARGUMENTS invalid in an :INTERRUPT frame"))
+                 (when block-or-tagbody-thunk
+                   (bad-metadata ":BLOCK-OR-TAGBODY-THUNK invalid in an :INTERRUPT frame"))
+                 (when extra-registers
+                   (bad-metadata ":EXTRA-REGISTERS invalid in an :INTERRUPT frame"))
+                 (when restart
+                   (bad-metadata ":RESTART invalid in an :INTERRUPT frame")))
+                (t
+                 ;; arm64 uses a link register
+                 #-arm64
+                 (when (and (not framep)
+                            (eql layout-length 0))
+                   (bad-metadata "Tried to unwind through function with no available return address"))
+                 (when (and (not framep)
+                            (not (eql pushed-values 0)))
+                   (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
+                 (when (and (not framep)
+                            pushed-values-register)
+                   (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
+                 ;; Not all settings are valid in arm64.
+                 #+arm64
+                 (when (or (not (eql extra-registers nil))
+                           (not (eql extra-registers :rax)))
+                   (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))))
+      (when interruptp
+        ;; Thread is partway through popping an interrupt frame.
+        ;; Finish the rest of the work and retry.
+        ;; See %%PARTIAL-SAVE-RETURN-THUNK.
+        (cond (framep
+               ;; MV, FPU & GPR state not restored. Copy to save area.
+               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
+                                     stack-pointer
+                                     20)
+               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-fx-save-area+)
+                                     (+ stack-pointer (* 20 8))
+                                     (truncate 512 8))
+               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-mv-slots-start+)
+                                     (+ stack-pointer (* 20 8) 512)
+                                     (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
+              (t
+               ;; Only the iret frame remains on the stack.
+               (sys.int::%copy-words (+ (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
+                                        (* 15 8))
+                                     stack-pointer
+                                     5)))
+        (return-from scavenge-full-save-thread
+          (scavenge-full-save-thread thread)))
+      ;; Unconditionally scavenge the saved data registers.
+      (scavenge-thread-data-registers thread)
       #+x86-64
       (ecase extra-registers
         ((nil))
@@ -520,7 +770,7 @@ This is required to make the GC interrupt safe."
       (cond #+arm64
             ((and (not framep)
                   (eql layout-length 0))
-             ;; Special case: lr contains the return address and there is return address on the stack.
+             ;; Special case: lr contains the return address and there is no return address on the stack.
              (scavenge-stack
               ;; Stack pointer needs the return address popped off,
               ;; and any layout variables.
@@ -576,6 +826,8 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-pager-argument-1 object))
   (scavengef (mezzano.supervisor:thread-pager-argument-2 object))
   (scavengef (mezzano.supervisor:thread-pager-argument-3 object))
+  (scavengef (mezzano.supervisor:thread-unsleep-helper object))
+  (scavengef (mezzano.supervisor:thread-unsleep-helper-argument object))
   ;; Only scan the thread's stack and MV area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.

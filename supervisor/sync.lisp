@@ -35,6 +35,27 @@
                      (wait-queue-tail wait-queue) nil)))
       thread)))
 
+(defun remove-from-wait-queue (thread wait-queue)
+  (cond ((and (eql (wait-queue-head wait-queue) thread)
+              (eql (wait-queue-tail wait-queue) thread))
+         ;; Only thread on wait queue.
+         (setf (wait-queue-head wait-queue) nil
+               (wait-queue-tail wait-queue) nil))
+        ((eql (wait-queue-head wait-queue) thread)
+         ;; More than one thread, at head.
+         (setf (thread-%prev (thread-%next thread)) nil)
+         (setf (wait-queue-head wait-queue) (thread-%next thread)))
+        ((eql (wait-queue-tail wait-queue) thread)
+         ;; More than one thread, at tail.
+         (setf (thread-%next (thread-%prev thread)) nil)
+         (setf (wait-queue-tail wait-queue) (thread-%prev thread)))
+        ((thread-%next thread)
+         ;; Somewhere in the middle of the wait queue.
+         (setf (thread-%next (thread-%prev thread)) (thread-%next thread)
+               (thread-%prev (thread-%next thread)) (thread-%prev thread))
+         (setf (thread-%next thread) nil
+               (thread-%prev thread) nil))))
+
 (defun lock-wait-queue (wait-queue)
   (acquire-place-spinlock (wait-queue-%lock wait-queue)))
 
@@ -117,7 +138,9 @@
   (acquire-global-thread-lock)
   (unlock-wait-queue mutex)
   (setf (thread-wait-item self) mutex
-        (thread-state self) :sleeping)
+        (thread-state self) :sleeping
+        (thread-unsleep-helper self) #'acquire-mutex
+        (thread-unsleep-helper-argument self) mutex)
   (%reschedule-via-wired-stack sp fp))
 
 (defun mutex-held-p (mutex)
@@ -219,7 +242,11 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
           ;; need to be careful with that, returning or unwinding from condition-wait
           ;; with the lock unlocked would be quite bad.
           (setf (thread-wait-item self) condition-variable
-                (thread-state self) :sleeping)
+                (thread-state self) :sleeping
+                ;; Relock the mutex and return if unsleeped.
+                ;; Condition-wait can return spuriously.
+                (thread-unsleep-helper self) #'acquire-mutex
+                (thread-unsleep-helper-argument self) mutex)
           (unlock-wait-queue mutex)
           (unlock-wait-queue condition-variable)
           (%reschedule-via-wired-stack sp fp)))
@@ -290,7 +317,9 @@ May be used from an interrupt handler."
                  (acquire-global-thread-lock)
                  (unlock-wait-queue semaphore)
                  (setf (thread-wait-item self) semaphore
-                       (thread-state self) :sleeping)
+                       (thread-state self) :sleeping
+                       (thread-unsleep-helper self) #'semaphore-down
+                       (thread-unsleep-helper-argument self) semaphore)
                  (%reschedule-via-wired-stack sp fp))
                 (t (unlock-wait-queue semaphore)
                    ;; Failure (inverted).
@@ -324,7 +353,9 @@ May be used from an interrupt handler."
             (push-wait-queue self latch)
             ;; Sleep.
             (setf (thread-wait-item self) latch
-                  (thread-state self) :sleeping)
+                  (thread-state self) :sleeping
+                  (thread-unsleep-helper self) #'latch-wait
+                  (thread-unsleep-helper-argument self) latch)
             (unlock-wait-queue latch)
             (%reschedule-via-wired-stack sp fp)))))
   (values))

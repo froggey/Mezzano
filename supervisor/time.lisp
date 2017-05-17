@@ -46,6 +46,10 @@
       (wake-thread (pop-wait-queue *heartbeat-wait-queue*))))
   (decay-lights run-time-advance))
 
+(defun wait-for-heartbeat-unsleep-helper (arg)
+  (declare (ignore arg))
+  nil)
+
 (defun wait-for-heartbeat ()
   (ensure-interrupts-enabled)
   (%call-on-wired-stack-without-interrupts
@@ -56,7 +60,8 @@
        (acquire-global-thread-lock)
        (unlock-wait-queue *heartbeat-wait-queue*)
        (setf (thread-wait-item self) *heartbeat-wait-queue*
-             (thread-state self) :sleeping)
+             (thread-state self) :sleeping
+             (thread-unsleep-helper self) #'wait-for-heartbeat-unsleep-helper)
        (%reschedule-via-wired-stack sp fp)))
    nil))
 

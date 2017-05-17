@@ -53,7 +53,6 @@
 
 (sys.int::define-lap-function %%restore-full-save-thread ((thread))
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  ;; TODO: How to deal with footholds here? The stack might be paged out here.
   (sys.lap-x86:lea64 :rsp (:object :r8 #.+thread-interrupt-save-area+))
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
@@ -80,26 +79,11 @@
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
   (:gc :no-frame :layout #*0)
-  ;; Check for pending footholds.
-  (sys.lap-x86:cmp64 (:object :r8 #.+thread-pending-footholds+) nil)
-  (sys.lap-x86:jne RUN-FOOTHOLDS)
   ;; No value return.
-  NORMAL-RETURN
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
   ;; Return, restoring RIP.
-  (sys.lap-x86:ret)
-  RUN-FOOTHOLDS
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-inhibit-footholds+) 0)
-  (sys.lap-x86:jne NORMAL-RETURN)
-  ;; Jump to the support function to run the footholds.
-  (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:gs)
-  (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:ret))
 
 (sys.int::define-lap-function current-thread (())
   (:gc :no-frame :layout #*0)
@@ -150,6 +134,86 @@
           (thread-state-ss thread) #x00
           (thread-state-rflags thread) #x202
           (thread-full-save-p thread) t)))
+
+(sys.int::define-lap-function %%partial-save-return-thunk (())
+  (:gc :frame :interrupt t)
+  ;; Restore MV area.
+  (sys.lap-x86:mov64 :rcx #.(- +thread-mv-slots-end+ +thread-mv-slots-start+))
+  (sys.lap-x86:lea64 :rsi (:rsp #.(+ (* 20 8) 512)))
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rdi (:object nil #.+thread-self+))
+  (sys.lap-x86:lea64 :rdi (:object :rdi #.+thread-mv-slots-start+))
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  ;; Restore FPU state.
+  (sys.lap-x86:fxrstor (:rsp #.(* 20 8)))
+  ;; Restore GPRs.
+  (sys.lap-x86:mov64 :r15 (:rsp #.(* 0 8)))
+  (sys.lap-x86:mov64 :r14 (:rsp #.(* 1 8)))
+  (sys.lap-x86:mov64 :r13 (:rsp #.(* 2 8)))
+  (sys.lap-x86:mov64 :r12 (:rsp #.(* 3 8)))
+  (sys.lap-x86:mov64 :r11 (:rsp #.(* 4 8)))
+  (sys.lap-x86:mov64 :r10 (:rsp #.(* 5 8)))
+  (sys.lap-x86:mov64 :r9 (:rsp #.(* 6 8)))
+  (sys.lap-x86:mov64 :r8 (:rsp #.(* 7 8)))
+  (sys.lap-x86:mov64 :rdi (:rsp #.(* 8 8)))
+  (sys.lap-x86:mov64 :rsi (:rsp #.(* 9 8)))
+  (sys.lap-x86:mov64 :rbx (:rsp #.(* 10 8)))
+  (sys.lap-x86:mov64 :rdx (:rsp #.(* 11 8)))
+  (sys.lap-x86:mov64 :rcx (:rsp #.(* 12 8)))
+  (sys.lap-x86:mov64 :rax (:rsp #.(* 13 8)))
+  (sys.lap-x86:mov64 :rbp (:rsp #.(* 14 8)))
+  ;; Now return.
+  (sys.lap-x86:add64 :rsp #.(* 15 8))
+  (:gc :no-frame :interrupt t)
+  (sys.lap-x86:iret))
+
+(defun convert-thread-to-partial-save (thread)
+  (when (thread-full-save-p thread)
+    ;; Push the current full save state on the stack and create an interrupt frame.
+    (let ((sp (thread-state-rsp thread)))
+      (decf sp (+ (* (- +thread-mv-slots-end+ +thread-mv-slots-start+) 8)
+                  512
+                  (* 20 8)))
+      ;; Align the stack.
+      (setf sp (logand sp (lognot 15)))
+      ;; Save the MV area.
+      (sys.int::%copy-words (+ sp 512 (* 20 8))
+                            (%object-slot-address thread +thread-mv-slots-start+)
+                            (- +thread-mv-slots-end+ +thread-mv-slots-start+))
+      ;; Save the FPU state.
+      (sys.int::%copy-words (+ sp (* 20 8))
+                            (%object-slot-address thread +thread-fx-save-area+)
+                            (truncate 512 8))
+      ;; Save the interrupt state, 20 elements.
+      (sys.int::%copy-words sp
+                            (%object-slot-address thread +thread-interrupt-save-area+)
+                            20)
+      ;; Push the address of the return thunk
+      (decf sp 8)
+      (setf (sys.int::memref-unsigned-byte-64 sp) (sys.int::%object-ref-unsigned-byte-64
+                                                   #'%%partial-save-return-thunk
+                                                   sys.int::+function-entry-point+))
+      (setf (thread-state-rsp thread) sp
+            (thread-full-save-p thread) nil))))
+
+(defun force-call-on-thread (thread function &optional (argument nil argumentp))
+  (convert-thread-to-partial-save thread)
+  (setf (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
+                                   function
+                                   sys.int::+function-entry-point+)
+        (thread-state-rcx-value thread) (if argumentp 1 0)
+        (thread-state-rbx-value thread) nil
+        (thread-state-r8-value thread) argument
+        (thread-state-r9-value thread) nil
+        (thread-state-r10-value thread) nil
+        (thread-state-r11-value thread) nil
+        (thread-state-r12-value thread) nil
+        (thread-state-r13-value thread) nil
+        (thread-state-cs thread) #x08
+        (thread-state-ss thread) #x00
+        (thread-state-rflags thread) #x202
+        (thread-full-save-p thread) t))
 
 (defun stop-thread-for-single-step (interrupt-frame)
   (let ((self (current-thread)))

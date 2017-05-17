@@ -118,7 +118,11 @@
   (field symbol-cache-hit-count  22)
   ;; Symbol binding cache miss count.
   (field symbol-cache-miss-count 23)
-  ;; 24-32 - free
+  ;; Helper function UNSLEEP-THREAD.
+  (field unsleep-helper 24)
+  ;; Argument for the unsleep helper.
+  (field unsleep-helper-argument 25)
+  ;; 26-32 - free
   ;; 32-127 MV slots
   ;;    Slots used as part of the multiple-value return convention.
   ;;    Note! The compiler must be updated if this changes and all code rebuilt.
@@ -472,6 +476,8 @@ Interrupts must be off and the global thread lock must be held."
 (defun thread-entry-trampoline (function)
   (unwind-protect
        (catch 'terminate-thread
+         ;; Footholds in a new thread are inhibited until the terminate-thread
+         ;; catch block is established, to guarantee that it's always available.
          (decf (thread-inhibit-footholds (current-thread)))
          (funcall function))
     ;; Cleanup, terminate the thread.
@@ -706,36 +712,73 @@ Interrupts must be off and the global thread lock must be held."
 
 ;;; Foothold management.
 
-(defun %pop-foothold ()
-  (safe-without-interrupts ()
-    (pop (thread-pending-footholds (current-thread)))))
-
-(defun %run-thread-footholds (footholds)
-  (loop
-     for fn in footholds
-     do (funcall fn))
-  (values))
-
 (defmacro without-footholds (&body body)
-  (let ((thread (gensym)))
+  (let ((thread (gensym))
+        (footholds (gensym "FOOTHOLDS")))
     `(unwind-protect
           (progn
             (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)
             ,@body)
        (let ((,thread (current-thread)))
          (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1)
-         (when (and (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
-                    (sys.int::%object-ref-t ,thread +thread-pending-footholds+))
-           (%run-thread-footholds (sys.int::%xchg-object ,thread +thread-pending-footholds+ nil)))))))
+         (when (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
+           (let ((,footholds (sys.int::%xchg-object ,thread +thread-pending-footholds+ nil)))
+             (mapcar #'funcall ,footholds)))))))
+
+(defun unsleep-thread (thread)
+  (let ((did-wake (safe-without-interrupts (thread)
+                    (let ((wi (thread-wait-item thread)))
+                      (when (wait-queue-p wi)
+                        (lock-wait-queue wi))
+                      (with-symbol-spinlock (*global-thread-lock*)
+                        (cond ((eql (thread-state thread) :sleeping)
+                               ;; Remove the thread from its associated wait-queue.
+                               (ensure (wait-queue-p wi)
+                                       "Thread " thread " sleeping on non-wait-queue " wi)
+                               (remove-from-wait-queue thread wi)
+                               (unlock-wait-queue wi)
+                               (wake-thread-1 thread)
+                               t)
+                              (t
+                               (when (wait-queue-p wi)
+                                 (unlock-wait-queue wi))
+                               nil)))))))
+    (when did-wake
+      ;; Arrange for the unsleep helper to be called.
+      ;; Must be done outside the s-w-i form as this touches the thread's stack.
+      (force-call-on-thread thread
+                            (thread-unsleep-helper thread)
+                            (thread-unsleep-helper-argument thread)))))
 
 (defun establish-thread-foothold (thread function)
-  (loop
-     (let ((old (thread-pending-footholds thread)))
-       ;; Use CAS to avoid having to disable interrupts/lock the thread/etc.
-       ;; Tricky to mix with allocation.
-       (when (sys.int::%cas-object thread +thread-pending-footholds+
-                                   old (cons function old))
-         (return)))))
+  (check-type thread thread)
+  (check-type function function)
+  (assert (not (member (thread-priority thread) '(:idle :supervisor))))
+  ;; Can't be allocated in push-foothold as that's called with the world stopped.
+  (let ((push-cons (sys.int::cons-in-area function nil :wired)))
+    (flet ((push-foothold ()
+             (safe-without-interrupts (thread push-cons)
+               (with-symbol-spinlock (*global-thread-lock*)
+                 (setf (cdr push-cons) (thread-pending-footholds thread)
+                       (thread-pending-footholds thread) push-cons)))))
+      (cond ((eql thread (current-thread))
+             (cond ((eql (thread-inhibit-footholds thread) 0)
+                    (funcall function))
+                   (t
+                    (push-foothold))))
+            (t
+             (with-world-stopped ()
+               ;; Stopping the world will prevent the thread from running on another CPU.
+               (ensure (not (eql (thread-state thread) :active))
+                       "Impossible! Tried to foothold running thread " thread)
+               (cond ((eql (thread-state thread) :dead)
+                      ;; Thread is dead, do nothing.
+                      nil)
+                     ((eql (thread-inhibit-footholds thread) 0)
+                      (unsleep-thread thread)
+                      (force-call-on-thread thread function))
+                     (t
+                      (push-foothold)))))))))
 
 (defun stop-current-thread ()
   (%run-on-wired-stack-without-interrupts (sp fp)
@@ -744,20 +787,20 @@ Interrupts must be off and the global thread lock must be held."
      (setf (thread-state current) :stopped)
      (%reschedule-via-wired-stack sp fp))))
 
+;; Reads of THREAD-STATE must be protected by the global thread lock to
+;; allow the thread to settle.
+(defun sample-thread-state (thread)
+  (safe-without-interrupts (thread)
+    (with-symbol-spinlock (*global-thread-lock*)
+      (thread-state thread))))
+
 (defun stop-thread (thread)
   "Stop a thread, waiting for it to enter the stopped state."
   (check-type thread thread)
   (assert (not (eql thread (current-thread))))
-  (establish-thread-foothold thread
-                             (lambda ()
-                               (%run-on-wired-stack-without-interrupts (sp fp)
-                                (let ((self (current-thread)))
-                                  (acquire-global-thread-lock)
-                                  (setf (thread-wait-item self) :stopped
-                                        (thread-state self) :stopped)
-                                  (%reschedule-via-wired-stack sp fp)))))
+  (establish-thread-foothold thread #'stop-current-thread)
   (loop
-     (when (eql (thread-state thread) :stopped)
+     (when (eql (sample-thread-state thread) :stopped)
        (return))
      (thread-yield))
   (values))
@@ -767,7 +810,7 @@ Interrupts must be off and the global thread lock must be held."
   (check-type thread thread)
   (assert (eql (thread-state thread) :stopped))
   (safe-without-interrupts (thread why)
-    (thread-wait-item thread) why
+    (setf (thread-wait-item thread) why)
     (wake-thread thread))
   (values))
 

@@ -86,7 +86,6 @@
   (mezzano.lap.arm64:add :sp :x27 0)
   (mezzano.lap.arm64:msr :spsel 0)
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  ;; TODO: How to deal with footholds here? The stack might be paged out here.
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rsp+))
   (mezzano.lap.arm64:ldr :x9 (:x0 :x9))
   (mezzano.lap.arm64:add :sp :x9 :xzr)
@@ -126,31 +125,12 @@
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (:gc :no-frame)
-  ;; Check for pending footholds.
-  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-pending-footholds+))
-  (mezzano.lap.arm64:ldr :x2 (:x28 :x9))
-  (mezzano.lap.arm64:subs :xzr :x2 :x26)
-  (mezzano.lap.arm64:b.ne RUN-FOOTHOLDS)
   ;; No value return.
-  NORMAL-RETURN
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
   (mezzano.lap.arm64:orr :x0 :xzr :x26)
   ;; Return.
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (mezzano.lap.arm64:ret)
-  RUN-FOOTHOLDS
-  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-inhibit-footholds+))
-  (mezzano.lap.arm64:ldr :x2 (:x28 :x9))
-  (mezzano.lap.arm64:cbnz :x2 NORMAL-RETURN)
-  ;; Jump to the support function to run the footholds.
-  ;; FIXME: This should be an atomic swap.
-  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-pending-footholds+))
-  (mezzano.lap.arm64:ldr :x0 (:x28 :x9))
-  (mezzano.lap.arm64:str :x26 (:x28 :x9))
-  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:ldr :x7 (:function %run-thread-footholds))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:br :x9))
+  (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function current-thread (())
   (mezzano.lap.arm64:orr :x0 :xzr :x28)

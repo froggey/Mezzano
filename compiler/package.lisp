@@ -162,6 +162,8 @@
            #:thread-pager-argument-1
            #:thread-pager-argument-2
            #:thread-pager-argument-3
+           #:thread-unsleep-helper
+           #:thread-unsleep-helper-argument
            #:thread-state-r15
            #:thread-state-r14
            #:thread-state-r13
