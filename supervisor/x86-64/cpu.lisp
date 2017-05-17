@@ -219,9 +219,11 @@ TLB shootdown must be protected by the VM lock."
      (sys.int::cpu-relax)))
 
 (defun tlb-shootdown-single (address)
+  (declare (ignore address))
   (ensure *tlb-shootdown-in-progress*))
 
 (defun tlb-shootdown-range (base length)
+  (declare (ignore base length))
   (ensure *tlb-shootdown-in-progress*))
 
 (defun tlb-shootdown-all ()
@@ -734,13 +736,13 @@ TLB shootdown must be protected by the VM lock."
                      (logbitp +acpi-madt-processor-lapic-flag-enabled+
                               (acpi-madt-processor-lapic-flags entry))
                      (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
-            (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry)))))))
+            (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))))))
+
+(defun boot-secondary-cpus ()
+  (detect-secondary-cpus)
   (dolist (cpu *cpus*)
     (when (eql (cpu-state cpu) :offline)
       (boot-cpu cpu))))
-
-(defun boot-secondary-cpus ()
-  (detect-secondary-cpus))
 
 (in-package :sys.int)
 

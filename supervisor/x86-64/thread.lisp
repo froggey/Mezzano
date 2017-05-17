@@ -34,6 +34,9 @@
 (defun save-fpu-state (thread)
   (fxsave (%object-slot-address thread +thread-fx-save-area+)))
 
+(defun restore-fpu-state (thread)
+  (fxrstor (%object-slot-address thread +thread-fx-save-area+)))
+
 (defun save-interrupted-state (thread interrupt-frame)
   ;; Copy the interrupt frame over to the save area.
   (sys.int::%copy-words (%object-slot-address thread +thread-interrupt-save-area+)
@@ -65,12 +68,15 @@
   ;; Jump to common function.
   (%%switch-to-thread-common current-thread next-thread))
 
+(defun set-current-thread (thread)
+  (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address thread)))
+
 (defun %%switch-to-thread-common (current-thread new-thread)
   ;; Current thread's state has been saved, restore the new-thread's state.
   ;; Switch threads.
-  (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address new-thread))
+  (set-current-thread new-thread)
   ;; Restore FPU state.
-  (fxrstor (%object-slot-address new-thread +thread-fx-save-area+))
+  (restore-fpu-state new-thread)
   ;; Drop the global thread lock.
   (release-global-thread-lock)
   ;; Check if the thread is full-save.
