@@ -645,6 +645,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function cons ((car cdr))
   (:gc :no-frame :layout #*0)
   ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.

@@ -189,3 +189,40 @@
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
   (mezzano.lap.arm64:blr :x9)
   (mezzano.lap.arm64:hlt 4))
+
+(defun broadcast-panic-ipi ()
+  nil)
+
+(defun broadcast-wakeup-ipi ()
+  nil)
+
+(defun quiesce-cpus-for-world-stop ()
+  nil)
+
+(defun begin-tlb-shootdown ()
+  nil)
+
+(defun tlb-shootdown-single (address)
+  (declare (ignore address))
+  nil)
+
+(defun tlb-shootdown-range (base length)
+  (declare (ignore base length))
+  nil)
+
+(defun tlb-shootdown-all ()
+  nil)
+
+(defun finish-tlb-shootdown ()
+  nil)
+
+(defun local-cpu-idle-thread ()
+  sys.int::*bsp-idle-thread*)
+
+(defun boot-secondary-cpus ()
+  nil)
+
+(sys.int::defglobal *n-up-cpus* 1)
+
+(defstruct (cpu
+             (:area :wired)))
