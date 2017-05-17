@@ -11,6 +11,8 @@
 (sys.int::defglobal *snapshot-pending-writeback-pages-count*)
 (sys.int::defglobal *snapshot-pending-writeback-pages*)
 
+(sys.int::defglobal *enable-snapshot-cow-fast-path* nil)
+
 (declaim (inline %fast-page-copy))
 (defun %fast-page-copy (destination source)
   (sys.int::%copy-words destination source 512))
@@ -107,18 +109,25 @@
           (physical-page-frame-type old-frame) :inactive-writeback)
     (append-to-page-replacement-list new-frame)
     ;; Point the PTE at the new page, disable copy on write and reenable write access.
+    (begin-tlb-shootdown)
     (setf (sys.int::memref-unsigned-byte-64 pte 0)
           (make-pte new-frame
                     :writable t))
     (flush-tlb-single fault-addr)
+    (tlb-shootdown-single fault-addr)
+    (finish-tlb-shootdown)
     #+(or)(debug-print-line "Copied page " fault-addr)))
 
 (defun snapshot-clone-cow-page-via-page-fault (interrupt-frame fault-addr)
-  (let ((new-frame (allocate-physical-pages 1)))
-    (when (not new-frame)
-      ;; No memory. Punt to the pager, does not return.
-      (wait-for-page-via-interrupt interrupt-frame fault-addr))
-    (snapshot-clone-cow-page new-frame fault-addr)))
+  (cond (*enable-snapshot-cow-fast-path*
+         ;; Doesn't work on SMP, due to issues with TLB shootdown.
+         (let ((new-frame (allocate-physical-pages 1)))
+           (when (not new-frame)
+             ;; No memory. Punt to the pager, does not return.
+             (wait-for-page-via-interrupt interrupt-frame fault-addr))
+           (snapshot-clone-cow-page new-frame fault-addr)))
+        (t
+         (wait-for-page-via-interrupt interrupt-frame fault-addr))))
 
 (defun pop-pending-snapshot-page ()
   "Pop the next pending snapshot page.
@@ -129,53 +138,61 @@ Returns 4 values:
   BLOCK-ID - ID of the block to write to. This will always be a valid block, not a deferred block.
   ADDRESS - Virtual address of the page to write back."
   (with-mutex (*vm-lock*)
-    (without-interrupts
-      (let* ((frame *snapshot-pending-writeback-pages*)
-             (address (physical-page-virtual-address frame))
-             (block-id (physical-page-frame-block-id frame)))
-        ;; Remove frame from list.
-        (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
-        (when *snapshot-pending-writeback-pages*
-          (setf (physical-page-frame-prev *snapshot-pending-writeback-pages*) nil))
-        (decf *snapshot-pending-writeback-pages-count*)
-        (case (physical-page-frame-type frame)
-          (:active-writeback
-           ;; Page is mapped in memory.
-           ;; Copy to the bounce buffer.
-           (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
-                            (convert-to-pmap-address (ash frame 12)))
-           ;; Allow access to the page again.
-           (let* ((pte (or (get-pte-for-address address nil)
-                           (panic "No PTE for CoW address?")))
-                  (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
-             ;; Update PTE bits. Clear CoW bit, make writable.
-             (setf (sys.int::memref-unsigned-byte-64 pte 0)
-                   (make-pte frame
-                             :writable t
-                             :dirty (page-dirty-p pte)))
-             (flush-tlb-single address))
-           ;; Return page to normal use.
-           (setf (physical-page-frame-type frame) :active)
-           (append-to-page-replacement-list frame)
-           (values *snapshot-bounce-buffer-page*
-                   ;; Don't free the bounce page.
-                   nil
-                   block-id
-                   address))
-          (:inactive-writeback
-           ;; Page was copied.
-           (values frame
-                   t
-                   block-id
-                   address))
-          (:wired-backing
-           ;; Page is a wired backing page.
-           (values frame
-                   nil
-                   block-id
-                   address))
-          (t (panic "Page " frame " for address " address " has non-writeback type "
-                    (physical-page-frame-type frame))))))))
+    (begin-tlb-shootdown)
+    (multiple-value-bind (frame freep block-id address)
+        (pop-pending-snapshot-page-1)
+      (tlb-shootdown-single address)
+      (finish-tlb-shootdown)
+      (values frame freep block-id address))))
+
+(defun pop-pending-snapshot-page-1 ()
+  (without-interrupts
+    (let* ((frame *snapshot-pending-writeback-pages*)
+           (address (physical-page-virtual-address frame))
+           (block-id (physical-page-frame-block-id frame)))
+      ;; Remove frame from list.
+      (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
+      (when *snapshot-pending-writeback-pages*
+        (setf (physical-page-frame-prev *snapshot-pending-writeback-pages*) nil))
+      (decf *snapshot-pending-writeback-pages-count*)
+      (case (physical-page-frame-type frame)
+        (:active-writeback
+         ;; Page is mapped in memory.
+         ;; Copy to the bounce buffer.
+         (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
+                          (convert-to-pmap-address (ash frame 12)))
+         ;; Allow access to the page again.
+         (let* ((pte (or (get-pte-for-address address nil)
+                         (panic "No PTE for CoW address?")))
+                (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
+           ;; Update PTE bits. Clear CoW bit, make writable.
+           (setf (sys.int::memref-unsigned-byte-64 pte 0)
+                 (make-pte frame
+                           :writable t
+                           :dirty (page-dirty-p pte)))
+           (flush-tlb-single address))
+         ;; Return page to normal use.
+         (setf (physical-page-frame-type frame) :active)
+         (append-to-page-replacement-list frame)
+         (values *snapshot-bounce-buffer-page*
+                 ;; Don't free the bounce page.
+                 nil
+                 block-id
+                 address))
+        (:inactive-writeback
+         ;; Page was copied.
+         (values frame
+                 t
+                 block-id
+                 address))
+        (:wired-backing
+         ;; Page is a wired backing page.
+         (values frame
+                 nil
+                 block-id
+                 address))
+        (t (panic "Page " frame " for address " address " has non-writeback type "
+                  (physical-page-frame-type frame)))))))
 
 (defun snapshot-write-back-pages ()
   ;; Write dirty/copied pages back.
@@ -352,6 +369,7 @@ Returns 4 values:
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
   (setf *snapshot-inhibit* 1)
+  (setf *enable-snapshot-cow-fast-path* nil)
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...

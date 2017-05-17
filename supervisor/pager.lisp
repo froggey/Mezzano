@@ -391,8 +391,11 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                (< base #x208000000000))
       (ensure (logtest flags sys.int::+block-map-wired+))
       ;; Pages in the wired stack area don't require backing frames.
+      (begin-tlb-shootdown)
       (dotimes (i (truncate length #x1000))
-        (map-new-wired-page (+ base (* i #x1000))))))
+        (map-new-wired-page (+ base (* i #x1000))))
+      (tlb-shootdown-range base length)
+      (finish-tlb-shootdown)))
   t)
 
 (defun release-memory-range (base length)
@@ -406,6 +409,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (declare (ignore ignore3))
   (pager-log "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
+    (begin-tlb-shootdown)
     (let ((stackp (eql (ldb (byte sys.int::+address-tag-size+
                                   sys.int::+address-tag-shift+)
                             base)
@@ -420,7 +424,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                              ;; Allow wired stacks to be freed.
                              stackp)
             (setf (page-table-entry pte 0) 0)))))
-    (flush-tlb)))
+    (flush-tlb)
+    (tlb-shootdown-all)
+    (finish-tlb-shootdown)))
 
 (defun protect-memory-range (base length flags)
   (assert (and (page-aligned-p base)
@@ -438,6 +444,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun protect-memory-range-in-pager (base length flags)
   (pager-log "Protect range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
+    (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
       ;; Update block map.
       (set-address-flags (+ base (* i #x1000)) flags)
@@ -458,7 +465,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  ;; Mark read-only.
                  (setf (page-table-entry pte 0) (logand (page-table-entry pte 0)
                                                         (lognot +page-table-write+))))))))
-    (flush-tlb)))
+    (flush-tlb)
+    (tlb-shootdown-all)
+    (finish-tlb-shootdown)))
 
 (defun pager-allocate-page (&optional (new-type :active))
   (let ((frame (allocate-physical-pages 1 :type new-type)))
@@ -484,8 +493,11 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                           "  bme " bme)
         ;; Remove this page from the VM, but do not free it just yet.
         (remove-from-page-replacement-list candidate)
+        (begin-tlb-shootdown)
         (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
         (flush-tlb-single candidate-virtual)
+        (tlb-shootdown-single candidate-virtual)
+        (finish-tlb-shootdown)
         ;; Maybe write it back to disk.
         (when dirty-p
           (when (not (block-info-committed-p bme))
@@ -600,9 +612,12 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                     addr)
                (unless (disk-await-request *pager-disk-request*)
                  (panic "Unable to read page from disk"))))
+        (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte frame
                                                :writable (block-info-writable-p block-info)))
         (flush-tlb-single address)
+        (tlb-shootdown-single address)
+        (finish-tlb-shootdown)
         (when is-zero-page
           ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
           ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
@@ -644,12 +659,17 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (set-address-flags fault-address (logand block-info
                                                        sys.int::+block-map-flag-mask+
                                                        (lognot sys.int::+block-map-zero-fill+)))
-              ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
+              ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
               ;; This sets the dirty bits in the page tables properly.
               (setf (page-table-entry pte 0) (make-pte frame
                                                        :writable (block-info-writable-p block-info)
                                                        :dirty t))
+              ;; Play a little fast & loose with TLB shootdown here.
+              ;; The fast path runs on the exception stack with interrupts
+              ;; disabled. TLB shootdown requires interrupts to be enabled.
+              ;; At this point all other CPUs should know that this entry is non-present,
+              ;; so the worst case is that a phony page fault is taken.
               (flush-tlb-single fault-address))
             t))))))
 

@@ -99,6 +99,9 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +quiesce-ipi-vector+ #x82
   "Sent to CPUs to bring them to a quiescent state.")
 
+(defconstant +tlb-shootdown-ipi-vector+ #x83
+  "Sent to CPUs to prepare them for TLB shootdown.")
+
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)
                          (interrupt-gate-p t))
@@ -161,7 +164,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
 (defun quiesce-cpus-for-world-stop ()
-  ;; Bring all CPUs to a consistent state to stop the world.
+  "Bring all CPUs to a consistent state to stop the world.
+Protected by the world stop lock."
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
   (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   (loop
@@ -194,6 +198,57 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
                                  idle))))
+
+(sys.int::defglobal *tlb-shootdown-in-progress* nil)
+(sys.int::defglobal *busy-tlb-shootdown-cpus*)
+
+;; TODO: This unconditionally invalidates the entire TLB.
+;; Should be more fine-grained.
+
+(defun begin-tlb-shootdown ()
+  "Bring all CPUs to state ready for TLB shootdown.
+TLB shootdown must be protected by the VM lock."
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
+  (setf *tlb-shootdown-in-progress* t)
+  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  (broadcast-ipi +ipi-type-fixed+ +tlb-shootdown-ipi-vector+)
+  ;; Wait for other CPUs to reach the handler.
+  (loop
+     (when (eql *busy-tlb-shootdown-cpus* 0)
+       (return))
+     (sys.int::cpu-relax)))
+
+(defun tlb-shootdown-single (address)
+  (ensure *tlb-shootdown-in-progress*))
+
+(defun tlb-shootdown-range (base length)
+  (ensure *tlb-shootdown-in-progress*))
+
+(defun tlb-shootdown-all ()
+  (ensure *tlb-shootdown-in-progress*))
+
+(defun finish-tlb-shootdown ()
+  (ensure *tlb-shootdown-in-progress*)
+  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  (setf *tlb-shootdown-in-progress* nil)
+  ;; Wait for CPUs to leave the handler.
+  (loop
+     (when (eql *busy-tlb-shootdown-cpus* 0)
+       (return))
+     (sys.int::cpu-relax)))
+
+(defun tlb-shootdown-ipi-handler (interrupt-frame info)
+  (declare (ignore interrupt-frame info))
+  (lapic-eoi)
+  (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
+                                      -1)
+  (loop
+     (when (not *tlb-shootdown-in-progress*)
+       (return))
+     (sys.int::cpu-relax))
+  (flush-tlb)
+  (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
+                                      -1))
 
 (sys.int::define-lap-function local-cpu-info (())
   "Return the address of the local CPU's info vector."
@@ -319,6 +374,10 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
+  (when (not (boundp '*cpus*))
+    ;; For panics early in the first boot.
+    (setf *cpus* '()))
+  (setf *tlb-shootdown-in-progress* nil)
   (populate-cpu-info-vector sys.int::*bsp-info-vector*
                             (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
                             (+ sys.int::*exception-stack-base* sys.int::*exception-stack-size*)
@@ -590,7 +649,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   (setf *n-up-cpus* 1)
   (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
   (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
-  (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler))
+  (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)
+  (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler))
 
 (defun load-cpu-bits (vector)
   (let* ((addr (- (sys.int::lisp-object-address vector)
