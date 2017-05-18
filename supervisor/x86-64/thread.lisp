@@ -24,22 +24,15 @@
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
 
-(declaim (inline %object-slot-address))
-(defun %object-slot-address (object slot)
-  (+ (sys.int::lisp-object-address object)
-     (- sys.int::+tag-object+)
-     8
-     (* slot 8)))
-
 (defun save-fpu-state (thread)
-  (fxsave (%object-slot-address thread +thread-fx-save-area+)))
+  (fxsave (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)))
 
 (defun restore-fpu-state (thread)
-  (fxrstor (%object-slot-address thread +thread-fx-save-area+)))
+  (fxrstor (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)))
 
 (defun save-interrupted-state (thread interrupt-frame)
   ;; Copy the interrupt frame over to the save area.
-  (sys.int::%copy-words (%object-slot-address thread +thread-interrupt-save-area+)
+  (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread +thread-interrupt-save-area+)
                         (- (interrupt-frame-pointer interrupt-frame)
                            ;; 14 registers below the pointer, 6 above.
                            (* 14 8))
@@ -179,15 +172,15 @@
       (setf sp (logand sp (lognot 15)))
       ;; Save the MV area.
       (sys.int::%copy-words (+ sp 512 (* 20 8))
-                            (%object-slot-address thread +thread-mv-slots-start+)
+                            (mezzano.runtime::%object-slot-address thread +thread-mv-slots-start+)
                             (- +thread-mv-slots-end+ +thread-mv-slots-start+))
       ;; Save the FPU state.
       (sys.int::%copy-words (+ sp (* 20 8))
-                            (%object-slot-address thread +thread-fx-save-area+)
+                            (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)
                             (truncate 512 8))
       ;; Save the interrupt state, 20 elements.
       (sys.int::%copy-words sp
-                            (%object-slot-address thread +thread-interrupt-save-area+)
+                            (mezzano.runtime::%object-slot-address thread +thread-interrupt-save-area+)
                             20)
       ;; Push the address of the return thunk
       (decf sp 8)

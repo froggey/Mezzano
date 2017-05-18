@@ -52,6 +52,13 @@
              (fdefinition object)
              fn))))))
 
+(declaim (inline %object-slot-address))
+(defun %object-slot-address (object slot)
+  (+ (sys.int::lisp-object-address object)
+     (- sys.int::+tag-object+)
+     8
+     (* slot 8)))
+
 (in-package :sys.int)
 
 (defun %progv (symbols values fn)

@@ -693,13 +693,13 @@ This is required to make the GC interrupt safe."
         ;; See %%PARTIAL-SAVE-RETURN-THUNK.
         (cond (framep
                ;; MV, FPU & GPR state not restored. Copy to save area.
-               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
+               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
                                      stack-pointer
                                      20)
-               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-fx-save-area+)
+               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-fx-save-area+)
                                      (+ stack-pointer (* 20 8))
                                      (truncate 512 8))
-               (sys.int::%copy-words (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-mv-slots-start+)
+               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-mv-slots-start+)
                                      (+ stack-pointer (* 20 8) 512)
                                      (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
               (t

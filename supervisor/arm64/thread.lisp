@@ -68,7 +68,7 @@
 
 (defun save-interrupted-state (thread interrupt-frame)
   ;; Copy the interrupt frame over to the save area.
-  (sys.int::%copy-words (%object-slot-address thread +thread-interrupt-save-area+)
+  (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread +thread-interrupt-save-area+)
                         (- (interrupt-frame-pointer interrupt-frame)
                            ;; 14 registers below the pointer, 6 above.
                            (* 14 8))
