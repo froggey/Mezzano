@@ -63,67 +63,71 @@
 
 (defun gethash (key hash-table &optional default)
   (check-type hash-table hash-table)
-  (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
-    (let ((slot (find-hash-table-slot key hash-table)))
-      (if slot
-          (values (hash-table-value-at hash-table slot) t)
-          (values default nil)))))
+  (mezzano.supervisor:without-footholds ()
+    (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
+      (let ((slot (find-hash-table-slot key hash-table)))
+        (if slot
+            (values (hash-table-value-at hash-table slot) t)
+            (values default nil))))))
 
 (defun (setf gethash) (value key hash-table &optional default)
   (declare (ignore default))
   (check-type hash-table hash-table)
-  (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
-    (multiple-value-bind (slot free-slot)
-        (find-hash-table-slot key hash-table)
-      (cond
-        (slot
-         ;; Replacing an existing entry
-         (setf (hash-table-value-at hash-table slot) value))
-        ;; Adding a new entry.
-        ((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
-                  (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
-             (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
-                 (hash-table-rehash-threshold hash-table)))
-         ;; There must always be at least one unbound slot in the hash table.
-         (hash-table-rehash hash-table t)
-         (multiple-value-bind (slot free-slot)
-             (find-hash-table-slot key hash-table)
-           (declare (ignore slot))
-           (when (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
-                      (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
-             ;; Can't happen. Resizing the hash-table adds new slots.
-             (error "Impossible!"))
-           (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
-             (incf (hash-table-used hash-table)))
-           (incf (hash-table-count hash-table))
-           (setf (hash-table-key-at hash-table free-slot) key
-                 (hash-table-value-at hash-table free-slot) value)))
-        ;; No rehash/resize needed. Insert directly.
-        (t (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
-             (incf (hash-table-used hash-table)))
-           (incf (hash-table-count hash-table))
-           (setf (hash-table-key-at hash-table free-slot) key
-                 (hash-table-value-at hash-table free-slot) value))))))
+  (mezzano.supervisor:without-footholds ()
+    (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
+      (multiple-value-bind (slot free-slot)
+          (find-hash-table-slot key hash-table)
+        (cond
+          (slot
+           ;; Replacing an existing entry
+           (setf (hash-table-value-at hash-table slot) value))
+          ;; Adding a new entry.
+          ((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
+                    (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
+               (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
+                   (hash-table-rehash-threshold hash-table)))
+           ;; There must always be at least one unbound slot in the hash table.
+           (hash-table-rehash hash-table t)
+           (multiple-value-bind (slot free-slot)
+               (find-hash-table-slot key hash-table)
+             (declare (ignore slot))
+             (when (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
+                        (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
+               ;; Can't happen. Resizing the hash-table adds new slots.
+               (error "Impossible!"))
+             (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
+               (incf (hash-table-used hash-table)))
+             (incf (hash-table-count hash-table))
+             (setf (hash-table-key-at hash-table free-slot) key
+                   (hash-table-value-at hash-table free-slot) value)))
+          ;; No rehash/resize needed. Insert directly.
+          (t (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
+               (incf (hash-table-used hash-table)))
+             (incf (hash-table-count hash-table))
+             (setf (hash-table-key-at hash-table free-slot) key
+                   (hash-table-value-at hash-table free-slot) value)))))))
 
 (defun remhash (key hash-table)
   (check-type hash-table hash-table)
-  (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
-    (let ((slot (find-hash-table-slot key hash-table)))
-      (when slot
-        ;; Entry exists.
-        (setf (hash-table-key-at hash-table slot) *hash-table-tombstone*
-              (hash-table-value-at hash-table slot) *hash-table-tombstone*)
-        (decf (hash-table-count hash-table))
-        t))))
+  (mezzano.supervisor:without-footholds ()
+    (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
+      (let ((slot (find-hash-table-slot key hash-table)))
+        (when slot
+          ;; Entry exists.
+          (setf (hash-table-key-at hash-table slot) *hash-table-tombstone*
+                (hash-table-value-at hash-table slot) *hash-table-tombstone*)
+          (decf (hash-table-count hash-table))
+          t)))))
 
 (defun clrhash (hash-table)
   (check-type hash-table hash-table)
-  (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
-    (setf (hash-table-count hash-table) 0
-          (hash-table-used hash-table) 0
-          (hash-table-storage hash-table) (make-array (length (hash-table-storage hash-table))
-                                                      :initial-element *hash-table-unbound-value*))
-    hash-table))
+  (mezzano.supervisor:without-footholds ()
+    (mezzano.supervisor:with-mutex ((hash-table-lock hash-table))
+      (setf (hash-table-count hash-table) 0
+            (hash-table-used hash-table) 0
+            (hash-table-storage hash-table) (make-array (length (hash-table-storage hash-table))
+                                                        :initial-element *hash-table-unbound-value*))
+      hash-table)))
 
 (defun find-hash-table-slot-1 (key hash-table)
   (do* ((free-slot nil)
