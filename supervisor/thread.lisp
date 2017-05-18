@@ -750,7 +750,7 @@ Interrupts must be off and the global thread lock must be held."
                             (thread-unsleep-helper thread)
                             (thread-unsleep-helper-argument thread)))))
 
-(defun establish-thread-foothold (thread function)
+(defun establish-thread-foothold (thread function &optional force)
   (check-type thread thread)
   (check-type function function)
   (assert (not (member (thread-priority thread) '(:idle :supervisor))))
@@ -762,7 +762,8 @@ Interrupts must be off and the global thread lock must be held."
                  (setf (cdr push-cons) (thread-pending-footholds thread)
                        (thread-pending-footholds thread) push-cons)))))
       (cond ((eql thread (current-thread))
-             (cond ((eql (thread-inhibit-footholds thread) 0)
+             (cond ((or force
+                        (eql (thread-inhibit-footholds thread) 0))
                     (funcall function))
                    (t
                     (push-foothold))))
@@ -774,7 +775,8 @@ Interrupts must be off and the global thread lock must be held."
                (cond ((eql (thread-state thread) :dead)
                       ;; Thread is dead, do nothing.
                       nil)
-                     ((eql (thread-inhibit-footholds thread) 0)
+                     ((or force
+                          (eql (thread-inhibit-footholds thread) 0))
                       (unsleep-thread thread)
                       (force-call-on-thread thread function))
                      (t
