@@ -139,11 +139,14 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                                                               vector)))
 
 (defun broadcast-ipi (type vector &optional including-self)
-  (dolist (cpu *cpus*)
-    (when (and (eql (cpu-state cpu) :online)
-               (or including-self
-                   (not (eql cpu (local-cpu-object)))))
-      (send-ipi (cpu-apic-id cpu) type vector))))
+  ;; Disable interrupts to prevent cross-cpu migration from
+  ;; fouling up behaviour of INCLUDING-SELF.
+  (safe-without-interrupts (type vector including-self)
+    (dolist (cpu *cpus*)
+      (when (and (eql (cpu-state cpu) :online)
+                 (or including-self
+                     (not (eql cpu (local-cpu-object)))))
+        (send-ipi (cpu-apic-id cpu) type vector)))))
 
 (defun broadcast-wakeup-ipi ()
   (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
@@ -163,6 +166,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
+;; FIXME: quiesce-cpus-for-world-stop and begin-tlb-shootdown both need to
+;; prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
