@@ -714,7 +714,8 @@ Interrupts must be off and the global thread lock must be held."
 
 (defmacro without-footholds (&body body)
   (let ((thread (gensym))
-        (footholds (gensym "FOOTHOLDS")))
+        (footholds (gensym "FOOTHOLDS"))
+        (fh (gensym "FH")))
     `(unwind-protect
           (progn
             (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)
@@ -723,7 +724,8 @@ Interrupts must be off and the global thread lock must be held."
          (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1)
          (when (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
            (let ((,footholds (sys.int::%xchg-object ,thread +thread-pending-footholds+ nil)))
-             (mapcar #'funcall ,footholds)))))))
+             (dolist (,fh ,footholds)
+               (funcall ,fh))))))))
 
 (defun unsleep-thread (thread)
   (let ((did-wake (safe-without-interrupts (thread)
