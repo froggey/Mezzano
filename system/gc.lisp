@@ -338,6 +338,7 @@ This is required to make the GC interrupt safe."
         (flet ((bad-metadata (message)
                  (setf *gc-debug-scavenge-stack* t
                        *gc-enable-logging* t)
+                 (gc-log "fn: " fn " " (function-pool-object fn 0))
                  (gc-log "RA: " return-address)
                  (gc-log "FP: " frame-pointer)
                  (gc-log "SP: " stack-pointer)
@@ -528,6 +529,7 @@ This is required to make the GC interrupt safe."
            (flet ((bad-metadata (message)
                     (setf *gc-debug-scavenge-stack* t
                           *gc-enable-logging* t)
+                    (gc-log "fn: " fn " " (function-pool-object fn 0))
                     (gc-log "RA: " return-address)
                     (gc-log "FP: " frame-pointer)
                     (gc-log "SP: " stack-pointer)
@@ -640,6 +642,7 @@ This is required to make the GC interrupt safe."
         (flet ((bad-metadata (message)
                  (setf *gc-debug-scavenge-stack* t
                        *gc-enable-logging* t)
+                 (gc-log "fn: " fn " " (function-pool-object fn 0))
                  (gc-log "RA: " return-address)
                  (gc-log "FP: " frame-pointer)
                  (gc-log "SP: " stack-pointer)
