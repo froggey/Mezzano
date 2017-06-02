@@ -39,7 +39,8 @@
 )
 
 (defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)
-  `(push (let ((*code-accum* '()))
+  `(push (let ((*code-accum* '())
+               (*last-gc-info* ,(if default-gc-info `'() `*last-gc-info*)))
            ,(when name
                   `(emit ,name))
            ,@(when default-gc-info
