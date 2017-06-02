@@ -275,6 +275,7 @@
     (set-panic-light)
     #+x86-64
     (disable-page-fault-ist)
+    (debug-print-line "----- PANIC -----")
     (debug-print-line-1 things)
     (when extra
       (funcall extra))
