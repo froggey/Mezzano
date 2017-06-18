@@ -11,12 +11,15 @@
 (defconstant +dhcp-discover+ 1)
 (defconstant +dhcp-offer+ 2)
 (defconstant +dhcp-request+ 3)
+(defconstant +dhcp-decline+ 4)
 (defconstant +dhcp-ack+ 5)
 (defconstant +dhcp-nak+ 6)
+(defconstant +dhcp-release+ 7)
+(defconstant +dhcp-inform+ 8)
 
 (defconstant +opt-netmask+ 1)
 (defconstant +opt-router+ 3)
-(defconstant +opt-ntp-server+ 4)
+(defconstant +opt-ntp-servers+ 42)
 (defconstant +opt-dns-servers+ 6)
 (defconstant +opt-host-name+ 12)
 (defconstant +opt-domain-name+ 15)
@@ -26,6 +29,7 @@
 (defconstant +opt-dhcp-server+ 54)
 (defconstant +opt-parameter-request-list+ 55)
 (defconstant +opt-tftp-server+ 66)
+(defconstant +opt-custom-mezzano-server+ 212)
 (defconstant +opt-end+ 255)
 
 (define-condition dhcp-error ()
@@ -45,8 +49,12 @@
    (ntp-servers :reader ntp-servers :initarg :ntp-servers)
    (dns-servers :reader dns-servers :initarg :dns-servers)
    (dhcp-server :reader dhcp-server :initarg :dhcp-server)
+   (mezzano-server :reader mezzano-server :initarg :mezzano-server)
    (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
    (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
+
+(defun convert-to-ipv4-address (vector)
+  (mezzano.network.ip:make-ipv4-address (ub32ref/be vector 0)))
 
 (defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0))
   (assert (typep mac-address '(simple-array (unsigned-byte 8) (6))))
@@ -132,20 +140,21 @@
 (defun make-xid ()
   (+ #xdeadbeef (- #x8000 (random #xffff))))
 
-(defun acquire-lease ()
+(defun acquire-lease (interface)
   (let ((connection (make-instance 'mezzano.network.udp::udp4-connection
 				   :remote-address mezzano.network.ip:+ipv4-broadcast-source+ ;;unnecessary, but just to avoid the stack down choking
 				   :remote-port +dhcp-server-port+
 				   :local-address mezzano.network.ip:+ipv4-broadcast-local-network+
 				   :local-port +dhcp-client-port+))
-	(interface (first mezzano.driver.network-card::*nics*))
+	;;(interface (first mezzano.driver.network-card::*nics*))
 	(xid (make-xid)))
     (mezzano.supervisor:with-mutex (mezzano.network.udp::*udp-connection-lock*)
       (push connection mezzano.network.udp::*udp-connections*))
     (dhcp-send interface
 	       (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-discover+)
-		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-server+ #.+opt-router+
-								      #.+opt-domain-name+ #.+opt-dns-servers+)))
+		     (make-dhcp-option +opt-parameter-request-list+ #(#.+opt-netmask+ #.+opt-ntp-servers+ #.+opt-router+
+								      #.+opt-domain-name+ #.+opt-dns-servers+
+								      #.+opt-custom-mezzano-server+)))
 	       xid)
     (unwind-protect
 	 (let ((offer (sys.net:receive connection 4)))
@@ -173,7 +182,8 @@
 			       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
 					      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
 					      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
-					      :ntp-servers (get-option options +opt-ntp-server+)
+					      :ntp-servers (get-option options +opt-ntp-servers+)
+					      :mezzano-server (get-option options +opt-custom-mezzano-server+)
 					      :lease-timestamp (get-universal-time)
 					      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
 		       
@@ -203,16 +213,24 @@
 		 nil)))
       (sys.net:disconnect connection))))
 
-(defun start-dhcp-interaction ()
+(defun start-dhcp-interaction (interface)
   (mezzano.supervisor:make-thread
    #'(lambda ()
-       (let (lease)
-	 (loop
-	    (loop for pause = 2 then (min 60 (* 2 pause))
-	       until lease do
+       (loop with lease do
+	    (mezzano.network.ip::ifdown interface)
+	    (loop for pause = 2 then (* 2 pause)
+	       until lease
+	       if (<= 16 pause) do
 		 (setf lease (acquire-lease))
-		 (sleep pause))
+		 (sleep (+ pause (random 1.0)))
+	       else do
+		 (sleep (* 5 60)))
+	    (when (mezzano-server lease)
+	      (setf sys.int::*file-server-host-ip* (convert-to-ipv4-address (mezzano-server lease))))
+	    (mezzano.network.ip::ifup interface (convert-to-ipv4-address (ip-address lease)))
+	    (loop for server in (dns-servers lease) do
+		 (pushnew (convert-to-ipv4-address server) mezzano.network.dns:*dns-servers*))
 	    (loop while lease do
 		 (sleep (ceiling (lease-timeout lease) 2))
-		 (setf lease (renew-lease lease))))))
-   :name "DHCP interaction thread"))
+		 (setf lease (renew-lease lease)))))
+   :name (format nil "DHCP interaction thread on interface ~A" interface)))
