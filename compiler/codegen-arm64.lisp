@@ -16,24 +16,33 @@
 (defvar *gc-info-fixups* nil)
 (defvar *active-nl-exits* nil)
 (defvar *literal-pool*)
+(defvar *last-gc-info*)
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
-    (push i *code-accum*)))
+    (push i *code-accum*)
+    (when (symbolp i)
+      (apply #'emit-gc-info *last-gc-info*))))
 
 (defun comment (&rest stuff)
   (emit `(:comment ,@stuff)))
 
+(defun call-with-trailer (fn name default-gc-info)
+  (let ((*code-accum* '())
+        (*last-gc-info* (if default-gc-info
+                            '()
+                            *last-gc-info*)))
+    (when name
+      (emit name))
+    (when default-gc-info
+      (emit-gc-info))
+    (funcall fn)
+    (push (nreverse *code-accum*) *trailers*)))
+
 (defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)
-  `(push (let ((*code-accum* '())
-               (*last-gc-info* ,(if default-gc-info `'() `*last-gc-info*)))
-           ,(when name
-                  `(emit ,name))
-           ,@(when default-gc-info
-                   (list '(emit-gc-info)))
-           (progn ,@body)
-           (nreverse *code-accum*))
-         *trailers*))
+  `(call-with-trailer (lambda () (progn ,@body))
+                      ,name
+                      ',default-gc-info))
 
 (defun fixnum-to-raw (integer)
   (check-type integer (signed-byte 63))
@@ -350,7 +359,8 @@
          (arg-registers '(:x0 :x1 :x2 :x3 :x4))
          (*gc-info-fixups* '())
          (*active-nl-exits* '())
-         (*literal-pool* (make-array 0 :adjustable t :fill-pointer 0)))
+         (*literal-pool* (make-array 0 :adjustable t :fill-pointer 0))
+         (*last-gc-info* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -462,7 +472,8 @@
     (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
                               (apply #'nconc *trailers*)
-                              (list* 'arm-literal-pool
+                              (list* '(:align 8)
+                                     'arm-literal-pool
                                      (loop
                                         for val across *literal-pool*
                                         collect `(:d64/le ,val)))))
@@ -506,6 +517,7 @@
        :arm64))))
 
 (defun emit-gc-info (&rest extra-stuff)
+  (setf *last-gc-info* extra-stuff)
   (let ((thing (list* :gc :frame extra-stuff)))
     (push thing *gc-info-fixups*)
     (emit thing)))
@@ -1323,7 +1335,9 @@ Returns an appropriate tag."
     (when escapes
       ;; Emit the jump-table.
       ;; TODO: Prune local labels out.
-      (emit-trailer (jump-table nil)
+      (emit-trailer (nil nil)
+        (emit `(:align 8))
+        (emit jump-table)
         (dolist (i thunk-labels)
           (emit `(:d64/le (- ,i ,jump-table)))))
       ;; And the all the thunks.
@@ -1551,7 +1565,9 @@ Returns an appropriate tag."
          (jump-table (gensym "jump-table")))
     ;; Build the jump table.
     ;; Every jump entry must be a local GO with no special bindings.
-    (emit-trailer (jump-table nil)
+    (emit-trailer (nil nil)
+      (emit `(:align 8))
+      (emit jump-table)
       (dolist (j jumps)
         (assert (typep j 'ast-go))
         (let ((go-tag (assoc (ast-target j) *rename-list*)))
