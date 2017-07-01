@@ -3,17 +3,37 @@
 
 (in-package :mezzano.supervisor)
 
-(declaim (inline memref-ub16/le))
+(declaim (inline memref-ub16/le memref-ub16/be))
 (defun memref-ub16/le (base &optional (index 0))
   (sys.int::memref-unsigned-byte-16 base index))
 
-(declaim (inline memref-ub32/le))
+(defun memref-ub16/be (base)
+  (logior (ash (sys.int::memref-unsigned-byte-8 base) 8)
+          (sys.int::memref-unsigned-byte-8 (+ base 1))))
+
+(declaim (inline memref-ub32/le memref-ub32/be))
 (defun memref-ub32/le (base &optional (index 0))
   (sys.int::memref-unsigned-byte-32 base index))
 
-(declaim (inline memref-ub64/le))
+(defun memref-ub32/be (base)
+  (logior (ash (sys.int::memref-unsigned-byte-8 base) 24)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 1)) 16)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 2)) 8)
+          (sys.int::memref-unsigned-byte-8 (+ base 3))))
+
+(declaim (inline memref-ub64/le memref-ub64/be))
 (defun memref-ub64/le (base &optional (index 0))
   (sys.int::memref-unsigned-byte-64 base index))
+
+(defun memref-ub64/be (base)
+  (logior (ash (sys.int::memref-unsigned-byte-8 base) 56)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 1)) 48)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 2)) 40)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 3)) 32)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 4)) 24)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 5)) 16)
+          (ash (sys.int::memref-unsigned-byte-8 (+ base 6)) 8)
+          (sys.int::memref-unsigned-byte-8 (+ base 7))))
 
 (defmacro with-pages ((virtual-address n-pages &rest options) &body body)
   (let ((n-pages-sym (gensym "N-PAGES"))

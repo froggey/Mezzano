@@ -105,23 +105,36 @@
 (defconstant +debug-serial-tx-fifo-size+ 16)
 
 (sys.int::defglobal *debug-serial-io-port*)
+(sys.int::defglobal *debug-serial-io-shift*)
+(sys.int::defglobal *debug-serial-read-fn*)
+(sys.int::defglobal *debug-serial-write-fn*)
 (sys.int::defglobal *debug-serial-lock*)
 (sys.int::defglobal *serial-at-line-start*)
 
 ;; Low-level byte functions.
 
+(defun uart-16550-reg-address (reg)
+  (+ *debug-serial-io-port* (ash reg *debug-serial-io-shift*)))
+
+(defun uart-16550-reg (reg)
+  (funcall *debug-serial-read-fn* (uart-16550-reg-address reg)))
+
+(defun (setf uart-16550-reg) (value reg)
+  (funcall *debug-serial-write-fn*
+           value
+           (uart-16550-reg-address reg)))
+
 (defun debug-serial-write-byte (byte)
+  #+x86-64
   (setf (sys.int::io-port/8 +bochs-log-port+) byte)
   (safe-without-interrupts (byte)
     (with-symbol-spinlock (*debug-serial-lock*)
       ;; Wait for the TX FIFO to empty.
       (loop
          until (logbitp +serial-lsr-thr-empty+
-                        (sys.int::io-port/8 (+ *debug-serial-io-port*
-                                               +serial-LSR+))))
+                        (uart-16550-reg +serial-LSR+)))
       ;; Write byte.
-      (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-            byte))))
+      (setf (uart-16550-reg +serial-THR+) byte))))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
@@ -152,33 +165,37 @@
     (:force-output)
     (:start-line-p *serial-at-line-start*)))
 
-(defun initialize-debug-serial (io-port irq baud)
+(defun initialize-debug-serial (io-port io-shift io-read-fn io-write-fn irq baud &optional (reinit t))
   (declare (ignore irq))
   (setf *debug-serial-io-port* io-port
+        *debug-serial-io-shift* io-shift
+        *debug-serial-read-fn* io-read-fn
+        *debug-serial-write-fn* io-write-fn
         *debug-serial-lock* :unlocked
         *serial-at-line-start* t)
   ;; Initialize port.
-  (let ((divisor (truncate 115200 baud)))
-    (setf
-     ;; Turn interrupts off.
-     (sys.int::io-port/8 (+ io-port +serial-IER+)) #x00
-     ;; DLAB on.
-     (sys.int::io-port/8 (+ io-port +serial-LCR+)) +serial-lcr-dlab+
-     ;; Set divisor low/high bytes.
-     (sys.int::io-port/8 (+ io-port +serial-DLL+)) (ldb (byte 8 0) divisor)
-     (sys.int::io-port/8 (+ io-port +serial-DLH+)) (ldb (byte 8 8) divisor)
-     ;; 8N1, DLAB off.
-     (sys.int::io-port/8 (+ io-port +serial-LCR+)) (logior +serial-lcr-data-8+
-                                                           +serial-lcr-no-parity+)
-     ;; Enable FIFOs, clear them and use the 14-byte threshold.
-     (sys.int::io-port/8 (+ io-port +serial-FCR+)) (logior +serial-fcr-enable+
-                                                           +serial-fcr-clear-rx+
-                                                           +serial-fcr-clear-tx+
-                                                           +serial-rx-trigger-14-bytes+)
-     ;; Enable RTS, DTR, and enable aux output 2, required for IRQs.
-     (sys.int::io-port/8 (+ io-port +serial-MCR+)) (logior +serial-mcr-data-terminal-ready+
-                                                           +serial-mcr-request-to-send+
-                                                           +serial-mcr-auxiliary-output-2+)
-     ;; Enable RX interrupts.
-     (sys.int::io-port/8 (+ io-port +serial-IER+)) +serial-ier-received-data-available+))
+  (when reinit
+    (let ((divisor (truncate 115200 baud)))
+      (setf
+       ;; Turn interrupts off.
+       (uart-16550-reg +serial-IER+) #x00
+       ;; DLAB on.
+       (uart-16550-reg +serial-LCR+) +serial-lcr-dlab+
+       ;; Set divisor low/high bytes.
+       (uart-16550-reg +serial-DLL+) (ldb (byte 8 0) divisor)
+       (uart-16550-reg +serial-DLH+) (ldb (byte 8 8) divisor)
+       ;; 8N1, DLAB off.
+       (uart-16550-reg +serial-LCR+) (logior +serial-lcr-data-8+
+                                             +serial-lcr-no-parity+)
+       ;; Enable FIFOs, clear them and use the 14-byte threshold.
+       (uart-16550-reg +serial-FCR+) (logior +serial-fcr-enable+
+                                             +serial-fcr-clear-rx+
+                                             +serial-fcr-clear-tx+
+                                             +serial-rx-trigger-14-bytes+)
+       ;; Enable RTS, DTR, and enable aux output 2, required for IRQs.
+       (uart-16550-reg +serial-MCR+) (logior +serial-mcr-data-terminal-ready+
+                                             +serial-mcr-request-to-send+
+                                             +serial-mcr-auxiliary-output-2+)
+       ;; Enable RX interrupts.
+       (uart-16550-reg +serial-IER+) +serial-ier-received-data-available+)))
   (debug-set-output-pseudostream 'debug-serial-stream))

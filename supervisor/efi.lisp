@@ -69,9 +69,9 @@
                                  nil
                                  sys-table))
     (when *efi-system-table*
+      (debug-print-line "Booted from EFI, system table at " *efi-system-table*)
       (let ((config-table (physical-memref-unsigned-byte-64 (+ *efi-system-table* +efi-system-table-configuration-table+)))
             (n-config-table-entries (physical-memref-unsigned-byte-64 (+ *efi-system-table* +efi-system-table-number-of-table-entries+))))
-        (debug-print-line "Booted from EFI, system table at " *efi-system-table*)
         (debug-print-line "  Firmware vendor: " (physical-memref-unsigned-byte-64 (+ *efi-system-table* +efi-system-table-firmware-vendor+)))
         (debug-print-line "  Firmware revision: " (physical-memref-unsigned-byte-32 (+ *efi-system-table* +efi-system-table-firmware-revision+)))
         (debug-print-line "  Runtime services: " (physical-memref-unsigned-byte-64 (+ *efi-system-table* +efi-system-table-runtime-services+)))

@@ -25,6 +25,7 @@
 (sys.int::defglobal *supervisor-log-buffer-position*)
 
 (defun initialize-debug-log ()
+  (setf *debug-pseudostream* (lambda (&rest ignored) (declare (ignore ignored))))
   (cond ((boundp '*supervisor-log-buffer-position*)
          (debug-log-buffer-write-char #\Newline))
         (t

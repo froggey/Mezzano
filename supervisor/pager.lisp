@@ -129,8 +129,7 @@ the data. Free the page with FREE-PAGE when done."
   (setf *store-fudge-factor* (- (truncate (physical-memory-statistics) 1.1)))
   (debug-print-line "Set fudge factor to " *store-fudge-factor*)
   (debug-print-line "Waking pager thread.")
-  (setf (thread-state sys.int::*pager-thread*) :runnable)
-  (push-run-queue sys.int::*pager-thread*))
+  (wake-thread sys.int::*pager-thread*))
 
 (defun initialize-hosted-paging-system (disk header)
   (setf *paging-disk* disk)

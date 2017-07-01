@@ -48,19 +48,24 @@
   (beat-heartbeat *run-time-advance*)
   (profile-sample interrupt-frame))
 
-(defun initialize-platform-time (irq)
-  (let ((timer-rate (%cntfrq))
-        (tick-rate 100))
+(defun initialize-platform-time (fdt-node)
+  (let* ((fdt-interrupt (fdt-get-property fdt-node "interrupts"))
+         ;; FIXME: need to deal with PPI vs SPI. 16 is PPI offset.
+         ;; Read the IRQ for the non-secure physical timer
+         (irq (+ 16 (fdt-read-u32 fdt-interrupt 4)))
+         (timer-rate (%cntfrq))
+         (tick-rate 100))
+    (debug-print-line "Timer irq: " irq)
     (debug-print-line "Timer frequency: " timer-rate " Hz")
     (setf *generic-timer-rate* timer-rate)
     (setf *generic-timer-reset-value* (truncate timer-rate tick-rate))
     (setf *run-time-advance* (truncate internal-time-units-per-second tick-rate))
     (debug-print-line "Timer reset: " *generic-timer-reset-value*)
     (debug-print-line "Timer advance: " *run-time-advance*)
-    (platform-attach-irq irq 'generic-timer-irq-handler)
-    (platform-unmask-irq irq)
     (when (not (boundp '*rtc-adjust*))
       (setf *rtc-adjust* 0))
+    (platform-attach-irq irq 'generic-timer-irq-handler)
+    (platform-unmask-irq irq)
     ;; Set countdown value.
     (setf (%cntp-tval) 0)
     ;; Enable the timer.

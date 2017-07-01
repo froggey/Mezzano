@@ -588,7 +588,6 @@ This is used to implement the INTRQ_Wait state."
              (wr +ata-register-lba-mid+  2)
              (wr +ata-register-lba-high+ 0))
             (t
-             ;; Some devices use 0 to mean some other value, use a tiny result instead.
              (wr +ata-register-lba-mid+  (ldb (byte 8 0) result-len))
              (wr +ata-register-lba-high+ (ldb (byte 8 8) result-len))))
       ;; HI4: Write_command

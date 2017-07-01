@@ -38,7 +38,7 @@
     ("supervisor/arm64/interrupts.lisp" :arm64)
     ("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
-    ("supervisor/serial.lisp" :x86-64)
+    "supervisor/serial.lisp"
     ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/partition.lisp"
@@ -87,7 +87,8 @@
     "runtime/array.lisp"
     "runtime/struct.lisp"
     "runtime/symbol.lisp"
-    "runtime/function.lisp"))
+    "runtime/function.lisp"
+    "supervisor/fdt.lisp"))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"

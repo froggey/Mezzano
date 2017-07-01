@@ -68,6 +68,16 @@
     (setf *gic-handlers* (sys.int::make-simple-vector 1024 :wired)))
   (dotimes (i 1024)
     (setf (svref *gic-handlers* i) nil))
+  (configure-gic))
+
+(defun initialize-fdt-gic-400 (fdt-node address-cells size-cells)
+  (let* ((reg (fdt-get-property fdt-node "reg"))
+         (distributor-address (fdt-read-integer reg address-cells 0))
+         (cpu-address (fdt-read-integer reg address-cells (+ address-cells size-cells))))
+  (debug-print-line "GIC-400 at " distributor-address "/" cpu-address)
+  (initialize-gic distributor-address cpu-address)))
+
+(defun configure-gic ()
   (let ((n-interrupts (gic-max-interrupts)))
     (debug-print-line n-interrupts " total GIC interrupts")
     ;; Mask and reset all interrupts.
