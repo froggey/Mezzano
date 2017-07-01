@@ -45,8 +45,7 @@
       (setf *fdt* nil)
       (return-from initialize-fdt nil))
     (setf *fdt* (convert-to-pmap-address fdt-address))
-    (debug-print-line "Boot via Devicetree. FDT at " fdt-address)
-    ))
+    (debug-print-line "Boot via Devicetree. FDT at " fdt-address)))
 
 (defmacro do-fdt-child-nodes ((child-node node &optional result-form) &body body)
   (let ((node-sym (gensym "NODE"))
@@ -248,8 +247,21 @@
 (defun fdt-compatible-p (node compatible)
   "Test if NODE's compatible property contains COMPATIBLE."
   (let ((prop (fdt-get-property node "compatible")))
-    (and prop
-         (fdt-string-list-contains (fdt-property-data prop) (fdt-property-length prop) compatible))))
+    (cond (prop
+           (when *fdt-trace*
+             (debug-write "Check node ")
+             (debug-write node)
+             (debug-write " compatible with ")
+             (debug-write compatible)
+             (debug-write " compat:")
+             (dotimes (i (fdt-property-length prop))
+               (debug-write-char
+                (sys.int::%%assemble-value
+                 (ash (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i) 4)
+                 sys.int::+tag-character+)))
+             (debug-print-line))
+           (fdt-string-list-contains (fdt-property-data prop) (fdt-property-length prop) compatible))
+          (t nil))))
 
 (defun fdt-read-u32 (prop &optional (index 0))
   "Read a u32 property."

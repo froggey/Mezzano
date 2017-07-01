@@ -18,6 +18,11 @@
                              115200 ; TODO: Get from console string.
                              nil))) ; TODO: reinit is buggy?
 
+(defun initialize-fdt-pl011 (fdt-node address-cells size-cells)
+  (let* ((reg (fdt-get-property fdt-node "reg"))
+         (base-address (fdt-read-integer reg address-cells 0)))
+    (initialize-debug-uart base-address)))
+
 (defun initialize-platform-early-console (boot-information-page)
   (declare (ignore boot-information-page))
   (let* ((chosen (fdt-get-named-child-node (fdt-root) "chosen"))
@@ -33,6 +38,10 @@
            (initialize-fdt-dw-apb-uart-console stdout-node
                                                ;; FIXME!
                                                1 1))
+          ((fdt-compatible-p stdout-node "arm,pl011")
+           (initialize-fdt-pl011 stdout-node
+                                 ;; FIXME!
+                                 2 2))
           (t
            (debug-print-line "stdout node is an unsupported device")))))
 
@@ -44,43 +53,40 @@
 
 (defun initialize-platform ()
   (debug-print-line "Performing FDT scan")
-  (arm64-fdt-scan nil)
-  ;; This is correct for qemu's cortex-a53 virt machine.
-  #+(or)
-  (dotimes (i 32)
-    (virtio-mmio-register (+ #x0A000000 (* i #x200))
-                          (+ 48 i))))
+  (arm64-fdt-scan nil))
 
 (defun arm64-fdt-scan (earlyp)
-  (do-fdt-child-nodes (node (fdt-root))
-    (cond ((fdt-compatible-p node "simple-bus")
-           (debug-print-line "simple-bus at " node)
-           (register-fdt-simple-bus node earlyp))
-          ((fdt-compatible-p node "arm,armv8-timer")
-           (when (not earlyp)
-             (initialize-platform-time node)))
-          (t
-           (debug-print-line "unknown fdt node at " node)))))
+  ;; qemu puts all devices in the root node, instead of under a simple-bus.
+  ;; Treat the root node as a simple-bus to deal with this.
+  (register-fdt-simple-bus (fdt-root) earlyp t))
 
-(defun register-fdt-simple-bus (node earlyp)
+(defun register-fdt-simple-bus (node earlyp &optional ignore-ranges)
   (let ((address-cells (fdt-address-cells node))
         (size-cells (fdt-size-cells node))
         (ranges (fdt-get-property node "ranges")))
-    (when (not ranges)
-      (debug-print-line "invalid simple-bus. missing ranges")
-      (return-from register-fdt-simple-bus))
-    (when (not (eql (fdt-property-length ranges) 0))
-      ;; TODO.
-      (debug-print-line "simple-bus with non-simple parent-child mapping, ignoring.")
-      (return-from register-fdt-simple-bus))
+    (when (not ignore-ranges)
+      (when (not ranges)
+        (debug-print-line "invalid simple-bus. missing ranges")
+        (return-from register-fdt-simple-bus))
+      (when (not (eql (fdt-property-length ranges) 0))
+        ;; TODO.
+        (debug-print-line "simple-bus with non-simple parent-child mapping, ignoring.")
+        (return-from register-fdt-simple-bus)))
     ;; Walk children, looking for thing.
     (do-fdt-child-nodes (child node)
       (cond ((fdt-compatible-p child "simple-bus")
              (debug-print-line "simple-bus at " child)
              (register-fdt-simple-bus child earlyp))
-            ((fdt-compatible-p child "arm,gic-400")
+            ((fdt-compatible-p child "arm,armv8-timer")
+             (when (not earlyp)
+               (initialize-platform-time child)))
+            ((or (fdt-compatible-p child "arm,gic-400")
+                 (fdt-compatible-p child "arm,cortex-a15-gic"))
              (when earlyp
                (initialize-fdt-gic-400 child address-cells size-cells)))
+            ((fdt-compatible-p child "virtio,mmio")
+             (when (not earlyp)
+               (virtio-mmio-fdt-register child address-cells size-cells)))
             #+(or) ; not implemented yet!
             ((fdt-compatible-p child "allwinner,sun4i-a10-timer")
              (when (not earlyp)

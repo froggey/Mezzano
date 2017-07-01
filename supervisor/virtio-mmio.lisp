@@ -89,6 +89,14 @@
     (debug-print-line "mmio virtio device at " address " did: " did " vid: " vid)
     (virtio-device-register dev)))
 
+(defun virtio-mmio-fdt-register (fdt-node address-cells size-cells)
+  (let* ((reg (fdt-get-property fdt-node "reg"))
+         (address (fdt-read-integer reg address-cells 0))
+         (interrupts (fdt-get-property fdt-node "interrupts"))
+         (irq (fdt-read-integer interrupts 1 1)))
+    ;; FIXME: IRQ routing.
+    (virtio-mmio-register address (+ 32 irq))))
+
 (defun virtio-mmio-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-mmio-queue-notify dev) vq-id))
