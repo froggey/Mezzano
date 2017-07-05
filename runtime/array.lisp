@@ -74,6 +74,14 @@
   (sys.int::%bounds-check simple-vector index)
   (setf (sys.int::%object-ref-t simple-vector index) value))
 
+(defun (sys.int::cas svref) (old new simple-vector index)
+  (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
+  (sys.int::%bounds-check simple-vector index)
+  (multiple-value-bind (successp actual-value)
+      (sys.int::%cas-object simple-vector index old new)
+    (declare (ignore successp))
+    actual-value))
+
 (defun sys.int::simple-vector-length (simple-vector)
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
   (sys.int::%object-header-data simple-vector))
