@@ -117,6 +117,11 @@
       (setf (cdr location) new-value)
       (setf (svref slots location) new-value)))
 
+(defun (sys.int::cas slot-contents) (old new slots location)
+  (if (consp location)
+      (sys.int::cas (cdr location) old new)
+      (sys.int::cas (svref slots location) old new)))
+
 (defun fast-sv-position (value simple-vector)
   (dotimes (i (array-dimension simple-vector 0))
     (when (eq value (svref simple-vector i))
@@ -209,6 +214,23 @@
                  (t
                   (slot-missing (class-of object) object slot-name 'setf new-value)
                   new-value))))))
+
+(defun (sys.int::cas std-slot-value) (old new instance slot-name)
+  (multiple-value-bind (slots location)
+      (slot-location-in-instance instance slot-name)
+    (when (not location)
+      (return-from std-slot-value
+        (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new))))
+    (sys.int::cas (slot-contents slots location) old new)))
+(defun (sys.int::cas slot-value) (old new object slot-name)
+  (cond ((std-class-p (class-of (class-of object)))
+         (sys.int::cas (std-slot-value object slot-name) old new))
+        (t
+         (let ((slot (find-effective-slot object slot-name)))
+           (cond (slot
+                  (sys.int::cas (slot-value-using-class (class-of object) object slot) old new))
+                 (t
+                  (values (slot-missing (class-of object) object slot-name 'sys.int::cas (list old new)))))))))
 
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
@@ -1550,6 +1572,10 @@ has only has class specializer."
 (defgeneric (setf slot-value-using-class) (new-value class instance slot))
 (defmethod (setf slot-value-using-class) (new-value (class std-class) instance (slot standard-effective-slot-definition))
   (setf (std-slot-value instance (slot-definition-name slot)) new-value))
+
+(defgeneric (sys.int::cas slot-value-using-class) (old new class instance slot))
+(defmethod (sys.int::cas slot-value-using-class) (old new (class std-class) instance (slot standard-effective-slot-definition))
+  (sys.int::cas (std-slot-value instance (slot-definition-name slot)) old new))
 
 (defgeneric slot-boundp-using-class (class instance slot))
 (defmethod slot-boundp-using-class ((class std-class) instance (slot standard-effective-slot-definition))
