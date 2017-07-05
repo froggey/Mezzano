@@ -273,7 +273,8 @@
                     (damage-whole-screen)))
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F4))
-                  (when *active-window*
+                  (when (and (key-releasep event)
+                             *active-window*)
                     (cond ((member :control *keyboard-modifier-state*)
                            ;; Zap the window.
                            (process-event (make-instance 'window-close-event
