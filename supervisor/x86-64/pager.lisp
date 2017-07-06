@@ -64,8 +64,8 @@
 (defun pte-physical-address (pte)
   (logand pte +x86-64-pte-address-mask+))
 
-(defun make-pte (frame &key writable (present t) wired dirty copy-on-write)
-  (declare (ignore wired))
+(defun make-pte (frame &key writable (present t) wired dirty copy-on-write (cache-mode :normal))
+  (declare (ignore wired cache-mode))
   (logior (ash frame 12)
           (if present
               +x86-64-pte-present+

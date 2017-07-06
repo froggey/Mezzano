@@ -706,7 +706,8 @@ It will put the thread to sleep, while it waits for the page."
         (when (not (page-present-p pte 0))
           (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
                                                    :writable t
-                                                   :wired t)))))))
+                                                   :wired t
+                                                   :cache-mode :uncached)))))))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))

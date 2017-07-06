@@ -18,6 +18,12 @@
 (defconstant +arm64-tte-sh-outer-shareable+ 2)
 (defconstant +arm64-tte-sh-inner-shareable+ 3)
 
+(defconstant +arm64-tte-attr-index+         (byte 3 2))
+
+;; The first 3 entries of MAIR are configured by the bootloader.
+(defconstant +arm64-mair-normal-memory+     0)
+(defconstant +arm64-mair-device-memory+     2)
+
 (defconstant +arm64-tte-copy-on-write+ #x0080000000000000)
 (defconstant +arm64-tte-writable+      #x0100000000000000)
 (defconstant +arm64-tte-dirty+         #x0200000000000000)
@@ -47,7 +53,7 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
-(defun make-pte (frame &key writable (present t) block wired dirty copy-on-write)
+(defun make-pte (frame &key writable (present t) block wired dirty copy-on-write (cache-mode :normal))
   (logior (ash frame 12)
           (if present
               (logior +arm64-tte-present+
@@ -74,7 +80,12 @@
                    0))
           (if copy-on-write
               +arm64-tte-copy-on-write+
-              0)))
+              0)
+          (dpb (if (eql cache-mode :normal)
+                   +arm64-mair-normal-memory+
+                   +arm64-mair-device-memory+)
+               +arm64-tte-attr-index+
+               0)))
 
 (defun pte-physical-address (pte)
   (logand pte +arm64-tte-address-mask+))
