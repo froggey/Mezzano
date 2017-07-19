@@ -100,9 +100,11 @@ a vector of constants and an alist of symbols & addresses."
                       (:comment)
                       (:align
                        (destructuring-bind (alignment) (rest i)
-                         (loop
-                            repeat (- alignment (rem (length *machine-code*) alignment))
-                            do (emit 0))))
+                         (let ((misalignment (rem (length *machine-code*) alignment)))
+                           (when (not (zerop misalignment))
+                             (loop
+                                repeat (- alignment misalignment)
+                                do (emit 0))))))
                       (:d8 (apply 'emit-d8 (rest i)))
                       (:d16/le (apply 'emit-d16/le (rest i)))
                       (:d32/le (apply 'emit-d32/le (rest i)))
