@@ -1757,8 +1757,8 @@ Tag with +TAG-OBJECT+."
                 (defun-name (extract-object defun-name-value))
                 (fref (function-reference defun-name)))
            (setf (word (+ fref 2)) fn-value
-                 (word (+ fref 3)) (word (1+ (pointer-part fn-value)))))
-         defun-name-value)
+                 (word (+ fref 3)) (word (1+ (pointer-part fn-value))))
+           defun-name-value))
         (t
          nil)))
 
