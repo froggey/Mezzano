@@ -855,7 +855,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (loop while (zerop (gctl-crst (global-reg/32 hda +gctl+))))
     (format t "Waiting for codecs.~%")
     ;; Wait for the codecs to report in. 521µs.
-    (loop while (< (global-reg/32 hda +walclk+) 14000))
+    (sleep 0.000521)
     (format t "HDA version ~D.~D~%" (global-reg/8 hda +vmaj+) (global-reg/8 hda +vmin+))
     (print-gcap (global-reg/16 hda +gcap+))
     (format t "OUTPAY: ~D  INPAY: ~D~%"
