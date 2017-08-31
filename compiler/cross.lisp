@@ -165,6 +165,140 @@
   (:export #:codegen-lambda
            #:generate-builtin-functions))
 
+(defpackage :mezzano.compiler.backend
+  (:use :cross-cl :mezzano.compiler)
+  (:export #:virtual-register
+           #:register-kind
+           #:backend-function
+
+           #:argument-setup-instruction
+           #:argument-setup-fref
+           #:argument-setup-closure
+           #:argument-setup-count
+           #:argument-setup-required
+           #:argument-setup-optional
+           #:argument-setup-rest
+
+           #:move-instruction
+           #:move-destination
+           #:move-source
+
+           #:spill-instruction
+           #:spill-destination
+           #:spill-source
+
+           #:fill-instruction
+           #:fill-destination
+           #:fill-source
+
+           #:constant-instruction
+           #:constant-destination
+           #:constant-value
+
+           #:values-instruction
+           #:values-values
+
+           #:multiple-value-bind-instruction
+
+           #:save-multiple-instruction
+           #:save-multiple-context
+           #:restore-multiple-instruction
+           #:restore-multiple-context
+           #:forget-multiple-instruction
+           #:forget-multiple-context
+
+           #:jump-instruction
+           #:jump-target
+
+           #:branch-instruction
+           #:branch-true-instruction
+           #:branch-false-instruction
+           #:branch-value
+           #:branch-target
+
+           #:switch-instruction
+           #:switch-value
+           #:switch-targets
+
+           #:call-instruction
+           #:call-multiple-instruction
+           #:funcall-instruction
+           #:funcall-multiple-instruction
+           #:multiple-value-funcall-instruction
+           #:multiple-value-funcall-multiple-instruction
+           #:call-result
+           #:call-function
+           #:call-arguments
+
+           #:return-instruction
+           #:return-value
+           #:return-multiple-instruction
+
+           #:unreachable-instruction
+
+           #:nlx-region
+           #:nlx-context
+           #:begin-nlx-instruction
+           #:begin-nlx-targets
+           #:finish-nlx-instruction
+           #:invoke-nlx-instruction
+           #:invoke-nlx-multiple-instruction
+           #:invoke-nlx-index
+           #:invoke-nlx-value
+           #:nlx-entry-instruction
+           #:nlx-entry-multiple-instruction
+           #:nlx-entry-value
+
+           #:function-instruction
+           #:function-result
+           #:function-name
+
+           #:object-get-instruction
+           #:object-get-t-instruction
+           #:object-get-destination
+           #:object-get-object
+           #:object-get-index
+
+           #:object-set-instruction
+           #:object-set-t-instruction
+           #:object-set-value
+           #:object-set-object
+           #:object-set-index
+
+           #:eq-instruction
+           #:eq-result
+           #:eq-lhs
+           #:eq-rhs
+
+           #:undefined-function-p-instruction
+           #:undefined-function-p-result
+           #:undefined-function-p-value
+
+           #:fixnum-<-instruction
+           #:fixnum-<-result
+           #:fixnum-<-lhs
+           #:fixnum-<-rhs
+
+           #:push-special-stack-instruction
+           #:push-special-stack-a-value
+           #:push-special-stack-b-value
+
+           #:flush-binding-cache-entry-instruction
+           #:flush-binding-cache-entry-symbol
+
+           #:unbind-instruction
+           #:disestablish-block-or-tagbody-instruction
+           #:disestablish-unwind-protect-instruction
+))
+
+(defpackage :mezzano.compiler.backend.ast-convert
+  (:use :cross-cl :mezzano.compiler :mezzano.compiler.backend)
+  (:export #:convert))
+
+(defpackage :mezzano.compiler.backend.x86-64
+  (:use :cross-cl :mezzano.compiler.backend)
+  (:local-nicknames (:lap :sys.lap-x86)))
+
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
   (:use :cross-cl)

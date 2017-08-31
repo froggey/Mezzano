@@ -567,6 +567,9 @@
   (alexandria:ensure-gethash name *fref-table*
                              (make-cross-fref name)))
 
+(defun sys.int::function-reference (name)
+  (resolve-fref name))
+
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
