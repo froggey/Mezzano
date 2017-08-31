@@ -959,9 +959,7 @@ Returns an appropriate tag."
 
 (defun cg-multiple-value-call (form)
   (let ((value-form (ast-value-form form))
-        (fn-tag (let ((*for-value* t)) (cg-form (make-instance 'ast-call
-                                                               :name 'sys.int::%coerce-to-callable
-                                                               :arguments (list (ast-function-form form)))))))
+        (fn-tag (let ((*for-value* t)) (cg-form (ast-function-form form)))))
     (when (not fn-tag)
       (return-from cg-multiple-value-call nil))
     (let ((value-tag (let ((*for-value* :multiple))

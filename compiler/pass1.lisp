@@ -651,7 +651,7 @@
       (1 ; One form, transform as-is.
        (make-instance 'ast-multiple-value-call
                       :optimize (optimize-qualities-in-environment env)
-                      :function-form (pass1-form function-form env)
+                      :function-form (pass1-form `(sys.int::%coerce-to-callable ,function-form) env)
                       :value-form (pass1-form (first forms) env)))
       (t ; Many forms, simplify.
        (pass1-form `(apply ,function-form
