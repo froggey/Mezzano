@@ -108,7 +108,9 @@ Must be run after keywords have been lowered."
                                                 (new-var (string (name suppliedp))))
                                                (lexical-variable
                                                 suppliedp)))
-                              (trivial-init-form (typep init-form 'ast-quote))
+                              (trivial-init-form (and (typep init-form 'ast-quote)
+                                                      (or (not *use-new-compiler*)
+                                                          (eql (ast-value init-form) nil))))
                               (new-arg (etypecase arg
                                          (special-variable
                                           (new-var (string (name arg))))

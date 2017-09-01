@@ -156,7 +156,13 @@
                       (make-instance 'move-instruction
                                      :destination (first values)
                                      :source (first regs)))
-        (setf (first values) (first regs))))))
+        (setf (first values) (first regs))))
+    (when (typep inst 'return-instruction)
+      (insert-before backend-function inst
+                     (make-instance 'move-instruction
+                                    :destination :r8
+                                    :source (return-value inst)))
+      (setf (return-value inst) :r8))))
 
 (defun set-equal (list-1 list-2)
   (and (dolist (elt list-1 t)
@@ -291,6 +297,9 @@
     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
 
+(defmethod instruction-clobbers ((instruction make-dx-closure-instruction) (architecture (eql :x86-64)))
+  '(:rax :rcx))
+
 (defgeneric allow-memory-operand-p (instruction operand architecture)
   (:method (i o a)
     nil))
@@ -305,6 +314,23 @@
 
 (defmethod allow-memory-operand-p ((instruction call-multiple-instruction) operand (architecture (eql :x86-64)))
   (not (or (eql (first (call-arguments instruction)) operand)
+           (eql (second (call-arguments instruction)) operand)
+           (eql (third (call-arguments instruction)) operand)
+           (eql (fourth (call-arguments instruction)) operand)
+           (eql (fifth (call-arguments instruction)) operand))))
+
+(defmethod allow-memory-operand-p ((instruction funcall-instruction) operand (architecture (eql :x86-64)))
+  (not (or (eql (call-result instruction) operand)
+           (eql (call-function instruction) operand)
+           (eql (first (call-arguments instruction)) operand)
+           (eql (second (call-arguments instruction)) operand)
+           (eql (third (call-arguments instruction)) operand)
+           (eql (fourth (call-arguments instruction)) operand)
+           (eql (fifth (call-arguments instruction)) operand))))
+
+(defmethod allow-memory-operand-p ((instruction funcall-multiple-instruction) operand (architecture (eql :x86-64)))
+  (not (or (eql (call-function instruction) operand)
+           (eql (first (call-arguments instruction)) operand)
            (eql (second (call-arguments instruction)) operand)
            (eql (third (call-arguments instruction)) operand)
            (eql (fourth (call-arguments instruction)) operand)
@@ -390,8 +416,6 @@
                                ;; Scan the instruction's outputs to catch this.
                                (remove-if-not (lambda (x) (typep x 'virtual-register))
                                               (instruction-outputs inst)))))
-             (format t "inst: ~S~%" inst)
-             (format t "vregs: ~S  pregs: ~S~%" vregs clobbers)
              (dolist (vreg vregs)
                (setf (gethash vreg vreg-liveness-start) (min i (gethash vreg vreg-liveness-start most-positive-fixnum)))
                (setf (gethash vreg vreg-liveness-end) (max i (gethash vreg vreg-liveness-end 0)))
@@ -442,7 +466,6 @@
          (instantaneous-registers (make-hash-table :test 'equal))
          (free-registers '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx)))
     (flet ((expire-old-intervals (i)
-             (format t "Active: ~S  next: ~S~%" active i)
              (loop
                 (when (endp active)
                   (return))
@@ -455,9 +478,11 @@
            (spill-at-interval (i)
              ;; Select the longest-lived non-conflicting range to spill.
              (let ((spill (first (last (remove-if (lambda (spill-interval)
-                                                    (member (gethash spill-interval registers)
+                                                    (member (gethash (live-range-vreg spill-interval) registers)
                                                             (live-range-conflicts i)))
                                                   active)))))
+               ;;(format t "active ~S~%" active)
+               ;;(format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil))
                (cond ((and spill
                            (> (live-range-end spill) (live-range-end i)))
                       (setf (gethash (live-range-vreg i) registers) (gethash (live-range-vreg spill) registers))
@@ -470,50 +495,52 @@
          for instruction-index from 0
          for inst in ordering
          do
+           ;;(print-instruction inst)
            (expire-old-intervals instruction-index)
            (loop
               (when (not (and remaining-live-ranges
                               (eql instruction-index (live-range-start (first remaining-live-ranges)))))
                 (return))
-              (let ((interval (pop remaining-live-ranges)))
-                (let* ((candidates (remove-if (lambda (reg)
-                                                (or (member reg (live-range-conflicts interval))
-                                                    ;; If the instruction is a move instruction with physical source/destinations,
-                                                    ;; then conflict with it unless this interval is a source/dest and ends/begins
-                                                    ;; on this instruction.
-                                                    (and (typep inst 'move-instruction)
-                                                         (or (and (typep (move-source inst) 'physical-register)
-                                                                  (eql (move-source inst) reg)
-                                                                  (not (and (eql (move-destination inst) (live-range-vreg interval))
-                                                                            (eql instruction-index (live-range-start interval)))))
-                                                             (and (typep (move-destination inst) 'physical-register)
-                                                                  (eql (move-destination inst) reg)
-                                                                  (not (and (eql (move-source inst) (live-range-vreg interval))
-                                                                            (eql instruction-index (live-range-end interval)))))))))
-                                              free-registers))
-                       (hint (or (live-range-hint interval)
-                                 (if (and (typep inst 'move-instruction)
-                                          (eql (move-destination inst) (live-range-vreg interval))
-                                          (typep (move-source inst) 'physical-register)
-                                          (not (member (move-source inst) (live-range-conflicts interval))))
-                                     (move-source inst)
-                                     nil)))
-                       (reg (if (member hint candidates)
-                                hint
-                                (first candidates))))
-                  (format t "Allocate ~S  candidates: ~:S  hint: ~S  selected: ~S~%"
-                          interval candidates hint reg)
-                  (cond ((and (typep inst 'argument-setup-instruction)
-                              (eql instruction-index (live-range-end interval)))
-                         ;; Argument setup instruction with an unused argument.
-                         ;; Just spill it.
-                         (push (live-range-vreg interval) spilled))
-                        ((not reg)
-                         (spill-at-interval interval))
-                        (t
-                         (setf free-registers (remove reg free-registers))
-                         (setf (gethash (live-range-vreg interval) registers) reg)
-                         (setf active (merge 'list (list interval) active #'< :key 'live-range-end)))))))
+              (let* ((interval (pop remaining-live-ranges))
+                     (candidates (remove-if (lambda (reg)
+                                              (or (member reg (live-range-conflicts interval))
+                                                  ;; If the instruction is a move instruction with physical source/destinations,
+                                                  ;; then conflict with it unless this interval is a source/dest and ends/begins
+                                                  ;; on this instruction.
+                                                  (and (typep inst 'move-instruction)
+                                                       (or (and (typep (move-source inst) 'physical-register)
+                                                                (eql (move-source inst) reg)
+                                                                (not (and (eql (move-destination inst) (live-range-vreg interval))
+                                                                          (eql instruction-index (live-range-start interval)))))
+                                                           (and (typep (move-destination inst) 'physical-register)
+                                                                (eql (move-destination inst) reg)
+                                                                (not (and (eql (move-source inst) (live-range-vreg interval))
+                                                                          (eql instruction-index (live-range-end interval)))))))))
+                                            free-registers))
+                     (hint (or (live-range-hint interval)
+                               (if (and (typep inst 'move-instruction)
+                                        (eql (move-destination inst) (live-range-vreg interval))
+                                        (typep (move-source inst) 'physical-register)
+                                        (not (member (move-source inst) (live-range-conflicts interval))))
+                                   (move-source inst)
+                                   nil)))
+                     (reg (if (member hint candidates)
+                              hint
+                              (first candidates))))
+                ;;(format t "Interval ~S~%" interval)
+                ;;(format t "Candidates ~S~%" candidates)
+                ;;(format t "hint/reg ~S / ~S~%" hint reg)
+                (cond ((and (typep inst 'argument-setup-instruction)
+                            (eql instruction-index (live-range-end interval)))
+                       ;; Argument setup instruction with an unused argument.
+                       ;; Just spill it.
+                       (push (live-range-vreg interval) spilled))
+                      ((not reg)
+                       (spill-at-interval interval))
+                      (t
+                       (setf free-registers (remove reg free-registers))
+                       (setf (gethash (live-range-vreg interval) registers) reg)
+                       (setf active (merge 'list (list interval) active #'< :key 'live-range-end))))))
            ;; Now add instantaneous intervals for spilled registers.
            (let* ((vregs (union (remove-duplicates
                                  (remove-if-not (lambda (r)
@@ -541,8 +568,16 @@
                   (available-regs (remove-if (lambda (preg)
                                                (member preg used-pregs))
                                              free-registers)))
-             (format t "at ~S. vregs: ~S  instants: ~S  avail: ~S  active: ~S  free: ~S~%"
-                     inst vregs spilled-vregs available-regs active free-registers)
+             #+(or)
+             (format t "Instants ~S ~S ~S ~S~%"
+                                 (remove-if-not (lambda (r)
+                                                  (typep r 'virtual-register))
+                                                (instruction-inputs inst))
+
+                                 (remove-if-not (lambda (r)
+                                                  (typep r 'virtual-register))
+                                                (instruction-outputs inst))
+                                 spilled-vregs available-regs)
              (dolist (vreg spilled-vregs)
                (cond ((allow-memory-operand-p inst vreg architecture)
                       ;; Do nothing.
@@ -590,6 +625,9 @@
 (defmethod replace-all-registers ((instruction jump-instruction) substitution-function)
   nil)
 
+(defmethod replace-all-registers ((instruction switch-instruction) substitution-function)
+  (setf (switch-value instruction) (funcall substitution-function (switch-value instruction))))
+
 (defmethod replace-all-registers ((instruction unreachable-instruction) substitution-function)
   nil)
 
@@ -612,6 +650,13 @@
 (defmethod replace-all-registers ((instruction nlx-entry-multiple-instruction) substitution-function)
   (setf (nlx-context instruction) (funcall substitution-function (nlx-context instruction))))
 
+(defmethod replace-all-registers ((instruction invoke-nlx-instruction) substitution-function)
+  (setf (nlx-context instruction) (funcall substitution-function (nlx-context instruction)))
+  (setf (invoke-nlx-value instruction) (funcall substitution-function (invoke-nlx-value instruction))))
+
+(defmethod replace-all-registers ((instruction invoke-nlx-multiple-instruction) substitution-function)
+  (setf (nlx-context instruction) (funcall substitution-function (nlx-context instruction))))
+
 (defmethod replace-all-registers ((instruction save-multiple-instruction) substitution-function)
   (setf (save-multiple-context instruction) (funcall substitution-function (save-multiple-context instruction))))
 
@@ -624,6 +669,9 @@
 (defmethod replace-all-registers ((instruction multiple-value-bind-instruction) substitution-function)
   (setf (multiple-value-bind-values instruction) (mapcar substitution-function (multiple-value-bind-values instruction))))
 
+(defmethod replace-all-registers ((instruction values-instruction) substitution-function)
+  (setf (values-values instruction) (mapcar substitution-function (values-values instruction))))
+
 (defmethod replace-all-registers ((instruction call-instruction) substitution-function)
   (setf (call-result instruction) (funcall substitution-function (call-result instruction)))
   (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
@@ -631,18 +679,41 @@
 (defmethod replace-all-registers ((instruction call-multiple-instruction) substitution-function)
   (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
 
+(defmethod replace-all-registers ((instruction funcall-instruction) substitution-function)
+  (setf (call-result instruction) (funcall substitution-function (call-result instruction)))
+  (setf (call-function instruction) (funcall substitution-function (call-function instruction)))
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod replace-all-registers ((instruction funcall-multiple-instruction) substitution-function)
+  (setf (call-function instruction) (funcall substitution-function (call-function instruction)))
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod replace-all-registers ((instruction multiple-value-funcall-instruction) substitution-function)
+  (setf (call-result instruction) (funcall substitution-function (call-result instruction)))
+  (setf (call-function instruction) (funcall substitution-function (call-function instruction))))
+
 (defmethod replace-all-registers ((instruction multiple-value-funcall-multiple-instruction) substitution-function)
   (setf (call-function instruction) (funcall substitution-function (call-function instruction))))
+
+(defmethod replace-all-registers ((instruction object-get-instruction) substitution-function)
+  (setf (object-get-destination instruction) (funcall substitution-function (object-get-destination instruction)))
+  (setf (object-get-object instruction) (funcall substitution-function (object-get-object instruction)))
+  (setf (object-get-index instruction) (funcall substitution-function (object-get-index instruction))))
+
+(defmethod replace-all-registers ((instruction object-set-instruction) substitution-function)
+  (setf (object-set-value instruction) (funcall substitution-function (object-set-value instruction)))
+  (setf (object-set-object instruction) (funcall substitution-function (object-set-object instruction)))
+  (setf (object-set-index instruction) (funcall substitution-function (object-set-index instruction))))
 
 (defmethod replace-all-registers ((instruction eq-instruction) substitution-function)
   (setf (eq-result instruction) (funcall substitution-function (eq-result instruction)))
   (setf (eq-lhs instruction) (funcall substitution-function (eq-lhs instruction)))
   (setf (eq-rhs instruction) (funcall substitution-function (eq-rhs instruction))))
 
-(defmethod replace-all-registers ((instruction object-get-instruction) substitution-function)
-  (setf (object-get-destination instruction) (funcall substitution-function (object-get-destination instruction)))
-  (setf (object-get-object instruction) (funcall substitution-function (object-get-object instruction)))
-  (setf (object-get-index instruction) (funcall substitution-function (object-get-index instruction))))
+(defmethod replace-all-registers ((instruction fixnum-<-instruction) substitution-function)
+  (setf (fixnum-<-result instruction) (funcall substitution-function (fixnum-<-result instruction)))
+  (setf (fixnum-<-lhs instruction) (funcall substitution-function (fixnum-<-lhs instruction)))
+  (setf (fixnum-<-rhs instruction) (funcall substitution-function (fixnum-<-rhs instruction))))
 
 (defmethod replace-all-registers ((instruction push-special-stack-instruction) substitution-function)
   (setf (push-special-stack-a-value instruction) (funcall substitution-function (push-special-stack-a-value instruction)))
@@ -659,6 +730,14 @@
 
 (defmethod replace-all-registers ((instruction disestablish-unwind-protect-instruction) substitution-function)
   nil)
+
+(defmethod replace-all-registers ((instruction make-dx-simple-vector-instruction) substitution-function)
+  (setf (make-dx-simple-vector-result instruction) (funcall substitution-function (make-dx-simple-vector-result instruction))))
+
+(defmethod replace-all-registers ((instruction make-dx-closure-instruction) substitution-function)
+  (setf (make-dx-closure-result instruction) (funcall substitution-function (make-dx-closure-result instruction)))
+  (setf (make-dx-closure-function instruction) (funcall substitution-function (make-dx-closure-function instruction)))
+  (setf (make-dx-closure-environment instruction) (funcall substitution-function (make-dx-closure-environment instruction))))
 
 (defun rewrite-after-allocation (backend-function registers spilled instantaneous-registers)
   (do* ((inst (first-instruction backend-function) next-inst)

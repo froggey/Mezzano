@@ -144,7 +144,7 @@
         (when (and rest-arg
                    ;; Avoid generating code &REST code when the variable isn't used.
                    (not (zerop (lexical-variable-use-count rest-arg))))
-          (when (lexical-variable-dynamic-extent rest-arg)
+          (when (not (lexical-variable-dynamic-extent rest-arg))
             (emit (make-instance 'call-instruction
                                  :result rest-reg
                                  :function 'copy-list
@@ -293,7 +293,6 @@
   (let ((fref-reg (make-instance 'virtual-register))
         (fref-index (make-instance 'virtual-register))
         (fname-reg (make-instance 'virtual-register))
-        (undefined-function (make-instance 'virtual-register))
         (is-defined (make-instance 'virtual-register))
         (out (gensym))
         (result (make-instance 'virtual-register)))
@@ -302,7 +301,7 @@
                          :value (sys.int::function-reference (ast-name form))))
     (emit (make-instance 'constant-instruction
                          :destination fref-index
-                         :value sys.int::+fref-entry-point+))
+                         :value sys.int::+fref-function+))
     (emit (make-instance 'object-get-t-instruction
                          :destination result
                          :object fref-reg
@@ -560,14 +559,14 @@
          (nlx-region (make-instance 'begin-nlx-instruction
                                     :context escape-reg
                                     :targets thunk-labels)))
-    (loop
-       for tag in (tagbody-information-go-tags info)
-       for label in tag-labels
-       do (setf (gethash tag *go-tag-and-block-labels*) (list label *dynamic-stack*)))
     (when escapes
       (emit nlx-region)
       (setf (gethash info *variable-registers*) escape-reg)
       (push `(:nlx ,escape-reg ,nlx-region) *dynamic-stack*))
+    (loop
+       for tag in (tagbody-information-go-tags info)
+       for label in tag-labels
+       do (setf (gethash tag *go-tag-and-block-labels*) (list label *dynamic-stack*)))
     ;; Jump to the entry point.
     (emit (make-instance 'jump-instruction
                          :target (first (gethash (first (first (ast-statements form)))
@@ -830,6 +829,23 @@
            (cg-funcall form result-mode))
           ((eql (ast-name form) 'values)
            (cg-values form result-mode))
+          ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
+           (assert (eql (length (ast-arguments form)) 1))
+           (assert (typep (first (ast-arguments form)) 'ast-quote))
+           (check-type (ast-value (first (ast-arguments form))) (integer 0))
+           (let ((result (make-instance 'virtual-register)))
+             (emit (make-instance 'make-dx-simple-vector-instruction
+                                  :result result
+                                  :size (ast-value (first (ast-arguments form)))))
+             result))
+          ((eql (ast-name form) 'sys.c::make-dx-closure)
+           (assert (eql (length (ast-arguments form)) 2))
+           (let ((result (make-instance 'virtual-register)))
+             (emit (make-instance 'make-dx-closure-instruction
+                                  :result result
+                                  :function (cg-form (first (ast-arguments form)) :value)
+                                  :environment (cg-form (second (ast-arguments form)) :value)))
+             result))
           ((and prim
                 (eql (length (primitive-lambda-list prim))
                      (length (ast-arguments form))))

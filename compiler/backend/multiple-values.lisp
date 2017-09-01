@@ -45,6 +45,12 @@
              for target in (begin-nlx-targets instruction)
              collect (first (skip-symbols (member target (backend-function-code function)))))))
 
+(defmethod successors (function (instruction invoke-nlx-instruction))
+  '())
+
+(defmethod successors (function (instruction invoke-nlx-multiple-instruction))
+  '())
+
 (defgeneric multiple-value-safe-p (instruction architecture)
   (:method (instruction architecture) nil))
 

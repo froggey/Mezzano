@@ -170,6 +170,7 @@
   (:export #:virtual-register
            #:register-kind
            #:backend-function
+           #:backend-function-name
 
            #:argument-setup-instruction
            #:argument-setup-fref
@@ -199,6 +200,7 @@
            #:values-values
 
            #:multiple-value-bind-instruction
+           #:multiple-value-bind-values
 
            #:save-multiple-instruction
            #:save-multiple-context
@@ -289,6 +291,15 @@
            #:unbind-instruction
            #:disestablish-block-or-tagbody-instruction
            #:disestablish-unwind-protect-instruction
+
+           #:make-dx-simple-vector-instruction
+           #:make-dx-simple-vector-result
+           #:make-dx-simple-vector-size
+
+           #:make-dx-closure-instruction
+           #:make-dx-closure-result
+           #:make-dx-closure-function
+           #:make-dx-closure-environment
 ))
 
 (defpackage :mezzano.compiler.backend.ast-convert

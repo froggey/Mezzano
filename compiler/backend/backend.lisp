@@ -9,8 +9,11 @@
   (:default-initargs :kind :value))
 
 (defclass backend-function ()
-  ((%ast-lambda :initarg :ast-lambda)
+  ((%ast-lambda :initarg :ast-lambda :reader ast)
    (%code :initarg :code :accessor backend-function-code)))
+
+(defun backend-function-name (backend-function)
+  (sys.c:lambda-information-name (ast backend-function)))
 
 (defclass backend-instruction ()
   ())
@@ -258,7 +261,7 @@
 
 (defmethod print-instruction ((instruction branch-false-instruction))
   (format t "   ~S~%"
-          `(:branch-true ,(branch-value instruction) ,(branch-target instruction))))
+          `(:branch-false ,(branch-value instruction) ,(branch-target instruction))))
 
 (defclass switch-instruction (terminator-instruction)
   ((%value :initarg :value :accessor switch-value)
@@ -690,6 +693,48 @@
 (defmethod print-instruction ((instruction disestablish-unwind-protect-instruction))
   (format t "   ~S~%"
           `(:disestablish-unwind-protect)))
+
+(defclass make-dx-simple-vector-instruction (backend-instruction)
+  ((%result :initarg :result :accessor make-dx-simple-vector-result)
+   (%size :initarg :size :accessor make-dx-simple-vector-size)))
+
+(defmethod instruction-inputs ((instruction make-dx-simple-vector-instruction))
+  (list))
+
+(defmethod instruction-outputs ((instruction make-dx-simple-vector-instruction))
+  (list (make-dx-simple-vector-result instruction)))
+
+(defmethod print-instruction ((instruction make-dx-simple-vector-instruction))
+  (format t "   ~S~%"
+          `(:make-dx-simple-vector
+            ,(make-dx-simple-vector-result instruction)
+            ,(make-dx-simple-vector-size instruction))))
+
+(defmethod instruction-pure-p ((instruction make-dx-simple-vector-instruction))
+  t)
+
+;; TODO: Support arbitrary environments.
+(defclass make-dx-closure-instruction (backend-instruction)
+  ((%result :initarg :result :accessor make-dx-closure-result)
+   (%function :initarg :function :accessor make-dx-closure-function)
+   (%environment :initarg :environment :accessor make-dx-closure-environment)))
+
+(defmethod instruction-inputs ((instruction make-dx-closure-instruction))
+  (list (make-dx-closure-function instruction)
+        (make-dx-closure-environment instruction)))
+
+(defmethod instruction-outputs ((instruction make-dx-closure-instruction))
+  (list (make-dx-closure-result instruction)))
+
+(defmethod print-instruction ((instruction make-dx-closure-instruction))
+  (format t "   ~S~%"
+          `(:make-dx-closure
+            ,(make-dx-closure-result instruction)
+            ,(make-dx-closure-function instruction)
+            ,(make-dx-closure-environment instruction))))
+
+(defmethod instruction-pure-p ((instruction make-dx-closure-instruction))
+  t)
 
 (defun print-function (function)
   (format t "~S~%" function)

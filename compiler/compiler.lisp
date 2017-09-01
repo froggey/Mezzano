@@ -24,6 +24,8 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3))
 
+(defvar *use-new-compiler* t)
+
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
@@ -37,7 +39,8 @@ be generated instead.")
                    *optimize-restrictions*
                    *optimize-policy*
                    *verify-special-stack*
-                   *constprop-lambda-copy-limit*)))
+                   *constprop-lambda-copy-limit*
+                   *use-new-compiler*)))
     (loop
        for sym in symbols
        collect (list sym (symbol-value sym)))))
@@ -73,7 +76,10 @@ A list of any declaration-specifiers."
   (detect-uses lambda)
   (ecase (default-architecture target-architecture)
     (:x86-64
-     (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))
+     (if *use-new-compiler*
+         (mezzano.compiler.backend.x86-64::compile-backend-function
+          (mezzano.compiler.backend.ast-convert:convert lambda))
+         (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
     (:arm64
      (mezzano.compiler.codegen.arm64:codegen-lambda lambda))))
 
