@@ -672,7 +672,10 @@
             :effect)))
         ((endp (rest (ast-arguments form)))
          ;; One value
-         (cg-form (first (ast-arguments form)) result-mode))
+         (cg-form (first (ast-arguments form))
+                  (if (member result-mode '(:tail :multiple))
+                      :value
+                      result-mode)))
         ((eql result-mode :effect)
          ;; Like PROGN
          (loop
