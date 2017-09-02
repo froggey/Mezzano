@@ -277,9 +277,14 @@
     #+x86-64
     (disable-page-fault-ist)
     (debug-print-line "----- PANIC -----")
-    (debug-print-line-1 things)
-    (when extra
-      (funcall extra))
+    (block nil
+      (with-page-fault-hook
+          (()
+           (debug-write-string "--truncated--")
+           (return))
+        (debug-print-line-1 things)
+        (when extra
+          (funcall extra))))
     (debug-dump-threads)
     (loop (%arch-panic-stop))))
 
