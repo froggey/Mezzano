@@ -217,7 +217,19 @@
                                    :operands (list `(:object ,obj ,index-value) value)
                                    :inputs (list value obj)
                                    :outputs (list)))
-                   (mezzano.compiler.backend::remove-instruction backend-function inst)))))))))
+                   (mezzano.compiler.backend::remove-instruction backend-function inst)))))
+            ((and (typep inst 'call-instruction)
+                  (endp (call-arguments inst))
+                  (eql (call-function inst) 'sys.int::read-frame-pointer))
+             (let ((result (call-result inst)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:lea64
+                               :operands (list result `((:rbp ,(ash 1 sys.int::+n-fixnum-bits+))))
+                               :inputs (list)
+                               :outputs (list result)))
+               (mezzano.compiler.backend::remove-instruction backend-function inst)))))))
 
 (defun peephole (backend-function)
   (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
@@ -227,12 +239,14 @@
                 (eql (move-source inst) (move-destination inst)))
            ;; Delete (move foo foo)
            (mezzano.compiler.backend::remove-instruction backend-function inst))
+          #+(or)
           ((and (typep inst 'move-instruction)
                 (typep next-inst 'spill-instruction)
                 (eql (move-destination inst) (spill-source next-inst)))
            ;; (move t reg) (spill vreg t) => (spill vreg reg)
            (setf (spill-source next-inst) (move-source inst))
            (mezzano.compiler.backend::remove-instruction backend-function inst))
+          #+(or)
           ((and (typep inst 'fill-instruction)
                 (typep next-inst 'move-instruction)
                 (eql (fill-destination inst) (move-source next-inst)))
