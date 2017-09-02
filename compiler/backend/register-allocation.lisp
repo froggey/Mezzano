@@ -390,57 +390,69 @@
 (deftype physical-register ()
   'keyword)
 
-(defun build-live-ranges (backend-function ordering architecture)
+(defun instruction-all-clobbers (inst architecture mv-flow live-in live-out)
+  (union
+   (union
+    (union
+     (union
+      (union
+       (remove-if-not (lambda (x) (typep x 'physical-register))
+                      (instruction-inputs inst))
+       (remove-if-not (lambda (x) (typep x 'physical-register))
+                      (instruction-outputs inst)))
+      (instruction-clobbers inst architecture))
+     (if (eql (gethash inst mv-flow) :multiple)
+         '(:rcx :r8 :r9 :r10 :r11 :r12)
+         '()))
+    (remove-if-not (lambda (x) (typep x 'physical-register))
+                   (gethash inst live-in)))
+   (remove-if-not (lambda (x) (typep x 'physical-register))
+                  (gethash inst live-out))))
+
+(defun build-live-ranges (backend-function ordering architecture live-in live-out)
   (let ((vreg-liveness-start (make-hash-table))
         (vreg-liveness-end (make-hash-table))
         (vreg-conflicts (make-hash-table))
-        (vreg-move-hint (make-hash-table)))
-    (multiple-value-bind (live-in live-out)
-        (compute-liveness backend-function)
-      (loop
-         for i from 0
-         for inst in ordering
-         do
-           (let ((clobbers (union (union
-                                   (remove-if-not (lambda (x) (typep x 'physical-register))
-                                                  (instruction-inputs inst))
-                                   (remove-if-not (lambda (x) (typep x 'physical-register))
-                                                  (instruction-outputs inst)))
-                                  (instruction-clobbers inst architecture)))
-                 (vregs (union (union
-                                (remove-if-not (lambda (x) (typep x 'virtual-register))
-                                               (gethash inst live-in))
-                                (remove-if-not (lambda (x) (typep x 'virtual-register))
-                                               (gethash inst live-out)))
-                               ;; If a vreg isn't used, then it won't show up in the liveness maps.
-                               ;; Scan the instruction's outputs to catch this.
-                               (remove-if-not (lambda (x) (typep x 'virtual-register))
-                                              (instruction-outputs inst)))))
-             (dolist (vreg vregs)
-               (setf (gethash vreg vreg-liveness-start) (min i (gethash vreg vreg-liveness-start most-positive-fixnum)))
-               (setf (gethash vreg vreg-liveness-end) (max i (gethash vreg vreg-liveness-end 0)))
-               ;; Don't conflict source/destination of move instructions.
-               ;; #'linear-scan-allocator specializes this.
-               (when (not (and (typep inst 'move-instruction)
-                               (or (eql (move-source inst) vreg)
-                                   (eql (move-destination inst) vreg))))
-                 (dolist (preg clobbers)
-                   (pushnew preg (gethash vreg vreg-conflicts '()))))
-               (when (and (typep inst 'move-instruction)
-                          (eql (move-source inst) vreg)
-                          (typep (move-destination inst) 'physical-register)
-                          (not (member (move-destination inst)
-                                       (gethash vreg vreg-conflicts '()))))
-                 (setf (gethash vreg vreg-move-hint) (move-destination inst)))
-               (when (typep inst 'argument-setup-instruction)
-                 (when (eql (argument-setup-closure inst) vreg)
-                   (setf (gethash vreg vreg-move-hint) *funcall-register*))
-                 (when (eql (argument-setup-fref inst) vreg)
-                   (setf (gethash vreg vreg-move-hint) *fref-register*))
-                 (when (member vreg (argument-setup-required inst))
-                   (setf (gethash vreg vreg-move-hint) (nth (position vreg (argument-setup-required inst))
-                                                            *argument-registers*))))
-               ))))
+        (vreg-move-hint (make-hash-table))
+        (mv-flow (multiple-value-flow backend-function architecture)))
+    (loop
+       for i from 0
+       for inst in ordering
+       do
+         (let ((clobbers (instruction-all-clobbers inst architecture mv-flow live-in live-out))
+               (vregs (union (union
+                              (remove-if-not (lambda (x) (typep x 'virtual-register))
+                                             (gethash inst live-in))
+                              (remove-if-not (lambda (x) (typep x 'virtual-register))
+                                             (gethash inst live-out)))
+                             ;; If a vreg isn't used, then it won't show up in the liveness maps.
+                             ;; Scan the instruction's outputs to catch this.
+                             (remove-if-not (lambda (x) (typep x 'virtual-register))
+                                            (instruction-outputs inst)))))
+           (dolist (vreg vregs)
+             (setf (gethash vreg vreg-liveness-start) (min i (gethash vreg vreg-liveness-start most-positive-fixnum)))
+             (setf (gethash vreg vreg-liveness-end) (max i (gethash vreg vreg-liveness-end 0)))
+             ;; Don't conflict source/destination of move instructions.
+             ;; #'linear-scan-allocator specializes this.
+             (when (not (and (typep inst 'move-instruction)
+                             (or (eql (move-source inst) vreg)
+                                 (eql (move-destination inst) vreg))))
+               (dolist (preg clobbers)
+                 (pushnew preg (gethash vreg vreg-conflicts '()))))
+             (when (and (typep inst 'move-instruction)
+                        (eql (move-source inst) vreg)
+                        (typep (move-destination inst) 'physical-register)
+                        (not (member (move-destination inst)
+                                     (gethash vreg vreg-conflicts '()))))
+               (setf (gethash vreg vreg-move-hint) (move-destination inst)))
+             (when (typep inst 'argument-setup-instruction)
+               (when (eql (argument-setup-closure inst) vreg)
+                 (setf (gethash vreg vreg-move-hint) *funcall-register*))
+               (when (eql (argument-setup-fref inst) vreg)
+                 (setf (gethash vreg vreg-move-hint) *fref-register*))
+               (when (member vreg (argument-setup-required inst))
+                 (setf (gethash vreg vreg-move-hint) (nth (position vreg (argument-setup-required inst))
+                                                          *argument-registers*)))))))
     (sort (loop
              for vreg being the hash-keys of vreg-liveness-start using (hash-value start)
              for end = (gethash vreg vreg-liveness-end)
@@ -455,7 +467,7 @@
           #'<
           :key #'live-range-start)))
 
-(defun linear-scan-allocate (ordering live-ranges architecture)
+(defun linear-scan-allocate (backend-function ordering live-ranges architecture live-in live-out)
   (let* ((remaining-live-ranges live-ranges)
          (active '())
          ;; list of spilled values
@@ -464,7 +476,8 @@
          (registers (make-hash-table))
          ;; (inst . vreg) => register
          (instantaneous-registers (make-hash-table :test 'equal))
-         (free-registers '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx)))
+         (free-registers '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx))
+         (mv-flow (multiple-value-flow backend-function architecture)))
     (flet ((expire-old-intervals (i)
              (loop
                 (when (endp active)
@@ -481,8 +494,10 @@
                                                     (member (gethash (live-range-vreg spill-interval) registers)
                                                             (live-range-conflicts i)))
                                                   active)))))
-               ;;(format t "active ~S~%" active)
-               ;;(format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil))
+               #+(or)
+               (format t "active ~S~%" active)
+               #+(or)
+               (format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil))
                (cond ((and spill
                            (> (live-range-end spill) (live-range-end i)))
                       (setf (gethash (live-range-vreg i) registers) (gethash (live-range-vreg spill) registers))
@@ -495,7 +510,8 @@
          for instruction-index from 0
          for inst in ordering
          do
-           ;;(print-instruction inst)
+               #+(or)
+           (print-instruction inst)
            (expire-old-intervals instruction-index)
            (loop
               (when (not (and remaining-live-ranges
@@ -527,9 +543,12 @@
                      (reg (if (member hint candidates)
                               hint
                               (first candidates))))
-                ;;(format t "Interval ~S~%" interval)
-                ;;(format t "Candidates ~S~%" candidates)
-                ;;(format t "hint/reg ~S / ~S~%" hint reg)
+               #+(or)
+                (format t "Interval ~S~%" interval)
+               #+(or)
+                (format t "Candidates ~S~%" candidates)
+               #+(or)
+                (format t "hint/reg ~S / ~S~%" hint reg)
                 (cond ((and (typep inst 'argument-setup-instruction)
                             (eql instruction-index (live-range-end interval)))
                        ;; Argument setup instruction with an unused argument.
@@ -553,22 +572,13 @@
                   (spilled-vregs (remove-if-not (lambda (vreg)
                                                   (member vreg spilled))
                                                 vregs))
-                  (used-pregs (union
-                               (union (remove-duplicates
-                                       (remove-if-not (lambda (r)
-                                                        (typep r 'physical-register))
-                                                      (instruction-inputs inst)))
-                                      (remove-duplicates
-                                       (remove-if-not (lambda (r)
-                                                        (typep r 'physical-register))
-                                                      (instruction-outputs inst))))
-                               (instruction-clobbers inst architecture)))
+                  (used-pregs (instruction-all-clobbers inst architecture mv-flow live-in live-out))
                   ;; Allocations only matter for the specific instruction.
                   ;; Don't update the normal free-registers list.
                   (available-regs (remove-if (lambda (preg)
                                                (member preg used-pregs))
                                              free-registers)))
-             #+(or)
+               #+(or)
              (format t "Instants ~S ~S ~S ~S~%"
                                  (remove-if-not (lambda (r)
                                                   (typep r 'virtual-register))
@@ -586,9 +596,12 @@
                       ;; Look for some register to spill.
                       ;; Select the longest-lived non-conflicting range to spill.
                       (let ((spill (first (last (remove-if (lambda (spill-interval)
-                                                             ;; Don't spill any vregs used by this instruction.
-                                                             (member (live-range-vreg spill-interval)
-                                                                     vregs))
+                                                             (or
+                                                              ;; Don't spill any vregs used by this instruction.
+                                                              (member (live-range-vreg spill-interval) vregs)
+                                                              ;; Or any pregs.
+                                                              (member (gethash (live-range-vreg spill-interval) registers)
+                                                                      used-pregs)))
                                                            active)))))
                         (when (not spill)
                           (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
@@ -598,7 +611,9 @@
                         (setf active (remove spill active))
                         (push (gethash (live-range-vreg spill) registers) free-registers)))
                      (t
-                      (setf (gethash (cons inst vreg) instantaneous-registers) (pop available-regs))))))))
+                      (setf (gethash (cons inst vreg) instantaneous-registers) (pop available-regs))))
+               #+(or)
+               (format t "Pick ~S for ~S~%" (gethash (cons inst vreg) instantaneous-registers) vreg)))))
     (values registers spilled instantaneous-registers)))
 
 (defgeneric replace-all-registers (instruction substitution-function))

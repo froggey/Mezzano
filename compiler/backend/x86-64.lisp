@@ -1078,14 +1078,18 @@
   (mezzano.compiler.backend::canonicalize-values backend-function)
   (mezzano.compiler.backend.x86-64::lower backend-function)
   (mezzano.compiler.backend::remove-unused-instructions backend-function)
-  (let ((order (mezzano.compiler.backend::instructions-reverse-postorder backend-function))
-        (arch :x86-64))
-    (multiple-value-bind (registers spilled instantaneous-registers)
-        (mezzano.compiler.backend::linear-scan-allocate
-         order
-         (mezzano.compiler.backend::build-live-ranges backend-function order arch)
-         arch)
-      (mezzano.compiler.backend::rewrite-after-allocation backend-function registers spilled instantaneous-registers)))
+  (multiple-value-bind (live-in live-out)
+      (mezzano.compiler.backend::compute-liveness backend-function)
+    (let ((order (mezzano.compiler.backend::instructions-reverse-postorder backend-function))
+          (arch :x86-64))
+      (multiple-value-bind (registers spilled instantaneous-registers)
+          (mezzano.compiler.backend::linear-scan-allocate
+           backend-function
+           order
+           (mezzano.compiler.backend::build-live-ranges backend-function order arch live-in live-out)
+           arch
+           live-in live-out)
+        (mezzano.compiler.backend::rewrite-after-allocation backend-function registers spilled instantaneous-registers))))
   (mezzano.compiler.backend.x86-64::peephole backend-function))
 
 (defun compile-backend-function-2 (backend-function)
