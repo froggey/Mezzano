@@ -47,6 +47,63 @@
   (format t "   ~S~%"
           `(:x86-branch ,(x86-instruction-opcode instruction) ,(x86-branch-target instruction))))
 
+(defclass x86-tail-call-instruction (mezzano.compiler.backend::base-call-instruction)
+  ((%function :initarg :function :accessor call-function)
+   (%arguments :initarg :arguments :accessor call-arguments)))
+
+(defmethod mezzano.compiler.backend::successors (function (instruction x86-tail-call-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-tail-call-instruction))
+  (call-arguments instruction))
+
+(defmethod mezzano.compiler.backend::instruction-outputs ((instruction x86-tail-call-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-tail-call-instruction) substitution-function)
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction x86-tail-call-instruction))
+  (format t "   ~S~%"
+          `(:x86-tail-call ,(call-function instruction) ,(call-arguments instruction))))
+
+(defmethod mezzano.compiler.backend::allow-memory-operand-p ((instruction x86-tail-call-instruction) operand (architecture (eql :x86-64)))
+  (not (or (eql (first (call-arguments instruction)) operand)
+           (eql (second (call-arguments instruction)) operand)
+           (eql (third (call-arguments instruction)) operand)
+           (eql (fourth (call-arguments instruction)) operand)
+           (eql (fifth (call-arguments instruction)) operand))))
+
+(defclass x86-tail-funcall-instruction (mezzano.compiler.backend::base-call-instruction)
+  ((%function :initarg :function :accessor call-function)
+   (%arguments :initarg :arguments :accessor call-arguments)))
+
+(defmethod mezzano.compiler.backend::successors (function (instruction x86-tail-funcall-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-tail-funcall-instruction))
+  (list* (call-function instruction)
+         (call-arguments instruction)))
+
+(defmethod mezzano.compiler.backend::instruction-outputs ((instruction x86-tail-funcall-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-tail-funcall-instruction) substitution-function)
+  (setf (call-function instruction) (funcall substitution-function (call-function instruction)))
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction x86-tail-funcall-instruction))
+  (format t "   ~S~%"
+          `(:x86-tail-funcall ,(call-function instruction) ,(call-arguments instruction))))
+
+(defmethod mezzano.compiler.backend::allow-memory-operand-p ((instruction x86-tail-funcall-instruction) operand (architecture (eql :x86-64)))
+  (not (or (eql (call-function instruction) operand)
+           (eql (first (call-arguments instruction)) operand)
+           (eql (second (call-arguments instruction)) operand)
+           (eql (third (call-arguments instruction)) operand)
+           (eql (fourth (call-arguments instruction)) operand)
+           (eql (fifth (call-arguments instruction)) operand))))
+
 (defun resolve-constant (register defs)
   (let ((register-defs (gethash register defs)))
     (cond ((and register-defs
@@ -229,7 +286,39 @@
                                :operands (list result `((:rbp ,(ash 1 sys.int::+n-fixnum-bits+))))
                                :inputs (list)
                                :outputs (list result)))
-               (mezzano.compiler.backend::remove-instruction backend-function inst)))))))
+               (mezzano.compiler.backend::remove-instruction backend-function inst)))
+            ((and sys.c::*perform-tce*
+                  (typep inst 'call-multiple-instruction)
+                  (typep next-inst 'return-multiple-instruction)
+                  (<= (length (call-arguments inst)) 5))
+             ;; (call-multiple ...) (return-multiple) => (tail-call ...)
+             (mezzano.compiler.backend::insert-before
+              backend-function inst
+              (make-instance 'x86-tail-call-instruction
+                             :function (call-function inst)
+                             :arguments (call-arguments inst)))
+             (let ((return-inst next-inst))
+               ;; Point next to the instruction after the return.
+               (setf next-inst (mezzano.compiler.backend::next-instruction backend-function next-inst))
+               ;; Remove the old call & return.
+               (mezzano.compiler.backend::remove-instruction backend-function inst)
+               (mezzano.compiler.backend::remove-instruction backend-function return-inst)))
+            ((and sys.c::*perform-tce*
+                  (typep inst 'funcall-multiple-instruction)
+                  (typep next-inst 'return-multiple-instruction)
+                  (<= (length (call-arguments inst)) 5))
+             ;; (funcall-multiple ...) (return-multiple) => (tail-funcall ...)
+             (mezzano.compiler.backend::insert-before
+              backend-function inst
+              (make-instance 'x86-tail-funcall-instruction
+                             :function (call-function inst)
+                             :arguments (call-arguments inst)))
+             (let ((return-inst next-inst))
+               ;; Point next to the instruction after the return.
+               (setf next-inst (mezzano.compiler.backend::next-instruction backend-function next-inst))
+               ;; Remove the old call & return.
+               (mezzano.compiler.backend::remove-instruction backend-function inst)
+               (mezzano.compiler.backend::remove-instruction backend-function return-inst)))))))
 
 (defun peephole (backend-function)
   (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
@@ -619,6 +708,21 @@
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (emit-gc-info :multiple-values 0)
   (call-argument-teardown (call-arguments instruction)))
+
+(defmethod emit-lap (backend-function (instruction x86-tail-call-instruction) uses defs)
+  (call-argument-setup (call-arguments instruction))
+  (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
+        `(lap:leave)
+        ;; Don't use emit-gc-info, using a custom layout.
+        `(:gc :no-frame :layout #*0)
+        `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))))
+
+(defmethod emit-lap (backend-function (instruction x86-tail-funcall-instruction) uses defs)
+  (call-argument-setup (call-arguments instruction))
+  (emit `(lap:leave)
+        ;; Don't use emit-gc-info, using a custom layout.
+        `(:gc :no-frame :layout #*0)
+        `(lap:jmp (:object :rbx ,sys.int::+function-entry-point+))))
 
 (defmethod emit-lap (backend-function (instruction funcall-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
