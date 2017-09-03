@@ -5,20 +5,20 @@
 
 (in-package :mezzano.compiler.backend.ast-convert)
 
-(defvar *code-accum*)
+(defvar *backend-function*)
 (defvar *variable-registers*)
 (defvar *go-tag-and-block-labels*)
 (defvar *dynamic-stack*)
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
-    (push i *code-accum*)))
+    (append-instruction *backend-function* i)))
 
 (defun convert (lambda)
   (codegen-lambda lambda))
 
 (defun codegen-lambda (lambda)
-  (let ((*code-accum* '())
+  (let ((*backend-function* (make-instance 'backend-function :ast-lambda lambda))
         (*variable-registers* (make-hash-table))
         (*go-tag-and-block-labels* (make-hash-table))
         (*dynamic-stack* '()))
@@ -30,9 +30,7 @@
                (emit (make-instance 'return-multiple-instruction)))
               (t
                (emit (make-instance 'return-instruction :value value))))))
-    (make-instance 'backend-function
-                   :ast-lambda lambda
-                   :code (reverse *code-accum*))))
+    *backend-function*))
 
 (defun check-lambda-arguments-are-simple (lambda)
     ;; No keyword arguments, no special arguments, no non-nil
@@ -186,8 +184,8 @@
   (let* ((info (ast-info form))
          (result-reg (make-instance 'virtual-register :name :block-result))
          (escape-reg (make-instance 'virtual-register :name :block-escape))
-         (exit-label (gensym "BLOCK-EXIT"))
-         (thunk-label (gensym "BLOCK-THUNK"))
+         (exit-label (make-instance 'label :name :block-exit))
+         (thunk-label (make-instance 'label :name :block-thunk))
          (escapes (block-information-env-var info))
          (*dynamic-stack* *dynamic-stack*)
          (nlx-region (make-instance 'begin-nlx-instruction
@@ -294,7 +292,7 @@
         (fref-index (make-instance 'virtual-register))
         (fname-reg (make-instance 'virtual-register))
         (is-defined (make-instance 'virtual-register))
-        (out (gensym))
+        (out (make-instance 'label :name :out))
         (result (make-instance 'virtual-register)))
     (emit (make-instance 'constant-instruction
                          :destination fref-reg
@@ -332,8 +330,8 @@
        result))))
 
 (defmethod cg-form ((form ast-if) result-mode)
-  (let ((else-label (gensym "IF-ELSE"))
-        (exit-label (gensym "IF-EXIT"))
+  (let ((else-label (make-instance 'label :name :if-else))
+        (exit-label (make-instance 'label :name :if-exit))
         (test-value (cg-form (ast-test form) :value))
         (result (make-instance 'virtual-register :name :if-result))
         (exit-reached 0))
@@ -545,16 +543,16 @@
 
 (defmethod cg-form ((form ast-tagbody) result-mode)
   (let* ((need-exit-label nil)
-         (exit-label (gensym "TAGBODY-EXIT"))
+         (exit-label (make-instance 'label :name :tagbody-exit))
          (info (ast-info form))
          (escapes (not (tagbody-localp info)))
          (escape-reg (make-instance 'virtual-register :name :tagbody-nlx))
          (tag-labels (loop
                         for tag in (tagbody-information-go-tags info)
-                        collect (gensym)))
+                        collect (make-instance 'label :name (go-tag-name tag))))
          (thunk-labels (loop
                           for tag in (tagbody-information-go-tags info)
-                          collect (gensym)))
+                          collect (make-instance 'label :name `(:nlx-thunk ,(go-tag-name tag)))))
          (*dynamic-stack* *dynamic-stack*)
          (nlx-region (make-instance 'begin-nlx-instruction
                                     :context escape-reg
@@ -864,14 +862,14 @@
   (let* ((value (ast-value form))
          (jumps (ast-targets form))
          (tag (cg-form value :value))
-         (exit-label (gensym "jump-table-exit"))
+         (exit-label (make-instance 'label :name :jump-table-exit))
          (need-exit nil)
          (targets
           (loop
              for j in jumps
              collect (if (local-go-p j)
                          (first (gethash (ast-target j) *go-tag-and-block-labels*))
-                         (gensym)))))
+                         (make-instance 'label :name :jump-table-target)))))
     (when (not tag)
       (return-from cg-form nil))
     (emit (make-instance 'switch-instruction

@@ -10,13 +10,101 @@
 
 (defclass backend-function ()
   ((%ast-lambda :initarg :ast-lambda :reader ast)
-   (%code :initarg :code :accessor backend-function-code)))
+   (%first-instruction :initform nil)
+   (%last-instruction :initform nil)))
 
 (defun backend-function-name (backend-function)
   (sys.c:lambda-information-name (ast backend-function)))
 
 (defclass backend-instruction ()
-  ())
+  ((%next-instruction)
+   (%prev-instruction)))
+
+(defun first-instruction (function)
+  (slot-value function '%first-instruction))
+
+(defun last-instruction (function)
+  (slot-value function '%last-instruction))
+
+(defun next-instruction (function instruction)
+  (declare (ignore function))
+  (slot-value instruction '%next-instruction))
+
+(defun prev-instruction (function instruction)
+  (declare (ignore function))
+  (slot-value instruction '%prev-instruction))
+
+(defun insert-before (function instruction new-instruction)
+  (setf (slot-value new-instruction '%prev-instruction) (slot-value instruction '%prev-instruction)
+        (slot-value new-instruction '%next-instruction) instruction)
+  (cond ((null (slot-value instruction '%prev-instruction))
+         (setf (slot-value function '%first-instruction) new-instruction))
+        (t
+         (setf (slot-value (slot-value instruction '%prev-instruction)
+                           '%next-instruction)
+               new-instruction)))
+  (setf (slot-value instruction '%prev-instruction) new-instruction)
+  new-instruction)
+
+(defun insert-after (function instruction new-instruction)
+  (setf (slot-value new-instruction '%next-instruction) (slot-value instruction '%next-instruction)
+        (slot-value new-instruction '%prev-instruction) instruction)
+  (cond ((null (slot-value instruction '%next-instruction))
+         (setf (slot-value function '%last-instruction) new-instruction))
+        (t
+         (setf (slot-value (slot-value instruction '%next-instruction)
+                           '%prev-instruction)
+               new-instruction)))
+  (setf (slot-value instruction '%next-instruction) new-instruction)
+  new-instruction)
+
+(defun append-instruction (function new-instruction)
+  (cond ((null (slot-value function '%last-instruction))
+         (setf (slot-value new-instruction '%next-instruction) nil
+               (slot-value new-instruction '%prev-instruction) nil)
+         (setf (slot-value function '%first-instruction) new-instruction
+               (slot-value function '%last-instruction) new-instruction))
+        (t
+         (insert-after function (last-instruction function) new-instruction)))
+  new-instruction)
+
+(defun remove-instruction (function instruction)
+  (cond ((and (eql (slot-value function '%first-instruction) instruction)
+              (eql (slot-value function '%last-instruction) instruction))
+         (setf (slot-value function '%first-instruction) nil
+               (slot-value function '%last-instruction) nil))
+        ((eql (slot-value function '%first-instruction) instruction)
+         (setf (slot-value function '%first-instruction)
+               (slot-value instruction '%next-instruction))
+         (setf (slot-value (slot-value instruction '%next-instruction) '%prev-instruction) nil))
+        ((eql (slot-value function '%last-instruction) instruction)
+         (setf (slot-value function '%last-instruction)
+               (slot-value instruction '%prev-instruction))
+         (setf (slot-value (slot-value instruction '%prev-instruction) '%next-instruction) nil))
+        (t
+         (setf (slot-value (slot-value instruction '%prev-instruction) '%next-instruction)
+               (slot-value instruction '%next-instruction))
+         (setf (slot-value (slot-value instruction '%next-instruction) '%prev-instruction)
+               (slot-value instruction '%prev-instruction))))
+  (slot-makunbound instruction '%next-instruction)
+  (slot-makunbound instruction '%prev-instruction)
+  (values))
+
+(defmacro do-instructions ((instruction function &optional result-value) &body body)
+  (let ((fn-sym (gensym)))
+    `(do* ((,fn-sym ,function)
+           (,instruction (first-instruction ,fn-sym) (next-instruction ,fn-sym ,instruction)))
+          ((null ,instruction)
+           ,result-value)
+      ,@body)))
+
+(defmacro do-reversed-instructions ((instruction function &optional result-value) &body body)
+  (let ((fn-sym (gensym)))
+    `(do* ((,fn-sym ,function)
+           (,instruction (last-instruction ,fn-sym) (prev-instruction ,fn-sym ,instruction)))
+          ((null ,instruction)
+           ,result-value)
+      ,@body)))
 
 (defclass terminator-instruction (backend-instruction)
   ()
@@ -40,6 +128,28 @@
 (defgeneric instruction-pure-p (instruction)
   (:method ((instruction backend-instruction))
     nil))
+
+(defgeneric successors (function instruction)
+  (:method (function (instruction backend-instruction))
+    (list (next-instruction function instruction)))
+  (:method (function (instruction terminator-instruction))
+    (error "Terminator instructions must implement a method on SUCCESSORS.")))
+
+(defgeneric successors (function instruction)
+  (:method (function (instruction backend-instruction))
+    (list (next-instruction function instruction))))
+
+(defclass label (backend-instruction)
+  ((%name :initarg :name :reader label-name)))
+
+(defmethod instruction-inputs ((instruction label))
+  (list))
+
+(defmethod instruction-outputs ((instruction label))
+  (list))
+
+(defmethod print-instruction ((instruction label))
+  (format t "~S~%" instruction))
 
 (defclass argument-setup-instruction (backend-instruction)
   ((%fref :initarg :fref :accessor argument-setup-fref)
@@ -232,6 +342,9 @@
 (defmethod instruction-outputs ((instruction jump-instruction))
   (list))
 
+(defmethod successors (function (instruction jump-instruction))
+  (list (jump-target instruction)))
+
 (defmethod print-instruction ((instruction jump-instruction))
   (format t "   ~S~%"
           `(:jump ,(jump-target instruction))))
@@ -246,6 +359,10 @@
 
 (defmethod instruction-outputs ((instruction branch-instruction))
   (list))
+
+(defmethod successors (function (instruction branch-instruction))
+  (list (next-instruction function instruction)
+        (branch-target instruction)))
 
 (defclass branch-true-instruction (branch-instruction)
   ()
@@ -273,6 +390,9 @@
 
 (defmethod instruction-outputs ((instruction switch-instruction))
   (list))
+
+(defmethod successors (function (instruction switch-instruction))
+  (switch-targets instruction))
 
 (defmethod print-instruction ((instruction switch-instruction))
   (format t "   ~S~%"
@@ -399,6 +519,9 @@
 (defmethod instruction-outputs ((instruction return-instruction))
   (list))
 
+(defmethod successors (function (instruction return-instruction))
+  '())
+
 (defmethod print-instruction ((instruction return-instruction))
   (format t "   ~S~%"
           `(:return ,(return-value instruction))))
@@ -412,6 +535,9 @@
 
 (defmethod instruction-outputs ((instruction return-multiple-instruction))
   (list))
+
+(defmethod successors (function (instruction return-multiple-instruction))
+  '())
 
 (defmethod print-instruction ((instruction return-multiple-instruction))
   (format t "   ~S~%"
@@ -445,6 +571,10 @@
 (defmethod instruction-outputs ((instruction begin-nlx-instruction))
   (list (nlx-context instruction)))
 
+(defmethod successors (function (instruction begin-nlx-instruction))
+  (append (call-next-method)
+          (begin-nlx-targets instruction)))
+
 (defmethod print-instruction ((instruction begin-nlx-instruction))
   (format t "   ~S~%"
           `(:begin-nlx ,(nlx-context instruction) ,(begin-nlx-targets instruction))))
@@ -476,6 +606,9 @@
 (defmethod instruction-outputs ((instruction invoke-nlx-instruction))
   (list))
 
+(defmethod successors (function (instruction invoke-nlx-instruction))
+  '())
+
 (defmethod print-instruction ((instruction invoke-nlx-instruction))
   (format t "   ~S~%"
           `(:invoke-nlx ,(nlx-context instruction) ,(invoke-nlx-index instruction) ,(invoke-nlx-value instruction))))
@@ -490,6 +623,9 @@
 
 (defmethod instruction-outputs ((instruction invoke-nlx-multiple-instruction))
   (list))
+
+(defmethod successors (function (instruction invoke-nlx-multiple-instruction))
+  '())
 
 (defmethod print-instruction ((instruction invoke-nlx-multiple-instruction))
   (format t "   ~S~%"
@@ -738,8 +874,8 @@
 
 (defun print-function (function)
   (format t "~S~%" function)
-  (dolist (c (backend-function-code function))
-    (cond ((symbolp c)
+  (do-instructions (c function)
+    (cond ((typep c 'label)
            (format t " ~S~%" c))
           (t
            (print-instruction c)))))

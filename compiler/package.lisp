@@ -390,6 +390,21 @@
            #:backend-function
            #:backend-function-name
 
+           #:first-instruction
+           #:last-instruction
+           #:next-instruction
+           #:prev-instruction
+           #:insert-before
+           #:insert-after
+           #:append-instruction
+           #:remove-instruction
+
+           #:do-instructions
+           #:do-reversed-instructions
+
+           #:label
+           #:label-name
+
            #:argument-setup-instruction
            #:argument-setup-fref
            #:argument-setup-closure

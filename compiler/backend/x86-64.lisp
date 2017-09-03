@@ -31,8 +31,8 @@
    (%target :initarg :target :reader x86-branch-target)))
 
 (defmethod mezzano.compiler.backend::successors (function (instruction x86-branch-instruction))
-  (list (first (mezzano.compiler.backend::skip-symbols (rest (member instruction (mezzano.compiler.backend::backend-function-code function)))))
-        (first (mezzano.compiler.backend::skip-symbols (member (x86-branch-target instruction) (mezzano.compiler.backend::backend-function-code function))))))
+  (list (next-instruction function instruction)
+        (x86-branch-target instruction)))
 
 (defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-branch-instruction))
   '())
@@ -362,6 +362,11 @@
 (defvar *dx-root-visibility*)
 (defvar *current-frame-layout*)
 (defvar *prepass-data*)
+(defvar *labels*)
+
+(defun resolve-label (label)
+  (or (gethash label *labels*)
+      (error "Unknown label ~S" label)))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
@@ -415,10 +420,13 @@
           (*saved-multiple-values* (make-hash-table))
           (*dx-root-visibility* (make-hash-table))
           (*prepass-data* (make-hash-table))
-          (*current-frame-layout* nil))
-      (dolist (inst-or-label (mezzano.compiler.backend::backend-function-code backend-function))
-        (when (not (symbolp inst-or-label))
-          (lap-prepass backend-function inst-or-label uses defs)))
+          (*current-frame-layout* nil)
+          (*labels* (make-hash-table)))
+      (do-instructions (inst-or-label backend-function)
+        (cond ((typep inst-or-label 'label)
+               (setf (gethash inst-or-label *labels*) (gensym)))
+              (t
+               (lap-prepass backend-function inst-or-label uses defs))))
       (let ((*emitted-lap* '())
             (*current-frame-layout* (coerce (loop
                                                for elt across *stack-layout*
@@ -444,9 +452,9 @@
              do (when (not (zerop elt))
                   (emit `(lap:mov64 (:stack ,i) nil)))))
         (emit-gc-info :incoming-arguments :rcx)
-        (dolist (inst-or-label (mezzano.compiler.backend::backend-function-code backend-function))
-          (cond ((symbolp inst-or-label)
-                 (push inst-or-label *emitted-lap*))
+        (do-instructions (inst-or-label backend-function)
+          (cond ((typep inst-or-label 'label)
+                 (push (gethash inst-or-label *labels*) *emitted-lap*))
                 (t
                  (emit `(:comment ,(format nil "~S"  inst-or-label)))
                  (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
@@ -611,7 +619,7 @@
 
 (defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
   (emit (list (x86-instruction-opcode instruction)
-              (x86-branch-target instruction))))
+              (resolve-label (x86-branch-target instruction)))))
 
 (defmethod emit-lap (backend-function (instruction constant-instruction) uses defs)
   (let ((value (constant-value instruction))
@@ -645,7 +653,7 @@
         `(lap:ret)))
 
 (defmethod emit-lap (backend-function (instruction jump-instruction) uses defs)
-  (emit `(lap:jmp ,(jump-target instruction))))
+  (emit `(lap:jmp ,(resolve-label (jump-target instruction)))))
 
 (defmethod emit-lap (backend-function (instruction switch-instruction) uses defs)
   (let ((jump-table (gensym)))
@@ -655,15 +663,15 @@
     (emit jump-table)
     (loop
        for target in (switch-targets instruction)
-       do (emit `(:d64/le (- ,target ,jump-table))))))
+       do (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))))
 
 (defmethod emit-lap (backend-function (instruction branch-true-instruction) uses defs)
   (emit `(lap:cmp64 ,(branch-value instruction) nil)
-        `(lap:jne ,(branch-target instruction))))
+        `(lap:jne ,(resolve-label (branch-target instruction)))))
 
 (defmethod emit-lap (backend-function (instruction branch-false-instruction) uses defs)
   (emit `(lap:cmp64 ,(branch-value instruction) nil)
-        `(lap:je ,(branch-target instruction))))
+        `(lap:je ,(resolve-label (branch-target instruction)))))
 
 (defun call-argument-setup (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))
@@ -848,7 +856,7 @@
     (emit `(lap:jmp ,over)
           jump-table)
     (dolist (target (begin-nlx-targets instruction))
-      (emit `(:d64/le (- ,target ,jump-table))))
+      (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))
     (emit over)))
 
 (defmethod emit-lap (backend-function (instruction finish-nlx-instruction) uses defs)

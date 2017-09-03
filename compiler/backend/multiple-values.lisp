@@ -8,51 +8,11 @@
 
 (in-package :mezzano.compiler.backend)
 
-(defgeneric successors (function instruction))
-
-(defun skip-symbols (foo)
-  (loop
-     (when (endp foo)
-       (return '()))
-     (when (not (symbolp (first foo)))
-       (return foo))
-     (setf foo (rest foo))))
-
-(defmethod successors (function (instruction backend-instruction))
-  (list (first (skip-symbols (rest (member instruction (backend-function-code function)))))))
-
-(defmethod successors (function (instruction jump-instruction))
-  (list (first (skip-symbols (member (jump-target instruction) (backend-function-code function))))))
-
-(defmethod successors (function (instruction branch-instruction))
-  (list (first (skip-symbols (rest (member instruction (backend-function-code function)))))
-        (first (skip-symbols (member (branch-target instruction) (backend-function-code function))))))
-
-(defmethod successors (function (instruction switch-instruction))
-  (loop
-     for target in (switch-targets instruction)
-     collect (first (skip-symbols (member target (backend-function-code function))))))
-
-(defmethod successors (function (instruction return-instruction))
-  '())
-
-(defmethod successors (function (instruction return-multiple-instruction))
-  '())
-
-(defmethod successors (function (instruction begin-nlx-instruction))
-  (append (call-next-method)
-          (loop
-             for target in (begin-nlx-targets instruction)
-             collect (first (skip-symbols (member target (backend-function-code function)))))))
-
-(defmethod successors (function (instruction invoke-nlx-instruction))
-  '())
-
-(defmethod successors (function (instruction invoke-nlx-multiple-instruction))
-  '())
-
 (defgeneric multiple-value-safe-p (instruction architecture)
   (:method (instruction architecture) nil))
+
+(defmethod multiple-value-safe-p ((instruction label) architecture)
+  t)
 
 (defmethod multiple-value-safe-p ((instruction move-instruction) architecture)
   t)

@@ -9,33 +9,6 @@
 (defparameter *fref-register* :r13)
 (defparameter *count-register* :rcx)
 
-(defmacro do-instructions ((instruction function &optional result-value) &body body)
-  (let ((fn-sym (gensym)))
-    `(do* ((,fn-sym ,function)
-           (,instruction (first-instruction ,fn-sym) (next-instruction ,fn-sym ,instruction)))
-          ((null ,instruction)
-           ,result-value)
-      ,@body)))
-
-(defun first-instruction (function)
-  (first (backend-function-code function)))
-
-(defun next-instruction (function instruction)
-  (first (skip-symbols (rest (member instruction (backend-function-code function))))))
-
-(defun insert-before (function instruction new-instruction)
-  (let ((where (member instruction (backend-function-code function))))
-    (setf (cdr where) (cons instruction (cdr where)))
-    (setf (car where) new-instruction)))
-
-(defun insert-after (function instruction new-instruction)
-  (let ((where (member instruction (backend-function-code function))))
-    (setf (cdr where) (cons new-instruction (cdr where)))
-    new-instruction))
-
-(defun remove-instruction (function instruction)
-  (setf (backend-function-code function) (remove instruction (backend-function-code function))))
-
 (defun canonicalize-call-operands (backend-function)
   (do-instructions (inst backend-function)
     (flet ((frob-inputs ()
@@ -177,10 +150,9 @@
         (live-in* (make-hash-table))
         (live-out (make-hash-table))
         (live-out* (make-hash-table))
-        (reversed-instructions (reverse (remove-if #'symbolp (backend-function-code backend-function))))
         (mv-regs (list* *count-register* *argument-registers*)))
     (loop
-       (dolist (inst reversed-instructions)
+       (do-reversed-instructions (inst backend-function)
          (setf (gethash inst live-in*) (gethash inst live-in)
                (gethash inst live-out*) (gethash inst live-out))
          (let ((uses (instruction-inputs inst))
@@ -196,7 +168,7 @@
            (dolist (succ (successors backend-function inst))
              (setf (gethash inst live-out) (union (gethash inst live-out)
                                                   (gethash succ live-in))))))
-       (when (dolist (inst reversed-instructions t)
+       (when (do-reversed-instructions (inst backend-function t)
                (when (not (and (set-equal (gethash inst live-in) (gethash inst live-in*))
                                (set-equal (gethash inst live-out) (gethash inst live-out*))))
                  (return nil)))
@@ -218,8 +190,8 @@
 
 (defun all-virtual-registers (backend-function)
   (let ((regs '()))
-    (dolist (inst (backend-function-code backend-function))
-      (when (not (symbolp inst))
+    (do-instructions (inst backend-function)
+      (when (not (typep inst 'label))
         (dolist (out (instruction-outputs inst))
           (when (typep out 'virtual-register)
             (pushnew out regs)))))
@@ -617,6 +589,9 @@
     (values registers spilled instantaneous-registers)))
 
 (defgeneric replace-all-registers (instruction substitution-function))
+
+(defmethod replace-all-registers ((instruction label) substitution-function)
+  nil)
 
 (defmethod replace-all-registers ((instruction argument-setup-instruction) substitution-function)
   (setf (argument-setup-fref instruction) (funcall substitution-function (argument-setup-fref instruction)))
