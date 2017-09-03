@@ -80,7 +80,7 @@
     (when (typep out 'virtual-register)
       (let ((out-defs (gethash out defs))
             (out-uses (gethash out uses)))
-        (format t "Out: ~S  defs: ~S  uses: ~S~%" out out-defs out-uses)
+        ;(format t "Out: ~S  defs: ~S  uses: ~S~%" out out-defs out-uses)
         ;; Must have one definition.
         (when (not (and out-defs
                         (eql (first out-defs) definition)
@@ -788,8 +788,7 @@
             (cons dx-root saved-stack-pointer))
       (dolist (region (gethash instruction contours))
         (when (typep region 'begin-nlx-instruction)
-          (push dx-root (gethash region *dx-root-visibility*))
-          (format t "Added dx root ~S for ~S to ~S / ~S~%" dx-root instruction region (nlx-context region)))))))
+          (push dx-root (gethash region *dx-root-visibility*)))))))
 
 (defmethod emit-lap (backend-function (instruction save-multiple-instruction) uses defs)
   (let* ((save-data (gethash (save-multiple-context instruction) *saved-multiple-values*))
