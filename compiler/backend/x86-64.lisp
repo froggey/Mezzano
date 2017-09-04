@@ -470,7 +470,44 @@
 
 (defmethod emit-lap (backend-function (instruction argument-setup-instruction) uses defs)
   ;; Check the argument count.
-  ;; TODO
+  (let ((args-ok (gensym)))
+    (flet ((emit-arg-error ()
+             (emit `(:gc :frame)
+                   `(lap:xor32 :ecx :ecx)
+                   `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
+                   `(lap:call (:object :r13 ,sys.int::+fref-entry-point+))
+                   args-ok)
+             (emit-gc-info :incoming-arguments :rcx)))
+      (cond ((argument-setup-rest instruction)
+             ;; If there are no required parameters, then don't generate a lower-bound check.
+             (when (argument-setup-required instruction)
+               ;; Minimum number of arguments.
+               (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
+                     `(lap:jnl ,args-ok))
+               (emit-arg-error)))
+            ((and (argument-setup-required instruction)
+                  (argument-setup-optional instruction))
+             ;; A range.
+             (emit `(lap:mov32 :eax :ecx)
+                   `(lap:sub32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
+                   `(lap:cmp32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-optional instruction))))
+                   `(lap:jna ,args-ok))
+             (emit-arg-error))
+            ((argument-setup-optional instruction)
+             ;; Maximum number of arguments.
+             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-optional instruction))))
+                   `(lap:jna ,args-ok))
+             (emit-arg-error))
+            ((argument-setup-required instruction)
+             ;; Exact number of arguments.
+             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
+                   `(lap:je ,args-ok))
+             (emit-arg-error))
+            ;; No arguments
+            (t
+             (emit `(lap:test32 :ecx :ecx)
+                   `(lap:jz ,args-ok))
+             (emit-arg-error)))))
   ;; Spill count/fref.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend::physical-register)
