@@ -161,13 +161,13 @@
              (setf defs (union defs mv-regs)))
            (when (consumes-multiple-p inst)
              (setf uses (union uses mv-regs)))
-           (setf (gethash inst live-in) (union uses
-                                               (set-difference (gethash inst live-out)
-                                                               defs)))
            (setf (gethash inst live-out) '())
            (dolist (succ (successors backend-function inst))
              (setf (gethash inst live-out) (union (gethash inst live-out)
-                                                  (gethash succ live-in))))))
+                                                  (gethash succ live-in))))
+           (setf (gethash inst live-in) (union uses
+                                               (set-difference (gethash inst live-out)
+                                                               defs)))))
        (when (do-reversed-instructions (inst backend-function t)
                (when (not (and (set-equal (gethash inst live-in) (gethash inst live-in*))
                                (set-equal (gethash inst live-out) (gethash inst live-out*))))
