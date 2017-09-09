@@ -1241,12 +1241,16 @@
   (mezzano.compiler.backend.x86-64::peephole backend-function))
 
 (defun compile-backend-function-2 (backend-function)
-  (sys.int::assemble-lap
-   (to-lap backend-function)
-   (backend-function-name backend-function)
-   nil
-   nil
-   :x86-64))
+  (let ((lap (to-lap backend-function)))
+    (when sys.c::*trace-asm*
+      (format t "~S:~%" (backend-function-name backend-function))
+      (format t "~{~S~%~}" lap))
+    (sys.int::assemble-lap
+     lap
+     (backend-function-name backend-function)
+     nil
+     nil
+     :x86-64)))
 
 (defun compile-backend-function (backend-function)
   (compile-backend-function-1 backend-function)
