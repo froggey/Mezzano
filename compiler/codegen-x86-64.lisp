@@ -999,7 +999,7 @@ Returns an appropriate tag."
                    `(sys.lap-x86:add64 :rdi 8)
                    `(sys.lap-x86:add64 :rsi 8)
                    `(sys.lap-x86:sub64 :rax 8)
-                   `(sys.lap-x86:jae ,loop-head)
+                   `(sys.lap-x86:ja ,loop-head)
                    loop-exit)
              ;; All done with the MV area.
              (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
