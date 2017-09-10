@@ -375,6 +375,8 @@
       (import (list symbol) p)
       (when (eql p *keyword-package*)
         (setf (symbol-mode symbol) :special)
+        (assert (eql (mezzano.runtime::fast-symbol-value-cell symbol)
+                     (mezzano.runtime::symbol-global-value-cell symbol)))
         (setf (symbol-value symbol) symbol)
         (setf (symbol-mode symbol) :constant)
         (export (list symbol) p))
