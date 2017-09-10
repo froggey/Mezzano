@@ -375,8 +375,10 @@
       (import (list symbol) p)
       (when (eql p *keyword-package*)
         (setf (symbol-mode symbol) :special)
-        (assert (eql (mezzano.runtime::fast-symbol-value-cell symbol)
-                     (mezzano.runtime::symbol-global-value-cell symbol)))
+        (when (not (eq (mezzano.runtime::fast-symbol-value-cell symbol)
+                       (mezzano.runtime::symbol-global-value-cell symbol)))
+          ;; Page fault to preserve the stack as much as possible.
+          (setf (memref-unsigned-byte-8 0) 0))
         (setf (symbol-value symbol) symbol)
         (setf (symbol-mode symbol) :constant)
         (export (list symbol) p))
