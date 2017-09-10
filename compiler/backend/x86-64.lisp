@@ -1220,6 +1220,7 @@
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
 (defun compile-backend-function-1 (backend-function)
+  (mezzano.compiler.backend::remove-unreachable-basic-blocks backend-function)
   (mezzano.compiler.backend::canonicalize-call-operands backend-function)
   (mezzano.compiler.backend::canonicalize-argument-setup backend-function)
   (mezzano.compiler.backend::canonicalize-nlx-values backend-function)

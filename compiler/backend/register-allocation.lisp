@@ -145,6 +145,68 @@
          (when (not (member elt list-1))
            (return nil)))))
 
+(defun build-cfg (backend-function)
+  (let ((predecessors (make-hash-table))
+        (successors (make-hash-table))
+        (basic-blocks (list (first-instruction backend-function)))
+        (active-bb (first-instruction backend-function))
+        (targets '()))
+    (check-type active-bb argument-setup-instruction)
+    (do-instructions (inst backend-function)
+      (typecase inst
+        (terminator-instruction
+         (dolist (succ (successors backend-function inst))
+           (pushnew succ targets)
+           (pushnew succ (gethash active-bb successors))
+           (pushnew active-bb (gethash succ predecessors)))
+         (setf active-bb (next-instruction backend-function inst))
+         (when active-bb
+           (push active-bb basic-blocks)))
+        (begin-nlx-instruction
+         (dolist (succ (begin-nlx-targets inst))
+           (pushnew succ targets)
+           (pushnew succ (gethash active-bb successors))
+           (pushnew active-bb (gethash succ predecessors))))))
+    (dolist (targ targets)
+      (assert (member targ basic-blocks)))
+    (values (reverse basic-blocks) predecessors successors)))
+
+(defun discover-reachable-basic-blocks (backend-function bb-successors)
+  ;; Search from the entry point to discover reachable basic blocks.
+  (let ((visited '())
+        (worklist (list (first-instruction backend-function))))
+    (loop
+       (when (endp worklist)
+         (return))
+       (let ((block (pop worklist)))
+         (push block visited)
+         (dolist (succ (gethash block bb-successors))
+           (when (not (member succ visited))
+             (pushnew succ worklist)))))
+    visited))
+
+(defun remove-basic-block (backend-function basic-block)
+  (let ((inst basic-block))
+    (loop
+       (let ((next (next-instruction backend-function inst)))
+         (remove-instruction backend-function inst)
+         (when (typep inst 'terminator-instruction)
+           (return))
+         (setf inst next)))))
+
+(defun remove-unreachable-basic-blocks (backend-function)
+  "Eliminate unreachable basic blocks.
+This is required for register allocation, as the allocator
+does not visit unreachable blocks."
+  (multiple-value-bind (basic-blocks bb-preds bb-succs)
+      (build-cfg backend-function)
+    (declare (ignore bb-preds))
+    (let* ((reachable (discover-reachable-basic-blocks backend-function bb-succs))
+           (unreachable (set-difference basic-blocks reachable)))
+      (dolist (bb unreachable)
+        (remove-basic-block backend-function bb))
+      unreachable)))
+
 (defun compute-liveness (backend-function)
   (let ((live-in (make-hash-table))
         (live-in* (make-hash-table))
