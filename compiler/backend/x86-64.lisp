@@ -385,8 +385,7 @@
 (defun layout-local-variables (backend-function)
   (let ((worklist (list (cons (first-instruction backend-function) '())))
         (visited (make-hash-table))
-        (layout (make-hash-table))
-        (debug-layout (make-array 0)))
+        (layout (make-hash-table)))
     (loop
        (when (endp worklist)
          (return))
@@ -396,19 +395,7 @@
          (setf (gethash inst visited) t)
          (typecase inst
            (bind-local-instruction
-            (let* ((index (length stack))
-                   (ast (bind-local-ast inst))
-                   (debug-entry (if (and (sys.c:lexical-variable-p ast)
-                                         (not (getf (sys.c:lexical-variable-plist ast)
-                                                    'sys.c::hide-from-debug-info)))
-                                    (sys.c::lexical-variable-name ast)
-                                    nil)))
-              (setf (gethash inst layout) index)
-              (when (>= index (length debug-layout))
-                (setf debug-layout (adjust-array debug-layout (1+ index) :initial-element nil)))
-              (when (and (not (aref debug-layout index))
-                         debug-entry)
-                (setf (aref debug-layout index) debug-entry)))
+            (setf (gethash inst layout) (length stack))
             (push inst stack))
            (unbind-local-instruction
             (assert (eql (unbind-local-local inst)
@@ -417,40 +404,42 @@
          (dolist (next (mezzano.compiler.backend::successors backend-function inst))
            (when (not (gethash next visited))
              (push (cons next stack) worklist)))))
-    (values layout debug-layout)))
+    layout))
 
 (defun compute-stack-layout (backend-function uses defs)
   (declare (ignore uses))
-  (multiple-value-bind (local-layout debug-layout)
-      (layout-local-variables backend-function)
-    (let* ((correct-layout (loop
-                   for vreg being the hash-keys of defs using (hash-value vreg-defs)
-                   when (not (and vreg-defs
-                                  (endp (rest vreg-defs))
-                                  (typep (first vreg-defs) 'save-multiple-instruction)))
-                   collect vreg))
-           (layout (loop
-                      for vreg being the hash-keys of defs using (hash-value vreg-defs)
-                      when (not (and vreg-defs
-                                     (endp (rest vreg-defs))
-                                     (typep (first vreg-defs) 'save-multiple-instruction)))
-                      collect vreg))
-           (max-local-slot (loop
-                              for slot being the hash-values of local-layout
-                              maximize (1+ slot)))
-           (local-slots (make-array max-local-slot :initial-element '())))
+  (let* ((local-layout (layout-local-variables backend-function))
+         (layout (loop
+                    for vreg being the hash-keys of defs using (hash-value vreg-defs)
+                    when (not (and vreg-defs
+                                   (endp (rest vreg-defs))
+                                   (typep (first vreg-defs) 'save-multiple-instruction)))
+                    collect vreg))
+         (max-local-slot (loop
+                            for slot being the hash-values of local-layout
+                            maximize (1+ slot)))
+         (local-slots (make-array max-local-slot :initial-element '())))
+    (loop
+       for local being the hash-keys of local-layout using (hash-value slot)
+       do
+         (push local (aref local-slots slot)))
+    (setf layout (append (coerce local-slots 'list) layout))
+    (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
+      ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
+      (push :raw layout))
+    (let ((debug-layout '()))
       (loop
-         for local being the hash-keys of local-layout using (hash-value slot)
+         for entry in layout
+         for slot from 0
          do
-           (push local (aref local-slots slot)))
-      (setf layout (append (coerce local-slots 'list) layout))
-      (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
-        ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
-        (push :raw layout)
-        (push :raw correct-layout)
-        (setf debug-layout (concatenate 'vector (list nil) debug-layout)))
-      (when (not mezzano.compiler.backend.ast-convert::*enable-locals*)
-        (assert (equal layout correct-layout)))
+           (when (listp entry)
+             (loop
+                for local in entry
+                for ast = (bind-local-ast local)
+                when (and (sys.c:lexical-variable-p ast)
+                          (not (getf (sys.c:lexical-variable-plist ast)
+                                     'sys.c::hide-from-debug-info)))
+                do (push (list (sys.c::lexical-variable-name ast) slot) debug-layout))))
       (values (make-array (length layout)
                           :adjustable t
                           :fill-pointer t
