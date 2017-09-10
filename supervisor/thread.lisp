@@ -642,7 +642,7 @@ Interrupts must be off and the global thread lock must be held."
           (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*
           (thread-global-next sys.int::*disk-io-thread*) nil
           (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*)
-    (setf *default-stack-size* (* 256 1024)))
+    (setf *default-stack-size* (* 1024 1024)))
   (setf *n-running-cpus* 1)
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :runnable :idle)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
