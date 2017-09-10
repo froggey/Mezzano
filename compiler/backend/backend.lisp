@@ -594,7 +594,7 @@
   (format t "   ~S~%"
           `(:finish-nlx ,(nlx-context instruction))))
 
-(defclass invoke-nlx-instruction (backend-instruction)
+(defclass invoke-nlx-instruction (terminator-instruction)
   ((%context :initarg :context :accessor nlx-context)
    (%index :initarg :index :accessor invoke-nlx-index)
    (%value :initarg :value :accessor invoke-nlx-value))
@@ -613,7 +613,7 @@
   (format t "   ~S~%"
           `(:invoke-nlx ,(nlx-context instruction) ,(invoke-nlx-index instruction) ,(invoke-nlx-value instruction))))
 
-(defclass invoke-nlx-multiple-instruction (backend-instruction)
+(defclass invoke-nlx-multiple-instruction (terminator-instruction)
   ((%context :initarg :context :accessor nlx-context)
    (%index :initarg :index :accessor invoke-nlx-index))
   (:documentation "Jump to the indexed target in the given context."))
