@@ -456,7 +456,6 @@
           (cond ((typep inst-or-label 'label)
                  (push (gethash inst-or-label *labels*) *emitted-lap*))
                 (t
-                 (emit `(:comment ,(format nil "~S"  inst-or-label)))
                  (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
                    (if (eql (gethash inst-or-label mv-flow) :multiple)
                        (emit-gc-info :multiple-values 0)
