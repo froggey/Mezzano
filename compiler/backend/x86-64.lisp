@@ -379,21 +379,83 @@
   (:method (backend-function instruction uses defs) nil))
 (defgeneric emit-lap (backend-function instruction uses defs))
 
+;; Local variables are bound/unbound in a stack-like fashion.
+;; Traverse the function to reconstruct the stack and assign stack slots
+;; to locals.
+(defun layout-local-variables (backend-function)
+  (let ((worklist (list (cons (first-instruction backend-function) '())))
+        (visited (make-hash-table))
+        (layout (make-hash-table))
+        (debug-layout (make-array 0)))
+    (loop
+       (when (endp worklist)
+         (return))
+       (let* ((entry (pop worklist))
+              (inst (car entry))
+              (stack (cdr entry)))
+         (setf (gethash inst visited) t)
+         (typecase inst
+           (bind-local-instruction
+            (let* ((index (length stack))
+                   (ast (bind-local-ast inst))
+                   (debug-entry (if (and (sys.c:lexical-variable-p ast)
+                                         (not (getf (sys.c:lexical-variable-plist ast)
+                                                    'sys.c::hide-from-debug-info)))
+                                    (sys.c::lexical-variable-name ast)
+                                    nil)))
+              (setf (gethash inst layout) index)
+              (when (>= index (length debug-layout))
+                (setf debug-layout (adjust-array debug-layout (1+ index) :initial-element nil)))
+              (when (and (not (aref debug-layout index))
+                         debug-entry)
+                (setf (aref debug-layout index) debug-entry)))
+            (push inst stack))
+           (unbind-local-instruction
+            (assert (eql (unbind-local-local inst)
+                         (first stack)))
+            (pop stack)))
+         (dolist (next (mezzano.compiler.backend::successors backend-function inst))
+           (when (not (gethash next visited))
+             (push (cons next stack) worklist)))))
+    (values layout debug-layout)))
+
 (defun compute-stack-layout (backend-function uses defs)
   (declare (ignore uses))
-  (let ((layout (loop
+  (multiple-value-bind (local-layout debug-layout)
+      (layout-local-variables backend-function)
+    (let* ((correct-layout (loop
                    for vreg being the hash-keys of defs using (hash-value vreg-defs)
                    when (not (and vreg-defs
                                   (endp (rest vreg-defs))
                                   (typep (first vreg-defs) 'save-multiple-instruction)))
-                   collect vreg)))
-    (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
-      ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
-      (push :raw layout))
-    (make-array (length layout)
-                :adjustable t
-                :fill-pointer t
-                :initial-contents layout)))
+                   collect vreg))
+           (layout (loop
+                      for vreg being the hash-keys of defs using (hash-value vreg-defs)
+                      when (not (and vreg-defs
+                                     (endp (rest vreg-defs))
+                                     (typep (first vreg-defs) 'save-multiple-instruction)))
+                      collect vreg))
+           (max-local-slot (loop
+                              for slot being the hash-values of local-layout
+                              maximize (1+ slot)))
+           (local-slots (make-array max-local-slot :initial-element '())))
+      (loop
+         for local being the hash-keys of local-layout using (hash-value slot)
+         do
+           (push local (aref local-slots slot)))
+      (setf layout (append (coerce local-slots 'list) layout))
+      (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
+        ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
+        (push :raw layout)
+        (push :raw correct-layout)
+        (setf debug-layout (concatenate 'vector (list nil) debug-layout)))
+      (when (not mezzano.compiler.backend.ast-convert::*enable-locals*)
+        (assert (equal layout correct-layout)))
+      (values (make-array (length layout)
+                          :adjustable t
+                          :fill-pointer t
+                          :initial-contents layout)
+              debug-layout))))
 
 (defun allocate-stack-slots (count &key (livep t) aligned)
   (assert (not *current-frame-layout*) ()
@@ -413,55 +475,66 @@
   `(:stack ,(or (position vreg *stack-layout*)
                 (error "Missing stack slot for vreg ~S" vreg))))
 
+(defun local-variable-address (binding)
+  (check-type binding bind-local-instruction)
+  `(:stack ,(or (position-if (lambda (slot)
+                               (and (listp slot)
+                                    (member binding slot)))
+                             *stack-layout*)
+                (error "Missing stack slot for local ~S" binding))))
+
 (defun to-lap (backend-function)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
-    (let ((*stack-layout* (compute-stack-layout backend-function uses defs))
-          (*saved-multiple-values* (make-hash-table))
-          (*dx-root-visibility* (make-hash-table))
-          (*prepass-data* (make-hash-table))
-          (*current-frame-layout* nil)
-          (*labels* (make-hash-table)))
-      (do-instructions (inst-or-label backend-function)
-        (cond ((typep inst-or-label 'label)
-               (setf (gethash inst-or-label *labels*) (gensym)))
-              (t
-               (lap-prepass backend-function inst-or-label uses defs))))
-      (let ((*emitted-lap* '())
-            (*current-frame-layout* (coerce (loop
-                                               for elt across *stack-layout*
-                                               collect (if (eql elt :raw)
-                                                           0
-                                                           1))
-                                            'simple-bit-vector))
-            (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
-        ;; Create stack frame.
-        (emit `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-              `(lap:push :rbp)
-              `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
-              `(lap:mov64 :rbp :rsp)
-              `(:gc :frame :incoming-arguments :rcx))
-        (let ((stack-size (length *current-frame-layout*)))
-          (when (oddp stack-size)
-            (incf stack-size))
-          (when (not (zerop stack-size))
-            (emit `(lap:sub64 :rsp ,(* stack-size 8))))
-          (loop
-             for i from 0
-             for elt across *current-frame-layout*
-             do (when (not (zerop elt))
-                  (emit `(lap:mov64 (:stack ,i) nil)))))
-        (emit-gc-info :incoming-arguments :rcx)
+    (multiple-value-bind (*stack-layout* debug-layout)
+        (compute-stack-layout backend-function uses defs)
+      (let ((*saved-multiple-values* (make-hash-table))
+            (*dx-root-visibility* (make-hash-table))
+            (*prepass-data* (make-hash-table))
+            (*current-frame-layout* nil)
+            (*labels* (make-hash-table)))
         (do-instructions (inst-or-label backend-function)
           (cond ((typep inst-or-label 'label)
-                 (push (gethash inst-or-label *labels*) *emitted-lap*))
+                 (setf (gethash inst-or-label *labels*) (gensym)))
                 (t
-                 (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
-                   (if (eql (gethash inst-or-label mv-flow) :multiple)
-                       (emit-gc-info :multiple-values 0)
-                       (emit-gc-info)))
-                 (emit-lap backend-function inst-or-label uses defs))))
-        (reverse *emitted-lap*)))))
+                 (lap-prepass backend-function inst-or-label uses defs))))
+        (let ((*emitted-lap* '())
+              (*current-frame-layout* (coerce (loop
+                                                 for elt across *stack-layout*
+                                                 collect (if (eql elt :raw)
+                                                             0
+                                                             1))
+                                              'simple-bit-vector))
+              (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
+          ;; Create stack frame.
+          (emit `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+                `(lap:push :rbp)
+                `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
+                `(lap:mov64 :rbp :rsp)
+                `(:gc :frame :incoming-arguments :rcx))
+          (let ((stack-size (length *current-frame-layout*)))
+            (when (oddp stack-size)
+              (incf stack-size))
+            (when (not (zerop stack-size))
+              (emit `(lap:sub64 :rsp ,(* stack-size 8))))
+            (loop
+               for i from 0
+               for elt across *current-frame-layout*
+               do (when (not (zerop elt))
+                    (emit `(lap:mov64 (:stack ,i) nil)))))
+          (emit-gc-info :incoming-arguments :rcx)
+          (do-instructions (inst-or-label backend-function)
+            (cond ((typep inst-or-label 'label)
+                   (push (gethash inst-or-label *labels*) *emitted-lap*))
+                  (t
+                                        ;(emit `(:comment ,(format nil "~S"  inst-or-label)))
+                   (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
+                     (if (eql (gethash inst-or-label mv-flow) :multiple)
+                         (emit-gc-info :multiple-values 0)
+                         (emit-gc-info)))
+                   (emit-lap backend-function inst-or-label uses defs))))
+          (values (reverse *emitted-lap*)
+                  debug-layout))))))
 
 (defmethod lap-prepass (backend-function (instruction argument-setup-instruction) uses defs)
   (when (argument-setup-rest instruction)
@@ -639,6 +712,18 @@
     (emit `(sys.lap-x86:lea64 :r13 (:rsp ,(+ 16 sys.int::+tag-cons+))))
     ;; Code above jumps directly here with NIL in R13 when there are no arguments.
     (emit rest-list-done)))
+
+(defmethod emit-lap (backend-function (instruction bind-local-instruction) uses defs)
+  (emit `(lap:mov64 ,(local-variable-address instruction) ,(bind-local-value instruction))))
+
+(defmethod emit-lap (backend-function (instruction unbind-local-instruction) uses defs)
+  nil)
+
+(defmethod emit-lap (backend-function (instruction load-local-instruction) uses defs)
+  (emit `(lap:mov64 ,(load-local-destination instruction) ,(local-variable-address (load-local-local instruction)))))
+
+(defmethod emit-lap (backend-function (instruction store-local-instruction) uses defs)
+  (emit `(lap:mov64 ,(local-variable-address (store-local-local instruction)) ,(store-local-value instruction))))
 
 (defmethod emit-lap (backend-function (instruction move-instruction) uses defs)
   (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
@@ -1241,14 +1326,26 @@
   (mezzano.compiler.backend.x86-64::peephole backend-function))
 
 (defun compile-backend-function-2 (backend-function)
-  (let ((lap (to-lap backend-function)))
+  (multiple-value-bind (lap debug-layout)
+      (to-lap backend-function)
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (format t "~{~S~%~}" lap))
     (sys.int::assemble-lap
      lap
      (backend-function-name backend-function)
-     nil
+     (list :debug-info
+           (backend-function-name backend-function) ; name
+           debug-layout ; local variable stack positions
+           nil ; environment index
+           nil ; environment layout
+           ;; Source file
+           (when *compile-file-pathname*
+             (namestring *compile-file-pathname*))
+           ;; Top-level form number
+           sys.int::*top-level-form-number*
+           (sys.c:lambda-information-lambda-list (mezzano.compiler.backend::ast backend-function)) ; lambda-list
+           (sys.c:lambda-information-docstring (mezzano.compiler.backend::ast backend-function))) ; docstring
      nil
      :x86-64)))
 

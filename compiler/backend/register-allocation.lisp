@@ -664,6 +664,18 @@ does not visit unreachable blocks."
   (when (argument-setup-rest instruction)
     (setf (argument-setup-rest instruction) (funcall substitution-function (argument-setup-rest instruction)))))
 
+(defmethod replace-all-registers ((instruction bind-local-instruction) substitution-function)
+  (setf (bind-local-value instruction) (funcall substitution-function (bind-local-value instruction))))
+
+(defmethod replace-all-registers ((instruction unbind-local-instruction) substitution-function)
+  nil)
+
+(defmethod replace-all-registers ((instruction load-local-instruction) substitution-function)
+  (setf (load-local-destination instruction) (funcall substitution-function (load-local-destination instruction))))
+
+(defmethod replace-all-registers ((instruction store-local-instruction) substitution-function)
+  (setf (store-local-value instruction) (funcall substitution-function (store-local-value instruction))))
+
 (defmethod replace-all-registers ((instruction constant-instruction) substitution-function)
   (setf (constant-destination instruction) (funcall substitution-function (constant-destination instruction))))
 

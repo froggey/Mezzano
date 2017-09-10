@@ -35,6 +35,9 @@
 (defmethod multiple-value-safe-p ((instruction forget-multiple-instruction) architecture)
   t)
 
+(defmethod multiple-value-safe-p ((instruction unbind-local-instruction) architecture)
+  t)
+
 (defun multiple-value-flow (function architecture)
   (let ((flow (make-hash-table))
         (worklist (list (cons (first-instruction function) nil))))
@@ -98,6 +101,12 @@
            (forget-multiple-instruction
             (assert (eql (forget-multiple-context inst)
                          (save-multiple-context (first stack))))
+            (pop stack))
+           (bind-local-instruction
+            (push inst stack))
+           (unbind-local-instruction
+            (assert (eql (unbind-local-local inst)
+                         (first stack)))
             (pop stack)))
          (dolist (next (successors function inst))
            (multiple-value-bind (next-stack visitedp)

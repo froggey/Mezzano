@@ -563,6 +563,21 @@
            #:argument-setup-optional
            #:argument-setup-rest
 
+           #:bind-local-instruction
+           #:bind-local-ast
+           #:bind-local-value
+
+           #:unbind-local-instruction
+           #:unbind-local-local
+
+           #:load-local-instruction
+           #:load-local-destination
+           #:load-local-local
+
+           #:store-local-instruction
+           #:store-local-value
+           #:store-local-local
+
            #:move-instruction
            #:move-destination
            #:move-source

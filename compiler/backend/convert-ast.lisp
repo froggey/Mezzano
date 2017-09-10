@@ -10,6 +10,8 @@
 (defvar *go-tag-and-block-labels*)
 (defvar *dynamic-stack*)
 
+(defvar *enable-locals* t)
+
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (append-instruction *backend-function* i)))
@@ -93,7 +95,14 @@
     ;; Bind arguments to registers.
     (flet ((frob-arg (variable register)
              (when variable
-               (setf (gethash variable *variable-registers*) register))))
+               (cond (*enable-locals*
+                      (let ((inst (make-instance 'bind-local-instruction
+                                                 :ast variable
+                                                 :value register)))
+                        (emit inst)
+                        (setf (gethash variable *variable-registers*) inst)))
+                     (t
+                      (setf (gethash variable *variable-registers*) register))))))
       (frob-arg (lambda-information-fref-arg lambda) fref-reg)
       (frob-arg (lambda-information-closure-arg lambda) closure-reg)
       (frob-arg (lambda-information-count-arg lambda) count-reg)
@@ -129,14 +138,14 @@
            (when suppliedp
              (let ((sup-reg (make-instance 'virtual-register :name `(:suppliedp ,i)))
                    (index (make-instance 'virtual-register)))
-               (frob-arg suppliedp sup-reg)
                (emit (make-instance 'constant-instruction
                                     :destination index
                                     :value (+ (length (lambda-information-required-args lambda)) i)))
                (emit (make-instance 'fixnum-<-instruction
                                     :result sup-reg
                                     :lhs index
-                                    :rhs count-reg)))))
+                                    :rhs count-reg))
+               (frob-arg suppliedp sup-reg))))
       ;; &REST argument.
       (let ((rest-arg (lambda-information-rest-arg lambda)))
         (when (and rest-arg
@@ -163,7 +172,10 @@
                                  :context (second entry))))
            (:saved-mv
             (emit (make-instance 'forget-multiple-instruction
-                                 :context (second entry)))))))))
+                                 :context (second entry))))
+           (:binding
+            (emit (make-instance 'unbind-local-instruction
+                                 :local (second entry)))))))))
 
 ;;; Generate code for an AST node.
 ;;;
@@ -383,53 +395,88 @@
        :effect))))
 
 (defmethod cg-form ((form ast-let) result-mode)
-  (loop
-     for (var init-form) in (ast-bindings form)
-     do
+  (let ((*dynamic-stack* *dynamic-stack*))
+    (loop
+       for (var init-form) in (ast-bindings form)
+       do
        ;; Ensure there are no non-local variables or special bindings.
-       (assert (and (lexical-variable-p var)
-                    (localp var)))
-       (cond ((zerop (lexical-variable-use-count var))
-              (when (not (cg-form init-form :effect))
-                (return-from cg-form nil)))
-              (t
-               (let ((reg (make-instance 'virtual-register :name var))
-                     (value (cg-form init-form :value)))
-                 (when (not value)
-                   (return-from cg-form nil))
-                 (setf (gethash var *variable-registers*) reg)
-                 (emit (make-instance 'move-instruction
-                                      :destination reg
-                                      :source value))))))
-  (cg-form (ast-body form) result-mode))
+         (assert (and (lexical-variable-p var)
+                      (localp var)))
+         (let ((value (cg-form init-form :value)))
+           (when (not value)
+             (return-from cg-form nil))
+           (cond (*enable-locals*
+                  (let ((inst (make-instance 'bind-local-instruction
+                                             :ast var
+                                             :value value)))
+                    (emit inst)
+                    (push (list :binding inst) *dynamic-stack*)
+                    (setf (gethash var *variable-registers*) inst)))
+                 (t
+                  (let ((vreg (make-instance 'virtual-register)))
+                    (emit (make-instance 'move-instruction
+                                         :destination vreg
+                                         :source value))
+                    (setf (gethash var *variable-registers*) vreg))))))
+    (let ((result (cg-form (ast-body form) result-mode)))
+      (when (and *enable-locals*
+                 result)
+        (loop
+           for (var init-form) in (reverse (ast-bindings form))
+           do (emit (make-instance 'unbind-local-instruction
+                                   :local (gethash var *variable-registers*)))))
+      result)))
 
 (defmethod cg-form ((form ast-multiple-value-bind) result-mode)
-  (let ((value (cg-form (ast-value-form form) :multiple))
-        (regs (loop
-                 for var in (ast-bindings form)
-                 for reg = (make-instance 'virtual-register :name var)
-                 do (setf (gethash var *variable-registers*) reg)
-                 collect reg)))
-    (cond ((null value)
-           (return-from cg-form nil))
-          ((eql value :multiple)
-           (emit (make-instance 'multiple-value-bind-instruction
-                                :values regs)))
-          (t
-           ;; Single value result. First variable bound to the value, remaining
-           ;; bound to NIL.
-           (when (ast-bindings form)
-             (emit (make-instance 'move-instruction
-                                  :destination (gethash (first (ast-bindings form)) *variable-registers*)
-                                  :source value)))
-           (loop
-              for var in (rest (ast-bindings form))
-              for reg = (gethash var *variable-registers*)
-              do
-                (emit (make-instance 'constant-instruction
-                                     :destination reg
-                                     :value nil)))))
-    (cg-form (ast-body form) result-mode)))
+  (let ((*dynamic-stack* *dynamic-stack*)
+        (value (cg-form (ast-value-form form) :multiple)))
+    (when (null value)
+      (return-from cg-form nil))
+    (let ((regs (loop
+                   for var in (ast-bindings form)
+                   for reg = (make-instance 'virtual-register :name var)
+                   collect reg)))
+      (cond ((eql value :multiple)
+             (emit (make-instance 'multiple-value-bind-instruction
+                                  :values regs)))
+            (t
+             ;; Single value result. First variable bound to the value, remaining
+             ;; bound to NIL.
+             (when (ast-bindings form)
+               (emit (make-instance 'move-instruction
+                                    :destination (first regs)
+                                    :source value)))
+             (loop
+                for var in (rest (ast-bindings form))
+                for reg in (rest regs)
+                do
+                  (emit (make-instance 'constant-instruction
+                                       :destination reg
+                                       :value nil)))))
+      (cond (*enable-locals*
+             (loop
+                for var in (ast-bindings form)
+                for reg in regs
+                for inst = (make-instance 'bind-local-instruction
+                                          :ast var
+                                          :value reg)
+                do
+                  (emit inst)
+                  (push (list :binding inst) *dynamic-stack*)
+                  (setf (gethash var *variable-registers*) inst)))
+            (t
+             (loop
+                for var in (ast-bindings form)
+                for reg in regs
+                do
+                  (setf (gethash var *variable-registers*) reg))))
+      (let ((result (cg-form (ast-body form) result-mode)))
+        (when (and *enable-locals*
+                   result)
+          (dolist (var (reverse (ast-bindings form)))
+            (emit (make-instance 'unbind-local-instruction
+                                 :local (gethash var *variable-registers*)))))
+        result))))
 
 (defmethod cg-form ((form ast-multiple-value-call) result-mode)
   (let ((fn-tag (cg-form (ast-function-form form) :value)))
@@ -524,14 +571,19 @@
       :effect)))
 
 (defmethod cg-form ((form ast-setq) result-mode)
-  (let ((var (ast-setq-variable form))
-        (value (cg-form (ast-value form) :value)))
+  (let* ((var (ast-setq-variable form))
+         (value (cg-form (ast-value form) :value))
+         (loc (gethash var *variable-registers*)))
     (assert (localp var))
     (when (not value)
       (return-from cg-form nil))
-    (emit (make-instance 'move-instruction
-                         :destination (gethash var *variable-registers*)
-                         :source value))
+    (if (typep loc 'virtual-register)
+        (emit (make-instance 'move-instruction
+                             :destination loc
+                             :source value))
+        (emit (make-instance 'store-local-instruction
+                             :local loc
+                             :value value)))
     value))
 
 (defun tagbody-localp (info)
@@ -896,15 +948,30 @@
   (assert (localp form))
   (ecase result-mode
     (:tail
-     (emit (make-instance 'return-instruction
-                          :value (gethash form *variable-registers*)))
+     (let ((result (make-instance 'virtual-register))
+           (local (gethash form *variable-registers*)))
+       ;; Local can be a vreg if it refers to an nlx thunk.
+       (cond ((typep local 'virtual-register)
+              (emit (make-instance 'return-instruction
+                                   :value local)))
+             (t
+              (emit (make-instance 'load-local-instruction
+                                   :destination result
+                                   :local local))
+              (emit (make-instance 'return-instruction
+                                   :value result)))))
      nil)
     ((:multiple :value)
      (let ((result (make-instance 'virtual-register))
-           (reg (gethash form *variable-registers*)))
-       (emit (make-instance 'move-instruction
-                            :destination result
-                            :source reg))
+           (local (gethash form *variable-registers*)))
+       ;; Local can be a vreg if it refers to an nlx thunk.
+       (if (typep local 'virtual-register)
+           (emit (make-instance 'move-instruction
+                                :destination result
+                                :source local))
+           (emit (make-instance 'load-local-instruction
+                                :destination result
+                                :local local)))
        result))
     (:effect
      :effect)))

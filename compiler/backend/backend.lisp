@@ -181,6 +181,68 @@
                             ,(argument-setup-optional instruction)
                             ,(argument-setup-rest instruction))))
 
+(defclass bind-local-instruction (backend-instruction)
+  ((%ast :initarg :ast :accessor bind-local-ast)
+   (%value :initarg :value :accessor bind-local-value)))
+
+(defmethod instruction-inputs ((instruction bind-local-instruction))
+  (list (bind-local-value instruction)))
+
+(defmethod instruction-outputs ((instruction bind-local-instruction))
+  (list))
+
+(defmethod print-instruction ((instruction bind-local-instruction))
+  (format t "   ~S~%"
+          `(:bind-local ,(bind-local-ast instruction)
+                        ,(bind-local-value instruction)
+                        ,instruction)))
+
+(defclass unbind-local-instruction (backend-instruction)
+  ((%local :initarg :local :accessor unbind-local-local)))
+
+(defmethod instruction-inputs ((instruction unbind-local-instruction))
+  (list))
+
+(defmethod instruction-outputs ((instruction unbind-local-instruction))
+  (list))
+
+(defmethod print-instruction ((instruction unbind-local-instruction))
+  (format t "   ~S~%"
+          `(:unbind-local ,(unbind-local-local instruction))))
+
+(defclass load-local-instruction (backend-instruction)
+  ((%destination :initarg :destination :accessor load-local-destination)
+   (%local :initarg :local :accessor load-local-local)))
+
+(defmethod instruction-inputs ((instruction load-local-instruction))
+  (list))
+
+(defmethod instruction-outputs ((instruction load-local-instruction))
+  (list (load-local-destination instruction)))
+
+(defmethod print-instruction ((instruction load-local-instruction))
+  (format t "   ~S~%"
+          `(:load-local ,(load-local-destination instruction)
+                        ,(load-local-local instruction))))
+
+(defmethod instruction-pure-p ((instruction load-local-instruction))
+  t)
+
+(defclass store-local-instruction (backend-instruction)
+  ((%value :initarg :value :accessor store-local-value)
+   (%local :initarg :local :accessor store-local-local)))
+
+(defmethod instruction-inputs ((instruction store-local-instruction))
+  (list (store-local-value instruction)))
+
+(defmethod instruction-outputs ((instruction store-local-instruction))
+  (list))
+
+(defmethod print-instruction ((instruction store-local-instruction))
+  (format t "   ~S~%"
+          `(:store-local ,(store-local-local instruction)
+                         ,(store-local-value instruction))))
+
 (defclass move-instruction (backend-instruction)
   ((%destination :initarg :destination :accessor move-destination)
    (%source :initarg :source :accessor move-source))
