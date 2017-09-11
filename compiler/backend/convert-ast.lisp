@@ -866,6 +866,10 @@
                          :value nil))
     result))
 
+(define-primitive sys.int::%%unreachable (() result-mode)
+  (emit (make-instance 'unreachable-instruction))
+  nil)
+
 (defun cg-primitive (primitive form result-mode)
   (let ((arguments (loop
                       for arg in (ast-arguments form)

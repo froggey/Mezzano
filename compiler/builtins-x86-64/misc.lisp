@@ -475,3 +475,7 @@
                               ,(ash 1 sys.int::+n-fixnum-bits+)))
     (emit resume))
   (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%%unreachable () ()
+  (emit `(sys.lap-x86:ud2))
+  nil)

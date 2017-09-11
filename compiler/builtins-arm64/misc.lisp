@@ -179,3 +179,7 @@
     (emit-object-store :x9 :x28 :slot 22) ; miss count
     (emit resume))
   (setf *x0-value* (list (gensym))))
+
+(defbuiltin sys.int::%%unreachable () ()
+  (emit `(lap:hlt 0))
+  nil)
