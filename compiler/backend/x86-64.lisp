@@ -427,7 +427,8 @@
     (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
       ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
       (push :raw layout))
-    (let ((debug-layout '()))
+    (let ((debug-layout '())
+          (environment-slot nil))
       (loop
          for entry in layout
          for slot from 0
@@ -440,11 +441,22 @@
                           (not (getf (sys.c:lexical-variable-plist ast)
                                      'sys.c::hide-from-debug-info)))
                 do (push (list (sys.c::lexical-variable-name ast) slot) debug-layout))))
+      (when (sys.c:lambda-information-environment-layout
+             (mezzano.compiler.backend::ast backend-function))
+        (setf environment-slot
+              (position-if (lambda (x)
+                             (and (listp x)
+                                  (member (first (sys.c:lambda-information-environment-layout
+                                                  (mezzano.compiler.backend::ast backend-function)))
+                                          x
+                                          :key #'bind-local-ast)))
+                           layout)))
       (values (make-array (length layout)
                           :adjustable t
                           :fill-pointer t
                           :initial-contents layout)
-              debug-layout))))
+              debug-layout
+              environment-slot))))
 
 (defun allocate-stack-slots (count &key (livep t) aligned)
   (assert (not *current-frame-layout*) ()
@@ -475,7 +487,7 @@
 (defun to-lap (backend-function)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
-    (multiple-value-bind (*stack-layout* debug-layout)
+    (multiple-value-bind (*stack-layout* debug-layout environment-slot)
         (compute-stack-layout backend-function uses defs)
       (let ((*saved-multiple-values* (make-hash-table))
             (*dx-root-visibility* (make-hash-table))
@@ -523,7 +535,8 @@
                          (emit-gc-info)))
                    (emit-lap backend-function inst-or-label uses defs))))
           (values (reverse *emitted-lap*)
-                  debug-layout))))))
+                  debug-layout
+                  environment-slot))))))
 
 (defmethod lap-prepass (backend-function (instruction argument-setup-instruction) uses defs)
   (when (argument-setup-rest instruction)
@@ -1319,7 +1332,7 @@
   (mezzano.compiler.backend.x86-64::peephole backend-function))
 
 (defun compile-backend-function-2 (backend-function)
-  (multiple-value-bind (lap debug-layout)
+  (multiple-value-bind (lap debug-layout environment-slot)
       (to-lap backend-function)
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
@@ -1327,18 +1340,22 @@
     (sys.int::assemble-lap
      lap
      (backend-function-name backend-function)
-     (list :debug-info
-           (backend-function-name backend-function) ; name
-           debug-layout ; local variable stack positions
-           nil ; environment index
-           nil ; environment layout
-           ;; Source file
-           (when *compile-file-pathname*
-             (namestring *compile-file-pathname*))
-           ;; Top-level form number
-           sys.int::*top-level-form-number*
-           (sys.c:lambda-information-lambda-list (mezzano.compiler.backend::ast backend-function)) ; lambda-list
-           (sys.c:lambda-information-docstring (mezzano.compiler.backend::ast backend-function))) ; docstring
+     (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
+       (list :debug-info
+             (backend-function-name backend-function) ; name
+             debug-layout ; local variable stack positions
+             ;; Environment index
+             environment-slot
+             ;; Environment layout
+             (second (sys.c:lambda-information-environment-layout ast-lambda))
+             ;; Source file
+             (if *compile-file-pathname*
+                 (namestring *compile-file-pathname*)
+                 nil)
+             ;; Top-level form number
+             sys.int::*top-level-form-number*
+             (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
+             (sys.c:lambda-information-docstring ast-lambda))) ; docstring
      nil
      :x86-64)))
 
