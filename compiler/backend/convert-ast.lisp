@@ -805,6 +805,14 @@
                                    (declare (ignorable ,result-mode))
                                    ,@body))))
 
+(define-primitive eq ((lhs rhs) result-mode)
+  (let ((result (make-instance 'virtual-register)))
+    (emit (make-instance 'eq-instruction
+                         :result result
+                         :lhs lhs
+                         :rhs rhs))
+    result))
+
 (define-primitive sys.int::%object-ref-t ((object offset) result-mode)
   (let ((result (make-instance 'virtual-register)))
     (emit (make-instance 'object-get-t-instruction
