@@ -537,6 +537,7 @@
                    `(lap:xor32 :ecx :ecx)
                    `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
                    `(lap:call (:object :r13 ,sys.int::+fref-entry-point+))
+                   `(lap:ud2)
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       (cond ((argument-setup-rest instruction)
@@ -761,6 +762,9 @@
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0 :multiple-values 0)
         `(lap:ret)))
+
+(defmethod emit-lap (backend-function (instruction unreachable-instruction) uses defs)
+  (emit `(lap:ud2)))
 
 (defmethod emit-lap (backend-function (instruction jump-instruction) uses defs)
   (emit `(lap:jmp ,(resolve-label (jump-target instruction)))))
