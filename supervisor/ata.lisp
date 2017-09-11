@@ -728,7 +728,7 @@ This is used to implement the INTRQ_Wait state."
     ;; Disable IRQs on the controller and reset both drives.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           (logior +ata-srst+ +ata-nien+))
-    (sleep 0.000005) ; Hold SRST high for 5μs.
+    (sleep 0.000005) ; Hold SRST high for 5µs.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           +ata-nien+)
     (sleep 0.002) ; Hold SRST low for 2ms before probing for drives.
