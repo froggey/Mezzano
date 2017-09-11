@@ -377,8 +377,8 @@
         (setf (symbol-mode symbol) :special)
         (when (not (eq (mezzano.runtime::fast-symbol-value-cell symbol)
                        (mezzano.runtime::symbol-global-value-cell symbol)))
-          ;; Page fault to preserve the stack as much as possible.
-          (setf (memref-unsigned-byte-8 0) 0))
+          ;; Fault to preserve the state as much as possible.
+          (sys.int::%%unreachable))
         (setf (symbol-value symbol) symbol)
         (setf (symbol-mode symbol) :constant)
         (export (list symbol) p))
