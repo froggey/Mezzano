@@ -345,6 +345,7 @@ TLB shootdown must be protected by the VM lock."
                                        (svref sys.int::*interrupt-service-routines* i)
                                        sys.int::+function-entry-point+)
                               :ist (cond ((eql i 14) 1) ; page fault.
+                                         ((eql i 6) 1) ; undefined op.
                                          ((>= i 32) 2) ; IRQ
                                          (t 0)))
               (values 0 0))
