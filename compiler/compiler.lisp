@@ -24,7 +24,7 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3))
 
-(defvar *use-new-compiler* t)
+(defvar *use-new-compiler* nil)
 
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
