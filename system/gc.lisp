@@ -831,6 +831,11 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-pager-argument-3 object))
   (scavengef (mezzano.supervisor:thread-unsleep-helper object))
   (scavengef (mezzano.supervisor:thread-unsleep-helper-argument object))
+  ;; Scavenge the binding cache to prevent stale symbol value cells from
+  ;; being reused.
+  (loop
+     for i from mezzano.supervisor::+thread-symbol-cache-start+ below mezzano.supervisor::+thread-symbol-cache-end+
+     do (scavengef (%object-ref-t object i)))
   ;; Only scan the thread's stack and MV area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.
