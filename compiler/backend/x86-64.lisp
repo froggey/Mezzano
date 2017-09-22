@@ -289,8 +289,7 @@
                (mezzano.compiler.backend::remove-instruction backend-function inst)))
             ((and sys.c::*perform-tce*
                   (typep inst 'call-multiple-instruction)
-                  (typep next-inst 'return-multiple-instruction)
-                  (<= (length (call-arguments inst)) 5))
+                  (typep next-inst 'return-multiple-instruction))
              ;; (call-multiple ...) (return-multiple) => (tail-call ...)
              (mezzano.compiler.backend::insert-before
               backend-function inst
@@ -305,8 +304,7 @@
                (mezzano.compiler.backend::remove-instruction backend-function return-inst)))
             ((and sys.c::*perform-tce*
                   (typep inst 'funcall-multiple-instruction)
-                  (typep next-inst 'return-multiple-instruction)
-                  (<= (length (call-arguments inst)) 5))
+                  (typep next-inst 'return-multiple-instruction))
              ;; (funcall-multiple ...) (return-multiple) => (tail-funcall ...)
              (mezzano.compiler.backend::insert-before
               backend-function inst
@@ -846,18 +844,34 @@
 
 (defmethod emit-lap (backend-function (instruction x86-tail-call-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
-        `(lap:leave)
-        ;; Don't use emit-gc-info, using a custom layout.
-        `(:gc :no-frame :layout #*0)
-        `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))))
+  (emit `(lap:mov64 :r13 (:function ,(call-function instruction))))
+  (cond ((<= (length (call-arguments instruction)) 5)
+         (emit `(lap:leave)
+               ;; Don't use emit-gc-info, using a custom layout.
+               `(:gc :no-frame :layout #*0)
+               `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))))
+        (t
+         (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+         (emit-gc-info :multiple-values 0)
+         (emit `(lap:leave)
+               ;; Don't use emit-gc-info, using a custom layout.
+               `(:gc :no-frame :layout #*0)
+               `(lap:ret)))))
 
 (defmethod emit-lap (backend-function (instruction x86-tail-funcall-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
-  (emit `(lap:leave)
-        ;; Don't use emit-gc-info, using a custom layout.
-        `(:gc :no-frame :layout #*0)
-        `(lap:jmp (:object :rbx ,sys.int::+function-entry-point+))))
+  (cond ((<= (length (call-arguments instruction)) 5)
+         (emit `(lap:leave)
+               ;; Don't use emit-gc-info, using a custom layout.
+               `(:gc :no-frame :layout #*0)
+               `(lap:jmp (:object :rbx ,sys.int::+function-entry-point+))))
+        (t
+         (emit `(lap:call (:object :rbx ,sys.int::+function-entry-point+)))
+         (emit-gc-info :multiple-values 0)
+         (emit `(lap:leave)
+               ;; Don't use emit-gc-info, using a custom layout.
+               `(:gc :no-frame :layout #*0)
+               `(lap:ret)))))
 
 (defmethod emit-lap (backend-function (instruction funcall-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
