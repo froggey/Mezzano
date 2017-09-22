@@ -21,7 +21,7 @@
 (defvar *fixups* nil)
 (defvar *gc-data* nil)
 
-(defparameter *settle-limit* 50)
+(defparameter *settle-limit* 500)
 
 (defun emit (&rest bytes)
   "Emit bytes to the output stream."
