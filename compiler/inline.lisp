@@ -98,9 +98,10 @@
     (when (and inlinep
                ;; Don't inline builtin functions.
                ;; There may be inlinable definitions available, but they're for the new compiler.
-               (not (gethash name (ecase architecture
-                                    (:x86-64 mezzano.compiler.codegen.x86-64::*builtins*)
-                                    (:arm64 mezzano.compiler.codegen.arm64::*builtins*)))))
+               (or *use-new-compiler*
+                   (not (gethash name (ecase architecture
+                                        (:x86-64 mezzano.compiler.codegen.x86-64::*builtins*)
+                                        (:arm64 mezzano.compiler.codegen.arm64::*builtins*))))))
       (cond (expansion
              (ast `(call mezzano.runtime::%funcall
                          ,(pass1-lambda expansion
