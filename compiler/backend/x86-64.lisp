@@ -1311,11 +1311,11 @@
 
 (defun compile-backend-function-1 (backend-function)
   (mezzano.compiler.backend::remove-unreachable-basic-blocks backend-function)
+  (mezzano.compiler.backend.x86-64::lower backend-function)
   (mezzano.compiler.backend::canonicalize-call-operands backend-function)
   (mezzano.compiler.backend::canonicalize-argument-setup backend-function)
   (mezzano.compiler.backend::canonicalize-nlx-values backend-function)
   (mezzano.compiler.backend::canonicalize-values backend-function)
-  (mezzano.compiler.backend.x86-64::lower backend-function)
   (mezzano.compiler.backend::remove-unused-instructions backend-function)
   (multiple-value-bind (live-in live-out)
       (mezzano.compiler.backend::compute-liveness backend-function)

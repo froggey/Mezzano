@@ -57,6 +57,11 @@
          (frob-outputs)
          (frob-function))
         (multiple-value-funcall-multiple-instruction
+         (frob-function))
+        (mezzano.compiler.backend.x86-64::x86-tail-call-instruction
+         (frob-inputs))
+        (mezzano.compiler.backend.x86-64::x86-tail-funcall-instruction
+         (frob-inputs)
          (frob-function))))))
 
 (defun canonicalize-argument-setup (backend-function)
