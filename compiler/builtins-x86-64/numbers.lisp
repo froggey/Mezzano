@@ -12,45 +12,64 @@
 
 ;;; Bitwise operators.
 
-(defmacro define-two-arg-bitwise-op (name instruction support-function)
-  `(defbuiltin ,name (x y) ()
-     (let ((helper (gensym))
-           (resume (gensym)))
+(defmacro define-two-arg-bitwise-op (name instruction support-function fixnum-name)
+  `(progn
+     (defbuiltin ,name (x y) ()
+       (let ((helper (gensym))
+             (resume (gensym)))
+         ;; Constants on the left hand side.
+         (when (constant-type-p y 'fixnum)
+           (rotatef x y))
+         ;; Call out to the support function for non-fixnums.
+         (emit-trailer (helper)
+           (when (constant-type-p x 'fixnum)
+             (load-constant :r9 (second x)))
+           (call-support-function ',support-function 2)
+           (emit `(sys.lap-x86:jmp ,resume)))
+         (cond ((constant-type-p x 'fixnum)
+                (load-in-r8 y t)
+                (smash-r8)
+                (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
+                      `(sys.lap-x86:jnz ,helper))
+                ;; Small integers can be encoded directly into the instruction.
+                (if (small-fixnum-p (second x))
+                    (emit `(,',instruction :r8 ,(fixnum-to-raw (second x))))
+                    (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
+                          `(,',instruction :r8 :rax)))
+                (emit resume)
+                (setf *r8-value* (list (gensym))))
+               (t (load-in-reg :r9 y t)
+                  (load-in-reg :r8 x t)
+                  (smash-r8)
+                  (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
+                        `(sys.lap-x86:jnz ,helper)
+                        `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
+                        `(sys.lap-x86:jnz ,helper)
+                        `(,',instruction :r8 :r9)
+                        resume)
+                  (setf *r8-value* (list (gensym)))))))
+     (defbuiltin ,fixnum-name (x y) ()
        ;; Constants on the left hand side.
        (when (constant-type-p y 'fixnum)
          (rotatef x y))
-       ;; Call out to the support function for non-fixnums.
-       (emit-trailer (helper)
-         (when (constant-type-p x 'fixnum)
-           (load-constant :r9 (second x)))
-         (call-support-function ',support-function 2)
-         (emit `(sys.lap-x86:jmp ,resume)))
        (cond ((constant-type-p x 'fixnum)
               (load-in-r8 y t)
               (smash-r8)
-              (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
-                    `(sys.lap-x86:jnz ,helper))
               ;; Small integers can be encoded directly into the instruction.
               (if (small-fixnum-p (second x))
                   (emit `(,',instruction :r8 ,(fixnum-to-raw (second x))))
                   (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
                         `(,',instruction :r8 :rax)))
-              (emit resume)
               (setf *r8-value* (list (gensym))))
              (t (load-in-reg :r9 y t)
                 (load-in-reg :r8 x t)
                 (smash-r8)
-                (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
-                      `(sys.lap-x86:jnz ,helper)
-                      `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
-                      `(sys.lap-x86:jnz ,helper)
-                      `(,',instruction :r8 :r9)
-                      resume)
+                (emit `(,',instruction :r8 :r9))
                 (setf *r8-value* (list (gensym))))))))
 
-(define-two-arg-bitwise-op sys.int::binary-logior sys.lap-x86:or64 sys.int::generic-logior)
-(define-two-arg-bitwise-op sys.int::binary-logxor sys.lap-x86:xor64 sys.int::generic-logxor)
-(define-two-arg-bitwise-op sys.int::binary-logand sys.lap-x86:and64 sys.int::generic-logand)
+(define-two-arg-bitwise-op sys.int::binary-logior sys.lap-x86:or64  sys.int::generic-logior mezzano.runtime::%fixnum-logior)
+(define-two-arg-bitwise-op sys.int::binary-logxor sys.lap-x86:xor64 sys.int::generic-logxor mezzano.runtime::%fixnum-logxor)
+(define-two-arg-bitwise-op sys.int::binary-logand sys.lap-x86:and64 sys.int::generic-logand mezzano.runtime::%fixnum-logand)
 
 (defbuiltin lognot (integer) ()
   (let ((not-fixnum (gensym "lognot-other"))
@@ -212,6 +231,38 @@
           resume)
     (setf *r8-value* (list (gensym)))))
 
+(defbuiltin mezzano.runtime::%fixnum-+ (x y) ()
+  (let ((ovfl (gensym "+ovfl"))
+        (resume (gensym "+resume")))
+    (when (constant-type-p y 'fixnum)
+      (rotatef x y))
+    (emit-trailer (ovfl)
+      ;; Recover the full value using the carry bit.
+      (emit `(sys.lap-x86:mov64 :rax :r8)
+            `(sys.lap-x86:rcr64 :rax 1))
+      ;; Drop the remaining fixnum tag bits.
+      ;(when (> sys.int::+n-fixnum-bits+ 1)
+      ;  (emit `(sys.lap-x86:sar64 :rax ,(1- sys.int::+n-fixnum-bits+))))
+      ;; Call assembly helper function.
+      (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+            `(sys.lap-x86:jmp ,resume)))
+    (cond ((constant-type-p x 'fixnum)
+           (load-in-r8 y t)
+           (smash-r8)
+           ;; Small integers can be encoded directly into the instruction.
+           (if (small-fixnum-p (second x))
+               (emit `(sys.lap-x86:add64 :r8 ,(fixnum-to-raw (second x))))
+               (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
+                     `(sys.lap-x86:add64 :r8 :rax))))
+          (t (load-in-reg :r9 y t)
+             (load-in-reg :r8 x t)
+             (smash-r8)
+             (emit `(sys.lap-x86:add64 :r8 :r9))))
+    (emit `(sys.lap-x86:jo ,ovfl)
+          resume)
+    (setf *r8-value* (list (gensym)))))
+
 (defbuiltin sys.int::binary-- (x y) ()
   (let ((ovfl (gensym "-ovfl"))
         (resume (gensym "-resume"))
@@ -239,6 +290,29 @@
           `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-sub)
           `(sys.lap-x86:sub64 :r8 :r9)
+          `(sys.lap-x86:jo ,ovfl)
+          resume)
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin mezzano.runtime::%fixnum-- (x y) ()
+  (let ((ovfl (gensym "-ovfl"))
+        (resume (gensym "-resume")))
+    (emit-trailer (ovfl)
+      ;; Recover the full value.
+      (emit `(sys.lap-x86:cmc)
+            `(sys.lap-x86:mov64 :rax :r8)
+            `(sys.lap-x86:rcr64 :rax 1))
+      ;; Drop the remaining fixnum tag bits.
+      ;(when (> sys.int::+n-fixnum-bits+ 1)
+      ;  (emit `(sys.lap-x86:sar64 :rax ,(1- sys.int::+n-fixnum-bits+))))
+      ;; Call assembly helper function.
+      (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+            `(sys.lap-x86:jmp ,resume)))
+    (load-in-reg :r8 x t)
+    (load-in-reg :r9 y t)
+    (smash-r8)
+    (emit `(sys.lap-x86:sub64 :r8 :r9)
           `(sys.lap-x86:jo ,ovfl)
           resume)
     (setf *r8-value* (list (gensym)))))
@@ -280,6 +354,46 @@
           `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-mul)
           `(sys.lap-x86:mov64 :rax :r8)
+          ;; Convert RAX to raw integer, leaving R9 as a fixnum.
+          ;; This will cause the result to be a fixnum.
+          `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+          `(sys.lap-x86:imul64 :r9)
+          `(sys.lap-x86:jo ,ovfl)
+          ;; R9 was not converted to a raw integer, so the result
+          ;; was automatically converted to a fixnum.
+          `(sys.lap-x86:mov64 :r8 :rax)
+          resume)
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin mezzano.runtime::%fixnum-* (x y) ()
+  (let ((ovfl (gensym "*ovfl"))
+        (resume (gensym "*resume"))
+        (small-bignum (gensym "*small-result")))
+    (emit-trailer (ovfl)
+      ;; 128-bit result in rdx:rax.
+      ;; Unbox the result.
+      (emit `(sys.lap-x86:shrd64 :rax :rdx ,sys.int::+n-fixnum-bits+)
+            `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
+            ;; Check if the result will fit in 64 bits.
+            ;; Save the high bits.
+            `(sys.lap-x86:mov64 :rcx :rdx)
+            `(sys.lap-x86:cqo)
+            `(sys.lap-x86:cmp64 :rcx :rdx)
+            `(sys.lap-x86:je ,small-bignum)
+            ;; Nope.
+            `(sys.lap-x86:mov64 :rdx :rcx)
+            `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-128-rdx-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+            `(sys.lap-x86:jmp ,resume)
+            small-bignum
+            ;; Yup.
+            `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+            `(sys.lap-x86:jmp ,resume)))
+    (load-in-reg :r9 y t)
+    (load-in-reg :r8 x t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :rax :r8)
           ;; Convert RAX to raw integer, leaving R9 as a fixnum.
           ;; This will cause the result to be a fixnum.
           `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
@@ -348,6 +462,23 @@
                   :multiple)
                  (t (setf *r8-value* (list (gensym)))))
       (emit resume))))
+
+(defbuiltin mezzano.runtime::%fixnum-truncate (number divisor) ()
+  (load-in-reg :r9 divisor t)
+  (load-in-reg :r8 number t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :rax :r8)
+        `(sys.lap-x86:cqo)
+        `(sys.lap-x86:idiv64 :r9)
+        ;; :rax holds the dividend as a integer.
+        ;; :rdx holds the remainder as a fixnum.
+        `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:mov64 :r8 :rax))
+  (prog1 (cond ((member *for-value* '(:multiple :tail))
+                (emit `(sys.lap-x86:mov64 :r9 :rdx))
+                (load-constant :rcx 2)
+                :multiple)
+               (t (setf *r8-value* (list (gensym)))))))
 
 ;;; Comparisons.
 

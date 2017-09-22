@@ -54,3 +54,27 @@
   (emit-tag-check :r9 sys.int::+tag-cons+ 'cons)
   (emit `(sys.lap-x86:mov64 (:cdr :r9) :r8))
   *r8-value*)
+
+(defbuiltin mezzano.runtime::%car (cons) ()
+  (load-in-reg :r8 cons t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 (:car :r8)))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin mezzano.runtime::%cdr (cons) ()
+  (load-in-reg :r8 cons t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 (:cdr :r8)))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin (setf mezzano.runtime::%car) (value object) ()
+  (load-in-reg :r9 object t)
+  (load-in-reg :r8 value t)
+  (emit `(sys.lap-x86:mov64 (:car :r9) :r8))
+  *r8-value*)
+
+(defbuiltin (setf mezzano.runtime::%cdr) (value object) ()
+  (load-in-reg :r9 object t)
+  (load-in-reg :r8 value t)
+  (emit `(sys.lap-x86:mov64 (:cdr :r9) :r8))
+  *r8-value*)

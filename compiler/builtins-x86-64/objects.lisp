@@ -77,6 +77,32 @@
            (emit out)
            (predicate-result :e)))))
 
+;;(defun %%object-of-type-p (object type)
+;;  (eql (%object-tag object) type))
+(defbuiltin mezzano.runtime::%%object-of-type-p (object object-tag) ()
+  (cond ((constant-type-p object-tag `(unsigned-byte ,sys.int::+object-type-size+))
+         ;; Fast case where the tag is a constant.
+         (load-in-reg :r8 object t)
+         ;; Test object type.
+         (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+               `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                            sys.int::+object-type-shift+))
+               `(sys.lap-x86:cmp8 :al ,(ash (second object-tag)
+                                            sys.int::+object-type-shift+)))
+         (predicate-result :e))
+        (t ;; Slow path.
+         (load-in-reg :r8 object t)
+         (load-in-reg :r10 object-tag t)
+         ;; Test object type.
+         (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+               `(sys.lap-x86:and64 :rax ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                              sys.int::+object-type-shift+))
+               ;; Convert type to fixnum.
+               `(sys.lap-x86:shr64 :rax ,(- sys.int::+object-type-shift+
+                                            sys.int::+n-fixnum-bits+))
+               `(sys.lap-x86:cmp64 :rax :r10))
+         (predicate-result :e))))
+
 ;;(defun type-check (object object-tag expected-type)
 ;;  (unless (and (%value-has-tag-p object +tag-object+)
 ;;               (eql (%object-tag object) object-tag))
