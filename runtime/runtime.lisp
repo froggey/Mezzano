@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.runtime)
@@ -58,6 +58,27 @@
      (- sys.int::+tag-object+)
      8
      (* slot 8)))
+
+(declaim (inline sys.int::%object-of-type-p))
+(defun sys.int::%object-of-type-p (object object-tag)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (%%object-of-type-p object object-tag)))
+
+(declaim (inline sys.int::%type-check))
+(defun sys.int::%type-check (object object-tag expected-type)
+  (unless (sys.int::%object-of-type-p object object-tag)
+    (sys.int::raise-type-error object expected-type)))
+
+(declaim (inline characterp))
+(defun characterp (object)
+  (sys.int::%value-has-tag-p object sys.int::+tag-character+))
+
+(declaim (inline functionp))
+(defun functionp (object)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (<= sys.int::+first-function-object-tag+
+           (sys.int::%object-tag object)
+           sys.int::+last-function-object-tag+)))
 
 (in-package :sys.int)
 

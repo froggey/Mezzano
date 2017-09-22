@@ -80,6 +80,7 @@
     ("runtime/runtime-x86-64.lisp" :x86-64)
     ("runtime/runtime-arm64.lisp" :arm64)
     "runtime/allocate.lisp"
+    "runtime/cons.lisp"
     "runtime/numbers.lisp"
     ("runtime/float-x86-64.lisp" :x86-64)
     ("runtime/float-arm64.lisp" :arm64)

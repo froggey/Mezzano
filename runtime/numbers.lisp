@@ -369,3 +369,66 @@
            (sys.int::fixnump rhs))
       (not (%fixnum-< lhs rhs))
       (sys.int::generic->= lhs rhs)))
+
+(declaim (inline sys.int::binary-+ sys.int::binary--
+                 sys.int::binary-* sys.int::%truncate
+                 rem
+                 sys.int::binary-logand sys.int::binary-logior
+                 sys.int::binary-logxor lognot))
+(defun sys.int::binary-+ (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-+ lhs rhs)
+      (sys.int::generic-+ lhs rhs)))
+
+(defun sys.int::binary-- (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-- lhs rhs)
+      (sys.int::generic-- lhs rhs)))
+
+(defun sys.int::binary-* (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-* lhs rhs)
+      (sys.int::generic-* lhs rhs)))
+
+(defun sys.int::%truncate (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs)
+           ;; Division by 0 is handled by generic-truncate.
+           (not (eql rhs 0))
+           ;; Division by -1 is the only case that can produce a bignum
+           ;; and is not implemented by %FIXNUM-TRUNCATE.
+           (not (eql rhs -1)))
+      (%fixnum-truncate lhs rhs)
+      (sys.int::generic-truncate lhs rhs)))
+
+(defun rem (number divisor)
+  (multiple-value-bind (quot rem)
+      (truncate number divisor)
+    (declare (ignore quot))
+    rem))
+
+(defun sys.int::binary-logand (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-logand lhs rhs)
+      (sys.int::generic-logand lhs rhs)))
+
+(defun sys.int::binary-logior (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-logior lhs rhs)
+      (sys.int::generic-logior lhs rhs)))
+
+(defun sys.int::binary-logxor (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-logxor lhs rhs)
+      (sys.int::generic-logxor lhs rhs)))
+
+(defun lognot (integer)
+  (if (sys.int::fixnump integer)
+      (%fixnum-logxor integer -1)
+      (sys.int::generic-lognot integer)))

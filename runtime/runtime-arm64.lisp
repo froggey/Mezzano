@@ -250,60 +250,12 @@
                sys.int::+last-numeric-object-tag+)
            (= x y))))
 
-(declaim (inline lognot))
-(defun lognot (integer)
-  (logxor integer -1))
-
 ;; ARM makes it difficult to detect overflow when shifting left.
 (declaim (inline %fixnum-left-shift))
 (defun %fixnum-left-shift (integer count)
   (dotimes (i count)
      (setf integer (+ integer integer)))
   integer)
-
-(declaim (inline sys.int::%simple-1d-array-p))
-(defun sys.int::%simple-1d-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (<= (sys.int::%object-tag object) sys.int::+last-simple-1d-array-object-tag+)))
-
-(declaim (inline simple-vector-p))
-(defun simple-vector-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-array-t+))
-
-(declaim (inline sys.int::character-array-p))
-(defun sys.int::character-array-p (object)
-  (or (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+)
-      (sys.int::%object-of-type-p object sys.int::+object-tag-string+)))
-
-(declaim (inline arrayp))
-(defun arrayp (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (<= (sys.int::%object-tag object) sys.int::+last-complex-array-object-tag+)))
-
-(declaim (inline sys.int::complex-array-p))
-(defun sys.int::complex-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (<= sys.int::+first-complex-array-object-tag+
-           (sys.int::%object-tag object)
-           sys.int::+last-complex-array-object-tag+)))
-
-(declaim (inline characterp))
-(defun characterp (object)
-  (sys.int::%value-has-tag-p object sys.int::+tag-character+))
-
-(declaim (inline rem))
-(defun rem (number divisor)
-  (multiple-value-bind (quot rem)
-      (truncate number divisor)
-    (declare (ignore quot))
-    rem))
-
-(declaim (inline functionp))
-(defun functionp (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (<= sys.int::+first-function-object-tag+
-           (sys.int::%object-tag object)
-           sys.int::+last-function-object-tag+)))
 
 (defun sys.int::%copy-words (destination-address source-address count)
   (dotimes (i count)
