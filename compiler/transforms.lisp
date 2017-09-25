@@ -242,7 +242,7 @@
 
 ;;; Unboxed fixnum arithmetic.
 ;;; These only apply at safety 0 as they can produce invalid values which
-;;; can damage the system.
+;;; can damage the system if the tpe declarations are incorrect;.
 
 (defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
@@ -316,9 +316,10 @@
      (:result-type fixnum))
   `(call sys.int::%%truncate-single-float ,number))
 
+;; Don't use EQ because NaNs are unorderable.
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
-  `(call eq ,lhs ,rhs))
+  `(call sys.int::%%single-float-= ,lhs ,rhs))
 
 (define-transform sys.int::binary-< ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -353,9 +354,10 @@
   `(the double-float
         (call mezzano.runtime::%%coerce-fixnum-to-double-float ,number)))
 
+;; Don't use EQ because double floats are not immediates.
 (define-transform sys.int::binary-= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
-  `(call eq ,lhs ,rhs))
+  `(call sys.int::%%double-float-= ,lhs ,rhs))
 
 (define-transform sys.int::binary-< ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -373,7 +375,8 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call sys.int::%%double-float-< ,rhs ,lhs)))
 
-;;; Fast array accesses. Unbounded and may attack at any time.
+;;; Fast array accesses, avoid type-dispatch in AREF.
+;;; These check bounds, but not the type.
 ;;; Currently only functional on simple 1d arrays.
 
 (defmacro define-fast-array-transform (type accessor)
