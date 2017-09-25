@@ -19,7 +19,7 @@
 (defun form-value (form)
   "Return the value of form wrapped in quote if its known, otherwise return nil."
   (cond ((or (typep form 'ast-quote)
-             (typep form 'ast-function)
+             (constprop-function-ast-p form)
              (lambda-information-p form))
          form)
         ((lexical-variable-p form)
@@ -114,9 +114,33 @@
                 (ast-the-type form))))
         (t 't)))
 
+(defun constprop-function-ast-p (ast)
+  ;; #'FOO is only pure if FOO is inlinable.
+  ;; FIXME: Respect INLINE/NOTININE declarations.
+  (and (typep ast 'ast-function)
+       (or (multiple-value-bind (inlinep expansion)
+               (function-inline-info (ast-name ast))
+             (declare (ignore expansion))
+             inlinep)
+           ;; Everything in the CL package is a candidate for constprop.
+           (let ((true-name (if (symbolp (ast-name ast))
+                                (ast-name ast)
+                                (second (ast-name ast)))))
+             (eql (symbol-package true-name)
+                  (find-package 'cl))))))
+
+(defun constprop-value-p (form)
+  (let ((unwrapped (unwrap-the form)))
+    (or (lambda-information-p unwrapped)
+        (typep unwrapped 'ast-quote)
+        (constprop-function-ast-p unwrapped)
+        (and (lexical-variable-p unwrapped)
+             (localp unwrapped)
+             (eql (lexical-variable-write-count unwrapped) 0)))))
+
 (defun copyable-value-p (form)
   (let ((unwrapped (unwrap-the form)))
-    (and (pure-p unwrapped)
+    (and (constprop-value-p unwrapped)
          (or (not (lambda-information-p unwrapped))
              (<= (getf (lambda-information-plist unwrapped) 'copy-count 0)
                  *constprop-lambda-copy-limit*)))))
@@ -135,7 +159,7 @@
           (cond ((copyable-value-p val)
                  (push (list var val 0 b) *known-variables*))
                 ((and (typep val 'ast-the)
-                      (pure-p var))
+                      (constprop-value-p var))
                  (push (list var (ast `(the ,(the-type val) ,var) val) 0 b) *known-variables*))))))
     ;; Run on the body, with the new constants.
     (setf (body form) (cp-form (body form)))
@@ -180,7 +204,7 @@
                          (<= (getf (lambda-information-plist value) 'copy-count 0)
                              *constprop-lambda-copy-limit*))
                     (typep value 'ast-quote)
-                    (typep value 'ast-function)))
+                    (constprop-function-ast-p value)))
            ;; Always propagate the new value forward.
            (setf (second info) value)
            ;; The value is constant. Attempt to push it back to the
