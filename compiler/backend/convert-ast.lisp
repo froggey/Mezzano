@@ -17,7 +17,8 @@
     (append-instruction *backend-function* i)))
 
 (defun convert (lambda)
-  (codegen-lambda lambda))
+  (with-metering (:ast-to-backend-conversion)
+    (codegen-lambda lambda)))
 
 (defun codegen-lambda (lambda)
   (let ((*backend-function* (make-instance 'backend-function :ast-lambda lambda))

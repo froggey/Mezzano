@@ -26,6 +26,22 @@ be generated instead.")
 
 (defvar *use-new-compiler* nil)
 
+(defvar *meters* (make-hash-table))
+
+(defmacro with-metering ((meter) &body body)
+  `(call-with-metering ',meter (lambda () ,@body)))
+
+(defun call-with-metering (meter fn)
+  (let ((start-time (cl:get-internal-real-time)))
+    (multiple-value-prog1
+        (funcall fn)
+      (let* ((total-time (- (cl:get-internal-real-time) start-time))
+             (seconds (/ total-time cl:internal-time-units-per-second)))
+        (incf (gethash meter *meters* 0.0) (float seconds))))))
+
+(defun reset-meters ()
+  (clrhash *meters*))
+
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
@@ -73,15 +89,16 @@ A list of any declaration-specifiers."
       #+arm64 :arm64))
 
 (defun codegen-lambda (lambda &optional target-architecture)
-  (detect-uses lambda)
-  (ecase (default-architecture target-architecture)
-    (:x86-64
-     (if *use-new-compiler*
-         (mezzano.compiler.backend.x86-64::compile-backend-function
-          (mezzano.compiler.backend.ast-convert:convert lambda))
-         (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
-    (:arm64
-     (mezzano.compiler.codegen.arm64:codegen-lambda lambda))))
+  (with-metering (:code-generation)
+    (detect-uses lambda)
+    (ecase (default-architecture target-architecture)
+      (:x86-64
+       (if *use-new-compiler*
+           (mezzano.compiler.backend.x86-64::compile-backend-function
+            (mezzano.compiler.backend.ast-convert:convert lambda))
+           (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
+      (:arm64
+       (mezzano.compiler.codegen.arm64:codegen-lambda lambda)))))
 
 (defun compile-lambda-1 (lambda &optional env target-architecture)
   (compile-lambda-2 (pass1-lambda lambda env) target-architecture))
@@ -155,27 +172,28 @@ A list of any declaration-specifiers."
   (optimize-quality-1 (ast-optimize ast-node) quality))
 
 (defun run-optimizers (form target-architecture)
-  (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
-                              :format-control "Possible optimizer infinite loop."
-                              :format-arguments '())
-                        form))
-    (let ((*change-count* 0))
-      ;; Must be run before lift.
-      (setf form (inline-functions (detect-uses form) target-architecture))
-      (setf form (lambda-lift (detect-uses form)))
-      ;; Key arg conversion must be performed after lambda-lifting, so as not to
-      ;; complicate the lift code.
-      (setf form (lower-keyword-arguments form))
-      (setf form (constprop (detect-uses form)))
-      (setf form (simplify (detect-uses form)))
-      (setf form (kill-temporaries (detect-uses form)))
-      (setf form (value-aware-lowering (detect-uses form)))
-      (setf form (simplify-control-flow (detect-uses form)))
-      (setf form (blexit (detect-uses form)))
-      (setf form (apply-transforms (detect-uses form) target-architecture))
-      (detect-uses form)
-      (when (eql *change-count* 0)
-        (return form)))))
+  (with-metering (:ast-optimize)
+    (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
+                                :format-control "Possible optimizer infinite loop."
+                                :format-arguments '())
+                          form))
+      (let ((*change-count* 0))
+        ;; Must be run before lift.
+        (setf form (inline-functions (detect-uses form) target-architecture))
+        (setf form (lambda-lift (detect-uses form)))
+        ;; Key arg conversion must be performed after lambda-lifting, so as not to
+        ;; complicate the lift code.
+        (setf form (lower-keyword-arguments form))
+        (setf form (constprop (detect-uses form)))
+        (setf form (simplify (detect-uses form)))
+        (setf form (kill-temporaries (detect-uses form)))
+        (setf form (value-aware-lowering (detect-uses form)))
+        (setf form (simplify-control-flow (detect-uses form)))
+        (setf form (blexit (detect-uses form)))
+        (setf form (apply-transforms (detect-uses form) target-architecture))
+        (detect-uses form)
+        (when (eql *change-count* 0)
+          (return form))))))
 
 (defun fixnump (object)
   (typep object '(signed-byte 63)))

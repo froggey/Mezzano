@@ -9,7 +9,8 @@
 (defvar *verify-special-stack* nil)
 
 (defun lower-special-bindings (lambda)
-  (lsb-form lambda))
+  (with-metering (:lower-special-bindings)
+    (lsb-form lambda)))
 
 (defgeneric lsb-form (form))
 

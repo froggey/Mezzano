@@ -9,8 +9,9 @@
 (defvar *rename-list*)
 
 (defun value-aware-lowering (lambda)
-  (let ((*rename-list* '()))
-    (value-aware-lowering-1 lambda :single)))
+  (with-metering (:value-aware-lowering)
+    (let ((*rename-list* '()))
+      (value-aware-lowering-1 lambda :single))))
 
 (defgeneric value-aware-lowering-1 (form mode))
 

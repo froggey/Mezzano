@@ -157,7 +157,10 @@
            #:ast-protected-form
            #:ast-cleanup-function
            #:ast-arguments
-           #:ast-targets)
+           #:ast-targets
+
+           #:with-metering
+           #:reset-meters)
   (:use :cross-cl))
 
 (defpackage :mezzano.compiler.codegen.x86-64

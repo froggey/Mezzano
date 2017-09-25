@@ -13,7 +13,8 @@
 ;;; generated code.
 
 (defun kill-temporaries (lambda)
-  (kt-form lambda))
+  (with-metering (:kill-temporaries)
+    (kt-form lambda)))
 
 (defgeneric kt-form (form &optional target-variable replacement-form))
 

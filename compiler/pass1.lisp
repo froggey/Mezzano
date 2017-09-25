@@ -78,6 +78,10 @@
 
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
+  (with-metering (:pass1)
+    (pass1-lambda-inner lambda env)))
+
+(defun pass1-lambda-inner (lambda env)
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
@@ -411,7 +415,7 @@
                                            (multiple-value-bind (sym var lambda)
                                                (frob-flet-function x)
                                              (push (list sym var) bindings)
-                                             (let ((lambda (pass1-lambda lambda env)))
+                                             (let ((lambda (pass1-lambda-inner lambda env)))
                                                (when (function-declared-dynamic-extent-p sym declares)
                                                  (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
                                                (when (function-declared-notinline-p sym declares)
@@ -427,7 +431,7 @@
   (destructuring-bind (name) (cdr form)
     (if (and (consp name)
              (eq (first name) 'lambda))
-        (pass1-lambda name env)
+        (pass1-lambda-inner name env)
         (let* ((var (find-function name env)))
           (cond ((lexical-variable-p var)
                  ;; Lexical function.
@@ -477,7 +481,7 @@
         (make-instance 'ast-let
                        :optimize (optimize-qualities-in-environment env)
                        :bindings (mapcar (lambda (x)
-                                           (let ((lambda (pass1-lambda (third x) env)))
+                                           (let ((lambda (pass1-lambda-inner (third x) env)))
                                              (when (function-declared-dynamic-extent-p (first x) declares)
                                                (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
                                              (when (function-declared-notinline-p (first x) declares)
@@ -866,9 +870,9 @@
         (make-instance 'ast-unwind-protect
                        :optimize (optimize-qualities-in-environment env)
                        :protected-form (pass1-form protected-form env)
-                       :cleanup-function (pass1-lambda `(lambda ()
-                                                          (declare (sys.int::lambda-name (unwind-protect-cleanup :in ,(lambda-information-name *current-lambda*))))
-                                                          (progn ,@cleanup-forms))
+                       :cleanup-function (pass1-lambda-inner `(lambda ()
+                                                                (declare (sys.int::lambda-name (unwind-protect-cleanup :in ,(lambda-information-name *current-lambda*))))
+                                                                (progn ,@cleanup-forms))
                                                        env))
         (pass1-form protected-form env))))
 

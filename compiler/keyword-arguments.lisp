@@ -190,8 +190,9 @@
            form))))
 
 (defun lower-keyword-arguments (form)
-  (lower-keyword-arguments-1 form)
-  form)
+  (with-metering (:lower-keyword-arguments)
+    (lower-keyword-arguments-1 form)
+    form))
 
 (defgeneric lower-keyword-arguments-1 (form))
 

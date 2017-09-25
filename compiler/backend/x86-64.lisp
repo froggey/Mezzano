@@ -1821,54 +1821,59 @@
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
 (defun compile-backend-function-1 (backend-function)
-  (mezzano.compiler.backend::remove-unreachable-basic-blocks backend-function)
-  (mezzano.compiler.backend.x86-64::lower backend-function)
-  (mezzano.compiler.backend::canonicalize-call-operands backend-function)
-  (mezzano.compiler.backend::canonicalize-argument-setup backend-function)
-  (mezzano.compiler.backend::canonicalize-nlx-values backend-function)
-  (mezzano.compiler.backend::canonicalize-values backend-function)
-  (mezzano.compiler.backend::remove-unused-instructions backend-function)
-  (multiple-value-bind (live-in live-out)
-      (mezzano.compiler.backend::compute-liveness backend-function)
-    (let ((order (mezzano.compiler.backend::instructions-reverse-postorder backend-function))
-          (arch :x86-64))
-      (multiple-value-bind (registers spilled instantaneous-registers)
-          (mezzano.compiler.backend::linear-scan-allocate
-           backend-function
-           order
-           (mezzano.compiler.backend::build-live-ranges backend-function order arch live-in live-out)
-           arch
-           live-in live-out)
-        (mezzano.compiler.backend::rewrite-after-allocation backend-function registers spilled instantaneous-registers))))
-  (mezzano.compiler.backend.x86-64::peephole backend-function))
+  (sys.c:with-metering (:backend-misc)
+    (mezzano.compiler.backend::remove-unreachable-basic-blocks backend-function)
+    (mezzano.compiler.backend.x86-64::lower backend-function)
+    (mezzano.compiler.backend::canonicalize-call-operands backend-function)
+    (mezzano.compiler.backend::canonicalize-argument-setup backend-function)
+    (mezzano.compiler.backend::canonicalize-nlx-values backend-function)
+    (mezzano.compiler.backend::canonicalize-values backend-function)
+    (mezzano.compiler.backend::remove-unused-instructions backend-function))
+  (sys.c:with-metering (:backend-register-allocation)
+    (multiple-value-bind (live-in live-out)
+        (mezzano.compiler.backend::compute-liveness backend-function)
+      (let ((order (mezzano.compiler.backend::instructions-reverse-postorder backend-function))
+            (arch :x86-64))
+        (multiple-value-bind (registers spilled instantaneous-registers)
+            (mezzano.compiler.backend::linear-scan-allocate
+             backend-function
+             order
+             (mezzano.compiler.backend::build-live-ranges backend-function order arch live-in live-out)
+             arch
+             live-in live-out)
+          (mezzano.compiler.backend::rewrite-after-allocation backend-function registers spilled instantaneous-registers)))))
+  (sys.c:with-metering (:backend-misc)
+    (mezzano.compiler.backend.x86-64::peephole backend-function)))
 
 (defun compile-backend-function-2 (backend-function)
   (multiple-value-bind (lap debug-layout environment-slot)
-      (to-lap backend-function)
+      (sys.c:with-metering (:backend-lap-generation)
+        (to-lap backend-function))
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (format t "~{~S~%~}" lap))
-    (sys.int::assemble-lap
-     lap
-     (backend-function-name backend-function)
-     (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
-       (list :debug-info
-             (backend-function-name backend-function) ; name
-             debug-layout ; local variable stack positions
-             ;; Environment index
-             environment-slot
-             ;; Environment layout
-             (second (sys.c:lambda-information-environment-layout ast-lambda))
-             ;; Source file
-             (if *compile-file-pathname*
-                 (namestring *compile-file-pathname*)
-                 nil)
-             ;; Top-level form number
-             sys.int::*top-level-form-number*
-             (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-             (sys.c:lambda-information-docstring ast-lambda))) ; docstring
-     nil
-     :x86-64)))
+    (sys.c:with-metering (:lap-assembly)
+      (sys.int::assemble-lap
+       lap
+       (backend-function-name backend-function)
+       (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
+         (list :debug-info
+               (backend-function-name backend-function) ; name
+               debug-layout ; local variable stack positions
+               ;; Environment index
+               environment-slot
+               ;; Environment layout
+               (second (sys.c:lambda-information-environment-layout ast-lambda))
+               ;; Source file
+               (if *compile-file-pathname*
+                   (namestring *compile-file-pathname*)
+                   nil)
+               ;; Top-level form number
+               sys.int::*top-level-form-number*
+               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
+               (sys.c:lambda-information-docstring ast-lambda))) ; docstring
+       nil
+       :x86-64))))
 
 (defun compile-backend-function (backend-function)
   (compile-backend-function-1 backend-function)

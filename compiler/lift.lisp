@@ -6,7 +6,8 @@
 (in-package :sys.c)
 
 (defun lambda-lift (lambda)
-  (ll-form lambda))
+  (with-metering (:lambda-lift)
+    (ll-form lambda)))
 
 (defgeneric ll-form (form))
 

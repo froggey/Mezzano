@@ -6,7 +6,8 @@
 (in-package :sys.c)
 
 (defun simplify (lambda)
-  (simp-form lambda))
+  (with-metering (:simplify-ast)
+    (simp-form lambda)))
 
 (defgeneric simp-form (form))
 

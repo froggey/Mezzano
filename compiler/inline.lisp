@@ -6,7 +6,8 @@
 (in-package :sys.c)
 
 (defun inline-functions (lambda architecture)
-  (il-form lambda architecture))
+  (with-metering (:inlining)
+    (il-form lambda architecture)))
 
 (defgeneric il-form (form architecture))
 
@@ -93,6 +94,7 @@
   form)
 
 (defun expand-inline-function (form name arg-list architecture)
+  ;; FIXME: Respect INLINE/NOTININE declarations.
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
     (when (and inlinep

@@ -11,8 +11,9 @@
 (defparameter *constprop-lambda-copy-limit* 3)
 
 (defun constprop (form)
-  (let ((*known-variables* '()))
-    (cp-form form)))
+  (with-metering (:constant-propagation)
+    (let ((*known-variables* '()))
+      (cp-form form))))
 
 (defgeneric cp-form (form))
 
