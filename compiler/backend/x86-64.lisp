@@ -7,7 +7,12 @@
   ((%inputs :initarg :inputs :reader mezzano.compiler.backend::instruction-inputs)
    (%outputs :initarg :outputs :reader mezzano.compiler.backend::instruction-outputs)
    (%opcode :initarg :opcode :reader x86-instruction-opcode)
-   (%operands :initarg :operands :reader x86-instruction-operands)))
+   (%operands :initarg :operands :reader x86-instruction-operands)
+   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
+  (:default-initargs :clobbers '()))
+
+(defmethod mezzano.compiler.backend::instruction-clobbers ((instruction x86-instruction) (architecture (eql :x86-64)))
+  (x86-instruction-clobbers instruction))
 
 (defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-instruction) substitution-function)
   (setf (slot-value instruction '%inputs) (mapcar substitution-function (slot-value instruction '%inputs)))
@@ -327,10 +332,15 @@
                          :opcode 'lap:call
                          :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
                          :inputs '(:r13 :rax)
-                         :outputs (list :r8)))
+                         :outputs (list :r8)
+                         :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                     :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
     (emit (make-instance 'move-instruction
                          :destination result
                          :source :r8))
+    (emit (make-instance 'jump-instruction :target out))
     (emit out)))
 
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
@@ -370,10 +380,15 @@
                          :opcode 'lap:call
                          :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
                          :inputs '(:r13 :rax)
-                         :outputs (list :r8)))
+                         :outputs (list :r8)
+                         :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                     :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
     (emit (make-instance 'move-instruction
                          :destination result
                          :source :r8))
+    (emit (make-instance 'jump-instruction :target out))
     (emit out)))
 
 (define-builtin mezzano.runtime::%fixnum-* ((lhs rhs) result)
@@ -446,7 +461,11 @@
                          :opcode 'lap:call
                          :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
                          :inputs (list :r13 :rax :rdx)
-                         :outputs (list :r8)))
+                         :outputs (list :r8)
+                         :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                     :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
     (emit (make-instance 'move-instruction
                          :source :r8
                          :destination result))
@@ -456,6 +475,7 @@
     (emit (make-instance 'move-instruction
                          :source :rax
                          :destination result))
+    (emit (make-instance 'jump-instruction :target out))
     (emit out)))
 
 (define-builtin mezzano.runtime::%fixnum-truncate ((lhs rhs) (quot rem))
