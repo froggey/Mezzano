@@ -429,6 +429,8 @@ does not visit unreachable blocks."
 (deftype physical-register ()
   'keyword)
 
+(defvar *shut-up* t)
+
 (defun instruction-all-clobbers (inst architecture mv-flow live-in live-out)
   (union
    (union
@@ -468,6 +470,10 @@ does not visit unreachable blocks."
                              ;; Scan the instruction's outputs to catch this.
                              (remove-if-not (lambda (x) (typep x 'virtual-register))
                                             (instruction-outputs inst)))))
+           (unless *shut-up*
+             (format t "~D:" i)
+             (print-instruction inst)
+             (format t "Vregs: ~:S~%" vregs))
            (dolist (vreg vregs)
              (setf (gethash vreg vreg-liveness-start) (min i (gethash vreg vreg-liveness-start most-positive-fixnum)))
              (setf (gethash vreg vreg-liveness-end) (max i (gethash vreg vreg-liveness-end 0)))
@@ -533,10 +539,9 @@ does not visit unreachable blocks."
                                                     (member (gethash (live-range-vreg spill-interval) registers)
                                                             (live-range-conflicts i)))
                                                   active)))))
-               #+(or)
-               (format t "active ~S~%" active)
-               #+(or)
-               (format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil))
+               (unless *shut-up*
+                 (format t "active ~S~%" active)
+                 (format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil)))
                (cond ((and spill
                            (> (live-range-end spill) (live-range-end i)))
                       (setf (gethash (live-range-vreg i) registers) (gethash (live-range-vreg spill) registers))
@@ -549,56 +554,85 @@ does not visit unreachable blocks."
          for instruction-index from 0
          for inst in ordering
          do
-               #+(or)
-           (print-instruction inst)
            (expire-old-intervals instruction-index)
-           (loop
-              (when (not (and remaining-live-ranges
-                              (eql instruction-index (live-range-start (first remaining-live-ranges)))))
-                (return))
-              (let* ((interval (pop remaining-live-ranges))
-                     (candidates (remove-if (lambda (reg)
-                                              (or (member reg (live-range-conflicts interval))
-                                                  ;; If the instruction is a move instruction with physical source/destinations,
-                                                  ;; then conflict with it unless this interval is a source/dest and ends/begins
-                                                  ;; on this instruction.
-                                                  (and (typep inst 'move-instruction)
-                                                       (or (and (typep (move-source inst) 'physical-register)
-                                                                (eql (move-source inst) reg)
-                                                                (not (and (eql (move-destination inst) (live-range-vreg interval))
-                                                                          (eql instruction-index (live-range-start interval)))))
-                                                           (and (typep (move-destination inst) 'physical-register)
-                                                                (eql (move-destination inst) reg)
-                                                                (not (and (eql (move-source inst) (live-range-vreg interval))
-                                                                          (eql instruction-index (live-range-end interval)))))))))
-                                            free-registers))
-                     (hint (or (live-range-hint interval)
-                               (if (and (typep inst 'move-instruction)
-                                        (eql (move-destination inst) (live-range-vreg interval))
-                                        (typep (move-source inst) 'physical-register)
-                                        (not (member (move-source inst) (live-range-conflicts interval))))
-                                   (move-source inst)
-                                   nil)))
-                     (reg (if (member hint candidates)
-                              hint
-                              (first candidates))))
-               #+(or)
-                (format t "Interval ~S~%" interval)
-               #+(or)
-                (format t "Candidates ~S~%" candidates)
-               #+(or)
-                (format t "hint/reg ~S / ~S~%" hint reg)
-                (cond ((and (typep inst 'argument-setup-instruction)
-                            (eql instruction-index (live-range-end interval)))
-                       ;; Argument setup instruction with an unused argument.
-                       ;; Just spill it.
-                       (push (live-range-vreg interval) spilled))
-                      ((not reg)
-                       (spill-at-interval interval))
-                      (t
-                       (setf free-registers (remove reg free-registers))
-                       (setf (gethash (live-range-vreg interval) registers) reg)
-                       (setf active (merge 'list (list interval) active #'< :key 'live-range-end))))))
+           (unless *shut-up*
+             (format t "~D:" instruction-index)
+             (print-instruction inst)
+             (format t "actives ~:S~%" (mapcar (lambda (range)
+                                                 (cons range (gethash (live-range-vreg range) registers)))
+                                                 active)))
+           ;; If this is a move instruction with a non-spilled source vreg expiring on this instruction
+           ;; and a destination vreg starting on this instruction then assign the same register.
+           (cond ((and (typep inst 'move-instruction)
+                       (not (eql (move-source inst) (move-destination inst)))
+                       (typep (move-source inst) 'virtual-register)
+                       (typep (move-destination inst) 'virtual-register)
+                       (not (member (move-source inst) spilled))
+                       active
+                       (eql (live-range-vreg (first active)) (move-source inst))
+                       (eql (live-range-end (first active)) instruction-index)
+                       remaining-live-ranges
+                       (eql (live-range-vreg (first remaining-live-ranges)) (move-destination inst))
+                       ;; Must not conflict.
+                       (not (member (gethash (live-range-vreg (first active)) registers)
+                                    (live-range-conflicts (first remaining-live-ranges)))))
+                  (let* ((old-range (pop active))
+                         (new-range (pop remaining-live-ranges))
+                         (reg (gethash (live-range-vreg old-range) registers)))
+                    (assert (eql (live-range-start new-range) instruction-index))
+                    (unless *shut-up*
+                      (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg))
+                    (setf (gethash (live-range-vreg new-range) registers) reg)
+                    (setf active (merge 'list (list new-range) active #'< :key 'live-range-end)))
+                  ;; Shouldn't be any remaining ranges coming live on this instruction.
+                  (assert (or (endp remaining-live-ranges)
+                              (not (eql (live-range-start (first remaining-live-ranges)) instruction-index)))))
+                 (t
+                  (loop
+                     (when (not (and remaining-live-ranges
+                                     (eql instruction-index (live-range-start (first remaining-live-ranges)))))
+                       (return))
+                     (let* ((interval (pop remaining-live-ranges))
+                            (candidates (remove-if (lambda (reg)
+                                                     (or (member reg (live-range-conflicts interval))
+                                                         ;; If the instruction is a move instruction with physical source/destinations,
+                                                         ;; then conflict with it unless this interval is a source/dest and ends/begins
+                                                         ;; on this instruction.
+                                                         (and (typep inst 'move-instruction)
+                                                              (or (and (typep (move-source inst) 'physical-register)
+                                                                       (eql (move-source inst) reg)
+                                                                       (not (and (eql (move-destination inst) (live-range-vreg interval))
+                                                                                 (eql instruction-index (live-range-start interval)))))
+                                                                  (and (typep (move-destination inst) 'physical-register)
+                                                                       (eql (move-destination inst) reg)
+                                                                       (not (and (eql (move-source inst) (live-range-vreg interval))
+                                                                                 (eql instruction-index (live-range-end interval)))))))))
+                                                   free-registers))
+                            (hint (or (live-range-hint interval)
+                                      (if (and (typep inst 'move-instruction)
+                                               (eql (move-destination inst) (live-range-vreg interval))
+                                               (typep (move-source inst) 'physical-register)
+                                               (not (member (move-source inst) (live-range-conflicts interval))))
+                                          (move-source inst)
+                                          nil)))
+                            (reg (if (member hint candidates)
+                                     hint
+                                     (first candidates))))
+                       (unless *shut-up*
+                         (format t "Interval ~S~%" interval)
+                         (format t "Candidates ~S~%" candidates)
+                         (format t "hint/reg ~S / ~S~%" hint reg))
+                       (cond ((and (typep inst 'argument-setup-instruction)
+                                   (eql instruction-index (live-range-end interval)))
+                              ;; Argument setup instruction with an unused argument.
+                              ;; Just spill it.
+                              (push (live-range-vreg interval) spilled))
+                             ((not reg)
+                              (spill-at-interval interval))
+                             (t
+                              (setf free-registers (remove reg free-registers))
+                              (setf (gethash (live-range-vreg interval) registers) reg)
+                              (setf active (merge 'list (list interval) active #'< :key 'live-range-end))))))))
            ;; Now add instantaneous intervals for spilled registers.
            (let* ((vregs (union (remove-duplicates
                                  (remove-if-not (lambda (r)
@@ -617,16 +651,16 @@ does not visit unreachable blocks."
                   (available-regs (remove-if (lambda (preg)
                                                (member preg used-pregs))
                                              free-registers)))
-               #+(or)
-             (format t "Instants ~S ~S ~S ~S~%"
-                                 (remove-if-not (lambda (r)
-                                                  (typep r 'virtual-register))
-                                                (instruction-inputs inst))
+             (unless *shut-up*
+               (format t "Instants ~:S ~:S ~:S ~:S~%"
+                       (remove-if-not (lambda (r)
+                                        (typep r 'virtual-register))
+                                      (instruction-inputs inst))
 
-                                 (remove-if-not (lambda (r)
-                                                  (typep r 'virtual-register))
-                                                (instruction-outputs inst))
-                                 spilled-vregs available-regs)
+                       (remove-if-not (lambda (r)
+                                        (typep r 'virtual-register))
+                                      (instruction-outputs inst))
+                       spilled-vregs available-regs))
              (dolist (vreg spilled-vregs)
                (cond ((allow-memory-operand-p inst vreg architecture)
                       ;; Do nothing.
@@ -651,8 +685,8 @@ does not visit unreachable blocks."
                         (push (gethash (live-range-vreg spill) registers) free-registers)))
                      (t
                       (setf (gethash (cons inst vreg) instantaneous-registers) (pop available-regs))))
-               #+(or)
-               (format t "Pick ~S for ~S~%" (gethash (cons inst vreg) instantaneous-registers) vreg)))))
+               (unless *shut-up*
+                 (format t "Pick ~S for ~S~%" (gethash (cons inst vreg) instantaneous-registers) vreg))))))
     (values registers spilled instantaneous-registers)))
 
 (defgeneric replace-all-registers (instruction substitution-function))
@@ -826,35 +860,86 @@ does not visit unreachable blocks."
            (spilled-output-vregs (remove-if-not (lambda (vreg)
                                                   (member vreg spilled))
                                                 output-vregs)))
-      ;; Load spilled input registers.
-      (dolist (spill spilled-input-vregs)
-        (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                       (gethash spill registers)
-                       (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-          (when (not (eql reg :memory))
-            (insert-before backend-function inst
-                           (make-instance 'fill-instruction
-                                          :destination reg
-                                          :source spill)))))
-      ;; Store spilled output registers.
-      (dolist (spill spilled-output-vregs)
-        (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                       (gethash spill registers)
-                       (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-          (when (not (eql reg :memory))
-            (insert-after backend-function inst
-                          (make-instance 'spill-instruction
-                                         :destination spill
-                                         :source reg)))))
-      ;; Rewrite the instruction.
-      (replace-all-registers inst
-                             (lambda (old)
-                               (let ((new (or (gethash (cons inst old) instantaneous-registers)
-                                              (gethash old registers))))
-                                 (if (or (not new)
-                                         (eql new :memory))
-                                     old
-                                     new)))))))
+      (cond ((typep inst 'move-instruction)
+             (cond ((and spilled-input-vregs spilled-output-vregs)
+                    ;; Both the input & the output were spilled.
+                    ;; Fill into the instant for the input, then spill directly into the output.
+                    (let ((reg (or (gethash (cons inst (move-source inst)) instantaneous-registers)
+                                   (gethash (move-source inst) registers)
+                                   (error "Missing instantaneous register for spill ~S at ~S." (move-source inst) inst))))
+                      (insert-before backend-function inst
+                                     (make-instance 'fill-instruction
+                                                    :destination reg
+                                                    :source (move-source inst)))
+                      (insert-before backend-function inst
+                                     (make-instance 'spill-instruction
+                                                    :destination (move-destination inst)
+                                                    :source reg))
+                      (remove-instruction backend-function inst)))
+                   (spilled-input-vregs
+                    ;; Input was spilled, fill directly into the output.
+                    (let ((reg (or (gethash (move-destination inst) registers)
+                                   (move-destination inst))))
+                      (insert-before backend-function inst
+                                     (make-instance 'fill-instruction
+                                                    :destination reg
+                                                    :source (move-source inst)))
+                      (remove-instruction backend-function inst)))
+                   (spilled-output-vregs
+                    ;; Output was spilled, spill directly into the output.
+                    (let ((reg (or (gethash (move-source inst) registers)
+                                   (move-source inst))))
+                      (insert-before backend-function inst
+                                     (make-instance 'spill-instruction
+                                                    :destination (move-destination inst)
+                                                    :source reg))
+                      (remove-instruction backend-function inst)))
+                   ((eql (or (gethash (move-source inst) registers)
+                             (move-source inst))
+                         (or (gethash (move-destination inst) registers)
+                             (move-destination inst)))
+                    ;; Source & destination are the same register (not spilled), eliminate the move.
+                    (remove-instruction backend-function inst))
+                   (t
+                    ;; Just rewrite the instruction.
+                    (replace-all-registers inst
+                                           (lambda (old)
+                                             (let ((new (or (gethash (cons inst old) instantaneous-registers)
+                                                            (gethash old registers))))
+                                               (if (or (not new)
+                                                       (eql new :memory))
+                                                   old
+                                                   new)))))))
+            (t
+             ;; Load spilled input registers.
+             (dolist (spill spilled-input-vregs)
+               (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
+                              (gethash spill registers)
+                              (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
+                 (when (not (eql reg :memory))
+                   (insert-before backend-function inst
+                                  (make-instance 'fill-instruction
+                                                 :destination reg
+                                                 :source spill)))))
+             ;; Store spilled output registers.
+             (dolist (spill spilled-output-vregs)
+               (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
+                              (gethash spill registers)
+                              (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
+                 (when (not (eql reg :memory))
+                   (insert-after backend-function inst
+                                 (make-instance 'spill-instruction
+                                                :destination spill
+                                                :source reg)))))
+             ;; Rewrite the instruction.
+             (replace-all-registers inst
+                                    (lambda (old)
+                                      (let ((new (or (gethash (cons inst old) instantaneous-registers)
+                                                     (gethash old registers))))
+                                        (if (or (not new)
+                                                (eql new :memory))
+                                            old
+                                            new)))))))))
 
 (defun build-use/def-maps (backend-function)
   (let ((uses (make-hash-table))
