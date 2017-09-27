@@ -553,6 +553,12 @@
            #:make-dx-closure-environment
 ))
 
+(defpackage :mezzano.compiler.backend.dominance
+  (:use :cl :mezzano.compiler.backend)
+  (:export #:compute-dominance
+           #:dominator-tree-parent
+           #:dominator-tree-children))
+
 (defpackage :mezzano.compiler.backend.ast-convert
   (:use :cl :mezzano.compiler :mezzano.compiler.backend)
   (:export #:convert))

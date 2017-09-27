@@ -5,8 +5,45 @@
 
 (in-package :mezzano.compiler.backend)
 
+(defun check-definitions-dominate-uses (backend-function)
+  "Check that all virtual-register uses are dominated by their definitions.
+This only works on functions in SSA form."
+  (let ((dom (mezzano.compiler.backend.dominance:compute-dominance backend-function)))
+    (labels ((check-defs-dominate-uses (def-stack bb)
+               (do ((inst bb (next-instruction backend-function inst)))
+                   ((null inst))
+                 (dolist (input (instruction-inputs inst))
+                   (when (typep input 'virtual-register)
+                     (assert (member input def-stack) (inst def-stack)
+                             "Instruction ~S uses ~S before definition."
+                             inst input)))
+                 (dolist (output (instruction-outputs inst))
+                   (when (typep output 'virtual-register)
+                     (push output def-stack)))
+                 (when (typep inst 'terminator-instruction)
+                   (return)))
+               (dolist (child (mezzano.compiler.backend.dominance:dominator-tree-children dom bb))
+                 (check-defs-dominate-uses def-stack child))))
+      (check-defs-dominate-uses '() (first-instruction backend-function)))))
+
+(defun check-ssa (backend-function)
+  "Verify that BACKEND-FUNCTION is in SSA form.
+Virtual registers must be defined exactly once."
+  (multiple-value-bind (uses defs)
+      (build-use/def-maps backend-function)
+    (declare (ignore uses))
+    (maphash (lambda (def insts)
+               (assert (not (endp insts)) (def)
+                       "Virtual register ~S has no definitions?" def)
+               (assert (endp (rest insts)) (def insts)
+                       "Virtual register ~S defined by multiple instructions ~S"
+                       def insts))
+             defs))
+  (check-definitions-dominate-uses backend-function))
+
 (defun deconstruct-ssa (backend-function)
   "Deconstruct SSA form, replacing phi nodes with moves."
+  (check-ssa backend-function)
   (do-instructions (inst backend-function)
     (when (typep inst 'jump-instruction)
       ;; Phi nodes have parallel assignment semantics.
