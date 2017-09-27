@@ -10,8 +10,6 @@
 (defvar *go-tag-and-block-labels*)
 (defvar *dynamic-stack*)
 
-(defvar *enable-locals* t)
-
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (append-instruction *backend-function* i)))
@@ -96,14 +94,11 @@
     ;; Bind arguments to registers.
     (flet ((frob-arg (variable register)
              (when variable
-               (cond (*enable-locals*
-                      (let ((inst (make-instance 'bind-local-instruction
-                                                 :ast variable
-                                                 :value register)))
-                        (emit inst)
-                        (setf (gethash variable *variable-registers*) inst)))
-                     (t
-                      (setf (gethash variable *variable-registers*) register))))))
+               (let ((inst (make-instance 'bind-local-instruction
+                                          :ast variable
+                                          :value register)))
+                 (emit inst)
+                 (setf (gethash variable *variable-registers*) inst)))))
       (frob-arg (lambda-information-fref-arg lambda) fref-reg)
       (frob-arg (lambda-information-closure-arg lambda) closure-reg)
       (frob-arg (lambda-information-count-arg lambda) count-reg)
@@ -436,22 +431,14 @@
          (let ((value (cg-form init-form :value)))
            (when (not value)
              (return-from cg-form nil))
-           (cond (*enable-locals*
-                  (let ((inst (make-instance 'bind-local-instruction
-                                             :ast var
-                                             :value value)))
-                    (emit inst)
-                    (push (list :binding inst) *dynamic-stack*)
-                    (setf (gethash var *variable-registers*) inst)))
-                 (t
-                  (let ((vreg (make-instance 'virtual-register)))
-                    (emit (make-instance 'move-instruction
-                                         :destination vreg
-                                         :source value))
-                    (setf (gethash var *variable-registers*) vreg))))))
+           (let ((inst (make-instance 'bind-local-instruction
+                                      :ast var
+                                      :value value)))
+             (emit inst)
+             (push (list :binding inst) *dynamic-stack*)
+             (setf (gethash var *variable-registers*) inst))))
     (let ((result (cg-form (ast-body form) result-mode)))
-      (when (and *enable-locals*
-                 result)
+      (when result
         (loop
            for (var init-form) in (reverse (ast-bindings form))
            do (emit (make-instance 'unbind-local-instruction
@@ -484,26 +471,18 @@
                   (emit (make-instance 'constant-instruction
                                        :destination reg
                                        :value nil)))))
-      (cond (*enable-locals*
-             (loop
-                for var in (ast-bindings form)
-                for reg in regs
-                for inst = (make-instance 'bind-local-instruction
-                                          :ast var
-                                          :value reg)
-                do
-                  (emit inst)
-                  (push (list :binding inst) *dynamic-stack*)
-                  (setf (gethash var *variable-registers*) inst)))
-            (t
-             (loop
-                for var in (ast-bindings form)
-                for reg in regs
-                do
-                  (setf (gethash var *variable-registers*) reg))))
+      (loop
+         for var in (ast-bindings form)
+         for reg in regs
+         for inst = (make-instance 'bind-local-instruction
+                                   :ast var
+                                   :value reg)
+         do
+           (emit inst)
+           (push (list :binding inst) *dynamic-stack*)
+           (setf (gethash var *variable-registers*) inst))
       (let ((result (cg-form (ast-body form) result-mode)))
-        (when (and *enable-locals*
-                   result)
+        (when result
           (dolist (var (reverse (ast-bindings form)))
             (emit (make-instance 'unbind-local-instruction
                                  :local (gethash var *variable-registers*)))))
@@ -608,13 +587,9 @@
     (assert (localp var))
     (when (not value)
       (return-from cg-form nil))
-    (if (typep loc 'virtual-register)
-        (emit (make-instance 'move-instruction
-                             :destination loc
-                             :source value))
-        (emit (make-instance 'store-local-instruction
-                             :local loc
-                             :value value)))
+    (emit (make-instance 'store-local-instruction
+                         :local loc
+                         :value value))
     value))
 
 (defun tagbody-localp (info)
