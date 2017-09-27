@@ -32,11 +32,11 @@ be generated instead.")
   `(call-with-metering ',meter (lambda () ,@body)))
 
 (defun call-with-metering (meter fn)
-  (let ((start-time (cl:get-internal-real-time)))
+  (let ((start-time (get-internal-real-time)))
     (multiple-value-prog1
         (funcall fn)
-      (let* ((total-time (- (cl:get-internal-real-time) start-time))
-             (seconds (/ total-time cl:internal-time-units-per-second)))
+      (let* ((total-time (- (get-internal-real-time) start-time))
+             (seconds (/ total-time internal-time-units-per-second)))
         (incf (gethash meter *meters* 0.0) (float seconds))))))
 
 (defun reset-meters ()

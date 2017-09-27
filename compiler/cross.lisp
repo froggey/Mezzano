@@ -51,6 +51,8 @@
            :boole-set
            :boole-xor
            :internal-time-units-per-second
+           :get-internal-run-time
+           :get-internal-real-time
            :pi
            :byte
            :byte-size

@@ -287,3 +287,16 @@
 
 (defun mezzano.clos:class-precedence-list (class)
   (sb-mop:class-precedence-list class))
+
+(defun convert-internal-time-units (time)
+  (* time
+     (/ internal-time-units-per-second
+        cl:internal-time-units-per-second)))
+
+(defun get-internal-run-time ()
+  (convert-internal-time-units
+   (cl:get-internal-run-time)))
+
+(defun get-internal-real-time ()
+  (convert-internal-time-units
+   (cl:get-internal-real-time)))
