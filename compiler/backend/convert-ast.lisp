@@ -115,14 +115,16 @@
                                  :source closure-reg))
             (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
               ;; Read environment pointer from closure object.
-              (let ((index (make-instance 'virtual-register)))
+              (let* ((real-env-reg (make-instance 'virtual-register :name :environment))
+                     (index (make-instance 'virtual-register)))
                 (emit (make-instance 'constant-instruction
                                      :destination index
                                      :value 2))
                 (emit (make-instance 'object-get-t-instruction
-                                     :destination env-reg
+                                     :destination real-env-reg
                                      :object env-reg
-                                     :index index))))
+                                     :index index))
+                (setf env-reg real-env-reg)))
             (frob-arg env-arg env-reg))))
       ;; Required arguments.
       (loop
@@ -153,10 +155,12 @@
                    ;; Avoid generating code &REST code when the variable isn't used.
                    (not (zerop (lexical-variable-use-count rest-arg))))
           (when (not (lexical-variable-dynamic-extent rest-arg))
-            (emit (make-instance 'call-instruction
-                                 :result rest-reg
-                                 :function 'copy-list
-                                 :arguments (list rest-reg))))
+            (let ((real-rest (make-instance 'virtual-register)))
+              (emit (make-instance 'call-instruction
+                                   :result real-rest
+                                   :function 'copy-list
+                                   :arguments (list rest-reg)))
+              (setf rest-reg real-rest)))
           (frob-arg rest-arg rest-reg))))))
 
 (defun unwind-dynamic-stack-to (target)
