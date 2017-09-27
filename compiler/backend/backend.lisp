@@ -6,7 +6,12 @@
 (defclass virtual-register ()
   ((%name :initarg :name)
    (%kind :initarg :kind :reader register-kind))
-  (:default-initargs :kind :value))
+  (:default-initargs :kind :value :name nil))
+
+(defmethod print-object ((object virtual-register) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (when (slot-boundp object '%name)
+      (format stream "~S" (slot-value object '%name)))))
 
 (defclass backend-function ()
   ((%ast-lambda :initarg :ast-lambda :reader ast)
@@ -140,16 +145,18 @@
     (list (next-instruction function instruction))))
 
 (defclass label (backend-instruction)
-  ((%name :initarg :name :reader label-name)))
+  ((%name :initarg :name :reader label-name)
+   (%phis :initarg :phis :accessor label-phis))
+  (:default-initargs :phis '()))
 
 (defmethod instruction-inputs ((instruction label))
   (list))
 
 (defmethod instruction-outputs ((instruction label))
-  (list))
+  (label-phis instruction))
 
 (defmethod print-instruction ((instruction label))
-  (format t "~S~%" instruction))
+  (format t "~S ~:S~%" instruction (label-phis instruction)))
 
 (defclass argument-setup-instruction (backend-instruction)
   ((%fref :initarg :fref :accessor argument-setup-fref)
@@ -395,11 +402,13 @@
           `(:forget-multiple ,(forget-multiple-context instruction))))
 
 (defclass jump-instruction (terminator-instruction)
-  ((%target :initarg :target :accessor jump-target))
-  (:documentation "Unconditionally transfer control to the target label."))
+  ((%target :initarg :target :accessor jump-target)
+   (%values :initarg :values :accessor jump-values))
+  (:documentation "Unconditionally transfer control to the target label.")
+  (:default-initargs :values '()))
 
 (defmethod instruction-inputs ((instruction jump-instruction))
-  (list))
+  (jump-values instruction))
 
 (defmethod instruction-outputs ((instruction jump-instruction))
   (list))
@@ -409,7 +418,7 @@
 
 (defmethod print-instruction ((instruction jump-instruction))
   (format t "   ~S~%"
-          `(:jump ,(jump-target instruction))))
+          `(:jump ,(jump-target instruction) ,(jump-values instruction))))
 
 (defclass branch-instruction (terminator-instruction)
   ((%value :initarg :value :accessor branch-value)
@@ -938,6 +947,6 @@
   (format t "~S~%" function)
   (do-instructions (c function)
     (cond ((typep c 'label)
-           (format t " ~S~%" c))
+           (format t " ~S ~:S~%" c (label-phis c)))
           (t
            (print-instruction c)))))

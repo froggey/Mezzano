@@ -1822,6 +1822,7 @@
 
 (defun compile-backend-function-1 (backend-function)
   (sys.c:with-metering (:backend-misc)
+    (mezzano.compiler.backend::deconstruct-ssa backend-function)
     (mezzano.compiler.backend::remove-unreachable-basic-blocks backend-function)
     (mezzano.compiler.backend.x86-64::lower backend-function)
     (mezzano.compiler.backend::canonicalize-call-operands backend-function)

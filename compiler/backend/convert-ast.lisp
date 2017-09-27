@@ -197,7 +197,11 @@
   (let* ((info (ast-info form))
          (result-reg (make-instance 'virtual-register :name :block-result))
          (escape-reg (make-instance 'virtual-register :name :block-escape))
-         (exit-label (make-instance 'label :name :block-exit))
+         (exit-label (make-instance 'label
+                                    :name :block-exit
+                                    :phis (if (member result-mode '(:multiple :tail :effect))
+                                              '()
+                                              (list result-reg))))
          (thunk-label (make-instance 'label :name :block-thunk))
          (escapes (block-information-env-var info))
          (*dynamic-stack* *dynamic-stack*)
@@ -209,7 +213,7 @@
       (push `(:nlx ,escape-reg ,nlx-region) *dynamic-stack*)
       (setf (gethash info *variable-registers*) escape-reg))
     (setf (gethash info *go-tag-and-block-labels*) exit-label)
-    (setf (block-information-return-mode info) (list result-mode result-reg *dynamic-stack*)
+    (setf (block-information-return-mode info) (list result-mode *dynamic-stack*)
           (block-information-count info) 0)
     ;; Generate (return-from block body).
     (cg-form (make-instance 'ast-return-from
@@ -227,19 +231,25 @@
         ((:multiple :tail)
          (emit (make-instance 'nlx-entry-multiple-instruction
                               :region nlx-region
-                              :context escape-reg)))
+                              :context escape-reg))
+         (emit (make-instance 'jump-instruction
+                              :target exit-label)))
         (:value
-         (emit (make-instance 'nlx-entry-instruction
-                              :region nlx-region
-                              :context escape-reg
-                              :value result-reg)))
+         (let ((tmp (make-instance 'virtual-register)))
+           (emit (make-instance 'nlx-entry-instruction
+                                :region nlx-region
+                                :context escape-reg
+                                :value tmp))
+          (emit (make-instance 'jump-instruction
+                               :target exit-label
+                               :values (list tmp)))))
         (:effect
          (emit (make-instance 'nlx-entry-instruction
                               :region nlx-region
                               :context escape-reg
-                              :value (make-instance 'virtual-register)))))
-      (emit (make-instance 'jump-instruction
-                           :target exit-label)))
+                              :value (make-instance 'virtual-register)))
+         (emit (make-instance 'jump-instruction
+                              :target exit-label)))))
     (emit exit-label)
     (when escapes
       (emit (make-instance 'finish-nlx-instruction
@@ -256,7 +266,6 @@
 (defmethod cg-form ((form ast-return-from) result-mode)
   (let* ((local-info (gethash (ast-target form) *go-tag-and-block-labels*))
          (real-result-mode (first (block-information-return-mode (ast-target form))))
-         (result-reg (second (block-information-return-mode (ast-target form))))
          (target-tag (when (not local-info)
                        (cg-form (ast-info form) :value)))
          (value (cg-form (ast-value form)
@@ -274,13 +283,14 @@
                            :values (list value)))
       (setf value :multiple))
     (cond (local-info ; local jump
-           (when (eql real-result-mode :value)
-             (emit (make-instance 'move-instruction
-                                  :destination result-reg
-                                  :source value)))
-           (unwind-dynamic-stack-to (third (block-information-return-mode (ast-target form))))
-           (emit (make-instance 'jump-instruction
-                                :target local-info)))
+           (unwind-dynamic-stack-to (second (block-information-return-mode (ast-target form))))
+           (cond ((eql real-result-mode :value)
+                  (emit (make-instance 'jump-instruction
+                                       :target local-info
+                                       :values (list value))))
+                 (t
+                  (emit (make-instance 'jump-instruction
+                                       :target local-info)))))
           (t ; non-local exit
            (ecase real-result-mode
              ((:multiple :tail)
@@ -301,12 +311,15 @@
   nil)
 
 (defmethod cg-form ((form ast-function) result-mode)
-  (let ((fref-reg (make-instance 'virtual-register))
-        (fref-index (make-instance 'virtual-register))
-        (fname-reg (make-instance 'virtual-register))
-        (is-defined (make-instance 'virtual-register))
-        (out (make-instance 'label :name :out))
-        (result (make-instance 'virtual-register)))
+  (let* ((fref-reg (make-instance 'virtual-register))
+         (fref-index (make-instance 'virtual-register))
+         (fname-reg (make-instance 'virtual-register))
+         (is-defined (make-instance 'virtual-register))
+         (result (make-instance 'virtual-register))
+         (fref-function (make-instance 'virtual-register))
+         (fdefinition-function (make-instance 'virtual-register))
+         (out (make-instance 'label :name :out :phis (list result)))
+         (is-defined-label (make-instance 'label :name :is-defined)))
     (emit (make-instance 'constant-instruction
                          :destination fref-reg
                          :value (sys.int::function-reference (ast-name form))))
@@ -314,25 +327,30 @@
                          :destination fref-index
                          :value sys.int::+fref-function+))
     (emit (make-instance 'object-get-t-instruction
-                         :destination result
+                         :destination fref-function
                          :object fref-reg
                          :index fref-index))
     (emit (make-instance 'undefined-function-p-instruction
                          :result is-defined
-                         :value result))
+                         :value fref-function))
     (emit (make-instance 'branch-false-instruction
                          :value is-defined
-                         :target out))
+                         :target is-defined-label))
     ;; Not defined, fall back to FDEFINITION.
     (emit (make-instance 'constant-instruction
                          :destination fname-reg
                          :value (ast-name form)))
     (emit (make-instance 'call-instruction
-                         :result result
+                         :result fdefinition-function
                          :function 'fdefinition
                          :arguments (list fname-reg)))
     (emit (make-instance 'jump-instruction
-                         :target out))
+                         :target out
+                         :values (list fdefinition-function)))
+    (emit is-defined-label)
+    (emit (make-instance 'jump-instruction
+                         :target out
+                         :values (list fref-function)))
     (emit out)
     (ecase result-mode
       (:tail
@@ -343,11 +361,15 @@
        result))))
 
 (defmethod cg-form ((form ast-if) result-mode)
-  (let ((else-label (make-instance 'label :name :if-else))
-        (exit-label (make-instance 'label :name :if-exit))
-        (test-value (cg-form (ast-test form) :value))
-        (result (make-instance 'virtual-register :name :if-result))
-        (exit-reached 0))
+  (let* ((result (make-instance 'virtual-register :name :if-result))
+         (else-label (make-instance 'label :name :if-else))
+         (exit-label (make-instance 'label
+                                    :name :if-exit
+                                    :phis (if (eql result-mode :value)
+                                              (list result)
+                                              '())))
+         (test-value (cg-form (ast-test form) :value))
+         (exit-reached nil))
     (when (not test-value)
       (return-from cg-form nil))
     (emit (make-instance 'branch-false-instruction
@@ -355,36 +377,40 @@
                          :target else-label))
     (let ((then-value (cg-form (ast-if-then form) result-mode)))
       (when then-value
-        (incf exit-reached)
+        (setf exit-reached t)
         (ecase result-mode
           ((:multiple :tail)
            (when (not (eql then-value :multiple))
              (emit (make-instance 'values-instruction
-                                  :values (list then-value)))))
+                                  :values (list then-value))))
+           (emit (make-instance 'jump-instruction
+                                :target exit-label)))
           (:value
-           (emit (make-instance 'move-instruction
-                                :destination result
-                                :source then-value)))
-          (:effect))
-        (emit (make-instance 'jump-instruction
-                             :target exit-label))))
+           (emit (make-instance 'jump-instruction
+                                :target exit-label
+                                :values (list then-value))))
+          (:effect
+           (emit (make-instance 'jump-instruction
+                                :target exit-label))))))
     (emit else-label)
     (let ((else-value (cg-form (ast-if-else form) result-mode)))
       (when else-value
-        (incf exit-reached)
+        (setf exit-reached t)
         (ecase result-mode
           ((:multiple :tail)
            (when (not (eql else-value :multiple))
              (emit (make-instance 'values-instruction
-                                  :values (list else-value)))))
+                                  :values (list else-value))))
+           (emit (make-instance 'jump-instruction
+                                :target exit-label)))
           (:value
-           (emit (make-instance 'move-instruction
-                                :destination result
-                                :source else-value)))
-          (:effect))
-        (emit (make-instance 'jump-instruction
-                             :target exit-label))))
-    (when (zerop exit-reached)
+           (emit (make-instance 'jump-instruction
+                                :target exit-label
+                                :values (list else-value))))
+          (:effect
+           (emit (make-instance 'jump-instruction
+                                :target exit-label))))))
+    (when (not exit-reached)
       (return-from cg-form nil))
     (emit exit-label)
     (ecase result-mode

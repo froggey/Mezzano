@@ -192,6 +192,7 @@
     "compiler/backend/backend.lisp"
     "compiler/backend/convert-ast.lisp"
     "compiler/backend/multiple-values.lisp"
+    "compiler/backend/ssa.lisp"
     "compiler/backend/register-allocation.lisp"
     "compiler/backend/x86-64.lisp"
     "system/file-compiler.lisp"

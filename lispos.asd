@@ -60,6 +60,7 @@
                (:file "compiler/backend/backend")
                (:file "compiler/backend/convert-ast")
                (:file "compiler/backend/multiple-values")
+               (:file "compiler/backend/ssa")
                (:file "compiler/backend/register-allocation")
                (:file "compiler/backend/x86-64")
                (:file "tools/build-unicode")

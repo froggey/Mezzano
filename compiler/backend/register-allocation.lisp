@@ -259,10 +259,9 @@ does not visit unreachable blocks."
 (defun all-virtual-registers (backend-function)
   (let ((regs '()))
     (do-instructions (inst backend-function)
-      (when (not (typep inst 'label))
-        (dolist (out (instruction-outputs inst))
-          (when (typep out 'virtual-register)
-            (pushnew out regs)))))
+      (dolist (out (instruction-outputs inst))
+        (when (typep out 'virtual-register)
+          (pushnew out regs))))
     regs))
 
 (defgeneric instruction-clobbers (instruction architecture)
