@@ -186,10 +186,14 @@
 
 (defvar *warm-llf-files*)
 
+(defvar *cold-start-start-time*)
+(defvar *cold-start-end-time*)
+
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
 structures to exist, and for memory to be allocated, but not much beyond that."
+  (setf *cold-start-start-time* (get-internal-real-time))
   (cold-array-initialization)
   (setf *package* nil
         *cold-stream* (make-cold-stream)
@@ -285,5 +289,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (gc)
   (room)
   (mezzano.supervisor:snapshot)
-  (write-line "Hello, world.")
-  (terpri))
+  (setf *cold-start-end-time* (get-internal-real-time))
+  (format t "Hello, world.~%Cold start took ~:D seconds.~%"
+          (float (/ (- *cold-start-end-time*
+                       *cold-start-start-time*)
+                    internal-time-units-per-second))))
