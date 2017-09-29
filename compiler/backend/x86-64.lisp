@@ -1823,9 +1823,9 @@
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
 (defun compile-backend-function-1 (backend-function)
+  (mezzano.compiler.backend::simplify-cfg backend-function)
+  (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (sys.c:with-metering (:backend-misc)
-    (mezzano.compiler.backend::simplify-cfg backend-function)
-    (mezzano.compiler.backend::deconstruct-ssa backend-function)
     (mezzano.compiler.backend.x86-64::lower backend-function)
     (mezzano.compiler.backend::canonicalize-call-operands backend-function)
     (mezzano.compiler.backend::canonicalize-argument-setup backend-function)

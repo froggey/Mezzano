@@ -44,56 +44,65 @@ Virtual registers must be defined exactly once."
 (defun deconstruct-ssa (backend-function)
   "Deconstruct SSA form, replacing phi nodes with moves."
   (check-ssa backend-function)
-  (do-instructions (inst backend-function)
-    (when (typep inst 'jump-instruction)
-      ;; Phi nodes have parallel assignment semantics.
-      ;; Try to reduce the number of moves inserted.
-      ;; Before:
-      ;;   jump foo (a c b x)
-      ;;   label foo (a b c d)
-      ;; After:
-      ;;   move t1 b [temporaries generated for parallel assignment]
-      ;;   move t2 c
-      ;;   [move from a to a elided]
-      ;;   move b t2
-      ;;   move c t1
-      ;;   move d x
-      ;;   jump foo ()
-      ;;   label foo ()
-      (let* ((conflicts (loop
-                           for phi in (label-phis (jump-target inst))
-                           for value in (jump-values inst)
-                           when (loop
-                                   for other-phi in (label-phis (jump-target inst))
-                                   when (and (not (eql phi other-phi))
-                                             (eql other-phi value))
-                                   do (return t)
-                                   finally (return nil))
-                           collect phi))
-             (real-values (loop
-                             for value in (jump-values inst)
-                             collect (cond ((member value conflicts)
-                                            (let ((new-reg (make-instance 'virtual-register)))
-                                              (insert-before backend-function inst
-                                                             (make-instance 'move-instruction
-                                                                            :source value
-                                                                            :destination new-reg))
-                                              new-reg))
-                                           (t
-                                            value)))))
-        (loop
-           for phi in (label-phis (jump-target inst))
-           for value in real-values
-           do
-             (when (not (eql phi value))
-               (insert-before backend-function inst
-                              (make-instance 'move-instruction
-                                             :source value
-                                             :destination phi))))
-        (setf (jump-values inst) '()))))
-  (do-instructions (inst backend-function)
-    (when (typep inst 'label)
-      (setf (label-phis inst) '()))))
+  (sys.c:with-metering (:backend-deconstruct-ssa)
+    (let ((n-moves-inserted 0)
+          (n-phis-converted 0))
+      (do-instructions (inst backend-function)
+        (when (typep inst 'jump-instruction)
+          ;; Phi nodes have parallel assignment semantics.
+          ;; Try to reduce the number of moves inserted.
+          ;; Before:
+          ;;   jump foo (a c b x)
+          ;;   label foo (a b c d)
+          ;; After:
+          ;;   move t1 b [temporaries generated for parallel assignment]
+          ;;   move t2 c
+          ;;   [move from a to a elided]
+          ;;   move b t2
+          ;;   move c t1
+          ;;   move d x
+          ;;   jump foo ()
+          ;;   label foo ()
+          (let* ((conflicts (loop
+                               for phi in (label-phis (jump-target inst))
+                               for value in (jump-values inst)
+                               when (loop
+                                       for other-phi in (label-phis (jump-target inst))
+                                       when (and (not (eql phi other-phi))
+                                                 (eql other-phi value))
+                                       do (return t)
+                                       finally (return nil))
+                               collect phi))
+                 (real-values (loop
+                                 for value in (jump-values inst)
+                                 collect (cond ((member value conflicts)
+                                                (let ((new-reg (make-instance 'virtual-register)))
+                                                  (incf n-moves-inserted)
+                                                  (insert-before backend-function inst
+                                                                 (make-instance 'move-instruction
+                                                                                :source value
+                                                                                :destination new-reg))
+                                                  new-reg))
+                                               (t
+                                                value)))))
+            (loop
+               for phi in (label-phis (jump-target inst))
+               for value in real-values
+               do
+                 (when (not (eql phi value))
+                   (incf n-moves-inserted)
+                   (insert-before backend-function inst
+                                  (make-instance 'move-instruction
+                                                 :source value
+                                                 :destination phi))))
+            (setf (jump-values inst) '()))))
+      (do-instructions (inst backend-function)
+        (when (typep inst 'label)
+          (incf n-phis-converted (length (label-phis inst)))
+          (setf (label-phis inst) '())))
+      (when (not *shut-up*)
+        (format t "Deconstructed ~D phi variables, inserted ~D moves.~%"
+                n-phis-converted n-moves-inserted)))))
 
 (defun test-deconstruct-function ()
   (let* ((x (make-instance 'virtual-register :name :x))

@@ -203,4 +203,5 @@ does not visit unreachable blocks."
              (incf total n)))
         (when (not (zerop total))
           (remove-unreachable-basic-blocks backend-function))
+        ;; TODO: Break critical edges.
         total))))
