@@ -1275,7 +1275,9 @@
   (emit `(lap:ud2)))
 
 (defmethod emit-lap (backend-function (instruction jump-instruction) uses defs)
-  (emit `(lap:jmp ,(resolve-label (jump-target instruction)))))
+  (when (not (eql (next-instruction backend-function instruction)
+                  (jump-target instruction)))
+    (emit `(lap:jmp ,(resolve-label (jump-target instruction))))))
 
 (defmethod emit-lap (backend-function (instruction switch-instruction) uses defs)
   (let ((jump-table (gensym)))
