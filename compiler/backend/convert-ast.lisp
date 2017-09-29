@@ -104,10 +104,7 @@
       (frob-arg (lambda-information-count-arg lambda) count-reg)
       (let ((env-arg (lambda-information-environment-arg lambda)))
         (when env-arg
-          (let ((env-reg (make-instance 'virtual-register :name :environment)))
-            (emit (make-instance 'move-instruction
-                                 :destination env-reg
-                                 :source closure-reg))
+          (let ((env-reg closure-reg))
             (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
               ;; Read environment pointer from closure object.
               (let* ((real-env-reg (make-instance 'virtual-register :name :environment))
@@ -461,9 +458,7 @@
              ;; Single value result. First variable bound to the value, remaining
              ;; bound to NIL.
              (when (ast-bindings form)
-               (emit (make-instance 'move-instruction
-                                    :destination (first regs)
-                                    :source value)))
+               (setf (first regs) value))
              (loop
                 for var in (rest (ast-bindings form))
                 for reg in (rest regs)
@@ -980,17 +975,18 @@
                                    :value result)))))
      nil)
     ((:multiple :value)
-     (let ((result (make-instance 'virtual-register))
-           (local (gethash form *variable-registers*)))
+     (let ((local (gethash form *variable-registers*)))
        ;; Local can be a vreg if it refers to an nlx thunk.
-       (if (typep local 'virtual-register)
-           (emit (make-instance 'move-instruction
-                                :destination result
-                                :source local))
-           (emit (make-instance 'load-local-instruction
-                                :destination result
-                                :local local)))
-       result))
+       ;; Note: If it is an NLX thunk, the it'll never be written to and
+       ;; there's no need to generate a result temporary.
+       (cond ((typep local 'virtual-register)
+              local)
+             (t
+              (let ((result (make-instance 'virtual-register)))
+                (emit (make-instance 'load-local-instruction
+                                     :destination result
+                                     :local local))
+                result)))))
     (:effect
      :effect)))
 
