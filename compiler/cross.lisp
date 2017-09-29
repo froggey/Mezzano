@@ -708,8 +708,10 @@
 (defpackage :mezzano.compiler.backend.dominance
   (:use :cross-cl :mezzano.compiler.backend)
   (:export #:compute-dominance
+           #:dominatep
            #:dominator-tree-parent
-           #:dominator-tree-children))
+           #:dominator-tree-children
+           #:dominance-frontier))
 
 (defpackage :mezzano.compiler.backend.ast-convert
   (:use :cross-cl :mezzano.compiler :mezzano.compiler.backend)

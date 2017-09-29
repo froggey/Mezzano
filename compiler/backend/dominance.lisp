@@ -103,8 +103,16 @@
                 (build-dominance-frontier backend-function dom-tree idoms bb-succs))
           dominance)))))
 
+(defun dominatep (dominance dominator basic-block)
+  "Is BASIC-BLOCK dominated by DOMINATOR?"
+  (member dominator
+          (gethash basic-block (slot-value dominance '%dominators))))
+
 (defun dominator-tree-parent (dominance basic-block)
   (gethash basic-block (slot-value dominance '%immediate-dominators)))
 
 (defun dominator-tree-children (dominance basic-block)
   (gethash basic-block (slot-value dominance '%dominator-tree)))
+
+(defun dominance-frontier (dominance basic-block)
+  (gethash basic-block (slot-value dominance '%dominance-frontier)))

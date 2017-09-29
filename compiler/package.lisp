@@ -556,8 +556,10 @@
 (defpackage :mezzano.compiler.backend.dominance
   (:use :cl :mezzano.compiler.backend)
   (:export #:compute-dominance
+           #:dominatep
            #:dominator-tree-parent
-           #:dominator-tree-children))
+           #:dominator-tree-children
+           #:dominance-frontier))
 
 (defpackage :mezzano.compiler.backend.ast-convert
   (:use :cl :mezzano.compiler :mezzano.compiler.backend)
