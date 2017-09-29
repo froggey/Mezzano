@@ -630,7 +630,7 @@
 (defgeneric replace-all-registers (instruction substitution-function))
 
 (defmethod replace-all-registers ((instruction label) substitution-function)
-  nil)
+  (setf (label-phis instruction) (mapcar substitution-function (label-phis instruction))))
 
 (defmethod replace-all-registers ((instruction argument-setup-instruction) substitution-function)
   (setf (argument-setup-fref instruction) (funcall substitution-function (argument-setup-fref instruction)))
@@ -664,7 +664,7 @@
   (setf (branch-value instruction) (funcall substitution-function (branch-value instruction))))
 
 (defmethod replace-all-registers ((instruction jump-instruction) substitution-function)
-  nil)
+  (setf (jump-values instruction) (mapcar substitution-function (jump-values instruction))))
 
 (defmethod replace-all-registers ((instruction switch-instruction) substitution-function)
   (setf (switch-value instruction) (funcall substitution-function (switch-value instruction))))
