@@ -58,6 +58,7 @@
                (:file "compiler/builtins-arm64/objects")
                (:file "compiler/builtins-arm64/unwind")
                (:file "compiler/backend/backend")
+               (:file "compiler/backend/cfg")
                (:file "compiler/backend/dominance")
                (:file "compiler/backend/convert-ast")
                (:file "compiler/backend/multiple-values")

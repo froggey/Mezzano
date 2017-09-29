@@ -192,6 +192,10 @@
   ((%ast :initarg :ast :accessor bind-local-ast)
    (%value :initarg :value :accessor bind-local-value)))
 
+(defmethod print-object ((object bind-local-instruction) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (bind-local-ast object))))
+
 (defmethod instruction-inputs ((instruction bind-local-instruction))
   (list (bind-local-value instruction)))
 
