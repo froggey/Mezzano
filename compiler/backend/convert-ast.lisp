@@ -808,37 +808,6 @@
                                    (declare (ignorable ,result-mode))
                                    ,@body))))
 
-(define-primitive eq ((lhs rhs) result-mode)
-  (let ((result (make-instance 'virtual-register)))
-    (emit (make-instance 'eq-instruction
-                         :result result
-                         :lhs lhs
-                         :rhs rhs))
-    result))
-
-(define-primitive sys.int::%object-ref-t ((object offset) result-mode)
-  (let ((result (make-instance 'virtual-register)))
-    (emit (make-instance 'object-get-t-instruction
-                         :destination result
-                         :object object
-                         :index offset))
-    result))
-
-(define-primitive (setf sys.int::%object-ref-t) ((value object offset) result-mode)
-  (emit (make-instance 'object-set-t-instruction
-                       :value value
-                       :object object
-                       :index offset))
-  value)
-
-(define-primitive mezzano.runtime::%fixnum-< ((lhs rhs) result-mode)
-  (let ((result (make-instance 'virtual-register)))
-    (emit (make-instance 'fixnum-<-instruction
-                         :result result
-                         :lhs lhs
-                         :rhs rhs))
-    result))
-
 (define-primitive sys.int::%%push-special-stack ((a b) result-mode)
   (emit (make-instance 'push-special-stack-instruction
                        :a-value a

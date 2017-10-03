@@ -536,6 +536,33 @@
                        :inputs (list result rhs)
                        :outputs (list result))))
 
+(define-builtin eq ((lhs rhs) result)
+  (emit (make-instance 'eq-instruction
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
+
+(define-builtin sys.int::%object-ref-t ((object index) result)
+  (emit (make-instance 'object-get-t-instruction
+                       :destination result
+                       :object object
+                       :index index)))
+
+(define-builtin (setf sys.int::%object-ref-t) ((value object index) result)
+  (emit (make-instance 'object-set-t-instruction
+                       :value value
+                       :object object
+                       :index index))
+  (emit (make-instance 'move-instruction
+                       :source value
+                       :destination result)))
+
+(define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result)
+  (emit (make-instance 'fixnum-<-instruction
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
+
 (defun lower (backend-function)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
