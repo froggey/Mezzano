@@ -52,7 +52,7 @@
   (format t "   ~S~%"
           `(:x86-branch ,(x86-instruction-opcode instruction) ,(x86-branch-target instruction))))
 
-(defclass x86-tail-call-instruction (mezzano.compiler.backend::base-call-instruction)
+(defclass x86-tail-call-instruction (mezzano.compiler.backend::base-call-instruction mezzano.compiler.backend::terminator-instruction)
   ((%function :initarg :function :accessor call-function)
    (%arguments :initarg :arguments :accessor call-arguments)))
 
@@ -79,7 +79,7 @@
            (eql (fourth (call-arguments instruction)) operand)
            (eql (fifth (call-arguments instruction)) operand))))
 
-(defclass x86-tail-funcall-instruction (mezzano.compiler.backend::base-call-instruction)
+(defclass x86-tail-funcall-instruction (mezzano.compiler.backend::base-call-instruction mezzano.compiler.backend::terminator-instruction)
   ((%function :initarg :function :accessor call-function)
    (%arguments :initarg :arguments :accessor call-arguments)))
 
