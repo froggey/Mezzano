@@ -35,7 +35,16 @@
 (defmethod multiple-value-safe-p ((instruction forget-multiple-instruction) architecture)
   t)
 
+(defmethod multiple-value-safe-p ((instruction bind-local-instruction) architecture)
+  t)
+
 (defmethod multiple-value-safe-p ((instruction unbind-local-instruction) architecture)
+  t)
+
+(defmethod multiple-value-safe-p ((instruction load-local-instruction) architecture)
+  t)
+
+(defmethod multiple-value-safe-p ((instruction store-local-instruction) architecture)
   t)
 
 (defun multiple-value-flow (function architecture)
@@ -107,7 +116,11 @@
            (unbind-local-instruction
             (assert (eql (unbind-local-local inst)
                          (first stack)))
-            (pop stack)))
+            (pop stack))
+           (load-local-instruction
+            (assert (member (load-local-local inst) stack)))
+           (store-local-instruction
+            (assert (member (store-local-local inst) stack))))
          (dolist (next (successors function inst))
            (multiple-value-bind (next-stack visitedp)
                (gethash next contour)
