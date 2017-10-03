@@ -332,6 +332,7 @@
     (emit (make-instance 'branch-false-instruction
                          :value is-defined
                          :target is-defined-label))
+    (emit (make-instance 'label))
     ;; Not defined, fall back to FDEFINITION.
     (emit (make-instance 'constant-instruction
                          :destination fname-reg
@@ -371,6 +372,7 @@
     (emit (make-instance 'branch-false-instruction
                          :value test-value
                          :target else-label))
+    (emit (make-instance 'label :name :if-then))
     (let ((then-value (cg-form (ast-if-then form) result-mode)))
       (when then-value
         (setf exit-reached t)

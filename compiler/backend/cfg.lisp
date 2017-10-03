@@ -74,14 +74,6 @@ does not visit unreachable blocks."
        (return inst))
      (setf inst (next-instruction backend-function inst))))
 
-(defun immediately-following-label (backend-function instruction &optional name)
-  "Insert or return a label immediately after INSTRUCTION."
-  (cond ((and (typep (next-instruction backend-function instruction) 'label)
-              (endp (label-phis (next-instruction backend-function instruction))))
-         (next-instruction backend-function instruction))
-        (t
-         (insert-after backend-function instruction (make-instance 'label :name name)))))
-
 (defun simplify-cfg-1 (backend-function)
   "Eliminate jumps and branches to jumps."
   (let ((total 0))
@@ -116,7 +108,7 @@ does not visit unreachable blocks."
                    ((typep target 'branch-instruction)
                     ;; Insert a label after the branch to give the jump
                     ;; somewhere to target.
-                    (let ((new-label (immediately-following-label backend-function target)))
+                    (let ((new-label (next-instruction backend-function target)))
                       (insert-before backend-function inst
                                      (make-instance (class-of target)
                                                     :value (branch-value target)
@@ -133,6 +125,7 @@ does not visit unreachable blocks."
   ;;   branch phi target
   ;; After:
   ;;   branch val target
+  ;;  tmp():
   ;;   jump foo2()
   ;;  foo2():
   (let ((total 0))
@@ -151,11 +144,12 @@ does not visit unreachable blocks."
                         (list (next-instruction backend-function (jump-target inst)))))
         (let* ((target-branch (next-instruction backend-function (jump-target inst)))
                (branch-value (first (jump-values inst)))
-               (new-label (immediately-following-label backend-function target-branch))
+               (new-label (next-instruction backend-function target-branch))
                (new-branch (insert-before backend-function inst
                                           (make-instance (class-of target-branch)
                                                          :value branch-value
                                                          :target (branch-target target-branch)))))
+          (insert-before backend-function inst (make-instance 'label))
           (setf (jump-target inst) new-label)
           (setf (jump-values inst) '())
           ;; Update the use map.
@@ -204,4 +198,30 @@ does not visit unreachable blocks."
         (when (not (zerop total))
           (remove-unreachable-basic-blocks backend-function))
         ;; TODO: Break critical edges.
+        (check-cfg backend-function)
         total))))
+
+(defun check-cfg (backend-function)
+  "Check the validity of the CFG.
+All basic blocks must start with a label (except the first, which must start with
+an argument-setup instruction) and finish with a terminator instruction.
+Successors of jumps and branches must be labels."
+  (assert (typep (first-instruction backend-function) 'argument-setup-instruction)
+          (backend-function)
+          "First instruction must be an ARGUMENT-SETUP instruction.")
+  (do ((inst (first-instruction backend-function)
+             (next-instruction backend-function inst)))
+      ((null inst)
+       (error "Missing terminator on last basic block in ~S" backend-function))
+    (when (typep inst 'terminator-instruction)
+      (dolist (succ (successors backend-function inst))
+        (assert (typep succ 'label) (backend-function inst succ)
+                "Successor ~S of terminator ~S is not a label."
+                succ inst))
+      (cond ((null (next-instruction backend-function inst))
+             (return))
+            (t
+             (assert (typep (next-instruction backend-function inst) 'label)
+                     (backend-function inst)
+                     "Instruction following ~S terminator ~S is not a label"
+                     (next-instruction backend-function inst) inst))))))

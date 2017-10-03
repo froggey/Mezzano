@@ -315,6 +315,7 @@
                          :target out))
     ;; Build a bignum on overflow.
     ;; Recover the full value using the carry bit.
+    (emit (make-instance 'label :name :+-overflow))
     (emit (make-instance 'move-instruction
                          :source result
                          :destination :rax))
@@ -358,6 +359,7 @@
                          :target out))
     ;; Build a bignum on overflow.
     ;; Recover the full value using the carry bit.
+    (emit (make-instance 'label :name :--overflow))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:cmc
                          :operands (list)
@@ -415,6 +417,7 @@
     ;; Build a bignum on overflow.
     ;; 128-bit result in rdx:rax.
     ;; Unbox the result.
+    (emit (make-instance 'label :name :*-overflow))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:shrd64
                          :operands (list :rax :rdx sys.int::+n-fixnum-bits+)
@@ -1832,6 +1835,7 @@
     (mezzano.compiler.backend::canonicalize-nlx-values backend-function)
     (mezzano.compiler.backend::canonicalize-values backend-function)
     (mezzano.compiler.backend::remove-unused-instructions backend-function))
+  (mezzano.compiler.backend::check-cfg backend-function)
   (sys.c:with-metering (:backend-register-allocation)
     (multiple-value-bind (live-in live-out)
         (mezzano.compiler.backend::compute-liveness backend-function)
