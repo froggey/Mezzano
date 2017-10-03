@@ -1854,6 +1854,7 @@
 
 (defun compile-backend-function-1 (backend-function)
   (mezzano.compiler.backend::simplify-cfg backend-function)
+  (mezzano.compiler.backend::construct-ssa backend-function)
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::lower backend-function)

@@ -147,7 +147,18 @@ Virtual registers must be defined exactly once."
                                         simple-transforms))
         (push (store-local-local inst) full-transforms)))
     (when (not (endp full-transforms))
+      ;; Bail if there are any NLX regions in the function at all.
+      (do-instructions (inst backend-function)
+        (when (typep inst 'begin-nlx-instruction)
+          (setf rejected-transforms full-transforms
+                full-transforms '())
+          (return)))
       ;; Build dynamic contours and eliminate variables live during NLX regions.
+      ;; FIXME: The CFG doesn't quite represent NLX regions correctly, with
+      ;; nlx-begin instructions being treated as branches to NLX targets.
+      ;; Instead all call instructions within an NLX region should be treated
+      ;; as branches to live NLX targets.
+      #+(or)
       (let ((contours (dynamic-contours backend-function)))
         (do-instructions (inst backend-function)
           (when (typep inst 'begin-nlx-instruction)
@@ -183,7 +194,7 @@ Virtual registers must be defined exactly once."
       (format t "Converted ~D simple loads.~%" n-simple-loads-converted))
     n-simple-loads-converted))
 
-(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs)
+(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour)
   (declare (ignore basic-blocks bb-succs))
   (let ((visited (make-hash-table))
         (phi-sites '())
@@ -206,13 +217,16 @@ Virtual registers must be defined exactly once."
         (setf current-bb (next-instruction backend-function inst))))
     (when (not *shut-up*)
       (format t "Def sites for ~S: ~:S~%" candidate def-sites))
+    (assert binding-bb)
     (loop
        (when (endp def-sites)
          (return))
        (dolist (frontier (mezzano.compiler.backend.dominance:dominance-frontier dom (pop def-sites)))
          (when (and (not (member frontier phi-sites))
                     ;; Only care about blocks dominated by the binding.
-                    (mezzano.compiler.backend.dominance:dominatep dom binding-bb frontier))
+                    (mezzano.compiler.backend.dominance:dominatep dom binding-bb frontier)
+                    ;; And block where the variable is live on entry.
+                    (member candidate (gethash frontier dynamic-contour)))
            (push frontier phi-sites)
            (when (not (gethash frontier visited))
              (setf (gethash frontier visited) t)
@@ -223,12 +237,7 @@ Virtual registers must be defined exactly once."
     ;; work around this by bailing out whenever a phi site's predecessor is
     ;; terminated by a non-jump.
     (dolist (bb phi-sites)
-      ;; FIXME: basic blocks have a weird & stupid representation.
-      (when (not (typep bb 'label))
-        (when (not *shut-up*)
-          (format t "Bailing out of conversion for ~S due to non-label phi-site ~S.~%"
-                  candidate bb))
-        (return-from ssa-convert-one-local nil))
+      (check-type bb label)
       (dolist (pred (gethash bb bb-preds))
         (loop
            (when (typep pred 'terminator-instruction) (return))
@@ -277,7 +286,12 @@ Virtual registers must be defined exactly once."
                                                               (t reg))))))))
                         (store-local-instruction
                          (when (eql (store-local-local inst) candidate)
-                           (push (store-local-value inst) stack))))
+                           (push (store-local-value inst) stack)))
+                        (unbind-local-instruction
+                         (when (eql (unbind-local-local inst) candidate)
+                           ;; Stop renaming this branch of the dom tree
+                           ;; when the variable is unbound.
+                           (return-from rename))))
                       (when (typep inst 'terminator-instruction)
                         (return))
                       (setf inst (next-instruction backend-function inst))))
@@ -293,9 +307,10 @@ Virtual registers must be defined exactly once."
       (build-cfg backend-function)
     (let ((dom (mezzano.compiler.backend.dominance:compute-dominance backend-function))
           (n-converted 0)
-          (converted '()))
+          (converted '())
+          (dynamic-contour (dynamic-contours backend-function)))
       (dolist (candidate candidates)
-        (when (ssa-convert-one-local backend-function candidate dom basic-blocks bb-preds bb-succs)
+        (when (ssa-convert-one-local backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour)
           (push candidate converted)
           (incf n-converted)))
       ;; Walk through and remove any load instructions associated with
