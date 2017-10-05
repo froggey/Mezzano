@@ -1,5 +1,7 @@
-(in-package :sys.int)
+;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
 
+(in-package :sys.int)
 
 (defun function-tag (function)
   (check-type function function)
