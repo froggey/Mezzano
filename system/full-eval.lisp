@@ -380,7 +380,8 @@
   (multiple-value-bind (body declares)
       (sys.int::parse-declares body)
     (eval-locally-body declares body
-                       (sys.int::make-macrolet-env definitions env))))
+                       (let ((sys.int::*eval-hook* 'mezzano.full-eval:eval-in-lexenv))
+                         (sys.int::make-macrolet-env definitions env)))))
 
 (defspecial symbol-macrolet (&environment env definitions &body body)
   (multiple-value-bind (body declares)
