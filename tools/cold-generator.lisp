@@ -191,6 +191,7 @@
     "compiler/transforms.lisp"
     "compiler/backend/backend.lisp"
     "compiler/backend/cfg.lisp"
+    "compiler/backend/analysis.lisp"
     "compiler/backend/dominance.lisp"
     "compiler/backend/convert-ast.lisp"
     "compiler/backend/multiple-values.lisp"

@@ -717,6 +717,10 @@
   (:use :cross-cl :mezzano.compiler :mezzano.compiler.backend)
   (:export #:convert))
 
+(defpackage :mezzano.compiler.backend.register-allocator
+  (:use :cross-cl)
+  (:local-nicknames (:ir :mezzano.compiler.backend)))
+
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cross-cl :mezzano.compiler.backend)
   (:local-nicknames (:lap :sys.lap-x86)))

@@ -3,6 +3,8 @@
 
 (in-package :mezzano.compiler.backend)
 
+(defvar *shut-up* t)
+
 (defclass virtual-register ()
   ((%name :initarg :name)
    (%kind :initarg :kind :reader register-kind))

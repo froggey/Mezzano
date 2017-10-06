@@ -565,6 +565,10 @@
   (:use :cl :mezzano.compiler :mezzano.compiler.backend)
   (:export #:convert))
 
+(defpackage :mezzano.compiler.backend.register-allocator
+  (:use :cl)
+  (:local-nicknames (:ir :mezzano.compiler.backend)))
+
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl :mezzano.compiler.backend)
   (:local-nicknames (:lap :sys.lap-x86)))

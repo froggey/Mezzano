@@ -72,7 +72,7 @@
   (format t "   ~S~%"
           `(:x86-tail-call ,(call-function instruction) ,(call-arguments instruction))))
 
-(defmethod mezzano.compiler.backend::allow-memory-operand-p ((instruction x86-tail-call-instruction) operand (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-call-instruction) operand (architecture (eql :x86-64)))
   (not (or (eql (first (call-arguments instruction)) operand)
            (eql (second (call-arguments instruction)) operand)
            (eql (third (call-arguments instruction)) operand)
@@ -101,7 +101,7 @@
   (format t "   ~S~%"
           `(:x86-tail-funcall ,(call-function instruction) ,(call-arguments instruction))))
 
-(defmethod mezzano.compiler.backend::allow-memory-operand-p ((instruction x86-tail-funcall-instruction) operand (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-funcall-instruction) operand (architecture (eql :x86-64)))
   (not (or (eql (call-function instruction) operand)
            (eql (first (call-arguments instruction)) operand)
            (eql (second (call-arguments instruction)) operand)
@@ -1852,31 +1852,22 @@
     (emit `(lap:mov64 (:object ,(make-dx-closure-result instruction) 1) ,(make-dx-closure-function instruction))
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
-(defun compile-backend-function-1 (backend-function)
+(defun compile-backend-function-0 (backend-function)
   (mezzano.compiler.backend::simplify-cfg backend-function)
   (mezzano.compiler.backend::construct-ssa backend-function)
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::lower backend-function)
-    (mezzano.compiler.backend::canonicalize-call-operands backend-function)
-    (mezzano.compiler.backend::canonicalize-argument-setup backend-function)
-    (mezzano.compiler.backend::canonicalize-nlx-values backend-function)
-    (mezzano.compiler.backend::canonicalize-values backend-function)
-    (mezzano.compiler.backend::remove-unused-instructions backend-function))
-  (mezzano.compiler.backend::check-cfg backend-function)
-  (sys.c:with-metering (:backend-register-allocation)
-    (multiple-value-bind (live-in live-out)
-        (mezzano.compiler.backend::compute-liveness backend-function)
-      (let ((order (mezzano.compiler.backend::instructions-reverse-postorder backend-function))
-            (arch :x86-64))
-        (multiple-value-bind (registers spilled instantaneous-registers)
-            (mezzano.compiler.backend::linear-scan-allocate
-             backend-function
-             order
-             (mezzano.compiler.backend::build-live-ranges backend-function order arch live-in live-out)
-             arch
-             live-in live-out)
-          (mezzano.compiler.backend::rewrite-after-allocation backend-function registers spilled instantaneous-registers)))))
+    (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function)
+    (mezzano.compiler.backend.register-allocator::canonicalize-argument-setup backend-function)
+    (mezzano.compiler.backend.register-allocator::canonicalize-nlx-values backend-function)
+    (mezzano.compiler.backend.register-allocator::canonicalize-values backend-function)
+    (mezzano.compiler.backend::remove-unused-instructions backend-function)
+    (mezzano.compiler.backend::check-cfg backend-function)))
+
+(defun compile-backend-function-1 (backend-function)
+  (compile-backend-function-0 backend-function)
+  (mezzano.compiler.backend.register-allocator::allocate-registers backend-function :x86-64)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::peephole backend-function)))
 
