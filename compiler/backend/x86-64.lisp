@@ -31,8 +31,38 @@
   (format t "   ~S~%"
           `(:x86 ,(x86-instruction-opcode instruction) ,(x86-instruction-operands instruction))))
 
-(defclass x86-branch-instruction (mezzano.compiler.backend::terminator-instruction)
+(defclass x86-fake-three-operand-instruction (mezzano.compiler.backend::backend-instruction)
   ((%opcode :initarg :opcode :reader x86-instruction-opcode)
+   (%result :initarg :result :accessor x86-fake-three-operand-result)
+   (%lhs :initarg :lhs :accessor x86-fake-three-operand-lhs)
+   (%rhs :initarg :rhs :accessor x86-fake-three-operand-rhs)
+   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
+  (:default-initargs :clobbers '()))
+
+(defmethod mezzano.compiler.backend::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture (eql :x86-64)))
+  (x86-instruction-clobbers instruction))
+
+(defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-fake-three-operand-instruction))
+  (list (x86-fake-three-operand-lhs instruction)
+        (x86-fake-three-operand-rhs instruction)))
+
+(defmethod mezzano.compiler.backend::instruction-outputs ((instruction x86-fake-three-operand-instruction))
+  (list (x86-fake-three-operand-result instruction)))
+
+(defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-fake-three-operand-instruction) substitution-function)
+  (setf (x86-fake-three-operand-result instruction) (funcall substitution-function (x86-fake-three-operand-result instruction)))
+  (setf (x86-fake-three-operand-lhs instruction) (funcall substitution-function (x86-fake-three-operand-lhs instruction)))
+  (setf (x86-fake-three-operand-rhs instruction) (funcall substitution-function (x86-fake-three-operand-rhs instruction))))
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction x86-fake-three-operand-instruction))
+  (format t "   ~S~%"
+          `(:x86-fake-three-operand ,(x86-instruction-opcode instruction)
+                                    ,(x86-fake-three-operand-result instruction)
+                                    ,(x86-fake-three-operand-lhs instruction)
+                                    ,(x86-fake-three-operand-rhs instruction))))
+
+(defclass x86-branch-instruction (mezzano.compiler.backend::terminator-instruction)
+  ((%opcode :initarg :opcode :accessor x86-instruction-opcode)
    (%target :initarg :target :accessor x86-branch-target)))
 
 (defmethod mezzano.compiler.backend::successors (function (instruction x86-branch-instruction))
@@ -155,7 +185,7 @@
                             (endp (rest out-uses)))))
           (return nil))))))
 
-(defmacro define-builtin (name (lambda-list results) &body body)
+(defmacro define-builtin (name (lambda-list results &key early) &body body)
   (when (not (listp results))
     (setf results (list results)))
   (let ((backend-function (gensym))
@@ -196,40 +226,44 @@
                                (return-from ,the-block nil)))
                         (declare (ignorable #'emit #'give-up))
                         ,@body
-                        t))))))
+                        t)))
+                  ',early)))
 
 (defclass builtin ()
   ((%name :initarg :name :reader builtin-name)
+   (%earlyp :initarg :earlyp :reader builtin-earlyp)
    (%lambda-list :initarg :lambda-list :reader builtin-lambda-list)
    (%result-list :initarg :result-list :reader builtin-result-list)
-   (%generator :initarg :generator :reader builtin-generator)))
+   (%generator :initarg :generator :reader builtin-generator))
+  (:default-initargs :earlyp nil))
 
 (defvar *builtins* (make-hash-table :test 'equal))
 
-(defun %defbuiltin (name lambda-list result-list generator)
+(defun %defbuiltin (name lambda-list result-list generator early)
   (setf (gethash name *builtins*)
         (make-instance 'builtin
                        :name name
                        :lambda-list lambda-list
                        :result-list result-list
-                       :generator generator))
+                       :generator generator
+                       :earlyp early))
   name)
 
-(define-builtin mezzano.runtime::%car ((cons) result)
+(define-builtin mezzano.runtime::%car ((cons) result :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov64
                        :operands (list result `(:car ,cons))
                        :inputs (list cons)
                        :outputs (list result))))
 
-(define-builtin mezzano.runtime::%cdr ((cons) result)
+(define-builtin mezzano.runtime::%cdr ((cons) result :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov64
                        :operands (list result `(:cdr ,cons))
                        :inputs (list cons)
                        :outputs (list result))))
 
-(define-builtin (setf mezzano.runtime::%car) ((value cons) result)
+(define-builtin (setf mezzano.runtime::%car) ((value cons) result :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov64
                        :operands (list `(:car ,cons) value)
@@ -239,7 +273,7 @@
                        :destination result
                        :source value)))
 
-(define-builtin (setf mezzano.runtime::%cdr) ((value cons) result)
+(define-builtin (setf mezzano.runtime::%cdr) ((value cons) result :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov64
                        :operands (list `(:cdr ,cons) value)
@@ -249,31 +283,32 @@
                        :destination result
                        :source value)))
 
-(define-builtin sys.int::read-frame-pointer (() result)
+(define-builtin sys.int::read-frame-pointer (() result :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:lea64
                        :operands (list result `((:rbp ,(ash 1 sys.int::+n-fixnum-bits+))))
                        :inputs (list)
                        :outputs (list result))))
 
-(define-builtin sys.int::fixnump ((object) :z)
+(define-builtin sys.int::fixnump ((object) :z :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:test64
                        :operands (list object sys.int::+fixnum-tag-mask+)
                        :inputs (list object)
                        :outputs '())))
 
-(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :z)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:lea64
-                       :operands (list :rax `(,object ,(- tag)))
-                       :inputs (list object)
-                       :outputs '(:rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:test64
-                       :operands (list :rax #b1111)
-                       :inputs '(:rax)
-                       :outputs '())))
+(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :z :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:lea64
+                         :operands (list temp `(,object ,(- tag)))
+                         :inputs (list object)
+                         :outputs (list temp)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:test64
+                         :operands (list temp #b1111)
+                         :inputs (list temp)
+                         :outputs '()))))
 
 (define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
   (emit (make-instance 'x86-instruction
@@ -293,7 +328,7 @@
                        :inputs (list :rax)
                        :outputs '())))
 
-(define-builtin sys.int::%unbound-value-p ((object) :e)
+(define-builtin sys.int::%unbound-value-p ((object) :e :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:cmp64
                        :operands (list object :unbound-value)
@@ -506,49 +541,40 @@
                        :source :rdx
                        :destination rem)))
 
-(define-builtin mezzano.runtime::%fixnum-logand ((lhs rhs) result)
-  (emit (make-instance 'move-instruction
-                       :source lhs
-                       :destination result))
-  (emit (make-instance 'x86-instruction
+(define-builtin mezzano.runtime::%fixnum-logand ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
                        :opcode 'lap:and64
-                       :operands (list result rhs)
-                       :inputs (list result rhs)
-                       :outputs (list result))))
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
 
-(define-builtin mezzano.runtime::%fixnum-logior ((lhs rhs) result)
-  (emit (make-instance 'move-instruction
-                       :source lhs
-                       :destination result))
-  (emit (make-instance 'x86-instruction
+(define-builtin mezzano.runtime::%fixnum-logior ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
                        :opcode 'lap:or64
-                       :operands (list result rhs)
-                       :inputs (list result rhs)
-                       :outputs (list result))))
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
 
-(define-builtin mezzano.runtime::%fixnum-logxor ((lhs rhs) result)
-  (emit (make-instance 'move-instruction
-                       :source lhs
-                       :destination result))
-  (emit (make-instance 'x86-instruction
+(define-builtin mezzano.runtime::%fixnum-logxor ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
                        :opcode 'lap:xor64
-                       :operands (list result rhs)
-                       :inputs (list result rhs)
-                       :outputs (list result))))
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
 
-(define-builtin eq ((lhs rhs) result)
+(define-builtin eq ((lhs rhs) result :early t)
   (emit (make-instance 'eq-instruction
                        :result result
                        :lhs lhs
                        :rhs rhs)))
 
-(define-builtin sys.int::%object-ref-t ((object index) result)
+(define-builtin sys.int::%object-ref-t ((object index) result :early t)
   (emit (make-instance 'object-get-t-instruction
                        :destination result
                        :object object
                        :index index)))
 
-(define-builtin (setf sys.int::%object-ref-t) ((value object index) result)
+(define-builtin (setf sys.int::%object-ref-t) ((value object index) result :early t)
   (emit (make-instance 'object-set-t-instruction
                        :value value
                        :object object
@@ -557,13 +583,13 @@
                        :source value
                        :destination result)))
 
-(define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result)
+(define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result :early t)
   (emit (make-instance 'fixnum-<-instruction
                        :result result
                        :lhs lhs
                        :rhs rhs)))
 
-(defun lower (backend-function)
+(defun lower (backend-function early)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
     (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
@@ -720,20 +746,23 @@
                (mezzano.compiler.backend::remove-instruction backend-function inst)
                (mezzano.compiler.backend::remove-instruction backend-function return-inst)))
             (t
-             (let ((next (or (lower-predicate-builtin backend-function inst uses defs)
-                             (lower-builtin backend-function inst defs))))
+             (let ((next (or (lower-predicate-builtin backend-function inst uses defs early)
+                             (lower-builtin backend-function inst defs early))))
                (when next
                  (setf next-inst next))))))))
 
-(defgeneric match-builtin (name n-arguments architecture))
+(defgeneric match-builtin (name n-arguments architecture early))
 
-(defmethod match-builtin (name n-arguments architecture)
+(defmethod match-builtin (name n-arguments architecture early)
   nil)
 
-(defmethod match-builtin (name n-arguments (architecture (eql :x86-64)))
+(defmethod match-builtin (name n-arguments (architecture (eql :x86-64)) early)
   (let ((builtin (gethash name *builtins*)))
     (if (and builtin
-             (eql (length (builtin-lambda-list builtin)) n-arguments))
+             (eql (length (builtin-lambda-list builtin)) n-arguments)
+             (if early
+                 (builtin-earlyp builtin)
+                 t))
         builtin
         nil)))
 
@@ -752,14 +781,15 @@
                                   :outputs (list result))))
 
 ;; Lower (branch (call foo ...) target) when FOO produces a predicate result.
-(defun lower-predicate-builtin (backend-function inst uses defs)
+(defun lower-predicate-builtin (backend-function inst uses defs early)
   (let ((next-inst (next-instruction backend-function inst)))
     (when (and (typep inst 'call-instruction)
                (typep next-inst 'branch-instruction)
                (consumed-by-p inst next-inst uses defs))
       (let ((builtin (match-builtin (call-function inst)
                                     (length (call-arguments inst))
-                                    :x86-64)))
+                                    :x86-64
+                                    early)))
         (when (and builtin
                    ;; Predicate result.
                    ;; FIXME: This should work when the result consumed by the branch is a predicate and other results are ignored.
@@ -785,13 +815,14 @@
               (remove-instruction backend-function next-inst)
               advance)))))))
 
-(defun lower-builtin (backend-function inst defs)
+(defun lower-builtin (backend-function inst defs early)
   (let ((builtin (and (typep inst '(or
                                     call-instruction
                                     call-multiple-instruction))
                       (match-builtin (call-function inst)
                                      (length (call-arguments inst))
-                                     :x86-64))))
+                                     :x86-64
+                                     early))))
     (when builtin
       (let* ((result-regs (if (typep inst 'call-instruction)
                               (list* (call-result inst)
@@ -1855,16 +1886,33 @@
     (emit `(lap:mov64 (:object ,(make-dx-closure-result instruction) 1) ,(make-dx-closure-function instruction))
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
+(defun lower-fake-three-operand-instructions (backend-function)
+  "Lower x86-fake-three-operand-instructions to a move & x86-instruction.
+The resulting code is not in SSA form so this pass must be late in the compiler."
+  (do-instructions (inst backend-function)
+    (when (typep inst 'x86-fake-three-operand-instruction)
+      (insert-before backend-function inst
+                     (make-instance 'move-instruction
+                                    :destination (x86-fake-three-operand-result inst)
+                                    :source (x86-fake-three-operand-lhs inst)))
+      (change-class inst 'x86-instruction
+                    :operands (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
+                    :inputs (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
+                    :outputs (list (x86-fake-three-operand-result inst))))))
+
 (defun compile-backend-function-0 (backend-function)
   (mezzano.compiler.backend::simplify-cfg backend-function)
   (mezzano.compiler.backend::construct-ssa backend-function)
+  (sys.c:with-metering (:backend-misc)
+    (mezzano.compiler.backend.x86-64::lower backend-function t))
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (sys.c:with-metering (:backend-misc)
-    (mezzano.compiler.backend.x86-64::lower backend-function)
+    (mezzano.compiler.backend.x86-64::lower backend-function nil)
     (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-argument-setup backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-nlx-values backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-values backend-function)
+    (lower-fake-three-operand-instructions backend-function)
     (mezzano.compiler.backend::remove-unused-instructions backend-function)
     (mezzano.compiler.backend::check-cfg backend-function)))
 
