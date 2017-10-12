@@ -1139,6 +1139,16 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (return-from instruction
       (generate-modrm :gpr-64 dst src '(#x0F #x7E)))))
 
+(define-instruction movdqa (dst src)
+  (when (eql (reg-class dst) :xmm)
+    (emit #x66)
+    (return-from instruction
+      (generate-modrm :xmm src dst '(#x0F #x6F))))
+  (when (eql (reg-class src) :xmm)
+    (emit #x66)
+    (return-from instruction
+      (generate-modrm :xmm dst src '(#x0F #x7F)))))
+
 (define-instruction ucomiss (lhs rhs)
   (modrm :xmm rhs lhs '(#x0F #x2E)))
 
