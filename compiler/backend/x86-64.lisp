@@ -1058,7 +1058,9 @@
         (let ((*emitted-lap* '())
               (*current-frame-layout* (coerce (loop
                                                  for elt across *stack-layout*
-                                                 collect (if (eql elt :raw)
+                                                 collect (if (or (eql elt :raw)
+                                                                 (and (typep elt 'virtual-register)
+                                                                      (not (eql (virtual-register-kind elt) :value))))
                                                              0
                                                              1))
                                               'simple-bit-vector))
