@@ -245,16 +245,20 @@
 ;;; These only apply at safety 0 as they can produce invalid values which
 ;;; can damage the system if the tpe declarations are incorrect;.
 
-(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
+(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn slow-fn fast-fn &key (result 'fixnum))
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
       ((:result-type ,result)
        (:optimize (= safety 0) (= speed 3)))
      `(the fixnum (call ,',fast-fn ,lhs ,rhs))))
 
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-+ %fast-fixnum-+)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-- %fast-fixnum--)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-* %fast-fixnum-*)
 (define-fast-fixnum-transform-arith-two-arg sys.int::%truncate %fast-fixnum-truncate)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-truncate %fast-fixnum-truncate)
 (define-fast-fixnum-transform-arith-two-arg rem %fast-fixnum-rem)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior :result t)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
@@ -293,15 +297,19 @@
 
 ;;; Single-Float arithmetic.
 
-(defmacro define-fast-single-float-transform-arith-two-arg (binary-fn fast-fn)
-  `(define-transform ,binary-fn ((lhs single-float) (rhs single-float))
-      ((:optimize (= safety 0) (= speed 3)))
-     `(the single-float (call ,',fast-fn ,lhs ,rhs))))
+(defmacro define-fast-single-float-transform-arith-two-arg (binary-fn generic-fn fast-fn)
+  `(progn
+     (define-transform ,binary-fn ((lhs single-float) (rhs single-float))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(the single-float (call ,',fast-fn ,lhs ,rhs)))
+     (define-transform ,generic-fn ((lhs single-float) (rhs single-float))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(the single-float (call ,',fast-fn ,lhs ,rhs)))))
 
-(define-fast-single-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%single-float-+)
-(define-fast-single-float-transform-arith-two-arg sys.int::binary-- sys.int::%%single-float--)
-(define-fast-single-float-transform-arith-two-arg sys.int::binary-* sys.int::%%single-float-*)
-(define-fast-single-float-transform-arith-two-arg sys.int::binary-/ sys.int::%%single-float-/)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-+ sys.int::generic-+ sys.int::%%single-float-+)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-- sys.int::generic-- sys.int::%%single-float--)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-* sys.int::generic-* sys.int::%%single-float-*)
+(define-fast-single-float-transform-arith-two-arg sys.int::binary-/ sys.int::generic-/ sys.int::%%single-float-/)
 
 (define-transform float ((number fixnum) (prototype single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -340,15 +348,19 @@
 
 ;;; Double-Float arithmetic.
 
-(defmacro define-fast-double-float-transform-arith-two-arg (binary-fn fast-fn)
-  `(define-transform ,binary-fn ((lhs double-float) (rhs double-float))
-      ((:optimize (= safety 0) (= speed 3)))
-     `(the double-float (call ,',fast-fn ,lhs ,rhs))))
+(defmacro define-fast-double-float-transform-arith-two-arg (binary-fn generic-fn fast-fn)
+  `(progn
+     (define-transform ,binary-fn ((lhs double-float) (rhs double-float))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(the double-float (call ,',fast-fn ,lhs ,rhs)))
+     (define-transform ,generic-fn ((lhs double-float) (rhs double-float))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(the double-float (call ,',fast-fn ,lhs ,rhs)))))
 
-(define-fast-double-float-transform-arith-two-arg sys.int::binary-+ sys.int::%%double-float-+)
-(define-fast-double-float-transform-arith-two-arg sys.int::binary-- sys.int::%%double-float--)
-(define-fast-double-float-transform-arith-two-arg sys.int::binary-* sys.int::%%double-float-*)
-(define-fast-double-float-transform-arith-two-arg sys.int::binary-/ sys.int::%%double-float-/)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-+ sys.int::generic-+ sys.int::%%double-float-+)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-- sys.int::generic-- sys.int::%%double-float--)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-* sys.int::generic-* sys.int::%%double-float-*)
+(define-fast-double-float-transform-arith-two-arg sys.int::binary-/ sys.int::generic-/ sys.int::%%double-float-/)
 
 (define-transform float ((number fixnum) (prototype double-float))
     ((:optimize (= safety 0) (= speed 3)))
