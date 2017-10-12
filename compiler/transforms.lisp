@@ -245,7 +245,7 @@
 ;;; These only apply at safety 0 as they can produce invalid values which
 ;;; can damage the system if the tpe declarations are incorrect;.
 
-(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn slow-fn fast-fn &key (result 'fixnum))
+(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
       ((:result-type ,result)
        (:optimize (= safety 0) (= speed 3)))
