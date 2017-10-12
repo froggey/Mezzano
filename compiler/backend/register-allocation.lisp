@@ -251,6 +251,16 @@
 (defmethod instruction-clobbers ((instruction ir:make-dx-closure-instruction) (architecture (eql :x86-64)))
   '(:rax :rcx))
 
+(defmethod instruction-clobbers ((instruction ir:box-single-float-instruction) (architecture (eql :x86-64)))
+  (if (eql (ir:virtual-register-kind (ir:box-source instruction)) :integer)
+      '()
+      '(:rax)))
+
+(defmethod instruction-clobbers ((instruction ir:unbox-single-float-instruction) (architecture (eql :x86-64)))
+  (if (eql (ir:virtual-register-kind (ir:unbox-destination instruction)) :integer)
+      '()
+      '(:rax)))
+
 (defgeneric allow-memory-operand-p (instruction operand architecture)
   (:method (i o a)
     nil))
@@ -387,10 +397,7 @@
 (defmethod valid-physical-registers-for-kind ((kind (eql :integer)) (architecture (eql :x86-64)))
   '(:rax :rcx :rdx :rsi :rdi))
 
-(defmethod valid-physical-registers-for-kind ((kind (eql :mm)) (architecture (eql :x86-64)))
-  '(:mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7 :mm8))
-
-(defmethod valid-physical-registers-for-kind ((kind (eql :xmm)) (architecture (eql :x86-64)))
+(defmethod valid-physical-registers-for-kind ((kind (eql :single-float)) (architecture (eql :x86-64)))
   '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
     :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
 

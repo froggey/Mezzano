@@ -1886,6 +1886,31 @@
     (emit `(lap:mov64 (:object ,(make-dx-closure-result instruction) 1) ,(make-dx-closure-function instruction))
           `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
 
+(defmethod emit-lap (backend-function (instruction box-fixnum-instruction) uses defs)
+  (emit `(lap:lea64 ,(box-destination instruction) (,(box-source instruction) ,(box-source instruction)))))
+
+(defmethod emit-lap (backend-function (instruction unbox-fixnum-instruction) uses defs)
+  (emit `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
+        `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
+
+(defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
+  (let ((tmp :rax))
+    (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
+           (setf tmp (box-source instruction)))
+          (t
+           (emit `(lap:movd ,(box-source instruction) :eax))))
+    (emit `(lap:shl64 ,tmp 32)
+          `(lap:lea64 ,(box-destination instruction) (,tmp ,sys.int::+tag-single-float+)))))
+
+(defmethod emit-lap (backend-function (instruction unbox-single-float-instruction) uses defs)
+  (let ((tmp :rax))
+    (when (eql (lap::reg-class (unbox-destination instruction)) :gpr-64)
+      (setf tmp (unbox-destination instruction)))
+    (emit `(lap:mov64 ,tmp ,(unbox-source instruction))
+          `(lap:shr64 ,tmp 32))
+    (unless (eql (lap::reg-class (unbox-destination instruction)) :gpr-64)
+      (emit `(lap:movd ,(unbox-destination instruction) :eax)))))
+
 (defun lower-fake-three-operand-instructions (backend-function)
   "Lower x86-fake-three-operand-instructions to a move & x86-instruction.
 The resulting code is not in SSA form so this pass must be late in the compiler."

@@ -1127,6 +1127,92 @@
 (defmethod instruction-pure-p ((instruction make-dx-closure-instruction))
   t)
 
+(defgeneric box-type (box-instruction))
+
+(defclass box-instruction (backend-instruction)
+  ((%destination :initarg :destination :accessor box-destination)
+   (%source :initarg :source :accessor box-source))
+  (:documentation "Box a native value into a Lisp value."))
+
+(defmethod instruction-inputs ((instruction box-instruction))
+  (list (box-source instruction)))
+
+(defmethod instruction-outputs ((instruction box-instruction))
+  (list (box-destination instruction)))
+
+(defmethod replace-all-registers ((instruction box-instruction) substitution-function)
+  (setf (box-destination instruction) (funcall substitution-function (box-destination instruction)))
+  (setf (box-source instruction) (funcall substitution-function (box-source instruction))))
+
+(defmethod instruction-pure-p ((instruction box-instruction))
+  t)
+
+(defclass box-fixnum-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-fixnum-instruction))
+  'fixnum)
+
+(defmethod print-instruction ((instruction box-fixnum-instruction))
+  (format t "   ~S~%"
+          `(:box-fixnum
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
+(defclass box-single-float-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-single-float-instruction))
+  'single-float)
+
+(defmethod print-instruction ((instruction box-single-float-instruction))
+  (format t "   ~S~%"
+          `(:box-single-float
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
+(defclass unbox-instruction (backend-instruction)
+  ((%destination :initarg :destination :accessor unbox-destination)
+   (%source :initarg :source :accessor unbox-source))
+  (:documentation "Unbox a Lisp value into it's native representation."))
+
+(defmethod instruction-inputs ((instruction unbox-instruction))
+  (list (unbox-source instruction)))
+
+(defmethod instruction-outputs ((instruction unbox-instruction))
+  (list (unbox-destination instruction)))
+
+(defmethod replace-all-registers ((instruction unbox-instruction) substitution-function)
+  (setf (unbox-destination instruction) (funcall substitution-function (unbox-destination instruction)))
+  (setf (unbox-source instruction) (funcall substitution-function (unbox-source instruction))))
+
+(defmethod instruction-pure-p ((instruction unbox-instruction))
+  t)
+
+(defclass unbox-fixnum-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-fixnum-instruction))
+  'fixnum)
+
+(defmethod print-instruction ((instruction unbox-fixnum-instruction))
+  (format t "   ~S~%"
+          `(:unbox-fixnum
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
+(defclass unbox-single-float-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-single-float-instruction))
+  'single-float)
+
+(defmethod print-instruction ((instruction unbox-single-float-instruction))
+  (format t "   ~S~%"
+          `(:unbox-single-float
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
 (defun print-function (function)
   (format t "~S~%" function)
   (do-instructions (c function)

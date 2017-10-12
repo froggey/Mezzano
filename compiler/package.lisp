@@ -558,6 +558,18 @@
            #:make-dx-closure-result
            #:make-dx-closure-function
            #:make-dx-closure-environment
+
+           #:box-instruction
+           #:box-destination
+           #:box-source
+           #:box-fixnum-instruction
+           #:box-single-float-instruction
+
+           #:unbox-instruction
+           #:unbox-destination
+           #:unbox-source
+           #:unbox-fixnum-instruction
+           #:unbox-single-float-instruction
 ))
 
 (defpackage :mezzano.compiler.backend.dominance
