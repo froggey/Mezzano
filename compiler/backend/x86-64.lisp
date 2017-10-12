@@ -852,16 +852,17 @@
 (defgeneric reify-predicate (predicate output emitter architecture))
 
 (defmethod reify-predicate (predicate result emitter (architecture (eql :x86-64)))
-  (funcall emitter (make-instance 'constant-instruction
-                                  :destination result
-                                  :value nil))
-  (funcall emitter (make-instance 'x86-instruction
-                                  :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-cmov-instruction
-                                           (mezzano.compiler.codegen.x86-64::predicate-info
-                                            predicate))
-                                  :operands (list result '(:constant t))
-                                  :inputs (list result)
-                                  :outputs (list result))))
+  (let ((tmp (make-instance 'virtual-register)))
+    (funcall emitter (make-instance 'constant-instruction
+                                    :destination tmp
+                                    :value nil))
+    (funcall emitter (make-instance 'x86-fake-three-operand-instruction
+                                    :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-cmov-instruction
+                                             (mezzano.compiler.codegen.x86-64::predicate-info
+                                              predicate))
+                                    :result result
+                                    :lhs tmp
+                                    :rhs '(:constant t)))))
 
 ;; Lower (branch (call foo ...) target) when FOO produces a predicate result.
 (defun lower-predicate-builtin (backend-function inst uses defs early)
