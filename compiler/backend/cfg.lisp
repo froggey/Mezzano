@@ -97,6 +97,13 @@ does not visit unreachable blocks."
                                          'branch-false-instruction
                                          'branch-true-instruction))
                   (incf total)))))
+        (mezzano.compiler.backend.x86-64::x86-branch-instruction
+         (let ((target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-target inst))))
+           (cond ((and (typep target 'jump-instruction)
+                       ;; Don't snap if there are phi nodes at the target.
+                       (endp (jump-values target)))
+                  (setf (mezzano.compiler.backend.x86-64::x86-branch-target inst) (jump-target target))
+                  (incf total)))))
         (jump-instruction
          (when (endp (jump-values inst))
            (let ((target (skip-label backend-function (jump-target inst))))
