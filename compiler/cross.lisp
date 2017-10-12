@@ -541,7 +541,7 @@
 (defpackage :mezzano.compiler.backend
   (:use :cross-cl :mezzano.compiler)
   (:export #:virtual-register
-           #:register-kind
+           #:virtual-register-kind
            #:backend-function
            #:backend-function-name
 

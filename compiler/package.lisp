@@ -389,7 +389,7 @@
 (defpackage :mezzano.compiler.backend
   (:use :cl :mezzano.compiler)
   (:export #:virtual-register
-           #:register-kind
+           #:virtual-register-kind
            #:backend-function
            #:backend-function-name
 

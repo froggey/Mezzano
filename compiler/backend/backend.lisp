@@ -7,7 +7,7 @@
 
 (defclass virtual-register ()
   ((%name :initarg :name)
-   (%kind :initarg :kind :reader register-kind))
+   (%kind :initarg :kind :reader virtual-register-kind))
   (:default-initargs :kind :value :name nil))
 
 (defmethod print-object ((object virtual-register) stream)

@@ -371,6 +371,29 @@
          (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
                         (ir::instruction-outputs inst))))
 
+(defgeneric architectural-physical-registers (architecture))
+
+(defmethod architectural-physical-registers ((architecture (eql :x86-64)))
+  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
+
+(defgeneric valid-physical-registers-for-kind (kind architecture))
+
+(defmethod valid-physical-registers-for-kind ((kind (eql :value)) (architecture (eql :x86-64)))
+  '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx))
+
+(defmethod valid-physical-registers-for-kind ((kind (eql :integer)) (architecture (eql :x86-64)))
+  '(:rax :rcx :rdx :rsi :rdi))
+
+(defmethod valid-physical-registers-for-kind ((kind (eql :mm)) (architecture (eql :x86-64)))
+  '(:mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7 :mm8))
+
+(defmethod valid-physical-registers-for-kind ((kind (eql :xmm)) (architecture (eql :x86-64)))
+  '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
+    :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
+
 (defclass linear-allocator ()
   ((%function :initarg :function :reader allocator-backend-function)
    (%ordering :initarg :ordering :reader allocator-instruction-ordering)
@@ -423,6 +446,10 @@
         (vreg-conflicts (make-hash-table))
         (vreg-move-hint (make-hash-table)))
     (flet ((add-range (vreg end)
+             (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
+                                                        (set-difference (architectural-physical-registers (allocator-architecture allocator))
+                                                                        (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
+                                                                                                           (allocator-architecture allocator)))))
              (let ((range (make-instance 'live-range
                                          :vreg vreg
                                          :start (gethash vreg vreg-liveness-start)
@@ -603,36 +630,39 @@
                              (ir::instruction-outputs inst))
               spilled-vregs available-regs))
     (dolist (vreg spilled-vregs)
-      (cond ((allow-memory-operand-p inst vreg (allocator-architecture allocator))
-             ;; Do nothing.
-             (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) :memory))
-            ((endp available-regs)
-             ;; Look for some register to spill.
-             ;; Select the longest-lived non-conflicting range to spill.
-             (let ((spill (first (last (remove-if (lambda (spill-interval)
-                                                    (or
-                                                     ;; Don't spill any vregs used by this instruction.
-                                                     (member (live-range-vreg spill-interval) vregs)
-                                                     ;; Or any pregs.
-                                                     (member (gethash spill-interval (allocator-range-allocations allocator))
-                                                             used-pregs)))
-                                                  (allocator-active-ranges allocator))))))
-               (when (not spill)
-                 (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
-                        vreg inst))
-               (let ((reg (gethash spill (allocator-range-allocations allocator))))
-                 (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) reg)
-                 (push reg (allocator-free-registers allocator))
-                 (mark-interval-spilled allocator spill))))
-            (t
-             (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) (pop available-regs))))
+      (let ((truely-available-regs (intersection available-regs
+                                                 (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
+                                                                                    (allocator-architecture allocator)))))
+        (cond ((allow-memory-operand-p inst vreg (allocator-architecture allocator))
+               ;; Do nothing.
+               (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) :memory))
+              ((endp truely-available-regs)
+               ;; Look for some register to spill.
+               ;; Select the longest-lived non-conflicting range to spill.
+               (let ((spill (first (last (remove-if (lambda (spill-interval)
+                                                      (or
+                                                       ;; Don't spill any vregs used by this instruction.
+                                                       (member (live-range-vreg spill-interval) vregs)
+                                                       ;; Or any pregs.
+                                                       (member (gethash spill-interval (allocator-range-allocations allocator))
+                                                               used-pregs)))
+                                                    (allocator-active-ranges allocator))))))
+                 (when (not spill)
+                   (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
+                          vreg inst))
+                 (let ((reg (gethash spill (allocator-range-allocations allocator))))
+                   (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) reg)
+                   (push reg (allocator-free-registers allocator))
+                   (mark-interval-spilled allocator spill))))
+              (t
+               (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) (pop truely-available-regs)))))
       (unless ir::*shut-up*
         (format t "Pick ~S for ~S~%" (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) vreg)))))
 
 (defun linear-scan-allocate (allocator)
   (setf (allocator-active-ranges allocator) '()
         (allocator-range-allocations allocator) (make-hash-table)
-        (allocator-free-registers allocator) '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx)
+        (allocator-free-registers allocator) (architectural-physical-registers (allocator-architecture allocator))
         (allocator-spilled-ranges allocator) (make-hash-table)
         (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal))
   (loop
