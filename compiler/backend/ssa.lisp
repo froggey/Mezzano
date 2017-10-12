@@ -74,9 +74,10 @@ Virtual registers must be defined exactly once."
                                        finally (return nil))
                                collect phi))
                  (real-values (loop
+                                 for phi in (label-phis (jump-target inst))
                                  for value in (jump-values inst)
                                  collect (cond ((member value conflicts)
-                                                (let ((new-reg (make-instance 'virtual-register)))
+                                                (let ((new-reg (make-instance 'virtual-register :kind (virtual-register-kind phi))))
                                                   (incf n-moves-inserted)
                                                   (insert-before backend-function inst
                                                                  (make-instance 'move-instruction

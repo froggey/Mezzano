@@ -12,8 +12,7 @@
 
 (defmethod print-object ((object virtual-register) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (when (slot-boundp object '%name)
-      (format stream "~S" (slot-value object '%name)))))
+    (format stream "~S ~S" (slot-value object '%name) (virtual-register-kind object))))
 
 (defclass backend-function ()
   ((%ast-lambda :initarg :ast-lambda :reader ast)
