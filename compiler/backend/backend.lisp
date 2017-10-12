@@ -745,6 +745,9 @@
 (defmethod replace-all-registers ((instruction unreachable-instruction) substitution-function)
   nil)
 
+(defmethod successors (function (instruction unreachable-instruction))
+  '())
+
 (defmethod print-instruction ((instruction unreachable-instruction))
   (format t "   ~S~%"
           `(:unreachable)))
