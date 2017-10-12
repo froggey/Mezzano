@@ -333,47 +333,56 @@ TLB shootdown must be protected by the VM lock."
   next
   (sys.lap-x86:ret))
 
+(defun populate-idt (vector)
+  ;; IDT completely fills the second page (256 * 16)
+  (dotimes (i 256)
+    (multiple-value-bind (lo hi)
+        (if (svref sys.int::*interrupt-service-routines* i)
+            (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
+                                     (svref sys.int::*interrupt-service-routines* i)
+                                     sys.int::+function-entry-point+)
+                            :ist (cond ((eql i 14) 1) ; page fault.
+                                       ((eql i 6) 1) ; undefined op.
+                                       ((>= i 32) 2) ; IRQ
+                                       (t 0)))
+            (values 0 0))
+      (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
+            (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
+
+(defun populate-gdt (vector tss-base)
+  ;; GDT.
+  (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 0)) 0 ; NULL seg.
+        (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 1)) #x00209A0000000000 ; Kernel CS64
+        ;; TSS low.
+        ;; Does not fit in a fixnum when treated as a 64-bit value, depending on where the info page
+        ;; was allocated. Use 32-bit accesses to work around.
+        (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 0)) (logior (ldb (byte 16 0) +cpu-info-tss-size+)
+                                                                                                       (ash (ldb (byte 16 0) tss-base) 16))
+        (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 1)) (logior (ldb (byte 8 16) tss-base)
+                                                                                                       (ash #x89 8)
+                                                                                                       (ash (ldb (byte 4 16) +cpu-info-tss-size+) 16)
+                                                                                                       (ash (ldb (byte 8 24) tss-base) 24))
+        ;; TSS high.
+        (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 3)) (ldb (byte 32 32) tss-base)))
+
+(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer)
+  ;; TSS, Clear memory first.
+  (dotimes (i +cpu-info-tss-size+)
+    (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
+  ;; IST1.
+  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
+  ;; IST2.
+  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
+  ;; I/O Map Base Address, follows TSS body.
+  (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+))
+
 (defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer idle-thread)
   (let* ((addr (- (sys.int::lisp-object-address vector)
                   sys.int::+tag-object+))
          (tss-base (+ addr 8 (* +cpu-info-tss-offset+ 8))))
-    ;; IDT completely fills the second page (256 * 16)
-    (dotimes (i 256)
-      (multiple-value-bind (lo hi)
-          (if (svref sys.int::*interrupt-service-routines* i)
-              (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
-                                       (svref sys.int::*interrupt-service-routines* i)
-                                       sys.int::+function-entry-point+)
-                              :ist (cond ((eql i 14) 1) ; page fault.
-                                         ((eql i 6) 1) ; undefined op.
-                                         ((>= i 32) 2) ; IRQ
-                                         (t 0)))
-              (values 0 0))
-        (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
-              (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi)))
-    ;; GDT.
-    (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 0)) 0 ; NULL seg.
-          (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 1)) #x00209A0000000000 ; Kernel CS64
-          ;; TSS low.
-          ;; Does not fit in a fixnum when treated as a 64-bit value, depending on where the info page
-          ;; was allocated. Use 32-bit accesses to work around.
-          (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 0)) (logior (ldb (byte 16 0) +cpu-info-tss-size+)
-                                                                                                           (ash (ldb (byte 16 0) tss-base) 16))
-          (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 1)) (logior (ldb (byte 8 16) tss-base)
-                                                                                                         (ash #x89 8)
-                                                                                                         (ash (ldb (byte 4 16) +cpu-info-tss-size+) 16)
-                                                                                                         (ash (ldb (byte 8 24) tss-base) 24))
-          ;; TSS high.
-          (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 3)) (ldb (byte 32 32) tss-base))
-    ;; TSS, Clear memory first.
-    (dotimes (i +cpu-info-tss-size+)
-      (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
-    ;; IST1.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
-    ;; IST2.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
-    ;; I/O Map Base Address, follows TSS body.
-    (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+)
+    (populate-idt vector)
+    (populate-gdt vector tss-base)
+    (populate-tss tss-base exception-stack-pointer irq-stack-pointer)
     ;; Other stuff.
     (setf (sys.int::%object-ref-t vector +cpu-info-self-offset+) vector)
     (setf (sys.int::%object-ref-signed-byte-64 vector +cpu-info-wired-stack-offset+)
