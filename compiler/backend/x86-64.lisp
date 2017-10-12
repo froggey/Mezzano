@@ -379,6 +379,13 @@
     (emit (make-instance 'jump-instruction :target out))
     (emit out)))
 
+(define-builtin mezzano.compiler::%fast-fixnum-+ ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
+                       :opcode 'lap:add64
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
+
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
   (let ((out (make-instance 'label)))
     (emit (make-instance 'move-instruction
@@ -427,6 +434,13 @@
                          :source :r8))
     (emit (make-instance 'jump-instruction :target out))
     (emit out)))
+
+(define-builtin mezzano.compiler::%fast-fixnum-- ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
+                       :opcode 'lap:sub64
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
 
 (define-builtin mezzano.runtime::%fixnum-* ((lhs rhs) result)
   (let ((fixnum-result (make-instance 'label))
@@ -583,11 +597,80 @@
                        :source value
                        :destination result)))
 
+(define-builtin sys.int::%object-header-data ((object) result)
+  (let ((temp (make-instance 'virtual-register)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list temp `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list temp)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:and64
+                         :operands (list temp (lognot (1- (ash 1 sys.int::+object-data-shift+))))
+                         :inputs (list temp)
+                         :outputs (list temp)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:shr64
+                         :operands (list temp (- sys.int::+object-data-shift+
+                                                 sys.int::+n-fixnum-bits+))
+                         :inputs (list temp)
+                         :outputs (list temp)))
+    (emit (make-instance 'move-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin sys.int::%%object-ref-unsigned-byte-32 ((object index) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    ;; Need to use :eax and a temporary here because it's currently impossible
+    ;; to replace vregs with non-64-bit gprs.
+    ;; Using a temporary & a move before the box allows the box to safely
+    ;; eliminated.
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov32
+                         :operands (list :eax `(:object ,object 0 ,index 2))
+                         :inputs (list object index)
+                         :outputs (list :rax)
+                         :clobbers '(:rax)))
+    (emit (make-instance 'move-instruction
+                         :source :rax
+                         :destination temp))
+    (emit (make-instance 'box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
 (define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result :early t)
   (emit (make-instance 'fixnum-<-instruction
                        :result result
                        :lhs lhs
                        :rhs rhs)))
+
+(define-builtin sys.int::%integer-as-single-float ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-single-float-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin sys.int::%%single-float-+ ((lhs rhs) result :early t)
+  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
+        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
+    (emit (make-instance 'unbox-single-float-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'unbox-single-float-instruction
+                         :source rhs
+                         :destination rhs-unboxed))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:addss
+                         :result result-unboxed
+                         :lhs lhs-unboxed
+                         :rhs rhs-unboxed))
+    (emit (make-instance 'box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
 
 (defun lower (backend-function early)
   (multiple-value-bind (uses defs)
@@ -1287,7 +1370,19 @@
   (emit `(lap:mov64 ,(local-variable-address (store-local-local instruction)) ,(store-local-value instruction))))
 
 (defmethod emit-lap (backend-function (instruction move-instruction) uses defs)
-  (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
+  (ecase (lap::reg-class (move-destination instruction))
+    (:gpr-64
+     (ecase (lap::reg-class (move-source instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
+       (:xmm
+        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))))
+    (:xmm
+     (ecase (lap::reg-class (move-source instruction))
+       (:gpr-64
+        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
+       (:xmm
+        (emit `(lap:movdqa ,(move-destination instruction) ,(move-source instruction))))))))
 
 (defmethod emit-lap (backend-function (instruction swap-instruction) uses defs)
   (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction))))
