@@ -557,8 +557,11 @@
            #:do-instructions
            #:do-reversed-instructions
 
+           #:terminator-instruction
+
            #:label
            #:label-name
+           #:label-phis
 
            #:argument-setup-instruction
            #:argument-setup-fref
@@ -586,6 +589,10 @@
            #:move-instruction
            #:move-destination
            #:move-source
+
+           #:swap-instruction
+           #:swap-lhs
+           #:swap-rhs
 
            #:spill-instruction
            #:spill-destination

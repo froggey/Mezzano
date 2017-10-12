@@ -3,6 +3,7 @@
 
 (in-package :mezzano.compiler.backend.register-allocator)
 
+;; FIXME: Arch-specific...
 (defparameter *argument-registers* '(:r8 :r9 :r10 :r11 :r12))
 (defparameter *return-register* :r8)
 (defparameter *funcall-register* :rbx)
@@ -315,18 +316,18 @@
 
 (defclass live-range ()
   ((%vreg :initarg :vreg :reader live-range-vreg)
+   ;; Start & end (inclusive) of this range, in allocator order.
    (%start :initarg :start :reader live-range-start)
    (%end :initarg :end :reader live-range-end)
-   (%conflicts :initarg :conflicts :reader live-range-conflicts)
-   (%hint :initarg :hint :reader live-range-hint)))
+   ;; Physical registers this range conflicts with and cannot be allocated in.
+   (%conflicts :initarg :conflicts :reader live-range-conflicts)))
 
 (defmethod print-object ((object live-range) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S ~S-~S ~:S ~S"
+    (format stream "~S ~S-~S ~:S"
             (live-range-vreg object)
             (live-range-start object) (live-range-end object)
-            (live-range-conflicts object)
-            (live-range-hint object))))
+            (live-range-conflicts object))))
 
 ;;; Pass 1: Order & number instructions. (instructions-reverse-postorder)
 ;;; Pass 2: Compute live ranges & preg conflicts. (build-live-ranges)
@@ -371,141 +372,288 @@
                         (ir::instruction-outputs inst))))
 
 (defclass linear-allocator ()
-  ((%ordering :initarg :ordering)
-   (%architecture :initarg :architecture)
-   (%live-in :initarg :live-in)
-   (%live-out :initarg :live-out)
-   (%mv-flow :initarg :mv-flow)
-   (%ranges)
-   (%vreg-ranges)
-   (%vreg-hints)))
+  ((%function :initarg :function :reader allocator-backend-function)
+   (%ordering :initarg :ordering :reader allocator-instruction-ordering)
+   (%architecture :initarg :architecture :reader allocator-architecture)
+   (%live-in :initarg :live-in :reader allocator-live-in)
+   (%live-out :initarg :live-out :reader allocator-live-out)
+   (%mv-flow :initarg :mv-flow :reader allocator-mv-flow)
+   (%ranges :accessor allocator-remaining-ranges)
+   (%vreg-ranges :accessor allocator-vreg-ranges)
+   (%vreg-hints :accessor allocator-vreg-hints)
+   (%active :accessor allocator-active-ranges)
+   (%free-registers :accessor allocator-free-registers)
+   (%spilled :accessor allocator-spilled-ranges)
+   (%allocations :accessor allocator-range-allocations)
+   (%instants :accessor allocator-instantaneous-allocations)
+   (%cfg-preds :initarg :cfg-preds :reader allocator-cfg-preds)))
 
-#+(or)
-(defun build-live-ranges-new (backend-function allocator)
-  (let ((ranges (make-hash-table))
-        (mv-flow (multiple-value-flow backend-function architecture))
+(defun program-ordering (backend-function)
+  (let ((order '()))
+    (ir:do-instructions (inst backend-function)
+      (push inst order))
+    (nreverse order)))
+
+(defun make-linear-allocator (backend-function architecture &key ordering)
+  (multiple-value-bind (basic-blocks bb-preds bb-succs)
+      (ir::build-cfg backend-function)
+    (declare (ignore basic-blocks bb-succs))
+    (multiple-value-bind (live-in live-out)
+        (ir::compute-liveness backend-function)
+      (make-instance 'linear-allocator
+                     :function backend-function
+                     :ordering (if ordering
+                                   (funcall ordering backend-function)
+                                   (instructions-reverse-postorder backend-function))
+                     :architecture architecture
+                     :live-in live-in
+                     :live-out live-out
+                     :mv-flow (ir::multiple-value-flow backend-function architecture)
+                     :cfg-preds bb-preds))))
+
+(defun build-live-ranges (allocator)
+  (let ((ranges '())
+        (vreg-ranges (make-hash-table))
+        (ordering (allocator-instruction-ordering allocator))
+        (mv-flow (allocator-mv-flow allocator))
+        (live-in (allocator-live-in allocator))
+        (live-out (allocator-live-out allocator))
         (active-vregs '())
         (vreg-liveness-start (make-hash-table))
         (vreg-conflicts (make-hash-table))
         (vreg-move-hint (make-hash-table)))
-    (loop
-       for range-start from 0
-       for inst in ordering
-       do
-         (let* ((clobbers (instruction-all-clobbers inst architecture mv-flow live-in live-out))
-                (vregs (virtual-registers-touched-by-instruction inst live-in live-out))
-                (newly-live-vregs (set-difference vregs active-vregs))
-                (newly-dead-vregs (set-difference active-vregs vregs)))
-           ;; Process vregs that have just become live.
-           (dolist (vreg newly-live-vregs)
-             (setf (gethash vreg vreg-liveness-start) range-start)
-             (setf (gethash vreg vreg-conflicts) '()))
-           ;; And vregs that have just become dead.
-           (let ((range-end (1- range-start)))
-             (dolist (vreg newly-dead-vregs)
-               (push (make-instance 'live-range
-                                    :vreg vreg
-                                    :start (gethash vreg vreg-liveness-start)
-                                    :end range-end
-                                    :conflicts (gethash vreg vreg-conflicts)
-                                    :hint (gethash vreg vreg-move-hint))
-                     (gethash vreg ranges '()))))
-           (setf active-vregs vregs)
-           ;; Conflict processing.
-           (dolist (vreg active-vregs)
-             ;; Don't conflict source/destination of move instructions.
-             ;; #'linear-scan-allocator specializes this.
-             (when (not (and (typep inst 'move-instruction)
-                             (or (eql (move-source inst) vreg)
-                                 (eql (move-destination inst) vreg))))
-               (dolist (preg clobbers)
-                 (pushnew preg (gethash vreg vreg-conflicts '()))))
-             (when (and (typep inst 'move-instruction)
-                        (eql (move-source inst) vreg)
-                        (typep (move-destination inst) 'physical-register)
-                        (not (member (move-destination inst)
-                                     (gethash vreg vreg-conflicts '()))))
-               (setf (gethash vreg vreg-move-hint) (move-destination inst)))
-             (when (typep inst 'argument-setup-instruction)
-               (when (eql (argument-setup-closure inst) vreg)
-                 (setf (gethash vreg vreg-move-hint) *funcall-register*))
-               (when (eql (argument-setup-fref inst) vreg)
-                 (setf (gethash vreg vreg-move-hint) *fref-register*))
-               (when (member vreg (argument-setup-required inst))
-                 (setf (gethash vreg vreg-move-hint) (nth (position vreg (argument-setup-required inst))
-                                                          *argument-registers*)))))))
-    ;; Finish any remaining active ranges.
-    (let ((range-end (1- (length ordering))))
-      (dolist (vreg active-vregs)
-        (push (make-instance 'live-range
-                             :vreg vreg
-                             :start (gethash vreg vreg-liveness-start)
-                             :end range-end
-                             :conflicts (gethash vreg vreg-conflicts)
-                             :hint (gethash vreg vreg-move-hint))
-              (gethash vreg ranges '()))))
-    ranges))
+    (flet ((add-range (vreg end)
+             (let ((range (make-instance 'live-range
+                                         :vreg vreg
+                                         :start (gethash vreg vreg-liveness-start)
+                                         :end end
+                                         :conflicts (gethash vreg vreg-conflicts))))
+               (push range ranges)
+               (push range (gethash vreg vreg-ranges)))))
+      (loop
+         for range-start from 0
+         for inst in ordering
+         do
+           (let* ((clobbers (instruction-all-clobbers inst (allocator-architecture allocator) mv-flow live-in live-out))
+                  (vregs (virtual-registers-touched-by-instruction inst live-in live-out))
+                  (newly-live-vregs (set-difference vregs active-vregs))
+                  (newly-dead-vregs (set-difference active-vregs vregs)))
+             ;; Process vregs that have just become live.
+             (dolist (vreg newly-live-vregs)
+               (setf (gethash vreg vreg-liveness-start) range-start)
+               (setf (gethash vreg vreg-conflicts) '()))
+             ;; And vregs that have just become dead.
+             (let ((range-end (1- range-start)))
+               (dolist (vreg newly-dead-vregs)
+                 (add-range vreg range-end)))
+             (setf active-vregs vregs)
+             (dolist (vreg active-vregs)
+               ;; Update conflicts for this vreg.
+               ;; Don't conflict source/destination of move instructions.
+               ;; #'linear-scan-allocator specializes this.
+               (when (not (and (typep inst 'ir:move-instruction)
+                               (or (eql (ir:move-source inst) vreg)
+                                   (eql (ir:move-destination inst) vreg))))
+                 (dolist (preg clobbers)
+                   (pushnew preg (gethash vreg vreg-conflicts '()))))
+               ;; Set the allocation hint.
+               (when (and (typep inst 'ir:move-instruction)
+                          (eql (ir:move-source inst) vreg)
+                          (typep (ir:move-destination inst) 'physical-register)
+                          (not (member (ir:move-destination inst)
+                                       (gethash vreg vreg-conflicts '()))))
+                 (setf (gethash vreg vreg-move-hint) (ir:move-destination inst)))
+               (when (typep inst 'ir:argument-setup-instruction)
+                 (when (eql (ir:argument-setup-closure inst) vreg)
+                   (setf (gethash vreg vreg-move-hint) *funcall-register*))
+                 (when (eql (ir:argument-setup-fref inst) vreg)
+                   (setf (gethash vreg vreg-move-hint) *fref-register*))
+                 (when (member vreg (ir:argument-setup-required inst))
+                   (setf (gethash vreg vreg-move-hint) (nth (position vreg (ir:argument-setup-required inst))
+                                                            *argument-registers*)))))))
+      ;; Finish any remaining active ranges.
+      (let ((range-end (1- (length ordering))))
+        (dolist (vreg active-vregs)
+          (add-range vreg range-end))))
+    (setf (slot-value allocator '%ranges) (sort ranges #'< :key #'live-range-start)
+          (slot-value allocator '%vreg-ranges) vreg-ranges
+          (slot-value allocator '%vreg-hints) vreg-move-hint))
+  (values))
 
-(defun build-live-ranges (backend-function ordering architecture live-in live-out)
-  (let ((vreg-liveness-start (make-hash-table))
-        (vreg-liveness-end (make-hash-table))
-        (vreg-conflicts (make-hash-table))
-        (vreg-move-hint (make-hash-table))
-        (mv-flow (ir::multiple-value-flow backend-function architecture)))
-    (loop
-       for i from 0
-       for inst in ordering
-       do
-         (let ((clobbers (instruction-all-clobbers inst architecture mv-flow live-in live-out))
-               (vregs (virtual-registers-touched-by-instruction inst live-in live-out)))
-           (unless ir::*shut-up*
-             (format t "~D:" i)
-             (ir::print-instruction inst)
-             (format t "Vregs: ~:S~%" vregs))
-           (dolist (vreg vregs)
-             (setf (gethash vreg vreg-liveness-start) (min i (gethash vreg vreg-liveness-start most-positive-fixnum)))
-             (setf (gethash vreg vreg-liveness-end) (max i (gethash vreg vreg-liveness-end 0)))
-             ;; Don't conflict source/destination of move instructions.
-             ;; #'linear-scan-allocator specializes this.
-             (when (not (and (typep inst 'ir:move-instruction)
-                             (or (eql (ir:move-source inst) vreg)
-                                 (eql (ir:move-destination inst) vreg))))
-               (dolist (preg clobbers)
-                 (pushnew preg (gethash vreg vreg-conflicts '()))))
-             (when (and (typep inst 'ir:move-instruction)
-                        (eql (ir:move-source inst) vreg)
-                        (typep (ir:move-destination inst) 'physical-register)
-                        (not (member (ir:move-destination inst)
-                                     (gethash vreg vreg-conflicts '()))))
-               (setf (gethash vreg vreg-move-hint) (ir:move-destination inst)))
-             (when (typep inst 'ir:argument-setup-instruction)
-               (when (eql (ir:argument-setup-closure inst) vreg)
-                 (setf (gethash vreg vreg-move-hint) *funcall-register*))
-               (when (eql (ir:argument-setup-fref inst) vreg)
-                 (setf (gethash vreg vreg-move-hint) *fref-register*))
-               (when (member vreg (ir:argument-setup-required inst))
-                 (setf (gethash vreg vreg-move-hint) (nth (position vreg (ir:argument-setup-required inst))
-                                                          *argument-registers*)))))))
-    (sort (loop
-             for vreg being the hash-keys of vreg-liveness-start using (hash-value start)
-             for end = (gethash vreg vreg-liveness-end)
-             for conflicts = (gethash vreg vreg-conflicts)
-             for hint = (gethash vreg vreg-move-hint)
-             collect (make-instance 'live-range
-                                    :vreg vreg
-                                    :start start
-                                    :end end
-                                    :conflicts conflicts
-                                    :hint hint))
-          #'<
-          :key #'live-range-start)))
+(defun expire-old-intervals (allocator current-interval)
+  (loop
+     until (or (endp (allocator-active-ranges allocator))
+               (>= (live-range-end (first (allocator-active-ranges allocator))) current-interval))
+     do (let* ((range (pop (allocator-active-ranges allocator)))
+               (reg (gethash range (allocator-range-allocations allocator))))
+          (when (not (interval-spilled-p allocator range))
+            (push reg (allocator-free-registers allocator))))))
 
-(defun linear-scan-allocate (backend-function ordering live-ranges architecture live-in live-out)
+(defun mark-interval-spilled (allocator interval)
+  (setf (gethash interval (allocator-spilled-ranges allocator)) t)
+  (setf (allocator-active-ranges allocator) (remove interval (allocator-active-ranges allocator))))
+
+(defun activate-interval (allocator interval register)
+  (let ((vreg (live-range-vreg interval)))
+    (setf (gethash interval (allocator-range-allocations allocator)) register)
+    ;; Update the hint for this vreg so the allocator tries to allocate multiple intervals in the same register.
+    (when (not (gethash vreg (allocator-vreg-hints allocator)))
+      (setf (gethash vreg (allocator-vreg-hints allocator)) register))
+    (setf (allocator-active-ranges allocator)
+          (merge 'list
+                 (list interval)
+                 (allocator-active-ranges allocator)
+                 #'<
+                 :key 'live-range-end))))
+
+(defun spill-at-interval (allocator new-interval)
+  ;; Select the longest-lived non-conflicting range to spill.
+  (let ((spill (first (last (remove-if (lambda (spill-interval)
+                                         (member (gethash spill-interval (allocator-range-allocations allocator))
+                                                 (live-range-conflicts new-interval)))
+                                       (allocator-active-ranges allocator))))))
+    (unless ir::*shut-up*
+      (format t "active ~S~%" (allocator-active-ranges allocator))
+      (format t "Spill ~S ~S~%" spill (if spill (gethash spill (allocator-range-allocations allocator)) nil)))
+    (cond ((and spill
+                (> (live-range-end spill) (live-range-end new-interval)))
+           ;; Found an interval to spill.
+           (activate-interval allocator new-interval (gethash spill (allocator-range-allocations allocator)))
+           (mark-interval-spilled allocator spill))
+          (t
+           ;; Nothing to spill, spill the new interval.
+           (mark-interval-spilled allocator new-interval)))))
+
+(defun update-active-intervals (allocator inst instruction-index)
+  (loop
+     until (or (endp (allocator-remaining-ranges allocator))
+               (not (eql instruction-index (live-range-start (first (allocator-remaining-ranges allocator))))))
+     do (let* ((interval (pop (allocator-remaining-ranges allocator)))
+               (vreg (live-range-vreg interval))
+               (candidates (remove-if (lambda (reg)
+                                        (or (member reg (live-range-conflicts interval))
+                                            ;; If the instruction is a move instruction with physical source/destinations,
+                                            ;; then conflict with it unless this interval is a source/dest and ends/begins
+                                            ;; on this instruction.
+                                            (and (typep inst 'ir:move-instruction)
+                                                 (or (and (typep (ir:move-source inst) 'physical-register)
+                                                          (eql (ir:move-source inst) reg)
+                                                          (not (and (eql (ir:move-destination inst) vreg)
+                                                                    (eql instruction-index (live-range-start interval)))))
+                                                     (and (typep (ir:move-destination inst) 'physical-register)
+                                                          (eql (ir:move-destination inst) reg)
+                                                          (not (and (eql (ir:move-source inst) vreg)
+                                                                    (eql instruction-index (live-range-end interval)))))))))
+                                      (allocator-free-registers allocator)))
+               (hint (or (gethash vreg (allocator-vreg-hints allocator))
+                         ;; If this is a move from a physical register, then use that physical register as the hint.
+                         ;; Move instructions kill physical registers, so this this is safe.
+                         (if (and (typep inst 'ir:move-instruction)
+                                  (eql (ir:move-destination inst) vreg)
+                                  (typep (ir:move-source inst) 'physical-register))
+                            (ir:move-source inst)
+                            nil)))
+               (reg (if (member hint candidates)
+                        hint
+                        (first candidates))))
+          (unless ir::*shut-up*
+            (format t "Interval ~S~%" interval)
+            (format t "Candidates ~S~%" candidates)
+            (format t "hint/reg ~S / ~S~%" hint reg))
+          (cond ((and (typep inst 'ir:argument-setup-instruction)
+                      (eql instruction-index (live-range-end interval)))
+                 ;; Argument setup instruction with an unused argument.
+                 ;; Just spill it.
+                 (mark-interval-spilled allocator interval))
+                ((not reg)
+                 (spill-at-interval allocator interval))
+                (t
+                 (setf (allocator-free-registers allocator) (remove reg (allocator-free-registers allocator)))
+                 (activate-interval allocator interval reg))))))
+
+(defun allocate-instants (allocator inst instruction-index)
+  (let* ((vregs (union (remove-duplicates
+                        (remove-if-not (lambda (r)
+                                         (typep r 'ir:virtual-register))
+                                       (ir::instruction-inputs inst)))
+                       (remove-duplicates
+                        (remove-if-not (lambda (r)
+                                         (typep r 'ir:virtual-register))
+                                       (ir::instruction-outputs inst)))))
+         (spilled-vregs (remove-if-not (lambda (vreg)
+                                         (spilledp allocator vreg instruction-index))
+                                       vregs))
+         (used-pregs (instruction-all-clobbers inst
+                                               (allocator-architecture allocator)
+                                               (allocator-mv-flow allocator)
+                                               (allocator-live-in allocator)
+                                               (allocator-live-out allocator)))
+         ;; Allocations only matter for the specific instruction.
+         ;; Don't update the normal free-registers list.
+         (available-regs (remove-if (lambda (preg)
+                                      (member preg used-pregs))
+                                    (allocator-free-registers allocator))))
+    (unless ir::*shut-up*
+      (format t "Instants ~:S ~:S ~:S ~:S~%"
+              (remove-if-not (lambda (r)
+                               (typep r 'ir:virtual-register))
+                             (ir::instruction-inputs inst))
+              (remove-if-not (lambda (r)
+                               (typep r 'ir:virtual-register))
+                             (ir::instruction-outputs inst))
+              spilled-vregs available-regs))
+    (dolist (vreg spilled-vregs)
+      (cond ((allow-memory-operand-p inst vreg (allocator-architecture allocator))
+             ;; Do nothing.
+             (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) :memory))
+            ((endp available-regs)
+             ;; Look for some register to spill.
+             ;; Select the longest-lived non-conflicting range to spill.
+             (let ((spill (first (last (remove-if (lambda (spill-interval)
+                                                    (or
+                                                     ;; Don't spill any vregs used by this instruction.
+                                                     (member (live-range-vreg spill-interval) vregs)
+                                                     ;; Or any pregs.
+                                                     (member (gethash spill-interval (allocator-range-allocations allocator))
+                                                             used-pregs)))
+                                                  (allocator-active-ranges allocator))))))
+               (when (not spill)
+                 (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
+                        vreg inst))
+               (let ((reg (gethash spill (allocator-range-allocations allocator))))
+                 (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) reg)
+                 (push reg (allocator-free-registers allocator))
+                 (mark-interval-spilled allocator spill))))
+            (t
+             (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) (pop available-regs))))
+      (unless ir::*shut-up*
+        (format t "Pick ~S for ~S~%" (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) vreg)))))
+
+(defun linear-scan-allocate (allocator)
+  (setf (allocator-active-ranges allocator) '()
+        (allocator-range-allocations allocator) (make-hash-table)
+        (allocator-free-registers allocator) '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx)
+        (allocator-spilled-ranges allocator) (make-hash-table)
+        (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal))
+  (loop
+     for inst in (allocator-instruction-ordering allocator)
+     for instruction-index from 0
+     do
+       (expire-old-intervals allocator instruction-index)
+       (unless ir::*shut-up*
+         (format t "~D:" instruction-index)
+         (ir::print-instruction inst)
+         (format t "actives ~:S~%" (allocator-active-ranges allocator)))
+       (update-active-intervals allocator inst instruction-index)
+       (allocate-instants allocator inst instruction-index))
+  (expire-old-intervals allocator (length (allocator-instruction-ordering allocator)))
+  (assert (endp (allocator-active-ranges allocator))))
+#+(or)
   (let* ((remaining-live-ranges live-ranges)
          (active '())
          ;; list of spilled values
          (spilled '())
-         ;; vreg => register
+         ;; vreg => allocated register
          (registers (make-hash-table))
          ;; (inst . vreg) => register
          (instantaneous-registers (make-hash-table :test 'equal))
@@ -675,117 +823,308 @@
                       (setf (gethash (cons inst vreg) instantaneous-registers) (pop available-regs))))
                (unless ir::*shut-up*
                  (format t "Pick ~S for ~S~%" (gethash (cons inst vreg) instantaneous-registers) vreg))))))
-    (values registers spilled instantaneous-registers)))
+    (values registers spilled instantaneous-registers))
 
-(defun rewrite-after-allocation (backend-function registers spilled instantaneous-registers)
-  (do* ((inst (ir:first-instruction backend-function) next-inst)
-        (next-inst (ir:next-instruction backend-function inst) (if inst (ir:next-instruction backend-function inst))))
-       ((null inst))
-    (let* ((input-vregs (remove-duplicates
-                         (remove-if-not (lambda (r)
-                                          (typep r 'ir:virtual-register))
-                                        (ir::instruction-inputs inst))))
-           (spilled-input-vregs (remove-if-not (lambda (vreg)
-                                                 (member vreg spilled))
-                                               input-vregs))
-           (output-vregs (remove-duplicates
-                          (remove-if-not (lambda (r)
-                                           (typep r 'ir:virtual-register))
-                                         (ir::instruction-outputs inst))))
-           (spilled-output-vregs (remove-if-not (lambda (vreg)
-                                                  (member vreg spilled))
-                                                output-vregs)))
-      (cond ((typep inst 'ir:move-instruction)
-             (cond ((and spilled-input-vregs spilled-output-vregs)
-                    ;; Both the input & the output were spilled.
-                    ;; Fill into the instant for the input, then spill directly into the output.
-                    (let ((reg (or (gethash (cons inst (ir:move-source inst)) instantaneous-registers)
-                                   (gethash (ir:move-source inst) registers)
-                                   (error "Missing instantaneous register for spill ~S at ~S." (ir:move-source inst) inst))))
-                      (ir:insert-before backend-function inst
-                                        (make-instance 'ir:fill-instruction
-                                                       :destination reg
-                                                       :source (ir:move-source inst)))
-                      (ir:insert-before backend-function inst
-                                        (make-instance 'ir:spill-instruction
-                                                       :destination (ir:move-destination inst)
-                                                       :source reg))
-                      (ir:remove-instruction backend-function inst)))
-                   (spilled-input-vregs
-                    ;; Input was spilled, fill directly into the output.
-                    (let ((reg (or (gethash (ir:move-destination inst) registers)
-                                   (ir:move-destination inst))))
-                      (ir:insert-before backend-function inst
-                                        (make-instance 'ir:fill-instruction
-                                                       :destination reg
-                                                       :source (ir:move-source inst)))
-                      (ir:remove-instruction backend-function inst)))
-                   (spilled-output-vregs
-                    ;; Output was spilled, spill directly into the output.
-                    (let ((reg (or (gethash (ir:move-source inst) registers)
-                                   (ir:move-source inst))))
-                      (ir:insert-before backend-function inst
-                                        (make-instance 'ir:spill-instruction
-                                                       :destination (ir:move-destination inst)
-                                                       :source reg))
-                      (ir:remove-instruction backend-function inst)))
-                   ((eql (or (gethash (ir:move-source inst) registers)
-                             (ir:move-source inst))
-                         (or (gethash (ir:move-destination inst) registers)
-                             (ir:move-destination inst)))
-                    ;; Source & destination are the same register (not spilled), eliminate the move.
-                    (ir:remove-instruction backend-function inst))
+(defun interval-at (allocator vreg index)
+  (dolist (interval (gethash vreg (allocator-vreg-ranges allocator))
+           (error "Missing interval for ~S at index ~S" vreg index))
+    (when (<= (live-range-start interval) index (live-range-end interval))
+      (return interval))))
+
+(defun interval-spilled-p (allocator interval)
+  (gethash interval (allocator-spilled-ranges allocator) nil))
+
+(defun spilledp (allocator vreg index)
+  (interval-spilled-p allocator (interval-at allocator vreg index)))
+
+(defun instant-register-at (allocator vreg index)
+  (or (gethash (cons index vreg) (allocator-instantaneous-allocations allocator))
+      (gethash (interval-at allocator vreg index) (allocator-range-allocations allocator))
+      (error "Missing instantaneous allocation for ~S at ~S" vreg index)))
+
+(defun fix-locations-after-control-flow (allocator inst instruction-index target insert-point)
+  (let* ((target-index (position target (allocator-instruction-ordering allocator)))
+         (active-vregs (remove-if-not (lambda (reg) (typep reg 'ir:virtual-register))
+                                      (gethash target (allocator-live-in allocator))))
+         (input-intervals (mapcar (lambda (vreg) (interval-at allocator vreg instruction-index))
+                                  active-vregs))
+         (input-registers (mapcar (lambda (interval)
+                                    (if (interval-spilled-p allocator interval)
+                                        (live-range-vreg interval)
+                                        (or (gethash interval (allocator-range-allocations allocator))
+                                            (error "Missing allocation for ~S" interval))))
+                                  input-intervals))
+         (output-intervals (mapcar (lambda (vreg) (interval-at allocator vreg target-index))
+                                   active-vregs))
+         (output-registers (mapcar (lambda (interval)
+                                     (if (interval-spilled-p allocator interval)
+                                         (live-range-vreg interval)
+                                         (or (gethash interval (allocator-range-allocations allocator))
+                                             (error "Missing allocation for ~S" interval))))
+                                   output-intervals))
+         (pairs (remove-if (lambda (x) (eql (car x) (cdr x)))
+                           (mapcar 'cons input-registers output-registers)))
+         (fills '()))
+    (flet ((insert (new-inst)
+             (ir:insert-after (allocator-backend-function allocator)
+                              insert-point
+                              new-inst)
+             (setf insert-point new-inst)))
+      (unless ir::*shut-up*
+        (format t "~D:" instruction-index)
+        (ir::print-instruction inst)
+        (format t "~D:" target-index)
+        (ir::print-instruction target)
+        (format t "Active vregs at ~S: ~:S~%" inst active-vregs)
+        (format t "   Input intervals: ~:S~%" input-intervals)
+        (format t "  output intervals: ~:S~%" output-intervals)
+        (format t "   Input registers: ~:S~%" input-registers)
+        (format t "  output registers: ~:S~%" output-registers)
+        (format t "  pairs: ~:S~%" pairs))
+      ;; There should be no spill -> spill moves.
+      (loop
+         for (in . out) in pairs
+         do (assert (not (and (typep in 'ir:virtual-register)
+                              (typep out 'ir:virtual-register)))))
+      ;; Process spills.
+      (loop
+         for (in . out) in pairs
+         when (typep out 'ir:virtual-register)
+         do (insert (make-instance 'ir:spill-instruction
+                                   :source in
+                                   :destination out)))
+      (setf pairs (remove-if (lambda (x) (typep (cdr x) 'ir:virtual-register))
+                             pairs))
+      ;; Remove fills.
+      (loop
+         for (in . out) in pairs
+         when (typep in 'ir:virtual-register)
+         do (push (make-instance 'ir:fill-instruction
+                                 :source in
+                                 :destination out)
+                  fills))
+      (setf pairs (remove-if (lambda (x) (typep (car x) 'ir:virtual-register))
+                             pairs))
+      ;; This leaves pairs filled with register -> register assignments.
+      (loop until (endp pairs) do
+         ;; Peel off any simple moves.
+           (loop
+              (let ((candidate (find-if (lambda (x)
+                                          ;; Destination must not be used by any pending pairs.
+                                          (not (find (cdr x) pairs :key #'car)))
+                                        pairs)))
+                (when (not candidate)
+                  (return))
+                (setf pairs (remove candidate pairs))
+                (insert (make-instance 'ir:move-instruction
+                                       :source (car candidate)
+                                       :destination (cdr candidate)))))
+           (when (endp pairs) (return))
+         ;; There are no simple moves left, pick two registers to swap.
+           (let* ((p (pop pairs))
+                  (r1 (car p))
+                  (r2 (cdr p)))
+             (insert (make-instance 'ir:swap-instruction
+                                    :lhs r1
+                                    :rhs r2))
+             ;; Fix up the pair list
+             (dolist (pair pairs)
+               (cond ((eql (car pair) r1)
+                      (setf (car pair) r2))
+                     ((eql (car pair) r2)
+                      (setf (car pair) r1))))))
+      ;; Finally do fills.
+      (dolist (fill fills)
+        (insert fill)))))
+
+(defun break-critical-edge (backend-function terminator target)
+  "Break the first edge from terminator to target."
+  (assert (endp (ir:label-phis target)))
+  (let ((l (make-instance 'ir:label :name :broken-critical-edge)))
+    (etypecase terminator
+      (ir:branch-instruction
+       (cond ((eql (ir:next-instruction backend-function terminator) target)
+              (ir:insert-after backend-function terminator l))
+             (t
+              (ir:insert-before backend-function target l)
+              (setf (ir:branch-target terminator) l))))
+      (ir:switch-instruction
+       (do ((i (ir:switch-targets terminator)
+               (rest i)))
+           ((endp i))
+         (when (eql (first i) target)
+           (ir:insert-before backend-function target l)
+           (setf (first i) l)
+           (return))))
+      (mezzano.compiler.backend.x86-64::x86-branch-instruction
+       (cond ((eql (ir:next-instruction backend-function terminator) target)
+              (ir:insert-after backend-function terminator l))
+             (t
+              (ir:insert-before backend-function target l)
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-target terminator) l)))))
+    (ir:insert-after backend-function l (make-instance 'ir:jump-instruction :target target :values '()))
+    l))
+
+(defun rewrite-after-allocation (allocator)
+  (loop
+     with backend-function = (allocator-backend-function allocator)
+     for instruction-index from 0
+     for inst in (allocator-instruction-ordering allocator)
+     do
+       (let* ((input-vregs (remove-duplicates
+                            (remove-if-not (lambda (r)
+                                             (typep r 'ir:virtual-register))
+                                           (ir::instruction-inputs inst))))
+              (spilled-input-vregs (remove-if-not (lambda (vreg)
+                                                    (spilledp allocator vreg instruction-index))
+                                                  input-vregs))
+              (output-vregs (remove-duplicates
+                             (remove-if-not (lambda (r)
+                                              (typep r 'ir:virtual-register))
+                                            (ir::instruction-outputs inst))))
+              (spilled-output-vregs (remove-if-not (lambda (vreg)
+                                                     (spilledp allocator vreg instruction-index))
+                                                   output-vregs)))
+         ;; Load spilled input registers.
+         (dolist (spill spilled-input-vregs)
+           (let ((reg (instant-register-at allocator spill instruction-index)))
+             (when (not (eql reg :memory))
+               (ir:insert-before backend-function inst
+                                 (make-instance 'ir:fill-instruction
+                                                :destination reg
+                                                :source spill)))))
+         ;; Store spilled output registers.
+         (dolist (spill spilled-output-vregs)
+           (let ((reg (instant-register-at allocator spill instruction-index)))
+             (when (not (eql reg :memory))
+               (ir:insert-after backend-function inst
+                                (make-instance 'ir:spill-instruction
+                                               :destination spill
+                                               :source reg)))))
+         ;; Rewrite the instruction.
+         (ir::replace-all-registers inst
+                                    (lambda (old)
+                                      (let ((new (cond ((not (typep old 'ir:virtual-register))
+                                                        nil)
+                                                       ((or (member old spilled-input-vregs)
+                                                            (member old spilled-output-vregs))
+                                                        (instant-register-at allocator old instruction-index))
+                                                       (t
+                                                        (or (gethash (interval-at allocator old instruction-index) (allocator-range-allocations allocator))
+                                                            (error "Missing allocation for ~S at ~S" old instruction-index))))))
+                                        (if (or (not new)
+                                                (eql new :memory))
+                                            old
+                                            new))))
+         ;; Insert code to patch up interval differences.
+         (when (typep inst 'ir:terminator-instruction)
+           (let ((successors (ir::successors (allocator-backend-function allocator) inst)))
+             (cond ((endp successors)) ; No successors, do nothing.
+                   ((endp (rest successors))
+                    ;; Single successor, insert fixups before the instruction.
+                    (fix-locations-after-control-flow allocator
+                                              inst instruction-index
+                                              (first successors)
+                                              (ir:prev-instruction (allocator-backend-function allocator)
+                                                                   inst)))
                    (t
-                    ;; Just rewrite the instruction.
-                    (ir::replace-all-registers inst
-                                               (lambda (old)
-                                                 (let ((new (or (gethash (cons inst old) instantaneous-registers)
-                                                                (gethash old registers))))
-                                                   (if (or (not new)
-                                                           (eql new :memory))
-                                                       old
-                                                       new)))))))
-            (t
-             ;; Load spilled input registers.
-             (dolist (spill spilled-input-vregs)
-               (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                              (gethash spill registers)
-                              (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-                 (when (not (eql reg :memory))
-                   (ir:insert-before backend-function inst
-                                     (make-instance 'ir:fill-instruction
-                                                    :destination reg
-                                                    :source spill)))))
-             ;; Store spilled output registers.
-             (dolist (spill spilled-output-vregs)
-               (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                              (gethash spill registers)
-                              (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-                 (when (not (eql reg :memory))
-                   (ir:insert-after backend-function inst
-                                    (make-instance 'ir:spill-instruction
-                                                   :destination spill
-                                                   :source reg)))))
-             ;; Rewrite the instruction.
-             (ir::replace-all-registers inst
-                                        (lambda (old)
-                                          (let ((new (or (gethash (cons inst old) instantaneous-registers)
-                                                         (gethash old registers))))
-                                            (if (or (not new)
-                                                    (eql new :memory))
-                                                old
-                                                new)))))))))
+                    ;; Multiple successors, insert fixups after each branch, breaking critical edges as needed.
+                    (dolist (succ successors)
+                      (let ((insert-point succ))
+                        (when (not (endp (rest (gethash succ (allocator-cfg-preds allocator)))))
+                          ;; Critical edge...
+                          (unless ir::*shut-up*
+                            (format t "Break critical edge ~S -> ~S~%" inst succ))
+                          (setf insert-point (break-critical-edge (allocator-backend-function allocator) inst succ)))
+                        (fix-locations-after-control-flow allocator
+                                                          inst instruction-index
+                                                          succ
+                                                          insert-point)))))))
+         #+(or)
+         (cond ((typep inst 'ir:move-instruction)
+                (cond ((and spilled-input-vregs spilled-output-vregs)
+                       ;; Both the input & the output were spilled.
+                       ;; Fill into the instant for the input, then spill directly into the output.
+                       (let ((reg (or (gethash (cons inst (ir:move-source inst)) instantaneous-registers)
+                                      (gethash (ir:move-source inst) registers)
+                                      (error "Missing instantaneous register for spill ~S at ~S." (ir:move-source inst) inst))))
+                         (ir:insert-before backend-function inst
+                                           (make-instance 'ir:fill-instruction
+                                                          :destination reg
+                                                          :source (ir:move-source inst)))
+                         (ir:insert-before backend-function inst
+                                           (make-instance 'ir:spill-instruction
+                                                          :destination (ir:move-destination inst)
+                                                          :source reg))
+                         (ir:remove-instruction backend-function inst)))
+                      (spilled-input-vregs
+                       ;; Input was spilled, fill directly into the output.
+                       (let ((reg (or (gethash (ir:move-destination inst) registers)
+                                      (ir:move-destination inst))))
+                         (ir:insert-before backend-function inst
+                                           (make-instance 'ir:fill-instruction
+                                                          :destination reg
+                                                          :source (ir:move-source inst)))
+                         (ir:remove-instruction backend-function inst)))
+                      (spilled-output-vregs
+                       ;; Output was spilled, spill directly into the output.
+                       (let ((reg (or (gethash (ir:move-source inst) registers)
+                                      (ir:move-source inst))))
+                         (ir:insert-before backend-function inst
+                                           (make-instance 'ir:spill-instruction
+                                                          :destination (ir:move-destination inst)
+                                                          :source reg))
+                         (ir:remove-instruction backend-function inst)))
+                      ((eql (or (gethash (ir:move-source inst) registers)
+                                (ir:move-source inst))
+                            (or (gethash (ir:move-destination inst) registers)
+                                (ir:move-destination inst)))
+                       ;; Source & destination are the same register (not spilled), eliminate the move.
+                       (ir:remove-instruction backend-function inst))
+                      (t
+                       ;; Just rewrite the instruction.
+                       (ir::replace-all-registers inst
+                                                  (lambda (old)
+                                                    (let ((new (or (gethash (cons inst old) instantaneous-registers)
+                                                                   (gethash old registers))))
+                                                      (if (or (not new)
+                                                              (eql new :memory))
+                                                          old
+                                                          new)))))))
+               (t
+                ;; Load spilled input registers.
+                (dolist (spill spilled-input-vregs)
+                  (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
+                                 (gethash spill registers)
+                                 (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
+                    (when (not (eql reg :memory))
+                      (ir:insert-before backend-function inst
+                                        (make-instance 'ir:fill-instruction
+                                                       :destination reg
+                                                       :source spill)))))
+                ;; Store spilled output registers.
+                (dolist (spill spilled-output-vregs)
+                  (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
+                                 (gethash spill registers)
+                                 (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
+                    (when (not (eql reg :memory))
+                      (ir:insert-after backend-function inst
+                                       (make-instance 'ir:spill-instruction
+                                                      :destination spill
+                                                      :source reg)))))
+                ;; Rewrite the instruction.
+                (ir::replace-all-registers inst
+                                           (lambda (old)
+                                             (let ((new (or (gethash (cons inst old) instantaneous-registers)
+                                                            (gethash old registers))))
+                                               (if (or (not new)
+                                                       (eql new :memory))
+                                                   old
+                                                   new)))))))))
 
-(defun allocate-registers (backend-function arch)
+(defun allocate-registers (backend-function arch &key ordering)
   (sys.c:with-metering (:backend-register-allocation)
-    (multiple-value-bind (live-in live-out)
-        (ir::compute-liveness backend-function)
-      (let ((order (instructions-reverse-postorder backend-function)))
-        (multiple-value-bind (registers spilled instantaneous-registers)
-            (linear-scan-allocate
-             backend-function
-             order
-             (build-live-ranges backend-function order arch live-in live-out)
-             arch
-             live-in live-out)
-          (rewrite-after-allocation backend-function registers spilled instantaneous-registers))))))
+    (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
+      (build-live-ranges allocator)
+      (linear-scan-allocate allocator)
+      (rewrite-after-allocation allocator))))

@@ -305,6 +305,29 @@
 (defmethod instruction-pure-p ((instruction move-instruction))
   t)
 
+(defclass swap-instruction (backend-instruction)
+  ((%lhs :initarg :lhs :accessor swap-lhs)
+   (%rhs :initarg :rhs :accessor swap-rhs))
+  (:documentation "Swap the values in the LHS & RHS registers."))
+
+(defmethod instruction-inputs ((instruction swap-instruction))
+  (list (swap-lhs instruction) (swap-rhs instruction)))
+
+(defmethod instruction-outputs ((instruction swap-instruction))
+  (list (swap-lhs instruction) (swap-rhs instruction)))
+
+(defmethod replace-all-registers ((instruction swap-instruction) substitution-function)
+  (setf (swap-lhs instruction) (funcall substitution-function (swap-lhs instruction)))
+  (setf (swap-rhs instruction) (funcall substitution-function (swap-rhs instruction))))
+
+(defmethod print-instruction ((instruction swap-instruction))
+  (format t "   ~S~%"
+          `(:swap ,(swap-lhs instruction)
+                  ,(swap-rhs instruction))))
+
+(defmethod instruction-pure-p ((instruction swap-instruction))
+  t)
+
 (defclass spill-instruction (backend-instruction)
   ((%destination :initarg :destination :accessor spill-destination)
    (%source :initarg :source :accessor spill-source))

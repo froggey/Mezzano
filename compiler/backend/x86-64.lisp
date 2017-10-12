@@ -33,7 +33,7 @@
 
 (defclass x86-branch-instruction (mezzano.compiler.backend::terminator-instruction)
   ((%opcode :initarg :opcode :reader x86-instruction-opcode)
-   (%target :initarg :target :reader x86-branch-target)))
+   (%target :initarg :target :accessor x86-branch-target)))
 
 (defmethod mezzano.compiler.backend::successors (function (instruction x86-branch-instruction))
   (list (next-instruction function instruction)
@@ -1255,6 +1255,9 @@
 
 (defmethod emit-lap (backend-function (instruction move-instruction) uses defs)
   (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
+
+(defmethod emit-lap (backend-function (instruction swap-instruction) uses defs)
+  (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction))))
 
 (defmethod emit-lap (backend-function (instruction spill-instruction) uses defs)
   (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
