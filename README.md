@@ -213,7 +213,7 @@ See the MBuild repo for installation: (https://github.com/froggey/MBuild)
 
 ASDF 3, Alexandria, Babel, Bordeaux-threads, Chipz, cl-jpeg, cl-riff,
 cl-vectors, flexi-streams, iterate, png-read, skippy, slime,
-trivial-features, trivial-gray-streams, and zpb-ttf.
+trivial-features, trivial-gray-streams, split-sequence, and zpb-ttf.
 
 Full source code is available under LOCAL:>Source>
 
