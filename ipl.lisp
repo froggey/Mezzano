@@ -87,6 +87,9 @@ Make sure there is a virtio-net NIC attached.~%")
     :inherit-configuration))
 (eval (read-from-string "(push 'home-source-registry asdf:*default-source-registries*)"))
 
+;; Split-sequence
+(require :split-sequence)
+
 ;; A bunch of GUI related systems.
 (require :zpb-ttf)
 (require :cl-vectors)
