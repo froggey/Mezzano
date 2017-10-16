@@ -2,7 +2,7 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :irc-client
-  (:use :cl :sys.net)
+  (:use :split-sequence :cl :sys.net)
   (:export #:spawn))
 
 (in-package :irc-client)
@@ -347,6 +347,14 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
          (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%"
                           (current-channel irc) text))
         (t (error "Not connected or not joined to a channel."))))
+
+(define-command msg (irc text)
+  "MSG <target> [message]
+   Send a message to or begin a conversation with the specified target."
+   (multiple-value-bind (split-text returned-index) (split-sequence #\Space text :start 0 :count 1)
+     (let ((leftovers (subseq text returned-index)))
+          (cond ((irc-connection irc)
+                 (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%" (elt split-text 0) leftovers))))))
 
 (define-command me (irc text)
   "ACTION <text>
