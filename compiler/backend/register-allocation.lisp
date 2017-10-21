@@ -662,7 +662,9 @@
                    (push reg (allocator-free-registers allocator))
                    (mark-interval-spilled allocator spill))))
               (t
-               (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) (pop truely-available-regs)))))
+               (let ((reg (pop truely-available-regs)))
+                 (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) reg)
+                 (setf available-regs (remove reg available-regs))))))
       (unless ir::*shut-up*
         (format t "Pick ~S for ~S~%" (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) vreg)))))
 
