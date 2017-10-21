@@ -2006,7 +2006,7 @@
     (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
            (setf tmp (box-source instruction)))
           (t
-           (emit `(lap:movd ,(box-source instruction) :eax))))
+           (emit `(lap:movd :eax ,(box-source instruction)))))
     (emit `(lap:shl64 ,tmp 32)
           `(lap:lea64 ,(box-destination instruction) (,tmp ,sys.int::+tag-single-float+)))))
 
