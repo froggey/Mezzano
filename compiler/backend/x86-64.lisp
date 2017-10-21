@@ -178,11 +178,10 @@
                         (eql (first out-defs) definition)
                         (endp (rest out-defs))))
           (return nil))
-        ;; Must have one or zero uses
-        (when (not (or (endp out-uses)
-                       (and out-uses
-                            (eql (first out-uses) consumer)
-                            (endp (rest out-uses)))))
+        ;; Must be used only by the consumer.
+        (when (or (endp out-uses)
+                  (not (endp (rest out-uses)))
+                  (not (eql (first out-uses) consumer)))
           (return nil))))))
 
 (defmacro define-builtin (name (lambda-list results &key early) &body body)
