@@ -1242,26 +1242,29 @@
       ;; Stack &required args.
       (loop
          for req in (argument-setup-required instruction)
-         do (when (and (typep req 'virtual-register)
-                       (usedp req))
-              (emit `(lap:mov64 :r13 (:rbp ,(* (+ stack-argument-index 2) 8))))
-              (emit `(lap:mov64 ,(effective-address req) :r13))
+         do (when (typep req 'virtual-register)
+              (when (usedp req)
+                (emit `(lap:mov64 :r13 (:rbp ,(* (+ stack-argument-index 2) 8))))
+                (emit `(lap:mov64 ,(effective-address req) :r13)))
               (incf stack-argument-index)))
       ;; &optional processing.
       (loop
          for i from (length (argument-setup-required instruction))
          for opt in (argument-setup-optional instruction)
-         do (when (usedp opt)
-              (emit `(lap:cmp64 :rcx ,(ash i sys.int::+n-fixnum-bits+)))
-              (cond ((typep opt 'virtual-register)
-                     ;; Load from stack.
-                     (emit `(lap:mov64 :r13 nil)
-                           `(lap:cmov64nle :r13 (:rbp ,(* (+ stack-argument-index 2) 8)))
-                           `(lap:mov64 ,(effective-address opt) :r13))
-                     (incf stack-argument-index))
-                    (t
-                     ;; Load into register.
-                     (emit `(lap:cmov64le ,opt (:constant nil))))))))
+         do
+           (when (usedp opt)
+             (emit `(lap:cmp64 :rcx ,(ash i sys.int::+n-fixnum-bits+))))
+           (cond ((typep opt 'virtual-register)
+                  ;; Load from stack.
+                  (when (usedp opt)
+                    (emit `(lap:mov64 :r13 nil)
+                          `(lap:cmov64nle :r13 (:rbp ,(* (+ stack-argument-index 2) 8)))
+                          `(lap:mov64 ,(effective-address opt) :r13)))
+                  (incf stack-argument-index))
+                 (t
+                  ;; Load into register.
+                  (when (usedp opt)
+                    (emit `(lap:cmov64le ,opt (:constant nil))))))))
     ;; &rest generation.
     (when (and (argument-setup-rest instruction)
                (usedp (argument-setup-rest instruction)))
