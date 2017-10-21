@@ -1391,10 +1391,18 @@
   (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction))))
 
 (defmethod emit-lap (backend-function (instruction spill-instruction) uses defs)
-  (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+  (ecase (virtual-register-kind (spill-destination instruction))
+    ((:value :integer)
+     (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+    (:single-float
+     (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
 
 (defmethod emit-lap (backend-function (instruction fill-instruction) uses defs)
-  (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+  (ecase (virtual-register-kind (fill-source instruction))
+    ((:value :integer)
+     (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+    (:single-float
+     (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
   (emit (list* (x86-instruction-opcode instruction)
