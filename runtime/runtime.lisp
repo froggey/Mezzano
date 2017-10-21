@@ -250,3 +250,12 @@ thread's stack if this function is called from normal code."
   (setf (%object-ref-unsigned-byte-64 object index)
         (%double-float-as-integer value))
   value)
+
+(declaim (inline %bounds-check))
+(defun %bounds-check (object slot)
+  (unless (fixnump slot)
+    (raise-type-error slot 'fixnum)
+    (sys.int::%%unreachable))
+  (unless (< (the fixnum slot) (the fixnum (%object-header-data object)))
+    (raise-bounds-error object slot)
+    (sys.int::%%unreachable)))
