@@ -637,6 +637,52 @@
                          :source temp
                          :destination result))))
 
+(define-builtin (setf sys.int::%%object-ref-unsigned-byte-32) ((value object index) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    ;; Need to use :eax and a temporary here because it's currently impossible
+    ;; to replace vregs with non-64-bit gprs.
+    ;; Using a temporary & a move before the box allows the box to safely
+    ;; eliminated.
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'move-instruction
+                         :source temp
+                         :destination :rax))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov32
+                         :operands (list `(:object ,object 0 ,index 2) :eax)
+                         :inputs (list object index :rax)
+                         :outputs (list)))
+    (emit (make-instance 'move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%%object-ref-unsigned-byte-64 ((object index) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list temp `(:object ,object 0 ,index 4))
+                         :inputs (list object index)
+                         :outputs (list temp)))
+    (emit (make-instance 'box-unsigned-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%%object-ref-unsigned-byte-64) ((value object index) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list `(:object ,object 0 ,index 4) temp)
+                         :inputs (list object index temp)
+                         :outputs (list)))
+    (emit (make-instance 'move-instruction
+                         :source value
+                         :destination result))))
+
 (define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result :early t)
   (emit (make-instance 'fixnum-<-instruction
                        :result result
@@ -2197,6 +2243,18 @@
 (defmethod emit-lap (backend-function (instruction unbox-fixnum-instruction) uses defs)
   (emit `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
         `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
+
+(defmethod emit-lap (backend-function (instruction unbox-unsigned-byte-64-instruction) uses defs)
+  (let ((bignum-path (gensym))
+        (out (gensym)))
+    (emit `(lap:test64 ,(unbox-source instruction) 1)
+          `(lap:jnz ,bignum-path)
+          `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
+          `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
+          `(lap:jmp ,out)
+          bignum-path
+          `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
+          out)))
 
 (defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
   (let ((tmp :rax))

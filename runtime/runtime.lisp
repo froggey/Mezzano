@@ -206,6 +206,13 @@ thread's stack if this function is called from normal code."
   (check-type value (unsigned-byte 32))
   (setf (%%object-ref-unsigned-byte-32 object index) value))
 
+(declaim (inline %object-ref-unsigned-byte-64 (setf %object-ref-unsigned-byte-64)))
+(defun %object-ref-unsigned-byte-64 (object index)
+  (the (unsigned-byte 64) (%%object-ref-unsigned-byte-64 object index)))
+(defun (setf %object-ref-unsigned-byte-64) (value object index)
+  (check-type value (unsigned-byte 64))
+  (setf (%%object-ref-unsigned-byte-64 object index) value))
+
 (declaim (inline %object-ref-signed-byte-8 (setf %object-ref-signed-byte-8)))
 (defun %object-ref-signed-byte-8 (object index)
   (%%object-ref-signed-byte-8 object index))
