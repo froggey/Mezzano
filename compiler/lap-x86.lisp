@@ -1137,7 +1137,11 @@ Remaining values describe the effective address: base index scale disp rip-relat
              (or (eql (reg-class dst) :gpr-64)
                  (consp dst)))
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x7E)))))
+      (generate-modrm :gpr-64 dst src '(#x0F #x7E))))
+  (when (and (eql (reg-class src) :mm)
+             (eql (reg-class dst) :mm))
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x7F)))))
 
 (define-instruction movdqa (dst src)
   (when (eql (reg-class dst) :xmm)
