@@ -114,8 +114,11 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "gui/colour.lisp")
 (sys.int::cal "gui/surface.lisp")
 (sys.int::cal "gui/blit.lisp")
+;; SIMD code requires use of the new compiler.
 #+x86-64
-(sys.int::cal "gui/blit-x86-64.lisp")
+(if sys.c::*use-new-compiler*
+    (sys.int::cal "gui/blit-x86-64-simd.lisp")
+    (sys.int::cal "gui/blit-x86-64.lisp"))
 #+arm64
 (sys.int::cal "gui/blit-generic.lisp")
 (sys.int::cal "gui/keymaps.lisp")
