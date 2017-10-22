@@ -747,6 +747,21 @@
   (:use :cross-cl :mezzano.compiler.backend)
   (:local-nicknames (:lap :sys.lap-x86)))
 
+(defpackage :mezzano.simd
+  (:use :cross-cl)
+  (:export #:make-mmx-vector
+           #:mmx-vector-value
+           #:mmx-vector
+           #:mmx-vector-p
+           #:punpcklbw
+           #:packuswb
+           #:psubb
+           #:punpcklbw
+           #:pmulhuw
+           #:pmuludq
+           #:paddusw
+           #:pmullw))
+
 (in-package :sys.c)
 
 (defstruct (byte

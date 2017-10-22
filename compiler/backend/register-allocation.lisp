@@ -401,6 +401,9 @@
   '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
     :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
 
+(defmethod valid-physical-registers-for-kind ((kind (eql :mmx)) (architecture (eql :x86-64)))
+  '(:mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7))
+
 (defclass linear-allocator ()
   ((%function :initarg :function :reader allocator-backend-function)
    (%ordering :initarg :ordering :reader allocator-instruction-ordering)

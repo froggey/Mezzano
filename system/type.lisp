@@ -760,7 +760,7 @@
        (#b101100 'object-tag-101100)
        (#b101101 'object-tag-101101)
        (#b101110 'object-tag-101110)
-       (#b101111 'object-tag-101111)
+       (#b101111 'mezzano.simd:mmx-vector)
        (#b110000
         (cond ((eql object 'nil) 'null)
               ((eql object 't) 'boolean)

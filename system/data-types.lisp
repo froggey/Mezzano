@@ -95,7 +95,7 @@
 ;;#b101100
 ;;#b101101
 ;;#b101110
-;;#b101111
+(defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
@@ -111,7 +111,7 @@
 (defconstant +object-tag-cons+                    #b111000)
 (defconstant +object-tag-freelist-entry+          #b111001)
 (defconstant +object-tag-weak-pointer+            #b111010)
-(defconstant +first-misc-object-tag+ +object-tag-symbol+)
+(defconstant +first-misc-object-tag+ +object-tag-mmx-vector+)
 (defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
 ;;#b111011
 (defconstant +object-tag-function+                #b111100)

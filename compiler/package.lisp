@@ -594,3 +594,18 @@
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl :mezzano.compiler.backend)
   (:local-nicknames (:lap :sys.lap-x86)))
+
+(defpackage :mezzano.simd
+  (:use :cl)
+  (:export #:make-mmx-vector
+           #:mmx-vector-value
+           #:mmx-vector
+           #:mmx-vector-p
+           #:punpcklbw
+           #:packuswb
+           #:psubb
+           #:punpcklbw
+           #:pmulhuw
+           #:pmuludq
+           #:paddusw
+           #:pmullw))

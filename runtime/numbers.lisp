@@ -373,8 +373,10 @@
 (declaim (inline sys.int::binary-+ sys.int::binary--
                  sys.int::binary-* sys.int::%truncate
                  rem
-                 sys.int::binary-logand sys.int::binary-logior
-                 sys.int::binary-logxor lognot))
+                 ;sys.int::binary-logand
+                 sys.int::binary-logior
+                 sys.int::binary-logxor
+                 lognot))
 (defun sys.int::binary-+ (lhs rhs)
   (if (and (sys.int::fixnump lhs)
            (sys.int::fixnump rhs))

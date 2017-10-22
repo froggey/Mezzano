@@ -623,6 +623,13 @@
     ;; Conversion from single-float to integer.
     (return-from mod-n-transform-candidate-p
       t))
+  (when (and (typep value 'ast-call)
+             (member (name value) '(mezzano.simd:mmx-vector-value mezzano.simd::%mmx-vector-value))
+             (eql (length (arguments value)) 1)
+             (match-transform-argument 'mezzano.simd::mmx-vector (first (arguments value))))
+    ;; Conversion from mmx-vector to integer.
+    (return-from mod-n-transform-candidate-p
+      t))
   ;; The value must be a call to one of the arithmetic functions.
   ;; Both sides must be fixnums. This will cause the fixnum arithmetic
   ;; transforms to fire, and the calls to be transformed to their

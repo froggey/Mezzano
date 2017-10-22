@@ -340,6 +340,7 @@
     (sys.int::function-reference                   (find-class-cached 'sys.int::function-reference))
     (sys.int::weak-pointer                         (find-class-cached 'sys.int::weak-pointer))
     (byte                                          (find-class-cached 'byte))
+    (mezzano.simd:mmx-vector                       (find-class-cached 'mezzano.simd:mmx-vector))
     (structure-object
      (class-of-structure-definition (sys.int::%struct-slot x 0)))
     (t                                             (find-class-cached 't))))

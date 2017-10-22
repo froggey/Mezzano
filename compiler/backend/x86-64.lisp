@@ -139,6 +139,30 @@
            (eql (fourth (call-arguments instruction)) operand)
            (eql (fifth (call-arguments instruction)) operand))))
 
+(defclass box-mmx-vector-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-mmx-vector-instruction))
+  'mezzano.simd:mmx-vector)
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction box-mmx-vector-instruction))
+  (format t "   ~S~%"
+          `(:box-mmx-vector
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
+(defclass unbox-mmx-vector-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-mmx-vector-instruction))
+  'mezzano.simd:mmx-vector)
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction unbox-mmx-vector-instruction))
+  (format t "   ~S~%"
+          `(:unbox-mmx-vector
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
 (defun resolve-constant (register defs)
   (let ((register-defs (gethash register defs)))
     (cond ((and register-defs
@@ -561,6 +585,13 @@
                        :lhs lhs
                        :rhs rhs)))
 
+(define-builtin sys.c::%fast-fixnum-logand ((lhs rhs) result :early t)
+  (emit (make-instance 'x86-fake-three-operand-instruction
+                       :opcode 'lap:and64
+                       :result result
+                       :lhs lhs
+                       :rhs rhs)))
+
 (define-builtin mezzano.runtime::%fixnum-logior ((lhs rhs) result :early t)
   (emit (make-instance 'x86-fake-three-operand-instruction
                        :opcode 'lap:or64
@@ -879,6 +910,71 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin mezzano.simd::%make-mmx-vector ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-mmx-vector-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.simd::%make-mmx-vector/fixnum ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-mmx-vector-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.simd::%mmx-vector-value ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-mmx-vector-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-unsigned-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+
+(define-builtin mezzano.simd::%mmx-vector-value/fixnum ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-mmx-vector-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(macrolet ((frob (fn inst)
+             `(define-builtin ,fn ((lhs rhs) result :early t)
+                (let ((lhs-unboxed (make-instance 'virtual-register :kind :mmx))
+                      (rhs-unboxed (make-instance 'virtual-register :kind :mmx))
+                      (result-unboxed (make-instance 'virtual-register :kind :mmx)))
+                  (emit (make-instance 'unbox-mmx-vector-instruction
+                                       :source lhs
+                                       :destination lhs-unboxed))
+                  (emit (make-instance 'unbox-mmx-vector-instruction
+                                       :source rhs
+                                       :destination rhs-unboxed))
+                  (emit (make-instance 'x86-fake-three-operand-instruction
+                                       :opcode ',inst
+                                       :result result-unboxed
+                                       :lhs lhs-unboxed
+                                       :rhs rhs-unboxed))
+                  (emit (make-instance 'box-mmx-vector-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  (frob mezzano.simd::%punpcklbw/mmx lap:punpcklbw)
+  (frob mezzano.simd::%packuswb/mmx lap:packuswb)
+  (frob mezzano.simd::%psubb/mmx lap:psubb)
+  (frob mezzano.simd::%punpcklbw/mmx lap:punpcklbw)
+  (frob mezzano.simd::%pmulhuw/mmx lap:pmulhuw)
+  (frob mezzano.simd::%pmuludq/mmx lap:pmuludq)
+  (frob mezzano.simd::%paddusw/mmx lap:paddusw)
+  (frob mezzano.simd::%pmullw/mmx lap:pmullw))
+
 (defun lower (backend-function early)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
@@ -1019,6 +1115,41 @@
                 (make-instance 'x86-instruction
                                :opcode 'lap:mov64
                                :operands (list :r13 `(:function mezzano.runtime::%%make-unsigned-byte-64-rax))
+                               :inputs (list)
+                               :outputs (list :r13)
+                               :clobbers '(:r13)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:call
+                               :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
+                               :inputs (list :r13 :rax)
+                               :outputs (list :r8)
+                               :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                           :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                           :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                           :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination result
+                               :source :r8))
+               (mezzano.compiler.backend::remove-instruction backend-function inst)))
+            ((and (not early)
+                  (typep inst 'box-mmx-vector-instruction))
+             ;; (box-mmx-vector value) => (call make-mmx-vector-rax value)
+             (let* ((vector (box-source inst))
+                    (result (box-destination inst)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination :rax
+                               :source vector))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:mov64
+                               :operands (list :r13 `(:function mezzano.simd::%%make-mmx-vector-rax))
                                :inputs (list)
                                :outputs (list :r13)
                                :clobbers '(:r13)))
@@ -1621,7 +1752,15 @@
      (ecase (lap::reg-class (move-source instruction))
        (:gpr-64
         (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
+       (:mm
+        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
        (:xmm
+        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))))
+    (:mm
+     (ecase (lap::reg-class (move-source instruction))
+       (:gpr-64
+        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
+       (:mm
         (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))))
     (:xmm
      (ecase (lap::reg-class (move-source instruction))
@@ -1637,14 +1776,14 @@
   (ecase (virtual-register-kind (spill-destination instruction))
     ((:value :integer)
      (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
-    (:single-float
+    ((:single-float :mmx)
      (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
 
 (defmethod emit-lap (backend-function (instruction fill-instruction) uses defs)
   (ecase (virtual-register-kind (fill-source instruction))
     ((:value :integer)
      (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
-    (:single-float
+    ((:single-float :mmx)
      (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
@@ -2255,6 +2394,13 @@
           bignum-path
           `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
           out)))
+
+(defmethod emit-lap (backend-function (instruction unbox-mmx-vector-instruction) uses defs)
+  (ecase (lap::reg-class (unbox-destination instruction))
+    (:gpr-64
+     (emit `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))
+    (:mm
+     (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
 
 (defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
   (let ((tmp :rax))

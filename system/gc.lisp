@@ -969,6 +969,7 @@ This is required to make the GC interrupt safe."
       #.+object-tag-complex-short-float+
       #.+object-tag-complex-long-float+
       #.+object-tag-xmm-vector+
+      #.+object-tag-mmx-vector+
       #.+object-tag-unbound-value+))
     (#.+object-tag-thread+
      (scan-thread object))
@@ -1127,6 +1128,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           4)
          (#.+object-tag-xmm-vector+
           4)
+         (#.+object-tag-mmx-vector+
+          2)
          (#.+object-tag-symbol+
           8)
          (#.+object-tag-std-instance+

@@ -284,6 +284,7 @@
 (defclass float (real) () (:metaclass built-in-class))
 (defclass complex (number) () (:metaclass built-in-class))
 
+(defclass mezzano.simd:mmx-vector (t) () (:metaclass built-in-class))
 
 ;;; Done defining classes.
 ;;; Don't define any new classes in this file after this point!

@@ -199,6 +199,7 @@
     "compiler/backend/passes.lisp"
     "compiler/backend/register-allocation.lisp"
     "compiler/backend/x86-64.lisp"
+    ("runtime/simd.lisp" :x86-64)
     "system/file-compiler.lisp"
     "system/xp-package.lisp"
     "system/xp.lisp"
@@ -1255,7 +1256,11 @@
                                              (or (not (consp x))
                                                  (member sys.c::*target-architecture* (rest x))))
                                            *warm-source-files*)))
-        (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
+        ;; HACK! Force use of the new compiler building the SIMD functions.
+        (let ((sys.c::*use-new-compiler* (if (string= file "runtime/simd.lisp")
+                                             t
+                                             sys.c::*use-new-compiler*))
+              (llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
           (when (or (not (probe-file llf-path))
                     (<= (file-write-date llf-path) (file-write-date file)))
             (format t "~A is out of date will be recompiled.~%" llf-path)
