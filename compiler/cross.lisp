@@ -711,16 +711,19 @@
            #:make-dx-closure-function
            #:make-dx-closure-environment
 
+           #:box-type
            #:box-instruction
            #:box-destination
            #:box-source
            #:box-fixnum-instruction
+           #:box-unsigned-byte-64-instruction
            #:box-single-float-instruction
 
            #:unbox-instruction
            #:unbox-destination
            #:unbox-source
            #:unbox-fixnum-instruction
+           #:unbox-unsigned-byte-64-instruction
            #:unbox-single-float-instruction
 ))
 

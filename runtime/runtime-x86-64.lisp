@@ -444,3 +444,28 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)
   (sys.lap-x86:ret))
+
+(sys.int::define-lap-function %%make-unsigned-byte-64-rax ()
+  (:gc :no-frame :layout #*0)
+  ;; Convert to fixnum & check for unsigned overflow.
+  ;; Assumes fixnum size of 1!
+  (sys.lap-x86:shl64 :rax 1)
+  (sys.lap-x86:jc OVERFLOW)
+  (sys.lap-x86:js OVERFLOW)
+  ;; It's a fixnum.
+  (sys.lap-x86:mov64 :r8 :rax)
+  ;; Single-value return.
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:ret)
+  OVERFLOW
+  ;; Call out to bignum builder.
+  ;; Undo the shift.
+  (sys.lap-x86:rcr64 :rax 1)
+  ;; Prod the sign flag.
+  (sys.lap-x86:test64 :rax :rax)
+  ;; Build bignum.
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
+  ;; Result needs a 128-bit bignum when the high bit is set.
+  (sys.lap-x86:cmov64s :r13 (:function sys.int::%%make-bignum-128-rdx-rax))
+  (sys.lap-x86:xor32 :edx :edx)
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
