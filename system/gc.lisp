@@ -958,7 +958,6 @@ This is required to make the GC interrupt safe."
       #.+object-tag-array-complex-double-float+
       #.+object-tag-array-complex-short-float+
       #.+object-tag-array-complex-long-float+
-      #.+object-tag-array-xmm-vector+
       #.+object-tag-bignum+
       #.+object-tag-double-float+
       #.+object-tag-short-float+
@@ -968,7 +967,6 @@ This is required to make the GC interrupt safe."
       #.+object-tag-complex-double-float+
       #.+object-tag-complex-short-float+
       #.+object-tag-complex-long-float+
-      #.+object-tag-xmm-vector+
       #.+object-tag-mmx-vector+
       #.+object-tag-unbound-value+))
     (#.+object-tag-thread+
@@ -1103,8 +1101,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            #.+object-tag-bignum+)
           (1+ length))
          ((#.+object-tag-array-long-float+
-           #.+object-tag-array-complex-double-float+
-           #.+object-tag-array-xmm-vector+)
+           #.+object-tag-array-complex-double-float+)
           (1+ (* length 2)))
          ((#.+object-tag-array-complex-long-float+)
           (1+ (* length 4)))
@@ -1125,8 +1122,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-complex-long-float+
           8)
          (#.+object-tag-ratio+
-          4)
-         (#.+object-tag-xmm-vector+
           4)
          (#.+object-tag-mmx-vector+
           2)

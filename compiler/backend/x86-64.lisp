@@ -937,7 +937,6 @@
                          :source temp
                          :destination result))))
 
-
 (define-builtin mezzano.simd::%mmx-vector-value/fixnum ((value) result :early t)
   (let ((temp (make-instance 'virtual-register :kind :integer)))
     (emit (make-instance 'unbox-mmx-vector-instruction

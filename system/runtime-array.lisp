@@ -42,7 +42,6 @@
           (double-float           #.+object-tag-array-double-float+          64 t   0.0d0)
           (short-float            #.+object-tag-array-short-float+           16 t   0.0s0)
           (long-float             #.+object-tag-array-long-float+           128 t   0.0l0)
-          (xmm-vector             #.+object-tag-array-xmm-vector+           128 t   0)
           ((complex single-float) #.+object-tag-array-complex-single-float+  64 t   #C(0.0f0 0.0f0))
           ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t   #C(0.0d0 0.0d0))
           ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #C(0.0s0 0.0s0))
@@ -73,8 +72,7 @@
           (complex single-float)
           (complex double-float)
           (complex short-float)
-          (complex long-float)
-          xmm-vector)))
+          (complex long-float))))
 
 ;; Only for the benefit of the cross-compiler,
 ;; this is the very first thing INITIALIZE-LISP calls.

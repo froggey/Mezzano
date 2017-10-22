@@ -58,8 +58,8 @@
 (defconstant +object-tag-array-complex-double-float+ #b010101)
 (defconstant +object-tag-array-complex-short-float+  #b010110)
 (defconstant +object-tag-array-complex-long-float+   #b010111)
-(defconstant +object-tag-array-xmm-vector+           #b011000)
-(defconstant +last-simple-1d-array-object-tag+ +object-tag-array-xmm-vector+)
+(defconstant +last-simple-1d-array-object-tag+ +object-tag-array-complex-long-float+)
+;;#b011000
 ;;#b011001
 ;;#b011010
 ;;#b011011
@@ -99,7 +99,7 @@
 (defconstant +object-tag-symbol+                  #b110000)
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
-(defconstant +object-tag-xmm-vector+              #b110011)
+;;#b110011
 (defconstant +object-tag-thread+                  #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)

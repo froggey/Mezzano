@@ -3,6 +3,8 @@
 
 (in-package :mezzano.simd)
 
+;;; MMX (64-bit integer) vectors.
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.int::%define-type-symbol 'mmx-vector 'mmx-vector-p))
 

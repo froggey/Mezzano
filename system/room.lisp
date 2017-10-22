@@ -28,7 +28,7 @@
     array-complex-double-float ; #b010101
     array-complex-short-float  ; #b010110
     array-complex-long-float   ; #b010111
-    array-xmm-vector           ; #b011000
+    invalid-011000             ; #b011000
     invalid-011001             ; #b011001
     invalid-011010             ; #b011010
     invalid-011011             ; #b011011
@@ -51,11 +51,11 @@
     invalid-101100             ; #b101100
     invalid-101101             ; #b101101
     invalid-101110             ; #b101110
-    invalid-101111             ; #b101111
+    mezzano.simd:mmx-vector    ; #b101111
     symbol                     ; #b110000
     structure-object           ; #b110001
     std-instance               ; #b110010
-    xmm-vector                 ; #b110011
+    invalid-110011             ; #b110011
     thread                     ; #b110100
     unbound-value              ; #b110101
     function-reference         ; #b110110
