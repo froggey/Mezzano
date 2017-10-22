@@ -1388,7 +1388,7 @@
              (emit-arg-error)))))
   ;; Spill count/fref.
   (flet ((usedp (reg)
-           (or (typep reg 'mezzano.compiler.backend::physical-register)
+           (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
                (not (endp (gethash reg uses))))))
     (when (usedp (argument-setup-fref instruction))
       (emit `(lap:mov64 ,(effective-address (argument-setup-fref instruction)) :r13)))
