@@ -1774,16 +1774,44 @@
 (defmethod emit-lap (backend-function (instruction spill-instruction) uses defs)
   (ecase (virtual-register-kind (spill-destination instruction))
     ((:value :integer)
-     (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
-    ((:single-float :mmx)
-     (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+     (ecase (lap::reg-class (spill-source instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+    (:single-float
+     (ecase (lap::reg-class (spill-source instruction))
+       (:gpr-64
+        (emit `(lap:mov32 ,(effective-address (spill-destination instruction)) ,(lap::convert-width (spill-source instruction) 32))))
+       ((:mm :xmm)
+        (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+    (:mmx
+     (ecase (lap::reg-class (spill-source instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))))
 
 (defmethod emit-lap (backend-function (instruction fill-instruction) uses defs)
   (ecase (virtual-register-kind (fill-source instruction))
     ((:value :integer)
-     (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
-    ((:single-float :mmx)
-     (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+     (ecase (lap::reg-class (fill-destination instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+    (:single-float
+     (ecase (lap::reg-class (fill-destination instruction))
+       (:gpr-64
+        (emit `(lap:mov32 ,(lap::convert-width (fill-destination instruction) 32) ,(effective-address (fill-source instruction)))))
+       ((:mm :xmm)
+        (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+    (:mmx
+     (ecase (lap::reg-class (fill-destination instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
   (emit (list* (x86-instruction-opcode instruction)

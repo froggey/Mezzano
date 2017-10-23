@@ -1007,6 +1007,132 @@
     (ir:insert-after backend-function l (make-instance 'ir:jump-instruction :target target :values '()))
     l))
 
+(defun rewrite-ordinary-instruction (allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs)
+  ;; Load spilled input registers.
+  (dolist (spill spilled-input-vregs)
+    (let ((reg (instant-register-at allocator spill instruction-index)))
+      (when (not (eql reg :memory))
+        (ir:insert-before backend-function inst
+                          (make-instance 'ir:fill-instruction
+                                         :destination reg
+                                         :source spill)))))
+  ;; Store spilled output registers.
+  (dolist (spill spilled-output-vregs)
+    (let ((reg (instant-register-at allocator spill instruction-index)))
+      (when (not (eql reg :memory))
+        (ir:insert-after backend-function inst
+                         (make-instance 'ir:spill-instruction
+                                        :destination spill
+                                        :source reg)))))
+  ;; Rewrite the instruction.
+  (ir::replace-all-registers inst
+                             (lambda (old)
+                               (let ((new (cond ((not (typep old 'ir:virtual-register))
+                                                 nil)
+                                                ((or (member old spilled-input-vregs)
+                                                     (member old spilled-output-vregs))
+                                                 (instant-register-at allocator old instruction-index))
+                                                (t
+                                                 (or (gethash (interval-at allocator old instruction-index) (allocator-range-allocations allocator))
+                                                     (error "Missing allocation for ~S at ~S" old instruction-index))))))
+                                 (if (or (not new)
+                                         (eql new :memory))
+                                     old
+                                     new)))))
+
+(defun rewrite-terminator-instruction (allocator inst instruction-index)
+  ;; Insert code to patch up interval differences.
+  (let ((successors (ir::successors (allocator-backend-function allocator) inst)))
+    (cond ((endp successors)) ; No successors, do nothing.
+          ((endp (rest successors))
+           ;; Single successor, insert fixups before the instruction.
+           (fix-locations-after-control-flow allocator
+                                             inst instruction-index
+                                             (first successors)
+                                             (ir:prev-instruction (allocator-backend-function allocator)
+                                                                  inst)))
+          (t
+           ;; Multiple successors, insert fixups after each branch, breaking critical edges as needed.
+           (dolist (succ successors)
+             (let ((insert-point succ))
+               (when (not (endp (rest (gethash succ (allocator-cfg-preds allocator)))))
+                 ;; Critical edge...
+                 (unless ir::*shut-up*
+                   (format t "Break critical edge ~S -> ~S~%" inst succ))
+                 (setf insert-point (break-critical-edge (allocator-backend-function allocator) inst succ)))
+               (fix-locations-after-control-flow allocator
+                                                 inst instruction-index
+                                                 succ
+                                                 insert-point)))))))
+
+;; Can foo/bar register kinds be mixed in spill/fill code?
+(defgeneric spill/fill-register-kinds-compatible (kind1 kind2 architecture))
+
+(defmethod spill/fill-register-kinds-compatible (kind1 kind2 architecture)
+  (eql kind1 kind2))
+
+(defmethod spill/fill-register-kinds-compatible (kind1 kind2 (architecture (eql :x86-64)))
+  ;; These register kinds are all mutually compatible.
+  (and (member kind1 '(:value :integer :single-float :mmx))
+       (member kind2 '(:value :integer :single-float :mmx))))
+
+(defun move-spill/fill-compatible (allocator move)
+  (and (typep (ir:move-source move) 'ir:virtual-register)
+       (typep (ir:move-destination move) 'ir:virtual-register)
+       (spill/fill-register-kinds-compatible (ir:virtual-register-kind (ir:move-source move))
+                                             (ir:virtual-register-kind (ir:move-destination move))
+                                             (allocator-architecture allocator))))
+
+(defun rewrite-move-instruction (allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs)
+  (cond ((and spilled-input-vregs
+              spilled-output-vregs
+              (move-spill/fill-compatible allocator inst))
+         ;; Both the input & the output were spilled.
+         ;; Fill into the instant for the input, then spill directly into the output.
+         (let ((reg (instant-register-at allocator (ir:move-source inst) instruction-index)))
+           (ir:insert-before backend-function inst
+                             (make-instance 'ir:fill-instruction
+                                            :destination reg
+                                            :source (ir:move-source inst)))
+           (ir:insert-before backend-function inst
+                             (make-instance 'ir:spill-instruction
+                                            :destination (ir:move-destination inst)
+                                            :source reg))
+           (ir:remove-instruction backend-function inst)))
+        ((and spilled-input-vregs
+              (move-spill/fill-compatible allocator inst))
+         ;; Input was spilled, fill directly into the output.
+         (let ((reg (or (gethash (interval-at allocator (ir:move-destination inst) instruction-index) (allocator-range-allocations allocator))
+                        (ir:move-destination inst))))
+           (ir:insert-before backend-function inst
+                             (make-instance 'ir:fill-instruction
+                                            :destination reg
+                                            :source (ir:move-source inst)))
+           (ir:remove-instruction backend-function inst)))
+        ((and spilled-output-vregs
+              (move-spill/fill-compatible allocator inst))
+         ;; Output was spilled, spill directly into the output.
+         (let ((reg (or (gethash (interval-at allocator (ir:move-source inst) instruction-index) (allocator-range-allocations allocator))
+                        (ir:move-source inst))))
+           (ir:insert-before backend-function inst
+                             (make-instance 'ir:spill-instruction
+                                            :destination (ir:move-destination inst)
+                                            :source reg))
+           (ir:remove-instruction backend-function inst)))
+        ((and (endp spilled-input-vregs)
+              (endp spilled-output-vregs)
+              (eql (if (typep (ir:move-source inst) 'ir:virtual-register)
+                       (gethash (interval-at allocator (ir:move-source inst) instruction-index) (allocator-range-allocations allocator))
+                       (ir:move-source inst))
+                   (if (typep (ir:move-destination inst) 'ir:virtual-register)
+                       (gethash (interval-at allocator (ir:move-destination inst) instruction-index) (allocator-range-allocations allocator))
+                       (ir:move-destination inst))))
+         ;; Source & destination are the same register (not spilled), eliminate the move.
+         (ir:remove-instruction backend-function inst))
+        (t
+         ;; Just rewrite the instruction.
+         (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))))
+
 (defun rewrite-after-allocation (allocator)
   (loop
      with backend-function = (allocator-backend-function allocator)
@@ -1027,142 +1153,15 @@
               (spilled-output-vregs (remove-if-not (lambda (vreg)
                                                      (spilledp allocator vreg instruction-index))
                                                    output-vregs)))
-         ;; Load spilled input registers.
-         (dolist (spill spilled-input-vregs)
-           (let ((reg (instant-register-at allocator spill instruction-index)))
-             (when (not (eql reg :memory))
-               (ir:insert-before backend-function inst
-                                 (make-instance 'ir:fill-instruction
-                                                :destination reg
-                                                :source spill)))))
-         ;; Store spilled output registers.
-         (dolist (spill spilled-output-vregs)
-           (let ((reg (instant-register-at allocator spill instruction-index)))
-             (when (not (eql reg :memory))
-               (ir:insert-after backend-function inst
-                                (make-instance 'ir:spill-instruction
-                                               :destination spill
-                                               :source reg)))))
-         ;; Rewrite the instruction.
-         (ir::replace-all-registers inst
-                                    (lambda (old)
-                                      (let ((new (cond ((not (typep old 'ir:virtual-register))
-                                                        nil)
-                                                       ((or (member old spilled-input-vregs)
-                                                            (member old spilled-output-vregs))
-                                                        (instant-register-at allocator old instruction-index))
-                                                       (t
-                                                        (or (gethash (interval-at allocator old instruction-index) (allocator-range-allocations allocator))
-                                                            (error "Missing allocation for ~S at ~S" old instruction-index))))))
-                                        (if (or (not new)
-                                                (eql new :memory))
-                                            old
-                                            new))))
-         ;; Insert code to patch up interval differences.
-         (when (typep inst 'ir:terminator-instruction)
-           (let ((successors (ir::successors (allocator-backend-function allocator) inst)))
-             (cond ((endp successors)) ; No successors, do nothing.
-                   ((endp (rest successors))
-                    ;; Single successor, insert fixups before the instruction.
-                    (fix-locations-after-control-flow allocator
-                                              inst instruction-index
-                                              (first successors)
-                                              (ir:prev-instruction (allocator-backend-function allocator)
-                                                                   inst)))
-                   (t
-                    ;; Multiple successors, insert fixups after each branch, breaking critical edges as needed.
-                    (dolist (succ successors)
-                      (let ((insert-point succ))
-                        (when (not (endp (rest (gethash succ (allocator-cfg-preds allocator)))))
-                          ;; Critical edge...
-                          (unless ir::*shut-up*
-                            (format t "Break critical edge ~S -> ~S~%" inst succ))
-                          (setf insert-point (break-critical-edge (allocator-backend-function allocator) inst succ)))
-                        (fix-locations-after-control-flow allocator
-                                                          inst instruction-index
-                                                          succ
-                                                          insert-point)))))))
-         #+(or)
-         (cond ((typep inst 'ir:move-instruction)
-                (cond ((and spilled-input-vregs spilled-output-vregs)
-                       ;; Both the input & the output were spilled.
-                       ;; Fill into the instant for the input, then spill directly into the output.
-                       (let ((reg (or (gethash (cons inst (ir:move-source inst)) instantaneous-registers)
-                                      (gethash (ir:move-source inst) registers)
-                                      (error "Missing instantaneous register for spill ~S at ~S." (ir:move-source inst) inst))))
-                         (ir:insert-before backend-function inst
-                                           (make-instance 'ir:fill-instruction
-                                                          :destination reg
-                                                          :source (ir:move-source inst)))
-                         (ir:insert-before backend-function inst
-                                           (make-instance 'ir:spill-instruction
-                                                          :destination (ir:move-destination inst)
-                                                          :source reg))
-                         (ir:remove-instruction backend-function inst)))
-                      (spilled-input-vregs
-                       ;; Input was spilled, fill directly into the output.
-                       (let ((reg (or (gethash (ir:move-destination inst) registers)
-                                      (ir:move-destination inst))))
-                         (ir:insert-before backend-function inst
-                                           (make-instance 'ir:fill-instruction
-                                                          :destination reg
-                                                          :source (ir:move-source inst)))
-                         (ir:remove-instruction backend-function inst)))
-                      (spilled-output-vregs
-                       ;; Output was spilled, spill directly into the output.
-                       (let ((reg (or (gethash (ir:move-source inst) registers)
-                                      (ir:move-source inst))))
-                         (ir:insert-before backend-function inst
-                                           (make-instance 'ir:spill-instruction
-                                                          :destination (ir:move-destination inst)
-                                                          :source reg))
-                         (ir:remove-instruction backend-function inst)))
-                      ((eql (or (gethash (ir:move-source inst) registers)
-                                (ir:move-source inst))
-                            (or (gethash (ir:move-destination inst) registers)
-                                (ir:move-destination inst)))
-                       ;; Source & destination are the same register (not spilled), eliminate the move.
-                       (ir:remove-instruction backend-function inst))
-                      (t
-                       ;; Just rewrite the instruction.
-                       (ir::replace-all-registers inst
-                                                  (lambda (old)
-                                                    (let ((new (or (gethash (cons inst old) instantaneous-registers)
-                                                                   (gethash old registers))))
-                                                      (if (or (not new)
-                                                              (eql new :memory))
-                                                          old
-                                                          new)))))))
-               (t
-                ;; Load spilled input registers.
-                (dolist (spill spilled-input-vregs)
-                  (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                                 (gethash spill registers)
-                                 (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-                    (when (not (eql reg :memory))
-                      (ir:insert-before backend-function inst
-                                        (make-instance 'ir:fill-instruction
-                                                       :destination reg
-                                                       :source spill)))))
-                ;; Store spilled output registers.
-                (dolist (spill spilled-output-vregs)
-                  (let ((reg (or (gethash (cons inst spill) instantaneous-registers)
-                                 (gethash spill registers)
-                                 (error "Missing instantaneous register for spill ~S at ~S." spill inst))))
-                    (when (not (eql reg :memory))
-                      (ir:insert-after backend-function inst
-                                       (make-instance 'ir:spill-instruction
-                                                      :destination spill
-                                                      :source reg)))))
-                ;; Rewrite the instruction.
-                (ir::replace-all-registers inst
-                                           (lambda (old)
-                                             (let ((new (or (gethash (cons inst old) instantaneous-registers)
-                                                            (gethash old registers))))
-                                               (if (or (not new)
-                                                       (eql new :memory))
-                                                   old
-                                                   new)))))))))
+         (typecase inst
+           (ir:move-instruction
+            (rewrite-move-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))
+           (ir:terminator-instruction
+            ;; Some terminators may read values (branch/switch/return), so do ordinary processing on them as well.
+            (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs)
+            (rewrite-terminator-instruction allocator inst instruction-index))
+           (t
+            (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))))))
 
 (defun allocate-registers (backend-function arch &key ordering)
   (sys.c:with-metering (:backend-register-allocation)
