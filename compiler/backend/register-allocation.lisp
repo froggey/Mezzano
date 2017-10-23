@@ -671,6 +671,25 @@
       (unless ir::*shut-up*
         (format t "Pick ~S for ~S~%" (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) vreg)))))
 
+(defun mergable-move-instruction-p (allocator inst instruction-index)
+  (let ((src (ir:move-source inst))
+        (dst (ir:move-destination inst)))
+    (cond ((and (not (eql src dst))
+                (typep src 'ir:virtual-register)
+                (typep dst 'ir:virtual-register))
+           (let* ((src-interval (interval-at allocator src instruction-index))
+                  (dst-interval (interval-at allocator dst instruction-index))
+                  (first-active-range (first (allocator-active-ranges allocator)))
+                  (first-remaining-range (first (allocator-remaining-ranges allocator))))
+             (and (not (interval-spilled-p allocator src-interval))
+                  (eql first-active-range src-interval)
+                  (eql (live-range-end first-active-range) instruction-index)
+                  (eql first-remaining-range dst-interval)
+                  ;; Must not conflict.
+                  (not (member (gethash src-interval (allocator-range-allocations allocator))
+                               (live-range-conflicts dst-interval))))))
+          (t nil))))
+
 (defun linear-scan-allocate (allocator)
   (setf (allocator-active-ranges allocator) '()
         (allocator-range-allocations allocator) (make-hash-table)
@@ -686,186 +705,25 @@
          (format t "~D:" instruction-index)
          (ir::print-instruction inst)
          (format t "actives ~:S~%" (allocator-active-ranges allocator)))
-       (update-active-intervals allocator inst instruction-index)
+     ;; If this is a move instruction with a non-spilled source vreg expiring on this instruction
+     ;; and a destination vreg starting on this instruction then assign the same register.
+       (cond ((and (typep inst 'ir:move-instruction)
+                   (mergable-move-instruction-p allocator inst instruction-index))
+              (let* ((old-range (pop (allocator-active-ranges allocator)))
+                     (new-range (pop (allocator-remaining-ranges allocator)))
+                     (reg (gethash old-range (allocator-range-allocations allocator))))
+                (assert (eql (live-range-start new-range) instruction-index))
+                (unless ir::*shut-up*
+                  (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg))
+                (activate-interval allocator new-range reg))
+              ;; Shouldn't be any remaining ranges coming live on this instruction.
+              (assert (or (endp (allocator-remaining-ranges allocator))
+                          (not (eql (live-range-start (first (allocator-remaining-ranges allocator))) instruction-index)))))
+             (t
+              (update-active-intervals allocator inst instruction-index)))
        (allocate-instants allocator inst instruction-index))
   (expire-old-intervals allocator (length (allocator-instruction-ordering allocator)))
   (assert (endp (allocator-active-ranges allocator))))
-#+(or)
-  (let* ((remaining-live-ranges live-ranges)
-         (active '())
-         ;; list of spilled values
-         (spilled '())
-         ;; vreg => allocated register
-         (registers (make-hash-table))
-         ;; (inst . vreg) => register
-         (instantaneous-registers (make-hash-table :test 'equal))
-         (free-registers '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx))
-         (mv-flow (ir::multiple-value-flow backend-function architecture)))
-    (flet ((expire-old-intervals (i)
-             (loop
-                (when (endp active)
-                  (return))
-                (when (>= (live-range-end (first active)) i)
-                  (return))
-                (let* ((j (pop active))
-                       (reg (gethash (live-range-vreg j) registers)))
-                  (when (not (member j spilled))
-                    (push reg free-registers)))))
-           (spill-at-interval (i)
-             ;; Select the longest-lived non-conflicting range to spill.
-             (let ((spill (first (last (remove-if (lambda (spill-interval)
-                                                    (member (gethash (live-range-vreg spill-interval) registers)
-                                                            (live-range-conflicts i)))
-                                                  active)))))
-               (unless ir::*shut-up*
-                 (format t "active ~S~%" active)
-                 (format t "Spill ~S ~S~%" spill (if spill (gethash (live-range-vreg spill) registers) nil)))
-               (cond ((and spill
-                           (> (live-range-end spill) (live-range-end i)))
-                      (setf (gethash (live-range-vreg i) registers) (gethash (live-range-vreg spill) registers))
-                      (push (live-range-vreg spill) spilled)
-                      (setf active (remove spill active))
-                      (setf active (merge 'list (list i) active #'< :key 'live-range-end)))
-                     (t
-                      (push (live-range-vreg i) spilled))))))
-      (loop
-         for instruction-index from 0
-         for inst in ordering
-         do
-           (expire-old-intervals instruction-index)
-           (unless ir::*shut-up*
-             (format t "~D:" instruction-index)
-             (ir::print-instruction inst)
-             (format t "actives ~:S~%" (mapcar (lambda (range)
-                                                 (cons range (gethash (live-range-vreg range) registers)))
-                                                 active)))
-           ;; If this is a move instruction with a non-spilled source vreg expiring on this instruction
-           ;; and a destination vreg starting on this instruction then assign the same register.
-           (cond ((and (typep inst 'ir:move-instruction)
-                       (not (eql (ir:move-source inst) (ir:move-destination inst)))
-                       (typep (ir:move-source inst) 'ir:virtual-register)
-                       (typep (ir:move-destination inst) 'ir:virtual-register)
-                       (not (member (ir:move-source inst) spilled))
-                       active
-                       (eql (live-range-vreg (first active)) (ir:move-source inst))
-                       (eql (live-range-end (first active)) instruction-index)
-                       remaining-live-ranges
-                       (eql (live-range-vreg (first remaining-live-ranges)) (ir:move-destination inst))
-                       ;; Must not conflict.
-                       (not (member (gethash (live-range-vreg (first active)) registers)
-                                    (live-range-conflicts (first remaining-live-ranges)))))
-                  (let* ((old-range (pop active))
-                         (new-range (pop remaining-live-ranges))
-                         (reg (gethash (live-range-vreg old-range) registers)))
-                    (assert (eql (live-range-start new-range) instruction-index))
-                    (unless ir::*shut-up*
-                      (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg))
-                    (setf (gethash (live-range-vreg new-range) registers) reg)
-                    (setf active (merge 'list (list new-range) active #'< :key 'live-range-end)))
-                  ;; Shouldn't be any remaining ranges coming live on this instruction.
-                  (assert (or (endp remaining-live-ranges)
-                              (not (eql (live-range-start (first remaining-live-ranges)) instruction-index)))))
-                 (t
-                  (loop
-                     (when (not (and remaining-live-ranges
-                                     (eql instruction-index (live-range-start (first remaining-live-ranges)))))
-                       (return))
-                     (let* ((interval (pop remaining-live-ranges))
-                            (candidates (remove-if (lambda (reg)
-                                                     (or (member reg (live-range-conflicts interval))
-                                                         ;; If the instruction is a move instruction with physical source/destinations,
-                                                         ;; then conflict with it unless this interval is a source/dest and ends/begins
-                                                         ;; on this instruction.
-                                                         (and (typep inst 'ir:move-instruction)
-                                                              (or (and (typep (ir:move-source inst) 'physical-register)
-                                                                       (eql (ir:move-source inst) reg)
-                                                                       (not (and (eql (ir:move-destination inst) (live-range-vreg interval))
-                                                                                 (eql instruction-index (live-range-start interval)))))
-                                                                  (and (typep (ir:move-destination inst) 'physical-register)
-                                                                       (eql (ir:move-destination inst) reg)
-                                                                       (not (and (eql (ir:move-source inst) (live-range-vreg interval))
-                                                                                 (eql instruction-index (live-range-end interval)))))))))
-                                                   free-registers))
-                            (hint (or (live-range-hint interval)
-                                      (if (and (typep inst 'ir:move-instruction)
-                                               (eql (ir:move-destination inst) (live-range-vreg interval))
-                                               (typep (ir:move-source inst) 'physical-register)
-                                               (not (member (ir:move-source inst) (live-range-conflicts interval))))
-                                          (ir:move-source inst)
-                                          nil)))
-                            (reg (if (member hint candidates)
-                                     hint
-                                     (first candidates))))
-                       (unless ir::*shut-up*
-                         (format t "Interval ~S~%" interval)
-                         (format t "Candidates ~S~%" candidates)
-                         (format t "hint/reg ~S / ~S~%" hint reg))
-                       (cond ((and (typep inst 'ir:argument-setup-instruction)
-                                   (eql instruction-index (live-range-end interval)))
-                              ;; Argument setup instruction with an unused argument.
-                              ;; Just spill it.
-                              (push (live-range-vreg interval) spilled))
-                             ((not reg)
-                              (spill-at-interval interval))
-                             (t
-                              (setf free-registers (remove reg free-registers))
-                              (setf (gethash (live-range-vreg interval) registers) reg)
-                              (setf active (merge 'list (list interval) active #'< :key 'live-range-end))))))))
-           ;; Now add instantaneous intervals for spilled registers.
-           (let* ((vregs (union (remove-duplicates
-                                 (remove-if-not (lambda (r)
-                                                  (typep r 'ir:virtual-register))
-                                                (ir::instruction-inputs inst)))
-                                (remove-duplicates
-                                 (remove-if-not (lambda (r)
-                                                  (typep r 'ir:virtual-register))
-                                                (ir::instruction-outputs inst)))))
-                  (spilled-vregs (remove-if-not (lambda (vreg)
-                                                  (member vreg spilled))
-                                                vregs))
-                  (used-pregs (instruction-all-clobbers inst architecture mv-flow live-in live-out))
-                  ;; Allocations only matter for the specific instruction.
-                  ;; Don't update the normal free-registers list.
-                  (available-regs (remove-if (lambda (preg)
-                                               (member preg used-pregs))
-                                             free-registers)))
-             (unless ir::*shut-up*
-               (format t "Instants ~:S ~:S ~:S ~:S~%"
-                       (remove-if-not (lambda (r)
-                                        (typep r 'ir:virtual-register))
-                                      (ir::instruction-inputs inst))
-
-                       (remove-if-not (lambda (r)
-                                        (typep r 'ir:virtual-register))
-                                      (ir::instruction-outputs inst))
-                       spilled-vregs available-regs))
-             (dolist (vreg spilled-vregs)
-               (cond ((allow-memory-operand-p inst vreg architecture)
-                      ;; Do nothing.
-                      (setf (gethash (cons inst vreg) instantaneous-registers) :memory))
-                     ((endp available-regs)
-                      ;; Look for some register to spill.
-                      ;; Select the longest-lived non-conflicting range to spill.
-                      (let ((spill (first (last (remove-if (lambda (spill-interval)
-                                                             (or
-                                                              ;; Don't spill any vregs used by this instruction.
-                                                              (member (live-range-vreg spill-interval) vregs)
-                                                              ;; Or any pregs.
-                                                              (member (gethash (live-range-vreg spill-interval) registers)
-                                                                      used-pregs)))
-                                                           active)))))
-                        (when (not spill)
-                          (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
-                                 vreg inst))
-                        (setf (gethash (cons inst vreg) instantaneous-registers) (gethash (live-range-vreg spill) registers))
-                        (push (live-range-vreg spill) spilled)
-                        (setf active (remove spill active))
-                        (push (gethash (live-range-vreg spill) registers) free-registers)))
-                     (t
-                      (setf (gethash (cons inst vreg) instantaneous-registers) (pop available-regs))))
-               (unless ir::*shut-up*
-                 (format t "Pick ~S for ~S~%" (gethash (cons inst vreg) instantaneous-registers) vreg))))))
-    (values registers spilled instantaneous-registers))
 
 (defun interval-at (allocator vreg index)
   (dolist (interval (gethash vreg (allocator-vreg-ranges allocator))
