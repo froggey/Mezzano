@@ -357,29 +357,36 @@
     (union
      (union
       (union
-       (remove-if-not (lambda (x) (typep x 'physical-register))
-                      (ir::instruction-inputs inst))
-       (remove-if-not (lambda (x) (typep x 'physical-register))
-                      (ir::instruction-outputs inst)))
+       (remove-duplicates
+        (remove-if-not (lambda (x) (typep x 'physical-register))
+                       (ir::instruction-inputs inst)))
+       (remove-duplicates
+        (remove-if-not (lambda (x) (typep x 'physical-register))
+                       (ir::instruction-outputs inst))))
       (instruction-clobbers inst architecture))
      (if (eql (gethash inst mv-flow) :multiple)
          '(:rcx :r8 :r9 :r10 :r11 :r12)
          '()))
+    (remove-duplicates
+     (remove-if-not (lambda (x) (typep x 'physical-register))
+                    (gethash inst live-in))))
+   (remove-duplicates
     (remove-if-not (lambda (x) (typep x 'physical-register))
-                   (gethash inst live-in)))
-   (remove-if-not (lambda (x) (typep x 'physical-register))
-                  (gethash inst live-out))))
+                   (gethash inst live-out)))))
 
 (defun virtual-registers-touched-by-instruction (inst live-in live-out)
   (union (union
-          (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                         (gethash inst live-in))
-          (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                         (gethash inst live-out)))
+          (remove-duplicates
+           (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
+                          (gethash inst live-in)))
+          (remove-duplicates
+           (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
+                          (gethash inst live-out))))
          ;; If a vreg isn't used, then it won't show up in the liveness maps.
          ;; Scan the instruction's outputs to catch this.
-         (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                        (ir::instruction-outputs inst))))
+         (remove-duplicates
+          (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
+                         (ir::instruction-outputs inst)))))
 
 (defgeneric architectural-physical-registers (architecture))
 
@@ -465,6 +472,8 @@
                                          :start (gethash vreg vreg-liveness-start)
                                          :end end
                                          :conflicts (gethash vreg vreg-conflicts))))
+               (when (not ir::*shut-up*)
+                 (format t " Add range ~S~%" range))
                (push range ranges)
                (push range (gethash vreg vreg-ranges)))))
       (loop
@@ -475,6 +484,13 @@
                   (vregs (virtual-registers-touched-by-instruction inst live-in live-out))
                   (newly-live-vregs (set-difference vregs active-vregs))
                   (newly-dead-vregs (set-difference active-vregs vregs)))
+             (when (not ir::*shut-up*)
+               (format t "~D:" range-start)
+               (ir::print-instruction inst)
+               (format t "active: ~:S~%" active-vregs)
+               (format t "vregs: ~:S~%" vregs)
+               (format t "newly live: ~:S~%" newly-live-vregs)
+               (format t "newly dead: ~:S~%" newly-dead-vregs))
              ;; Process vregs that have just become live.
              (dolist (vreg newly-live-vregs)
                (setf (gethash vreg vreg-liveness-start) range-start)
@@ -515,6 +531,8 @@
     (setf (slot-value allocator '%ranges) (sort ranges #'< :key #'live-range-start)
           (slot-value allocator '%vreg-ranges) vreg-ranges
           (slot-value allocator '%vreg-hints) vreg-move-hint))
+  (when (not ir::*shut-up*)
+    (format t "Live ranges: ~:S~%" (allocator-remaining-ranges allocator)))
   (values))
 
 (defun expire-old-intervals (allocator current-interval)
@@ -714,7 +732,8 @@
                      (reg (gethash old-range (allocator-range-allocations allocator))))
                 (assert (eql (live-range-start new-range) instruction-index))
                 (unless ir::*shut-up*
-                  (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg))
+                  (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg)
+                  (format t "remaining ~:S~%" (allocator-remaining-ranges allocator)))
                 (activate-interval allocator new-range reg))
               ;; Shouldn't be any remaining ranges coming live on this instruction.
               (assert (or (endp (allocator-remaining-ranges allocator))
