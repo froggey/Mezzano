@@ -954,11 +954,14 @@
        (member kind2 '(:value :integer :single-float :mmx))))
 
 (defun move-spill/fill-compatible (allocator move)
-  (and (typep (ir:move-source move) 'ir:virtual-register)
-       (typep (ir:move-destination move) 'ir:virtual-register)
-       (spill/fill-register-kinds-compatible (ir:virtual-register-kind (ir:move-source move))
-                                             (ir:virtual-register-kind (ir:move-destination move))
-                                             (allocator-architecture allocator))))
+  (if (and (typep (ir:move-source move) 'ir:virtual-register)
+           (typep (ir:move-destination move) 'ir:virtual-register))
+      (spill/fill-register-kinds-compatible (ir:virtual-register-kind (ir:move-source move))
+                                            (ir:virtual-register-kind (ir:move-destination move))
+                                            (allocator-architecture allocator))
+      ;; Moves to/from physical registers will have been inserted by the backend.
+      ;; Assume it know what it's doing and that they're always compatible.
+      t))
 
 (defun rewrite-move-instruction (allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs)
   (cond ((and spilled-input-vregs
@@ -979,7 +982,8 @@
         ((and spilled-input-vregs
               (move-spill/fill-compatible allocator inst))
          ;; Input was spilled, fill directly into the output.
-         (let ((reg (or (gethash (interval-at allocator (ir:move-destination inst) instruction-index) (allocator-range-allocations allocator))
+         (let ((reg (if (typep (ir:move-destination inst) 'ir:virtual-register)
+                        (gethash (interval-at allocator (ir:move-destination inst) instruction-index) (allocator-range-allocations allocator))
                         (ir:move-destination inst))))
            (ir:insert-before backend-function inst
                              (make-instance 'ir:fill-instruction
@@ -989,7 +993,8 @@
         ((and spilled-output-vregs
               (move-spill/fill-compatible allocator inst))
          ;; Output was spilled, spill directly into the output.
-         (let ((reg (or (gethash (interval-at allocator (ir:move-source inst) instruction-index) (allocator-range-allocations allocator))
+         (let ((reg (if (typep (ir:move-source inst) 'ir:virtual-register)
+                        (gethash (interval-at allocator (ir:move-source inst) instruction-index) (allocator-range-allocations allocator))
                         (ir:move-source inst))))
            (ir:insert-before backend-function inst
                              (make-instance 'ir:spill-instruction
