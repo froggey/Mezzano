@@ -1387,6 +1387,8 @@
 (defun emit-gc-info (&rest metadata)
   (emit `(:gc :frame :layout ,*current-frame-layout* ,@metadata)))
 
+(defparameter *missed-builtins* (make-hash-table :test 'equal))
+
 (defgeneric lap-prepass (backend-function instruction uses defs)
   (:method (backend-function instruction uses defs) nil))
 (defgeneric emit-lap (backend-function instruction uses defs))
@@ -1909,14 +1911,20 @@
     (when (not (zerop n-stack-args))
       (emit `(lap:add64 :rsp ,(* n-stack-args 8))))))
 
+(defun maybe-log-missed-builtin (fn)
+  (when (gethash fn mezzano.compiler.codegen.x86-64::*builtins*)
+    (incf (gethash fn *missed-builtins* 0))))
+
 (defmethod emit-lap (backend-function (instruction call-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
+  (maybe-log-missed-builtin (call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (call-argument-teardown (call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction call-multiple-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
+  (maybe-log-missed-builtin (call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (emit-gc-info :multiple-values 0)
@@ -1924,6 +1932,7 @@
 
 (defmethod emit-lap (backend-function (instruction x86-tail-call-instruction) uses defs)
   (call-argument-setup (call-arguments instruction))
+  (maybe-log-missed-builtin (call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(call-function instruction))))
   (cond ((<= (length (call-arguments instruction)) 5)
          (emit `(lap:leave)
