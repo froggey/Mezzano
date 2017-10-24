@@ -153,7 +153,7 @@
             (mapcar #'list (transform-lambda-list object) (transform-argument-types object))
             (transform-result-type object))))
 
-(defvar *transforms* '())
+(defvar *transforms* (make-hash-table :test 'equal))
 
 (defmacro define-transform (function lambda-list options &body body)
   (let ((lambda-parameters (loop
@@ -181,7 +181,7 @@
                                                        (:architecture `',rest)))))))
 
 (defun register-transform (transform)
-  (push transform *transforms*))
+  (push transform (gethash (transform-function transform) *transforms*)))
 
 (defun match-optimize-settings (call optimize-qualities)
   (dolist (setting optimize-qualities
@@ -207,8 +207,7 @@
          (typep (value argument) transform-type))))
 
 (defun match-one-transform (transform call result-type target-architecture)
-  (and (equal (transform-function transform) (ast-name call))
-       (or (eql (transform-architecture transform) 't)
+  (and (or (eql (transform-architecture transform) 't)
            (member target-architecture (transform-architecture transform)))
        (match-optimize-settings call (transform-optimize transform))
        (match-transform-type (transform-result-type transform) result-type)
@@ -218,7 +217,7 @@
               (arguments call))))
 
 (defun match-transform (call result-type target-architecture)
-  (dolist (transform *transforms* nil)
+  (dolist (transform (gethash (ast-name call) *transforms*) nil)
     (when (match-one-transform transform call result-type target-architecture)
       (return transform))))
 
