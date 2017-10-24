@@ -131,6 +131,7 @@
   (let ((inlined-form (expand-inline-function form (name form) (arguments form) architecture)))
     (cond (inlined-form
            (change-made)
+           (log-event :inlined-function)
            inlined-form)
           (t form))))
 

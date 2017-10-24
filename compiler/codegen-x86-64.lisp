@@ -229,24 +229,25 @@
         (format t "~S:~%" *current-lambda-name*)
         (format t "Final values: ~S~%" *stack-values*)
         (format t "~{~S~%~}" final-code))
-      (sys.int::assemble-lap
-       final-code
-       *current-lambda-name*
-       (list :debug-info
-             *current-lambda-name*
-             homes
-             (when (lambda-information-environment-layout lambda)
-               (position (first (lambda-information-environment-layout lambda))
-                         *stack-values*
-                         :key #'car))
-             (second (lambda-information-environment-layout lambda))
-             (when *compile-file-pathname*
-               (namestring *compile-file-pathname*))
-             sys.int::*top-level-form-number*
-             (lambda-information-lambda-list lambda)
-             (lambda-information-docstring lambda))
-       nil
-       :x86-64))))
+      (sys.c:with-metering (:lap-assembly)
+        (sys.int::assemble-lap
+         final-code
+         *current-lambda-name*
+         (list :debug-info
+               *current-lambda-name*
+               homes
+               (when (lambda-information-environment-layout lambda)
+                 (position (first (lambda-information-environment-layout lambda))
+                           *stack-values*
+                           :key #'car))
+               (second (lambda-information-environment-layout lambda))
+               (when *compile-file-pathname*
+                 (namestring *compile-file-pathname*))
+               sys.int::*top-level-form-number*
+               (lambda-information-lambda-list lambda)
+               (lambda-information-docstring lambda))
+         nil
+         :x86-64)))))
 
 (defun emit-gc-info (&rest extra-stuff)
   (setf *last-gc-info* extra-stuff)

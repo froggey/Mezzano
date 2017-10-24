@@ -79,6 +79,7 @@
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
   (with-metering (:pass1)
+    (log-event :pass1-toplevel)
     (pass1-lambda-inner lambda env)))
 
 (defun pass1-lambda-inner (lambda env)

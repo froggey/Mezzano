@@ -39,6 +39,9 @@ be generated instead.")
              (seconds (/ total-time internal-time-units-per-second)))
         (incf (gethash meter *meters* 0.0) (float seconds))))))
 
+(defun log-event (event-name)
+  (incf (gethash event-name *meters* 0)))
+
 (defun reset-meters ()
   (clrhash *meters*))
 
@@ -78,6 +81,7 @@ A list of any declaration-specifiers."
       (push decl declares))))
 
 (defun compile-lambda (lambda &optional env target-architecture)
+  (log-event :compile-lambda)
   (codegen-lambda (compile-lambda-1 lambda env target-architecture) target-architecture))
 
 (defun compile-ast (ast &optional target-architecture)
