@@ -2461,10 +2461,15 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                     :inputs (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
                     :outputs (list (x86-fake-three-operand-result inst))))))
 
+(defun optimize-for-speed-p (backend-function)
+  (let ((ast (mezzano.compiler.backend::ast backend-function)))
+    (= (sys.c::optimize-quality ast 'speed) 3)))
+
 (defun compile-backend-function-0 (backend-function)
   (mezzano.compiler.backend::simplify-cfg backend-function)
-  (mezzano.compiler.backend::construct-ssa backend-function)
-  (mezzano.compiler.backend::remove-unused-local-variables backend-function)
+  (when (optimize-for-speed-p backend-function)
+    (mezzano.compiler.backend::construct-ssa backend-function)
+    (mezzano.compiler.backend::remove-unused-local-variables backend-function))
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::lower backend-function t))
   (sys.c:with-metering (:backend-optimize)
