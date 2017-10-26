@@ -272,40 +272,50 @@
            (incoming-lambda-list (append req-args
                                          (if rest-arg
                                              `(&rest ,rest-arg)
-                                             `()))))
+                                             `())))
+           (captured-rest (gensym "CNM-REST")))
       `(lambda (method next-emfun)
          (lambda ,incoming-lambda-list
-           (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers)))
+           (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers))
+                    ,@(if rest-arg
+                          `((dynamic-extent ,rest-arg))
+                          `()))
            ,@(when docstring (list docstring))
-           (flet ((call-next-method (&rest cnm-args)
-                    (if cnm-args
-                        (if next-emfun
-                            (apply next-emfun cnm-args)
-                            (apply #'invoke-no-next-method method cnm-args))
-                        (if next-emfun
-                            ,(cond (rest-arg
-                                    `(apply next-emfun ,@req-args ,rest-arg))
-                                   (t
-                                    `(funcall next-emfun ,@req-args)))
-                            ,(cond (rest-arg
-                                    `(apply #'invoke-no-next-method method ,@req-args ,rest-arg))
-                                   (t
-                                    `(funcall #'invoke-no-next-method method ,@req-args))))))
-                  (next-method-p ()
-                    (not (null next-emfun))))
-             ,(cond (rest-arg
-                     `(apply (lambda ,(kludge-arglist lambda-list)
-                               (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                        ,@declares)
-                               ,form)
-                             ,@req-args
-                             ,rest-arg))
-                    (t
-                     `(funcall (lambda ,(kludge-arglist lambda-list)
+           ;; &rest is declared dynamic-extent, but this is bad for call-next-method.
+           ;; Provide a non-dx copy of the &rest list for c-n-m in a way that the compiler
+           ;; can eliminate if c-n-m is not used.
+           (let (,@(if rest-arg
+                       `((,captured-rest (copy-list ,rest-arg)))
+                       `()))
+             (flet ((call-next-method (&rest cnm-args)
+                      (if cnm-args
+                          (if next-emfun
+                              (apply next-emfun cnm-args)
+                              (apply #'invoke-no-next-method method cnm-args))
+                          (if next-emfun
+                              ,(cond (rest-arg
+                                      `(apply next-emfun ,@req-args ,captured-rest))
+                                     (t
+                                      `(funcall next-emfun ,@req-args)))
+                              ,(cond (rest-arg
+                                      `(apply #'invoke-no-next-method method ,@req-args ,captured-rest))
+                                     (t
+                                      `(funcall #'invoke-no-next-method method ,@req-args))))))
+                    (next-method-p ()
+                      (not (null next-emfun))))
+               ,(cond (rest-arg
+                       `(apply (lambda ,(kludge-arglist lambda-list)
                                  (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
                                           ,@declares)
                                  ,form)
-                               ,@req-args)))))))))
+                               ,@req-args
+                               ,rest-arg))
+                      (t
+                       `(funcall (lambda ,(kludge-arglist lambda-list)
+                                   (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
+                                            ,@declares)
+                                   ,form)
+                                 ,@req-args))))))))))
 
 ;;; N.B. The function kludge-arglist is used to pave over the differences
 ;;; between argument keyword compatibility for regular functions versus

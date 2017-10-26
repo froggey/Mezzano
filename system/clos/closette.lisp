@@ -1176,7 +1176,10 @@ has only has class specializer."
                     (lambda (,@req-args ,@(if rest-arg
                                               `(&rest ,rest-arg)
                                               '()))
-                      (declare (sys.int::lambda-name (1-effective-discriminator ,index ,n-required ,restp)))
+                      (declare (sys.int::lambda-name (1-effective-discriminator ,index ,n-required ,restp))
+                               ,@(if rest-arg
+                                     `((dynamic-extent ,rest-arg))
+                                     `()))
                       (let* ((class (class-of ,(nth index req-args)))
                              (emfun (single-dispatch-emf-entry emf-table class)))
                         (if emfun
@@ -1200,6 +1203,7 @@ has only has class specializer."
                            collect `(gen-one ,idx ,req t))))))
     (or (gen-all)
         (lambda (&rest args)
+          (declare (dynamic-extent args))
           (let* ((class (class-of (nth argument-offset args)))
                  (emfun (single-dispatch-emf-entry emf-table class)))
             (if emfun
