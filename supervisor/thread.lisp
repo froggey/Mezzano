@@ -478,7 +478,11 @@ Interrupts must be off and the global thread lock must be held."
        (catch 'terminate-thread
          ;; Footholds in a new thread are inhibited until the terminate-thread
          ;; catch block is established, to guarantee that it's always available.
-         (decf (thread-inhibit-footholds (current-thread)))
+         (let ((thread (current-thread)))
+           (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
+           (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
+             (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
+               (funcall fh))))
          (funcall function))
     ;; Cleanup, terminate the thread.
     (thread-final-cleanup)))
