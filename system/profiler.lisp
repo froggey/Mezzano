@@ -33,7 +33,9 @@
     (mezzano.clos::1-effective-discriminator 0 5 t)
     sys.int::%progv
     sys.int::%catch
-    mezzano.supervisor::call-with-snapshot-inhibited))
+    mezzano.supervisor::call-with-snapshot-inhibited
+    mezzano.compiler::call-with-metering
+    mezzano.supervisor::call-with-mutex))
 
 (defstruct thread-sample
   thread
@@ -55,19 +57,41 @@
 
 (defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*) repeat order-by)
   (let* ((profile-buffer nil)
-         (results (unwind-protect
-                       (progn
-                         (mezzano.supervisor:start-profiling
-                          :buffer-size buffer-size
-                          :thread (if (eq thread t)
-                                      (mezzano.supervisor:current-thread)
-                                      thread))
-                         (if repeat
-                             (dotimes (i repeat)
-                               (funcall function))
-                             (multiple-value-list (funcall function))))
-                    (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
-    (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil) ignore-functions))
+         (results (cond (repeat
+                         (let ((profiles '()))
+                           (dotimes (i repeat)
+                             ;; The buffer is fixed size and can only be so large due to wired
+                             ;; area limits. Restart the profiler each run and combine the
+                             ;; results after the fact to make better use of it.
+                             (unwind-protect
+                                  (progn
+                                    (mezzano.supervisor:start-profiling
+                                     :buffer-size buffer-size
+                                     :thread (if (eq thread t)
+                                                 (mezzano.supervisor:current-thread)
+                                                 thread))
+                                    (funcall function))
+                               (push (decode-profile-buffer (mezzano.supervisor:stop-profiling)
+                                                            (if prune #'call-with-profiling nil)
+                                                            ignore-functions)
+                                     profiles)))
+                           (setf profile-buffer (reduce #'(lambda (x y) (concatenate 'vector x y))
+                                                        (reverse profiles)
+                                                        :initial-value #()))
+                           '()))
+                        (t
+                         (multiple-value-list
+                          (unwind-protect
+                               (progn
+                                 (mezzano.supervisor:start-profiling
+                                  :buffer-size buffer-size
+                                  :thread (if (eq thread t)
+                                              (mezzano.supervisor:current-thread)
+                                              thread))
+                                 (funcall function))
+                            (setf profile-buffer (decode-profile-buffer (mezzano.supervisor:stop-profiling)
+                                                                        (if prune #'call-with-profiling nil)
+                                                                        ignore-functions))))))))
     (cond (path
            (save-profile path profile-buffer :verbosity verbosity :order-by order-by)
            (values-list results))
