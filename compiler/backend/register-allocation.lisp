@@ -426,7 +426,8 @@
    (%spilled :accessor allocator-spilled-ranges)
    (%allocations :accessor allocator-range-allocations)
    (%instants :accessor allocator-instantaneous-allocations)
-   (%cfg-preds :initarg :cfg-preds :reader allocator-cfg-preds)))
+   (%cfg-preds :initarg :cfg-preds :reader allocator-cfg-preds)
+   (%instruction-clobbers :initarg :instruction-clobbers :reader allocator-instruction-clobbers)))
 
 (defun program-ordering (backend-function)
   (let ((order '()))
@@ -440,16 +441,22 @@
     (declare (ignore basic-blocks bb-succs))
     (multiple-value-bind (live-in live-out)
         (ir::compute-liveness backend-function)
-      (make-instance 'linear-allocator
-                     :function backend-function
-                     :ordering (if ordering
-                                   (funcall ordering backend-function)
-                                   (instructions-reverse-postorder backend-function))
-                     :architecture architecture
-                     :live-in live-in
-                     :live-out live-out
-                     :mv-flow (ir::multiple-value-flow backend-function architecture)
-                     :cfg-preds bb-preds))))
+      (let ((order (if ordering
+                       (funcall ordering backend-function)
+                       (instructions-reverse-postorder backend-function)))
+            (mv-flow (ir::multiple-value-flow backend-function architecture))
+            (clobbers (make-hash-table)))
+        (dolist (inst order)
+          (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
+        (make-instance 'linear-allocator
+                       :function backend-function
+                       :ordering order
+                       :architecture architecture
+                       :live-in live-in
+                       :live-out live-out
+                       :mv-flow mv-flow
+                       :cfg-preds bb-preds
+                       :instruction-clobbers clobbers)))))
 
 (defun build-live-ranges (allocator)
   (let ((ranges '())
@@ -480,7 +487,7 @@
          for range-start from 0
          for inst in ordering
          do
-           (let* ((clobbers (instruction-all-clobbers inst (allocator-architecture allocator) mv-flow live-in live-out))
+           (let* ((clobbers (gethash inst (allocator-instruction-clobbers allocator)))
                   (vregs (virtual-registers-touched-by-instruction inst live-in live-out))
                   (newly-live-vregs (set-difference vregs active-vregs))
                   (newly-dead-vregs (set-difference active-vregs vregs)))
@@ -638,11 +645,7 @@
          (spilled-vregs (remove-if-not (lambda (vreg)
                                          (spilledp allocator vreg instruction-index))
                                        vregs))
-         (used-pregs (instruction-all-clobbers inst
-                                               (allocator-architecture allocator)
-                                               (allocator-mv-flow allocator)
-                                               (allocator-live-in allocator)
-                                               (allocator-live-out allocator)))
+         (used-pregs (gethash inst (allocator-instruction-clobbers allocator)))
          ;; Allocations only matter for the specific instruction.
          ;; Don't update the normal free-registers list.
          (available-regs (remove-if (lambda (preg)
