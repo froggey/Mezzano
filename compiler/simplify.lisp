@@ -142,7 +142,11 @@
         (typep unwrapped 'ast-function)
         (and (lexical-variable-p unwrapped)
              (localp unwrapped)
-             (eql (lexical-variable-write-count unwrapped) 0)))))
+             (eql (lexical-variable-write-count unwrapped) 0))
+        ;; FIXME: This needs to check the number of arguments.
+        (and (typep unwrapped 'ast-call)
+             (member (ast-name unwrapped) *pure-functions* :test #'equal)
+             (every #'pure-p (ast-arguments unwrapped))))))
 
 (defmethod simp-form ((form ast-let))
   ;; Merge nested LETs when possible, do not merge special bindings!

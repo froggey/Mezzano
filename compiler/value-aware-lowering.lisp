@@ -149,7 +149,7 @@
         (cleanup-function form) (value-aware-lowering-1 (cleanup-function form) :single))
   form)
 
-(defparameter *pure-functions* '(consp sys.int::fixnump))
+(defparameter *pure-functions* '(consp sys.int::fixnump cons list list* copy-list))
 
 (defmethod value-aware-lowering-1 ((form ast-call) mode)
   (cond ((and (eql (name form) 'values)
