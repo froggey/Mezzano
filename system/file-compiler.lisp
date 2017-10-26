@@ -590,7 +590,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
            (*compile-file-truename* (truename *compile-file-pathname*))
            (*top-level-form-number* 0)
-           (sys.c::*load-time-value-hook* 'compile-file-load-time-value))
+           (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
+           ;; Don't persist optimize proclaimations outside COMPILE-FILE.
+           (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*)))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))

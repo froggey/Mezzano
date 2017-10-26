@@ -401,7 +401,10 @@
              (external-format :default)
              wired)
   (let ((*load-verbose* verbose)
-        (*load-print* print))
+        (*load-print* print)
+        ;; There is nothing in the spec about this, but I am sick of
+        ;; libraries fiddling with my optimize policy!
+        (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*)))
     (cond ((streamp filespec)
            (let* ((*load-pathname* (ignore-errors (pathname filespec)))
                   (*load-truename* (ignore-errors (pathname filespec))))
