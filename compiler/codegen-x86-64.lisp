@@ -217,12 +217,13 @@
                                (eql loc :home))
                      collect (list (lexical-variable-name var) i))))
       ;; Fix all the GC instructions.
-      (dolist (inst *gc-info-fixups*)
-        (setf (rest (last inst)) (list :layout (coerce (loop for value across *stack-values*
-                                                          collect (if (equal value '(:unboxed . :home))
-                                                                      0
-                                                                      1))
-                                                       'bit-vector))))
+      (let ((final-gc-layout (coerce (loop for value across *stack-values*
+                                        collect (if (equal value '(:unboxed . :home))
+                                                    0
+                                                    1))
+                                     'bit-vector)))
+        (dolist (inst *gc-info-fixups*)
+          (setf (rest (last inst)) (list :layout final-gc-layout))))
       (when sys.c::*enable-branch-tensioner*
         (setf final-code (tension-branches final-code)))
       (when sys.c::*trace-asm*
