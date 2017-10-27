@@ -21,7 +21,8 @@
   (let ((value (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+)))
     (when (sys.int::%unbound-value-p value)
       (sys.int::raise-unbound-error
-       (symbol-value-cell-symbol cell)))
+       (symbol-value-cell-symbol cell))
+      (sys.int::%%unreachable))
     value))
 
 (defun (setf symbol-value-cell-value) (value cell)
