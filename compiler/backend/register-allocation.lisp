@@ -418,6 +418,7 @@
    (%live-in :initarg :live-in :reader allocator-live-in)
    (%live-out :initarg :live-out :reader allocator-live-out)
    (%mv-flow :initarg :mv-flow :reader allocator-mv-flow)
+   ;; Stored reversed, with the next range at the end, so the next range can be vector-pop'd off.
    (%ranges :accessor allocator-remaining-ranges)
    (%vreg-ranges :accessor allocator-vreg-ranges)
    (%vreg-hints :accessor allocator-vreg-hints)
@@ -459,10 +460,9 @@
                        :instruction-clobbers clobbers)))))
 
 (defun build-live-ranges (allocator)
-  (let ((ranges '())
+  (let ((ranges (make-array 128 :adjustable t :fill-pointer 0))
         (vreg-ranges (make-hash-table))
         (ordering (allocator-instruction-ordering allocator))
-        (mv-flow (allocator-mv-flow allocator))
         (live-in (allocator-live-in allocator))
         (live-out (allocator-live-out allocator))
         (active-vregs '())
@@ -481,7 +481,7 @@
                                          :conflicts (gethash vreg vreg-conflicts))))
                (when (not ir::*shut-up*)
                  (format t " Add range ~S~%" range))
-               (push range ranges)
+               (vector-push-extend range ranges)
                (push range (gethash vreg vreg-ranges)))))
       (loop
          for range-start from 0
@@ -535,7 +535,7 @@
       (let ((range-end (1- (length ordering))))
         (dolist (vreg active-vregs)
           (add-range vreg range-end))))
-    (setf (slot-value allocator '%ranges) (sort ranges #'< :key #'live-range-start)
+    (setf (slot-value allocator '%ranges) (sort ranges #'> :key #'live-range-start)
           (slot-value allocator '%vreg-ranges) vreg-ranges
           (slot-value allocator '%vreg-hints) vreg-move-hint))
   (when (not ir::*shut-up*)
@@ -586,11 +586,18 @@
            ;; Nothing to spill, spill the new interval.
            (mark-interval-spilled allocator new-interval)))))
 
+(defun ranges-remaining-p (allocator)
+  (not (eql (length (allocator-remaining-ranges allocator)) 0)))
+
+(defun next-remaining-range (allocator)
+  (let ((ranges (allocator-remaining-ranges allocator)))
+    (aref ranges (1- (length ranges)))))
+
 (defun update-active-intervals (allocator inst instruction-index)
   (loop
-     until (or (endp (allocator-remaining-ranges allocator))
-               (not (eql instruction-index (live-range-start (first (allocator-remaining-ranges allocator))))))
-     do (let* ((interval (pop (allocator-remaining-ranges allocator)))
+     until (or (not (ranges-remaining-p allocator))
+               (not (eql instruction-index (live-range-start (next-remaining-range allocator)))))
+     do (let* ((interval (vector-pop (allocator-remaining-ranges allocator)))
                (vreg (live-range-vreg interval))
                (candidates (remove-if (lambda (reg)
                                         (or (member reg (live-range-conflicts interval))
@@ -701,7 +708,7 @@
            (let* ((src-interval (interval-at allocator src instruction-index))
                   (dst-interval (interval-at allocator dst instruction-index))
                   (first-active-range (first (allocator-active-ranges allocator)))
-                  (first-remaining-range (first (allocator-remaining-ranges allocator))))
+                  (first-remaining-range (next-remaining-range allocator)))
              (and (not (interval-spilled-p allocator src-interval))
                   (eql first-active-range src-interval)
                   (eql (live-range-end first-active-range) instruction-index)
@@ -731,7 +738,7 @@
        (cond ((and (typep inst 'ir:move-instruction)
                    (mergable-move-instruction-p allocator inst instruction-index))
               (let* ((old-range (pop (allocator-active-ranges allocator)))
-                     (new-range (pop (allocator-remaining-ranges allocator)))
+                     (new-range (vector-pop (allocator-remaining-ranges allocator)))
                      (reg (gethash old-range (allocator-range-allocations allocator))))
                 (assert (eql (live-range-start new-range) instruction-index))
                 (unless ir::*shut-up*
@@ -739,8 +746,8 @@
                   (format t "remaining ~:S~%" (allocator-remaining-ranges allocator)))
                 (activate-interval allocator new-range reg))
               ;; Shouldn't be any remaining ranges coming live on this instruction.
-              (assert (or (endp (allocator-remaining-ranges allocator))
-                          (not (eql (live-range-start (first (allocator-remaining-ranges allocator))) instruction-index)))))
+              (assert (or (not (ranges-remaining-p allocator))
+                          (not (eql (live-range-start (next-remaining-range allocator)) instruction-index)))))
              (t
               (update-active-intervals allocator inst instruction-index)))
        (allocate-instants allocator inst instruction-index))
