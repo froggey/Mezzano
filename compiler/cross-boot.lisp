@@ -300,3 +300,8 @@
 (defun get-internal-real-time ()
   (convert-internal-time-units
    (cl:get-internal-real-time)))
+
+(defun sys.int::%type-check (object tag type)
+  (declare (ignore tag))
+  (when (not (typep object type))
+    (error "Type error: ~S not of type ~S." object type)))

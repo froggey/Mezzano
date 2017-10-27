@@ -389,5 +389,6 @@
              (sys.int::fixnump (t))
              (byte-size (byte))
              (byte-position (byte))
-             (keywordp (symbol))))
+             (keywordp (symbol))
+             (sys.int::%type-check (t fixnum t))))
   (setf (get (first x) 'constant-fold-mode) (second x)))
