@@ -11,7 +11,7 @@
    (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
   (:default-initargs :clobbers '()))
 
-(defmethod mezzano.compiler.backend::instruction-clobbers ((instruction x86-instruction) (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-instruction) (architecture (eql :x86-64)))
   (x86-instruction-clobbers instruction))
 
 (defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-instruction) substitution-function)
@@ -39,7 +39,7 @@
    (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
   (:default-initargs :clobbers '()))
 
-(defmethod mezzano.compiler.backend::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture (eql :x86-64)))
   (x86-instruction-clobbers instruction))
 
 (defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-fake-three-operand-instruction))
