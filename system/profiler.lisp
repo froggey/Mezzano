@@ -69,7 +69,9 @@
                                      :buffer-size buffer-size
                                      :thread (if (eq thread t)
                                                  (mezzano.supervisor:current-thread)
-                                                 thread))
+                                                 thread)
+                                     ;; Disable sampling during GC when tracing a specific thread.
+                                     :sample-during-gc (not thread))
                                     (funcall function))
                                (push (decode-profile-buffer (mezzano.supervisor:stop-profiling)
                                                             (if prune #'call-with-profiling nil)
@@ -87,7 +89,9 @@
                                   :buffer-size buffer-size
                                   :thread (if (eq thread t)
                                               (mezzano.supervisor:current-thread)
-                                              thread))
+                                              thread)
+                                  ;; Disable sampling during GC when tracing a specific thread.
+                                  :sample-during-gc (not thread))
                                  (funcall function))
                             (setf profile-buffer (decode-profile-buffer (mezzano.supervisor:stop-profiling)
                                                                         (if prune #'call-with-profiling nil)
