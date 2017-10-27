@@ -102,7 +102,7 @@
   (format t "   ~S~%"
           `(:x86-tail-call ,(call-function instruction) ,(call-arguments instruction))))
 
-(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-call-instruction) operand (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-call-instruction) operand (architecture sys.c:x86-64-target))
   (not (or (eql (first (call-arguments instruction)) operand)
            (eql (second (call-arguments instruction)) operand)
            (eql (third (call-arguments instruction)) operand)
@@ -131,7 +131,7 @@
   (format t "   ~S~%"
           `(:x86-tail-funcall ,(call-function instruction) ,(call-arguments instruction))))
 
-(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-funcall-instruction) operand (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::allow-memory-operand-p ((instruction x86-tail-funcall-instruction) operand (architecture sys.c:x86-64-target))
   (not (or (eql (call-function instruction) operand)
            (eql (first (call-arguments instruction)) operand)
            (eql (second (call-arguments instruction)) operand)
