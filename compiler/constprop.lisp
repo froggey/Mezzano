@@ -139,10 +139,11 @@
              (localp unwrapped)
              (eql (lexical-variable-write-count unwrapped) 0)))))
 
-(defun copyable-value-p (form)
+(defun copyable-value-p (form variable)
   (let ((unwrapped (unwrap-the form)))
     (and (constprop-value-p unwrapped)
          (or (not (lambda-information-p unwrapped))
+             (eql (lexical-variable-use-count variable) 1)
              (<= (getf (lambda-information-plist unwrapped) 'copy-count 0)
                  *constprop-lambda-copy-limit*)))))
 
@@ -157,7 +158,7 @@
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
         (when (lexical-variable-p var)
-          (cond ((copyable-value-p val)
+          (cond ((copyable-value-p val var)
                  (push (list var val 0 b) *known-variables*))
                 ((and (typep val 'ast-the)
                       (constprop-value-p var))
