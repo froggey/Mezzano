@@ -313,36 +313,79 @@
   value)
 
 ;; Selection sort!
+(defun sort-list (sequence predicate key)
+  (cond ((endp sequence)
+         '())
+        (t
+         (do* ((ipos sequence (cdr ipos))
+               (imin ipos ipos))
+              ((null ipos)
+               sequence)
+           (do ((i (cdr ipos) (cdr i)))
+               ((null i))
+             (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
+               (setf imin i)))
+           (when (not (eq imin ipos))
+             ;; Swap
+             (let ((old-ipos (car ipos))
+                   (old-imin (car imin)))
+               (setf (car ipos) old-imin
+                     (car imin) old-ipos)))))))
+
+;; Heapsort implementation from https://en.wikipedia.org/wiki/Heapsort
+(defun sort-vector (sequence predicate key)
+  (labels ((i-parent (i)
+             (floor (1- i) 2))
+           (i-left-child (i)
+             (+ (* i 2) 1))
+           (i-right-child (i)
+             (+ (* i 2) 2))
+           (heapify ()
+             (let ((start (i-parent (1- (length sequence)))))
+               (loop while (>= start 0) do
+                    (sift-down start (1- (length sequence)))
+                    (decf start))))
+           (cmp (a b)
+             (funcall predicate (funcall key (aref sequence a)) (funcall key (aref sequence b))))
+           (sift-down (start end)
+             (let ((root start))
+               (loop while (<= (i-left-child root) end) do
+                    (let ((child (i-left-child root))
+                          (swap root))
+                      (when (cmp swap child)
+                        (setf swap child))
+                      (when (and (<= (1+ child) end)
+                                 (cmp swap (1+ child)))
+                        (setf swap (1+ child)))
+                      (cond ((eql swap root)
+                             (return))
+                            (t
+                             (rotatef (aref sequence root)
+                                      (aref sequence swap))
+                             (setf root swap))))))))
+    (heapify)
+    (let ((end (1- (length sequence))))
+      (loop while (> end 0) do
+           (rotatef (aref sequence end) (aref sequence 0))
+           (decf end)
+           (sift-down 0 end)))
+    sequence))
+
 (defun sort (sequence predicate &key key)
   (unless key (setf key 'identity))
   (etypecase sequence
     (list
-     (when sequence
-       (do* ((ipos sequence (cdr ipos))
-             (imin ipos ipos))
-            ((null ipos)
-             sequence)
-         (do ((i (cdr ipos) (cdr i)))
-             ((null i))
-           (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
-             (setf imin i)))
-         (when (not (eq imin ipos))
-           ;; Swap
-           (let ((old-ipos (car ipos))
-                 (old-imin (car imin)))
-             (setf (car ipos) old-imin
-                   (car imin) old-ipos))))))
+     (sort-list sequence predicate key))
     (vector
-     (dotimes (ipos (length sequence) sequence)
-       (let ((imin ipos))
-         (dotimes (i (- (length sequence) ipos 1))
-           (when (funcall predicate (funcall key (aref sequence (+ ipos i 1))) (funcall key (aref sequence imin)))
-             (setf imin (+ ipos i 1))))
-         (when (not (eq imin ipos))
-           (let ((old-ipos (aref sequence ipos))
-                 (old-imin (aref sequence imin)))
-           (setf (aref sequence imin) old-ipos
-                 (aref sequence ipos) old-imin))))))))
+     (sort-vector sequence predicate key))))
+
+(defun check-vector-sorted (vector predicate &key (key 'identity))
+  (dotimes (i (1- (length vector)))
+    (assert (funcall predicate
+                     (funcall key (aref vector i))
+                     (funcall key (aref vector (1+ i)))))))
+
+
 
 (defun concatenate (result-type &rest sequences)
   (declare (dynamic-extent sequences))
