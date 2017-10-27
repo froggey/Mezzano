@@ -886,6 +886,10 @@ Interrupts must be off and the global thread lock must be held."
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
 
+(defun world-stopped-p ()
+  "Returns true if the world is stopped."
+  *world-stopper*)
+
 (defun call-with-pseudo-atomic (thunk)
   (when (eql *world-stopper* (current-thread))
     (panic "Going PA with world stopped!"))
