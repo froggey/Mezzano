@@ -589,7 +589,8 @@
                  (funcallable-std-instance-p type-specifier))
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
-      (member type-specifier (mezzano.clos:class-precedence-list (class-of object)))))
+      (or (eql (class-of object) type-specifier)
+          (member type-specifier (mezzano.clos:class-precedence-list (class-of object))))))
   (let ((type-symbol (cond ((symbolp type-specifier)
                             type-specifier)
                            ((and (consp type-specifier)
@@ -612,7 +613,9 @@
     (when (or (std-instance-p object)
               (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
-        (when (and class (member class (mezzano.clos:class-precedence-list (class-of object))))
+        (when (and class
+                   (or (eql class (class-of object))
+                       (member class (mezzano.clos:class-precedence-list (class-of object)))))
           (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
                                 type-specifier
