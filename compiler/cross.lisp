@@ -78,6 +78,10 @@
            #:constantp
            #:fixnump
 
+           #:target
+           #:x86-64-target
+           #:arm64-target
+
            #:quoted-form-p
            #:lambda-information
            #:lambda-information-p

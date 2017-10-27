@@ -1000,7 +1000,7 @@
   (frob mezzano.simd::%paddusw/mmx lap:paddusw)
   (frob mezzano.simd::%pmullw/mmx lap:pmullw))
 
-(defun lower (backend-function early)
+(defun lower (backend-function early target)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
     (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
@@ -1227,8 +1227,8 @@
                (mezzano.compiler.backend::remove-instruction backend-function inst)
                (mezzano.compiler.backend::remove-instruction backend-function return-inst)))
             (t
-             (let ((next (or (lower-predicate-builtin backend-function inst uses defs early)
-                             (lower-builtin backend-function inst defs early))))
+             (let ((next (or (lower-predicate-builtin backend-function inst uses defs early target)
+                             (lower-builtin backend-function inst defs early target))))
                (when next
                  (setf next-inst next))))))))
 
@@ -1237,7 +1237,7 @@
 (defmethod match-builtin (name n-arguments architecture early)
   nil)
 
-(defmethod match-builtin (name n-arguments (architecture (eql :x86-64)) early)
+(defmethod match-builtin (name n-arguments (architecture sys.c:x86-64-target) early)
   (let ((builtin (gethash name *builtins*)))
     (if (and builtin
              (eql (length (builtin-lambda-list builtin)) n-arguments)
@@ -1249,7 +1249,7 @@
 
 (defgeneric reify-predicate (predicate output emitter architecture))
 
-(defmethod reify-predicate (predicate result emitter (architecture (eql :x86-64)))
+(defmethod reify-predicate (predicate result emitter (architecture sys.c:x86-64-target))
   (let ((tmp (make-instance 'virtual-register)))
     (funcall emitter (make-instance 'constant-instruction
                                     :destination tmp
@@ -1263,14 +1263,14 @@
                                     :rhs '(:constant t)))))
 
 ;; Lower (branch (call foo ...) target) when FOO produces a predicate result.
-(defun lower-predicate-builtin (backend-function inst uses defs early)
+(defun lower-predicate-builtin (backend-function inst uses defs early target)
   (let ((next-inst (next-instruction backend-function inst)))
     (when (and (typep inst 'call-instruction)
                (typep next-inst 'branch-instruction)
                (consumed-by-p inst next-inst uses defs))
       (let ((builtin (match-builtin (call-function inst)
                                     (length (call-arguments inst))
-                                    :x86-64
+                                    target
                                     early)))
         (when (and builtin
                    ;; Predicate result.
@@ -1297,13 +1297,13 @@
               (remove-instruction backend-function next-inst)
               advance)))))))
 
-(defun lower-builtin (backend-function inst defs early)
+(defun lower-builtin (backend-function inst defs early target)
   (let ((builtin (and (typep inst '(or
                                     call-instruction
                                     call-multiple-instruction))
                       (match-builtin (call-function inst)
                                      (length (call-arguments inst))
-                                     :x86-64
+                                     target
                                      early))))
     (when builtin
       (let* ((result-regs (if (typep inst 'call-instruction)
@@ -1345,7 +1345,7 @@
                                       (lambda (new-inst)
                                         (mezzano.compiler.backend::insert-before
                                          backend-function inst new-inst))
-                                      :x86-64))))
+                                      target))))
         ;; Fix up multiple values.
         (when (typep inst 'call-multiple-instruction)
           (mezzano.compiler.backend::insert-before
@@ -1418,6 +1418,8 @@
 (defgeneric lap-prepass (backend-function instruction uses defs)
   (:method (backend-function instruction uses defs) nil))
 (defgeneric emit-lap (backend-function instruction uses defs))
+
+(defvar *target*)
 
 ;; Local variables are bound/unbound in a stack-like fashion.
 ;; Traverse the function to reconstruct the stack and assign stack slots
@@ -1853,7 +1855,7 @@
   (let ((value (constant-value instruction))
         (dest (constant-destination instruction)))
     (cond ((typep value 'backend-function)
-           (emit `(lap:mov64 ,dest (:constant ,(compile-backend-function value)))))
+           (emit `(lap:mov64 ,dest (:constant ,(compile-backend-function value *target*)))))
           ((eql value 0)
            (emit `(lap:xor64 ,dest ,dest)))
           ((eql value 'nil)
@@ -2500,13 +2502,13 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
   (let ((ast (mezzano.compiler.backend::ast backend-function)))
     (= (sys.c::optimize-quality ast 'speed) 3)))
 
-(defun compile-backend-function-0 (backend-function)
+(defun compile-backend-function-0 (backend-function target)
   (mezzano.compiler.backend::simplify-cfg backend-function)
   (when (optimize-for-speed-p backend-function)
     (mezzano.compiler.backend::construct-ssa backend-function)
     (mezzano.compiler.backend::remove-unused-local-variables backend-function))
   (sys.c:with-metering (:backend-misc)
-    (mezzano.compiler.backend.x86-64::lower backend-function t))
+    (mezzano.compiler.backend.x86-64::lower backend-function t target))
   (sys.c:with-metering (:backend-optimize)
     (loop
        (let ((total 0))
@@ -2517,7 +2519,7 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
            (return)))))
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (sys.c:with-metering (:backend-misc)
-    (mezzano.compiler.backend.x86-64::lower backend-function nil)
+    (mezzano.compiler.backend.x86-64::lower backend-function nil target)
     (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-argument-setup backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-nlx-values backend-function)
@@ -2526,13 +2528,13 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
     (mezzano.compiler.backend::remove-unused-instructions backend-function)
     (mezzano.compiler.backend::check-cfg backend-function)))
 
-(defun compile-backend-function-1 (backend-function)
-  (compile-backend-function-0 backend-function)
-  (mezzano.compiler.backend.register-allocator::allocate-registers backend-function :x86-64)
+(defun compile-backend-function-1 (backend-function target)
+  (compile-backend-function-0 backend-function target)
+  (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::peephole backend-function)))
 
-(defun compile-backend-function-2 (backend-function)
+(defun compile-backend-function-2 (backend-function *target*)
   (multiple-value-bind (lap debug-layout environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
         (to-lap backend-function))
@@ -2562,6 +2564,6 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
        nil
        :x86-64))))
 
-(defun compile-backend-function (backend-function)
-  (compile-backend-function-1 backend-function)
-  (compile-backend-function-2 backend-function))
+(defun compile-backend-function (backend-function target)
+  (compile-backend-function-1 backend-function target)
+  (compile-backend-function-2 backend-function target))

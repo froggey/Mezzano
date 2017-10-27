@@ -93,6 +93,14 @@
   (il-implicit-progn (targets form) architecture)
   form)
 
+(defgeneric applicable-builtin-p (name target))
+
+(defmethod applicable-builtin-p (name (target x86-64-target))
+  (gethash name mezzano.compiler.codegen.x86-64::*builtins*))
+
+(defmethod applicable-builtin-p (name (target arm64-target))
+  (gethash name mezzano.compiler.codegen.arm64::*builtins*))
+
 (defun expand-inline-function (form name arg-list architecture)
   ;; FIXME: Respect INLINE/NOTININE declarations.
   (multiple-value-bind (inlinep expansion)
@@ -101,9 +109,7 @@
                ;; Don't inline builtin functions.
                ;; There may be inlinable definitions available, but they're for the new compiler.
                (or *use-new-compiler*
-                   (not (gethash name (ecase architecture
-                                        (:x86-64 mezzano.compiler.codegen.x86-64::*builtins*)
-                                        (:arm64 mezzano.compiler.codegen.arm64::*builtins*))))))
+                   (not (applicable-builtin-p name architecture))))
       (cond (expansion
              (ast `(call mezzano.runtime::%funcall
                          ,(pass1-lambda expansion

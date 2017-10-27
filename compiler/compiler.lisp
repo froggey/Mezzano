@@ -64,6 +64,23 @@ be generated instead.")
        for sym in symbols
        collect (list sym (symbol-value sym)))))
 
+(defclass target () ())
+(defclass x86-64-target (target) ())
+(defclass arm64-target (target) ())
+
+(defun canonicalize-target (target)
+  (when (typep target 'target)
+    (return-from canonicalize-target
+      target))
+  (ecase (default-architecture target)
+    (:x86-64 (make-instance 'x86-64-target))
+    (:arm64 (make-instance 'arm64-target))))
+
+(defun default-architecture (architecture)
+  (or architecture
+      #+x86-64 :x86-64
+      #+arm64 :arm64))
+
 (defun parse-declares (forms)
   "Extract any leading declare forms.
 Returns 2 values:
@@ -82,37 +99,43 @@ A list of any declaration-specifiers."
 
 (defun compile-lambda (lambda &optional env target-architecture)
   (log-event :compile-lambda)
-  (codegen-lambda (compile-lambda-1 lambda env target-architecture) target-architecture))
+  (let ((target (canonicalize-target target-architecture)))
+    (codegen-lambda (compile-lambda-1 lambda env target) target)))
 
 (defun compile-ast (ast &optional target-architecture)
-  (codegen-lambda (compile-lambda-2 ast target-architecture) target-architecture))
+  (let ((target (canonicalize-target target-architecture)))
+    (codegen-lambda (compile-lambda-2 ast target) target)))
 
-(defun default-architecture (architecture)
-  (or architecture
-      #+x86-64 :x86-64
-      #+arm64 :arm64))
+(defgeneric codegen-lambda-using-target (lambda target))
 
 (defun codegen-lambda (lambda &optional target-architecture)
   (with-metering (:code-generation)
     (detect-uses lambda)
-    (ecase (default-architecture target-architecture)
-      (:x86-64
-       (if *use-new-compiler*
-           (mezzano.compiler.backend.x86-64::compile-backend-function
-            (mezzano.compiler.backend.ast-convert:convert lambda))
-           (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
-      (:arm64
-       (mezzano.compiler.codegen.arm64:codegen-lambda lambda)))))
+    (codegen-lambda-using-target
+     lambda
+     (canonicalize-target target-architecture))))
+
+(defmethod codegen-lambda-using-target (lambda (target x86-64-target))
+  (if *use-new-compiler*
+      (mezzano.compiler.backend.x86-64::compile-backend-function
+       (mezzano.compiler.backend.ast-convert:convert lambda)
+       target)
+      (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
+
+(defmethod codegen-lambda-using-target (lambda (target arm64-target))
+  (mezzano.compiler.codegen.arm64:codegen-lambda lambda))
 
 (defun compile-lambda-1 (lambda &optional env target-architecture)
-  (compile-lambda-2 (pass1-lambda lambda env) target-architecture))
+  (let ((target (canonicalize-target target-architecture)))
+    (compile-lambda-2 (pass1-lambda lambda env) target)))
 
 ;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-2 (form &optional target-architecture)
   ;; Don't optimize at (compiliation-speed 3).
-  (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3))))
+  (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3)))
+        (target (canonicalize-target target-architecture)))
     (when run-optimizations
-      (setf form (run-optimizers form (default-architecture target-architecture))))
+      (setf form (run-optimizers form target)))
     (unless run-optimizations
       (setf form (lower-keyword-arguments form)))
     ;; Lower complex lambda lists.
@@ -176,6 +199,7 @@ A list of any declaration-specifiers."
   (optimize-quality-1 (ast-optimize ast-node) quality))
 
 (defun run-optimizers (form target-architecture)
+  (setf target-architecture (canonicalize-target target-architecture))
   (with-metering (:ast-optimize)
     (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
                                 :format-control "Possible optimizer infinite loop."
