@@ -22,7 +22,7 @@ be generated instead.")
 (defvar *load-time-value-hook*)
 
 (defvar *optimize-restrictions* '())
-(defvar *optimize-policy* '(safety 3 debug 3))
+(defvar *optimize-policy* '(safety 3 debug 3 speed 1))
 
 (defvar *use-new-compiler* nil)
 
