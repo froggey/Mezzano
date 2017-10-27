@@ -1147,7 +1147,14 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-thread+
           512)
          (#.+object-tag-weak-pointer+
-          6))))))
+          6)
+         (t
+          (object-size-error object)))))
+    (t
+     (object-size-error object))))
+
+(defun object-size-error (object)
+  (mezzano.supervisor:panic "Sizing invalid object " object))
 
 (defun mark-pinned-object (object)
   (let ((address (ash (%pointer-field object) 4)))
