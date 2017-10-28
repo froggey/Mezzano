@@ -558,17 +558,39 @@
              (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i)))))))
   sequence-1)
 
-(declaim (inline fill))
 (defun fill (sequence item &key (start 0) end)
-  (etypecase sequence
-    (list
-     (let ((end (or end (length sequence))))
-       (dotimes (i (- end start))
-         (setf (elt sequence (+ i start)) item))))
-    (vector
-     (let ((end (or end (length sequence))))
-       (dotimes (i (- end start))
-         (setf (aref sequence (+ i start)) item)))))
+  (unless end (setf end (length sequence)))
+  (assert (<= 0 start end (length sequence)))
+  (macrolet ((fast-vector (type)
+               `(if (and (typep sequence '(array ,type (*)))
+                         (typep item ',type))
+                    (let ((simple-vector (if (typep sequence '(simple-array ,type (*)))
+                                             sequence
+                                             (sys.int::%complex-array-storage sequence))))
+                      (declare (type (simple-array ,type (*)) simple-vector)
+                               (type ,type item)
+                               (type fixnum start end)
+                               (optimize speed (safety 0)))
+                      (loop
+                         for i fixnum below (the fixnum (- end start))
+                         do
+                           (setf (aref simple-vector (the fixnum (+ start i))) item))
+                      t)
+                    nil)))
+    (cond ((fast-vector (unsigned-byte 8)))
+          ((fast-vector (unsigned-byte 16)))
+          ((fast-vector (unsigned-byte 32)))
+          ((fast-vector (unsigned-byte 64)))
+          ((fast-vector (signed-byte 8)))
+          ((fast-vector (signed-byte 16)))
+          ((fast-vector (signed-byte 32)))
+          ((fast-vector (signed-byte 64)))
+          ((fast-vector t))
+          ((fast-vector single-float))
+          ((fast-vector double-float))
+          (t
+           (dotimes (i (- end start))
+             (setf (elt sequence (+ i start)) item)))))
   sequence)
 
 (defun map (result-type function first-sequence &rest more-sequences)
