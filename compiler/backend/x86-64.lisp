@@ -2500,8 +2500,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
 
 (defun compile-backend-function-0 (backend-function target)
   (mezzano.compiler.backend::simplify-cfg backend-function)
-  (when (/= (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'speed) 0)
-    ;; Always perform SSA construction above speed 0.
+  (when (> (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'speed) 1)
+    ;; Always perform SSA construction above speed 1.
     (mezzano.compiler.backend::construct-ssa backend-function))
   (when (= (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'debug) 0)
     ;; Leave local variables in place unless the user really wants them gone.
