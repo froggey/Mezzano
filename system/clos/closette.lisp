@@ -51,7 +51,7 @@
   (ensure-class-finalized class)
   (allocate-std-instance
     class
-    (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
+    (allocate-slot-storage (length (class-slot-storage-layout class))
                            *secret-unbound-value*)
     (class-slot-storage-layout class)))
 
@@ -62,7 +62,7 @@
      (declare (ignore x))
      (error "The function of this funcallable instance has not been set."))
     class
-    (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
+    (allocate-slot-storage (length (class-slot-storage-layout class))
                            *secret-unbound-value*)
     (class-slot-storage-layout class)))
 
