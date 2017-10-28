@@ -53,10 +53,12 @@
   (find-class-in-reference (class-reference symbol) errorp))
 
 (defun (setf find-class) (new-value symbol &optional (errorp t) environment)
-  (declare (ignore environment))
+  (declare (ignore errorp environment))
   (let ((reference (class-reference symbol)))
-    (when (not new-value)
-      (remprop name 'sys.int::maybe-class))
+    (cond (new-value
+           (setf (get symbol 'sys.int::maybe-class) t))
+          (t
+           (remprop symbol 'sys.int::maybe-class)))
     (setf (class-reference-class reference) new-value)))
 
 (sys.int::defglobal *next-class-hash-value* 1)
