@@ -11,10 +11,75 @@
    (%dominator-tree)
    (%dominance-frontier)))
 
+(defvar *use-simple-dominator-algorithm* nil)
+
+;; TODO: This numbers basic blocks, switch most hash tables over to using
+;; fixed length arrays and pass around block numbers instead of the blocks
+;; themselves.
+(defun lengauer-tarjan-dominators (entry-basic-block bb-preds bb-succs)
+  (let ((n* 0)
+        (bucket (make-hash-table))
+        (dfnum (make-hash-table))
+        (semi (make-hash-table))
+        (ancestor (make-hash-table))
+        (best (make-hash-table))
+        (idom (make-hash-table))
+        (samedom (make-hash-table))
+        (vertex (make-array 0 :adjustable t :fill-pointer 0))
+        (parent (make-hash-table)))
+    (labels ((ancestor-with-lowest-semi (v)
+               (let ((a (gethash v ancestor)))
+                 (when (gethash a ancestor)
+                   (let ((b (ancestor-with-lowest-semi a)))
+                     (setf (gethash v ancestor) (gethash a ancestor))
+                     (when (< (gethash (gethash b semi) dfnum 0)
+                              (gethash (gethash (gethash v best) semi) dfnum 0))
+                       (setf (gethash v best) b)))))
+               (gethash v best))
+             (link (p n)
+               (setf (gethash n ancestor) p
+                     (gethash n best) n))
+             (dfs (p n)
+               (when (eql (gethash n dfnum 0) 0)
+                 (setf (gethash n dfnum) n*)
+                 (vector-push-extend n vertex)
+                 (setf (gethash n parent) p)
+                 (incf n*)
+                 (dolist (w (gethash n bb-succs))
+                   (dfs n w)))))
+      (dfs nil entry-basic-block)
+      (loop for i from (1- n*) downto 1 do
+           (let* ((n (aref vertex i))
+                  (p (gethash n parent))
+                  (s p)
+                  (s* nil))
+             (dolist (v (gethash n bb-preds))
+               (cond ((<= (gethash v dfnum 0) (gethash n dfnum 0))
+                      (setf s* v))
+                     (t
+                      (setf s* (gethash (ancestor-with-lowest-semi v) semi))))
+               (when (< (gethash s* dfnum 0) (gethash s dfnum 0))
+                 (setf s s*)))
+             (setf (gethash n semi) s)
+             (pushnew n (gethash s bucket '()))
+             (link p n)
+             (dolist (v (gethash p bucket))
+               (let ((y (ancestor-with-lowest-semi v)))
+                 (cond ((eql (gethash y semi) (gethash v semi))
+                        (setf (gethash v idom) p))
+                       (t
+                        (setf (gethash v samedom) y)))))
+             (setf (gethash p bucket) '()))))
+    (loop for i from 1 below n* do
+         (let ((n (aref vertex i)))
+           (when (gethash n samedom)
+             (setf (gethash n idom) (gethash (gethash n samedom) idom)))))
+    (setf (gethash entry-basic-block idom) nil)
+    idom))
+
 (defun build-dominator-sets (backend-function basic-blocks bb-preds)
   (let ((dominators (make-hash-table)))
     ;; Iteratively compute the dominators for each basic block.
-    ;; TODO: Replace this with the Lengauer-Tarjan algorithm.
     ;; For all other nodes, set all nodes as the dominators.
     (dolist (bb basic-blocks)
       (setf (gethash bb dominators) basic-blocks))
@@ -88,25 +153,45 @@
       (frob (first-instruction backend-function)))
     df))
 
+(defun build-dom-tree-from-idoms (idoms)
+  (let ((tree (make-hash-table)))
+    (maphash (lambda (bb idom)
+               (when idom
+                 (pushnew bb (gethash idom tree))))
+             idoms)
+    tree))
+
 (defun compute-dominance (backend-function)
   (sys.c:with-metering (:backend-compute-dominance)
     (multiple-value-bind (basic-blocks bb-preds bb-succs)
         (mezzano.compiler.backend::build-cfg backend-function)
-      (let ((dominance (make-instance 'dominance))
-            (dominators (build-dominator-sets backend-function basic-blocks bb-preds)))
-        (setf (slot-value dominance '%dominators) dominators)
-        (multiple-value-bind (dom-tree idoms)
-            (build-dominator-tree backend-function basic-blocks dominators)
-          (setf (slot-value dominance '%dominator-tree) dom-tree)
-          (setf (slot-value dominance '%immediate-dominators) idoms)
-          (setf (slot-value dominance '%dominance-frontier)
-                (build-dominance-frontier backend-function dom-tree idoms bb-succs))
-          dominance)))))
+      (let ((dominance (make-instance 'dominance)))
+        (cond (*use-simple-dominator-algorithm*
+               (let ((dominators (build-dominator-sets backend-function basic-blocks bb-preds)))
+                 (setf (slot-value dominance '%dominators) dominators)
+                 (multiple-value-bind (dom-tree idoms)
+                     (build-dominator-tree backend-function basic-blocks dominators)
+                   (setf (slot-value dominance '%dominator-tree) dom-tree)
+                   (setf (slot-value dominance '%immediate-dominators) idoms))))
+              (t
+               (let ((idoms (lengauer-tarjan-dominators (first basic-blocks) bb-preds bb-succs)))
+                 (setf (slot-value dominance '%immediate-dominators) idoms)
+                 (setf (slot-value dominance '%dominator-tree) (build-dom-tree-from-idoms idoms)))))
+        (setf (slot-value dominance '%dominance-frontier)
+              (build-dominance-frontier backend-function
+                                        (slot-value dominance '%dominator-tree)
+                                        (slot-value dominance '%immediate-dominators)
+                                        bb-succs))
+        dominance))))
 
 (defun dominatep (dominance dominator basic-block)
   "Is BASIC-BLOCK dominated by DOMINATOR?"
-  (member dominator
-          (gethash basic-block (slot-value dominance '%dominators))))
+  (do ((dom basic-block
+            (dominator-tree-parent dominance dom)))
+      ((null dom)
+       nil)
+    (when (eql dom dominator)
+      (return t))))
 
 (defun dominator-tree-parent (dominance basic-block)
   (gethash basic-block (slot-value dominance '%immediate-dominators)))
