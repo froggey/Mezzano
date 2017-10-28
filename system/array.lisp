@@ -456,8 +456,7 @@
            (cond (initial-contents-p
                   (initialize-from-initial-contents new-array initial-contents))
                  (t
-                  (dotimes (i (min (first new-dimensions) (array-dimension array 0)))
-                    (setf (aref new-array i) (aref array i)))))
+                  (replace new-array array)))
            new-array))
         ((and (null (%complex-array-info array))
               (character-array-p array))
