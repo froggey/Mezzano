@@ -701,7 +701,8 @@
     (return-from compile-typep-expression
       (let ((class (gensym "CLASS")))
         `(let ((,class (mezzano.clos:find-class-in-reference
-                        (load-time-value (mezzano.clos:class-reference ',type-specifier)))))
+                        (load-time-value (mezzano.clos:class-reference ',type-specifier))
+                        nil)))
            (if ,class
                (class-typep ,object ,class)
                nil)))))
