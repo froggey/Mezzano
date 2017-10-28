@@ -267,11 +267,14 @@
                         for name in (getf ll :required-names)
                         collect (gensym (string name))))
            (optional-args-p (not (endp (getf ll :optional-args))))
+           (key-args-p (member '&key lambda-list))
            (rest-arg (if (or optional-args-p
                              (member '&rest lambda-list)
-                             (member '&key lambda-list))
+                             key-args-p)
                          (gensym "REST")
                          nil))
+           (trivial-rest-arg-p (not (or optional-args-p
+                                        key-args-p)))
            (incoming-lambda-list (append req-args
                                          (if rest-arg
                                              `(&rest ,rest-arg)
@@ -280,15 +283,18 @@
       `(lambda (method next-emfun)
          (lambda ,incoming-lambda-list
            (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers))
-                    ,@(if rest-arg
+                    ,@(if (and rest-arg
+                               (not trivial-rest-arg-p))
                           `((dynamic-extent ,rest-arg))
                           `()))
            ,@(when docstring (list docstring))
-           ;; &rest is declared dynamic-extent, but this is bad for call-next-method.
+           ;; &rest may be declared dynamic-extent, but this is bad for call-next-method.
            ;; Provide a non-dx copy of the &rest list for c-n-m in a way that the compiler
            ;; can eliminate if c-n-m is not used.
            (let (,@(if rest-arg
-                       `((,captured-rest (copy-list ,rest-arg)))
+                       (if trivial-rest-arg-p
+                           `((,captured-rest ,rest-arg))
+                           `((,captured-rest (copy-list ,rest-arg))))
                        `()))
              (flet ((call-next-method (&rest cnm-args)
                       (if cnm-args
@@ -306,7 +312,17 @@
                                       `(funcall #'invoke-no-next-method method ,@req-args))))))
                     (next-method-p ()
                       (not (null next-emfun))))
-               ,(cond (rest-arg
+               ,(cond ((and rest-arg trivial-rest-arg-p)
+                       ;; No &optional or &key args, pass the previously build &rest arg through as
+                       ;; an ordinary argument.
+                       ;; TODO: Preserve D-X &REST declaration, if any.
+                       `(funcall (lambda ,(remove '&rest (kludge-arglist lambda-list))
+                                   (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
+                                            ,@declares)
+                                   ,form)
+                                 ,@req-args
+                                 ,rest-arg))
+                      (rest-arg
                        `(apply (lambda ,(kludge-arglist lambda-list)
                                  (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
                                           ,@declares)
