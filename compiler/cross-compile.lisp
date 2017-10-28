@@ -835,7 +835,7 @@
                     (declare (special ,ltv-sym))
                   (setq ,ltv-sym ,form))
                nil)
-    `(symbol-value ',ltv-sym)))
+    `(sys.int::symbol-global-value ',ltv-sym)))
 
 (defvar *failed-fastload-by-symbol* (make-hash-table))
 

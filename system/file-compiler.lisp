@@ -428,8 +428,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun compile-file-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-    (compile-top-level-form `(setq ,ltv-sym ,form) nil)
-    `(symbol-value ',ltv-sym)))
+    (compile-top-level-form `(locally
+                                 (declare (special ,ltv-sym))
+                               (setq ,ltv-sym ,form))
+                            nil)
+    `(sys.int::symbol-global-value ',ltv-sym)))
 
 (defun compile-top-level-form (form env)
   (cond
