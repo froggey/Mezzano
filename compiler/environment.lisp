@@ -115,9 +115,16 @@
                  (push (list actual-var real-type) new-decls))))
         (loop
            for (what type . names) in declarations
-           ;; TODO: Pick up (declare (fixnum ...)) and similar.
            when (eql what 'type)
            do (loop for name in names do (add-decl name type)))
+        (loop
+           for (what . names) in declarations
+           when (and (symbolp what)
+                     (or (get what 'sys.int::type-expander)
+                         (get what 'sys.int::compound-type)
+                         (get what 'sys.int::type-symbol)
+                         (get what 'sys.int::maybe-class)))
+           do (loop for name in names do (add-decl name what)))
         (loop
            for (name var) in variables
            when (and (typep var 'lexical-variable)
