@@ -682,10 +682,15 @@
                                  (symbolp (first type-specifier)))
                             (first type-specifier)))))
     (when type-symbol
-      (let ((test (get type-symbol 'type-symbol)))
-        (when test
-          (return-from compile-typep-expression
-            `(funcall ',test ,object))))))
+      (cond ((eql type-symbol 't)
+             (return-from compile-typep-expression `(progn ,object 't)))
+            ((eql type-symbol 'nil)
+             (return-from compile-typep-expression `(progn ,object 'nil)))
+            (t
+             (let ((test (get type-symbol 'type-symbol)))
+               (when test
+                 (return-from compile-typep-expression
+                   `(funcall ',test ,object))))))))
   (when (and (listp type-specifier)
              (symbolp (first type-specifier)))
     (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
