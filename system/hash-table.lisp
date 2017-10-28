@@ -251,6 +251,7 @@ is below the rehash-threshold."
          (eq-hash object))))
 
 (defun sxhash-1 (object depth)
+  (declare (notinline typep)) ; ### Bootstrap hack.
   (if (zerop depth)
       #x12345678
       (typecase object

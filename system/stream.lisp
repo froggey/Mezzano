@@ -179,6 +179,7 @@
 
 (defclass file-stream (stream) ())
 
+;; FIXME: synonym-stream and cold-stream don't inherit from stream.
 (defstruct (synonym-stream
              (:constructor make-synonym-stream (symbol)))
   symbol)
@@ -206,7 +207,9 @@
            (std-instance-p object)
            (member *fundamental-stream-class* (mezzano.clos:class-precedence-list (std-instance-class object))))))
 
-(setf (get 'stream 'type-symbol) 'streamp)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(%define-type-symbol 'stream 'streamp)
+)
 
 (defgeneric stream-with-edit (stream fn))
 (defgeneric stream-cursor-pos (stream))

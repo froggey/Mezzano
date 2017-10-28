@@ -14,10 +14,32 @@
 ;;; Primordial class objects installed in the class table during boot will
 ;;; be converted in-place to real classes after boot.
 
-(sys.int::defglobal *class-table* (make-hash-table :test #'eq))
+(sys.int::defglobal *class-reference-table* (make-hash-table :test #'eq))
 
-(defun find-class (symbol &optional (errorp t) environment)
-  (let ((class (gethash symbol *class-table* nil)))
+(defstruct class-reference
+  name
+  class)
+
+(defun class-reference (symbol)
+  (or (gethash symbol *class-reference-table*)
+      (setf (gethash symbol *class-reference-table*)
+            (make-class-reference :name symbol))))
+
+(define-compiler-macro find-class (&whole whole symbol &optional (errorp t) environment)
+  (if (and (null environment)
+           (consp symbol)
+           (eql (first symbol) 'quote)
+           (consp (rest symbol))
+           (symbolp (second symbol))
+           (null (rest (rest symbol))))
+      `(find-class-in-reference
+        (load-time-value (mezzano.clos:class-reference ',(second symbol)))
+        ,errorp)
+      whole))
+
+(defun find-class-in-reference (reference &optional (errorp t))
+  (let ((class (class-reference-class reference))
+        (symbol (class-reference-name reference)))
     (when (not class)
       (let ((struct (get symbol 'sys.int::structure-type)))
         (when struct
@@ -26,8 +48,16 @@
         (error "No class named ~S." symbol)
         class)))
 
+(defun find-class (symbol &optional (errorp t) environment)
+  (declare (ignore environment))
+  (find-class-in-reference (class-reference symbol) errorp))
+
 (defun (setf find-class) (new-value symbol &optional (errorp t) environment)
-  (setf (gethash symbol *class-table*) new-value))
+  (declare (ignore environment))
+  (let ((reference (class-reference symbol)))
+    (when (not new-value)
+      (remprop name 'sys.int::maybe-class))
+    (setf (class-reference-class reference) new-value)))
 
 (sys.int::defglobal *next-class-hash-value* 1)
 

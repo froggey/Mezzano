@@ -18,7 +18,13 @@
                 #:funcallable-std-instance-slots
                 #:funcallable-std-instance-layout)
   (:export #:defclass #:defgeneric #:defmethod
-           #:find-class #:class-of
+
+           #:find-class
+           #:find-class-in-reference
+           #:class-reference
+           #:class-reference-class
+
+           #:class-of
            #:call-next-method #:next-method-p
            #:slot-value #:slot-boundp #:slot-exists-p #:slot-makunbound
            #:make-instance #:change-class

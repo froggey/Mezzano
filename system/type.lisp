@@ -25,13 +25,26 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %deftype (name expander)
+  (remprop name 'maybe-class)
   (setf (get name 'type-expander) expander))
 (defun %define-compound-type (name function)
+  (remprop name 'maybe-class)
   (setf (get name 'compound-type) function))
 (defun %define-compound-type-optimizer (name function)
+  (remprop name 'maybe-class)
   (setf (get name 'compound-type-optimizer) function))
 (defun %define-type-symbol (name function)
+  (remprop name 'maybe-class)
   (setf (get name 'type-symbol) function))
+
+(defun %compiler-defclass (name)
+  ;; If name exists as a type, do nothing.
+  ;; Otherwise, mark it as a potential class.
+  (unless (or (get name 'type-expander)
+              (get name 'compound-type)
+              (get name 'type-symbol))
+    (setf (get name 'maybe-class) t))
+  name)
 )
 
 (deftype bit ()
@@ -259,6 +272,7 @@
 (%define-type-symbol 'cons 'consp)
 (%define-type-symbol 'symbol 'symbolp)
 (%define-type-symbol 'number 'numberp)
+(%define-type-symbol 'complex 'complexp)
 (%define-type-symbol 'real 'realp)
 (%define-type-symbol 'fixnum 'fixnump)
 (%define-type-symbol 'bignum 'bignump)
@@ -415,6 +429,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
+  (declare (notinline typep)) ; ### Boostrap hack.
   (when (equal type-1 type-2)
     (return-from subtypep (values t t)))
   (when (typep type-2 'class)
@@ -577,6 +592,7 @@
            (values nil t)))))
 
 (defun subclassp (class-1 class-2)
+  (declare (notinline typep)) ; ### Boostrap hack.
   (let ((c1 (if (typep class-1 'class)
                 class-1
                 (find-class class-1 nil))))
@@ -584,13 +600,17 @@
           (t (values nil nil)))))
 )
 
+(defun class-typep (object class)
+  (or (eql (class-of object) class)
+      (member class (mezzano.clos:class-precedence-list (class-of object)))))
+
 (defun typep (object type-specifier &optional environment)
+  (declare (notinline find-class)) ; ### Boostrap hack.
   (when (and (or (std-instance-p type-specifier)
                  (funcallable-std-instance-p type-specifier))
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
-      (or (eql (class-of object) type-specifier)
-          (member type-specifier (mezzano.clos:class-precedence-list (class-of object))))))
+      (class-typep object type-specifier)))
   (let ((type-symbol (cond ((symbolp type-specifier)
                             type-specifier)
                            ((and (consp type-specifier)
@@ -614,8 +634,7 @@
               (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
         (when (and class
-                   (or (eql class (class-of object))
-                       (member class (mezzano.clos:class-precedence-list (class-of object)))))
+                   (class-typep object class))
           (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
                                 type-specifier
@@ -677,6 +696,15 @@
             (return-from compile-typep-expression
               `(let ((,sym ,object))
                  ,code)))))))
+  (when (and (symbolp type-specifier)
+             (get type-specifier 'sys.int::maybe-class nil))
+    (return-from compile-typep-expression
+      (let ((class (gensym "CLASS")))
+        `(let ((,class (mezzano.clos:find-class-in-reference
+                        (load-time-value (mezzano.clos:class-reference ',type-specifier)))))
+           (if ,class
+               (class-typep ,object ,class)
+               nil)))))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier)
     (when expanded-p

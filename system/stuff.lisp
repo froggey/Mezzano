@@ -50,6 +50,7 @@
      (pathnames-equal x y))))
 
 (define-compiler-macro equal (&whole whole x y)
+  (declare (notinline typep)) ; ### Bootstrap hack.
   (when (or (not (or (symbolp x) (listp x)))
             (and (listp x)
                  (= (list-length x) 2)
@@ -142,6 +143,7 @@
     (t (equal x y))))
 
 (defun macroexpand-1 (form &optional env)
+  (declare (notinline typep)) ; ### Bootstrap hack.
   (cond ((symbolp form)
          (let ((var (sys.c::lookup-variable-in-environment form env)))
            (cond ((typep var 'sys.c::symbol-macro)

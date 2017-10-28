@@ -16,10 +16,13 @@
     (check-type superclass-name (and symbol (not null))))
   (let ((*defclass-slot-names* '())
         (*defclass-options* '()))
-    `(ensure-class ',name
-                   :direct-superclasses ',direct-superclasses
-                   :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
-                   ,@(mapcan #'canonicalize-defclass-option options))))
+    `(progn
+       (eval-when (:compile-toplevel)
+         (sys.int::%compiler-defclass ',name))
+       (ensure-class ',name
+                     :direct-superclasses ',direct-superclasses
+                     :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
+                     ,@(mapcan #'canonicalize-defclass-option options)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
