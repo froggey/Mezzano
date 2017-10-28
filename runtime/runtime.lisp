@@ -73,7 +73,7 @@
 (defun characterp (object)
   (sys.int::%value-has-tag-p object sys.int::+tag-character+))
 
-(defun %functionp (object low high)
+(defun %functionp (object)
   (<= sys.int::+first-function-object-tag+
       (sys.int::%object-tag object)
       sys.int::+last-function-object-tag+))
