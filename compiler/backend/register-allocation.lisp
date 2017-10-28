@@ -352,27 +352,25 @@
   'keyword)
 
 (defun instruction-all-clobbers (inst architecture mv-flow live-in live-out)
-  (union
-   (union
-    (union
-     (union
-      (union
-       (remove-duplicates
-        (remove-if-not (lambda (x) (typep x 'physical-register))
-                       (ir::instruction-inputs inst)))
-       (remove-duplicates
-        (remove-if-not (lambda (x) (typep x 'physical-register))
-                       (ir::instruction-outputs inst))))
-      (instruction-clobbers inst architecture))
-     (if (eql (gethash inst mv-flow) :multiple)
-         '(:rcx :r8 :r9 :r10 :r11 :r12)
-         '()))
-    (remove-duplicates
-     (remove-if-not (lambda (x) (typep x 'physical-register))
-                    (gethash inst live-in))))
-   (remove-duplicates
-    (remove-if-not (lambda (x) (typep x 'physical-register))
-                   (gethash inst live-out)))))
+  (let ((clobbers '()))
+    (dolist (reg (ir::instruction-inputs inst))
+      (when (typep reg 'physical-register)
+        (pushnew reg clobbers)))
+    (dolist (reg (ir::instruction-outputs inst))
+      (when (typep reg 'physical-register)
+        (pushnew reg clobbers)))
+    (setf clobbers (union (instruction-clobbers inst architecture)
+                          clobbers))
+    (when (eql (gethash inst mv-flow) :multiple)
+      (setf clobbers (union '(:rcx :r8 :r9 :r10 :r11 :r12)
+                            clobbers)))
+    (dolist (reg (gethash inst live-in))
+      (when (typep reg 'physical-register)
+        (pushnew reg clobbers)))
+    (dolist (reg (gethash inst live-out))
+      (when (typep reg 'physical-register)
+        (pushnew reg clobbers)))
+    clobbers))
 
 (defun virtual-registers-touched-by-instruction (inst live-in live-out)
   (union (union
