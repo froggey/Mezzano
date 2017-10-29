@@ -16,6 +16,12 @@
   (check-type value (unsigned-byte 64))
   (%make-mmx-vector value))
 
+(defun %make-mmx-vector/fixnum (value)
+  (make-mmx-vector value))
+
+(defun %make-mmx-vector (value)
+  (make-mmx-vector value))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform make-mmx-vector ((value (unsigned-byte 64)))
       ((:optimize (= safety 0) (= speed 3)))
@@ -55,7 +61,13 @@
 
 (defun mmx-vector-value (vector)
   (check-type vector mmx-vector)
+  (%mmx-vector-value vector))
+
+(defun %mmx-vector-value (vector)
   (sys.int::%object-ref-unsigned-byte-64 vector 0))
+
+(defun %mmx-vector-value/fixnum (vector)
+  (%mmx-vector-value vector))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform mmx-vector-value ((value mmx-vector))
@@ -80,6 +92,8 @@
          (mmx-vector
           (check-type rhs mmx-vector)
           (,mmx-function lhs rhs))))
+     (defun ,mmx-function (lhs rhs)
+       (,mmx-function lhs rhs))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (sys.c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
            ((:optimize (= safety 0) (= speed 3)))
