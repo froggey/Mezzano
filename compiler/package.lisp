@@ -604,12 +604,4 @@
   (:export #:make-mmx-vector
            #:mmx-vector-value
            #:mmx-vector
-           #:mmx-vector-p
-           #:punpcklbw
-           #:packuswb
-           #:psubb
-           #:punpcklbw
-           #:pmulhuw
-           #:pmuludq
-           #:paddusw
-           #:pmullw))
+           #:mmx-vector-p))
