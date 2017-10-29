@@ -142,10 +142,11 @@
            (setf widest (max widest width))))))
 
 (defmethod dispatch-event (desktop (event comp:mouse-event))
-  (when (logbitp 0 (comp:mouse-button-change event))
-    (let ((x (comp:mouse-x-position event))
-          (y (comp:mouse-y-position event)))
-      (cond ((logbitp 0 (comp:mouse-button-state event))
+  (let ((button (comp:mouse-button-state event))
+        (x (comp:mouse-x-position event))
+        (y (comp:mouse-y-position event)))
+    (when (member button '(:left-down :left-up))
+      (cond ((eq button :left-down)
              ;; Mouse down, begin click. Highlight the clicked thing.
              (setf (clicked-icon desktop) (get-icon-at-point desktop x y))
              (when (clicked-icon desktop)
