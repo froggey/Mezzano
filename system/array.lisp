@@ -295,24 +295,45 @@
              ;; One or the other.
              (and initial-element-p
                   initial-contents-p)
-             adjustable
-             fill-pointer
+             (not (or (eql fill-pointer nil)
+                      (eql fill-pointer t)
+                      (integerp fill-pointer)))
+             (not (or (eql adjustable nil)
+                      (eql adjustable t)))
              displaced-to displaced-index-offset)
          whole)
         (t
          (let ((array-sym (gensym "ARRAY"))
+               (len (gensym "LENGTH"))
+               (area-sym (gensym "AREA"))
                (info (upgraded-array-info (if (consp element-type)
                                               (second element-type)
                                               element-type))))
            (when (not (second info))
              (return-from make-array whole))
-           `(let ((,array-sym (make-array-with-known-element-type
-                               ,dimensions ,element-type ',info ,area
-                               ,(if initial-element-p
-                                    initial-element
-                                    `',(fifth info)))))
+           `(let* ((,len ,dimensions)
+                   (,area-sym ,area)
+                   (,array-sym (make-array-with-known-element-type
+                                ,len ,element-type ',info ,area-sym
+                                ,(if initial-element-p
+                                     initial-element
+                                     `',(fifth info)))))
               ,@(when initial-contents-p
                   `((initialize-from-initial-contents ,array-sym ,initial-contents)))
+              ,@(when (integerp fill-pointer)
+                  `((unless (<= 0 ,fill-pointer ,len)
+                      (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <= ~S." ,fill-pointer ,len))))
+              ,@(when (or adjustable fill-pointer)
+                  `((setf ,array-sym (%make-array-header +object-tag-array+
+                                                         ,array-sym
+                                                         ,(case fill-pointer
+                                                            ((t) len)
+                                                            ((nil) nil)
+                                                            (t `',fill-pointer))
+                                                         nil
+                                                         (list ,len)
+                                                         ,area-sym))))
+
               ,array-sym)))))
 
 (defun make-array-with-known-element-type (dimensions element-type info area initial-element)
@@ -361,7 +382,7 @@
       (unless (integerp fill-pointer)
         (error "Invalid :FILL-POINTER ~S." fill-pointer))
       (unless (<= 0 fill-pointer (first dimensions))
-        (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <=~S." fill-pointer (first dimensions))))
+        (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <= ~S." fill-pointer (first dimensions))))
     (dolist (dimension dimensions)
       (check-type dimension (integer 0)))
     (cond ((and (eql rank 1)
