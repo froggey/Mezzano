@@ -440,7 +440,7 @@
                array)))))
 
 (defun adjust-array (array new-dimensions &key
-                     (element-type (array-element-type array))
+                     (element-type (array-element-type array) element-type-p)
                      (initial-element nil initial-element-p)
                      (initial-contents nil initial-contents-p)
                      fill-pointer
@@ -449,9 +449,10 @@
     (setf new-dimensions (list new-dimensions)))
   (when (not (eql (array-rank array) (length new-dimensions)))
     (error "New dimensions do not match array's rank."))
-  (unless (equal element-type (array-element-type array))
-    (error "Cannot convert array ~S to different element-type ~S from ~S."
-           array element-type (array-element-type array)))
+  (when element-type-p
+    (unless (equal element-type (array-element-type array))
+      (error "Cannot convert array ~S to different element-type ~S from ~S."
+             array element-type (array-element-type array))))
   (when (and initial-element-p initial-contents-p)
     (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
   (when fill-pointer
@@ -470,10 +471,23 @@
              (< (first new-dimensions) (fill-pointer array)))
     (error "Fill-pointer ~S on array ~S is larger than the new size ~S."
            (fill-pointer array) array new-dimensions))
-  (cond ((%simple-1d-array-p array)
+  (cond ((and (%simple-1d-array-p array)
+              (or (not element-type-p)
+                  (equal element-type (array-element-type array))))
+         ;; Same element type.
+         (let* ((array-info (%simple-array-info array))
+                (new-array (make-simple-array-1 (first new-dimensions) array-info area)))
+           (when initial-element-p
+             (fill new-array initial-element))
+           (cond (initial-contents-p
+                  (initialize-from-initial-contents new-array initial-contents))
+                 (t
+                  (replace new-array array)))
+           new-array))
+        ((%simple-1d-array-p array)
          (let ((new-array (if initial-element-p
-                              (make-simple-array (first new-dimensions) element-type area initial-element)
-                              (make-simple-array (first new-dimensions) element-type area))))
+                              (make-simple-array (first new-dimensions) (if element-type-p element-type (array-element-type array)) area initial-element)
+                              (make-simple-array (first new-dimensions) (if element-type-p element-type (array-element-type array)) area))))
            (cond (initial-contents-p
                   (initialize-from-initial-contents new-array initial-contents))
                  (t

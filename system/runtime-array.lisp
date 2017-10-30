@@ -257,3 +257,9 @@
 
 (defun %simple-array-element-type (array)
   (svref *array-types* (%object-tag array)))
+
+(defun %simple-array-info (array)
+  (dolist (info *array-info*
+           (error "~S isn't a simple array?" array))
+    (when (%object-of-type-p array (second info))
+      (return info))))
