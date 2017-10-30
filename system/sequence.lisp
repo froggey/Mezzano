@@ -385,8 +385,6 @@
                      (funcall key (aref vector i))
                      (funcall key (aref vector (1+ i)))))))
 
-
-
 (defun concatenate (result-type &rest sequences)
   (declare (dynamic-extent sequences))
   ;; Compute total length.
@@ -395,8 +393,8 @@
     (cond
       ((subtypep true-result-type 'null)
        (if (= total-length 0)
-                  nil
-                  (error "Too many elements for result-type NULL.")))
+           nil
+           (error "Too many elements for result-type NULL.")))
       ((subtypep true-result-type 'list)
        (let* ((result (cons nil nil))
               (tail result))
