@@ -251,14 +251,12 @@ is below the rehash-threshold."
          (eq-hash object))))
 
 (defun sxhash-1 (object depth)
-  (declare (notinline typep)) ; ### Bootstrap hack.
   (if (zerop depth)
       #x12345678
       (typecase object
         (bit-vector 0) ; TODO. could copy the bitvector, then munge it into a bignum. nasty.
         (cons (logxor (sxhash-1 (car object) (1- depth))
                       (sxhash-1 (cdr object) (1- depth))))
-        (pathname (sxhash-1 (namestring object) (1- depth)))
         (string
          ;; djb2 string hash
          ;; We use 25-bit characters (unicode+bucky bits), instead of 8-bit chars.
@@ -269,8 +267,12 @@ is below the rehash-threshold."
                                               (char-int (char object i))))))))
         (symbol
          (sxhash-1 (string object) depth))
-        ;; EQL-HASH also works for characters and numbers.
-        (t (eql-hash object)))))
+        (t
+         ;; ### Bootstrap hack. Don't call typep with 'pathname.
+         (if (pathnamep object)
+             (sxhash-1 (namestring object) (1- depth))
+             ;; EQL-HASH also works for characters and numbers.
+             (eql-hash object))))))
 
 (defun sxhash (object)
   (sxhash-1 object 10))
