@@ -601,8 +601,10 @@
 )
 
 (defun class-typep (object class)
-  (or (eql (class-of object) class)
-      (member class (mezzano.clos:class-precedence-list (class-of object)))))
+  (let ((obj-class (class-of object)))
+    (or (eq obj-class class)
+        (member class (mezzano.clos:class-precedence-list obj-class)
+                :test #'eq))))
 
 (defun typep (object type-specifier &optional environment)
   (declare (notinline find-class)) ; ### Boostrap hack.

@@ -88,6 +88,7 @@
 (sys.int::defglobal *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (sys.int::defglobal *standard-class-slot-storage-layout-position*)
 (sys.int::defglobal *standard-class-hash-position*)
+(sys.int::defglobal *standard-class-precedence-list-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -374,7 +375,11 @@
   (setf (slot-value class 'direct-slots) new-value))
 
 (defun class-precedence-list (class)
-  (slot-value class 'class-precedence-list))
+  (let ((class-of-class (class-of class)))
+    (cond ((std-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-precedence-list-position*))
+          (t
+           (slot-value class 'class-precedence-list)))))
 (defun (setf class-precedence-list) (new-value class)
   (setf (slot-value class 'class-precedence-list) new-value))
 
