@@ -411,7 +411,10 @@
           ;; Name & debug info.
           :info (list name nil))
       (declare (ignore symbols))
-      (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
+      (setf mc (let ((array (make-array (* (ceiling (length mc) 16) 16)
+                                        :fill-pointer t
+                                        :element-type '(unsigned-byte 8))))
+                 (replace array mc)))
       (let ((total-size (+ (* (truncate (length mc) 16) 2)
                            (length constants)
                            (ceiling (length gc-info) 8))))
