@@ -9,7 +9,7 @@
   sys.lap:*current-address*)
 
 (defun assemble (code-list &rest args &key &allow-other-keys)
-  (apply 'sys.lap:perform-assembly *instruction-assemblers* code-list args))
+  (apply 'sys.lap::perform-assembly-old *instruction-assemblers* code-list args))
 
 (defun add-instruction (name function)
   (unless (keywordp name)

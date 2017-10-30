@@ -12,6 +12,10 @@
 (defconstant +address-size-override+ #x67
   "The address size override prefix.")
 
+(defvar *following-immediate-bytes* 0
+  "Number of immediate bytes following an encoded effective address.
+Used to make rip-relative addressing line up right.")
+
 (defun assemble (code-list &rest args &key (cpu-mode 64) &allow-other-keys)
   (declare (dynamic-extent args))
   (let ((*cpu-mode* cpu-mode))
@@ -166,7 +170,8 @@
         (operand-size-override nil)
         (address-size-override nil)
         (rex nil)
-        (encoded-modrm-sib '()))
+        (encoded-modrm-sib '())
+        (need-disp32 nil))
     (multiple-value-bind (reg-nr rex-r)
         (encode-register reg)
       (multiple-value-bind (base-nr rex-b)
@@ -211,7 +216,7 @@
           (if (and (null index) (null scale))
               ;; Encodings that only use base & displacement
               (cond
-                ((and (or (null displacement) (= displacement 0))
+                ((and (or (null displacement) (eql displacement 0))
                       base)
                  (cond ((= base-nr #b100)
                         ;; Force SIB
@@ -222,30 +227,31 @@
                         (setf encoded-modrm-sib (list (encode-modrm #b01 base-nr reg-nr)
                                                       #x00)))
                        (t (setf encoded-modrm-sib (list (encode-modrm #b00 base-nr reg-nr))))))
-                ((and displacement (/= displacement 0)
+                ((and displacement (not (eql displacement 0))
                       base)
                  (if (= base-nr #b100)
-                     (if (typep displacement '(signed-byte 8))
-                         (setf encoded-modrm-sib (list (encode-modrm #b01 #b100 reg-nr)
-                                                       (encode-sib base-nr #b100 #b00)
-                                                       (ldb (byte 8 0) displacement)))
-                         (setf encoded-modrm-sib (list* (encode-modrm #b10 #b100 reg-nr)
-                                                        (encode-sib base-nr #b100 #b00)
-                                                        (encode-disp32 displacement))))
-                     (if (typep displacement '(signed-byte 8))
-                         (setf encoded-modrm-sib (list (encode-modrm #b01 base-nr reg-nr)
-                                                       (ldb (byte 8 0) displacement)))
-                         (setf encoded-modrm-sib (list* (encode-modrm #b10 base-nr reg-nr)
-                                                        (encode-disp32 displacement))))))
+                     (cond ((typep displacement '(signed-byte 8))
+                            (setf encoded-modrm-sib (list (encode-modrm #b01 #b100 reg-nr)
+                                                          (encode-sib base-nr #b100 #b00)
+                                                          (ldb (byte 8 0) displacement))))
+                           (t
+                            (setf encoded-modrm-sib (list (encode-modrm #b10 #b100 reg-nr)
+                                                          (encode-sib base-nr #b100 #b00))
+                                  need-disp32 t)))
+                     (cond ((typep displacement '(signed-byte 8))
+                            (setf encoded-modrm-sib (list (encode-modrm #b01 base-nr reg-nr)
+                                                          (ldb (byte 8 0) displacement))))
+                           (t
+                            (setf encoded-modrm-sib (list (encode-modrm #b10 base-nr reg-nr))
+                                  need-disp32 t)))))
                 ((and (null base))
                  ;; Avoid the rip-relative encoding when in 64-bit mode.
                  (if (and (not address-size-override)
                           (= *cpu-mode* 64))
-                     (setf encoded-modrm-sib (list* (encode-modrm #b00 #b100 reg-nr)
-                                                    (encode-sib #b101 #b100 #b00)
-                                                    (encode-disp32 (or displacement 0))))
-                     (setf encoded-modrm-sib (list* (encode-modrm #b00 #b101 reg-nr)
-                                                    (encode-disp32 (or displacement 0))))))
+                     (setf encoded-modrm-sib (list (encode-modrm #b00 #b100 reg-nr)
+                                                   (encode-sib #b101 #b100 #b00)))
+                     (setf encoded-modrm-sib (list (encode-modrm #b00 #b101 reg-nr))))
+                 (setf need-disp32 t))
                 (t (error "Unknown/impossible addressing mode.")))
               (let ((ss (ecase scale ((nil 1) #b00) (2 #b01) (4 #b10) (8 #b11))))
                 (when (null index)
@@ -254,18 +260,19 @@
                   (error "Impossible index register ~S." index))
                 (cond
                   ((null base)
-                   (setf encoded-modrm-sib (list* (encode-modrm #b00 #b100 reg-nr)
-                                                  (encode-sib #b101 index-nr ss)
-                                                  (encode-disp32 (or displacement 0)))))
+                   (setf encoded-modrm-sib (list (encode-modrm #b00 #b100 reg-nr)
+                                                 (encode-sib #b101 index-nr ss))
+                         need-disp32 t))
                   ((or (is-bp base)
                        (and displacement (/= displacement 0)))
-                   (if (typep displacement '(or null (signed-byte 8)))
-                       (setf encoded-modrm-sib (list (encode-modrm #b01 #b100 reg-nr)
-                                                     (encode-sib base-nr index-nr ss)
-                                                     (ldb (byte 8 0) (or displacement 0))))
-                       (setf encoded-modrm-sib (list* (encode-modrm #b10 #b100 reg-nr)
-                                                      (encode-sib base-nr index-nr ss)
-                                                      (encode-disp32 (or displacement 0))))))
+                   (cond ((typep displacement '(or null (signed-byte 8)))
+                          (setf encoded-modrm-sib (list (encode-modrm #b01 #b100 reg-nr)
+                                                        (encode-sib base-nr index-nr ss)
+                                                        (ldb (byte 8 0) (or displacement 0)))))
+                         (t
+                          (setf encoded-modrm-sib (list (encode-modrm #b10 #b100 reg-nr)
+                                                        (encode-sib base-nr index-nr ss))
+                                need-disp32 t))))
                   ((or (null displacement) (= displacement 0))
                    (setf encoded-modrm-sib (list (encode-modrm #b00 #b100 reg-nr)
                                                  (encode-sib base-nr index-nr ss))))
@@ -278,7 +285,14 @@
           (if (listp opcode)
               (apply #'emit opcode)
               (emit opcode))
-          (apply #'emit encoded-modrm-sib))))))
+          (apply #'emit encoded-modrm-sib)
+          (when need-disp32
+            ;; Sometimes there's no displacement but one is needed anyway.
+            (when displacement
+              (emit-relocation :abs32le
+                               displacement
+                               0))
+            (emit 0 0 0 0)))))))
 
 (defun emit-modrm-register (class opcode reg r/m-reg
                             &key rex-w)
@@ -339,36 +353,10 @@
           (apply #'emit opcode)
           (emit opcode))
       (emit (encode-modrm #b00 #b101 reg-nr))
-      (apply #'emit (encode-disp32 (- (or displacement 0)
-                                      (+ *current-address* 4)))))))
-
-(defun emit-reg (operand-size opcode reg
-                 &key imm imm-length rex-w)
-  (when (= operand-size 64)
-    (assert (= *cpu-mode* 64) (*cpu-mode*) "64-bit operand-size only supported in 64-bit mode."))
-  (let ((force-rex nil)
-        (operand-size-override nil)
-        (rex '()))
-    (multiple-value-bind (reg-nr rex-b)
-        (encode-register reg)
-      (ecase operand-size
-        (64 (setf rex-w t))
-        (32 (when (= *cpu-mode* 16)
-              (setf operand-size-override t)))
-        (16 (when (/= *cpu-mode* 16)
-              (setf operand-size-override t)))
-        (8 (when (extended-8-bit-register-p reg)
-             (setf force-rex t))))
-      (when (or force-rex rex-w rex-b)
-        (when (register-conflicts-with-rex reg)
-          (error "Cannot encode ~S with REX prefix." reg))
-        (setf rex (list (encode-rex :w rex-w :b rex-b))))
-      (nconc (when operand-size-override
-               (list #x66))
-             rex
-             (list (logior opcode reg-nr))
-             (when imm-length
-               (encode-imm imm imm-length))))))
+      (emit-relocation :rel32le
+                       displacement
+                       (- (+ *following-immediate-bytes* 4)))
+      (emit 0 0 0 0))))
 
 (defun parse-r/m (form)
   "Parse a register or effective address into a bunch of values.
@@ -441,17 +429,18 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (defun generate-modrm (class r/m reg opc)
   (multiple-value-bind (r/m-reg base index scale disp rip-relative)
       (parse-r/m r/m)
-    (let ((disp-value (when disp (resolve-immediate disp))))
-      (when (or (not disp) disp-value)
-        (cond
-          (r/m-reg
-           (emit-modrm-register class opc reg r/m-reg :rex-w (eql class :gpr-64)))
-          (rip-relative
-           (emit-modrm-rip-relative class opc reg disp-value :rex-w (eql class :gpr-64)))
-          (t (emit-modrm-address class opc reg disp-value base index scale :rex-w (eql class :gpr-64))))
-        t))))
+    (let ((disp-value (when disp (or (resolve-immediate disp) disp))))
+      (cond
+        (r/m-reg
+         (emit-modrm-register class opc reg r/m-reg :rex-w (eql class :gpr-64)))
+        (rip-relative
+         (emit-modrm-rip-relative class opc reg disp-value :rex-w (eql class :gpr-64)))
+        (t
+         (emit-modrm-address class opc reg disp-value base index scale :rex-w (eql class :gpr-64))))
+      t)))
 
 (defun generate-jmp (dest short-opc long-opc)
+  (note-variably-sized-instruction)
   (let ((value (resolve-immediate dest)))
     (when value
       (setf value (- value *current-address* 2))
@@ -487,16 +476,33 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (dotimes (i width)
       (emit (ldb (byte 8 (* i 8)) imm)))))
 
+(defun emit-imm-with-relocation (width imm &optional (signedp t))
+  (let ((value (resolve-immediate imm)))
+    (when value
+      (let ((*fixup-target* imm))
+        (return-from emit-imm-with-relocation
+          (emit-imm width value signedp)))))
+  (unless (integerp width)
+    (setf width (ecase width
+                  ((:gpr-64 :gpr-32) 4)
+                  (:gpr-16 2)
+                  ((:gpr-8 :mm :xmm) 1))))
+  (emit-relocation (ecase width
+                     (1 (if signedp :abs8 :absu8))
+                     (2 (if signedp :abs16le :absu16le))
+                     (4 (if signedp :abs32le :absu32le))
+                     (8 (if signedp :abs64le :absu64le)))
+                   imm
+                   0))
+
 (defun generate-imm-ax (class reg imm opc)
   (declare (ignore reg))
-  (let ((imm-value (resolve-immediate imm)))
-    (when imm-value
-      (when (eql class :gpr-64)
-        (emit-rex :w t))
-      (maybe-emit-operand-size-override class)
-      (emit opc)
-      (emit-imm class imm-value)
-      t)))
+  (when (eql class :gpr-64)
+    (emit-rex :w t))
+  (maybe-emit-operand-size-override class)
+  (emit opc)
+  (emit-imm-with-relocation class imm)
+  t)
 
 (defmacro modrm (class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
@@ -517,27 +523,19 @@ Remaining values describe the effective address: base index scale disp rip-relat
                   (consp ,r/m))
               ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
               (immediatep ,imm8))
-     (let ((value (resolve-immediate ,imm8)))
-       (when value
-         (generate-modrm ,class ,r/m ,reg ,opc)
-         (emit-imm 1 value))
-       (return-from instruction t))))
+     (let ((*following-immediate-bytes* 1))
+       (generate-modrm ,class ,r/m ,reg ,opc))
+     (emit-imm-with-relocation 1 ,imm8)
+     (return-from instruction t)))
 
 (defun generate-imm (class r/m imm opc opc-minor)
-  (let ((imm-value (resolve-immediate imm)))
-    (when imm-value
-      ;; HACK to make rip-relative addresses work properly
-      (incf *current-address* (ecase class
-                                ((:gpr-64 :gpr-32) 4)
-                                (:gpr-16 2)
-                                ((:gpr-8 :xmm :mm) 1)))
-      (generate-modrm class r/m opc-minor opc)
-      (decf *current-address* (ecase class
-                                ((:gpr-64 :gpr-32) 4)
-                                (:gpr-16 2)
-                                ((:gpr-8 :xmm :mm) 1)))
-      (emit-imm class imm-value)
-      t)))
+  (let ((*following-immediate-bytes* (ecase class
+                                       ((:gpr-64 :gpr-32) 4)
+                                       (:gpr-16 2)
+                                       ((:gpr-8 :xmm :mm) 1))))
+    (generate-modrm class r/m opc-minor opc))
+  (emit-imm-with-relocation class imm)
+  t)
 
 (defmacro imm (class dst src opc opc-minor)
   `(when (and (not (reg-class ,src))
@@ -549,14 +547,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
          (generate-imm ,class ,dst ,src ,opc ,opc-minor)))))
 
 (defun generate-imm-short (class r/m imm opc opc-minor)
-  (let ((imm-value (resolve-immediate imm)))
-    (when imm-value
-      ;; HACK to make rip-relative addresses work properly
-      (incf *current-address*)
-      (generate-modrm class r/m opc-minor opc)
-      (decf *current-address*)
-      (emit-imm 1 imm-value)
-      t)))
+  (let ((*following-immediate-bytes* 1))
+    (generate-modrm class r/m opc-minor opc))
+  (emit-imm-with-relocation 1 imm)
+  t)
 
 (defmacro imm-short (class dst imm opc opc-minor)
   `(when (and (not (reg-class ,imm))
@@ -586,11 +580,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (cond ((eql value 1)
            (generate-modrm class r/m opc-minor 1-opc)
            t)
-          (value
-           (incf *current-address*)
-           (generate-modrm class r/m opc-minor n-opc)
-           (decf *current-address*)
-           (emit-imm 1 value)
+          (t
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm class r/m opc-minor n-opc))
+           (emit-imm-with-relocation 1 amount)
            t))))
 
 (defmacro shift-imm (class dst amount 1-opc n-opc opc-minor)
@@ -602,12 +595,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
        (generate-shift-imm ,class ,dst ,amount ,1-opc ,n-opc ,opc-minor))))
 
 (defun generate-big-shift-imm (class r/m reg amount opc)
-  (let ((value (resolve-immediate amount)))
-    (incf *current-address*)
-    (generate-modrm class r/m reg opc)
-    (decf *current-address*)
-    (emit-imm 1 value)
-    t))
+  (let ((*following-immediate-bytes* 1))
+    (generate-modrm class r/m reg opc))
+  (emit-imm-with-relocation 1 amount)
+  t)
 
 (defmacro big-shift-imm (class dst src amount opc)
   `(when (and (not (reg-class ,amount))
@@ -857,32 +848,28 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (let ((value (resolve-immediate src)))
         (unless (eql value :fixup)
           (return-from instruction
-            (when value
-              (multiple-value-bind (nr rex-b)
-                  (encode-register dst)
-                (emit-rex :w t :b rex-b)
-                (emit (+ #xB8 nr))
-                (emit-imm 8 value))
+            (multiple-value-bind (nr rex-b)
+                (encode-register dst)
+              (emit-rex :w t :b rex-b)
+              (emit (+ #xB8 nr))
+              (emit-imm-with-relocation 8 value)
               t)))))
     (modrm class dst src (logior #x88 width-bit))
     (modrm class src dst (logior #x8A width-bit))
     (unless (eql class :gpr-64)
       (when (and (immediatep src)
                  (eql (reg-class dst) class))
-        (let ((imm-value (resolve-immediate src))
-              (*fixup-target* src))
-          (return-from instruction
-            (when imm-value
-              (maybe-emit-operand-size-override class)
-              (multiple-value-bind (nr rex-b)
-                  (encode-register dst)
-                (when rex-b
-                  (when (register-conflicts-with-rex dst)
-                    (error "Cannot encode ~S with REX prefix." dst))
-                  (emit-rex :b rex-b))
-                (emit (+ (if (eql class :gpr-8) #xB0 #xB8) nr))
-                (emit-imm class imm-value)
-                t))))))
+        (return-from instruction
+          (multiple-value-bind (nr rex-b)
+              (encode-register dst)
+            (maybe-emit-operand-size-override class)
+            (when rex-b
+              (when (register-conflicts-with-rex dst)
+                (error "Cannot encode ~S with REX prefix." dst))
+              (emit-rex :b rex-b))
+            (emit (+ (if (eql class :gpr-8) #xB0 #xB8) nr))
+            (emit-imm-with-relocation class src)
+            t))))
     (imm class dst src (logior #xC6 width-bit) 0)))
 
 (define-integer-instruction out (port) (class)
@@ -892,12 +879,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (emit (logior #xEE (if (eql class :gpr-8) 0 1)))
       (return-from instruction t))
     (when (immediatep port)
-      (let ((value (resolve-immediate port)))
-        (return-from instruction
-          (when value
-            (maybe-emit-operand-size-override class)
-            (emit (logior #xE6 (if (eql class :gpr-8) 0 1)))
-            (emit-imm 1 value)))))))
+      (maybe-emit-operand-size-override class)
+      (emit (logior #xE6 (if (eql class :gpr-8) 0 1)))
+      (emit-imm-with-relocation 1 port)
+      (return-from instruction t))))
 
 (define-integer-instruction in (port) (class)
   (unless (eql class :gpr-64)
@@ -906,12 +891,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (emit (logior #xEC (if (eql class :gpr-8) 0 1)))
       (return-from instruction t))
     (when (immediatep port)
-      (let ((value (resolve-immediate port)))
-        (return-from instruction
-          (when value
-            (maybe-emit-operand-size-override class)
-            (emit (logior #xE4 (if (eql class :gpr-8) 0 1)))
-            (emit-imm 1 value)))))))
+      (maybe-emit-operand-size-override class)
+      (emit (logior #xE4 (if (eql class :gpr-8) 0 1)))
+      (emit-imm 1 port)
+      (return-from instruction t))))
 
 (define-instruction movcr (dst src)
   (when (and (eql (reg-class dst) :cr)
@@ -964,16 +947,18 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction int (vector)
   (when (immediatep vector)
     (let ((value (resolve-immediate vector)))
-      (return-from instruction
-        (when value
-          (if (= value 3)
-              (emit #xCC)
-              (emit #xCD value))
-          t)))))
+      (cond ((eql value 3)
+             (emit #xCC))
+            (t
+             (emit #xCD)
+             (emit-imm-with-relocation 1 value nil)))
+      (return-from instruction t))))
 
 (define-instruction call (dst)
   (when (and (not (reg-class dst))
              (immediatep dst))
+    ;; Not actually variably sized, but uses *current-address*.
+    (note-variably-sized-instruction)
     (let ((value (resolve-immediate dst)))
       (return-from instruction
         (when value
@@ -999,12 +984,9 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (return-from instruction t)))
   (when (immediatep value)
     ;; TODO: short form.
-    (let ((value (resolve-immediate value)))
-      (return-from instruction
-        (when value
-          (emit #x68)
-          (emit-imm (if (eql *cpu-mode* 16) 2 4) value)
-          t))))
+    (emit #x68)
+    (emit-imm-with-relocation (if (eql *cpu-mode* 16) 2 4) value)
+    (return-from instruction t))
   (modrm-single (ecase *cpu-mode*
                   (64 :gpr-64)
                   (32 :gpr-32)

@@ -379,10 +379,12 @@
   (:use :cl)
   (:export #:perform-assembly
            #:emit
+           #:emit-relocation
            #:immediatep
            #:resolve-immediate
            #:*current-address*
            #:note-fixup
+           #:note-variably-sized-instruction
            #:*function-reference-resolver*))
 
 (defpackage :sys.lap-x86
