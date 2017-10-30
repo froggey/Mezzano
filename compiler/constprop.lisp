@@ -10,10 +10,11 @@
 
 (defparameter *constprop-lambda-copy-limit* 3)
 
-(defun constprop (form)
+(defun constprop (lambda)
   (with-metering (:constant-propagation)
+    (detect-uses lambda)
     (let ((*known-variables* '()))
-      (cp-form form))))
+      (cp-form lambda))))
 
 (defgeneric cp-form (form))
 

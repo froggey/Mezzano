@@ -14,6 +14,7 @@
 
 (defun kill-temporaries (lambda)
   (with-metering (:kill-temporaries)
+    (detect-uses lambda)
     (kt-form lambda)))
 
 (defgeneric kt-form (form &optional target-variable replacement-form))

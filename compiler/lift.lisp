@@ -7,6 +7,7 @@
 
 (defun lambda-lift (lambda)
   (with-metering (:lambda-lift)
+    (detect-uses lambda)
     (ll-form lambda)))
 
 (defgeneric ll-form (form))

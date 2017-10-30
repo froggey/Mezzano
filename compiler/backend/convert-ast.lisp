@@ -16,6 +16,7 @@
 
 (defun convert (lambda)
   (with-metering (:ast-to-backend-conversion)
+    (sys.c::detect-uses lambda)
     (codegen-lambda lambda)))
 
 (defun codegen-lambda (lambda)

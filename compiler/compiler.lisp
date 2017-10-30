@@ -110,7 +110,6 @@ A list of any declaration-specifiers."
 
 (defun codegen-lambda (lambda &optional target-architecture)
   (with-metering (:code-generation)
-    (detect-uses lambda)
     (codegen-lambda-using-target
      lambda
      (canonicalize-target target-architecture))))
@@ -139,16 +138,16 @@ A list of any declaration-specifiers."
     (unless run-optimizations
       (setf form (lower-keyword-arguments form)))
     ;; Lower complex lambda lists.
-    (setf form (lower-arguments (detect-uses form)))
+    (setf form (lower-arguments form))
     ;; Lower closed-over variables.
-    (setf form (lower-environment (detect-uses form)))
+    (setf form (lower-environment form))
     (when run-optimizations
       ;; Run a final simplify pass to kill off any useless bindings.
-      (setf form (simplify (detect-uses form))))
+      (setf form (simplify form)))
     ;; Make the dynamic environment explicit.
-    (setf form (lower-special-bindings (detect-uses form)))
+    (setf form (lower-special-bindings form))
     (when run-optimizations
-      (setf form (simplify (detect-uses form))))
+      (setf form (simplify form)))
     form))
 
 (defun eval-load-time-value (form read-only-p)
@@ -207,19 +206,18 @@ A list of any declaration-specifiers."
                           form))
       (let ((*change-count* 0))
         ;; Must be run before lift.
-        (setf form (inline-functions (detect-uses form) target-architecture))
-        (setf form (lambda-lift (detect-uses form)))
+        (setf form (inline-functions form target-architecture))
+        (setf form (lambda-lift form))
         ;; Key arg conversion must be performed after lambda-lifting, so as not to
         ;; complicate the lift code.
         (setf form (lower-keyword-arguments form))
-        (setf form (constprop (detect-uses form)))
-        (setf form (simplify (detect-uses form)))
-        (setf form (kill-temporaries (detect-uses form)))
-        (setf form (value-aware-lowering (detect-uses form)))
-        (setf form (simplify-control-flow (detect-uses form)))
-        (setf form (blexit (detect-uses form)))
-        (setf form (apply-transforms (detect-uses form) target-architecture))
-        (detect-uses form)
+        (setf form (constprop form))
+        (setf form (simplify form))
+        (setf form (kill-temporaries form))
+        (setf form (value-aware-lowering form))
+        (setf form (simplify-control-flow form))
+        (setf form (blexit form))
+        (setf form (apply-transforms form target-architecture))
         (when (eql *change-count* 0)
           (return form))))))
 

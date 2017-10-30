@@ -90,6 +90,10 @@
     (:tail :multiple)))
 
 (defun codegen-lambda (lambda)
+  (sys.c::detect-uses lambda)
+  (codegen-lambda-1 lambda))
+
+(defun codegen-lambda-1 (lambda)
   (let* ((*current-lambda* lambda)
          (*current-lambda-name* (lambda-information-name lambda))
          (*run-counter* 0)
@@ -1609,7 +1613,7 @@ Returns an appropriate tag."
   (cons form (incf *run-counter*)))
 
 (defun cg-lambda (form)
-  (list 'quote (codegen-lambda form)))
+  (list 'quote (codegen-lambda-1 form)))
 
 (defun raise-type-error (reg typespec)
   (unless (eql reg :r8)
