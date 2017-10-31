@@ -69,10 +69,10 @@
     (error 'type-error :expected-type '(integer 1) :datum n))
   `(integer 0 (,n)))
 
-(deftype short-float ()
-  'single-float)
-(deftype long-float ()
-  'double-float)
+(deftype short-float (&optional min max)
+  `(single-float ,min ,max))
+(deftype long-float (&optional min max)
+  `(double-float ,min ,max))
 
 (deftype fixnum ()
   `(integer ,most-negative-fixnum ,most-positive-fixnum))
