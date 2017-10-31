@@ -304,39 +304,25 @@
          whole)
         (t
          (let ((array-sym (gensym "ARRAY"))
-               (len (gensym "LENGTH"))
                (area-sym (gensym "AREA"))
                (info (upgraded-array-info (if (consp element-type)
                                               (second element-type)
                                               element-type))))
            (when (not (second info))
              (return-from make-array whole))
-           `(let* ((,len ,dimensions)
-                   (,area-sym ,area)
+           `(let* ((,area-sym ,area)
                    (,array-sym (make-array-with-known-element-type
-                                ,len ,element-type ',info ,area-sym
+                                ,dimensions ,element-type ',info ,area-sym
                                 ,(if initial-element-p
                                      initial-element
-                                     `',(fifth info)))))
+                                     `',(fifth info))
+                                ',adjustable
+                                ',fill-pointer)))
               ,@(when initial-contents-p
                   `((initialize-from-initial-contents ,array-sym ,initial-contents)))
-              ,@(when (integerp fill-pointer)
-                  `((unless (<= 0 ,fill-pointer ,len)
-                      (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <= ~S." ,fill-pointer ,len))))
-              ,@(when (or adjustable fill-pointer)
-                  `((setf ,array-sym (%make-array-header +object-tag-array+
-                                                         ,array-sym
-                                                         ,(case fill-pointer
-                                                            ((t) len)
-                                                            ((nil) nil)
-                                                            (t `',fill-pointer))
-                                                         nil
-                                                         (list ,len)
-                                                         ,area-sym))))
-
               ,array-sym)))))
 
-(defun make-array-with-known-element-type (dimensions element-type info area initial-element)
+(defun make-array-with-known-element-type (dimensions element-type info area initial-element adjustable fill-pointer)
   (when (and (consp dimensions)
              (integerp (first dimensions))
              (endp (rest dimensions)))
@@ -346,11 +332,29 @@
          (let ((array (make-simple-array-1 dimensions info area)))
            (when (not (eql initial-element (fifth info)))
              (fill array initial-element))
+           (when (or adjustable fill-pointer)
+             (when fill-pointer
+               (when (eql fill-pointer t)
+                 (setf fill-pointer dimensions))
+               (unless (integerp fill-pointer)
+                 (error "Invalid :FILL-POINTER ~S." fill-pointer))
+               (unless (<= 0 fill-pointer dimensions)
+                 (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <= ~S." fill-pointer dimensions)))
+             (setf array (%make-array-header +object-tag-array+
+                                             array
+                                             fill-pointer
+                                             nil
+                                             (if (listp dimensions)
+                                                 dimensions
+                                                 (list dimensions))
+                                             area)))
            array))
         (t
          (make-array dimensions
                      :element-type element-type
                      :initial-element initial-element
+                     :adjustable adjustable
+                     :fill-pointer fill-pointer
                      :area area))))
 
 (defun make-array (dimensions &key
@@ -606,7 +610,7 @@
   ;; that doesn't already have one.
   (check-vector-has-fill-pointer vector)
   (unless (<= 0 new-value (array-dimension vector 0))
-    (error "New fill-pointer ~S exceeds vector bounds. Should be non-negative and <=~S."
+    (error "New fill-pointer ~S exceeds vector bounds. Should be non-negative and <= ~S."
            new-value (array-dimension vector 0)))
   (setf (%complex-array-fill-pointer vector) new-value))
 
