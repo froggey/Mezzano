@@ -25,6 +25,7 @@
 
 (defun lower-environment (lambda)
   (with-metering (:lower-environment)
+    (detect-uses lambda)
     (let ((*environment-layout* (make-hash-table))
           (*environment-layout-dx* (make-hash-table))
           (*allow-dx-environment* 't)
