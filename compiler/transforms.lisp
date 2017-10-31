@@ -415,7 +415,7 @@
 (define-fast-array-transform (signed-byte 16) sys.int::%%object-ref-signed-byte-16)
 (define-fast-array-transform (signed-byte 8) sys.int::%%object-ref-signed-byte-8)
 (define-fast-array-transform single-float sys.int::%%object-ref-single-float)
-(define-fast-array-transform double-float sys.int::%%object-ref-double-float)
+(define-fast-array-transform double-float sys.int::%object-ref-double-float)
 
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))

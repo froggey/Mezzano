@@ -250,6 +250,7 @@ thread's stack if this function is called from normal code."
 (defun %object-ref-double-float (object index)
   (%integer-as-double-float (%object-ref-unsigned-byte-64 object index)))
 (defun (setf %object-ref-double-float) (value object index)
+  (check-type value double-float)
   (setf (%object-ref-unsigned-byte-64 object index)
         (%double-float-as-integer value))
   value)
