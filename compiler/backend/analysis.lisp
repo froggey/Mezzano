@@ -17,8 +17,22 @@
           (live-in* (make-hash-table))
           (live-out (make-hash-table))
           (live-out* (make-hash-table))
+          (actual-successors (make-hash-table))
           ;; FIXME
           (mv-regs (list :rcx :r8 :r9 :r10 :r11 :r12)))
+      ;; Add control edges from calls/invoke-nlx instructions to all live NLX thunks.
+      (let ((additional-successors '())
+            (dc (dynamic-contours backend-function)))
+        (do-instructions (inst backend-function)
+          (when (typep inst '(or base-call-instruction invoke-nlx-instruction invoke-nlx-multiple-instruction))
+            (dolist (c (gethash inst dc))
+              (when (typep c 'begin-nlx-instruction)
+                (setf additional-successors (union additional-successors
+                                                   (begin-nlx-targets c))))))
+          (when (typep inst 'terminator-instruction)
+            (setf (gethash inst actual-successors) (append (successors backend-function inst)
+                                                           additional-successors)
+                  additional-successors '()))))
       (loop
          (do-reversed-instructions (inst backend-function)
            (setf (gethash inst live-in*) (gethash inst live-in)
@@ -30,9 +44,14 @@
              (when (consumes-multiple-p inst)
                (setf uses (union uses mv-regs)))
              (setf (gethash inst live-out) '())
-             (dolist (succ (successors backend-function inst))
-               (setf (gethash inst live-out) (union (gethash inst live-out)
-                                                    (gethash succ live-in))))
+             (cond ((typep inst 'terminator-instruction)
+                    (dolist (succ (gethash inst actual-successors))
+                      (setf (gethash inst live-out) (union (gethash inst live-out)
+                                                           (gethash succ live-in)))))
+                   (t
+                    (let ((succ (next-instruction backend-function inst)))
+                      (setf (gethash inst live-out) (union (gethash inst live-out)
+                                                           (gethash succ live-in))))))
              (setf (gethash inst live-in) (union uses
                                                  (set-difference (gethash inst live-out)
                                                                  defs)))))
