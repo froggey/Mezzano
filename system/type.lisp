@@ -210,6 +210,26 @@
              (<= object max)))))
 (%define-compound-type 'float 'float-type-p)
 
+(defun single-float-type-p (object type)
+  (multiple-value-bind (min max)
+      (canonicalize-real-type type 'single-float)
+    (and (floatp object)
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
+(%define-compound-type 'single-float 'single-float-type-p)
+
+(defun double-float-type-p (object type)
+  (multiple-value-bind (min max)
+      (canonicalize-real-type type 'double-float)
+    (and (floatp object)
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
+(%define-compound-type 'double-float 'double-float-type-p)
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-rational-type (object type)
   "Convert a type specifier with interval designators like INTEGER, REAL and RATIONAL."
