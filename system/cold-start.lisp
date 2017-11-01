@@ -225,7 +225,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
                      :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
-        most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
+        most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)))
+        *gc-epoch* 0
+        *hash-table-unbound-value* (list "unbound hash-table entry")
+        *hash-table-tombstone* (list "hash-table tombstone"))
   ;; Wire up all the structure types.
   (setf (get 'sys.int::structure-definition 'sys.int::structure-type) sys.int::*structure-type-type*)
   (setf (get 'sys.int::structure-slot-definition 'sys.int::structure-type) sys.int::*structure-slot-type*)

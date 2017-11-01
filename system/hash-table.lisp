@@ -3,8 +3,8 @@
 
 (in-package :sys.int)
 
-(defvar *hash-table-unbound-value* (list "unbound hash-table entry"))
-(defvar *hash-table-tombstone* (list "hash-table tombstone"))
+(defglobal *hash-table-unbound-value*)
+(defglobal *hash-table-tombstone*)
 
 (defstruct (hash-table
              (:constructor %make-hash-table))
