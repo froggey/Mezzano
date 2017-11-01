@@ -561,7 +561,8 @@
   (assert (<= 0 start end (length sequence)))
   (macrolet ((fast-vector (type)
                `(if (and (typep sequence '(array ,type (*)))
-                         (typep item ',type))
+                         (typep item ',type)
+                         (not (array-displacement sequence)))
                     (let ((simple-vector (if (typep sequence '(simple-array ,type (*)))
                                              sequence
                                              (sys.int::%complex-array-storage sequence))))
