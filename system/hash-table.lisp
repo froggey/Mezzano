@@ -125,7 +125,7 @@
                     (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
                (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
                    (hash-table-rehash-threshold hash-table)))
-           (when (not (eq new-value default))
+           (when (not (eq old-value default))
              (return-from gethash default))
            ;; There must always be at least one unbound slot in the hash table.
            (hash-table-rehash hash-table t)
@@ -140,17 +140,17 @@
                (incf (hash-table-used hash-table)))
              (incf (hash-table-count hash-table))
              (setf (hash-table-key-at hash-table free-slot) key
-                   (hash-table-value-at hash-table free-slot) value)
+                   (hash-table-value-at hash-table free-slot) new-value)
              default))
           ;; No rehash/resize needed. Insert directly.
           (t
-           (when (not (eq new-value default))
+           (when (not (eq old-value default))
              (return-from gethash default))
            (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
              (incf (hash-table-used hash-table)))
            (incf (hash-table-count hash-table))
            (setf (hash-table-key-at hash-table free-slot) key
-                 (hash-table-value-at hash-table free-slot) value)
+                 (hash-table-value-at hash-table free-slot) new-value)
            default))))))
 
 (defun remhash (key hash-table)
