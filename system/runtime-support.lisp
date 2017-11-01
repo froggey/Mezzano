@@ -173,14 +173,17 @@
 
 (defun copy-list-in-area (list &optional area)
   (check-type list list)
-  (do* ((result (cons nil nil))
-        (tail result)
-        (l list (cdr l)))
-       ((not (consp l))
-        (setf (cdr tail) l)
-        (cdr result))
-    (setf (cdr tail) (cons-in-area (car l) nil area)
-          tail (cdr tail))))
+  (cond (list
+         (do* ((result (cons-in-area nil nil area))
+               (tail result)
+               (l list (cdr l)))
+              ((not (consp l))
+               (setf (cdr tail) l)
+               (cdr result))
+           (setf (cdr tail) (cons-in-area (car l) nil area)
+                 tail (cdr tail))))
+        (t
+         nil)))
 
 (defun copy-list (list)
   (copy-list-in-area list))
