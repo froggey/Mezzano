@@ -15,21 +15,34 @@
   (count 0))
 
 (defun single-dispatch-emf-entry (emf-table class)
+  (declare (optimize speed (safety 0) (debug 0))
+           (type single-dispatch-emf-table emf-table))
   (do* ((hash (class-hash class))
         (storage (single-dispatch-emf-table-table emf-table))
-        (size (sys.int::simple-vector-length storage))
+        (size (length storage))
+        (mask (1- size))
         ;; This hash implementation is inspired by the Python dict implementation.
-        (slot (logand hash #xFFFFFFFF) (logand #xFFFFFFFF (+ (* slot 5) perturb 1)))
+        (slot (logand hash #xFFFFFFFF)
+              (logand #xFFFFFFFF
+                      (the fixnum
+                           (+ (the fixnum
+                                   (+ (the fixnum
+                                           (* slot 5))
+                                      perturb))
+                              1))))
         (perturb hash (ash perturb -5)))
        (nil)
-    (let* ((offset (rem slot size))
-           (slot (svref storage offset)))
+    (declare (type simple-vector storage)
+             (type fixnum hash size mask slot perturb))
+    (let* ((offset (logand slot mask))
+           (slot (aref storage offset)))
+      (declare (type fixnum offset))
       (when (eq slot nil)
         ;; Unbound value marks the end of this run.
         (return nil))
       (when (and (not (eq slot t))
-                 (eq class (car slot)))
-        (return (cdr slot))))))
+                 (eq class (car (the cons slot))))
+        (return (cdr (the cons slot)))))))
 
 (defun get-single-dispatch-emf-table-slot-offset (storage class)
   (do* ((hash (class-hash class))
