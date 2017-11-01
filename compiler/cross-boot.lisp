@@ -158,8 +158,7 @@
 
 (defun sys.int::%defstruct (def)
   (when (gethash (structure-type-name def) *structure-types*)
-    (assert (eql (gethash (structure-type-name def) *structure-types*) def))
-    (assert (eql (get (structure-type-name def) 'sys.int::structure-type) def)))
+    (assert (eql (gethash (structure-type-name def) *structure-types*) def)))
   (let ((predicate (gensym (string (structure-type-name def)))))
     (setf (symbol-function predicate) (lambda (x)
                                         (and (cross-struct-p x)
@@ -169,7 +168,6 @@
                 (eql (symbol-package (structure-type-name def))
                      (find-package "SYS.C")))
       (eval `(cl:deftype ,(structure-type-name def) () '(satisfies ,predicate))))
-    (setf (get (structure-type-name def) 'sys.int::structure-type) def)
     (setf (gethash (structure-type-name def) *structure-types*) def)))
 
 (defun sys.int::%make-struct (length area)

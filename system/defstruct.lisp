@@ -351,7 +351,7 @@
                                          slot-descriptions
                                          included-structure
                                          included-slot-descriptions))
-         (struct-type (or (get name 'structure-type)
+         (struct-type (or (get-structure-type name nil)
                           (make-struct-definition name slots included-structure area))))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)

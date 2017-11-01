@@ -230,11 +230,12 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *hash-table-unbound-value* (list "unbound hash-table entry")
         *hash-table-tombstone* (list "hash-table tombstone"))
   ;; Wire up all the structure types.
-  (setf (get 'sys.int::structure-definition 'sys.int::structure-type) sys.int::*structure-type-type*)
-  (setf (get 'sys.int::structure-slot-definition 'sys.int::structure-type) sys.int::*structure-slot-type*)
+  (setf mezzano.runtime::*structure-types* (make-hash-table))
+  (%defstruct sys.int::*structure-type-type*)
+  (%defstruct sys.int::*structure-slot-type*)
   (dotimes (i (length *initial-structure-obarray*))
     (let ((defn (svref *initial-structure-obarray* i)))
-      (setf (get (structure-name defn) 'structure-type) defn)))
+      (%defstruct defn)))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.
   (dotimes (i (length *initial-fref-obarray*))

@@ -643,7 +643,7 @@
         (when test
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
-    (let ((struct-type (get type-specifier 'structure-type)))
+    (let ((struct-type (get-structure-type type-specifier nil)))
       (when struct-type
         (return-from typep
           (and (structure-object-p object)

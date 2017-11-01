@@ -8,6 +8,8 @@
 (sys.int::defglobal sys.int::*structure-type-type* nil)
 (sys.int::defglobal sys.int::*structure-slot-type* nil)
 
+(sys.int::defglobal *structure-types*)
+
 (declaim (inline sys.int::structure-object-p
                  sys.int::%struct-slot
                  (setf sys.int::%struct-slot)

@@ -168,7 +168,7 @@
          (parent (vector-pop stack))
          (slots (vector-pop stack))
          (name (vector-pop stack))
-         (definition (get name 'structure-type)))
+         (definition (get-structure-type name nil)))
     (cond (definition
            (unless (and (eql (length (structure-slots definition)) (length slots))
                         (every #'structure-slot-definition-compatible (structure-slots definition) slots))

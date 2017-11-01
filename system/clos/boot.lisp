@@ -41,7 +41,7 @@
   (let ((class (class-reference-class reference))
         (symbol (class-reference-name reference)))
     (when (not class)
-      (let ((struct (get symbol 'sys.int::structure-type)))
+      (let ((struct (sys.int::get-structure-type symbol nil)))
         (when struct
           (setf class (class-of-structure-definition struct)))))
     (if (and (null class) errorp)

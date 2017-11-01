@@ -220,7 +220,7 @@
   name)
 
 (defun %defstruct (structure-type)
-  (setf (get (structure-name structure-type) 'structure-type) structure-type))
+  (setf (gethash (structure-name structure-type) mezzano.runtime::*structure-types*) structure-type))
 
 (defparameter *incompatible-constant-redefinition-is-an-error* nil)
 (defparameter *defconstant-redefinition-comparator* 'eql)
@@ -398,7 +398,7 @@ VALUE may be nil to make the fref unbound."
     (t t)))
 
 (defun get-structure-type (name &optional (errorp t))
-  (or (get name 'structure-type)
+  (or (gethash name mezzano.runtime::*structure-types*)
       (and errorp
            (error "Unknown structure type ~S." name))))
 
