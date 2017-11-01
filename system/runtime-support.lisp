@@ -252,6 +252,9 @@
     symbol
     (cons (member setf cas) (cons symbol null))))
 
+(defglobal *setf-fref-table*)
+(defglobal *cas-fref-table*)
+
 (defun make-function-reference (name)
   (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 4 :wired)))
     (setf (%object-ref-t fref +fref-name+) name
@@ -287,19 +290,18 @@
                (if successp
                    new-fref
                    old-value)))))
-      ;; FIXME: lock here. It's hard to lock a plist, need to switch to
-      ;; a hash-table or something like that.
+      ;; FIXME: lock here.
       (setf
-       (let ((fref (get name-root 'setf-fref)))
+       (let ((fref (gethash name-root *setf-fref-table*)))
          (unless fref
            (setf fref (make-function-reference name)
-                 (get name-root 'setf-fref) fref))
+                 (gethash name-root *setf-fref-table*) fref))
          fref))
       (cas
-       (let ((fref (get name-root 'cas-fref)))
+       (let ((fref (gethash name-root *cas-fref-table*)))
          (unless fref
            (setf fref (make-function-reference name)
-                 (get name-root 'cas-fref) fref))
+                 (gethash name-root *cas-fref-table*) fref))
          fref)))))
 
 (defun function-reference-p (object)
