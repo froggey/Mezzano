@@ -290,18 +290,19 @@
                (if successp
                    new-fref
                    old-value)))))
-      ;; FIXME: lock here.
       (setf
        (let ((fref (gethash name-root *setf-fref-table*)))
          (unless fref
-           (setf fref (make-function-reference name)
-                 (gethash name-root *setf-fref-table*) fref))
+           (let ((new-fref (make-function-reference name)))
+             (setf fref (or (cas (gethash name-root *setf-fref-table*) nil new-fref)
+                            new-fref))))
          fref))
       (cas
        (let ((fref (gethash name-root *cas-fref-table*)))
          (unless fref
-           (setf fref (make-function-reference name)
-                 (gethash name-root *cas-fref-table*) fref))
+           (let ((new-fref (make-function-reference name)))
+             (setf fref (or (cas (gethash name-root *cas-fref-table*) nil new-fref)
+                            new-fref))))
          fref)))))
 
 (defun function-reference-p (object)
