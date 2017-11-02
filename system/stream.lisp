@@ -519,8 +519,8 @@
 
 (defclass string-output-stream (sys.gray:fundamental-character-output-stream
                                 string-stream)
-  ((element-type :initarg :element-type)
-   (string :initarg :string))
+  ((element-type :initarg :element-type :reader string-output-stream-element-type)
+   (string :initarg :string :accessor string-output-stream-string))
   (:default-initargs :string nil))
 
 (defun make-string-output-stream (&key (element-type 'character))
@@ -528,26 +528,23 @@
 
 (defun get-output-stream-string (string-output-stream)
   (check-type string-output-stream string-output-stream)
-  (prog1 (or (slot-value string-output-stream 'string)
-             (make-array 0 :element-type (slot-value string-output-stream 'element-type)))
-    (setf (slot-value string-output-stream 'string) nil)))
-
-(defun string-output-stream-write-char (character stream)
-  (unless (slot-value stream 'string)
-    (setf (slot-value stream 'string) (make-array 8
-                                                  :element-type (slot-value stream 'element-type)
-                                                  :adjustable t
-                                                  :fill-pointer 0)))
-  (vector-push-extend character (slot-value stream 'string)))
+  (prog1 (or (string-output-stream-string string-output-stream)
+             (make-array 0 :element-type (string-output-stream-element-type string-output-stream)))
+    (setf (string-output-stream-string string-output-stream) nil)))
 
 (defmethod sys.gray:stream-write-char ((stream string-output-stream) character)
-  (string-output-stream-write-char character stream))
+  (unless (string-output-stream-string stream)
+    (setf (string-output-stream-string stream) (make-array 8
+                                                           :element-type (string-output-stream-element-type stream)
+                                                           :adjustable t
+                                                           :fill-pointer 0)))
+  (vector-push-extend character (string-output-stream-string stream)))
 
 ;; TODO: declares and other stuff.
 (defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
   (if string-form
       `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (setf (slot-value ,var 'string) ,string-form)
+         (setf (string-output-stream-string stream) ,string-form)
          (unwind-protect (progn ,@body)
            (close ,var)))
       `(let ((,var (make-string-output-stream :element-type ,element-type)))
