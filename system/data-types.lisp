@@ -174,6 +174,11 @@
 (defconstant +funcallable-instance-slots+ 3)
 (defconstant +funcallable-instance-layout+ 4)
 
+;;; Standard instances.
+(defconstant +std-instance-class+ 0)
+(defconstant +std-instance-slots+ 1)
+(defconstant +std-instance-layout+ 2)
+
 ;;; Layout of function-references.
 
 (defconstant +fref-name+ 0)

@@ -575,4 +575,5 @@
   (setf *standard-class-effective-slots-position* (position 'effective-slots s-c-layout)
         *standard-class-slot-storage-layout-position* (position 'slot-storage-layout s-c-layout)
         *standard-class-hash-position* (position 'hash s-c-layout)
-        *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)))
+        *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
+        *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)))

@@ -89,6 +89,7 @@
 (sys.int::defglobal *standard-class-slot-storage-layout-position*)
 (sys.int::defglobal *standard-class-hash-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
+(sys.int::defglobal *standard-class-direct-default-initargs-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -124,9 +125,9 @@
       (sys.int::cas (svref slots location) old new)))
 
 (defun fast-sv-position (value simple-vector)
-  (dotimes (i (array-dimension simple-vector 0))
-    (when (eq value (svref simple-vector i))
-      (return i))))
+  (declare (optimize speed (safety 0) (debug 0))
+           (type simple-vector simple-vector))
+  (position value simple-vector :test #'eq))
 
 (defun fast-slot-read (instance location)
   (multiple-value-bind (slots layout)
@@ -281,9 +282,9 @@
 
 (defun class-of (x)
   (cond ((std-instance-p x)
-         (std-instance-class x))
+         (sys.int::%object-ref-t x sys.int::+std-instance-class+))
         ((funcallable-std-instance-p x)
-         (funcallable-std-instance-class x))
+         (sys.int::%object-ref-t x sys.int::+funcallable-instance-class+))
         (t (built-in-class-of x))))
 
 (defun canonicalize-struct-slot (slot)
@@ -404,7 +405,10 @@
   (setf (slot-value class 'direct-methods) new-value))
 
 (defun class-direct-default-initargs (class)
-  (slot-value class 'direct-default-initargs))
+  (let ((class-of-class (class-of class)))
+    (cond ((std-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-direct-default-initargs-position*))
+          (t (slot-value class 'direct-default-initargs)))))
 (defun (setf class-direct-default-initargs) (new-value class)
   (setf (slot-value class 'direct-default-initargs) new-value))
 
@@ -477,8 +481,8 @@ Other arguments are included directly."
 
 (defun std-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS or FUNCALLABLE-STANDARD-CLASS."
-  (or (eql metaclass *the-class-standard-class*)
-      (eql metaclass *the-class-funcallable-standard-class*)))
+  (or (eq metaclass *the-class-standard-class*)
+      (eq metaclass *the-class-funcallable-standard-class*)))
 
 (defun convert-to-direct-slot-definition (class canonicalized-slot)
   (apply #'make-instance
