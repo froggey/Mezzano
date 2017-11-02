@@ -33,11 +33,6 @@
 (defun (setf hash-table-value-at) (value hash-table index)
   (setf (svref (hash-table-storage hash-table) (1+ (* index 2))) value))
 
-;; Hmmm. Improves the check-type forms, but shouldn't this be
-;; done automatically by defstruct?
-(deftype hash-table ()
-  `(satisfies hash-table-p))
-
 (defun hash-table-test-hash-function (test)
   (ecase test
     ((eq) 'eq-hash)
