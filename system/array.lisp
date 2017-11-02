@@ -47,7 +47,7 @@
   (multiple-value-bind (element-type dimensions)
       (parse-array-type type)
     `(or (typep ,object '(simple-array ,element-type ,dimensions))
-         ,(compile-array-type-1 object 'arrayp element-type dimensions))))
+         ,(compile-array-type-1 object 'sys.int::complex-array-p element-type dimensions))))
 (%define-compound-type-optimizer 'array 'compile-array-type)
 
 (defun compile-simple-array-type (object type)
@@ -408,7 +408,7 @@
            (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
           ((eql upgraded-element-type 'character)
            (let* ((total-size (apply #'* dimensions))
-                  (backing-array (make-simple-array total-size '(unsigned-byte 8) area))
+                  (backing-array (make-array total-size :element-type '(unsigned-byte 8) :area area))
                   (array (%make-array-header (if (and (not adjustable)
                                                       (not fill-pointer))
                                                  +object-tag-simple-string+
@@ -523,10 +523,11 @@
         (t (error "TODO: Adjusting unusual array ~S." array))))
 
 (defun array-rank (array)
-  (check-type array array)
   (cond ((%simple-1d-array-p array)
          1)
-        (t (%object-header-data array))))
+        (t
+         (check-type array array)
+         (%object-header-data array))))
 
 (defun array-dimensions (array)
   (check-type array array)
@@ -534,13 +535,13 @@
      collect (array-dimension array i)))
 
 (defun array-dimension (array axis-number)
-  (check-type array array)
   (check-type axis-number (integer 0) "a non-negative integer")
   (cond ((%simple-1d-array-p array)
          (unless (zerop axis-number)
            (error "Axis ~S exceeds array rank 1." axis-number))
          (%object-header-data array))
         (t
+         (check-type array array)
          (when (>= axis-number (array-rank array))
            (error "Axis ~S exceeds array rank ~D."
                   axis-number (array-rank array)))

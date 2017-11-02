@@ -377,6 +377,70 @@
                        :inputs (list :rax)
                        :outputs '())))
 
+(define-builtin mezzano.runtime::%%simple-1d-array-p ((object) :be)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov8
+                       :operands (list :al `(:object ,object -1))
+                       :inputs (list object)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:and8
+                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp8
+                       :operands (list :al (ash sys.int::+last-simple-1d-array-object-tag+
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs '())))
+
+(define-builtin mezzano.runtime::%%arrayp ((object) :be)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov8
+                       :operands (list :al `(:object ,object -1))
+                       :inputs (list object)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:and8
+                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp8
+                       :operands (list :al (ash sys.int::+last-complex-array-object-tag+
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs '())))
+
+(define-builtin mezzano.runtime::%%complex-array-p ((object) :be)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov8
+                       :operands (list :al `(:object ,object -1))
+                       :inputs (list object)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:sub8
+                       :operands (list :al (ash sys.int::+first-complex-array-object-tag+
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:and8
+                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp8
+                       :operands (list :al (ash (- sys.int::+last-complex-array-object-tag+
+                                                   sys.int::+first-complex-array-object-tag+)
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs '())))
+
 (define-builtin sys.int::%unbound-value-p ((object) :e :early t)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:cmp64
