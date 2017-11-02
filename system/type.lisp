@@ -733,6 +733,15 @@
            (if ,class
                (class-typep ,object ,class)
                nil)))))
+  (when (symbolp type-specifier)
+    (let ((struct-type (get-structure-type type-specifier nil))
+          (obj-sym (gensym "OBJECT")))
+      (when struct-type
+        (return-from compile-typep-expression
+          `(let ((,obj-sym ,object))
+             (and (structure-object-p ,obj-sym)
+                  (or (eq (%struct-slot ,obj-sym 0) ',struct-type)
+                      (structure-type-p ,obj-sym ',struct-type))))))))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier)
     (when expanded-p
