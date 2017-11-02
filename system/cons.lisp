@@ -274,19 +274,27 @@
         (setf (cdr list) (car i))))))
 
 (defun reverse (sequence)
-  (if (listp sequence)
-      (let ((result '()))
-        (dolist (elt sequence result)
-          (setf result (cons elt result))))
-      (nreverse (make-array (length sequence)
-                            :element-type (array-element-type sequence)
-                            :initial-contents sequence))))
+  (etypecase sequence
+    (list
+     (let ((result '()))
+       (dolist (elt sequence result)
+         (setf result (cons elt result)))))
+    (vector
+     (nreverse (make-array (length sequence)
+                           :element-type (array-element-type sequence)
+                           :initial-contents sequence)))))
 
 (defun nreverse (sequence)
-  (if (vectorp sequence)
-      (dotimes (i (truncate (length sequence) 2) sequence)
-             (rotatef (aref sequence i) (aref sequence (- (length sequence) 1 i))))
-      (reverse sequence)))
+  (etypecase sequence
+    (vector
+     (dotimes (i (truncate (length sequence) 2) sequence)
+       (rotatef (aref sequence i) (aref sequence (- (length sequence) 1 i)))))
+    (list
+     (loop
+        with result = '()
+        while (not (endp sequence))
+        do (push (pop sequence) result)
+        finally (return result)))))
 
 ;; The following functional equivalences are true, although good implementations
 ;; will typically use a faster algorithm for achieving the same effect:
