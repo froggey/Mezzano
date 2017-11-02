@@ -383,17 +383,34 @@ VALUE may be nil to make the fref unbound."
   (check-type symbol symbol)
   (setf (fdefinition symbol) value))
 
+(defun gensym-1 (prefix number)
+  (let ((name (make-array (length prefix)
+                          :element-type 'character
+                          :initial-contents prefix
+                          :adjustable t
+                          :fill-pointer t)))
+    ;; Open-code integer to string conversion.
+    (labels ((frob (value)
+               (multiple-value-bind (quot rem)
+                   (truncate value 10)
+                 (when (not (zerop quot))
+                   (frob quot))
+                 (vector-push-extend (code-char (+ 48 rem))
+                                     name))))
+      (if (zerop number)
+          (vector-push-extend #\0 name)
+          (frob number)))
+    (make-symbol name)))
+
 (defvar *gensym-counter* 0)
 (defun gensym (&optional (thing "G"))
-  (check-type thing (or string (integer 0)))
-  (if (integerp thing)
-      (make-symbol (with-output-to-string (s)
-                     (write-char #\G s)
-                     (write thing :stream s :base 10)))
-      (prog1 (make-symbol (with-output-to-string (s)
-                            (write-string thing s)
-                            (write *gensym-counter* :stream s :base 10)))
-        (incf *gensym-counter*))))
+  (etypecase thing
+    ((integer 0)
+     (gensym-1 "G" thing))
+    (string
+     (prog1
+         (gensym-1 thing *gensym-counter*)
+       (incf *gensym-counter*)))))
 
 ;;; TODO: Expand this so it knows about the compiler's constant folders.
 (defun constantp (form &optional environment)
