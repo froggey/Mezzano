@@ -39,7 +39,7 @@
       (funcall (svref current 2) values))))
 
 (defun sys.int::%coerce-to-callable (object)
-  (etypecase object
+  (typecase object
     (function object)
     (symbol
      ;; Fast-path for symbols.
@@ -50,7 +50,10 @@
        (let ((fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
          (if (sys.int::%undefined-function-p fn)
              (fdefinition object)
-             fn))))))
+             fn))))
+    (t
+     (raise-type-error object '(or function symbol))
+     (%%unreachable))))
 
 (declaim (inline %object-slot-address))
 (defun %object-slot-address (object slot)
