@@ -21,8 +21,8 @@
 
 (defun codegen-lambda (lambda)
   (let ((*backend-function* (make-instance 'backend-function :ast-lambda lambda))
-        (*variable-registers* (make-hash-table))
-        (*go-tag-and-block-labels* (make-hash-table))
+        (*variable-registers* (make-hash-table :test 'eq :synchronized nil))
+        (*go-tag-and-block-labels* (make-hash-table :test 'eq :synchronized nil))
         (*dynamic-stack* '()))
     (check-lambda-arguments-are-simple lambda)
     (emit-argument-setup-code lambda)

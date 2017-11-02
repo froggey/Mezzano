@@ -6,8 +6,8 @@
 (in-package :mezzano.compiler.backend)
 
 (defun build-cfg (backend-function)
-  (let ((predecessors (make-hash-table))
-        (successors (make-hash-table))
+  (let ((predecessors (make-hash-table :test 'eq :synchronized nil))
+        (successors (make-hash-table :test 'eq :synchronized nil))
         (basic-blocks (list (first-instruction backend-function)))
         (active-bb (first-instruction backend-function))
         (targets '()))

@@ -145,7 +145,7 @@
 
 (defun instructions-reverse-postorder (backend-function)
   "Return instructions in reverse postorder."
-  (let ((visited (make-hash-table))
+  (let ((visited (make-hash-table :test 'eq :synchronized nil))
         (order '()))
     (labels ((visit (inst)
                (let ((additional '())
@@ -444,7 +444,7 @@
                        (funcall ordering backend-function)
                        (instructions-reverse-postorder backend-function)))
             (mv-flow (ir::multiple-value-flow backend-function architecture))
-            (clobbers (make-hash-table)))
+            (clobbers (make-hash-table :test 'eq :synchronized nil)))
         (dolist (inst order)
           (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
         (make-instance 'linear-allocator
@@ -459,14 +459,14 @@
 
 (defun build-live-ranges (allocator)
   (let ((ranges (make-array 128 :adjustable t :fill-pointer 0))
-        (vreg-ranges (make-hash-table))
+        (vreg-ranges (make-hash-table :test 'eq :synchronized nil))
         (ordering (allocator-instruction-ordering allocator))
         (live-in (allocator-live-in allocator))
         (live-out (allocator-live-out allocator))
         (active-vregs '())
-        (vreg-liveness-start (make-hash-table))
-        (vreg-conflicts (make-hash-table))
-        (vreg-move-hint (make-hash-table)))
+        (vreg-liveness-start (make-hash-table :test 'eq :synchronized nil))
+        (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
+        (vreg-move-hint (make-hash-table :test 'eq :synchronized nil)))
     (flet ((add-range (vreg end)
              (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
                                                         (set-difference (architectural-physical-registers (allocator-architecture allocator))
@@ -718,10 +718,10 @@
 
 (defun linear-scan-allocate (allocator)
   (setf (allocator-active-ranges allocator) '()
-        (allocator-range-allocations allocator) (make-hash-table)
+        (allocator-range-allocations allocator) (make-hash-table :test 'eq :synchronized nil)
         (allocator-free-registers allocator) (architectural-physical-registers (allocator-architecture allocator))
-        (allocator-spilled-ranges allocator) (make-hash-table)
-        (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal))
+        (allocator-spilled-ranges allocator) (make-hash-table :test 'eq :synchronized nil)
+        (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal :synchronized nil))
   (loop
      for inst in (allocator-instruction-ordering allocator)
      for instruction-index from 0

@@ -197,7 +197,7 @@ Virtual registers must be defined exactly once."
 
 (defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour)
   (declare (ignore basic-blocks bb-succs))
-  (let ((visited (make-hash-table))
+  (let ((visited (make-hash-table :test 'eq :synchronized nil))
         (phi-sites '())
         (def-sites '())
         (binding-bb nil))

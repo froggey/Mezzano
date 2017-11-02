@@ -13,11 +13,11 @@
 
 (defun compute-liveness (backend-function)
   (sys.c:with-metering (:backend-compute-liveness)
-    (let ((live-in (make-hash-table))
-          (live-in* (make-hash-table))
-          (live-out (make-hash-table))
-          (live-out* (make-hash-table))
-          (actual-successors (make-hash-table))
+    (let ((live-in (make-hash-table :test 'eq :synchronized nil))
+          (live-in* (make-hash-table :test 'eq :synchronized nil))
+          (live-out (make-hash-table :test 'eq :synchronized nil))
+          (live-out* (make-hash-table :test 'eq :synchronized nil))
+          (actual-successors (make-hash-table :test 'eq :synchronized nil))
           ;; FIXME
           (mv-regs (list :rcx :r8 :r9 :r10 :r11 :r12)))
       ;; Add control edges from calls/invoke-nlx instructions to all live NLX thunks.
@@ -63,8 +63,8 @@
       (values live-in live-out))))
 
 (defun build-use/def-maps (backend-function)
-  (let ((uses (make-hash-table))
-        (defs (make-hash-table)))
+  (let ((uses (make-hash-table :test 'eq :synchronized nil))
+        (defs (make-hash-table :test 'eq :synchronized nil)))
     (do-instructions (inst backend-function)
       (dolist (use (instruction-inputs inst))
         (when (typep use 'virtual-register)

@@ -18,15 +18,15 @@
 ;; themselves.
 (defun lengauer-tarjan-dominators (entry-basic-block bb-preds bb-succs)
   (let ((n* 0)
-        (bucket (make-hash-table))
-        (dfnum (make-hash-table))
-        (semi (make-hash-table))
-        (ancestor (make-hash-table))
-        (best (make-hash-table))
-        (idom (make-hash-table))
-        (samedom (make-hash-table))
+        (bucket (make-hash-table :test 'eq :synchronized nil))
+        (dfnum (make-hash-table :test 'eq :synchronized nil))
+        (semi (make-hash-table :test 'eq :synchronized nil))
+        (ancestor (make-hash-table :test 'eq :synchronized nil))
+        (best (make-hash-table :test 'eq :synchronized nil))
+        (idom (make-hash-table :test 'eq :synchronized nil))
+        (samedom (make-hash-table :test 'eq :synchronized nil))
         (vertex (make-array 0 :adjustable t :fill-pointer 0))
-        (parent (make-hash-table)))
+        (parent (make-hash-table :test 'eq :synchronized nil)))
     (labels ((ancestor-with-lowest-semi (v)
                (let ((a (gethash v ancestor)))
                  (when (gethash a ancestor)
@@ -78,7 +78,7 @@
     idom))
 
 (defun build-dominator-sets (backend-function basic-blocks bb-preds)
-  (let ((dominators (make-hash-table)))
+  (let ((dominators (make-hash-table :test 'eq :synchronized nil)))
     ;; Iteratively compute the dominators for each basic block.
     ;; For all other nodes, set all nodes as the dominators.
     (dolist (bb basic-blocks)
@@ -108,8 +108,8 @@
 
 (defun build-dominator-tree (backend-function basic-blocks dominators)
   "Construct the dominator tree & immediate dominator table."
-  (let ((dom-tree (make-hash-table))
-        (idoms (make-hash-table)))
+  (let ((dom-tree (make-hash-table :test 'eq :synchronized nil))
+        (idoms (make-hash-table :test 'eq :synchronized nil)))
     (dolist (bb basic-blocks)
       (setf (gethash bb dom-tree) '()))
     (dolist (bb basic-blocks)
@@ -138,7 +138,7 @@
     (values dom-tree idoms)))
 
 (defun build-dominance-frontier (backend-function dom-tree idoms bb-succs)
-  (let ((df (make-hash-table)))
+  (let ((df (make-hash-table :test 'eq :synchronized nil)))
     (labels ((frob (n)
                (let ((s '()))
                  (dolist (y (gethash n bb-succs))
@@ -154,7 +154,7 @@
     df))
 
 (defun build-dom-tree-from-idoms (idoms)
-  (let ((tree (make-hash-table)))
+  (let ((tree (make-hash-table :test 'eq :synchronized nil)))
     (maphash (lambda (bb idom)
                (when idom
                  (pushnew bb (gethash idom tree))))

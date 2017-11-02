@@ -48,7 +48,7 @@
   t)
 
 (defun multiple-value-flow (function architecture)
-  (let ((flow (make-hash-table))
+  (let ((flow (make-hash-table :test 'eq :synchronized nil))
         (worklist (list (cons (first-instruction function) nil))))
     ;; DFS over the instructions, following multiple values.
     (loop
@@ -86,7 +86,7 @@
     flow))
 
 (defun dynamic-contours (function)
-  (let ((contour (make-hash-table))
+  (let ((contour (make-hash-table :test 'eq :synchronized nil))
         (worklist (list (cons (first-instruction function) '()))))
     (loop
        (when (endp worklist)
