@@ -448,6 +448,13 @@
                        :inputs (list object)
                        :outputs (list))))
 
+(define-builtin sys.int::%undefined-function-p ((object) :e :early t)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp64
+                       :operands (list object :undefined-function)
+                       :inputs (list object)
+                       :outputs (list))))
+
 (define-builtin mezzano.runtime::%fixnum-+ ((lhs rhs) result)
   (let ((out (make-instance 'label)))
     (emit (make-instance 'move-instruction
