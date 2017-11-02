@@ -15,6 +15,7 @@
 (defun sys.int::double-float-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-double-float+))
 
+(declaim (inline floatp))
 (defun floatp (object)
   (or (sys.int::single-float-p object)
       (sys.int::double-float-p object)))

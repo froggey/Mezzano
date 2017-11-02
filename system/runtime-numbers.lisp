@@ -3,6 +3,7 @@
 
 (in-package :sys.int)
 
+(declaim (inline ratiop))
 (defun ratiop (object)
   (%object-of-type-p object +object-tag-ratio+))
 
@@ -16,6 +17,7 @@
     (ratio (%object-ref-t rational +ratio-denominator+))
     (integer 1)))
 
+(declaim (inline complexp))
 (defun complexp (object)
   (or (%object-of-type-p object +object-tag-complex-rational+)
       (%object-of-type-p object +object-tag-complex-single-float+)
