@@ -851,15 +851,16 @@
            (let* ((p (pop pairs))
                   (r1 (car p))
                   (r2 (cdr p)))
-             (insert (make-instance 'ir:swap-instruction
-                                    :lhs r1
-                                    :rhs r2))
-             ;; Fix up the pair list
-             (dolist (pair pairs)
-               (cond ((eql (car pair) r1)
-                      (setf (car pair) r2))
-                     ((eql (car pair) r2)
-                      (setf (car pair) r1))))))
+             (when (not (eql r1 r2))
+               (insert (make-instance 'ir:swap-instruction
+                                      :lhs r1
+                                      :rhs r2))
+               ;; Fix up the pair list
+               (dolist (pair pairs)
+                 (cond ((eql (car pair) r1)
+                        (setf (car pair) r2))
+                       ((eql (car pair) r2)
+                        (setf (car pair) r1)))))))
       ;; Finally do fills.
       (dolist (fill fills)
         (insert fill)))))
