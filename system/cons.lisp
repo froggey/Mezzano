@@ -249,6 +249,7 @@
   (setf (car (nthcdr n list)) value))
 
 (defun append (&rest lists)
+  (declare (dynamic-extent lists))
   (do* ((head (cons nil nil))
         (tail head)
         (i lists (cdr i)))
@@ -260,6 +261,7 @@
             tail (cdr tail)))))
 
 (defun nconc (&rest lists)
+  (declare (dynamic-extent lists))
   (let ((start (do ((x lists (cdr x)))
                    ((or (null x) (car x)) x))))
     (when start
