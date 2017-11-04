@@ -762,6 +762,8 @@
                        :inputs (list lhs rhs)
                        :outputs '())))
 
+;;; SINGLE-FLOAT operations.
+
 (define-builtin sys.int::%single-float-as-integer ((value) result :early t)
   (let ((temp (make-instance 'virtual-register :kind :integer)))
     (emit (make-instance 'unbox-single-float-instruction
@@ -788,6 +790,21 @@
                          :destination temp))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:cvtsi2ss64
+                         :operands (list result-unboxed temp)
+                         :inputs (list temp)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%%coerce-double-float-to-single-float ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvtsd2ss64
                          :operands (list result-unboxed temp)
                          :inputs (list temp)
                          :outputs (list result-unboxed)))
@@ -857,100 +874,197 @@
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin sys.int::%%single-float-/ ((lhs rhs) result :early t)
-  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source lhs
-                         :destination lhs-unboxed))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source rhs
-                         :destination rhs-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:divss
-                         :result result-unboxed
-                         :lhs lhs-unboxed
-                         :rhs rhs-unboxed))
-    (emit (make-instance 'box-single-float-instruction
-                         :source result-unboxed
-                         :destination result))))
+(macrolet ((frob (name instruction)
+             `(define-builtin ,name ((lhs rhs) result :early t)
+                (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
+                      (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
+                      (result-unboxed (make-instance 'virtual-register :kind :single-float)))
+                  (emit (make-instance 'unbox-single-float-instruction
+                                       :source lhs
+                                       :destination lhs-unboxed))
+                  (emit (make-instance 'unbox-single-float-instruction
+                                       :source rhs
+                                       :destination rhs-unboxed))
+                  (emit (make-instance 'x86-fake-three-operand-instruction
+                                       :opcode ',instruction
+                                       :result result-unboxed
+                                       :lhs lhs-unboxed
+                                       :rhs rhs-unboxed))
+                  (emit (make-instance 'box-single-float-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  (frob sys.int::%%single-float-/ lap:divss)
+  (frob sys.int::%%single-float-+ lap:addss)
+  (frob sys.int::%%single-float-- lap:subss)
+  (frob sys.int::%%single-float-* lap:mulss))
 
-(define-builtin sys.int::%%single-float-+ ((lhs rhs) result :early t)
-  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
+(define-builtin sys.int::%%single-float-sqrt ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :single-float))
         (result-unboxed (make-instance 'virtual-register :kind :single-float)))
     (emit (make-instance 'unbox-single-float-instruction
-                         :source lhs
-                         :destination lhs-unboxed))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source rhs
-                         :destination rhs-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:addss
-                         :result result-unboxed
-                         :lhs lhs-unboxed
-                         :rhs rhs-unboxed))
-    (emit (make-instance 'box-single-float-instruction
-                         :source result-unboxed
-                         :destination result))))
-
-(define-builtin sys.int::%%single-float-- ((lhs rhs) result :early t)
-  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source lhs
-                         :destination lhs-unboxed))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source rhs
-                         :destination rhs-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:subss
-                         :result result-unboxed
-                         :lhs lhs-unboxed
-                         :rhs rhs-unboxed))
-    (emit (make-instance 'box-single-float-instruction
-                         :source result-unboxed
-                         :destination result))))
-
-(define-builtin sys.int::%%single-float-* ((lhs rhs) result :early t)
-  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source lhs
-                         :destination lhs-unboxed))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source rhs
-                         :destination rhs-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:mulss
-                         :result result-unboxed
-                         :lhs lhs-unboxed
-                         :rhs rhs-unboxed))
-    (emit (make-instance 'box-single-float-instruction
-                         :source result-unboxed
-                         :destination result))))
-
-(define-builtin sys.int::%%single-float-sqrt ((lhs rhs) result :early t)
-  (let ((lhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (rhs-unboxed (make-instance 'virtual-register :kind :single-float))
-        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source lhs
-                         :destination lhs-unboxed))
-    (emit (make-instance 'unbox-single-float-instruction
-                         :source rhs
-                         :destination rhs-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
                          :opcode 'lap:sqrtss
-                         :result result-unboxed
-                         :lhs lhs-unboxed
-                         :rhs rhs-unboxed))
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
     (emit (make-instance 'box-single-float-instruction
                          :source result-unboxed
                          :destination result))))
+
+;;; DOUBLE-FLOAT operations.
+
+(define-builtin sys.int::%double-float-as-integer ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-unsigned-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin sys.int::%integer-as-double-float ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-double-float-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%%coerce-fixnum-to-double-float ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :integer))
+        (result-unboxed (make-instance 'virtual-register :kind :double-float)))
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvtsi2sd64
+                         :operands (list result-unboxed temp)
+                         :inputs (list temp)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%%coerce-single-float-to-double-float ((value) result :early t)
+  (let ((temp (make-instance 'virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'virtual-register :kind :double-float)))
+    (emit (make-instance 'unbox-single-float-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvtss2sd64
+                         :operands (list result-unboxed temp)
+                         :inputs (list temp)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%double-float-< ((lhs rhs) :b :early t)
+  (let ((lhs-unboxed (make-instance 'virtual-register :kind :double-float))
+        (rhs-unboxed (make-instance 'virtual-register :kind :double-float)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source rhs
+                         :destination rhs-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:ucomisd
+                         :operands (list lhs-unboxed rhs-unboxed)
+                         :inputs (list lhs-unboxed rhs-unboxed)
+                         :outputs '()))))
+
+;; TODO: This needs to check two conditions (P & NE), which the
+;; compiler can't currently do efficiently.
+(define-builtin sys.int::%%double-float-= ((lhs rhs) result :early t)
+  (let ((lhs-unboxed (make-instance 'virtual-register :kind :double-float))
+        (rhs-unboxed (make-instance 'virtual-register :kind :double-float))
+        (temp-result1 (make-instance 'virtual-register))
+        (temp-result2 (make-instance 'virtual-register)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source rhs
+                         :destination rhs-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:ucomisd
+                         :operands (list lhs-unboxed rhs-unboxed)
+                         :inputs (list lhs-unboxed rhs-unboxed)
+                         :outputs '()))
+    (emit (make-instance 'constant-instruction
+                         :destination temp-result1
+                         :value t))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:cmov64p
+                         :result temp-result2
+                         :lhs temp-result1
+                         :rhs `(:constant nil)))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:cmov64ne
+                         :result result
+                         :lhs temp-result2
+                         :rhs `(:constant nil)))))
+
+(define-builtin sys.int::%%truncate-double-float ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvttsd2si64
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(macrolet ((frob (name instruction)
+             `(define-builtin ,name ((lhs rhs) result :early t)
+                (let ((lhs-unboxed (make-instance 'virtual-register :kind :double-float))
+                      (rhs-unboxed (make-instance 'virtual-register :kind :double-float))
+                      (result-unboxed (make-instance 'virtual-register :kind :double-float)))
+                  (emit (make-instance 'unbox-double-float-instruction
+                                       :source lhs
+                                       :destination lhs-unboxed))
+                  (emit (make-instance 'unbox-double-float-instruction
+                                       :source rhs
+                                       :destination rhs-unboxed))
+                  (emit (make-instance 'x86-fake-three-operand-instruction
+                                       :opcode ',instruction
+                                       :result result-unboxed
+                                       :lhs lhs-unboxed
+                                       :rhs rhs-unboxed))
+                  (emit (make-instance 'box-double-float-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  (frob sys.int::%%double-float-/ lap:divsd)
+  (frob sys.int::%%double-float-+ lap:addsd)
+  (frob sys.int::%%double-float-- lap:subsd)
+  (frob sys.int::%%double-float-* lap:mulsd))
+
+(define-builtin sys.int::%%double-float-sqrt ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'virtual-register :kind :double-float)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:sqrtsd
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+;;; MMX operations.
 
 (define-builtin mezzano.simd::%make-mmx-vector ((value) result :early t)
   (let ((temp (make-instance 'virtual-register :kind :integer)))
