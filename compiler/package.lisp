@@ -488,8 +488,10 @@
 
            #:call-instruction
            #:call-multiple-instruction
+           #:tail-call-instruction
            #:funcall-instruction
            #:funcall-multiple-instruction
+           #:tail-funcall-instruction
            #:multiple-value-funcall-instruction
            #:multiple-value-funcall-multiple-instruction
            #:call-result

@@ -598,6 +598,26 @@
 (defmethod produces-multiple-p ((instruction call-multiple-instruction))
   t)
 
+(defclass tail-call-instruction (base-call-instruction terminator-instruction)
+  ((%function :initarg :function :accessor call-function)
+   (%arguments :initarg :arguments :accessor call-arguments)))
+
+(defmethod mezzano.compiler.backend::successors (function (instruction tail-call-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::instruction-inputs ((instruction tail-call-instruction))
+  (call-arguments instruction))
+
+(defmethod mezzano.compiler.backend::instruction-outputs ((instruction tail-call-instruction))
+  '())
+
+(defmethod mezzano.compiler.backend::replace-all-registers ((instruction tail-call-instruction) substitution-function)
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction tail-call-instruction))
+  (format t "   ~S~%"
+          `(:tail-call ,(call-function instruction) ,(call-arguments instruction))))
+
 (defclass funcall-instruction (base-call-instruction)
   ((%result :initarg :result :accessor call-result)
    (%function :initarg :function :accessor call-function)
@@ -642,6 +662,28 @@
 
 (defmethod produces-multiple-p ((instruction funcall-multiple-instruction))
   t)
+
+(defclass tail-funcall-instruction (base-call-instruction terminator-instruction)
+  ((%function :initarg :function :accessor call-function)
+   (%arguments :initarg :arguments :accessor call-arguments)))
+
+(defmethod successors (function (instruction tail-funcall-instruction))
+  '())
+
+(defmethod instruction-inputs ((instruction tail-funcall-instruction))
+  (list* (call-function instruction)
+         (call-arguments instruction)))
+
+(defmethod instruction-outputs ((instruction tail-funcall-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction tail-funcall-instruction) substitution-function)
+  (setf (call-function instruction) (funcall substitution-function (call-function instruction)))
+  (setf (call-arguments instruction) (mapcar substitution-function (call-arguments instruction))))
+
+(defmethod print-instruction ((instruction tail-funcall-instruction))
+  (format t "   ~S~%"
+          `(:tail-funcall ,(call-function instruction) ,(call-arguments instruction))))
 
 (defclass multiple-value-funcall-instruction (base-call-instruction)
   ((%result :initarg :result :accessor call-result)

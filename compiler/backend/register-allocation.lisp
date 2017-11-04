@@ -59,9 +59,9 @@
          (frob-function))
         (ir:multiple-value-funcall-multiple-instruction
          (frob-function))
-        (mezzano.compiler.backend.x86-64::x86-tail-call-instruction
+        (ir:tail-call-instruction
          (frob-inputs))
-        (mezzano.compiler.backend.x86-64::x86-tail-funcall-instruction
+        (ir:tail-funcall-instruction
          (frob-inputs)
          (frob-function))))))
 
@@ -280,6 +280,13 @@
            (eql (fourth (ir:call-arguments instruction)) operand)
            (eql (fifth (ir:call-arguments instruction)) operand))))
 
+(defmethod allow-memory-operand-p ((instruction ir:tail-call-instruction) operand (architecture sys.c:x86-64-target))
+  (not (or (eql (first (ir:call-arguments instruction)) operand)
+           (eql (second (ir:call-arguments instruction)) operand)
+           (eql (third (ir:call-arguments instruction)) operand)
+           (eql (fourth (ir:call-arguments instruction)) operand)
+           (eql (fifth (ir:call-arguments instruction)) operand))))
+
 (defmethod allow-memory-operand-p ((instruction ir:funcall-instruction) operand (architecture sys.c:x86-64-target))
   (not (or (eql (ir:call-result instruction) operand)
            (eql (ir:call-function instruction) operand)
@@ -290,6 +297,14 @@
            (eql (fifth (ir:call-arguments instruction)) operand))))
 
 (defmethod allow-memory-operand-p ((instruction ir:funcall-multiple-instruction) operand (architecture sys.c:x86-64-target))
+  (not (or (eql (ir:call-function instruction) operand)
+           (eql (first (ir:call-arguments instruction)) operand)
+           (eql (second (ir:call-arguments instruction)) operand)
+           (eql (third (ir:call-arguments instruction)) operand)
+           (eql (fourth (ir:call-arguments instruction)) operand)
+           (eql (fifth (ir:call-arguments instruction)) operand))))
+
+(defmethod allow-memory-operand-p ((instruction ir:tail-funcall-instruction) operand (architecture sys.c:x86-64-target))
   (not (or (eql (ir:call-function instruction) operand)
            (eql (first (ir:call-arguments instruction)) operand)
            (eql (second (ir:call-arguments instruction)) operand)

@@ -513,10 +513,15 @@
             (t
              (ecase result-mode
                (:tail
-                (emit (make-instance 'funcall-multiple-instruction
-                                     :function fn-tag
-                                     :arguments (list value-tag)))
-                (emit (make-instance 'return-multiple-instruction))
+                (cond (sys.c::*perform-tce*
+                       (emit (make-instance 'tail-funcall-instruction
+                                            :function fn-tag
+                                            :arguments (list value-tag))))
+                      (t
+                       (emit (make-instance 'funcall-multiple-instruction
+                                            :function fn-tag
+                                            :arguments (list value-tag)))
+                       (emit (make-instance 'return-multiple-instruction))))
                 nil)
                (:multiple
                 (emit (make-instance 'funcall-multiple-instruction
@@ -687,7 +692,13 @@
                                    (return-from cg-funcall nil))
                                  value)))
          (function (first arguments)))
-    (cond ((eql result-mode :tail)
+    (cond ((and sys.c::*perform-tce*
+                (eql result-mode :tail))
+           (emit (make-instance 'tail-funcall-instruction
+                                :function function
+                                :arguments (rest arguments)))
+           nil)
+          ((eql result-mode :tail)
            (emit (make-instance 'funcall-multiple-instruction
                                 :function function
                                 :arguments (rest arguments)))
@@ -774,7 +785,13 @@
                                 (when (not value)
                                   (return-from cg-call nil))
                                 value))))
-    (cond ((eql result-mode :tail)
+    (cond ((and sys.c::*perform-tce*
+                (eql result-mode :tail))
+           (emit (make-instance 'tail-call-instruction
+                                :function (ast-name form)
+                                :arguments arguments))
+           nil)
+          ((eql result-mode :tail)
            (emit (make-instance 'call-multiple-instruction
                                 :function (ast-name form)
                                 :arguments arguments))
