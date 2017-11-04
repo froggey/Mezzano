@@ -608,4 +608,8 @@
   (:export #:make-mmx-vector
            #:mmx-vector-value
            #:mmx-vector
-           #:mmx-vector-p))
+           #:mmx-vector-p
+           #:make-sse-vector
+           #:sse-vector-value
+           #:sse-vector
+           #:sse-vector-p))

@@ -62,6 +62,10 @@
   (let* ((local-layout (layout-local-variables backend-function))
          (layout (loop
                     for vreg being the hash-keys of defs using (hash-value vreg-defs)
+                    ;; SSE slots are 2 wide.
+                    ;; TODO: Force 16-byte alignment.
+                    when (eql (virtual-register-kind vreg) :sse)
+                    collect :raw
                     when (not (and vreg-defs
                                    (endp (rest vreg-defs))
                                    (typep (first vreg-defs) 'save-multiple-instruction)))
@@ -435,7 +439,9 @@
        (:gpr-64
         (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))))
+        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+    (:sse
+     (emit `(lap:movdqu ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
 
 (defmethod emit-lap (backend-function (instruction fill-instruction) uses defs)
   (ecase (virtual-register-kind (fill-source instruction))
@@ -462,7 +468,9 @@
        (:gpr-64
         (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))))
+        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+    (:sse
+     (emit `(lap:movdqu ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
   (emit (list* (x86-instruction-opcode instruction)
@@ -1074,6 +1082,9 @@
      (emit `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))
     (:mm
      (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
+
+(defmethod emit-lap (backend-function (instruction unbox-sse-vector-instruction) uses defs)
+  (emit `(lap:movdqa ,(unbox-destination instruction) (:object ,(unbox-source instruction) 1))))
 
 ;; TODO: Do this without a temporary integer register.
 (defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)

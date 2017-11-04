@@ -99,7 +99,7 @@
 (defconstant +object-tag-symbol+                  #b110000)
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
-;;#b110011
+(defconstant +object-tag-sse-vector+              #b110011)
 (defconstant +object-tag-thread+                  #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)

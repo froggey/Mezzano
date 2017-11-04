@@ -106,6 +106,30 @@
             ,(unbox-destination instruction)
             ,(unbox-source instruction))))
 
+(defclass box-sse-vector-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-sse-vector-instruction))
+  'mezzano.simd:sse-vector)
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction box-sse-vector-instruction))
+  (format t "   ~S~%"
+          `(:box-sse-vector
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
+(defclass unbox-sse-vector-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-sse-vector-instruction))
+  'mezzano.simd:sse-vector)
+
+(defmethod mezzano.compiler.backend::print-instruction ((instruction unbox-sse-vector-instruction))
+  (format t "   ~S~%"
+          `(:unbox-sse-vector
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
 (defun resolve-constant (register defs)
   (let ((register-defs (gethash register defs)))
     (cond ((and register-defs
@@ -1183,6 +1207,160 @@
   (frob mezzano.simd::%psubq/mmx lap:psubq)
   )
 
+;;; SSE operations.
+
+(macrolet ((def1 (fn inst)
+             `(define-builtin ,fn ((value) result :early t)
+                (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+                      (result-unboxed (make-instance 'virtual-register :kind :sse)))
+                  (emit (make-instance 'unbox-sse-vector-instruction
+                                       :source value
+                                       :destination value-unboxed))
+                  (emit (make-instance 'x86-instruction
+                                       :opcode ',inst
+                                       :operands (list result-unboxed value-unboxed)
+                                       :inputs (list value-unboxed)
+                                       :outputs (list result-unboxed)))
+                  (emit (make-instance 'box-sse-vector-instruction
+                                       :source result-unboxed
+                                       :destination result)))))
+           (def2 (fn inst)
+             `(define-builtin ,fn ((lhs rhs) result :early t)
+                (let ((lhs-unboxed (make-instance 'virtual-register :kind :sse))
+                      (rhs-unboxed (make-instance 'virtual-register :kind :sse))
+                      (result-unboxed (make-instance 'virtual-register :kind :sse)))
+                  (emit (make-instance 'unbox-sse-vector-instruction
+                                       :source lhs
+                                       :destination lhs-unboxed))
+                  (emit (make-instance 'unbox-sse-vector-instruction
+                                       :source rhs
+                                       :destination rhs-unboxed))
+                  (emit (make-instance 'x86-fake-three-operand-instruction
+                                       :opcode ',inst
+                                       :result result-unboxed
+                                       :lhs lhs-unboxed
+                                       :rhs rhs-unboxed))
+                  (emit (make-instance 'box-sse-vector-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  ;; MMX
+  (def2 mezzano.simd::%packssdw/sse lap:packssdw)
+  (def2 mezzano.simd::%packsswb/sse lap:packsswb)
+  (def2 mezzano.simd::%packuswb/sse lap:packuswb)
+  (def2 mezzano.simd::%paddb/sse lap:paddb)
+  (def2 mezzano.simd::%paddw/sse lap:paddw)
+  (def2 mezzano.simd::%paddd/sse lap:paddd)
+  (def2 mezzano.simd::%paddsb/sse lap:paddsb)
+  (def2 mezzano.simd::%paddsw/sse lap:paddsw)
+  (def2 mezzano.simd::%paddusb/sse lap:paddusb)
+  (def2 mezzano.simd::%paddusw/sse lap:paddusw)
+  (def2 mezzano.simd::%pand/sse lap:pand)
+  (def2 mezzano.simd::%pandn/sse lap:pandn)
+  (def2 mezzano.simd::%pcmpeqb/sse lap:pcmpeqb)
+  (def2 mezzano.simd::%pcmpeqw/sse lap:pcmpeqw)
+  (def2 mezzano.simd::%pcmpeqd/sse lap:pcmpeqd)
+  (def2 mezzano.simd::%pcmpgtb/sse lap:pcmpgtb)
+  (def2 mezzano.simd::%pcmpgtw/sse lap:pcmpgtw)
+  (def2 mezzano.simd::%pcmpgtd/sse lap:pcmpgtd)
+  (def2 mezzano.simd::%pmaddwd/sse lap:pmaddwd)
+  (def2 mezzano.simd::%pmulhuw/sse lap:pmulhuw)
+  (def2 mezzano.simd::%pmulhw/sse lap:pmulhw)
+  (def2 mezzano.simd::%pmullw/sse lap:pmullw)
+  (def2 mezzano.simd::%por/sse lap:por)
+  (def2 mezzano.simd::%psllw/sse lap:psllw)
+  (def2 mezzano.simd::%pslld/sse lap:pslld)
+  (def2 mezzano.simd::%psllq/sse lap:psllq)
+  (def2 mezzano.simd::%psraw/sse lap:psraw)
+  (def2 mezzano.simd::%psrad/sse lap:psrad)
+  (def2 mezzano.simd::%psrlw/sse lap:psrlw)
+  (def2 mezzano.simd::%psrld/sse lap:psrld)
+  (def2 mezzano.simd::%psrlq/sse lap:psrlq)
+  (def2 mezzano.simd::%psubb/sse lap:psubb)
+  (def2 mezzano.simd::%psubw/sse lap:psubw)
+  (def2 mezzano.simd::%psubd/sse lap:psubd)
+  (def2 mezzano.simd::%psubsb/sse lap:psubsb)
+  (def2 mezzano.simd::%psubsw/sse lap:psubsw)
+  (def2 mezzano.simd::%psubusb/sse lap:psubusb)
+  (def2 mezzano.simd::%psubusw/sse lap:psubusw)
+  (def2 mezzano.simd::%punpckhbw/sse lap:punpckhbw)
+  (def2 mezzano.simd::%punpckhwd/sse lap:punpckhwd)
+  (def2 mezzano.simd::%punpckhdq/sse lap:punpckhdq)
+  (def2 mezzano.simd::%punpcklbw/sse lap:punpcklbw)
+  (def2 mezzano.simd::%punpcklwd/sse lap:punpcklwd)
+  (def2 mezzano.simd::%punpckldq/sse lap:punpckldq)
+  (def2 mezzano.simd::%pxor/sse lap:pxor)
+
+  ;; SSE1
+  (def2 mezzano.simd::%pavgb/sse lap:pavgb)
+  (def2 mezzano.simd::%pavgw/sse lap:pavgw)
+  (def2 mezzano.simd::%pmaxsw/sse lap:pmaxsw)
+  (def2 mezzano.simd::%pmaxub/sse lap:pmaxub)
+  (def2 mezzano.simd::%pminsw/sse lap:pminsw)
+  (def2 mezzano.simd::%pminub/sse lap:pminub)
+  (def2 mezzano.simd::%psadbw/sse lap:psadbw)
+
+  (def2 mezzano.simd::%addps/sse lap:addps)
+  (def2 mezzano.simd::%addss/sse lap:addss)
+  (def2 mezzano.simd::%andnps/sse lap:andnps)
+  (def2 mezzano.simd::%andps/sse lap:andps)
+  (def2 mezzano.simd::%divps/sse lap:divps)
+  (def2 mezzano.simd::%divss/sse lap:divss)
+  (def2 mezzano.simd::%maxps/sse lap:maxps)
+  (def2 mezzano.simd::%maxss/sse lap:maxss)
+  (def2 mezzano.simd::%minps/sse lap:minps)
+  (def2 mezzano.simd::%minss/sse lap:minss)
+  (def2 mezzano.simd::%mulps/sse lap:mulps)
+  (def2 mezzano.simd::%mulss/sse lap:mulss)
+  (def2 mezzano.simd::%orps/sse lap:orps)
+  (def2 mezzano.simd::%rcpps/sse lap:rcpps)
+  (def2 mezzano.simd::%rcpss/sse lap:rcpss)
+  (def1 mezzano.simd::%rsqrtps/sse lap:rsqrtps)
+  (def1 mezzano.simd::%rsqrtss/sse lap:rsqrtss)
+  (def1 mezzano.simd::%sqrtps/sse lap:sqrtps)
+  (def1 mezzano.simd::%sqrtss/sse lap:sqrtss)
+  (def2 mezzano.simd::%subps/sse lap:subps)
+  (def2 mezzano.simd::%subss/sse lap:subss)
+  (def2 mezzano.simd::%unpckhps/sse lap:unpckhps)
+  (def2 mezzano.simd::%unpcklps/sse lap:unpcklps)
+  (def2 mezzano.simd::%xorps/sse lap:xorps)
+
+  ;; SSE2
+  (def2 mezzano.simd::%paddq/sse lap:paddq)
+  (def2 mezzano.simd::%pmuludq/sse lap:pmuludq)
+  (def2 mezzano.simd::%psubq/sse lap:psubq)
+
+  (def2 mezzano.simd::%addpd/sse lap:addpd)
+  (def2 mezzano.simd::%addsd/sse lap:addsd)
+  (def2 mezzano.simd::%andnpd/sse lap:andnpd)
+  (def1 mezzano.simd::%cvtpd2ps/sse lap:cvtpd2ps)
+  (def1 mezzano.simd::%cvtps2pd/sse lap:cvtps2pd)
+  (def1 mezzano.simd::%cvtsd2ss/sse lap:cvtsd2ss)
+  (def1 mezzano.simd::%cvtss2sd/sse lap:cvtss2sd)
+  (def1 mezzano.simd::%cvtpd2dq/sse lap:cvtpd2dq)
+  (def1 mezzano.simd::%cvttpd2dq/sse lap:cvttpd2dq)
+  (def1 mezzano.simd::%cvtdq2pd/sse lap:cvtdq2pd)
+  (def1 mezzano.simd::%cvtps2dq/sse lap:cvtps2dq)
+  (def1 mezzano.simd::%cvttps2dq/sse lap:cvttps2dq)
+  (def1 mezzano.simd::%cvtdq2ps/sse lap:cvtdq2ps)
+  (def2 mezzano.simd::%divpd/sse lap:divpd)
+  (def2 mezzano.simd::%divsd/sse lap:divsd)
+  (def2 mezzano.simd::%maxpd/sse lap:maxpd)
+  (def2 mezzano.simd::%maxsd/sse lap:maxsd)
+  (def2 mezzano.simd::%minpd/sse lap:minpd)
+  (def2 mezzano.simd::%minsd/sse lap:minsd)
+  (def2 mezzano.simd::%mulpd/sse lap:mulpd)
+  (def2 mezzano.simd::%mulsd/sse lap:mulsd)
+  (def2 mezzano.simd::%orpd/sse lap:orpd)
+  (def2 mezzano.simd::%shufpd/sse lap:shufpd)
+  (def1 mezzano.simd::%sqrtpd/sse lap:sqrtpd)
+  (def1 mezzano.simd::%sqrtsd/sse lap:sqrtsd)
+  (def2 mezzano.simd::%subpd/sse lap:subpd)
+  (def2 mezzano.simd::%subsd/sse lap:subsd)
+  (def2 mezzano.simd::%unpckhpd/sse lap:unpckhpd)
+  (def2 mezzano.simd::%unpcklpd/sse lap:unpcklpd)
+  (def2 mezzano.simd::%xorpd/sse lap:xorpd)
+  )
+
 (defun lower (backend-function early target)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
@@ -1308,6 +1486,41 @@
                 (make-instance 'x86-instruction
                                :opcode 'lap:mov64
                                :operands (list :r13 `(:function mezzano.simd::%%make-mmx-vector-rax))
+                               :inputs (list)
+                               :outputs (list :r13)
+                               :clobbers '(:r13)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:call
+                               :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
+                               :inputs (list :r13 :rax)
+                               :outputs (list :r8)
+                               :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                           :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                           :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                           :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination result
+                               :source :r8))
+               (mezzano.compiler.backend::remove-instruction backend-function inst)))
+            ((and (not early)
+                  (typep inst 'box-sse-vector-instruction))
+             ;; (box-sse-vector value) => (call make-sse-vector-xmm0 value)
+             (let* ((vector (box-source inst))
+                    (result (box-destination inst)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination :xmm0
+                               :source vector))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:mov64
+                               :operands (list :r13 `(:function mezzano.simd::%%make-sse-vector-xmm0))
                                :inputs (list)
                                :outputs (list :r13)
                                :clobbers '(:r13)))

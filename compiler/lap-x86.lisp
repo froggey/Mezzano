@@ -1152,25 +1152,86 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (emit #x66)
   (modrm :xmm rhs lhs '(#x0F #x2E)))
 
-(defmacro define-sse-float-op (name opcode)
-  (list 'progn
-        `(define-instruction ,(intern (format nil "~ASS" name)) (lhs rhs)
-           (emit #xF3)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))
-        `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
-           (emit #xF2)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))
-        `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))
-        `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
-           (emit #x66)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))))
+(defmacro define-sse-float-op (name opcode &key (scalar t) (packed t) (single t) (double t))
+  (let ((result '()))
+    (when scalar
+      (when single
+        (push `(define-instruction ,(intern (format nil "~ASS" name)) (lhs rhs)
+                 (emit #xF3)
+                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+              result))
+      (when double
+        (push `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
+                 (emit #xF2)
+                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+              result)))
+    (when packed
+      (when single
+        (push `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
+                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+              result))
+      (when double
+        (push `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
+                 (emit #x66)
+                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+              result)))
+    `(progn ,@result)))
 
 (define-sse-float-op add #x58)
+(define-sse-float-op and #x54 :scalar nil)
+(define-sse-float-op andn #x55 :scalar nil)
 (define-sse-float-op div #x5E)
+(define-sse-float-op max #x5F)
+(define-sse-float-op min #x5D)
 (define-sse-float-op mul #x59)
+(define-sse-float-op or #x56 :scalar nil)
+(define-sse-float-op rcp #x53 :double nil)
+(define-sse-float-op rsqrt #x52 :double nil)
+(define-sse-float-op shuf #xC6 :scalar nil :single nil)
 (define-sse-float-op sub #x5C)
 (define-sse-float-op sqrt #x51)
+(define-sse-float-op unpckh #x15 :scalar nil)
+(define-sse-float-op unpckl #x14 :scalar nil)
+(define-sse-float-op xor #x57 :scalar nil)
+
+(define-instruction cvtpd2ps (lhs rhs)
+  (emit #x66)
+  (modrm :xmm rhs lhs '(#x0F #x5A)))
+
+(define-instruction cvtps2pd (lhs rhs)
+  (modrm :xmm rhs lhs '(#x0F #x5A)))
+
+(define-instruction cvtsd2ss (lhs rhs)
+  (emit #xF2)
+  (modrm :xmm rhs lhs '(#x0F #x5A)))
+
+(define-instruction cvtss2sd (lhs rhs)
+  (emit #xF3)
+  (modrm :xmm rhs lhs '(#x0F #x5A)))
+
+(define-instruction cvtpd2dq (lhs rhs)
+  (emit #xF2)
+  (modrm :xmm rhs lhs '(#x0F #xE6)))
+
+(define-instruction cvttpd2dq (lhs rhs)
+  (emit #x66)
+  (modrm :xmm rhs lhs '(#x0F #xE6)))
+
+(define-instruction cvtdq2pd (lhs rhs)
+  (emit #xF3)
+  (modrm :xmm rhs lhs '(#x0F #xE6)))
+
+(define-instruction cvtps2dq (lhs rhs)
+  (emit #xF2)
+  (modrm :xmm rhs lhs '(#x0F #x5B)))
+
+(define-instruction cvttps2dq (lhs rhs)
+  (emit #x66)
+  (modrm :xmm rhs lhs '(#x0F #x5B)))
+
+(define-instruction cvtdq2ps (lhs rhs)
+  (emit #xF3)
+  (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvtss2si64 (dst src)
   (when (and (eql (reg-class src) :xmm)
