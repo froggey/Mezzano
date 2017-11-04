@@ -533,20 +533,6 @@
            #:object-set-object
            #:object-set-index
 
-           #:eq-instruction
-           #:eq-result
-           #:eq-lhs
-           #:eq-rhs
-
-           #:undefined-function-p-instruction
-           #:undefined-function-p-result
-           #:undefined-function-p-value
-
-           #:fixnum-<-instruction
-           #:fixnum-<-result
-           #:fixnum-<-lhs
-           #:fixnum-<-rhs
-
            #:push-special-stack-instruction
            #:push-special-stack-a-value
            #:push-special-stack-b-value

@@ -646,11 +646,12 @@
                        :lhs lhs
                        :rhs rhs)))
 
-(define-builtin eq ((lhs rhs) result :early t)
-  (emit (make-instance 'eq-instruction
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+(define-builtin eq ((lhs rhs) :e :early t)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp64
+                       :operands (list lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs '())))
 
 (define-builtin sys.int::%object-ref-t ((object index) result :early t)
   (emit (make-instance 'object-get-t-instruction
@@ -754,11 +755,12 @@
                          :source value
                          :destination result))))
 
-(define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) result :early t)
-  (emit (make-instance 'fixnum-<-instruction
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+(define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) :l :early t)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp64
+                       :operands (list lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs '())))
 
 (define-builtin sys.int::%single-float-as-integer ((value) result :early t)
   (let ((temp (make-instance 'virtual-register :kind :integer)))
@@ -1073,92 +1075,7 @@
     (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
           (next-inst (mezzano.compiler.backend::next-instruction backend-function inst) (if inst (mezzano.compiler.backend::next-instruction backend-function inst))))
          ((null inst))
-      (cond ((and (typep inst 'eq-instruction)
-                  (typep next-inst 'branch-instruction)
-                  (consumed-by-p inst next-inst uses defs))
-             ;; (branch (eq lhs rhs) target) => (cmp lhs rhs) (bcc target)
-             (let* ((eq-inst inst)
-                    (branch-inst next-inst)
-                    (lhs (eq-lhs eq-inst))
-                    (rhs (eq-rhs eq-inst))
-                    (true-rhs (maybe-constant-operand rhs defs)))
-               (mezzano.compiler.backend::insert-before
-                backend-function eq-inst
-                (make-instance 'x86-instruction
-                               :opcode 'lap:cmp64
-                               :operands (list lhs true-rhs)
-                               :inputs (if (eql true-rhs rhs)
-                                           (list lhs rhs)
-                                           (list lhs))
-                               :outputs '()))
-               (mezzano.compiler.backend::insert-before
-                backend-function eq-inst
-                (make-instance 'x86-branch-instruction
-                               :opcode (if (typep next-inst 'branch-true-instruction)
-                                           'lap:je
-                                           'lap:jne)
-                               :target (branch-target next-inst)))
-               ;; Point next to the instruction after the branch.
-               (setf next-inst (mezzano.compiler.backend::next-instruction backend-function next-inst))
-               ;; Remove the eq & branch.
-               (mezzano.compiler.backend::remove-instruction backend-function eq-inst)
-               (mezzano.compiler.backend::remove-instruction backend-function branch-inst)))
-            ((and (typep inst 'fixnum-<-instruction)
-                  (typep next-inst 'branch-instruction)
-                  (consumed-by-p inst next-inst uses defs))
-             ;; (branch (fixnum-< lhs rhs) target) => (cmp lhs rhs) (bcc target)
-             (let* ((fixnum-<-inst inst)
-                    (branch-inst next-inst)
-                    (lhs (fixnum-<-lhs fixnum-<-inst))
-                    (rhs (fixnum-<-rhs fixnum-<-inst))
-                    (true-rhs (maybe-constant-operand rhs defs)))
-               (mezzano.compiler.backend::insert-before
-                backend-function fixnum-<-inst
-                (make-instance 'x86-instruction
-                               :opcode 'lap:cmp64
-                               :operands (list lhs true-rhs)
-                               :inputs (if (eql true-rhs rhs)
-                                           (list lhs rhs)
-                                           (list lhs))
-                               :outputs '()))
-               (mezzano.compiler.backend::insert-before
-                backend-function fixnum-<-inst
-                (make-instance 'x86-branch-instruction
-                               :opcode (if (typep next-inst 'branch-true-instruction)
-                                           'lap:jl
-                                           'lap:jnl)
-                               :target (branch-target next-inst)))
-               ;; Point next to the instruction after the branch.
-               (setf next-inst (mezzano.compiler.backend::next-instruction backend-function next-inst))
-               ;; Remove the fixnum-< & branch.
-               (mezzano.compiler.backend::remove-instruction backend-function fixnum-<-inst)
-               (mezzano.compiler.backend::remove-instruction backend-function branch-inst)))
-            ((and (typep inst 'undefined-function-p-instruction)
-                  (typep next-inst 'branch-instruction)
-                  (consumed-by-p inst next-inst uses defs))
-             ;; (branch (undefined-function-p lhs rhs) target) => (cmp lhs rhs) (bcc target)
-             (let* ((branch-inst next-inst)
-                    (value (undefined-function-p-value inst)))
-               (mezzano.compiler.backend::insert-before
-                backend-function inst
-                (make-instance 'x86-instruction
-                               :opcode 'lap:cmp64
-                               :operands (list value :undefined-function)
-                               :inputs (list value)
-                               :outputs '()))
-               (mezzano.compiler.backend::insert-before
-                backend-function inst
-                (make-instance 'x86-branch-instruction
-                               :opcode (if (typep next-inst 'branch-true-instruction)
-                                           'lap:je
-                                           'lap:jne)
-                               :target (branch-target next-inst)))
-               ;; Point next to the instruction after the branch.
-               (setf next-inst (mezzano.compiler.backend::next-instruction backend-function next-inst))
-               ;; Remove the eq & branch.
-               (mezzano.compiler.backend::remove-instruction backend-function inst)
-               (mezzano.compiler.backend::remove-instruction backend-function branch-inst)))
-            ((typep inst 'object-get-t-instruction)
+      (cond ((typep inst 'object-get-t-instruction)
              ;; (object-get-t dest obj constant-index) => (mov dest (obj ind))
              (let* ((dest (object-get-destination inst))
                     (obj (object-get-object inst))
@@ -2329,18 +2246,6 @@
               (emit-gc-info :multiple-values 1)
               (emit `(lap:add64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
-
-(defun reify-condition (result-reg true-cmov-inst)
-  (emit `(lap:mov64 ,result-reg nil)
-        `(,true-cmov-inst ,result-reg (:constant t))))
-
-(defmethod emit-lap (backend-function (instruction eq-instruction) uses defs)
-  (emit `(lap:cmp64 ,(eq-lhs instruction) ,(eq-rhs instruction)))
-  (reify-condition (eq-result instruction) 'lap:cmov64e))
-
-(defmethod emit-lap (backend-function (instruction fixnum-<-instruction) uses defs)
-  (emit `(lap:cmp64 ,(fixnum-<-lhs instruction) ,(fixnum-<-rhs instruction)))
-  (reify-condition (fixnum-<-result instruction) 'lap:cmov64l))
 
 (defmethod emit-lap (backend-function (instruction object-get-t-instruction) uses defs)
   (emit `(lap:mov64 ,(object-get-destination instruction)

@@ -974,69 +974,6 @@
   (format t "   ~S~%"
           `(:object-set-t ,(object-set-value instruction) ,(object-set-object instruction) ,(object-set-index instruction))))
 
-(defclass eq-instruction (backend-instruction)
-  ((%result :initarg :result :accessor eq-result)
-   (%lhs :initarg :lhs :accessor eq-lhs)
-   (%rhs :initarg :rhs :accessor eq-rhs)))
-
-(defmethod instruction-inputs ((instruction eq-instruction))
-  (list (eq-lhs instruction) (eq-rhs instruction)))
-
-(defmethod instruction-outputs ((instruction eq-instruction))
-  (list (eq-result instruction)))
-
-(defmethod replace-all-registers ((instruction eq-instruction) substitution-function)
-  (setf (eq-result instruction) (funcall substitution-function (eq-result instruction)))
-  (setf (eq-lhs instruction) (funcall substitution-function (eq-lhs instruction)))
-  (setf (eq-rhs instruction) (funcall substitution-function (eq-rhs instruction))))
-
-(defmethod print-instruction ((instruction eq-instruction))
-  (format t "   ~S~%"
-          `(:eq ,(eq-result instruction) ,(eq-lhs instruction) ,(eq-rhs instruction))))
-
-(defmethod instruction-pure-p ((instruction eq-instruction))
-  t)
-
-(defclass undefined-function-p-instruction (backend-instruction)
-  ((%result :initarg :result :accessor undefined-function-p-result)
-   (%value :initarg :value :accessor undefined-function-p-value)))
-
-(defmethod instruction-inputs ((instruction undefined-function-p-instruction))
-  (list (undefined-function-p-value instruction)))
-
-(defmethod instruction-outputs ((instruction undefined-function-p-instruction))
-  (list (undefined-function-p-result instruction)))
-
-(defmethod print-instruction ((instruction undefined-function-p-instruction))
-  (format t "   ~S~%"
-          `(:undefined-function-p ,(undefined-function-p-result instruction) ,(undefined-function-p-value instruction))))
-
-(defmethod instruction-pure-p ((instruction undefined-function-p-instruction))
-  t)
-
-(defclass fixnum-<-instruction (backend-instruction)
-  ((%result :initarg :result :accessor fixnum-<-result)
-   (%lhs :initarg :lhs :accessor fixnum-<-lhs)
-   (%rhs :initarg :rhs :accessor fixnum-<-rhs)))
-
-(defmethod instruction-inputs ((instruction fixnum-<-instruction))
-  (list (fixnum-<-lhs instruction) (fixnum-<-rhs instruction)))
-
-(defmethod instruction-outputs ((instruction fixnum-<-instruction))
-  (list (fixnum-<-result instruction)))
-
-(defmethod replace-all-registers ((instruction fixnum-<-instruction) substitution-function)
-  (setf (fixnum-<-result instruction) (funcall substitution-function (fixnum-<-result instruction)))
-  (setf (fixnum-<-lhs instruction) (funcall substitution-function (fixnum-<-lhs instruction)))
-  (setf (fixnum-<-rhs instruction) (funcall substitution-function (fixnum-<-rhs instruction))))
-
-(defmethod print-instruction ((instruction fixnum-<-instruction))
-  (format t "   ~S~%"
-          `(:fixnum-< ,(fixnum-<-result instruction) ,(fixnum-<-lhs instruction) ,(fixnum-<-rhs instruction))))
-
-(defmethod instruction-pure-p ((instruction fixnum-<-instruction))
-  t)
-
 (defclass push-special-stack-instruction (backend-instruction)
   ((%a-value :initarg :a-value :accessor push-special-stack-a-value)
    (%b-value :initarg :b-value :accessor push-special-stack-b-value)))

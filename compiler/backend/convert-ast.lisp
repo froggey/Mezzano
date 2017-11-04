@@ -137,10 +137,10 @@
                (emit (make-instance 'constant-instruction
                                     :destination index
                                     :value (+ (length (lambda-information-required-args lambda)) i)))
-               (emit (make-instance 'fixnum-<-instruction
+               (emit (make-instance 'call-instruction
                                     :result sup-reg
-                                    :lhs index
-                                    :rhs count-reg))
+                                    :function 'mezzano.runtime::%fixnum-<
+                                    :arguments (list index count-reg)))
                (frob-arg suppliedp sup-reg))))
       ;; &REST argument.
       (let ((rest-arg (lambda-information-rest-arg lambda)))
@@ -327,9 +327,10 @@
                          :destination fref-function
                          :object fref-reg
                          :index fref-index))
-    (emit (make-instance 'undefined-function-p-instruction
+    (emit (make-instance 'call-instruction
                          :result is-defined
-                         :value fref-function))
+                         :function 'sys.int::%undefined-function-p
+                         :arguments (list fref-function)))
     (emit (make-instance 'branch-false-instruction
                          :value is-defined
                          :target is-defined-label))
