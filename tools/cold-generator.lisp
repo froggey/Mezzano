@@ -200,6 +200,7 @@
     "compiler/backend/register-allocation.lisp"
     "compiler/backend/x86-64.lisp"
     "compiler/backend/x86-64/target.lisp"
+    "compiler/backend/x86-64/codegen.lisp"
     ("runtime/simd.lisp" :x86-64)
     "system/file-compiler.lisp"
     "system/xp-package.lisp"

@@ -68,6 +68,7 @@
                (:file "compiler/backend/register-allocation")
                (:file "compiler/backend/x86-64")
                (:file "compiler/backend/x86-64/target")
+               (:file "compiler/backend/x86-64/codegen")
                (:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
                (:file "tools/cold-generator")
