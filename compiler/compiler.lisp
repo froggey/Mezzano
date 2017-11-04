@@ -24,7 +24,7 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3 speed 1))
 
-(defvar *use-new-compiler* nil)
+(defvar *use-new-compiler* t)
 
 (defvar *meters* (make-hash-table))
 
