@@ -1261,8 +1261,9 @@
                                              (or (not (consp x))
                                                  (member sys.c::*target-architecture* (rest x))))
                                            *warm-source-files*)))
-        ;; HACK! Force use of the new compiler building the SIMD functions.
-        (let ((sys.c::*use-new-compiler* (if (string= file "runtime/simd.lisp")
+        ;; HACK! Force use of the new compiler building the SIMD/float functions.
+        (let ((sys.c::*use-new-compiler* (if (member file '("runtime/simd.lisp"
+                                                            "runtime/float-x86-64.lisp"))
                                              t
                                              sys.c::*use-new-compiler*))
               (llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
