@@ -718,6 +718,7 @@
            #:box-fixnum-instruction
            #:box-unsigned-byte-64-instruction
            #:box-single-float-instruction
+           #:box-double-float-instruction
 
            #:unbox-instruction
            #:unbox-destination
@@ -725,6 +726,7 @@
            #:unbox-fixnum-instruction
            #:unbox-unsigned-byte-64-instruction
            #:unbox-single-float-instruction
+           #:unbox-double-float-instruction
 ))
 
 (defpackage :mezzano.compiler.backend.dominance

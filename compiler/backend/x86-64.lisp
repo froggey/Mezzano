@@ -1145,6 +1145,41 @@
                                :source :r8))
                (mezzano.compiler.backend::remove-instruction backend-function inst)))
             ((and (not early)
+                  (typep inst 'box-double-float-instruction))
+             ;; (box-double value) => (call make-double-rax value)
+             (let* ((value (box-source inst))
+                    (result (box-destination inst)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination :rax
+                               :source value))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:mov64
+                               :operands (list :r13 `(:function sys.int::%%make-double-float-rax))
+                               :inputs (list)
+                               :outputs (list :r13)
+                               :clobbers '(:r13)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'x86-instruction
+                               :opcode 'lap:call
+                               :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
+                               :inputs (list :r13 :rax)
+                               :outputs (list :r8)
+                               :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                           :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                           :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
+                                           :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
+               (mezzano.compiler.backend::insert-before
+                backend-function inst
+                (make-instance 'move-instruction
+                               :destination result
+                               :source :r8))
+               (mezzano.compiler.backend::remove-instruction backend-function inst)))
+            ((and (not early)
                   (typep inst 'box-mmx-vector-instruction))
              ;; (box-mmx-vector value) => (call make-mmx-vector-rax value)
              (let* ((vector (box-source inst))

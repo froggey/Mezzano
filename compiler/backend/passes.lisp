@@ -98,9 +98,12 @@
                       (typecase inst
                         (box-single-float-instruction
                          'single-float)
+                        (box-double-float-instruction
+                         'double-float)
                         (constant-instruction
                          (typecase (constant-value inst)
                            (single-float 'single-float)
+                           (double-float 'double-float)
                            (t nil)))
                         (t nil))))
                   (pred-value (pred)
@@ -116,10 +119,12 @@
                           (value (nth index (jump-values term)))
                           (temp (make-instance 'virtual-register
                                                :kind (ecase type
-                                                       (single-float :single-float)))))
+                                                       (single-float :single-float)
+                                                       (double-float :double-float)))))
                      (insert-before backend-function term
                                     (make-instance (ecase type
-                                                     (single-float 'unbox-single-float-instruction))
+                                                     (single-float 'unbox-single-float-instruction)
+                                                     (double-float 'unbox-double-float-instruction))
                                                    :source value
                                                    :destination temp))
                      (setf (nth index (jump-values term)) temp)))
@@ -129,7 +134,8 @@
                    (let ((temp (make-instance 'virtual-register)))
                      (insert-before backend-function user
                                     (make-instance (ecase type
-                                                     (single-float 'box-single-float-instruction))
+                                                     (single-float 'box-single-float-instruction)
+                                                     (double-float 'box-double-float-instruction))
                                                    :source phi
                                                    :destination temp))
                      (replace-all-registers user
@@ -139,7 +145,8 @@
                                                     (t reg))))))
                  ;; Change the phi kind.
                  (setf (slot-value phi '%kind) (ecase type
-                                                 (single-float :single-float)))
+                                                 (single-float :single-float)
+                                                 (double-float :double-float)))
                  (return-from unbox-phis-1 t)))))))
   nil)
 

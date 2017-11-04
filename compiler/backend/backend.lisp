@@ -1162,6 +1162,18 @@
             ,(box-destination instruction)
             ,(box-source instruction))))
 
+(defclass box-double-float-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-double-float-instruction))
+  'double-float)
+
+(defmethod print-instruction ((instruction box-double-float-instruction))
+  (format t "   ~S~%"
+          `(:box-double-float
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
 (defclass unbox-instruction (backend-instruction)
   ((%destination :initarg :destination :accessor unbox-destination)
    (%source :initarg :source :accessor unbox-source))
@@ -1213,6 +1225,18 @@
 (defmethod print-instruction ((instruction unbox-single-float-instruction))
   (format t "   ~S~%"
           `(:unbox-single-float
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
+(defclass unbox-double-float-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-double-float-instruction))
+  'double-float)
+
+(defmethod print-instruction ((instruction unbox-double-float-instruction))
+  (format t "   ~S~%"
+          `(:unbox-double-float
             ,(unbox-destination instruction)
             ,(unbox-source instruction))))
 

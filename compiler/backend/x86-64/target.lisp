@@ -34,13 +34,17 @@
   '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
     :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
 
+(defmethod ra:valid-physical-registers-for-kind ((kind (eql :double-float)) (architecture sys.c:x86-64-target))
+  '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
+    :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
+
 (defmethod ra:valid-physical-registers-for-kind ((kind (eql :mmx)) (architecture sys.c:x86-64-target))
   '(:mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7))
 
 (defmethod ra:spill/fill-register-kinds-compatible (kind1 kind2 (architecture sys.c:x86-64-target))
   ;; These register kinds are all mutually compatible.
-  (and (member kind1 '(:value :integer :single-float :mmx))
-       (member kind2 '(:value :integer :single-float :mmx))))
+  (and (member kind1 '(:value :integer :single-float :double-float :mmx))
+       (member kind2 '(:value :integer :single-float :double-float :mmx))))
 
 (defmethod ra:instruction-clobbers ((instruction ir::base-call-instruction) (architecture sys.c:x86-64-target))
   '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15

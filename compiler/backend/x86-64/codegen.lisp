@@ -424,6 +424,12 @@
         (emit `(lap:mov32 ,(effective-address (spill-destination instruction)) ,(lap::convert-width (spill-source instruction) 32))))
        ((:mm :xmm)
         (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+    (:double-float
+     (ecase (lap::reg-class (spill-source instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
     (:mmx
      (ecase (lap::reg-class (spill-source instruction))
        (:gpr-64
@@ -445,6 +451,12 @@
         (emit `(lap:mov32 ,(lap::convert-width (fill-destination instruction) 32) ,(effective-address (fill-source instruction)))))
        ((:mm :xmm)
         (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+    (:double-float
+     (ecase (lap::reg-class (fill-destination instruction))
+       (:gpr-64
+        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+       ((:mm :xmm)
+        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
     (:mmx
      (ecase (lap::reg-class (fill-destination instruction))
        (:gpr-64
@@ -1063,6 +1075,7 @@
     (:mm
      (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
 
+;; TODO: Do this without a temporary integer register.
 (defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
   (let ((tmp :rax))
     (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
@@ -1080,6 +1093,13 @@
           `(lap:shr64 ,tmp 32))
     (unless (eql (lap::reg-class (unbox-destination instruction)) :gpr-64)
       (emit `(lap:movd ,(unbox-destination instruction) :eax)))))
+
+(defmethod emit-lap (backend-function (instruction unbox-double-float-instruction) uses defs)
+  (ecase (lap::reg-class (unbox-destination instruction))
+    (:gpr-64
+     (emit `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))
+    (:xmm
+     (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
 
 (defun compile-backend-function-2 (backend-function *target*)
   (multiple-value-bind (lap debug-layout environment-slot)
