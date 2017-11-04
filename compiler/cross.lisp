@@ -755,11 +755,23 @@
 
 (defpackage :mezzano.compiler.backend.register-allocator
   (:use :cross-cl)
-  (:local-nicknames (:ir :mezzano.compiler.backend)))
+  (:local-nicknames (:ir :mezzano.compiler.backend))
+  (:export #:target-argument-registers
+           #:target-return-register
+           #:target-funcall-register
+           #:target-fref-register
+           #:target-count-register
+           #:architectural-physical-registers
+           #:valid-physical-registers-for-kind
+           #:spill/fill-register-kinds-compatible
+           #:instruction-clobbers
+           #:allow-memory-operand-p))
 
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cross-cl :mezzano.compiler.backend)
-  (:local-nicknames (:lap :sys.lap-x86)))
+  (:local-nicknames (:lap :sys.lap-x86)
+                    (:ir :mezzano.compiler.backend)
+                    (:ra :mezzano.compiler.backend.register-allocator)))
 
 (defpackage :mezzano.simd
   (:use :cross-cl)

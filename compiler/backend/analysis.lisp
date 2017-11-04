@@ -11,15 +11,15 @@
          (when (not (member elt list-1))
            (return nil)))))
 
-(defun compute-liveness (backend-function)
+(defun compute-liveness (backend-function target)
   (sys.c:with-metering (:backend-compute-liveness)
     (let ((live-in (make-hash-table :test 'eq :synchronized nil))
           (live-in* (make-hash-table :test 'eq :synchronized nil))
           (live-out (make-hash-table :test 'eq :synchronized nil))
           (live-out* (make-hash-table :test 'eq :synchronized nil))
           (actual-successors (make-hash-table :test 'eq :synchronized nil))
-          ;; FIXME
-          (mv-regs (list :rcx :r8 :r9 :r10 :r11 :r12)))
+          (mv-regs (list* (mezzano.compiler.backend.register-allocator:target-count-register target)
+                          (mezzano.compiler.backend.register-allocator:target-argument-registers target))))
       ;; Add control edges from calls/invoke-nlx instructions to all live NLX thunks.
       (let ((additional-successors '())
             (dc (dynamic-contours backend-function)))

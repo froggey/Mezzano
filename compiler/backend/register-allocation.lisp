@@ -3,145 +3,166 @@
 
 (in-package :mezzano.compiler.backend.register-allocator)
 
-;; FIXME: Arch-specific...
-(defparameter *argument-registers* '(:r8 :r9 :r10 :r11 :r12))
-(defparameter *return-register* :r8)
-(defparameter *funcall-register* :rbx)
-(defparameter *fref-register* :r13)
-(defparameter *count-register* :rcx)
+(defgeneric target-argument-registers (target))
+(defgeneric target-return-register (target))
+(defgeneric target-funcall-register (target))
+(defgeneric target-fref-register (target))
+(defgeneric target-count-register (target))
 
-(defun canonicalize-call-operands (backend-function)
-  (ir:do-instructions (inst backend-function)
-    (flet ((frob-inputs ()
-             ;; Insert moves to physical registers.
-             (loop
-                for preg in *argument-registers*
-                for vreg in (ir:call-arguments inst)
-                do
-                  (ir:insert-before backend-function inst
-                                    (make-instance 'ir:move-instruction
-                                                   :destination preg
-                                                   :source vreg)))
-             ;; Replace input operands with physical registers.
-             (setf (ir:call-arguments inst)
-                   (append (subseq *argument-registers* 0
-                                   (min (length (ir:call-arguments inst))
-                                        (length *argument-registers*)))
-                           (nthcdr (length *argument-registers*)
-                                   (ir:call-arguments inst)))))
-           (frob-outputs ()
-             (ir:insert-after backend-function inst
-                              (make-instance 'ir:move-instruction
-                                             :destination (ir:call-result inst)
-                                             :source *return-register*))
-             (setf (ir:call-result inst) *return-register*))
-           (frob-function ()
-             (ir:insert-before backend-function inst
-                               (make-instance 'ir:move-instruction
-                                              :destination *funcall-register*
-                                              :source (ir:call-function inst)))
-             (setf (ir:call-function inst) *funcall-register*)))
-      (typecase inst
-        (ir:call-instruction
-         (frob-inputs)
-         (frob-outputs))
-        (ir:call-multiple-instruction
-         (frob-inputs))
-        (ir:funcall-instruction
-         (frob-inputs)
-         (frob-outputs)
-         (frob-function))
-        (ir:funcall-multiple-instruction
-         (frob-inputs)
-         (frob-function))
-        (ir:multiple-value-funcall-instruction
-         (frob-outputs)
-         (frob-function))
-        (ir:multiple-value-funcall-multiple-instruction
-         (frob-function))
-        (ir:tail-call-instruction
-         (frob-inputs))
-        (ir:tail-funcall-instruction
-         (frob-inputs)
-         (frob-function))))))
+(defgeneric architectural-physical-registers (architecture))
+(defgeneric valid-physical-registers-for-kind (kind architecture))
 
-(defun canonicalize-argument-setup (backend-function)
-  (let ((aset (ir:first-instruction backend-function)))
+(defgeneric instruction-clobbers (instruction architecture)
+  (:method (i a) '()))
+
+(defgeneric allow-memory-operand-p (instruction operand architecture)
+  (:method (i o a)
+    nil))
+
+;; Can foo/bar register kinds be mixed in spill/fill code?
+(defgeneric spill/fill-register-kinds-compatible (kind1 kind2 architecture)
+  (:method (kind1 kind2 architecture)
+    (eql kind1 kind2)))
+
+(defun canonicalize-call-operands (backend-function target)
+  (let ((arg-regs (target-argument-registers target))
+        (return-reg (target-return-register target))
+        (funcall-reg (target-funcall-register target)))
+    (ir:do-instructions (inst backend-function)
+      (flet ((frob-inputs ()
+               ;; Insert moves to physical registers.
+               (loop
+                  for preg in arg-regs
+                  for vreg in (ir:call-arguments inst)
+                  do
+                    (ir:insert-before backend-function inst
+                                      (make-instance 'ir:move-instruction
+                                                     :destination preg
+                                                     :source vreg)))
+               ;; Replace input operands with physical registers.
+               (setf (ir:call-arguments inst)
+                     (append (subseq arg-regs 0
+                                     (min (length (ir:call-arguments inst))
+                                          (length arg-regs)))
+                             (nthcdr (length arg-regs)
+                                     (ir:call-arguments inst)))))
+             (frob-outputs ()
+               (ir:insert-after backend-function inst
+                                (make-instance 'ir:move-instruction
+                                               :destination (ir:call-result inst)
+                                               :source return-reg))
+               (setf (ir:call-result inst) return-reg))
+             (frob-function ()
+               (ir:insert-before backend-function inst
+                                 (make-instance 'ir:move-instruction
+                                                :destination funcall-reg
+                                                :source (ir:call-function inst)))
+               (setf (ir:call-function inst) funcall-reg)))
+        (typecase inst
+          (ir:call-instruction
+           (frob-inputs)
+           (frob-outputs))
+          (ir:call-multiple-instruction
+           (frob-inputs))
+          (ir:funcall-instruction
+           (frob-inputs)
+           (frob-outputs)
+           (frob-function))
+          (ir:funcall-multiple-instruction
+           (frob-inputs)
+           (frob-function))
+          (ir:multiple-value-funcall-instruction
+           (frob-outputs)
+           (frob-function))
+          (ir:multiple-value-funcall-multiple-instruction
+           (frob-function))
+          (ir:tail-call-instruction
+           (frob-inputs))
+          (ir:tail-funcall-instruction
+           (frob-inputs)
+           (frob-function)))))))
+
+(defun canonicalize-argument-setup (backend-function target)
+  (let ((aset (ir:first-instruction backend-function))
+        (arg-regs (target-argument-registers target))
+        (funcall-regs (target-funcall-register target)))
     ;; Required, optional, and the closure arguments are put in registers, but
     ;; count/fref are forced to be spilled. rcx (count) and r13 (fref) are
     ;; required by the &rest-list construction code.
     (ir:insert-after backend-function aset
                      (make-instance 'ir:move-instruction
                                     :destination (ir:argument-setup-closure aset)
-                                    :source :rbx))
-    (setf (ir:argument-setup-closure aset) :rbx)
+                                    :source funcall-regs))
+    (setf (ir:argument-setup-closure aset) funcall-regs)
     ;; Even though the rest list is generated in r13 this code does not
     ;; emit it in r13, choosing to keep it in a vreg and spill it.
     ;; This is due to the fact that there is no way to communicate usage
     ;; of the rest list to the final code emitter.
-    (let ((arg-regs *argument-registers*))
-      (do ((req (ir:argument-setup-required aset) (cdr req)))
-          ((or (endp arg-regs)
-               (endp req)))
-        (let ((reg (pop arg-regs)))
-          (ir:insert-after backend-function aset
-                           (make-instance 'ir:move-instruction
-                                          :destination (car req)
-                                          :source reg))
-          (setf (car req) reg)))
-      (do ((opt (ir:argument-setup-optional aset) (cdr opt)))
-          ((or (endp arg-regs)
-               (endp opt)))
-        (let ((reg (pop arg-regs)))
-          (ir:insert-after backend-function aset
-                           (make-instance 'ir:move-instruction
-                                          :destination (car opt)
-                                          :source reg))
-          (setf (car opt) reg))))))
+    (do ((req (ir:argument-setup-required aset) (cdr req)))
+        ((or (endp arg-regs)
+             (endp req)))
+      (let ((reg (pop arg-regs)))
+        (ir:insert-after backend-function aset
+                         (make-instance 'ir:move-instruction
+                                        :destination (car req)
+                                        :source reg))
+        (setf (car req) reg)))
+    (do ((opt (ir:argument-setup-optional aset) (cdr opt)))
+        ((or (endp arg-regs)
+             (endp opt)))
+      (let ((reg (pop arg-regs)))
+        (ir:insert-after backend-function aset
+                         (make-instance 'ir:move-instruction
+                                        :destination (car opt)
+                                        :source reg))
+        (setf (car opt) reg)))))
 
-(defun canonicalize-nlx-values (backend-function)
-  (ir:do-instructions (inst backend-function)
-    (when (typep inst 'ir:nlx-entry-instruction)
-      (ir:insert-after backend-function inst
-                       (make-instance 'ir:move-instruction
-                                      :destination (ir:nlx-entry-value inst)
-                                      :source :r8))
-      (setf (ir:nlx-entry-value inst) :r8))
-    (when (typep inst 'ir:invoke-nlx-instruction)
-      (ir:insert-before backend-function inst
-                        (make-instance 'ir:move-instruction
-                                       :destination :r8
-                                       :source (ir:invoke-nlx-value inst)))
-      (setf (ir:invoke-nlx-value inst) :r8))))
-
-(defun canonicalize-values (backend-function)
-  (ir:do-instructions (inst backend-function)
-    (when (typep inst 'ir:values-instruction)
-      (do ((regs *argument-registers* (rest regs))
-           (values (ir:values-values inst) (rest values)))
-          ((or (endp regs)
-               (endp values)))
-        (ir:insert-before backend-function inst
-                          (make-instance 'ir:move-instruction
-                                         :destination (first regs)
-                                         :source (first values)))
-        (setf (first values) (first regs))))
-    (when (typep inst 'ir:multiple-value-bind-instruction)
-      (do ((regs *argument-registers* (rest regs))
-           (values (ir:multiple-value-bind-values inst) (rest values)))
-          ((or (endp regs)
-               (endp values)))
+(defun canonicalize-nlx-values (backend-function target)
+  (let ((return-reg (target-return-register target)))
+    (ir:do-instructions (inst backend-function)
+      (when (typep inst 'ir:nlx-entry-instruction)
         (ir:insert-after backend-function inst
                          (make-instance 'ir:move-instruction
-                                        :destination (first values)
-                                        :source (first regs)))
-        (setf (first values) (first regs))))
-    (when (typep inst 'ir:return-instruction)
-      (ir:insert-before backend-function inst
-                        (make-instance 'ir:move-instruction
-                                       :destination :r8
-                                       :source (ir:return-value inst)))
-      (setf (ir:return-value inst) :r8))))
+                                        :destination (ir:nlx-entry-value inst)
+                                        :source return-reg))
+        (setf (ir:nlx-entry-value inst) return-reg))
+      (when (typep inst 'ir:invoke-nlx-instruction)
+        (ir:insert-before backend-function inst
+                          (make-instance 'ir:move-instruction
+                                         :destination return-reg
+                                         :source (ir:invoke-nlx-value inst)))
+        (setf (ir:invoke-nlx-value inst) return-reg)))))
+
+(defun canonicalize-values (backend-function target)
+  (let ((arg-regs (target-argument-registers target))
+        (return-reg (target-return-register target)))
+    (ir:do-instructions (inst backend-function)
+      (when (typep inst 'ir:values-instruction)
+        (do ((regs arg-regs (rest regs))
+             (values (ir:values-values inst) (rest values)))
+            ((or (endp regs)
+                 (endp values)))
+          (ir:insert-before backend-function inst
+                            (make-instance 'ir:move-instruction
+                                           :destination (first regs)
+                                           :source (first values)))
+          (setf (first values) (first regs))))
+      (when (typep inst 'ir:multiple-value-bind-instruction)
+        (do ((regs arg-regs (rest regs))
+             (values (ir:multiple-value-bind-values inst) (rest values)))
+            ((or (endp regs)
+                 (endp values)))
+          (ir:insert-after backend-function inst
+                           (make-instance 'ir:move-instruction
+                                          :destination (first values)
+                                          :source (first regs)))
+          (setf (first values) (first regs))))
+      (when (typep inst 'ir:return-instruction)
+        (ir:insert-before backend-function inst
+                          (make-instance 'ir:move-instruction
+                                         :destination return-reg
+                                         :source (ir:return-value inst)))
+        (setf (ir:return-value inst) return-reg)))))
 
 (defun instructions-reverse-postorder (backend-function)
   "Return instructions in reverse postorder."
@@ -175,169 +196,6 @@
         (when (typep out 'ir:virtual-register)
           (pushnew out regs))))
     regs))
-
-(defgeneric instruction-clobbers (instruction architecture)
-  (:method (i a) '()))
-
-(defmethod instruction-clobbers ((instruction ir::base-call-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:argument-setup-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:save-multiple-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:restore-multiple-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:nlx-entry-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:nlx-entry-multiple-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:values-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:multiple-value-bind-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:switch-instruction) (architecture sys.c:x86-64-target))
-  '(:rax))
-
-(defmethod instruction-clobbers ((instruction ir:push-special-stack-instruction) (architecture sys.c:x86-64-target))
-  '(:r13))
-
-(defmethod instruction-clobbers ((instruction ir:flush-binding-cache-entry-instruction) (architecture sys.c:x86-64-target))
-  '(:rax))
-
-(defmethod instruction-clobbers ((instruction ir:unbind-instruction) (architecture sys.c:x86-64-target))
-  '(:rbx :r13 :rax))
-
-(defmethod instruction-clobbers ((instruction ir:disestablish-block-or-tagbody-instruction) (architecture sys.c:x86-64-target))
-  '(:rbx :r13 :rcx))
-
-(defmethod instruction-clobbers ((instruction ir:disestablish-unwind-protect-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod instruction-clobbers ((instruction ir:make-dx-closure-instruction) (architecture sys.c:x86-64-target))
-  '(:rax :rcx))
-
-(defmethod instruction-clobbers ((instruction ir:box-single-float-instruction) (architecture sys.c:x86-64-target))
-  (if (eql (ir:virtual-register-kind (ir:box-source instruction)) :integer)
-      '()
-      '(:rax)))
-
-(defmethod instruction-clobbers ((instruction ir:unbox-single-float-instruction) (architecture sys.c:x86-64-target))
-  (if (eql (ir:virtual-register-kind (ir:unbox-destination instruction)) :integer)
-      '()
-      '(:rax)))
-
-(defgeneric allow-memory-operand-p (instruction operand architecture)
-  (:method (i o a)
-    nil))
-
-(defmethod allow-memory-operand-p ((instruction ir:call-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (ir:call-result instruction) operand)
-           (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:call-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:tail-call-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:funcall-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (ir:call-result instruction) operand)
-           (eql (ir:call-function instruction) operand)
-           (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:funcall-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (ir:call-function instruction) operand)
-           (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:tail-funcall-instruction) operand (architecture sys.c:x86-64-target))
-  (not (or (eql (ir:call-function instruction) operand)
-           (eql (first (ir:call-arguments instruction)) operand)
-           (eql (second (ir:call-arguments instruction)) operand)
-           (eql (third (ir:call-arguments instruction)) operand)
-           (eql (fourth (ir:call-arguments instruction)) operand)
-           (eql (fifth (ir:call-arguments instruction)) operand))))
-
-(defmethod allow-memory-operand-p ((instruction ir:save-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:restore-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:forget-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:argument-setup-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:finish-nlx-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:nlx-entry-instruction) operand (architecture sys.c:x86-64-target))
-  (not (eql operand (ir:nlx-entry-value instruction))))
-
-(defmethod allow-memory-operand-p ((instruction ir:nlx-entry-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:values-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod allow-memory-operand-p ((instruction ir:multiple-value-bind-instruction) operand (architecture sys.c:x86-64-target))
-  t)
 
 (defclass live-range ()
   ((%vreg :initarg :vreg :reader live-range-vreg)
@@ -377,7 +235,8 @@
     (setf clobbers (union (instruction-clobbers inst architecture)
                           clobbers))
     (when (eql (gethash inst mv-flow) :multiple)
-      (setf clobbers (union '(:rcx :r8 :r9 :r10 :r11 :r12)
+      (pushnew (target-count-register architecture) clobbers)
+      (setf clobbers (union (target-argument-registers architecture)
                             clobbers)))
     (dolist (reg (gethash inst live-in))
       (when (typep reg 'physical-register)
@@ -400,29 +259,6 @@
          (remove-duplicates
           (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
                          (ir::instruction-outputs inst)))))
-
-(defgeneric architectural-physical-registers (architecture))
-
-(defmethod architectural-physical-registers ((architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-    :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-    :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-    :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defgeneric valid-physical-registers-for-kind (kind architecture))
-
-(defmethod valid-physical-registers-for-kind ((kind (eql :value)) (architecture sys.c:x86-64-target))
-  '(:r8 :r9 :r10 :r11 :r12 :r13 :rbx))
-
-(defmethod valid-physical-registers-for-kind ((kind (eql :integer)) (architecture sys.c:x86-64-target))
-  '(:rax :rcx :rdx :rsi :rdi))
-
-(defmethod valid-physical-registers-for-kind ((kind (eql :single-float)) (architecture sys.c:x86-64-target))
-  '(:xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
-    :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
-
-(defmethod valid-physical-registers-for-kind ((kind (eql :mmx)) (architecture sys.c:x86-64-target))
-  '(:mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7))
 
 (defclass linear-allocator ()
   ((%function :initarg :function :reader allocator-backend-function)
@@ -454,7 +290,7 @@
       (ir::build-cfg backend-function)
     (declare (ignore basic-blocks bb-succs))
     (multiple-value-bind (live-in live-out)
-        (ir::compute-liveness backend-function)
+        (ir::compute-liveness backend-function architecture)
       (let ((order (if ordering
                        (funcall ordering backend-function)
                        (instructions-reverse-postorder backend-function)))
@@ -473,15 +309,19 @@
                        :instruction-clobbers clobbers)))))
 
 (defun build-live-ranges (allocator)
-  (let ((ranges (make-array 128 :adjustable t :fill-pointer 0))
-        (vreg-ranges (make-hash-table :test 'eq :synchronized nil))
-        (ordering (allocator-instruction-ordering allocator))
-        (live-in (allocator-live-in allocator))
-        (live-out (allocator-live-out allocator))
-        (active-vregs '())
-        (vreg-liveness-start (make-hash-table :test 'eq :synchronized nil))
-        (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
-        (vreg-move-hint (make-hash-table :test 'eq :synchronized nil)))
+  (let* ((ranges (make-array 128 :adjustable t :fill-pointer 0))
+         (vreg-ranges (make-hash-table :test 'eq :synchronized nil))
+         (ordering (allocator-instruction-ordering allocator))
+         (live-in (allocator-live-in allocator))
+         (live-out (allocator-live-out allocator))
+         (active-vregs '())
+         (vreg-liveness-start (make-hash-table :test 'eq :synchronized nil))
+         (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
+         (vreg-move-hint (make-hash-table :test 'eq :synchronized nil))
+         (arch (allocator-architecture allocator))
+         (arg-regs (target-argument-registers arch))
+         (funcall-reg (target-funcall-register arch))
+         (fref-reg (target-fref-register arch)))
     (flet ((add-range (vreg end)
              (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
                                                         (set-difference (architectural-physical-registers (allocator-architecture allocator))
@@ -538,12 +378,12 @@
                  (setf (gethash vreg vreg-move-hint) (ir:move-destination inst)))
                (when (typep inst 'ir:argument-setup-instruction)
                  (when (eql (ir:argument-setup-closure inst) vreg)
-                   (setf (gethash vreg vreg-move-hint) *funcall-register*))
+                   (setf (gethash vreg vreg-move-hint) funcall-reg))
                  (when (eql (ir:argument-setup-fref inst) vreg)
-                   (setf (gethash vreg vreg-move-hint) *fref-register*))
+                   (setf (gethash vreg vreg-move-hint) fref-reg))
                  (when (member vreg (ir:argument-setup-required inst))
                    (setf (gethash vreg vreg-move-hint) (nth (position vreg (ir:argument-setup-required inst))
-                                                            *argument-registers*)))))))
+                                                            arg-regs)))))))
       ;; Finish any remaining active ranges.
       (let ((range-end (1- (length ordering))))
         (dolist (vreg active-vregs)
@@ -965,17 +805,6 @@
                                                  inst instruction-index
                                                  succ
                                                  insert-point)))))))
-
-;; Can foo/bar register kinds be mixed in spill/fill code?
-(defgeneric spill/fill-register-kinds-compatible (kind1 kind2 architecture))
-
-(defmethod spill/fill-register-kinds-compatible (kind1 kind2 architecture)
-  (eql kind1 kind2))
-
-(defmethod spill/fill-register-kinds-compatible (kind1 kind2 (architecture sys.c:x86-64-target))
-  ;; These register kinds are all mutually compatible.
-  (and (member kind1 '(:value :integer :single-float :mmx))
-       (member kind2 '(:value :integer :single-float :mmx))))
 
 (defun move-spill/fill-compatible (allocator move)
   (if (and (typep (ir:move-source move) 'ir:virtual-register)
