@@ -130,32 +130,6 @@
             ,(unbox-destination instruction)
             ,(unbox-source instruction))))
 
-(defun resolve-constant (register defs)
-  (let ((register-defs (gethash register defs)))
-    (cond ((and register-defs
-                (typep (first register-defs) 'constant-instruction)
-                (endp (rest register-defs)))
-           (values (constant-value (first register-defs)) t))
-          (t
-           (values nil nil)))))
-
-(defun maybe-constant-operand (operand defs)
-  (multiple-value-bind (value validp)
-      (resolve-constant operand defs)
-    (cond (validp
-           (cond ((member value '(nil t))
-                  value)
-                 ((and (sys.c::fixnump value)
-                       (typep (mezzano.compiler.codegen.x86-64::fixnum-to-raw value)
-                              '(signed-byte 32)))
-                  (mezzano.compiler.codegen.x86-64::fixnum-to-raw value))
-                 ((characterp value)
-                  (mezzano.compiler.codegen.x86-64::character-to-raw value))
-                 (t
-                  `(:constant ,value))))
-          (t
-           operand))))
-
 (defun consumed-by-p (definition consumer uses defs)
   "Return true if all DEFINITION's outputs are only used by CONSUMER."
   (dolist (out (mezzano.compiler.backend::instruction-outputs definition)
