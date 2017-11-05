@@ -17,11 +17,19 @@
         (overflow (make-instance 'label :name :+-overflow))
         (fixnum-result (make-instance 'virtual-register))
         (bignum-result (make-instance 'virtual-register)))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:add64
-                         :result fixnum-result
-                         :lhs lhs
-                         :rhs rhs))
+    (cond ((constant-value-p rhs '(signed-byte 31))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:add64
+                                :result fixnum-result
+                                :lhs lhs
+                                :rhs (ash (fetch-constant-value rhs)
+                                          sys.int::+n-fixnum-bits+))))
+          (t
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:add64
+                                :result fixnum-result
+                                :lhs lhs
+                                :rhs rhs))))
     (emit (make-instance 'x86-branch-instruction
                          :opcode 'lap:jo
                          :target overflow))
@@ -61,22 +69,38 @@
     (emit out)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-+ ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:add64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:add64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:add64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
   (let ((out (make-instance 'label :phis (list result)))
         (overflow (make-instance 'label :name :--overflow))
         (fixnum-result (make-instance 'virtual-register))
         (bignum-result (make-instance 'virtual-register)))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:sub64
-                         :result fixnum-result
-                         :lhs lhs
-                         :rhs rhs))
+    (cond ((constant-value-p rhs '(signed-byte 31))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sub64
+                                :result fixnum-result
+                                :lhs lhs
+                                :rhs (ash (fetch-constant-value rhs)
+                                          sys.int::+n-fixnum-bits+))))
+          (t
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sub64
+                                :result fixnum-result
+                                :lhs lhs
+                                :rhs rhs))))
     (emit (make-instance 'x86-branch-instruction
                          :opcode 'lap:jo
                          :target overflow))
@@ -121,11 +145,19 @@
     (emit out)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-- ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:sub64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:sub64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:sub64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-* ((lhs rhs) result)
   (let ((out (make-instance 'label :phis (list result)))
@@ -258,39 +290,79 @@
                        :destination rem)))
 
 (define-builtin mezzano.runtime::%fixnum-logand ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:and64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:and64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:and64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin sys.c::%fast-fixnum-logand ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:and64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:and64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:and64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-logior ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:or64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:or64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:or64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-logxor ((lhs rhs) result)
-  (emit (make-instance 'x86-fake-three-operand-instruction
-                       :opcode 'lap:xor64
-                       :result result
-                       :lhs lhs
-                       :rhs rhs)))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:xor64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:xor64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) :l)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp64
-                       :operands (list lhs rhs)
-                       :inputs (list lhs rhs)
-                       :outputs '())))
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs (ash (fetch-constant-value rhs)
+                                                       sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs '())))
+        (t
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs rhs)
+                              :inputs (list lhs rhs)
+                              :outputs '())))))
 
 ;;; SINGLE-FLOAT operations.
 

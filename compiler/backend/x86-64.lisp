@@ -213,8 +213,13 @@
                       (flet ((emit (inst)
                                (mezzano.compiler.backend::insert-before ,backend-function ,insertion-point inst))
                              (give-up ()
-                               (return-from ,the-block nil)))
-                        (declare (ignorable #'emit #'give-up))
+                               (return-from ,the-block nil))
+                             (constant-value-p (value &optional (type 't))
+                               (and (typep (first (gethash value ,defs)) 'constant-instruction)
+                                    (typep (constant-value (first (gethash value ,defs))) type)))
+                             (fetch-constant-value (value)
+                               (constant-value (first (gethash value ,defs)))))
+                        (declare (ignorable #'emit #'give-up #'constant-value-p #'fetch-constant-value))
                         ,@body
                         t))))))
 
@@ -248,45 +253,10 @@
     (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)
           (next-inst (mezzano.compiler.backend::next-instruction backend-function inst) (if inst (mezzano.compiler.backend::next-instruction backend-function inst))))
          ((null inst))
-      (cond ((typep inst 'object-get-t-instruction)
-             ;; (object-get-t dest obj constant-index) => (mov dest (obj ind))
-             (let* ((dest (object-get-destination inst))
-                    (obj (object-get-object inst))
-                    (index (object-get-index inst)))
-               (multiple-value-bind (index-value index-validp)
-                   (resolve-constant index defs)
-                 (when (and index-validp
-                            (typep index-value '(signed-byte 29)))
-                   (mezzano.compiler.backend::insert-before
-                    backend-function inst
-                    (make-instance 'x86-instruction
-                                   :opcode 'lap:mov64
-                                   :operands (list dest `(:object ,obj ,index-value))
-                                   :inputs (list obj)
-                                   :outputs (list dest)))
-                   (mezzano.compiler.backend::remove-instruction backend-function inst)))))
-            ((typep inst 'object-set-t-instruction)
-             ;; (object-set-t value obj constant-index) => (mov (obj ind) value)
-             (let* ((value (object-set-value inst))
-                    (obj (object-set-object inst))
-                    (index (object-set-index inst)))
-               (multiple-value-bind (index-value index-validp)
-                   (resolve-constant index defs)
-                 (when (and index-validp
-                            (typep index-value '(signed-byte 29)))
-                   (mezzano.compiler.backend::insert-before
-                    backend-function inst
-                    (make-instance 'x86-instruction
-                                   :opcode 'lap:mov64
-                                   :operands (list `(:object ,obj ,index-value) value)
-                                   :inputs (list value obj)
-                                   :outputs (list)))
-                   (mezzano.compiler.backend::remove-instruction backend-function inst)))))
-            (t
-             (let ((next (or (lower-predicate-builtin backend-function inst uses defs target)
-                             (lower-builtin backend-function inst defs target))))
-               (when next
-                 (setf next-inst next))))))))
+      (let ((next (or (lower-predicate-builtin backend-function inst uses defs target)
+                      (lower-builtin backend-function inst defs target))))
+        (when next
+          (setf next-inst next))))))
 
 (defun lower-complicated-box-instructions (backend-function)
   (do* ((inst (mezzano.compiler.backend::first-instruction backend-function) next-inst)

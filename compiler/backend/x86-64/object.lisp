@@ -173,23 +173,65 @@
                        :outputs (list))))
 
 (define-builtin eq ((lhs rhs) :e)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp64
-                       :operands (list lhs rhs)
-                       :inputs (list lhs rhs)
-                       :outputs '())))
+  (cond ((constant-value-p rhs '(eql nil))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs nil)
+                              :inputs (list lhs)
+                              :outputs '())))
+        ((constant-value-p rhs '(eql t))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs t)
+                              :inputs (list lhs)
+                              :outputs '())))
+        ((constant-value-p rhs '(eql 0))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:test64
+                              :operands (list lhs lhs)
+                              :inputs (list lhs)
+                              :outputs '())))
+        ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs (ash (fetch-constant-value rhs)
+                                                       sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs '())))
+        (t
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs rhs)
+                              :inputs (list lhs rhs)
+                              :outputs '())))))
 
 (define-builtin sys.int::%object-ref-t ((object index) result)
-  (emit (make-instance 'object-get-t-instruction
-                       :destination result
-                       :object object
-                       :index index)))
+  (cond ((constant-value-p index '(signed-byte 29))
+         (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov64
+                       :operands (list result `(:object ,object ,(fetch-constant-value index)))
+                       :inputs (list object)
+                       :outputs (list result))))
+        (t
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:mov64
+                              :operands (list result `(:object ,object 0 ,index 4))
+                              :inputs (list object index)
+                              :outputs (list result))))))
 
 (define-builtin (setf sys.int::%object-ref-t) ((value object index) result)
-  (emit (make-instance 'object-set-t-instruction
-                       :value value
-                       :object object
-                       :index index))
+  (cond ((constant-value-p index '(signed-byte 29))
+         (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov64
+                       :operands (list `(:object ,object ,(fetch-constant-value index)) value)
+                       :inputs (list value object)
+                       :outputs (list))))
+        (t
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:mov64
+                              :operands (list `(:object ,object 0 ,index 4) value)
+                              :inputs (list value object index)
+                              :outputs (list)))))
   (emit (make-instance 'move-instruction
                        :source value
                        :destination result)))
