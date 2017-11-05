@@ -1388,6 +1388,12 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simd-integer-op pmuludq #xF4)
 (define-simd-integer-op psubq #xFB)
 
+(define-instruction punpckhqdq (lhs rhs)
+  (xmm-integer-op lhs rhs (#x0F #x6D)))
+
+(define-instruction punpcklqdq (lhs rhs)
+  (xmm-integer-op lhs rhs (#x0F #x6C)))
+
 (defmacro modrm-two-classes (class r/m-class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
               (or (eql (reg-class ,r/m) ,r/m-class)

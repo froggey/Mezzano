@@ -139,6 +139,85 @@
   (logior (sys.int::%object-ref-unsigned-byte-64 vector 1)
           (ash (sys.int::%object-ref-unsigned-byte-64 vector 2) 64)))
 
+(defun make-sse-vector-single-float (a &optional (b 0.0) (c 0.0) (d 0.0))
+  (check-type a single-float)
+  (check-type b single-float)
+  (check-type c single-float)
+  (check-type d single-float)
+  (let ((obj (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
+                                                0
+                                                3
+                                                nil)))
+    (setf (sys.int::%object-ref-single-float vector 2) a
+          (sys.int::%object-ref-single-float vector 3) b
+          (sys.int::%object-ref-single-float vector 4) c
+          (sys.int::%object-ref-single-float vector 5) d)
+    obj))
+
+(defun sse-vector-single-float-element (vector index)
+  (check-type vector sse-vector)
+  (ecase index
+    (0 (%sse-vector-to-single-float vector))
+    (1 (sys.int::%object-ref-single-float vector 3))
+    (2 (sys.int::%object-ref-single-float vector 4))
+    (3 (sys.int::%object-ref-single-float vector 5))))
+
+(defun %sse-vector-to-single-float (vector)
+  (%sse-vector-to-single-float vector))
+
+(defun %single-float-to-sse-vector (vector)
+  (%single-float-to-sse-vector vector))
+
+(defun make-sse-vector-double-float (a &optional (b 0.0d0))
+  (check-type a double-float)
+  (check-type b double-float)
+  (let ((obj (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
+                                                0
+                                                3
+                                                nil)))
+    (setf (sys.int::%object-ref-double-float vector 1) a
+          (sys.int::%object-ref-double-float vector 2) b)
+    obj))
+
+(defun sse-vector-double-float-element (vector index)
+  (check-type vector sse-vector)
+  (ecase index
+    (0 (%sse-vector-to-double-float vector))
+    (1 (sys.int::%object-ref-double-float vector 2))))
+
+(defun %sse-vector-to-double-float (vector)
+  (%sse-vector-to-double-float vector))
+
+(defun %double-float-to-sse-vector (vector)
+  (%double-float-to-sse-vector vector))
+
+(declaim (inline %object-ref-sse-vector/32 %object-ref-sse-vector/64 %object-ref-sse-vector/128
+                 (setf %object-ref-sse-vector/32) (setf %object-ref-sse-vector/64) (setf %object-ref-sse-vector/128)))
+
+(defun %object-ref-sse-vector/32 (object &optional (index 0))
+  "MOVD"
+  (%%object-ref-sse-vector/32 object index))
+
+(defun (setf %object-ref-sse-vector/32) (value object &optional (index 0))
+  "MOVD"
+  (setf (%%object-ref-sse-vector/32 object index) value))
+
+(defun %object-ref-sse-vector/64 (object &optional (index 0))
+  "MOVQ"
+  (%%object-ref-sse-vector/64 object index))
+
+(defun (setf %object-ref-sse-vector/64) (value object &optional (index 0))
+  "MOVQ"
+  (setf (%%object-ref-sse-vector/64 object index) value))
+
+(defun %object-ref-sse-vector/128 (object &optional (index 0))
+  "MOVDQU"
+  (%%object-ref-sse-vector/128 object index))
+
+(defun (setf %object-ref-sse-vector/128) (value object &optional (index 0))
+  "MOVDQU"
+  (setf (%%object-ref-sse-vector/128 object index) value))
+
 (defmethod print-object ((object sse-vector) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~16,'0X" (sse-vector-value object))))
@@ -286,6 +365,8 @@
 (define-simd-integer-op paddq %paddq/mmx %paddq/sse)
 (define-simd-integer-op pmuludq %pmuludq/mmx %pmuludq/sse)
 (define-simd-integer-op psubq %psubq/mmx %psubq/sse)
+(define-simd-float-op punpckhqdq %punpckhqdq/sse) ; Integer op, but XMM only.
+(define-simd-float-op punpcklqdq %punpcklqdq/sse) ; Integer op, but XMM only.
 
 (define-simd-float-op addpd %addpd/sse)
 (define-simd-float-op addsd %addsd/sse)

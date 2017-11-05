@@ -1209,6 +1209,133 @@
 
 ;;; SSE operations.
 
+(define-builtin mezzano.simd::%sse-vector-to-single-float ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+        (result-unboxed (make-instance 'virtual-register :kind :single-float)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source value-unboxed
+                         :destination result-unboxed))
+    (emit (make-instance 'box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.simd::%single-float-to-sse-vector ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'unbox-single-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source value-unboxed
+                         :destination result-unboxed))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.simd::%sse-vector-to-double-float ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+        (result-unboxed (make-instance 'virtual-register :kind :double-float)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source value-unboxed
+                         :destination result-unboxed))
+    (emit (make-instance 'box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.simd::%double-float-to-sse-vector ((value) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source value-unboxed
+                         :destination result-unboxed))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.simd::%%object-ref-sse-vector/32 ((object index) result :early t)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movd
+                         :operands (list result-unboxed `(:object ,object 0 ,index 2))
+                         :inputs (list object index)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/32) ((value object index) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movd
+                         :operands (list `(:object ,object 0 ,index 2) value-unboxed)
+                         :inputs (list object index value-unboxed)
+                         :outputs (list)))
+    (emit (make-instance 'move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin mezzano.simd::%%object-ref-sse-vector/64 ((object index) result :early t)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movq
+                         :operands (list result-unboxed `(:object ,object 0 ,index 4))
+                         :inputs (list object index)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/64) ((value object index) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movq
+                         :operands (list `(:object ,object 0 ,index 4) value-unboxed)
+                         :inputs (list object index value-unboxed)
+                         :outputs (list)))
+    (emit (make-instance 'move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin mezzano.simd::%%object-ref-sse-vector/128 ((object index) result :early t)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movdqu
+                         :operands (list result-unboxed `(:object ,object 0 ,index 8))
+                         :inputs (list object index)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/128) ((value object index) result :early t)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movdqu
+                         :operands (list `(:object ,object 0 ,index 8) value-unboxed)
+                         :inputs (list object index value-unboxed)
+                         :outputs (list)))
+    (emit (make-instance 'move-instruction
+                         :source value
+                         :destination result))))
+
 (macrolet ((def1 (fn inst)
              `(define-builtin ,fn ((value) result :early t)
                 (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
@@ -1328,6 +1455,8 @@
   (def2 mezzano.simd::%paddq/sse lap:paddq)
   (def2 mezzano.simd::%pmuludq/sse lap:pmuludq)
   (def2 mezzano.simd::%psubq/sse lap:psubq)
+  (def2 mezzano.simd::%punpckhqdq/sse lap:punpckhqdq)
+  (def2 mezzano.simd::%punpcklqdq/sse lap:punpcklqdq)
 
   (def2 mezzano.simd::%addpd/sse lap:addpd)
   (def2 mezzano.simd::%addsd/sse lap:addsd)
