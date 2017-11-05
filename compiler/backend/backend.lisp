@@ -921,59 +921,6 @@
 (defmethod produces-multiple-p ((instruction nlx-entry-multiple-instruction))
   t)
 
-(defclass object-get-instruction (backend-instruction)
-  ((%destination :initarg :destination :accessor object-get-destination)
-   (%object :initarg :object :accessor object-get-object)
-   (%index :initarg :index :accessor object-get-index))
-  (:documentation "Load a field from an object at the given index."))
-
-(defmethod instruction-inputs ((instruction object-get-instruction))
-  (list (object-get-object instruction) (object-get-index instruction)))
-
-(defmethod instruction-outputs ((instruction object-get-instruction))
-  (list (object-get-destination instruction)))
-
-(defmethod replace-all-registers ((instruction object-get-instruction) substitution-function)
-  (setf (object-get-destination instruction) (funcall substitution-function (object-get-destination instruction)))
-  (setf (object-get-object instruction) (funcall substitution-function (object-get-object instruction)))
-  (setf (object-get-index instruction) (funcall substitution-function (object-get-index instruction))))
-
-(defmethod instruction-pure-p ((instruction object-get-instruction))
-  t)
-
-(defclass object-get-t-instruction (object-get-instruction)
-  ()
-  (:documentation "Load a lisp value from an object."))
-
-(defmethod print-instruction ((instruction object-get-t-instruction))
-  (format t "   ~S~%"
-          `(:object-get-t ,(object-get-destination instruction) ,(object-get-object instruction) ,(object-get-index instruction))))
-
-(defclass object-set-instruction (backend-instruction)
-  ((%value :initarg :value :accessor object-set-value)
-   (%object :initarg :object :accessor object-set-object)
-   (%index :initarg :index :accessor object-set-index))
-  (:documentation "Store a value into a field in an object at the given index."))
-
-(defmethod instruction-inputs ((instruction object-set-instruction))
-  (list (object-set-value instruction) (object-set-object instruction) (object-set-index instruction)))
-
-(defmethod instruction-outputs ((instruction object-set-instruction))
-  (list))
-
-(defmethod replace-all-registers ((instruction object-set-instruction) substitution-function)
-  (setf (object-set-value instruction) (funcall substitution-function (object-set-value instruction)))
-  (setf (object-set-object instruction) (funcall substitution-function (object-set-object instruction)))
-  (setf (object-set-index instruction) (funcall substitution-function (object-set-index instruction))))
-
-(defclass object-set-t-instruction (object-set-instruction)
-  ()
-  (:documentation "Store a lisp value into an object."))
-
-(defmethod print-instruction ((instruction object-set-t-instruction))
-  (format t "   ~S~%"
-          `(:object-set-t ,(object-set-value instruction) ,(object-set-object instruction) ,(object-set-index instruction))))
-
 (defclass push-special-stack-instruction (backend-instruction)
   ((%a-value :initarg :a-value :accessor push-special-stack-a-value)
    (%b-value :initarg :b-value :accessor push-special-stack-b-value)))

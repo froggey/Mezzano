@@ -923,20 +923,6 @@
               (emit `(lap:add64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
 
-(defmethod emit-lap (backend-function (instruction object-get-t-instruction) uses defs)
-  (emit `(lap:mov64 ,(object-get-destination instruction)
-                    (:object ,(object-get-object instruction)
-                             0
-                             ,(object-get-index instruction)
-                             4))))
-
-(defmethod emit-lap (backend-function (instruction object-set-t-instruction) uses defs)
-  (emit `(lap:mov64 (:object ,(object-set-object instruction)
-                             0
-                             ,(object-set-index instruction)
-                             4)
-                    ,(object-set-value instruction))))
-
 (defmethod lap-prepass (backend-function (instruction push-special-stack-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 

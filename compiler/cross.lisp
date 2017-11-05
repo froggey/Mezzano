@@ -675,22 +675,6 @@
            #:nlx-entry-multiple-instruction
            #:nlx-entry-value
 
-           #:function-instruction
-           #:function-result
-           #:function-name
-
-           #:object-get-instruction
-           #:object-get-t-instruction
-           #:object-get-destination
-           #:object-get-object
-           #:object-get-index
-
-           #:object-set-instruction
-           #:object-set-t-instruction
-           #:object-set-value
-           #:object-set-object
-           #:object-set-index
-
            #:push-special-stack-instruction
            #:push-special-stack-a-value
            #:push-special-stack-b-value

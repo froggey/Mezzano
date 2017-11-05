@@ -113,10 +113,10 @@
                 (emit (make-instance 'constant-instruction
                                      :destination index
                                      :value 2))
-                (emit (make-instance 'object-get-t-instruction
-                                     :destination real-env-reg
-                                     :object env-reg
-                                     :index index))
+                (emit (make-instance 'call-instruction
+                                     :function 'sys.int::%object-ref-t
+                                     :result real-env-reg
+                                     :arguments (list env-reg index)))
                 (setf env-reg real-env-reg)))
             (frob-arg env-arg env-reg))))
       ;; Required arguments.
@@ -323,10 +323,10 @@
     (emit (make-instance 'constant-instruction
                          :destination fref-index
                          :value sys.int::+fref-function+))
-    (emit (make-instance 'object-get-t-instruction
-                         :destination fref-function
-                         :object fref-reg
-                         :index fref-index))
+    (emit (make-instance 'call-instruction
+                         :function 'sys.int::%object-ref-t
+                         :result fref-function
+                         :arguments (list fref-reg fref-index)))
     (emit (make-instance 'call-instruction
                          :result is-defined
                          :function 'sys.int::%undefined-function-p
