@@ -538,9 +538,9 @@
                                                        (member (gethash spill-interval (allocator-range-allocations allocator))
                                                                used-pregs)))
                                                     (allocator-active-ranges allocator))))))
-                 (when (not spill)
-                   (error "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
-                          vreg inst))
+                 (assert spill ()
+                         "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
+                         vreg inst)
                  (let ((reg (gethash spill (allocator-range-allocations allocator))))
                    (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) reg)
                    (push reg (allocator-free-registers allocator))

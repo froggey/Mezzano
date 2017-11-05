@@ -201,6 +201,9 @@
     "compiler/backend/x86-64.lisp"
     "compiler/backend/x86-64/target.lisp"
     "compiler/backend/x86-64/codegen.lisp"
+    "compiler/backend/x86-64/object.lisp"
+    "compiler/backend/x86-64/number.lisp"
+    "compiler/backend/x86-64/simd.lisp"
     ("runtime/simd.lisp" :x86-64)
     "system/file-compiler.lisp"
     "system/xp-package.lisp"
