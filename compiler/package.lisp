@@ -595,5 +595,9 @@
            #:mmx-vector-p
            #:make-sse-vector
            #:sse-vector-value
+           #:make-sse-vector-single-float
+           #:sse-vector-single-float-element
+           #:make-sse-vector-double-float
+           #:sse-vector-double-float-element
            #:sse-vector
            #:sse-vector-p))
