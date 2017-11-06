@@ -435,7 +435,7 @@
   (let ((negativep nil)
         (n 0)
         (whitespace '(#\Space #\Newline #\Tab #\Linefeed #\Page #\Return)))
-    ;; Eat leading/trailing whitespace.
+    ;; Eat leading whitespace.
     (do () ((or (>= start end)
                 (and (not (member (char string start) whitespace)))))
       (incf start))
@@ -461,11 +461,17 @@
              (member (char string offset) whitespace))
          (when negativep
            (setf n (- n)))
-         ;; Eat trailing whitespace
-         (do () ((or (>= offset end)
-                     (and (not (member (char string offset) whitespace)))))
-           (incf offset))
-         (values n offset))
+         (cond (junk-allowed
+                (values n offset))
+               (t
+                ;; All remaining characters must be whitespace.
+                (do () ((>= offset end))
+                  (when (not (member (char string offset) whitespace))
+                    (error 'simple-parse-error
+                           :format-control "Junk after trailing whitespace in ~S."
+                           :format-arguments (list string)))
+                  (incf offset))
+                (values n end))))
       (let ((weight (digit-char-p (char string offset) radix)))
         (when (not weight)
           (if junk-allowed
