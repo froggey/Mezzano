@@ -69,6 +69,8 @@
                (:file "compiler/backend/x86-64")
                (:file "compiler/backend/x86-64/target")
                (:file "compiler/backend/x86-64/codegen")
+               (:file "compiler/backend/x86-64/builtin")
+               (:file "compiler/backend/x86-64/misc")
                (:file "compiler/backend/x86-64/object")
                (:file "compiler/backend/x86-64/number")
                (:file "compiler/backend/x86-64/simd")
