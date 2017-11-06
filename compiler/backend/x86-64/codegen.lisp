@@ -65,10 +65,8 @@
                     ;; SSE slots are 2 wide.
                     ;; TODO: Force 16-byte alignment.
                     when (eql (virtual-register-kind vreg) :sse)
-                    collect :raw
-                    when (not (and vreg-defs
-                                   (endp (rest vreg-defs))
-                                   (typep (first vreg-defs) 'save-multiple-instruction)))
+                      collect :raw
+                    end
                     collect vreg))
          (max-local-slot (loop
                             for slot being the hash-values of local-layout
@@ -783,14 +781,14 @@
     ;; Allocate dx-root & stack pointer save slots
     (let ((dx-root (allocate-stack-slots 1))
           (saved-stack-pointer (allocate-stack-slots 1 :livep nil)))
-      (setf (gethash (save-multiple-context instruction) *saved-multiple-values*)
+      (setf (gethash instruction *saved-multiple-values*)
             (cons dx-root saved-stack-pointer))
       (dolist (region (gethash instruction contours))
         (when (typep region 'begin-nlx-instruction)
           (push dx-root (gethash region *dx-root-visibility*)))))))
 
 (defmethod emit-lap (backend-function (instruction save-multiple-instruction) uses defs)
-  (let* ((save-data (gethash (save-multiple-context instruction) *saved-multiple-values*))
+  (let* ((save-data (gethash instruction *saved-multiple-values*))
          (sv-save-area (car save-data))
          (saved-stack-pointer (cdr save-data))
          (save-done (gensym "VALUES-SAVE-DONE"))

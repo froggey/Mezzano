@@ -625,7 +625,6 @@
            #:multiple-value-bind-values
 
            #:save-multiple-instruction
-           #:save-multiple-context
            #:restore-multiple-instruction
            #:restore-multiple-context
            #:forget-multiple-instruction

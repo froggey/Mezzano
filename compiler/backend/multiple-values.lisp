@@ -104,12 +104,10 @@
            (save-multiple-instruction
             (push inst stack))
            (restore-multiple-instruction
-            (assert (eql (restore-multiple-context inst)
-                         (save-multiple-context (first stack))))
+            (assert (eql (restore-multiple-context inst) (first stack)))
             (pop stack))
            (forget-multiple-instruction
-            (assert (eql (forget-multiple-context inst)
-                         (save-multiple-context (first stack))))
+            (assert (eql (forget-multiple-context inst) (first stack)))
             (pop stack))
            (bind-local-instruction
             (push inst stack))

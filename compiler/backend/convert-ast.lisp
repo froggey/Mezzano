@@ -546,8 +546,8 @@
     (when (not value)
       (return-from cg-form nil))
     (when (eql value :multiple)
-      (emit (make-instance 'save-multiple-instruction
-                           :context context))
+      (setf context (make-instance 'save-multiple-instruction))
+      (emit context)
       (push `(:saved-mv ,context) *dynamic-stack*))
     (when (not (cg-form (ast-body form) :effect))
       (return-from cg-form nil))

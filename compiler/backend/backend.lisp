@@ -421,21 +421,21 @@
   t)
 
 (defclass save-multiple-instruction (backend-instruction)
-  ((%context :initarg :context :accessor save-multiple-context))
+  ()
   (:documentation "Save current multiple values."))
 
 (defmethod instruction-inputs ((instruction save-multiple-instruction))
   (list))
 
 (defmethod instruction-outputs ((instruction save-multiple-instruction))
-  (list (save-multiple-context instruction)))
+  (list))
 
 (defmethod replace-all-registers ((instruction save-multiple-instruction) substitution-function)
-  (setf (save-multiple-context instruction) (funcall substitution-function (save-multiple-context instruction))))
+  nil)
 
 (defmethod print-instruction ((instruction save-multiple-instruction))
   (format t "   ~S~%"
-          `(:save-multiple ,(save-multiple-context instruction))))
+          `(:save-multiple ,instruction)))
 
 (defmethod consumes-multiple-p ((instruction save-multiple-instruction))
   t)
@@ -445,13 +445,13 @@
   (:documentation "Restore current multiple values. Must be matched in a stack-like way with a save instruction."))
 
 (defmethod instruction-inputs ((instruction restore-multiple-instruction))
-  (list (restore-multiple-context instruction)))
+  (list))
 
 (defmethod instruction-outputs ((instruction restore-multiple-instruction))
   (list))
 
 (defmethod replace-all-registers ((instruction restore-multiple-instruction) substitution-function)
-  (setf (restore-multiple-context instruction) (funcall substitution-function (restore-multiple-context instruction))))
+  nil)
 
 (defmethod print-instruction ((instruction restore-multiple-instruction))
   (format t "   ~S~%"
@@ -465,13 +465,13 @@
   (:documentation "Forget an unused set of saved multiple values."))
 
 (defmethod instruction-inputs ((instruction forget-multiple-instruction))
-  (list (forget-multiple-context instruction)))
+  (list))
 
 (defmethod instruction-outputs ((instruction forget-multiple-instruction))
   (list))
 
 (defmethod replace-all-registers ((instruction forget-multiple-instruction) substitution-function)
-  (setf (forget-multiple-context instruction) (funcall substitution-function (forget-multiple-context instruction))))
+  nil)
 
 (defmethod print-instruction ((instruction forget-multiple-instruction))
   (format t "   ~S~%"

@@ -181,15 +181,6 @@
            (eql (fourth (ir:call-arguments instruction)) operand)
            (eql (fifth (ir:call-arguments instruction)) operand))))
 
-(defmethod ra:allow-memory-operand-p ((instruction ir:save-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod ra:allow-memory-operand-p ((instruction ir:restore-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
-(defmethod ra:allow-memory-operand-p ((instruction ir:forget-multiple-instruction) operand (architecture sys.c:x86-64-target))
-  t)
-
 (defmethod ra:allow-memory-operand-p ((instruction ir:argument-setup-instruction) operand (architecture sys.c:x86-64-target))
   t)
 
