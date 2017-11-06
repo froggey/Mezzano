@@ -477,6 +477,8 @@
      (emit `(lap:movdqu ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
+  (when (x86-instruction-prefix instruction)
+    (emit (x86-instruction-prefix instruction)))
   (emit (list* (x86-instruction-opcode instruction)
                (x86-instruction-operands instruction))))
 

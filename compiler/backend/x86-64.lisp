@@ -10,8 +10,9 @@
    (%opcode :initarg :opcode :reader x86-instruction-opcode)
    (%operands :initarg :operands :reader x86-instruction-operands)
    (%clobbers :initarg :clobbers :reader x86-instruction-clobbers)
-   (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber))
-  (:default-initargs :clobbers '() :early-clobber nil))
+   (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber)
+   (%prefix :initarg :prefix :reader x86-instruction-prefix))
+  (:default-initargs :clobbers '() :early-clobber nil :prefix nil))
 
 (defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-instruction) (architecture sys.c:x86-64-target))
   (x86-instruction-clobbers instruction))
@@ -205,7 +206,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
       (change-class inst 'x86-instruction
                     :operands (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
                     :inputs (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
-                    :outputs (list (x86-fake-three-operand-result inst))))))
+                    :outputs (list (x86-fake-three-operand-result inst))
+                    :prefix nil))))
 
 (defun compile-backend-function-1 (backend-function target)
   (mezzano.compiler.backend::simplify-cfg backend-function)
