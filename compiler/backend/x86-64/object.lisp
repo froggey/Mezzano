@@ -51,6 +51,7 @@
                          :outputs '()))))
 
 (define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
+  ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov8
                        :operands (list :al `(:object ,object -1))

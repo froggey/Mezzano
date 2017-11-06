@@ -9,11 +9,15 @@
    (%outputs :initarg :outputs :reader mezzano.compiler.backend::instruction-outputs)
    (%opcode :initarg :opcode :reader x86-instruction-opcode)
    (%operands :initarg :operands :reader x86-instruction-operands)
-   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
-  (:default-initargs :clobbers '()))
+   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers)
+   (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber))
+  (:default-initargs :clobbers '() :early-clobber nil))
 
-(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-instruction) (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-instruction) (architecture sys.c:x86-64-target))
   (x86-instruction-clobbers instruction))
+
+(defmethod mezzano.compiler.backend.register-allocator::instruction-inputs-read-before-outputs-written-p ((instruction x86-instruction) (architecture sys.c:x86-64-target))
+  (not (x86-instruction-early-clobber instruction)))
 
 (defmethod mezzano.compiler.backend::replace-all-registers ((instruction x86-instruction) substitution-function)
   (setf (slot-value instruction '%inputs) (mapcar substitution-function (slot-value instruction '%inputs)))
@@ -40,11 +44,15 @@
    (%result :initarg :result :accessor x86-fake-three-operand-result)
    (%lhs :initarg :lhs :accessor x86-fake-three-operand-lhs)
    (%rhs :initarg :rhs :accessor x86-fake-three-operand-rhs)
-   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers))
-  (:default-initargs :clobbers '()))
+   (%clobbers :initarg :clobbers :reader x86-instruction-clobbers)
+   (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber))
+  (:default-initargs :clobbers '() :early-clobber nil))
 
-(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture (eql :x86-64)))
+(defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture sys.c:x86-64-target))
   (x86-instruction-clobbers instruction))
+
+(defmethod mezzano.compiler.backend.register-allocator:instruction-inputs-read-before-outputs-written-p ((instruction x86-fake-three-operand-instruction) (architecture sys.c:x86-64-target))
+  (not (x86-instruction-early-clobber instruction)))
 
 (defmethod mezzano.compiler.backend::instruction-inputs ((instruction x86-fake-three-operand-instruction))
   (list (x86-fake-three-operand-lhs instruction)

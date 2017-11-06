@@ -736,6 +736,7 @@
            #:valid-physical-registers-for-kind
            #:spill/fill-register-kinds-compatible
            #:instruction-clobbers
+           #:instruction-inputs-read-before-outputs-written-p
            #:allow-memory-operand-p))
 
 (defpackage :mezzano.compiler.backend.x86-64

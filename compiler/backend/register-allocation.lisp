@@ -15,6 +15,11 @@
 (defgeneric instruction-clobbers (instruction architecture)
   (:method (i a) '()))
 
+(defgeneric instruction-inputs-read-before-outputs-written-p (instruction architecture)
+  (:method (i a) nil)
+  (:method ((i ir:move-instruction) a) t)
+  (:documentation "Can input and output registers share the same physical register?"))
+
 (defgeneric allow-memory-operand-p (instruction operand architecture)
   (:method (i o a)
     nil))
@@ -493,7 +498,7 @@
                  (setf (allocator-free-registers allocator) (remove reg (allocator-free-registers allocator)))
                  (activate-interval allocator interval reg))))))
 
-(defun allocate-instants (allocator inst instruction-index)
+(defun allocate-instants (allocator inst instruction-index avoid-registers)
   (let* ((vregs (union (remove-duplicates
                         (remove-if-not (lambda (r)
                                          (typep r 'ir:virtual-register))
@@ -508,9 +513,10 @@
          (used-pregs (gethash inst (allocator-instruction-clobbers allocator)))
          ;; Allocations only matter for the specific instruction.
          ;; Don't update the normal free-registers list.
-         (available-regs (remove-if (lambda (preg)
-                                      (member preg used-pregs))
-                                    (allocator-free-registers allocator))))
+         (available-regs (set-difference (remove-if (lambda (preg)
+                                                      (member preg used-pregs))
+                                                    (allocator-free-registers allocator))
+                                         avoid-registers)))
     (unless ir::*shut-up*
       (format t "Instants ~:S ~:S ~:S ~:S~%"
               (remove-if-not (lambda (r)
@@ -552,25 +558,6 @@
       (unless ir::*shut-up*
         (format t "Pick ~S for ~S~%" (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) vreg)))))
 
-(defun mergable-move-instruction-p (allocator inst instruction-index)
-  (let ((src (ir:move-source inst))
-        (dst (ir:move-destination inst)))
-    (cond ((and (not (eql src dst))
-                (typep src 'ir:virtual-register)
-                (typep dst 'ir:virtual-register))
-           (let* ((src-interval (interval-at allocator src instruction-index))
-                  (dst-interval (interval-at allocator dst instruction-index))
-                  (first-active-range (first (allocator-active-ranges allocator)))
-                  (first-remaining-range (next-remaining-range allocator)))
-             (and (not (interval-spilled-p allocator src-interval))
-                  (eql first-active-range src-interval)
-                  (eql (live-range-end first-active-range) instruction-index)
-                  (eql first-remaining-range dst-interval)
-                  ;; Must not conflict.
-                  (not (member (gethash src-interval (allocator-range-allocations allocator))
-                               (live-range-conflicts dst-interval))))))
-          (t nil))))
-
 (defun linear-scan-allocate (allocator)
   (setf (allocator-active-ranges allocator) '()
         (allocator-range-allocations allocator) (make-hash-table :test 'eq :synchronized nil)
@@ -586,24 +573,26 @@
          (format t "~D:" instruction-index)
          (ir::print-instruction inst)
          (format t "actives ~:S~%" (allocator-active-ranges allocator)))
-     ;; If this is a move instruction with a non-spilled source vreg expiring on this instruction
-     ;; and a destination vreg starting on this instruction then assign the same register.
-       (cond ((and (typep inst 'ir:move-instruction)
-                   (mergable-move-instruction-p allocator inst instruction-index))
-              (let* ((old-range (pop (allocator-active-ranges allocator)))
-                     (new-range (vector-pop (allocator-remaining-ranges allocator)))
-                     (reg (gethash old-range (allocator-range-allocations allocator))))
-                (assert (eql (live-range-start new-range) instruction-index))
-                (unless ir::*shut-up*
-                  (format t "Direct move from ~S to ~S using reg ~S~%" old-range new-range reg)
-                  (format t "remaining ~:S~%" (allocator-remaining-ranges allocator)))
-                (activate-interval allocator new-range reg))
-              ;; Shouldn't be any remaining ranges coming live on this instruction.
-              (assert (or (not (ranges-remaining-p allocator))
-                          (not (eql (live-range-start (next-remaining-range allocator)) instruction-index)))))
-             (t
-              (update-active-intervals allocator inst instruction-index)))
-       (allocate-instants allocator inst instruction-index))
+       (let ((instant-avoid-registers '()))
+         ;; If this instruction supports having inputs & outputs allocated to the same register,
+         ;; then expire inputs ending here to make their registers available before output allocation.
+         (when (instruction-inputs-read-before-outputs-written-p inst (allocator-architecture allocator))
+           (dolist (input (ir::instruction-inputs inst))
+             (when (typep input 'ir:virtual-register)
+               (let ((interval (interval-at allocator input instruction-index)))
+                 (when (and (not (interval-spilled-p allocator interval))
+                            (eql (live-range-end interval) instruction-index)
+                            ;; Must not also be an output register.
+                            (not (member input (ir::instruction-outputs inst))))
+                   (let ((reg (gethash interval (allocator-range-allocations allocator))))
+                     (when (not ir::*shut-up*)
+                       (format t "Return interval ~S (reg ~S) early.~%" interval reg))
+                     (setf (allocator-active-ranges allocator) (remove interval
+                                                                       (allocator-active-ranges allocator)))
+                     (push reg (allocator-free-registers allocator))
+                     (push reg instant-avoid-registers)))))))
+         (update-active-intervals allocator inst instruction-index)
+         (allocate-instants allocator inst instruction-index instant-avoid-registers)))
   (expire-old-intervals allocator (length (allocator-instruction-ordering allocator)))
   (assert (endp (allocator-active-ranges allocator))))
 

@@ -364,6 +364,51 @@
                               :inputs (list lhs rhs)
                               :outputs '())))))
 
+(define-builtin mezzano.runtime::%fixnum-right-shift ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0 or -1.
+                  (emit (make-instance 'move-instruction
+                                       :destination :rax
+                                       :source integer))
+                  (emit (make-instance 'x86-instruction
+                                       :opcode 'lap:cqo
+                                       :operands '()
+                                       :inputs '(:rax)
+                                       :outputs '(:rdx)))
+                  (emit (make-instance 'x86-instruction
+                                       :opcode 'lap:and64
+                                       :operands `(:rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                                       :inputs '(:rdx)
+                                       :outputs '(:rdx)))
+                  (emit (make-instance 'move-instruction
+                                       :destination result
+                                       :source :rdx)))
+                 ((zerop count-value)
+                  (emit (make-instance 'move-instruction
+                                       :destination result
+                                       :source integer)))
+                 (t
+                  (let ((temp1 (make-instance 'virtual-register :kind :integer))
+                        (temp2 (make-instance 'virtual-register :kind :integer)))
+                    (emit (make-instance 'x86-fake-three-operand-instruction
+                                         :opcode 'lap:sar64
+                                         :result temp1
+                                         :lhs integer
+                                         :rhs count-value))
+                    (emit (make-instance 'x86-fake-three-operand-instruction
+                                         :opcode 'lap:and64
+                                         :result temp2
+                                         :lhs temp1
+                                         :rhs (- (ash 1 sys.int::+n-fixnum-bits+))))
+                  (emit (make-instance 'move-instruction
+                                       :destination result
+                                       :source temp2)))))))
+        (t
+         (give-up))))
+
 ;;; SINGLE-FLOAT operations.
 
 (define-builtin sys.int::%single-float-as-integer ((value) result)
