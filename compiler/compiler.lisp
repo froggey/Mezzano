@@ -197,13 +197,16 @@ A list of any declaration-specifiers."
 (defun optimize-quality (ast-node quality)
   (optimize-quality-1 (ast-optimize ast-node) quality))
 
+(defvar *max-optimizer-iterations* 20)
+
 (defun run-optimizers (form target-architecture)
   (setf target-architecture (canonicalize-target target-architecture))
   (with-metering (:ast-optimize)
-    (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
-                                :format-control "Possible optimizer infinite loop."
-                                :format-arguments '())
-                          form))
+    (dotimes (i *max-optimizer-iterations*
+              (progn (warn 'sys.int::simple-style-warning
+                           :format-control "Possible optimizer infinite loop."
+                           :format-arguments '())
+                     form))
       (let ((*change-count* 0))
         ;; Must be run before lift.
         (setf form (inline-functions form target-architecture))
