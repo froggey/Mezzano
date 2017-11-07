@@ -776,7 +776,13 @@
 (defmethod simp-form ((form ast-jump-table))
   (setf (value form) (simp-form (value form)))
   (setf (targets form) (mapcar #'simp-form (targets form)))
-  form)
+  (cond ((and (typep (value form) 'ast-quote)
+              (typep (value (value form)) 'integer)
+              (<= 0 (value (value form)) (1- (length (targets form)))))
+         (change-made)
+         (elt (targets form) (value (value form))))
+        (t
+         form)))
 
 (defmethod simp-form ((form lexical-variable))
   form)
