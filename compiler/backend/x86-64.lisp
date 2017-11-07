@@ -45,9 +45,10 @@
    (%result :initarg :result :accessor x86-fake-three-operand-result)
    (%lhs :initarg :lhs :accessor x86-fake-three-operand-lhs)
    (%rhs :initarg :rhs :accessor x86-fake-three-operand-rhs)
+   (%imm :initarg :imm :accessor x86-fake-three-operand-imm)
    (%clobbers :initarg :clobbers :reader x86-instruction-clobbers)
    (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber))
-  (:default-initargs :clobbers '() :early-clobber nil))
+  (:default-initargs :clobbers '() :early-clobber nil :imm nil))
 
 (defmethod mezzano.compiler.backend.register-allocator::instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture sys.c:x86-64-target))
   (x86-instruction-clobbers instruction))
@@ -72,7 +73,9 @@
           `(:x86-fake-three-operand ,(x86-instruction-opcode instruction)
                                     ,(x86-fake-three-operand-result instruction)
                                     ,(x86-fake-three-operand-lhs instruction)
-                                    ,(x86-fake-three-operand-rhs instruction))))
+                                    ,(x86-fake-three-operand-rhs instruction)
+                                    ,@(when (x86-fake-three-operand-imm instruction)
+                                        (list (x86-fake-three-operand-imm instruction))))))
 
 ;;; Wrapper around x86 branch instructions.
 (defclass x86-branch-instruction (mezzano.compiler.backend::terminator-instruction)
@@ -204,7 +207,9 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                                     :destination (x86-fake-three-operand-result inst)
                                     :source (x86-fake-three-operand-lhs inst)))
       (change-class inst 'x86-instruction
-                    :operands (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
+                    :operands (if (x86-fake-three-operand-imm inst)
+                                  (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst) (x86-fake-three-operand-imm inst))
+                                  (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst)))
                     :inputs (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
                     :outputs (list (x86-fake-three-operand-result inst))
                     :prefix nil))))
