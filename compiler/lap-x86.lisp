@@ -1234,20 +1234,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvtss2si64 (dst src)
-  (when (and (eql (reg-class src) :xmm)
-             (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+  (when (and (eql (reg-class dst) :gpr-64)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
     (emit #xF3)
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x2D)))))
+      (generate-modrm :gpr-64 src dst '(#x0F #x2D)))))
 
 (define-instruction cvttss2si64 (dst src)
-  (when (and (eql (reg-class src) :xmm)
-             (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+  (when (and (eql (reg-class dst) :gpr-64)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
     (emit #xF3)
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x2C)))))
+      (generate-modrm :gpr-64 src dst '(#x0F #x2C)))))
 
 (define-instruction cvtsi2ss64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
@@ -1258,20 +1258,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
 
 (define-instruction cvtsd2si64 (dst src)
-  (when (and (eql (reg-class src) :xmm)
-             (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+  (when (and (eql (reg-class dst) :gpr-64)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
     (emit #xF2)
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x2D)))))
+      (generate-modrm :gpr-64 src dst '(#x0F #x2D)))))
 
 (define-instruction cvttsd2si64 (dst src)
-  (when (and (eql (reg-class src) :xmm)
-             (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+  (when (and (eql (reg-class dst) :gpr-64)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
     (emit #xF2)
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x2C)))))
+      (generate-modrm :gpr-64 src dst '(#x0F #x2C)))))
 
 (define-instruction cvtsi2sd64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
