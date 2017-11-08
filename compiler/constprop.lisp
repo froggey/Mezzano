@@ -263,68 +263,80 @@
   ;; Bail out in case of errors.
   (ignore-errors
     (let ((mode (get function 'constant-fold-mode)))
-      (if (consp mode)
-          (ast `(quote ,(apply function
-                               (mapcar (lambda (thing type)
-                                         ;; Bail out if thing is non-constant or does not match the type.
-                                         (setf thing (unwrap-the thing))
-                                         (unless (and (typep thing 'ast-quote)
-                                                      (typep (value thing) type))
-                                           (return-from constant-fold nil))
-                                         (value thing))
-                                       arg-list mode)))
-               form)
-          (ecase mode
-            (:commutative-arithmetic
-             ;; Arguments can be freely re-ordered, assumed to be associative.
-             ;; Addition, multiplication and the logical operators use this.
-             ;; FIXME: Float arithemetic is non-commutative.
-             (let ((const-args '())
-                   (nonconst-args '())
-                   (value nil))
+      (etypecase mode
+        (cons
+         ;; List of arguments & argument types.
+         (ast `(quote ,(apply function
+                              (mapcar (lambda (thing type)
+                                        ;; Bail out if thing is non-constant or does not match the type.
+                                        (setf thing (unwrap-the thing))
+                                        (unless (and (typep thing 'ast-quote)
+                                                     (typep (value thing) type))
+                                          (return-from constant-fold nil))
+                                        (value thing))
+                                      arg-list mode)))
+              form))
+        ((eql t)
+         ;; Any arguments!
+         (ast `(quote ,(apply function
+                              (mapcar (lambda (thing)
+                                        ;; Bail out if thing is non-constant or does not match the type.
+                                        (setf thing (unwrap-the thing))
+                                        (unless (typep thing 'ast-quote)
+                                          (return-from constant-fold nil))
+                                        (value thing))
+                                      arg-list)))
+              form))
+        ((eql :commutative-arithmetic)
+         ;; Arguments can be freely re-ordered, assumed to be associative.
+         ;; Addition, multiplication and the logical operators use this.
+         ;; FIXME: Float arithemetic is non-commutative.
+         (let ((const-args '())
+               (nonconst-args '())
+               (value nil))
+           (dolist (arg arg-list)
+             (let ((unwrapped (unwrap-the arg)))
+               (if (typep unwrapped 'ast-quote)
+                   (push (value unwrapped) const-args)
+                   (push arg nonconst-args))))
+           (setf const-args (nreverse const-args)
+                 nonconst-args (nreverse nonconst-args))
+           (when (or const-args (not nonconst-args))
+             (setf value (apply function const-args))
+             (if nonconst-args
+                 (ast `(call ,function
+                             (quote ,value)
+                             ,@nonconst-args)
+                      form)
+                 (ast `(quote ,value)
+                      form)))))
+        ((eql :arithmetic)
+         ;; Arguments cannot be re-ordered, assumed to be non-associative.
+         (if arg-list
+             (let ((constant-accu '())
+                   (arg-accu '()))
                (dolist (arg arg-list)
                  (let ((unwrapped (unwrap-the arg)))
-                   (if (typep unwrapped 'ast-quote)
-                       (push (value unwrapped) const-args)
-                       (push arg nonconst-args))))
-               (setf const-args (nreverse const-args)
-                     nonconst-args (nreverse nonconst-args))
-               (when (or const-args (not nonconst-args))
-                 (setf value (apply function const-args))
-                 (if nonconst-args
-                     (ast `(call ,function
-                                 (quote ,value)
-                                 ,@nonconst-args)
-                          form)
-                     (ast `(quote ,value)
-                          form)))))
-            (:arithmetic
-             ;; Arguments cannot be re-ordered, assumed to be non-associative.
-             (if arg-list
-                 (let ((constant-accu '())
-                       (arg-accu '()))
-                   (dolist (arg arg-list)
-                     (let ((unwrapped (unwrap-the arg)))
-                       (cond ((typep unwrapped 'ast-quote)
-                              (push (value unwrapped) constant-accu))
-                             (t
-                              (when constant-accu
-                                (push (ast `(quote ,(apply function (nreverse constant-accu)))
-                                           form)
-                                      arg-accu)
-                                (setf constant-accu nil))
-                              (push arg arg-accu)))))
-                   (if arg-accu
-                       (ast `(call ,function
-                                   ,@(nreverse arg-accu)
-                                   ,@(when constant-accu
+                   (cond ((typep unwrapped 'ast-quote)
+                          (push (value unwrapped) constant-accu))
+                         (t
+                          (when constant-accu
+                            (push (ast `(quote ,(apply function (nreverse constant-accu)))
+                                       form)
+                                  arg-accu)
+                            (setf constant-accu nil))
+                          (push arg arg-accu)))))
+               (if arg-accu
+                   (ast `(call ,function
+                               ,@(nreverse arg-accu)
+                               ,@(when constant-accu
                                        (list `(quote ,(apply function (nreverse constant-accu))))))
-                            form)
-                       (ast `(quote ,(apply function (nreverse constant-accu)))
-                            form)))
-                 (ast `(quote ,(funcall function))
-                      form)))
-            ((nil) nil))))))
+                        form)
+                   (ast `(quote ,(apply function (nreverse constant-accu)))
+                        form)))
+             (ast `(quote ,(funcall function))
+                  form)))
+        ((eql nil) nil)))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
 (defmethod cp-form ((form ast-call))
@@ -393,3 +405,6 @@
              (keywordp (symbol))
              (sys.int::%type-check (t fixnum t))))
   (setf (get (first x) 'constant-fold-mode) (second x)))
+
+(defun mark-as-constant-foldable (name)
+  (setf (get name 'constant-fold-mode) t))

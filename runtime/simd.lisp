@@ -28,7 +28,10 @@
     `(the mmx-vector (sys.c::call %make-mmx-vector ,value)))
   (sys.c::define-transform make-mmx-vector ((value (and fixnum (integer 0))))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the mmx-vector (sys.c::call %make-mmx-vector/fixnum ,value))))
+    `(the mmx-vector (sys.c::call %make-mmx-vector/fixnum ,value)))
+  (sys.c::mark-as-constant-foldable 'make-mmx-vector)
+  (sys.c::mark-as-constant-foldable '%make-mmx-vector)
+  (sys.c::mark-as-constant-foldable '%make-mmx-vector/fixnum))
 
 (sys.int::define-lap-function %%make-mmx-vector-rax ()
   (:gc :no-frame :layout #*0)
@@ -76,7 +79,10 @@
   (sys.c::define-transform %mmx-vector-value ((value mmx-vector))
       ((:result-type fixnum)
        (:optimize (= safety 0) (= speed 3)))
-    `(sys.c::call %mmx-vector-value/fixnum ,value)))
+    `(sys.c::call %mmx-vector-value/fixnum ,value))
+  (sys.c::mark-as-constant-foldable 'mmx-vector-value)
+  (sys.c::mark-as-constant-foldable '%mmx-vector-value)
+  (sys.c::mark-as-constant-foldable '%mmx-vector-value/fixnum))
 
 (defmethod print-object ((object mmx-vector) stream)
   (print-unreadable-object (object stream :type t)
@@ -254,6 +260,20 @@
 (defmethod describe-object ((object mmx-vector) stream)
   (format stream "~S is an SSE vector.~%" object))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::mark-as-constant-foldable 'make-sse-vector)
+  (sys.c::mark-as-constant-foldable 'sse-vector-value)
+  (sys.c::mark-as-constant-foldable 'make-sse-vector-single-float)
+  (sys.c::mark-as-constant-foldable '%make-sse-vector-single-float)
+  (sys.c::mark-as-constant-foldable 'sse-vector-single-float-element)
+  (sys.c::mark-as-constant-foldable '%sse-vector-single-float-element)
+  (sys.c::mark-as-constant-foldable '%sse-vector-to-single-float)
+  (sys.c::mark-as-constant-foldable '%single-float-to-sse-vector)
+  (sys.c::mark-as-constant-foldable 'make-sse-vector-double-float)
+  (sys.c::mark-as-constant-foldable 'sse-vector-double-float-element)
+  (sys.c::mark-as-constant-foldable '%sse-vector-to-double-float)
+  (sys.c::mark-as-constant-foldable '%double-float-to-sse-vector))
+
 (defmacro define-simd-integer-op (name mmx-function sse-function)
   `(progn
      (defun ,name (lhs rhs)
@@ -275,7 +295,10 @@
          `(the mmx-vector (sys.c::call ,',mmx-function ,lhs ,rhs)))
        (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs))))
+         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
+       (sys.c::mark-as-constant-foldable ',name)
+       (sys.c::mark-as-constant-foldable ',mmx-function)
+       (sys.c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-float-op (name sse-function)
@@ -291,7 +314,9 @@
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs))))
+         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
+       (sys.c::mark-as-constant-foldable ',name)
+       (sys.c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-float-op-unary (name sse-function)
@@ -306,7 +331,9 @@
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((value sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,value))))
+         `(the sse-vector (sys.c::call ,',sse-function ,value)))
+       (sys.c::mark-as-constant-foldable ',name)
+       (sys.c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 ;; MMX
@@ -445,7 +472,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform shufps ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %shufps/sse ,a ,b ,control))))
+    `(the sse-vector (sys.c::call %shufps/sse ,a ,b ,control)))
+  (sys.c::mark-as-constant-foldable 'shufps))
 
 (export 'shufps)
 
@@ -465,7 +493,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform shufpd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %shufpd/sse ,a ,b ,control))))
+    `(the sse-vector (sys.c::call %shufpd/sse ,a ,b ,control))
+    (sys.c::mark-as-constant-foldable 'shufpd)))
 
 (export 'shufpd)
 
