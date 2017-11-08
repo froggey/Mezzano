@@ -139,28 +139,57 @@
   (logior (sys.int::%object-ref-unsigned-byte-64 vector 1)
           (ash (sys.int::%object-ref-unsigned-byte-64 vector 2) 64)))
 
-(defun make-sse-vector-single-float (a &optional (b 0.0) (c 0.0) (d 0.0))
+(declaim (inline make-sse-vector-single-float))
+(defun make-sse-vector-single-float (&optional (a 0.0) (b 0.0) (c 0.0) (d 0.0))
+  (the sse-vector (%make-sse-vector-single-float a b c d)))
+
+(defun %make-sse-vector-single-float (a b c d)
   (check-type a single-float)
   (check-type b single-float)
   (check-type c single-float)
   (check-type d single-float)
-  (let ((obj (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
-                                                0
-                                                3
-                                                nil)))
+  (let ((vector (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
+                                                   0
+                                                   3
+                                                   nil)))
     (setf (sys.int::%object-ref-single-float vector 2) a
           (sys.int::%object-ref-single-float vector 3) b
           (sys.int::%object-ref-single-float vector 4) c
           (sys.int::%object-ref-single-float vector 5) d)
-    obj))
+    vector))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c single-float) (d single-float))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector
+          (sys.c::call %unpcklps/sse
+                       (sys.c::call %unpcklps/sse
+                                    (sys.c::call %single-float-to-sse-vector ,a)
+                                    (sys.c::call %single-float-to-sse-vector ,c))
+                       (sys.c::call %unpcklps/sse
+                                    (sys.c::call %single-float-to-sse-vector ,b)
+                                    (sys.c::call %single-float-to-sse-vector ,d)))))
+
+  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c (eql 0.0)) (d (eql 0.0)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector
+          (sys.c::call %unpcklps/sse
+                       (sys.c::call %single-float-to-sse-vector ,a)
+                       (sys.c::call %single-float-to-sse-vector ,b))))
+
+  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b (eql 0.0)) (c (eql 0.0)) (d (eql 0.0)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %single-float-to-sse-vector ,a)))
+)
 
 (defun sse-vector-single-float-element (vector index)
   (check-type vector sse-vector)
-  (ecase index
-    (0 (%sse-vector-to-single-float vector))
-    (1 (sys.int::%object-ref-single-float vector 3))
-    (2 (sys.int::%object-ref-single-float vector 4))
-    (3 (sys.int::%object-ref-single-float vector 5))))
+  (%sse-vector-single-float-element vector index))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-single-float-element ((vector sse-vector) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(sys.c::call %sse-vector-single-float-element ,vector ,index)))
 
 (defun %sse-vector-to-single-float (vector)
   (%sse-vector-to-single-float vector))
@@ -171,13 +200,13 @@
 (defun make-sse-vector-double-float (a &optional (b 0.0d0))
   (check-type a double-float)
   (check-type b double-float)
-  (let ((obj (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
-                                                0
-                                                3
-                                                nil)))
+  (let ((vector (mezzano.runtime::%allocate-object sys.int::+object-tag-sse-vector+
+                                                   0
+                                                   3
+                                                   nil)))
     (setf (sys.int::%object-ref-double-float vector 1) a
           (sys.int::%object-ref-double-float vector 2) b)
-    obj))
+    vector))
 
 (defun sse-vector-double-float-element (vector index)
   (check-type vector sse-vector)
@@ -220,7 +249,7 @@
 
 (defmethod print-object ((object sse-vector) stream)
   (print-unreadable-object (object stream :type t)
-    (format stream "~16,'0X" (sse-vector-value object))))
+    (format stream "~32,'0X" (sse-vector-value object))))
 
 (defmethod describe-object ((object mmx-vector) stream)
   (format stream "~S is an SSE vector.~%" object))
@@ -346,6 +375,8 @@
 (define-simd-float-op maxss %maxss/sse)
 (define-simd-float-op minps %minps/sse)
 (define-simd-float-op minss %minss/sse)
+(define-simd-float-op movhlps %movhlps/sse)
+(define-simd-float-op movlhps %movlhps/sse)
 (define-simd-float-op mulps %mulps/sse)
 (define-simd-float-op mulss %mulss/sse)
 (define-simd-float-op orps %orps/sse)
@@ -390,7 +421,6 @@
 (define-simd-float-op mulpd %mulpd/sse)
 (define-simd-float-op mulsd %mulsd/sse)
 (define-simd-float-op orpd %orpd/sse)
-(define-simd-float-op shufpd %shufpd/sse)
 (define-simd-float-op-unary sqrtpd %sqrtpd/sse)
 (define-simd-float-op-unary sqrtsd %sqrtsd/sse)
 (define-simd-float-op subpd %subpd/sse)
@@ -398,3 +428,52 @@
 (define-simd-float-op unpckhpd %unpckhpd/sse)
 (define-simd-float-op unpcklpd %unpcklpd/sse)
 (define-simd-float-op xorpd %xorpd/sse)
+
+(defun shufps (a b control)
+  (check-type a sse-vector)
+  (check-type b sse-vector)
+  (check-type control (unsigned-byte 8))
+  (%shufps/sse a b control))
+
+(defun %shufps/sse (a b control)
+  (macrolet ((gen ()
+               `(ecase control
+                  ,@(loop for i below 256
+                         collect `(,i (%shufps/sse a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform shufps ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %shufps/sse ,a ,b ,control))))
+
+(export 'shufps)
+
+(defun shufpd (a b control)
+  (check-type a sse-vector)
+  (check-type b sse-vector)
+  (check-type control (unsigned-byte 8))
+  (%shufpd/sse a b control))
+
+(defun %shufpd/sse (a b control)
+  (ecase (ldb (byte 2 0) control)
+    (0 (%shufpd/sse a b 0))
+    (1 (%shufpd/sse a b 1))
+    (2 (%shufpd/sse a b 2))
+    (3 (%shufpd/sse a b 3))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform shufpd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %shufpd/sse ,a ,b ,control))))
+
+(export 'shufpd)
+
+(declaim (inline %sse-vector-single-float-element))
+(defun %sse-vector-single-float-element (vector index)
+  (the single-float
+       (ecase index
+         (0 (%sse-vector-to-single-float vector))
+         (1 (%sse-vector-to-single-float (%shufps/sse vector vector #b01)))
+         (2 (%sse-vector-to-single-float (%shufps/sse vector vector #b10)))
+         (3 (%sse-vector-to-single-float (%shufps/sse vector vector #b11))))))

@@ -351,6 +351,8 @@
   (def2 mezzano.simd::%maxss/sse lap:maxss)
   (def2 mezzano.simd::%minps/sse lap:minps)
   (def2 mezzano.simd::%minss/sse lap:minss)
+  (def2 mezzano.simd::%movhlps/sse lap:movhlps)
+  (def2 mezzano.simd::%movlhps/sse lap:movlhps)
   (def2 mezzano.simd::%mulps/sse lap:mulps)
   (def2 mezzano.simd::%mulss/sse lap:mulss)
   (def2 mezzano.simd::%orps/sse lap:orps)
@@ -395,7 +397,6 @@
   (def2 mezzano.simd::%mulpd/sse lap:mulpd)
   (def2 mezzano.simd::%mulsd/sse lap:mulsd)
   (def2 mezzano.simd::%orpd/sse lap:orpd)
-  (def2 mezzano.simd::%shufpd/sse lap:shufpd)
   (def1 mezzano.simd::%sqrtpd/sse lap:sqrtpd)
   (def1 mezzano.simd::%sqrtsd/sse lap:sqrtsd)
   (def2 mezzano.simd::%subpd/sse lap:subpd)
@@ -404,3 +405,47 @@
   (def2 mezzano.simd::%unpcklpd/sse lap:unpcklpd)
   (def2 mezzano.simd::%xorpd/sse lap:xorpd)
   )
+
+(define-builtin mezzano.simd::%shufps/sse ((a b control) result)
+  (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+        (b-unboxed (make-instance 'virtual-register :kind :sse))
+        (result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (when (not (constant-value-p control '(unsigned-byte 8)))
+      (give-up))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source a
+                         :destination a-unboxed))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source b
+                         :destination b-unboxed))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:shufps
+                         :result result-unboxed
+                         :lhs a-unboxed
+                         :rhs b-unboxed
+                         :imm (fetch-constant-value control)))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.simd::%shufpd/sse ((a b control) result)
+  (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+        (b-unboxed (make-instance 'virtual-register :kind :sse))
+        (result-unboxed (make-instance 'virtual-register :kind :sse)))
+    (when (not (constant-value-p control '(unsigned-byte 8)))
+      (give-up))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source a
+                         :destination a-unboxed))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source b
+                         :destination b-unboxed))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:shufpd
+                         :result result-unboxed
+                         :lhs a-unboxed
+                         :rhs b-unboxed
+                         :imm (fetch-constant-value control)))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source result-unboxed
+                         :destination result))))

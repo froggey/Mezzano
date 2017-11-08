@@ -1183,6 +1183,8 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-sse-float-op div #x5E)
 (define-sse-float-op max #x5F)
 (define-sse-float-op min #x5D)
+(define-sse-float-op movhl #x12 :scalar nil :double nil)
+(define-sse-float-op movlh #x16 :scalar nil :double nil)
 (define-sse-float-op mul #x59)
 (define-sse-float-op or #x56 :scalar nil)
 (define-sse-float-op rcp #x53 :double nil)
@@ -1393,6 +1395,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
 
 (define-instruction punpcklqdq (lhs rhs)
   (xmm-integer-op lhs rhs (#x0F #x6C)))
+
+(define-instruction shufps (lhs rhs imm)
+  (when (eql (reg-class lhs) :xmm)
+    (modrm-imm8 :xmm rhs lhs imm '(#x0F #xC6))))
+
+(define-instruction shufpd (lhs rhs imm)
+  (when (eql (reg-class lhs) :xmm)
+    (emit #x66)
+    (modrm-imm8 :xmm rhs lhs imm '(#x0F #xC6))))
 
 (defmacro modrm-two-classes (class r/m-class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
