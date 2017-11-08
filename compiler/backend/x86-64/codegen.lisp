@@ -10,6 +10,8 @@
 (defvar *current-frame-layout*)
 (defvar *prepass-data*)
 (defvar *labels*)
+(defvar *literals*)
+(defvar *literals/128*)
 
 (defun resolve-label (label)
   (or (gethash label *labels*)
@@ -57,6 +59,8 @@
              (push (cons next stack) worklist)))))
     layout))
 
+;; TODO: Sort the layout so stack slots for values are all together and trim
+;; the gc layout bitvector. #*111 instead of #*0010101
 (defun compute-stack-layout (backend-function uses defs)
   (let* ((local-layout (layout-local-variables backend-function))
          (layout (loop
@@ -143,6 +147,16 @@
                              *stack-layout*)
                 (error "Missing stack slot for local ~S" binding))))
 
+(defun fetch-literal (value)
+  (let ((pos (or (position value *literals*)
+                 (vector-push-extend value *literals*))))
+    `(:rip (+ literal-pool ,(* pos 8)))))
+
+(defun fetch-literal/128 (value)
+  (let ((pos (or (position value *literals/128*)
+                 (vector-push-extend value *literals/128*))))
+    `(:rip (+ literal-pool/128 ,(* pos 16)))))
+
 (defun to-lap (backend-function)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
@@ -167,6 +181,8 @@
                                                              0
                                                              1))
                                               'simple-bit-vector))
+              (*literals* (make-array 8 :adjustable t :fill-pointer 0))
+              (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
               (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
           ;; Create stack frame.
           (emit `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
@@ -195,6 +211,14 @@
                          (emit-gc-info :multiple-values 0)
                          (emit-gc-info)))
                    (emit-lap backend-function inst-or-label uses defs))))
+          (emit '(:align 16)
+                'literal-pool/128)
+          (loop for value across *literals/128* do
+               (emit `(:d64/le ,(ldb (byte 64 0) value))
+                     `(:d64/le ,(ldb (byte 64 64) value))))
+          (emit 'literal-pool)
+          (loop for value across *literals* do
+               (emit `(:d64/le ,value)))
           (values (reverse *emitted-lap*)
                   debug-layout
                   environment-slot))))))
@@ -479,8 +503,14 @@
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
   (when (x86-instruction-prefix instruction)
     (emit (x86-instruction-prefix instruction)))
-  (emit (list* (x86-instruction-opcode instruction)
-               (x86-instruction-operands instruction))))
+  (let ((real-operands (loop
+                          for op in (x86-instruction-operands instruction)
+                          collect (cond ((and (consp op) (eql (first op) :literal/128))
+                                         (fetch-literal/128 (second op)))
+                                        ((and (consp op) (eql (first op) :literal))
+                                         (fetch-literal (second op)))
+                                        (t op)))))
+    (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
 (defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
   (emit (list (x86-instruction-opcode instruction)
