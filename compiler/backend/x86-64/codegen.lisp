@@ -440,7 +440,15 @@
         (emit `(lap:movdqa ,(move-destination instruction) ,(move-source instruction))))))))
 
 (defmethod emit-lap (backend-function (instruction swap-instruction) uses defs)
-  (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction))))
+  (when (not (eql (swap-lhs instruction) (swap-rhs instruction)))
+    (assert (eql (lap::reg-class (swap-lhs instruction)) (lap::reg-class (swap-rhs instruction))))
+    (ecase (lap::reg-class (swap-rhs instruction))
+      ((:mm :xmm)
+       (emit `(lap:pxor ,(swap-lhs instruction) ,(swap-rhs instruction))
+             `(lap:pxor ,(swap-rhs instruction) ,(swap-lhs instruction))
+             `(lap:pxor ,(swap-lhs instruction) ,(swap-rhs instruction))))
+      (:gpr-64
+       (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction spill-instruction) uses defs)
   (ecase (virtual-register-kind (spill-destination instruction))
