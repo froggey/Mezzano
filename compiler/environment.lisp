@@ -25,6 +25,7 @@
 (defgeneric macro-function-in-environment (symbol environment))
 (defgeneric lookup-variable-declared-type-in-environment (symbol environment))
 (defgeneric optimize-qualities-in-environment (environment))
+(defgeneric inline-qualities-in-environment (environment))
 
 ;;; Lexical environments.
 
@@ -90,7 +91,11 @@
       (dolist (func functions)
         (when (not (assoc (first func) new-decls :test #'equal))
           (push (list (first func) nil) new-decls)))
-      (setf (slot-value sub '%inline-decls) (append new-decls (slot-value environment '%inline-decls))))
+      (setf (slot-value sub '%inline-decls) (append new-decls
+                                                    (set-difference (slot-value environment '%inline-decls)
+                                                                    new-decls
+                                                                    :test #'equal
+                                                                    :key #'first))))
     (let ((new-decls '()))
       (flet ((add-decl (name type)
                (let* ((new-var (assoc name variables))
@@ -223,3 +228,6 @@
 
 (defmethod optimize-qualities-in-environment ((environment lexical-environment))
   (slot-value environment '%optimize))
+
+(defmethod inline-qualities-in-environment ((environment lexical-environment))
+  (slot-value environment '%inline-decls))

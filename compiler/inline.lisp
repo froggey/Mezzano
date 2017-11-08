@@ -102,35 +102,39 @@
   (gethash name mezzano.compiler.codegen.arm64::*builtins*))
 
 (defun expand-inline-function (form name arg-list architecture)
-  ;; FIXME: Respect INLINE/NOTININE declarations.
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
-    (when (and inlinep
+    (when (and (or inlinep
+                   (eql (second (assoc name (ast-inline-declarations form))) 'inline))
+               (not (eql (second (assoc name (ast-inline-declarations form))) 'notinline))
                ;; Don't inline builtin functions.
                ;; There may be inlinable definitions available, but they're for the new compiler.
                (or *use-new-compiler*
                    (not (applicable-builtin-p name architecture))))
-      (cond (expansion
-             (ast `(call mezzano.runtime::%funcall
-                         ,(pass1-lambda expansion
-                                        (extend-environment
-                                         nil
-                                         :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
-                                                                        collect (list quality value))))))
-                         ,@arg-list)
-                  form))
-            ((fboundp name)
-             (multiple-value-bind (expansion closurep)
-                 (function-lambda-expression (fdefinition name))
-               (when (and expansion (not closurep))
-                 (ast `(call mezzano.runtime::%funcall
-                             ,(pass1-lambda expansion
-                                            (extend-environment
-                                             nil
-                                             :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
-                                                                            collect (list quality value))))))
-                             ,@arg-list)
-                      form))))))))
+      (flet ((make-inline-environment ()
+               (extend-environment
+                nil
+                :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                               collect (list quality value)))
+                                (notinline ,@(loop for (name mode) in (ast-inline-declarations form)
+                                                  when (eql mode 'notinline)
+                                                  collect name))
+                                (inline ,@(loop for (name mode) in (ast-inline-declarations form)
+                                             when (eql mode 'inline)
+                                             collect name))))))
+        (cond (expansion
+               (ast `(call mezzano.runtime::%funcall
+                           ,(pass1-lambda expansion (make-inline-environment))
+                           ,@arg-list)
+                    form))
+              ((fboundp name)
+               (multiple-value-bind (expansion closurep)
+                   (function-lambda-expression (fdefinition name))
+                 (when (and expansion (not closurep))
+                   (ast `(call mezzano.runtime::%funcall
+                               ,(pass1-lambda expansion (make-inline-environment))
+                               ,@arg-list)
+                        form)))))))))
 
 (defmethod il-form ((form ast-call) architecture)
   (il-implicit-progn (arguments form) architecture)

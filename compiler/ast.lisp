@@ -6,16 +6,21 @@
 ;;; AST objects.
 
 (defclass ast-node ()
-  ((%optimize-qualities :initarg :optimize :accessor ast-optimize))
-  (:default-initargs :optimize '()))
+  ((%optimize-qualities :initarg :optimize :accessor ast-optimize)
+   (%inline-declarations :initarg :inline-declarations :accessor ast-inline-declarations))
+  (:default-initargs :optimize '() :inline-declarations '()))
 
-(defmethod initialize-instance :after ((instance ast-node) &key inherit &allow-other-keys)
+(defmethod initialize-instance :after ((instance ast-node) &key inherit environment &allow-other-keys)
   (when inherit
     (loop
        for (quality value) on (ast-optimize inherit) by #'cddr
        do (setf (getf (ast-optimize instance) quality)
                 (max value
-                     (getf (ast-optimize instance) quality 0))))))
+                     (getf (ast-optimize instance) quality 0))))
+    (setf (ast-inline-declarations instance) (ast-inline-declarations inherit)))
+  (when environment
+    (setf (ast-optimize instance) (optimize-qualities-in-environment environment))
+    (setf (ast-inline-declarations instance) (inline-qualities-in-environment environment))))
 
 (defclass lambda-information (ast-node)
   ((%name :initarg :name :accessor lambda-information-name)

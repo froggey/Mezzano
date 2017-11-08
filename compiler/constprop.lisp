@@ -341,7 +341,8 @@
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
 (defmethod cp-form ((form ast-call))
   (cp-implicit-progn (arguments form))
-  (or (constant-fold form (name form) (arguments form))
+  (or (and (not (eql (second (assoc (name form) (ast-inline-declarations form))) 'notinline))
+           (constant-fold form (name form) (arguments form)))
       form))
 
 (defmethod cp-form ((form lexical-variable))
