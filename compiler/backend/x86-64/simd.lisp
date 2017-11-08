@@ -43,23 +43,38 @@
 
 (macrolet ((frob (fn inst)
              `(define-builtin ,fn ((lhs rhs) result)
-                (let ((lhs-unboxed (make-instance 'virtual-register :kind :mmx))
-                      (rhs-unboxed (make-instance 'virtual-register :kind :mmx))
-                      (result-unboxed (make-instance 'virtual-register :kind :mmx)))
-                  (emit (make-instance 'unbox-mmx-vector-instruction
-                                       :source lhs
-                                       :destination lhs-unboxed))
-                  (emit (make-instance 'unbox-mmx-vector-instruction
-                                       :source rhs
-                                       :destination rhs-unboxed))
-                  (emit (make-instance 'x86-fake-three-operand-instruction
-                                       :opcode ',inst
-                                       :result result-unboxed
-                                       :lhs lhs-unboxed
-                                       :rhs rhs-unboxed))
-                  (emit (make-instance 'box-mmx-vector-instruction
-                                       :source result-unboxed
-                                       :destination result))))))
+                (cond ((constant-value-p rhs 'mezzano.simd:mmx-vector)
+                       (let ((lhs-unboxed (make-instance 'virtual-register :kind :mmx))
+                             (result-unboxed (make-instance 'virtual-register :kind :mmx)))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs `(:literal ,(mezzano.simd:mmx-vector-value (fetch-constant-value rhs)))))
+                         (emit (make-instance 'box-mmx-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      (t
+                       (let ((lhs-unboxed (make-instance 'virtual-register :kind :mmx))
+                             (rhs-unboxed (make-instance 'virtual-register :kind :mmx))
+                             (result-unboxed (make-instance 'virtual-register :kind :mmx)))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source rhs
+                                              :destination rhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs rhs-unboxed))
+                         (emit (make-instance 'box-mmx-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))))))
   ;; MMX
   (frob mezzano.simd::%packssdw/mmx lap:packssdw)
   (frob mezzano.simd::%packsswb/mmx lap:packsswb)
@@ -253,38 +268,64 @@
 
 (macrolet ((def1 (fn inst)
              `(define-builtin ,fn ((value) result)
-                (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
-                      (result-unboxed (make-instance 'virtual-register :kind :sse)))
-                  (emit (make-instance 'unbox-sse-vector-instruction
-                                       :source value
-                                       :destination value-unboxed))
-                  (emit (make-instance 'x86-instruction
-                                       :opcode ',inst
-                                       :operands (list result-unboxed value-unboxed)
-                                       :inputs (list value-unboxed)
-                                       :outputs (list result-unboxed)))
-                  (emit (make-instance 'box-sse-vector-instruction
-                                       :source result-unboxed
-                                       :destination result)))))
+                (cond ((constant-value-p value 'mezzano.simd:sse-vector)
+                       (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
+                         (emit (make-instance 'x86-instruction
+                                              :opcode ',inst
+                                              :operands (list result-unboxed `(:literal/128 ,(mezzano.simd:sse-vector-value (fetch-constant-value value))))
+                                              :inputs (list)
+                                              :outputs (list result-unboxed)))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      (t
+                       (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source value
+                                              :destination value-unboxed))
+                         (emit (make-instance 'x86-instruction
+                                              :opcode ',inst
+                                              :operands (list result-unboxed value-unboxed)
+                                              :inputs (list value-unboxed)
+                                              :outputs (list result-unboxed)))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result)))))))
            (def2 (fn inst)
              `(define-builtin ,fn ((lhs rhs) result)
-                (let ((lhs-unboxed (make-instance 'virtual-register :kind :sse))
-                      (rhs-unboxed (make-instance 'virtual-register :kind :sse))
-                      (result-unboxed (make-instance 'virtual-register :kind :sse)))
-                  (emit (make-instance 'unbox-sse-vector-instruction
-                                       :source lhs
-                                       :destination lhs-unboxed))
-                  (emit (make-instance 'unbox-sse-vector-instruction
-                                       :source rhs
-                                       :destination rhs-unboxed))
-                  (emit (make-instance 'x86-fake-three-operand-instruction
-                                       :opcode ',inst
-                                       :result result-unboxed
-                                       :lhs lhs-unboxed
-                                       :rhs rhs-unboxed))
-                  (emit (make-instance 'box-sse-vector-instruction
-                                       :source result-unboxed
-                                       :destination result))))))
+                (cond ((constant-value-p rhs 'mezzano.simd:sse-vector)
+                       (let ((lhs-unboxed (make-instance 'virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs `(:literal/128 ,(mezzano.simd:sse-vector-value (fetch-constant-value rhs)))))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      (t
+                       (let ((lhs-unboxed (make-instance 'virtual-register :kind :sse))
+                             (rhs-unboxed (make-instance 'virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source rhs
+                                              :destination rhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs rhs-unboxed))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))))))
   ;; MMX
   (def2 mezzano.simd::%packssdw/sse lap:packssdw)
   (def2 mezzano.simd::%packsswb/sse lap:packsswb)
@@ -407,45 +448,77 @@
   )
 
 (define-builtin mezzano.simd::%shufps/sse ((a b control) result)
-  (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
-        (b-unboxed (make-instance 'virtual-register :kind :sse))
-        (result-unboxed (make-instance 'virtual-register :kind :sse)))
-    (when (not (constant-value-p control '(unsigned-byte 8)))
-      (give-up))
-    (emit (make-instance 'unbox-sse-vector-instruction
-                         :source a
-                         :destination a-unboxed))
-    (emit (make-instance 'unbox-sse-vector-instruction
-                         :source b
-                         :destination b-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:shufps
-                         :result result-unboxed
-                         :lhs a-unboxed
-                         :rhs b-unboxed
-                         :imm (fetch-constant-value control)))
-    (emit (make-instance 'box-sse-vector-instruction
-                         :source result-unboxed
-                         :destination result))))
+  (when (not (constant-value-p control '(unsigned-byte 8)))
+    (give-up))
+  (cond ((constant-value-p b 'mezzano.simd:sse-vector)
+         (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+               (result-unboxed (make-instance 'virtual-register :kind :sse)))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source a
+                                :destination a-unboxed))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shufps
+                                :result result-unboxed
+                                :lhs a-unboxed
+                                :rhs `(:literal/128 ,(mezzano.simd:sse-vector-value (fetch-constant-value b)))
+                                :imm (fetch-constant-value control)))
+           (emit (make-instance 'box-sse-vector-instruction
+                                :source result-unboxed
+                                :destination result))))
+        (t
+         (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+               (b-unboxed (make-instance 'virtual-register :kind :sse))
+               (result-unboxed (make-instance 'virtual-register :kind :sse)))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source a
+                                :destination a-unboxed))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source b
+                                :destination b-unboxed))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shufps
+                                :result result-unboxed
+                                :lhs a-unboxed
+                                :rhs b-unboxed
+                                :imm (fetch-constant-value control)))
+           (emit (make-instance 'box-sse-vector-instruction
+                                :source result-unboxed
+                                :destination result))))))
 
 (define-builtin mezzano.simd::%shufpd/sse ((a b control) result)
-  (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
-        (b-unboxed (make-instance 'virtual-register :kind :sse))
-        (result-unboxed (make-instance 'virtual-register :kind :sse)))
-    (when (not (constant-value-p control '(unsigned-byte 8)))
-      (give-up))
-    (emit (make-instance 'unbox-sse-vector-instruction
-                         :source a
-                         :destination a-unboxed))
-    (emit (make-instance 'unbox-sse-vector-instruction
-                         :source b
-                         :destination b-unboxed))
-    (emit (make-instance 'x86-fake-three-operand-instruction
-                         :opcode 'lap:shufpd
-                         :result result-unboxed
-                         :lhs a-unboxed
-                         :rhs b-unboxed
-                         :imm (fetch-constant-value control)))
-    (emit (make-instance 'box-sse-vector-instruction
-                         :source result-unboxed
-                         :destination result))))
+  (when (not (constant-value-p control '(unsigned-byte 8)))
+    (give-up))
+  (cond ((constant-value-p b 'mezzano.simd:sse-vector)
+         (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+               (result-unboxed (make-instance 'virtual-register :kind :sse)))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source a
+                                :destination a-unboxed))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shufpd
+                                :result result-unboxed
+                                :lhs a-unboxed
+                                :rhs `(:literal/128 ,(mezzano.simd:sse-vector-value (fetch-constant-value b)))
+                                :imm (fetch-constant-value control)))
+           (emit (make-instance 'box-sse-vector-instruction
+                                :source result-unboxed
+                                :destination result))))
+        (t
+         (let ((a-unboxed (make-instance 'virtual-register :kind :sse))
+               (b-unboxed (make-instance 'virtual-register :kind :sse))
+               (result-unboxed (make-instance 'virtual-register :kind :sse)))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source a
+                                :destination a-unboxed))
+           (emit (make-instance 'unbox-sse-vector-instruction
+                                :source b
+                                :destination b-unboxed))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shufpd
+                                :result result-unboxed
+                                :lhs a-unboxed
+                                :rhs b-unboxed
+                                :imm (fetch-constant-value control)))
+           (emit (make-instance 'box-sse-vector-instruction
+                                :source result-unboxed
+                                :destination result))))))
