@@ -744,12 +744,12 @@
   (save-object (structure-slot-read-only object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
-(defun %single-float-as-integer (value)
+(defun sys.int::%single-float-as-integer (value)
   (check-type value single-float)
   #+sbcl (ldb (byte 32 0) (sb-kernel:single-float-bits value))
   #-(or sbcl) (error "Not implemented on this platform!"))
 
-(defun %double-float-as-integer (value)
+(defun sys.int::%double-float-as-integer (value)
   (check-type value double-float)
   #+sbcl (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits value)) 32)
                  (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
@@ -759,10 +759,10 @@
   (etypecase object
     (single-float
      (write-byte sys.int::+llf-single-float+ stream)
-     (save-integer (%single-float-as-integer object) stream))
+     (save-integer (sys.int::%single-float-as-integer object) stream))
     (double-float
      (write-byte sys.int::+llf-double-float+ stream)
-     (save-integer (%double-float-as-integer object) stream))))
+     (save-integer (sys.int::%double-float-as-integer object) stream))))
 
 (defmethod save-one-object ((object ratio) omap stream)
   (write-byte sys.int::+llf-ratio+ stream)
@@ -802,12 +802,12 @@
      (save-integer (denominator (imagpart object)) stream))
     (single-float
      (write-byte sys.int::+llf-complex-single-float+ stream)
-     (save-integer (%single-float-as-integer (realpart object)) stream)
-     (save-integer (%single-float-as-integer (imagpart object)) stream))
+     (save-integer (sys.int::%single-float-as-integer (realpart object)) stream)
+     (save-integer (sys.int::%single-float-as-integer (imagpart object)) stream))
     (double-float
      (write-byte sys.int::+llf-complex-double-float+ stream)
-     (save-integer (%double-float-as-integer (realpart object)) stream)
-     (save-integer (%double-float-as-integer (imagpart object)) stream))))
+     (save-integer (sys.int::%double-float-as-integer (realpart object)) stream)
+     (save-integer (sys.int::%double-float-as-integer (imagpart object)) stream))))
 
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
