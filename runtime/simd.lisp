@@ -91,6 +91,13 @@
 (defmethod describe-object ((object mmx-vector) stream)
   (format stream "~S is an MMX vector.~%" object))
 
+(defmethod make-load-form ((object mmx-vector) &optional environemnt)
+  (declare (ignore environment))
+  `(locally
+       ;; Don't let the compiler constant-fold the call back into a vector.
+       (declare (notinline make-mmx-vector))
+     (make-mmx-vector ',(mmx-vector-value object))))
+
 ;;; SSE (128-bit integer/float) vectors.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -257,8 +264,15 @@
   (print-unreadable-object (object stream :type t)
     (format stream "~32,'0X" (sse-vector-value object))))
 
-(defmethod describe-object ((object mmx-vector) stream)
+(defmethod describe-object ((object sse-vector) stream)
   (format stream "~S is an SSE vector.~%" object))
+
+(defmethod make-load-form ((object sse-vector) &optional environemnt)
+  (declare (ignore environment))
+  `(locally
+       ;; Don't let the compiler constant-fold the call back into a vector.
+       (declare (notinline make-sse-vector))
+     (make-sse-vector ',(sse-vector-value object))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::mark-as-constant-foldable 'make-sse-vector)
