@@ -155,7 +155,7 @@
         (:align
          (note-variably-sized-instruction)
          (destructuring-bind (alignment) (rest instruction)
-           (let ((misalignment (rem (length *machine-code*) alignment)))
+           (let ((misalignment (rem *current-address* alignment)))
              (when (not (zerop misalignment))
                (loop
                   repeat (- alignment misalignment)
