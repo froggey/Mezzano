@@ -384,6 +384,21 @@
                               :lhs lhs
                               :rhs rhs)))))
 
+(define-builtin sys.c::%fast-fixnum-logxor ((lhs rhs) result)
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:xor64
+                              :result result
+                              :lhs lhs
+                              :rhs (ash (fetch-constant-value rhs)
+                                        sys.int::+n-fixnum-bits+))))
+        (t
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:xor64
+                              :result result
+                              :lhs lhs
+                              :rhs rhs)))))
+
 (define-builtin mezzano.runtime::%fixnum-< ((lhs rhs) :l)
   (cond ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-instruction
@@ -441,6 +456,28 @@
                   (emit (make-instance 'move-instruction
                                        :destination result
                                        :source temp2)))))))
+        (t
+         (give-up))))
+
+(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0.
+                  (emit (make-instance 'constant-instruction
+                                       :destination result
+                                       :value 0)))
+                 ((zerop count-value)
+                  (emit (make-instance 'move-instruction
+                                       :destination result
+                                       :source integer)))
+                 (t
+                  (emit (make-instance 'x86-fake-three-operand-instruction
+                                       :opcode 'lap:shl64
+                                       :result result
+                                       :lhs integer
+                                       :rhs count-value))))))
         (t
          (give-up))))
 
