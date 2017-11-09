@@ -493,7 +493,9 @@ Remaining values describe the effective address: base index scale disp rip-relat
                      (4 (if signedp :abs32le :absu32le))
                      (8 (if signedp :abs64le :absu64le)))
                    imm
-                   0))
+                   0)
+  (dotimes (i width)
+    (emit 0)))
 
 (defun generate-imm-ax (class reg imm opc)
   (declare (ignore reg))
