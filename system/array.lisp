@@ -586,6 +586,7 @@
   (declare (dynamic-extent subscripts))
   (assert (eql (array-rank array) (length subscripts)))
   (apply #'+ (maplist (lambda (x y)
+                        (check-type (car x) integer)
                         (unless (<= 0 (car x) (1- (car y)))
                           (error "Subscript ~S is invalid for axis, should be non-negative and less than ~S."
                                  (car x) (car y)))
@@ -695,6 +696,7 @@
   (setf (%row-major-aref array (apply #'array-row-major-index array subscripts)) value))
 
 (defun aref-1 (array index)
+  (check-type index integer)
   (unless (= (array-rank array) 1)
     (error "Invalid number of indices to array ~S." array))
   (when (>= index (array-dimension array 0))
@@ -703,6 +705,7 @@
   (%row-major-aref array index))
 
 (defun (setf aref-1) (value array index)
+  (check-type index integer)
   (unless (= (array-rank array) 1)
     (error "Invalid number of indices to array ~S." array))
   (when (>= index (array-dimension array 0))
@@ -711,6 +714,8 @@
   (setf (%row-major-aref array index) value))
 
 (defun aref-2 (array index1 index2)
+  (check-type index1 integer)
+  (check-type index2 integer)
   (unless (= (array-rank array) 2)
     (error "Invalid number of indices to array ~S." array))
   (when (>= index1 (array-dimension array 0))
@@ -723,6 +728,8 @@
     (%row-major-aref array ofs)))
 
 (defun (setf aref-2) (value array index1 index2)
+  (check-type index1 integer)
+  (check-type index2 integer)
   (unless (= (array-rank array) 2)
     (error "Invalid number of indices to array ~S." array))
   (when (>= index1 (array-dimension array 0))
@@ -735,6 +742,9 @@
     (setf (%row-major-aref array ofs) value)))
 
 (defun aref-3 (array index1 index2 index3)
+  (check-type index1 integer)
+  (check-type index2 integer)
+  (check-type index3 integer)
   (unless (= (array-rank array) 3)
     (error "Invalid number of indices to array ~S." array))
   (let ((dim1 (array-dimension array 0))
@@ -750,6 +760,9 @@
       (%row-major-aref array ofs))))
 
 (defun (setf aref-3) (value array index1 index2 index3)
+  (check-type index1 integer)
+  (check-type index2 integer)
+  (check-type index3 integer)
   (unless (= (array-rank array) 3)
     (error "Invalid number of indices to array ~S." array))
   (let ((dim1 (array-dimension array 0))
