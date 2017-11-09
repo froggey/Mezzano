@@ -551,6 +551,7 @@ TLB shootdown must be protected by the VM lock."
   ;; No arguments
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:jmp (:object :rax #.sys.int::+fref-entry-point+))
+  (:align 16)
   gdtr
   (:d16/le (- temporary-gdt-end temporary-gdt 1)) ; Length
   gdtr-pointer
@@ -558,12 +559,14 @@ TLB shootdown must be protected by the VM lock."
   idtr
   (:d16/le 0)
   (:d32/le 0)
+  (:align 16)
   temporary-gdt
   (:d64/le 0)
   (:d64/le #x00209A0000000000)
   (:d64/le #x00CF9A000000FFFF)
   (:d64/le #x00CF92000000FFFF)
   temporary-gdt-end
+  (:align 16)
   temporary-stack
   (:d32/le 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
   temporary-stack-top)
