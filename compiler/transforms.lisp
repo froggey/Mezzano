@@ -393,23 +393,23 @@
 
 (defmacro define-fast-array-transform (type accessor)
   `(progn
-     (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) index)
+     (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
           (call sys.int::%bounds-check ,array ,index)
           (the ,',type (call ,',accessor ,array ,index))))
-     (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) index)
+     (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
           (call sys.int::%bounds-check ,array ,index)
           (the ,',type (call (setf ,',accessor) ,value ,array ,index))))
-     (define-transform row-major-aref ((array (simple-array ,type (* *))) index)
+     (define-transform row-major-aref ((array (simple-array ,type (* *))) (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
           (progn
             (call sys.int::%bounds-check storage ,index)
             (the ,',type (call ,',accessor storage ,index)))))
-     (define-transform (setf row-major-aref) (value (array (simple-array ,type (* *))) index)
+     (define-transform (setf row-major-aref) (value (array (simple-array ,type (* *))) (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
           (progn
