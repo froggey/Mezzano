@@ -166,17 +166,16 @@
         (overflow (make-instance 'label :name :*-overflow))
         (overflow-temp (make-instance 'virtual-register :kind :integer))
         (fixnum-result (make-instance 'virtual-register))
-        (bignum-result (make-instance 'virtual-register)))
+        (bignum-result (make-instance 'virtual-register))
+        (lhs-unboxed (make-instance 'virtual-register :kind :integer)))
     ;; Convert the lhs to a raw integer, leaving the rhs as a fixnum.
     ;; This will cause the result to be a fixnum.
-    (emit (make-instance 'move-instruction
+    (emit (make-instance 'unbox-fixnum-instruction
                          :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source lhs-unboxed
                          :destination :rax))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:sar64
-                         :operands (list :rax sys.int::+n-fixnum-bits+)
-                         :inputs (list :rax)
-                         :outputs (list :rax)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:imul64
                          :operands (list rhs)
@@ -267,47 +266,48 @@
 (define-builtin mezzano.compiler::%fast-fixnum-* ((lhs rhs) result)
   ;; Convert the lhs to a raw integer, leaving the rhs as a fixnum.
   ;; This will cause the result to be a fixnum.
-  (emit (make-instance 'move-instruction
-                       :source lhs
-                       :destination :rax))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:sar64
-                       :operands (list :rax sys.int::+n-fixnum-bits+)
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:imul64
-                       :operands (list rhs)
-                       :inputs (list :rax rhs)
-                       :outputs (list :rax :rdx)))
-  (emit (make-instance 'move-instruction
-                       :destination result
-                       :source :rax)))
+  (let ((lhs-unboxed (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'move-instruction
+                         :source lhs-unboxed
+                         :destination :rax))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:imul64
+                         :operands (list rhs)
+                         :inputs (list :rax rhs)
+                         :outputs (list :rax :rdx)))
+    (emit (make-instance 'move-instruction
+                         :destination result
+                         :source :rax))))
 
 (define-builtin mezzano.runtime::%fixnum-truncate ((lhs rhs) (quot rem))
-  (emit (make-instance 'move-instruction
-                       :source lhs
-                       :destination :rax))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cqo
-                       :operands (list)
-                       :inputs (list :rax)
-                       :outputs (list :rdx)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:idiv64
-                       :operands (list rhs)
-                       :inputs (list :rax :rdx rhs)
-                       :outputs (list :rax :rdx)))
-  ;; :rax holds the dividend as a integer.
-  ;; :rdx holds the remainder as a fixnum.
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:lea64
-                       :operands (list quot `((:rax 2)))
-                       :inputs (list :rax)
-                       :outputs (list quot)))
-  (emit (make-instance 'move-instruction
-                       :source :rdx
-                       :destination rem)))
+  (let ((quot-unboxed (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'move-instruction
+                         :source lhs
+                         :destination :rax))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cqo
+                         :operands (list)
+                         :inputs (list :rax)
+                         :outputs (list :rdx)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:idiv64
+                         :operands (list rhs)
+                         :inputs (list :rax :rdx rhs)
+                         :outputs (list :rax :rdx)))
+    ;; :rax holds the dividend as a integer.
+    ;; :rdx holds the remainder as a fixnum.
+    (emit (make-instance 'move-instruction
+                         :source :rax
+                         :destination quot-unboxed))
+    (emit (make-instance 'box-fixnum-instruction
+                         :source quot-unboxed
+                         :destination quot))
+    (emit (make-instance 'move-instruction
+                         :source :rdx
+                         :destination rem))))
 
 (define-builtin mezzano.runtime::%fixnum-logand ((lhs rhs) result)
   (cond ((constant-value-p rhs '(signed-byte 31))
