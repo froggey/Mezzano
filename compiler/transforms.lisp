@@ -402,7 +402,19 @@
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
           (call sys.int::%bounds-check ,array ,index)
-          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
+          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))
+     (define-transform row-major-aref ((array (simple-array ,type (* *))) index)
+         ((:optimize (= safety 0) (= speed 3)))
+       `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
+          (progn
+            (call sys.int::%bounds-check storage ,index)
+            (the ,',type (call ,',accessor storage ,index)))))
+     (define-transform (setf row-major-aref) (value (array (simple-array ,type (* *))) index)
+         ((:optimize (= safety 0) (= speed 3)))
+       `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
+          (progn
+            (call sys.int::%bounds-check storage ,index)
+            (the ,',type (call (setf ,',accessor) ,value storage ,index)))))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
