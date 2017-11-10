@@ -1118,13 +1118,12 @@
 
 ;; TODO: Do this without a temporary integer register.
 (defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
-  (let ((tmp :rax))
-    (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
-           (setf tmp (box-source instruction)))
-          (t
-           (emit `(lap:movd :eax ,(box-source instruction)))))
-    (emit `(lap:shl64 ,tmp 32)
-          `(lap:lea64 ,(box-destination instruction) (,tmp ,sys.int::+tag-single-float+)))))
+  (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
+         (emit `(lap:mov64 :rax ,(box-source instruction))))
+        (t
+         (emit `(lap:movd :eax ,(box-source instruction)))))
+  (emit `(lap:shl64 :rax 32)
+        `(lap:lea64 ,(box-destination instruction) (:rax ,sys.int::+tag-single-float+))))
 
 (defmethod emit-lap (backend-function (instruction unbox-single-float-instruction) uses defs)
   (let ((tmp :rax))
