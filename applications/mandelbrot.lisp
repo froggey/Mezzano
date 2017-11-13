@@ -119,9 +119,9 @@
        (setf (juliap app) nil)))
     (signal 'must-redraw)))
 
-(defun benchmark (&optional (width 500) (height width) julia)
+(defun benchmark (&key (width 500) (height width) julia (hue (get-universal-time)))
   (let ((framebuffer (mezzano.gui:make-surface width height))
-        (hue-offset (rem (get-universal-time) 360)))
+        (hue-offset (rem hue 360)))
     (dotimes (y height)
       (dotimes (x width)
         (setf (mezzano.gui:surface-pixel framebuffer x y)
