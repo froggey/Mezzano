@@ -324,6 +324,11 @@
      (:result-type fixnum))
   `(call sys.int::%%truncate-single-float ,number))
 
+(define-transform sys.int::generic-truncate ((number single-float) (divisor (eql 1)))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%truncate-single-float ,number))
+
 ;; Don't use EQ because NaNs are unorderable.
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -342,6 +347,26 @@
   `(call sys.int::%%single-float-< ,rhs ,lhs))
 
 (define-transform sys.int::binary-<= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call sys.int::%%single-float-< ,rhs ,lhs)))
+
+(define-transform sys.int::generic-= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%single-float-= ,lhs ,rhs))
+
+(define-transform sys.int::generic-< ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%single-float-< ,lhs ,rhs))
+
+(define-transform sys.int::generic->= ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call sys.int::%%single-float-< ,lhs ,rhs)))
+
+(define-transform sys.int::generic-> ((lhs single-float) (rhs single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%single-float-< ,rhs ,lhs))
+
+(define-transform sys.int::generic-<= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call sys.int::%%single-float-< ,rhs ,lhs)))
 
