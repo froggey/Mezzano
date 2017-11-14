@@ -1187,6 +1187,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-sse-float-op min #x5D)
 (define-sse-float-op movhl #x12 :scalar nil :double nil)
 (define-sse-float-op movlh #x16 :scalar nil :double nil)
+(define-sse-float-op mov #x10 :packed nil) ; TODO: It goes the other way too.
 (define-sse-float-op mul #x59)
 (define-sse-float-op or #x56 :scalar nil)
 (define-sse-float-op rcp #x53 :double nil)
@@ -1230,11 +1231,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvttps2dq (lhs rhs)
-  (emit #x66)
+  (emit #xF3)
   (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvtdq2ps (lhs rhs)
-  (emit #xF3)
   (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvtss2si64 (dst src)

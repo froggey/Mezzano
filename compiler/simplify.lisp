@@ -628,11 +628,15 @@
     ;; Conversion from single-float to integer.
     (return-from mod-n-transform-candidate-p
       t))
-  (when (and (typep value 'ast-call)
-             (member (name value) '(mezzano.simd:mmx-vector-value mezzano.simd::%mmx-vector-value))
-             (eql (length (arguments value)) 1)
-             (match-transform-argument 'mezzano.simd::mmx-vector (first (arguments value))))
-    ;; Conversion from mmx-vector to integer.
+  (when (or (and (typep value 'ast-call)
+                 (member (name value) '(mezzano.simd:mmx-vector-value mezzano.simd::%mmx-vector-value))
+                 (eql (length (arguments value)) 1)
+                 (match-transform-argument 'mezzano.simd:mmx-vector (first (arguments value))))
+            (and (typep value 'ast-call)
+                 (member (name value) '(mezzano.simd:sse-vector-value mezzano.simd::%sse-vector-value))
+                 (eql (length (arguments value)) 1)
+                 (match-transform-argument 'mezzano.simd:sse-vector (first (arguments value)))))
+    ;; Conversion from mmx/sse--vector to integer.
     (return-from mod-n-transform-candidate-p
       t))
   ;; The value must be a call to one of the arithmetic functions.

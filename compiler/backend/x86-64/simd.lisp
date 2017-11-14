@@ -139,6 +139,50 @@
 
 ;;; SSE operations.
 
+(define-builtin mezzano.simd::%make-sse-vector/fixnum ((value) result)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.simd::%make-sse-vector/ub64 ((value) result)
+  (let ((temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'box-sse-vector-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.simd::%sse-vector-value/fixnum ((value) result)
+  (let ((xmm-temp (make-instance 'virtual-register :kind :sse))
+        (temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination xmm-temp))
+    (emit (make-instance 'move-instruction
+                         :source xmm-temp
+                         :destination temp))
+    (emit (make-instance 'box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.simd::%sse-vector-value/ub64 ((value) result)
+  (let ((xmm-temp (make-instance 'virtual-register :kind :sse))
+        (temp (make-instance 'virtual-register :kind :integer)))
+    (emit (make-instance 'unbox-sse-vector-instruction
+                         :source value
+                         :destination xmm-temp))
+    (emit (make-instance 'move-instruction
+                         :source xmm-temp
+                         :destination temp))
+    (emit (make-instance 'box-unsigned-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
 (define-builtin mezzano.simd::%sse-vector-to-single-float ((value) result)
   (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
         (result-unboxed (make-instance 'virtual-register :kind :single-float)))
@@ -394,6 +438,7 @@
   (def2 mezzano.simd::%minss/sse lap:minss)
   (def2 mezzano.simd::%movhlps/sse lap:movhlps)
   (def2 mezzano.simd::%movlhps/sse lap:movlhps)
+  (def2 mezzano.simd::%movss/sse lap:movss)
   (def2 mezzano.simd::%mulps/sse lap:mulps)
   (def2 mezzano.simd::%mulss/sse lap:mulss)
   (def2 mezzano.simd::%orps/sse lap:orps)
@@ -435,6 +480,7 @@
   (def2 mezzano.simd::%maxsd/sse lap:maxsd)
   (def2 mezzano.simd::%minpd/sse lap:minpd)
   (def2 mezzano.simd::%minsd/sse lap:minsd)
+  (def2 mezzano.simd::%movsd/sse lap:movsd)
   (def2 mezzano.simd::%mulpd/sse lap:mulpd)
   (def2 mezzano.simd::%mulsd/sse lap:mulsd)
   (def2 mezzano.simd::%orpd/sse lap:orpd)
