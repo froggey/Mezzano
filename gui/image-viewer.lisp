@@ -45,14 +45,18 @@
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (fifo (mezzano.supervisor:make-fifo 50))
-          (image (mezzano.gui.image:load-image path)))
+          (image (if (mezzano.gui:surface-p path)
+                     path
+                     (mezzano.gui.image:load-image path))))
       (multiple-value-bind (width height)
           (compute-window-size image)
         (mezzano.gui.compositor:with-window (window fifo width height)
           (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
                  (frame (make-instance 'mezzano.gui.widgets:frame
                                        :framebuffer framebuffer
-                                       :title (namestring path)
+                                       :title (if (mezzano.gui:surface-p path)
+                                                  "<surface>"
+                                                  (namestring path))
                                        :close-button-p t
                                        :damage-function (mezzano.gui.widgets:default-damage-function window)))
                  (viewer (make-instance 'image-viewer
@@ -84,7 +88,8 @@
                    (return-from main))))))))))
 
 (defun spawn (path)
-  (setf path (merge-pathnames path))
+  (when (not (mezzano.gui:surface-p path))
+    (setf path (merge-pathnames path)))
   (mezzano.supervisor:make-thread (lambda () (main path))
                                   :name (format nil "Image Viewer - ~S" path)
                                   :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
