@@ -300,8 +300,8 @@
   (when (or (> 0 start) (> start end))
     (error "Invalid bounding index designators ~S ~S for ~S." start end sequence))
   (let ((new-vector (make-array (- end start) :element-type (array-element-type sequence))))
-    (dotimes (i (- end start) new-vector)
-      (setf (aref new-vector i) (aref sequence (+ start i))))))
+    (replace new-vector sequence :start2 start :end2 end)
+    new-vector))
 
 (defun subseq (sequence start &optional end)
   (if (listp sequence)
