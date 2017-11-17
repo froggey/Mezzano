@@ -7,29 +7,26 @@
 
 ;; Line traversal functions.
 
-(declaim (inline %bitblt-line))
 (defun %bitblt-line (blender to to-offset ncols from from-offset)
   (declare (optimize speed (safety 0) (debug 0))
            (type function blender)
            (type fixnum to-offset ncols from-offset)
            (type (simple-array (unsigned-byte 32) (*)) to from))
-  (dotimes (i ncols)
+  (loop for i fixnum below ncols do
     (funcall blender (aref from from-offset) to to-offset)
     (incf to-offset)
     (incf from-offset)))
 
-(declaim (inline %bitset-line))
 (defun %bitset-line (blender to to-offset ncols colour)
   (declare (optimize speed (safety 0) (debug 0))
            (type function blender)
            (type fixnum to-offset ncols)
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type (unsigned-byte 32) colour))
-  (dotimes (i ncols)
+  (loop for i fixnum below ncols do
     (funcall blender colour to to-offset)
     (incf to-offset)))
 
-(declaim (inline %bitset-mask-1-line))
 (defun %bitset-mask-1-line (blender to to-offset ncols mask mask-offset colour)
   (declare (optimize speed (safety 0) (debug 0))
            (type function blender)
@@ -37,13 +34,12 @@
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type (simple-array bit (*)) mask)
            (type (unsigned-byte 32) colour))
-  (dotimes (i ncols)
+  (loop for i fixnum below ncols do
     (when (not (eql (aref mask mask-offset) 0))
       (funcall blender colour to to-offset))
     (incf to-offset)
     (incf mask-offset)))
 
-(declaim (inline %bitset-mask-8-line))
 (defun %bitset-mask-8-line (blender to to-offset ncols mask mask-offset colour)
   (declare (optimize speed (safety 0) (debug 0))
            (type function blender)
@@ -51,7 +47,7 @@
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type (simple-array (unsigned-byte 8) (*)) mask)
            (type (unsigned-byte 32) colour))
-  (dotimes (i ncols)
+  (loop for i fixnum below ncols do
     (let ((mask-byte (aref mask mask-offset)))
       (cond ((eql mask-byte 0)
              ;; Do nothing.
@@ -84,7 +80,6 @@
 
 ;;; Final blending functions.
 
-(declaim (inline %%xor-one-argb8888-argb8888))
 (defun %%set-one-argb8888-argb8888 (source to to-offset)
   (declare (optimize speed (safety 0) (debug 0))
            (type (unsigned-byte 32) source)
@@ -92,7 +87,6 @@
            (type fixnum to-offset))
   (setf (aref to to-offset) source))
 
-(declaim (inline %%xor-one-argb8888-argb8888))
 (defun %%xor-one-argb8888-argb8888 (source to to-offset)
   (declare (optimize speed (safety 0) (debug 0))
            (type (unsigned-byte 32) source)
@@ -104,7 +98,6 @@
 ;; GL_FUNC_ADD
 ;; src = GL_ONE
 ;; dst = GL_ONE_MINUS_SRC_ALPHA
-(declaim (inline %%alpha-blend-one-argb8888-argb8888))
 (defun %%alpha-blend-one-argb8888-argb8888 (source to to-offset)
   (declare (optimize speed (safety 0) (debug 0))
            (type (unsigned-byte 32) source)
