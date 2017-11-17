@@ -55,7 +55,7 @@
     symbol                     ; #b110000
     structure-object           ; #b110001
     std-instance               ; #b110010
-    invalid-110011             ; #b110011
+    mezzano.simd:sse-vector    ; #b110011
     thread                     ; #b110100
     unbound-value              ; #b110101
     function-reference         ; #b110110
