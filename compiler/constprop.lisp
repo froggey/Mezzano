@@ -401,6 +401,7 @@
              (sys.int::binary-= (number number))
              (mezzano.runtime::%fixnum-< (integer integer))
              (sys.int::fixnump (t))
+             (symbolp (t))
              (byte-size (byte))
              (byte-position (byte))
              (keywordp (symbol))

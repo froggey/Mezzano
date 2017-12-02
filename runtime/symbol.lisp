@@ -109,7 +109,12 @@
                 old new))
 
 (define-compiler-macro symbol-value-cell (symbol)
-  `(fast-symbol-value-cell ,symbol))
+  (let ((sym (gensym)))
+    `(let ((,sym ,symbol))
+       (when (not (symbolp ,sym))
+         (sys.int::raise-type-error ,sym 'symbol)
+         (sys.int::%%unreachable))
+       (fast-symbol-value-cell ,sym))))
 
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
