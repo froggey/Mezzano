@@ -206,23 +206,12 @@
         (make-struct-slot-definition slot-name (concat-symbols conc-name slot-name) slot-initform type read-only))))
 
 (defun generate-simple-defstruct-constructor (struct-type name area)
-  (let ((tmp (gensym)))
-    `(defun ,name (&key ,@(when (eql area 't)
-                                (list 'area))
-                     ,@(mapcar (lambda (slot)
-                                 (list (structure-slot-name slot) (structure-slot-initform slot)))
-                               (structure-slots struct-type)))
-       (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type)))
-                                 ,(if (eql area 't)
-                                      'area
-                                      `',area))))
-         (setf (%struct-slot ,tmp 0) ',struct-type)
-         ,@(let ((n 0))
-                (mapcar (lambda (slot)
-                          (setf n (1+ n))
-                          `(setf (%struct-slot ,tmp ,n) ,(structure-slot-name slot)))
-                        (structure-slots struct-type)))
-         ,tmp))))
+  (generate-defstruct-constructor struct-type
+                                  name
+                                  (list* '&key (mapcar (lambda (slot)
+                                                         (list (structure-slot-name slot) (structure-slot-initform slot)))
+                                                       (structure-slots struct-type)))
+                                  area))
 
 (defun generate-defstruct-constructor (struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -232,79 +221,86 @@
     (let* ((assigned-slots (append required
                                    (mapcar #'first optional)
                                    (remove 'nil (mapcar #'third optional))
-                                   (when rest (list rest))
+                                   (if rest
+                                       (list rest)
+                                       '())
                                    (mapcar #'cadar keys)
                                    (remove 'nil (mapcar #'third keys))
                                    (mapcar #'first aux)))
            (default-slots (set-difference (mapcar #'structure-slot-name (structure-slots struct-type)) assigned-slots))
            (tmp (gensym)))
       `(defun ,name ,lambda-list
+         ,@(loop
+              for s in (structure-slots struct-type)
+              when (not (member (structure-slot-name s) default-slots))
+              collect `(check-type ,(structure-slot-name s) ,(structure-slot-type s)))
          (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
            (setf (%struct-slot ,tmp 0) ',struct-type)
-           ,@(let ((n 0))
-                  (mapcar (lambda (s)
-                            (setf n (1+ n))
-                            `(setf (%struct-slot ,tmp ,n) ,(if (member (structure-slot-name s) default-slots)
-                                                               (structure-slot-initform s)
-                                                               (structure-slot-name s))))
-                          (structure-slots struct-type)))
+           ,@(loop
+                for n from 1
+                for s in (structure-slots struct-type)
+                collect `(setf (%struct-slot ,tmp ,n) ,(if (member (structure-slot-name s) default-slots)
+                                                           (let ((val (gensym (string (structure-slot-name s)))))
+                                                             `(let ((,val ,(structure-slot-initform s)))
+                                                                (check-type ,val ,(structure-slot-type s))
+                                                                ,val))
+                                                           (structure-slot-name s))))
            ,tmp)))))
 
+(defun generate-defstruct-list/vector-constructor (leader-name slots name lambda-list construction-function)
+  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
+      (parse-ordinary-lambda-list lambda-list)
+    (declare (ignore enable-keys allow-other-keys))
+    ;; Pick out the slot names and compute the slots without a lambda variable
+    (let* ((assigned-slots (append required
+                                   (mapcar #'first optional)
+                                   (remove 'nil (mapcar #'third optional))
+                                   (when rest (list rest))
+                                   (mapcar #'cadar keys)
+                                   (remove 'nil (mapcar #'third keys))
+                                   (mapcar #'first aux)))
+           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
+      `(defun ,name ,lambda-list
+         ,@(loop
+              for s in slots
+              when (not (member (structure-slot-name s) default-slots))
+              collect `(check-type ,(structure-slot-name s) ,(structure-slot-type s)))
+         (,construction-function
+          ,@(when leader-name (list `',leader-name))
+          ,@(loop
+               for s in slots
+               collect (if (member (structure-slot-name s) default-slots)
+                           (let ((val (gensym (string (structure-slot-name s)))))
+                             `(let ((,val ,(structure-slot-initform s)))
+                                (check-type ,val ,(structure-slot-type s))
+                                ,val))
+                           (structure-slot-name s))))))))
+
 (defun generate-simple-defstruct-list-constructor (leader-name slots name area)
-  `(defun ,name (&key ,@(mapcar (lambda (slot)
-                                  (list (structure-slot-name slot) (structure-slot-initform slot)))
-                                slots))
-     (list ,@(when leader-name (list `',leader-name))
-           ,@(mapcar #'structure-slot-name slots))))
+  (generate-defstruct-list/vector-constructor leader-name
+                                              slots
+                                              name
+                                              (list* '&key
+                                                     (mapcar (lambda (slot)
+                                                               (list (structure-slot-name slot) (structure-slot-initform slot)))
+                                                             slots))
+                                              'list))
 
 (defun generate-defstruct-list-constructor (leader-name slots name lambda-list area)
-  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-      (parse-ordinary-lambda-list lambda-list)
-    (declare (ignore enable-keys allow-other-keys))
-    ;; Pick out the slot names and compute the slots without a lambda variable
-    (let* ((assigned-slots (append required
-                                   (mapcar #'first optional)
-                                   (remove 'nil (mapcar #'third optional))
-                                   (when rest (list rest))
-                                   (mapcar #'cadar keys)
-                                   (remove 'nil (mapcar #'third keys))
-                                   (mapcar #'first aux)))
-           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
-      `(defun ,name ,lambda-list
-         (list ,@(when leader-name (list `',leader-name))
-               ,@(mapcar (lambda (s)
-                           (if (member (structure-slot-name s) default-slots)
-                               (structure-slot-initform s)
-                               (structure-slot-name s)))
-                         slots))))))
+  (generate-defstruct-list/vector-constructor leader-name slots name lambda-list 'list))
 
 (defun generate-simple-defstruct-vector-constructor (leader-name slots name area)
-  `(defun ,name (&key ,@(mapcar (lambda (slot)
-                                  (list (structure-slot-name slot) (structure-slot-initform slot)))
-                                slots))
-     (vector ,@(when leader-name (list `',leader-name))
-             ,@(mapcar #'structure-slot-name slots))))
+  (generate-defstruct-list/vector-constructor leader-name
+                                              slots
+                                              name
+                                              (list* '&key
+                                                     (mapcar (lambda (slot)
+                                                               (list (structure-slot-name slot) (structure-slot-initform slot)))
+                                                             slots))
+                                              'vector))
 
 (defun generate-defstruct-vector-constructor (leader-name slots name lambda-list area)
-  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-      (parse-ordinary-lambda-list lambda-list)
-    (declare (ignore enable-keys allow-other-keys))
-    ;; Pick out the slot names and compute the slots without a lambda variable
-    (let* ((assigned-slots (append required
-                                   (mapcar #'first optional)
-                                   (remove 'nil (mapcar #'third optional))
-                                   (when rest (list rest))
-                                   (mapcar #'cadar keys)
-                                   (remove 'nil (mapcar #'third keys))
-                                   (mapcar #'first aux)))
-           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
-      `(defun ,name ,lambda-list
-         (vector ,@(when leader-name (list `',leader-name))
-                 ,@(mapcar (lambda (s)
-                             (if (member (structure-slot-name s) default-slots)
-                                 (structure-slot-initform s)
-                                 (structure-slot-name s)))
-                           slots))))))
+  (generate-defstruct-list/vector-constructor leader-name slots name lambda-list 'vector))
 
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
   (let ((included-slots (when included-structure
