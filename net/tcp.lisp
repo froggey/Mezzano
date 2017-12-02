@@ -391,6 +391,8 @@
 (define-condition connection-timed-out (connection-error)
   ())
 
+(defparameter *tcp-connect-timeout* 10)
+
 (defun tcp-connect (ip port)
   (multiple-value-bind (host interface)
       (mezzano.network.ip:ipv4-route ip)
@@ -410,7 +412,7 @@
         (push connection *tcp-connections*))
       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
       ;; FIXME: Better timeout mechanism.
-      (let ((timeout (+ (get-universal-time) 10)))
+      (let ((timeout (+ (get-universal-time) *tcp-connect-timeout*)))
         (loop
            (when (not (eql (tcp-connection-state connection) :syn-sent))
              (when (eql (tcp-connection-state connection) :connection-aborted)
