@@ -42,6 +42,7 @@
   ((%instruction :initarg :instruction :reader chunk-instruction)))
 
 (defun note-variably-sized-instruction ()
+  "Must be called when the current instruction is either variably-sized or depends on the current address."
   (when *in-pass1*
     ;; Finish the current chunk.
     (push (make-instance 'fixed-sized-chunk
@@ -135,7 +136,48 @@
              (aref vector (+ offset 4)) (ldb (byte 8 32) value)
              (aref vector (+ offset 5)) (ldb (byte 8 40) value)
              (aref vector (+ offset 6)) (ldb (byte 8 48) value)
-             (aref vector (+ offset 7)) (ldb (byte 8 56) value))))))
+             (aref vector (+ offset 7)) (ldb (byte 8 56) value))))
+    (:arm-pcrel
+     (let* ((value (- immediate address))
+            (instruction (logior addend
+                                 (ash (ldb (byte 19 2) value) 5))))
+       (assert (not (logtest value #b11)))
+       (assert (<= -1048576 value 1048575))
+       (setf (aref vector (+ offset 0)) (ldb (byte 8 0) instruction)
+             (aref vector (+ offset 1)) (ldb (byte 8 8) instruction)
+             (aref vector (+ offset 2)) (ldb (byte 8 16) instruction)
+             (aref vector (+ offset 3)) (ldb (byte 8 24) instruction))))
+    (:arm-pcrel-adr
+     (let* ((value (- immediate address))
+            (instruction (logior addend
+                                 (ash (ldb (byte 19 2) value) 5)
+                                 (ash (ldb (byte 2 0) value) 29))))
+       (assert (<= -1048576 value 1048575))
+       (setf (aref vector (+ offset 0)) (ldb (byte 8 0) instruction)
+             (aref vector (+ offset 1)) (ldb (byte 8 8) instruction)
+             (aref vector (+ offset 2)) (ldb (byte 8 16) instruction)
+             (aref vector (+ offset 3)) (ldb (byte 8 24) instruction))))
+    (:arm-pcrel-b
+     (let* ((value (- immediate address))
+            (instruction (logior addend
+                                 (ldb (byte 26 2) value))))
+       (assert (not (logtest value #b11)))
+       (assert (<= -134217728 value 134217727))
+       (setf (aref vector (+ offset 0)) (ldb (byte 8 0) instruction)
+             (aref vector (+ offset 1)) (ldb (byte 8 8) instruction)
+             (aref vector (+ offset 2)) (ldb (byte 8 16) instruction)
+             (aref vector (+ offset 3)) (ldb (byte 8 24) instruction))))
+    (:arm-pcrel-imm14
+     (let* ((value (- immediate address))
+            (instruction (logior addend
+                                 (ash (ldb (byte 14 2) value) 5))))
+       (assert (not (logtest value #b11)))
+       (assert (<= -32767 value 32767))
+       (setf (aref vector (+ offset 0)) (ldb (byte 8 0) instruction)
+             (aref vector (+ offset 1)) (ldb (byte 8 8) instruction)
+             (aref vector (+ offset 2)) (ldb (byte 8 16) instruction)
+             (aref vector (+ offset 3)) (ldb (byte 8 24) instruction))))))
+
 
 (defun perform-relocations (base-address)
   (loop for (kind immediate addend address) in *relocations* do
@@ -310,96 +352,6 @@ a vector of constants and an alist of symbols & addresses."
                   alist)
                 (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
                        (mapcar 'encode-gc-info (reverse result-gcmd))))))))
-
-(defun perform-assembly-old (instruction-set code-list &key (base-address 0) (initial-symbols '()) info &allow-other-keys)
-  "Assemble a list of instructions, returning a u-b 8 vector of machine code,
-a vector of constants and an alist of symbols & addresses."
-  (do ((*constant-pool* (let ((x (make-array (+ (length info) 16)
-                                             :fill-pointer (length info)
-                                             :adjustable t)))
-                          (setf (subseq x 0 (length info)) info)
-                          x))
-       (prev-bytes-emitted nil)
-       (*bytes-emitted* 0)
-       (failed-instructions 0 0)
-       (*missing-symbols* '())
-       (*mc-end* nil (+ base-address (length *machine-code*)))
-       (*machine-code* nil)
-       (prev-mc nil)
-       (*current-address* base-address base-address)
-       (*symbol-table* nil)
-       (*prev-symbol-table* (make-hash-table) *symbol-table*)
-       (*fixups* '())
-       (*gc-data* '())
-       (*relocations* '())
-       (attempt 0 (1+ attempt))
-       (*instruction-is-variably-sized* nil))
-      ((and (eql prev-bytes-emitted *bytes-emitted*)
-            (equalp prev-mc *machine-code*))
-       (when *missing-symbols*
-         (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
-       (setf *gc-data* (reverse *gc-data*))
-       ;; Flush identical GC info entries.
-       (setf *gc-data* (loop for entry in *gc-data*
-                          with prev = nil
-                          unless (equal (rest prev) (rest entry))
-                          collect entry
-                          do (setf prev entry)))
-       (values *machine-code*
-               *constant-pool*
-               *fixups*
-               (let ((alist '()))
-                 (maphash (lambda (k v)
-                            (push (cons k v) alist))
-                          *symbol-table*)
-                 alist)
-               (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
-                      (mapcar 'encode-gc-info *gc-data*))))
-    (when (> attempt *settle-limit*)
-      (error "Internal assembler error. Code has not settled after ~D iterations." attempt))
-    (setf prev-bytes-emitted *bytes-emitted*
-          *bytes-emitted* 0
-          prev-mc *machine-code*
-          *machine-code* (make-array 128
-                                   :element-type '(unsigned-byte 8)
-                                   :fill-pointer 0
-                                   :adjustable t)
-          *symbol-table* (let ((hash-table (make-hash-table)))
-                           (dolist (x initial-symbols)
-                             (setf (gethash (first x) hash-table) (rest x)))
-                           hash-table)
-          *missing-symbols* '()
-          *fixups* '()
-          *gc-data* '()
-          *relocations* '())
-    (dolist (i code-list)
-      (etypecase i
-        (symbol (when (gethash i *symbol-table*)
-                  (cerror "Replace the existing symbol." "Duplicate symbol ~S." i))
-                (setf (gethash i *symbol-table*) *current-address*))
-        (cons (if (keywordp (first i))
-                  (ecase (first i)
-                    (:comment)
-                    (:align
-                     (destructuring-bind (alignment) (rest i)
-                       (let ((misalignment (rem (length *machine-code*) alignment)))
-                         (when (not (zerop misalignment))
-                           (loop
-                              repeat (- alignment misalignment)
-                              do (emit 0))))))
-                    (:d8 (apply 'emit-d8 (rest i)))
-                    (:d16/le (apply 'emit-d16/le (rest i)))
-                    (:d32/le (apply 'emit-d32/le (rest i)))
-                    (:d64/le (apply 'emit-d64/le (rest i)))
-                    (:gc (apply 'emit-gc (rest i))))
-                  (let ((handler (gethash (first i) instruction-set)))
-                    (if handler
-                        (unless (funcall handler i)
-                          (incf failed-instructions))
-                        (error "Unrecognized instruction ~S." (first i)))))
-              (setf *instruction-is-variably-sized* nil))))
-    (when (not (zerop attempt))
-      (perform-relocations base-address))))
 
 (defun emit-d8 (&rest args)
   (dolist (a args)

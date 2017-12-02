@@ -5,11 +5,8 @@
 
 (defparameter *instruction-assemblers* (make-hash-table))
 
-(defun current-address ()
-  sys.lap:*current-address*)
-
 (defun assemble (code-list &rest args &key &allow-other-keys)
-  (apply 'sys.lap::perform-assembly-old *instruction-assemblers* code-list args))
+  (apply 'sys.lap:perform-assembly *instruction-assemblers* code-list args))
 
 (defun add-instruction (name function)
   (unless (keywordp name)
@@ -34,7 +31,7 @@
 
 (defun emit-instruction (value)
   (check-type value (unsigned-byte 32))
-  (assert (not (logtest (current-address) #b11)) ()
+  (assert (not (logtest sys.lap:*current-address* #b11)) ()
           "Instruction stream is misaligned.")
   (sys.lap:emit (ldb (byte 8 0) value)
                 (ldb (byte 8 8) value)
@@ -293,16 +290,15 @@
                                        (ash (register-number reg) +rt-shift+)))
              (return-from instruction t))))
         (:pc
-         (let ((imm-value (- (or (resolve-immediate offset) (current-address))
-                             (current-address))))
-           (when (and (not (logtest imm-value #b11))
-                      (<= -1048576 imm-value 1048575))
-             ;; LDR (literal)
-             (emit-instruction (logior #x18000000
-                                       size-bit
-                                       (ash (ldb (byte 19 2) imm-value) 5)
-                                       (ash (register-number reg) +rt-shift+)))
-             (return-from instruction t))))))))
+         (let ((imm-value (resolve-immediate offset)))
+           ;; LDR (literal)
+           (sys.lap:emit-relocation :arm-pcrel
+                                    (or imm-value offset)
+                                    (logior #x18000000
+                                            size-bit
+                                            (ash (register-number reg) +rt-shift+)))
+           (emit-instruction 0)
+           (return-from instruction t)))))))
 
 (define-instruction str (reg value)
   (let* ((class (register-class reg))
@@ -753,25 +749,23 @@
                                      (ash (register-number reg) +rt-shift+)))
            (return-from instruction t))))
       (:pc
-       (let ((imm-value (- (or (resolve-immediate offset) (current-address))
-                           (current-address))))
-         (when (and (not (logtest imm-value #b11))
-                    (<= -1048576 imm-value 1048575))
-           ;; LDR (literal)
-           (emit-instruction (logior #x98000000
-                                     (ash (ldb (byte 19 2) imm-value) 5)
-                                     (ash (register-number reg) +rt-shift+)))
-           (return-from instruction t)))))))
+       (let ((imm-value (resolve-immediate offset)))
+         ;; LDR (literal)
+         (sys.lap:emit-relocation :arm-pcrel
+                                  (or imm-value offset)
+                                  (logior #x98000000
+                                          (ash (register-number reg) +rt-shift+)))
+         (emit-instruction 0)
+         (return-from instruction t))))))
 
 (define-instruction adr (reg address)
-  (let ((imm-value (- (or (resolve-immediate address) (current-address))
-                      (current-address))))
+  (let ((imm-value (resolve-immediate address)))
     (check-register-class reg :gpr-64 :xzr)
-    (assert (<= -1048576 imm-value 1048575))
-    (emit-instruction (logior #x10000000
-                              (ash (ldb (byte 19 2) imm-value) 5)
-                              (ash (ldb (byte 2 0) imm-value) 29)
-                              (ash (register-number reg) +rd-shift+)))
+    (sys.lap:emit-relocation :arm-pcrel-adr
+                             (or imm-value address)
+                             (logior #x10000000
+                                     (ash (register-number reg) +rd-shift+)))
+    (emit-instruction 0)
     (return-from instruction t)))
 
 (defun emit-ldstp-instruction (load-bit r1 r2 address)
@@ -1131,13 +1125,12 @@
 (define-logical-instruction ands bics #b11)
 
 (defun emit-conditional-branch (condition target)
-  (let ((imm-value (- (or (resolve-immediate target) (current-address))
-                      (current-address))))
-    (assert (not (logtest imm-value #b11)))
-    (assert (<= -1048576 imm-value 1048575))
-    (emit-instruction (logior #x54000000
-                              (ash (ldb (byte 19 2) imm-value) 5)
-                              condition))
+  (let ((imm-value (resolve-immediate target)))
+    (sys.lap:emit-relocation :arm-pcrel
+                             (or imm-value target)
+                             (logior #x54000000
+                                     condition))
+    (emit-instruction 0)
     t))
 
 (defmacro define-conditional-branch (name condition)
@@ -1164,12 +1157,11 @@
 (define-conditional-branch b.al #b1110)
 
 (define-instruction b (target)
-  (let ((imm-value (- (or (resolve-immediate target) (current-address))
-                      (current-address))))
-    (assert (not (logtest imm-value #b11)))
-    (assert (<= -134217728 imm-value 134217727))
-    (emit-instruction (logior #x14000000
-                              (ldb (byte 26 2) imm-value)))
+  (let ((imm-value (resolve-immediate target)))
+    (sys.lap:emit-relocation :arm-pcrel-b
+                             (or imm-value target)
+                             #x14000000)
+    (emit-instruction 0)
     (return-from instruction t)))
 
 (define-instruction br (target)
@@ -1192,47 +1184,44 @@
 
 (define-instruction cbz (reg target)
   (check-register-class reg :gpr-64 :gpr-32)
-  (let ((imm-value (- (or (resolve-immediate target) (current-address))
-                      (current-address))))
-    (assert (not (logtest imm-value #b11)))
-    (assert (<= -134217728 imm-value 134217727))
-    (emit-instruction (logior #x34000000
-                              (if (eql (register-class reg) :gpr-64)
-                                  #x80000000
-                                  #x00000000)
-                              (ash (ldb (byte 19 2) imm-value) 5)
-                              (ash (register-number reg) +rt-shift+)))
+  (let ((imm-value (resolve-immediate target)))
+    (sys.lap:emit-relocation :arm-pcrel
+                             (or imm-value target)
+                             (logior #x34000000
+                                     (if (eql (register-class reg) :gpr-64)
+                                         #x80000000
+                                         #x00000000)
+                                     (ash (register-number reg) +rt-shift+)))
+    (emit-instruction 0)
     (return-from instruction t)))
 
 (define-instruction cbnz (reg target)
   (check-register-class reg :gpr-64 :gpr-32)
-  (let ((imm-value (- (or (resolve-immediate target) (current-address))
-                      (current-address))))
-    (assert (not (logtest imm-value #b11)))
-    (assert (<= -134217728 imm-value 134217727))
-    (emit-instruction (logior #x35000000
-                              (if (eql (register-class reg) :gpr-64)
-                                  #x80000000
-                                  #x00000000)
-                              (ash (ldb (byte 19 2) imm-value) 5)
-                              (ash (register-number reg) +rt-shift+)))
+  (let ((imm-value (resolve-immediate target)))
+    (sys.lap:emit-relocation :arm-pcrel
+                             (or imm-value target)
+                             (logior #x35000000
+                                     (if (eql (register-class reg) :gpr-64)
+                                         #x80000000
+                                         #x00000000)
+                                     (ash (register-number reg) +rt-shift+)))
+    (emit-instruction 0)
     (return-from instruction t)))
 
 (define-instruction tbnz (reg bit target)
   (check-register-class reg :gpr-64 :gpr-32)
   (let ((is-64-bit (eql (register-class reg) :gpr-64))
-        (imm-value (- (or (resolve-immediate target) (current-address))
-                      (current-address))))
-    (assert (not (logtest imm-value #b11)))
-    (assert (<= -32767 imm-value 32767))
+        (imm-value (resolve-immediate target)))
     (if is-64-bit
         (assert (<= 0 bit 63))
         (assert (<= 0 bit 31)))
-    (emit-instruction (logior #x37000000
-                              (ash (ldb (byte 1 5) bit) 31)
-                              (ash (ldb (byte 5 0) bit) 19)
-                              (ash (ldb (byte 14 2) imm-value) 5)
-                              (ash (register-number reg) +rt-shift+)))
+    (sys.lap:emit-relocation :arm-pcrel-imm14
+                             (or imm-value target)
+                             (logior #x37000000
+                                     (ash (ldb (byte 1 5) bit) 31)
+                                     (ash (ldb (byte 5 0) bit) 19)
+                                     (ash (register-number reg) +rt-shift+)))
+    (emit-instruction 0)
     (return-from instruction t)))
 
 (defun emit-conditional-select (condition dst true false)
