@@ -1097,6 +1097,18 @@
             ,(box-destination instruction)
             ,(box-source instruction))))
 
+(defclass box-signed-byte-64-instruction (box-instruction)
+  ())
+
+(defmethod box-type ((instruction box-signed-byte-64-instruction))
+  'signed-byte-64)
+
+(defmethod print-instruction ((instruction box-signed-byte-64-instruction))
+  (format t "   ~S~%"
+          `(:box-signed-byte-64
+            ,(box-destination instruction)
+            ,(box-source instruction))))
+
 (defclass box-single-float-instruction (box-instruction)
   ())
 
@@ -1160,6 +1172,18 @@
 (defmethod print-instruction ((instruction unbox-unsigned-byte-64-instruction))
   (format t "   ~S~%"
           `(:unbox-unsigned-byte-64
+            ,(unbox-destination instruction)
+            ,(unbox-source instruction))))
+
+(defclass unbox-signed-byte-64-instruction (unbox-instruction)
+  ())
+
+(defmethod box-type ((instruction unbox-signed-byte-64-instruction))
+  'signed-byte-64)
+
+(defmethod print-instruction ((instruction unbox-signed-byte-64-instruction))
+  (format t "   ~S~%"
+          `(:unbox-signed-byte-64
             ,(unbox-destination instruction)
             ,(unbox-source instruction))))
 

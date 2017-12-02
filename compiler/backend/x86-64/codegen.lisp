@@ -1106,6 +1106,18 @@
           `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
           out)))
 
+(defmethod emit-lap (backend-function (instruction unbox-signed-byte-64-instruction) uses defs)
+  (let ((bignum-path (gensym))
+        (out (gensym)))
+    (emit `(lap:test64 ,(unbox-source instruction) 1)
+          `(lap:jnz ,bignum-path)
+          `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
+          `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
+          `(lap:jmp ,out)
+          bignum-path
+          `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
+          out)))
+
 (defmethod emit-lap (backend-function (instruction unbox-mmx-vector-instruction) uses defs)
   (ecase (lap::reg-class (unbox-destination instruction))
     (:gpr-64

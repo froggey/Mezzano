@@ -157,6 +157,8 @@
         (typecase inst
           (box-unsigned-byte-64-instruction
            (values 'mezzano.runtime::%%make-unsigned-byte-64-rax :rax))
+          (box-signed-byte-64-instruction
+           (values 'mezzano.runtime::%%make-signed-byte-64-rax :rax))
           (box-double-float-instruction
            (values 'sys.int::%%make-double-float-rax :rax))
           (box-mmx-vector-instruction

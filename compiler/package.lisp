@@ -542,6 +542,7 @@
            #:box-source
            #:box-fixnum-instruction
            #:box-unsigned-byte-64-instruction
+           #:box-signed-byte-64-instruction
            #:box-single-float-instruction
            #:box-double-float-instruction
 
@@ -550,6 +551,7 @@
            #:unbox-source
            #:unbox-fixnum-instruction
            #:unbox-unsigned-byte-64-instruction
+           #:unbox-signed-byte-64-instruction
            #:unbox-single-float-instruction
            #:unbox-double-float-instruction
 ))
