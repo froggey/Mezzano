@@ -66,3 +66,27 @@
           `(lap:b.ne ,type-error-label)
           `(lap:str :x0 (:x1 ,(+ (- sys.int::+tag-cons+) 8))))
     *x0-value*))
+
+(defbuiltin mezzano.runtime::%car (cons) ()
+  (load-in-reg :x0 cons t)
+  (smash-x0)
+  (emit `(lap:ldr :x0 (:x0 ,(- sys.int::+tag-cons+))))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin mezzano.runtime::%cdr (cons) ()
+  (load-in-reg :x0 cons t)
+  (smash-x0)
+  (emit `(lap:ldr :x0 (:x0 ,(+ (- sys.int::+tag-cons+) 8))))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin (setf mezzano.runtime::%car) (value object) ()
+  (load-in-reg :x1 object t)
+  (load-in-reg :x0 value t)
+  (emit `(lap:str :x0 (:x1 ,(- sys.int::+tag-cons+))))
+  *x0-value*)
+
+(defbuiltin (setf mezzano.runtime::%cdr) (value object) ()
+  (load-in-reg :x1 object t)
+  (load-in-reg :x0 value t)
+  (emit `(lap:str :x0 (:x1 ,(+ (- sys.int::+tag-cons+) 8))))
+  *x0-value*)

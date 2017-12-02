@@ -62,6 +62,9 @@
      8
      (* slot 8)))
 
+(defun %%object-of-type-p (object object-tag)
+  (eq (sys.int::%object-tag object) object-tag))
+
 (declaim (inline sys.int::%object-of-type-p))
 (defun sys.int::%object-of-type-p (object object-tag)
   (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)

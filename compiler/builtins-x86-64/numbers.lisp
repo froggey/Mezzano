@@ -474,11 +474,11 @@
         ;; :rdx holds the remainder as a fixnum.
         `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov64 :r8 :rax))
-  (prog1 (cond ((member *for-value* '(:multiple :tail))
-                (emit `(sys.lap-x86:mov64 :r9 :rdx))
-                (load-constant :rcx 2)
-                :multiple)
-               (t (setf *r8-value* (list (gensym)))))))
+  (cond ((member *for-value* '(:multiple :tail))
+         (emit `(sys.lap-x86:mov64 :r9 :rdx))
+         (load-constant :rcx 2)
+         :multiple)
+        (t (setf *r8-value* (list (gensym))))))
 
 ;;; Comparisons.
 
