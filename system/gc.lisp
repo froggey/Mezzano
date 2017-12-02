@@ -98,7 +98,7 @@
 (defvar *gc-lock* (mezzano.supervisor:make-mutex "Garbage Collector Lock"))
 (defvar *gc-cvar* (mezzano.supervisor:make-condition-variable "Garbage Collector Cvar"))
 (defvar *gc-requested* nil)
-(defvar *gc-thread* (mezzano.supervisor:make-thread #'gc-worker :name "Garbage Collector" :stack-size (* 1024 1024)))
+(defvar *gc-thread* (mezzano.supervisor:make-thread #'gc-worker :name "Garbage Collector" :stack-size (* 2 1024 1024)))
 
 (defun gc ()
   "Run a garbage-collection cycle."
