@@ -30,7 +30,12 @@
                           (funcall substitution-function operand))
                          ((and (consp operand)
                                (not (member (first operand) '(:constant :function))))
-                          (mapcar substitution-function operand))
+                          ;; Replace 2 levels to catch indexed memory accesses.
+                          (loop
+                             for thing in operand
+                             collect (if (consp thing)
+                                         (mapcar substitution-function thing)
+                                         (funcall substitution-function thing))))
                          (t operand)))))
 
 (defmethod mezzano.compiler.backend::print-instruction ((instruction x86-instruction))
