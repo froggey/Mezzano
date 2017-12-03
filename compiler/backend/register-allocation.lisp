@@ -733,7 +733,13 @@
               (ir:insert-after backend-function terminator l))
              (t
               (ir:insert-before backend-function target l)
-              (setf (mezzano.compiler.backend.x86-64::x86-branch-target terminator) l)))))
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-target terminator) l))))
+      (mezzano.compiler.backend.arm64::arm64-branch-instruction
+       (cond ((eql (ir:next-instruction backend-function terminator) target)
+              (ir:insert-after backend-function terminator l))
+             (t
+              (ir:insert-before backend-function target l)
+              (setf (mezzano.compiler.backend.arm64::arm64-branch-target terminator) l)))))
     (ir:insert-after backend-function l (make-instance 'ir:jump-instruction :target target :values '()))
     l))
 

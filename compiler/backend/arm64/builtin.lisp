@@ -26,8 +26,8 @@
            (setf body `((let ((,name (let ((arg-defs (gethash ,real-arg ,defs)))
                                        (cond ((and arg-defs
                                                    (endp (rest arg-defs))
-                                                   (typep (first arg-defs) 'constant-instruction))
-                                              (constant-value (first arg-defs)))
+                                                   (typep (first arg-defs) 'ir:constant-instruction))
+                                              (ir:constant-value (first arg-defs)))
                                              (t (give-up))))))
                           (when (not ,predicate)
                             (give-up))
@@ -98,14 +98,14 @@
   (let ((tmp (make-instance 'ir:virtual-register)))
     (funcall emitter (make-instance 'ir:constant-instruction
                                     :destination tmp
-                                    :value nil))
-    (funcall emitter (make-instance 'x86-fake-three-operand-instruction
-                                    :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-cmov-instruction
-                                             (mezzano.compiler.codegen.x86-64::predicate-info
+                                    :value t))
+    (funcall emitter (make-instance 'arm64-instruction
+                                    :opcode (mezzano.compiler.codegen.arm64::predicate-instruction-cmov-instruction
+                                             (mezzano.compiler.codegen.arm64::predicate-info
                                               predicate))
-                                    :result result
-                                    :lhs tmp
-                                    :rhs '(:constant t)))))
+                                    :operands (list result tmp :x26)
+                                    :inputs (list tmp)
+                                    :outputs (list result)))))
 
 ;; Lower (branch (call foo ...) target) when FOO produces a predicate result.
 (defun lower-predicate-builtin (backend-function inst uses defs)

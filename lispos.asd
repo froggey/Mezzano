@@ -79,6 +79,8 @@
                (:file "compiler/backend/arm64/codegen")
                (:file "compiler/backend/arm64/builtin")
                (:file "compiler/backend/arm64/misc")
+               (:file "compiler/backend/arm64/object")
+               (:file "compiler/backend/arm64/number")
                (:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
                (:file "tools/cold-generator")
