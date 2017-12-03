@@ -125,14 +125,10 @@
   '(:rax :rcx))
 
 (defmethod ra:instruction-clobbers ((instruction ir:box-single-float-instruction) (architecture sys.c:x86-64-target))
-  (if (eql (ir:virtual-register-kind (ir:box-source instruction)) :integer)
-      '()
-      '(:rax)))
+  '(:rax))
 
 (defmethod ra:instruction-clobbers ((instruction ir:unbox-single-float-instruction) (architecture sys.c:x86-64-target))
-  (if (eql (ir:virtual-register-kind (ir:unbox-destination instruction)) :integer)
-      '()
-      '(:rax)))
+  '(:rax))
 
 (defmethod ra:allow-memory-operand-p ((instruction ir:call-instruction) operand (architecture sys.c:x86-64-target))
   (not (or (eql (ir:call-result instruction) operand)

@@ -76,7 +76,7 @@
          ;; Convert value to fixnum.
          (emit `(lap:add :x9 :xzr :x0 :lsl ,sys.int::+n-fixnum-bits+))
          ;; Mask away all but tag bits (as fixnum).
-         (emit `(lap:and :x9 :x0 #b11110))
+         (emit `(lap:and :x9 :x9 #b11110))
          ;; Compare against tag (which must be a fixnum).
          (emit `(lap:subs :xzr :x9 :x2))
          (predicate-result :eq))))

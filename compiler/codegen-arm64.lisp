@@ -539,11 +539,9 @@
     (nconc
      (list entry-label
            ;; Create control stack frame.
-           ;; FIXME: Not quite right. ARM calls start with no return address
-           ;; pushed! must modify no-frame layout meaning to assume ra.
            `(:gc :no-frame :incoming-arguments :rcx)
            `(lap:stp :x29 :x30 (:pre :sp -16))
-           `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+           `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
            `(lap:add :x29 :sp :xzr)
            `(:gc :frame :incoming-arguments :rcx))
      ;; Emit the argument count test.

@@ -757,6 +757,12 @@
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)))
 
+(defpackage :mezzano.compiler.backend.arm64
+  (:use :cross-cl)
+  (:local-nicknames (:lap :mezzano.lap.arm64)
+                    (:ir :mezzano.compiler.backend)
+                    (:ra :mezzano.compiler.backend.register-allocator)))
+
 (defpackage :mezzano.simd
   (:use :cross-cl)
   (:export #:make-mmx-vector

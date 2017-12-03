@@ -122,7 +122,11 @@ A list of any declaration-specifiers."
       (mezzano.compiler.codegen.x86-64:codegen-lambda lambda)))
 
 (defmethod codegen-lambda-using-target (lambda (target arm64-target))
-  (mezzano.compiler.codegen.arm64:codegen-lambda lambda))
+  (if *use-new-compiler*
+      (mezzano.compiler.backend.arm64::compile-backend-function
+       (mezzano.compiler.backend.ast-convert:convert lambda)
+       target)
+      (mezzano.compiler.codegen.arm64:codegen-lambda lambda)))
 
 (defun compile-lambda-1 (lambda &optional env target-architecture)
   (let ((target (canonicalize-target target-architecture)))

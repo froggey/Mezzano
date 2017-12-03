@@ -411,7 +411,17 @@
            #:do-instructions
            #:do-reversed-instructions
 
+           #:backend-instruction
            #:terminator-instruction
+
+           #:print-instruction
+           #:instruction-inputs
+           #:instruction-outputs
+           #:produces-multiple-p
+           #:consumes-multiple-p
+           #:instruction-pure-p
+           #:successors
+           #:replace-all-registers
 
            #:label
            #:label-name
@@ -586,6 +596,12 @@
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl :mezzano.compiler.backend)
   (:local-nicknames (:lap :sys.lap-x86)
+                    (:ir :mezzano.compiler.backend)
+                    (:ra :mezzano.compiler.backend.register-allocator)))
+
+(defpackage :mezzano.compiler.backend.arm64
+  (:use :cl)
+  (:local-nicknames (:lap :mezzano.lap.arm64)
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)))
 
