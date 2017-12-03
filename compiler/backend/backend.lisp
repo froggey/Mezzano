@@ -141,10 +141,6 @@
   (:method (function (instruction terminator-instruction))
     (error "Terminator instructions must implement a method on SUCCESSORS.")))
 
-(defgeneric successors (function instruction)
-  (:method (function (instruction backend-instruction))
-    (list (next-instruction function instruction))))
-
 (defgeneric replace-all-registers (instruction substitution-function))
 
 (defclass label (backend-instruction)

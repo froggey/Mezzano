@@ -569,7 +569,17 @@
            #:do-instructions
            #:do-reversed-instructions
 
+           #:backend-instruction
            #:terminator-instruction
+
+           #:print-instruction
+           #:instruction-inputs
+           #:instruction-outputs
+           #:produces-multiple-p
+           #:consumes-multiple-p
+           #:instruction-pure-p
+           #:successors
+           #:replace-all-registers
 
            #:label
            #:label-name

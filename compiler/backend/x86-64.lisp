@@ -246,6 +246,7 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
     (mezzano.compiler.backend::check-cfg backend-function)))
 
 (defun compile-backend-function-2 (backend-function *target*)
+  (declare (special *target*))
   (multiple-value-bind (lap debug-layout environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
         (to-lap backend-function))
