@@ -5,7 +5,8 @@
 
 (in-package :sys.c)
 
-(defun simplify (lambda)
+(defun simplify (lambda architecture)
+  (declare (ignore architecture))
   (with-metering (:simplify-ast)
     (detect-uses lambda)
     (simp-form lambda)))

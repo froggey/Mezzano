@@ -11,7 +11,8 @@
 
 (defgeneric blexit-1 (form live-block-list))
 
-(defun blexit (lambda)
+(defun blexit (lambda architecture)
+  (declare (ignore architecture))
   (with-metering (:block-exit)
     (blexit-1 lambda '())))
 

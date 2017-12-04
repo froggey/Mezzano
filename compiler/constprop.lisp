@@ -10,7 +10,8 @@
 
 (defparameter *constprop-lambda-copy-limit* 3)
 
-(defun constprop (lambda)
+(defun constprop (lambda architecture)
+  (declare (ignore architecture))
   (with-metering (:constant-propagation)
     (detect-uses lambda)
     (let ((*known-variables* '()))

@@ -5,7 +5,8 @@
 
 (in-package :sys.c)
 
-(defun lambda-lift (lambda)
+(defun lambda-lift (lambda architecture)
+  (declare (ignore architecture))
   (with-metering (:lambda-lift)
     (detect-uses lambda)
     (ll-form lambda)))

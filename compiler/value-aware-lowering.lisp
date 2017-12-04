@@ -8,7 +8,8 @@
 
 (defvar *rename-list*)
 
-(defun value-aware-lowering (lambda)
+(defun value-aware-lowering (lambda architecture)
+  (declare (ignore architecture))
   (with-metering (:value-aware-lowering)
     (let ((*rename-list* '()))
       (value-aware-lowering-1 lambda :single))))

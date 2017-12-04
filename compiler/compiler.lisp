@@ -140,18 +140,18 @@ A list of any declaration-specifiers."
     (when run-optimizations
       (setf form (run-optimizers form target)))
     (unless run-optimizations
-      (setf form (lower-keyword-arguments form)))
+      (setf form (lower-keyword-arguments form target)))
     ;; Lower complex lambda lists.
     (setf form (lower-arguments form))
     ;; Lower closed-over variables.
     (setf form (lower-environment form))
     (when run-optimizations
       ;; Run a final simplify pass to kill off any useless bindings.
-      (setf form (simplify form)))
+      (setf form (simplify form target)))
     ;; Make the dynamic environment explicit.
     (setf form (lower-special-bindings form))
     (when run-optimizations
-      (setf form (simplify form)))
+      (setf form (simplify form target)))
     form))
 
 (defun eval-load-time-value (form read-only-p)
@@ -203,6 +203,21 @@ A list of any declaration-specifiers."
 
 (defvar *max-optimizer-iterations* 20)
 
+(defvar *optimization-passes*
+  ;; Inlining must be run before lifting.
+  '(inline-functions
+    lambda-lift
+    ;; Key arg conversion must be performed after lambda-lifting, so as not to
+    ;; complicate the lift code.
+    lower-keyword-arguments
+    constprop
+    simplify
+    kill-temporaries
+    value-aware-lowering
+    simplify-control-flow
+    blexit
+    apply-transforms))
+
 (defun run-optimizers (form target-architecture)
   (setf target-architecture (canonicalize-target target-architecture))
   (with-metering (:ast-optimize)
@@ -212,19 +227,8 @@ A list of any declaration-specifiers."
                            :format-arguments '())
                      form))
       (let ((*change-count* 0))
-        ;; Must be run before lift.
-        (setf form (inline-functions form target-architecture))
-        (setf form (lambda-lift form))
-        ;; Key arg conversion must be performed after lambda-lifting, so as not to
-        ;; complicate the lift code.
-        (setf form (lower-keyword-arguments form))
-        (setf form (constprop form))
-        (setf form (simplify form))
-        (setf form (kill-temporaries form))
-        (setf form (value-aware-lowering form))
-        (setf form (simplify-control-flow form))
-        (setf form (blexit form))
-        (setf form (apply-transforms form target-architecture))
+        (dolist (pass *optimization-passes*)
+          (setf form (funcall pass form target-architecture)))
         (when (eql *change-count* 0)
           (return form))))))
 
