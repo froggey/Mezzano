@@ -1153,32 +1153,3 @@
     (:xmm
      (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
 
-(defun compile-backend-function-2 (backend-function *target*)
-  (multiple-value-bind (lap debug-layout environment-slot)
-      (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function))
-    (when sys.c::*trace-asm*
-      (format t "~S:~%" (backend-function-name backend-function))
-      (format t "~{~S~%~}" lap))
-    (sys.c:with-metering (:lap-assembly)
-      (sys.int::assemble-lap
-       lap
-       (backend-function-name backend-function)
-       (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
-         (list :debug-info
-               (backend-function-name backend-function) ; name
-               debug-layout ; local variable stack positions
-               ;; Environment index
-               environment-slot
-               ;; Environment layout
-               (second (sys.c:lambda-information-environment-layout ast-lambda))
-               ;; Source file
-               (if *compile-file-pathname*
-                   (namestring *compile-file-pathname*)
-                   nil)
-               ;; Top-level form number
-               sys.int::*top-level-form-number*
-               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-               (sys.c:lambda-information-docstring ast-lambda))) ; docstring
-       nil
-       :x86-64))))
