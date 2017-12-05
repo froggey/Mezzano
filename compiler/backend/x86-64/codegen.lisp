@@ -1089,17 +1089,12 @@
   (let ((slots (gethash instruction *prepass-data*)))
     (emit `(lap:lea64 :rax (:stack ,(+ slots 4 -1)))
           ;; Closure tag and size.
-          `(lap:mov32 (:rax) ,(logior (ash 3 sys.int::+object-data-shift+)
+          `(lap:mov64 (:rax) ,(logior (ash 3 sys.int::+object-data-shift+)
                                       (ash sys.int::+object-tag-closure+
                                            sys.int::+object-type-shift+)))
-          ;; Constant pool size and slot count.
-          `(lap:mov32 (:rax 4) #x00000002)
           ;; Entry point is CODE's entry point.
           `(lap:mov64 :rcx (:object ,(make-dx-closure-function instruction) 0))
-          `(lap:mov64 (:rax 8) :rcx)
-          ;; Clear constant pool.
-          `(lap:mov64 (:rax 16) nil)
-          `(lap:mov64 (:rax 24) nil))
+          `(lap:mov64 (:rax 8) :rcx))
     (emit `(lap:lea64 ,(make-dx-closure-result instruction) (:rax ,sys.int::+tag-object+)))
     ;; Initiaize constant pool.
     (emit `(lap:mov64 (:object ,(make-dx-closure-result instruction) 1) ,(make-dx-closure-function instruction))
