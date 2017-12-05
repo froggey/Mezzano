@@ -1563,8 +1563,17 @@
       (#.sys.int::+tag-character+
        (code-char (ash value -4)))
       (#.sys.int::+tag-cons+
-       (cons (extract-object (word address))
-             (extract-object (word (1+ address)))))
+       ;; Avoid recursing down lists.
+       (let* ((result (cons nil nil))
+              (tail result))
+         (loop
+            (setf (cdr tail) (cons (extract-object (word address)) :incomplete)
+                  tail (cdr tail))
+            (setf value (word (1+ address))
+                  address (pointer-part value))
+            (when (not (eql (tag-part value) sys.int::+tag-cons+))
+              (setf (cdr tail) (extract-object value))
+              (return (cdr result))))))
       (#.sys.int::+tag-object+
        (let* ((header (word address))
               (tag (ldb (byte sys.int::+object-type-size+
