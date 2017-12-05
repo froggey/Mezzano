@@ -46,7 +46,9 @@ Virtual registers must be defined exactly once."
   (check-ssa backend-function)
   (sys.c:with-metering (:backend-deconstruct-ssa)
     (let ((n-moves-inserted 0)
-          (n-phis-converted 0))
+          (n-phis-converted 0)
+          (uses (build-use/def-maps backend-function))
+          (contours (dynamic-contours backend-function)))
       (do-instructions (inst backend-function)
         (when (typep inst 'jump-instruction)
           ;; Phi nodes have parallel assignment semantics.
@@ -63,40 +65,70 @@ Virtual registers must be defined exactly once."
           ;;   move d x
           ;;   jump foo ()
           ;;   label foo ()
-          (let* ((conflicts (loop
-                               for phi in (label-phis (jump-target inst))
-                               for value in (jump-values inst)
-                               when (loop
-                                       for other-phi in (label-phis (jump-target inst))
-                                       when (and (not (eql phi other-phi))
-                                                 (eql other-phi value))
-                                       do (return t)
-                                       finally (return nil))
-                               collect phi))
-                 (real-values (loop
+          (labels ((need-debug-update (phi use)
+                     ;; HACK!
+                     ;; Walk backward over update instructions looking for the
+                     ;; label. If this label defines the phi, then a debug
+                     ;; update should be inserted.
+                     ;; This should track debug info instead...
+                     (let ((label use))
+                       (loop
+                          (when (not (typep label 'debug-update-variable-instruction))
+                            (return))
+                          (setf label (prev-instruction backend-function label)))
+                       (and (typep label 'label)
+                            (member phi (label-phis label)))))
+                   (debug-update (phi value)
+                     (let ((inserted-variables '()))
+                       (dolist (use (gethash phi uses))
+                         (when (and (typep use 'debug-update-variable-instruction)
+                                    (member (debug-variable use) (gethash inst contours))
+                                    (not (member (debug-variable use) inserted-variables)))
+                           (push (debug-variable use) inserted-variables)
+                           (when (need-debug-update phi use)
+                             (insert-before backend-function inst
+                                            (make-instance 'debug-update-variable-instruction
+                                                           :variable (debug-variable use)
+                                                           :value value)))))))
+                   (insert-move (phi source dest)
+                     ;; Insert a move related to the eventual value of PHI,
+                     ;; updating debug info along the way.
+                     (insert-before backend-function inst
+                                    (make-instance 'move-instruction
+                                                   :source source
+                                                   :destination dest))
+                     (debug-update phi dest)))
+            (let* ((conflicts (loop
                                  for phi in (label-phis (jump-target inst))
                                  for value in (jump-values inst)
-                                 collect (cond ((member value conflicts)
-                                                (let ((new-reg (make-instance 'virtual-register :kind (virtual-register-kind phi))))
-                                                  (incf n-moves-inserted)
-                                                  (insert-before backend-function inst
-                                                                 (make-instance 'move-instruction
-                                                                                :source value
-                                                                                :destination new-reg))
-                                                  new-reg))
-                                               (t
-                                                value)))))
-            (loop
-               for phi in (label-phis (jump-target inst))
-               for value in real-values
-               do
-                 (when (not (eql phi value))
-                   (incf n-moves-inserted)
-                   (insert-before backend-function inst
-                                  (make-instance 'move-instruction
-                                                 :source value
-                                                 :destination phi))))
-            (setf (jump-values inst) '()))))
+                                 when (loop
+                                         for other-phi in (label-phis (jump-target inst))
+                                         when (and (not (eql phi other-phi))
+                                                   (eql other-phi value))
+                                         do (return t)
+                                         finally (return nil))
+                                 collect phi))
+                   (real-values (loop
+                                   for phi in (label-phis (jump-target inst))
+                                   for value in (jump-values inst)
+                                   collect (cond ((member value conflicts)
+                                                  (let ((new-reg (make-instance 'virtual-register :kind (virtual-register-kind phi))))
+                                                    (incf n-moves-inserted)
+                                                    (insert-move phi value new-reg)
+                                                    new-reg))
+                                                 (t
+                                                  value)))))
+              (loop
+                 for phi in (label-phis (jump-target inst))
+                 for value in real-values
+                 do
+                   (cond ((eql phi value)
+                          ;; No change, but insert a debug update anyway.
+                          (debug-update phi value))
+                         (t
+                          (incf n-moves-inserted)
+                          (insert-move phi value phi))))
+              (setf (jump-values inst) '())))))
       (do-instructions (inst backend-function)
         (when (typep inst 'label)
           (incf n-phis-converted (length (label-phis inst)))
@@ -267,6 +299,11 @@ Virtual registers must be defined exactly once."
         (insert-after backend-function bb
                       (make-instance 'store-local-instruction
                                      :local candidate
+                                     :value phi))
+        ;; Debug updates too.
+        (insert-after backend-function bb
+                      (make-instance 'debug-update-variable-instruction
+                                     :variable (bind-local-ast candidate)
                                      :value phi))))
     ;; Now walk the dominator tree to rename values, starting at the binding's basic block.
     (let ((uses (build-use/def-maps backend-function)))

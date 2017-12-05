@@ -1207,6 +1207,74 @@
             ,(unbox-destination instruction)
             ,(unbox-source instruction))))
 
+;;; Instruction-level debug info.
+
+(defclass debug-instruction (backend-instruction) ())
+
+(defclass debug-bind-variable-instruction (debug-instruction)
+  ((%variable :initarg :variable :accessor debug-variable)
+   (%value :initarg :value :accessor debug-value)
+   (%representation :initarg :representation :accessor debug-representation))
+  (:documentation "Update a variable's value in the debug info.")
+  (:default-initargs :representation :value))
+
+(defmethod instruction-inputs ((instruction debug-bind-variable-instruction))
+  (list (debug-value instruction)))
+
+(defmethod instruction-outputs ((instruction debug-bind-variable-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction debug-bind-variable-instruction) substitution-function)
+  (setf (debug-value instruction) (funcall substitution-function (debug-value instruction))))
+
+(defmethod print-instruction ((instruction debug-bind-variable-instruction))
+  (format t "   ~S~%"
+          `(:debug-bind-variable
+            ,(debug-variable instruction)
+            ,(debug-value instruction)
+            ,(debug-representation instruction))))
+
+(defclass debug-unbind-variable-instruction (debug-instruction)
+  ((%variable :initarg :variable :accessor debug-variable))
+  (:documentation "Update a variable's value in the debug info."))
+
+(defmethod instruction-inputs ((instruction debug-unbind-variable-instruction))
+  '())
+
+(defmethod instruction-outputs ((instruction debug-unbind-variable-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction debug-unbind-variable-instruction) substitution-function)
+  nil)
+
+(defmethod print-instruction ((instruction debug-unbind-variable-instruction))
+  (format t "   ~S~%"
+          `(:debug-unbind-variable
+            ,(debug-variable instruction))))
+
+(defclass debug-update-variable-instruction (debug-instruction)
+  ((%variable :initarg :variable :accessor debug-variable)
+   (%value :initarg :value :accessor debug-value)
+   (%representation :initarg :representation :accessor debug-representation))
+  (:documentation "Update a variable's value in the debug info.")
+  (:default-initargs :representation :value))
+
+(defmethod instruction-inputs ((instruction debug-update-variable-instruction))
+  (list (debug-value instruction)))
+
+(defmethod instruction-outputs ((instruction debug-update-variable-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction debug-update-variable-instruction) substitution-function)
+  (setf (debug-value instruction) (funcall substitution-function (debug-value instruction))))
+
+(defmethod print-instruction ((instruction debug-update-variable-instruction))
+  (format t "   ~S~%"
+          `(:debug-update-variable
+            ,(debug-variable instruction)
+            ,(debug-value instruction)
+            ,(debug-representation instruction))))
+
 (defun print-function (function)
   (format t "~S~%" function)
   (do-instructions (c function)

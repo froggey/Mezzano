@@ -722,6 +722,13 @@
            #:unbox-signed-byte-64-instruction
            #:unbox-single-float-instruction
            #:unbox-double-float-instruction
+
+           #:debug-instruction
+           #:debug-bind-variable-instruction
+           #:debug-unbind-variable-instruction
+           #:debug-update-variable-instruction
+           #:debug-variable
+           #:debug-value
 ))
 
 (defpackage :mezzano.compiler.backend.dominance

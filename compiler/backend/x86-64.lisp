@@ -230,11 +230,13 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
     (loop
        (let ((total 0))
          (incf total (mezzano.compiler.backend::unbox-phis backend-function))
+         (incf total (mezzano.compiler.backend::unbox-debug-values backend-function))
          (incf total (mezzano.compiler.backend::eliminate-redundant-boxing backend-function))
          (incf total (mezzano.compiler.backend::remove-unused-instructions backend-function))
          (when (zerop total)
            (return)))))
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
+  (mezzano.compiler.backend::lower-local-variables backend-function)
   (sys.c:with-metering (:backend-misc)
     (lower-complicated-box-instructions backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function target)
@@ -245,11 +247,11 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
     (mezzano.compiler.backend::remove-unused-instructions backend-function)
     (mezzano.compiler.backend::check-cfg backend-function)))
 
-(defun compile-backend-function-2 (backend-function *target*)
+(defun compile-backend-function-2 (backend-function debug-map *target*)
   (declare (special *target*))
   (multiple-value-bind (lap debug-layout environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function))
+        (to-lap backend-function debug-map))
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (format t "~{~S~%~}" lap))
@@ -278,5 +280,5 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
 
 (defun compile-backend-function (backend-function target)
   (compile-backend-function-1 backend-function target)
-  (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)
-  (compile-backend-function-2 backend-function target))
+  (let ((debug-map (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)))
+    (compile-backend-function-2 backend-function debug-map target)))

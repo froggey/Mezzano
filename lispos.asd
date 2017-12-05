@@ -65,6 +65,7 @@
                (:file "compiler/backend/multiple-values")
                (:file "compiler/backend/ssa")
                (:file "compiler/backend/passes")
+               (:file "compiler/backend/debug")
                (:file "compiler/backend/register-allocation")
                (:file "compiler/backend/x86-64")
                (:file "compiler/backend/x86-64/target")

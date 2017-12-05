@@ -134,11 +134,13 @@
     (loop
        (let ((total 0))
          (incf total (ir::unbox-phis backend-function))
+         (incf total (ir::unbox-debug-values backend-function))
          (incf total (ir::eliminate-redundant-boxing backend-function))
          (incf total (ir::remove-unused-instructions backend-function))
          (when (zerop total)
            (return)))))
   (ir::deconstruct-ssa backend-function)
+  (ir::lower-local-variables backend-function)
   (sys.c:with-metering (:backend-misc)
     (ra::canonicalize-call-operands backend-function target)
     (ra::canonicalize-argument-setup backend-function target)
@@ -147,11 +149,11 @@
     (ir::remove-unused-instructions backend-function)
     (ir::check-cfg backend-function)))
 
-(defun compile-backend-function-2 (backend-function *target*)
+(defun compile-backend-function-2 (backend-function debug-map *target*)
   (declare (special *target*))
   (multiple-value-bind (lap debug-layout environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function))
+        (to-lap backend-function debug-map))
     (when sys.c::*trace-asm*
       (format t "~S:~%" (ir:backend-function-name backend-function))
       (format t "~{~S~%~}" lap))
@@ -180,5 +182,5 @@
 
 (defun compile-backend-function (backend-function target)
   (compile-backend-function-1 backend-function target)
-  (ra::allocate-registers backend-function target)
-  (compile-backend-function-2 backend-function target))
+  (let ((debug-map (ra::allocate-registers backend-function target)))
+    (compile-backend-function-2 backend-function debug-map target)))

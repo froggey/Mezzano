@@ -21,6 +21,7 @@
   (:documentation "Can input and output registers share the same physical register?"))
 
 (defgeneric allow-memory-operand-p (instruction operand architecture)
+  ;; Instructions don't support memory operands by default.
   (:method (i o a)
     nil))
 
@@ -52,6 +53,7 @@
                              (nthcdr (length arg-regs)
                                      (ir:call-arguments inst)))))
              (frob-outputs ()
+               ;; TODO: Insert debug variable updates where needed.
                (ir:insert-after backend-function inst
                                 (make-instance 'ir:move-instruction
                                                :destination (ir:call-result inst)
@@ -208,14 +210,21 @@
    (%start :initarg :start :reader live-range-start)
    (%end :initarg :end :reader live-range-end)
    ;; Physical registers this range conflicts with and cannot be allocated in.
-   (%conflicts :initarg :conflicts :reader live-range-conflicts)))
+   (%conflicts :initarg :conflicts :reader live-range-conflicts)
+   ;; Zombie ranges cover areas where the vreg is effectively dead, but
+   ;; kept alive because it is associated with some live variable and needed
+   ;; for debugging.
+   ;; The register allocator always spills these ranges.
+   (%zombie :initarg :zombie :reader live-range-zombie)))
 
 (defmethod print-object ((object live-range) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S ~S-~S ~:S"
             (live-range-vreg object)
             (live-range-start object) (live-range-end object)
-            (live-range-conflicts object))))
+            (live-range-conflicts object))
+    (when (live-range-zombie object)
+      (format stream " [zombie]"))))
 
 ;;; Pass 1: Order & number instructions. (instructions-reverse-postorder)
 ;;; Pass 2: Compute live ranges & preg conflicts. (build-live-ranges)
@@ -282,7 +291,9 @@
    (%allocations :accessor allocator-range-allocations)
    (%instants :accessor allocator-instantaneous-allocations)
    (%cfg-preds :initarg :cfg-preds :reader allocator-cfg-preds)
-   (%instruction-clobbers :initarg :instruction-clobbers :reader allocator-instruction-clobbers)))
+   (%instruction-clobbers :initarg :instruction-clobbers :reader allocator-instruction-clobbers)
+   (%range-starts :initarg :range-starts :accessor allocator-range-starts)
+   (%debug-variable-value-map :initarg :debug-variable-value-map :accessor allocator-debug-variable-value-map)))
 
 (defun program-ordering (backend-function)
   (let ((order '()))
@@ -294,24 +305,31 @@
   (multiple-value-bind (basic-blocks bb-preds bb-succs)
       (ir::build-cfg backend-function)
     (declare (ignore basic-blocks bb-succs))
-    (multiple-value-bind (live-in live-out)
-        (ir::compute-liveness backend-function architecture)
-      (let ((order (if ordering
-                       (funcall ordering backend-function)
-                       (instructions-reverse-postorder backend-function)))
-            (mv-flow (ir::multiple-value-flow backend-function architecture))
-            (clobbers (make-hash-table :test 'eq :synchronized nil)))
-        (dolist (inst order)
-          (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
-        (make-instance 'linear-allocator
-                       :function backend-function
-                       :ordering order
-                       :architecture architecture
-                       :live-in live-in
-                       :live-out live-out
-                       :mv-flow mv-flow
-                       :cfg-preds bb-preds
-                       :instruction-clobbers clobbers)))))
+    ;; Construct the debug map & remove debug instructions before computing liveness.
+    (let ((debug-map (ir::build-debug-variable-value-map backend-function)))
+      (ir::remove-debug-variable-instructions backend-function)
+      (multiple-value-bind (live-in live-out)
+          (ir::compute-liveness backend-function architecture)
+        (let ((order (if ordering
+                         (funcall ordering backend-function)
+                         (instructions-reverse-postorder backend-function)))
+              (mv-flow (ir::multiple-value-flow backend-function architecture))
+              (clobbers (make-hash-table :test 'eq :synchronized nil)))
+          (dolist (inst order)
+            (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
+          (make-instance 'linear-allocator
+                         :function backend-function
+                         :ordering order
+                         :architecture architecture
+                         :live-in live-in
+                         :live-out live-out
+                         :mv-flow mv-flow
+                         :cfg-preds bb-preds
+                         :instruction-clobbers clobbers
+                         :debug-variable-value-map debug-map))))))
+
+(defun virtual-registers-used-by-debug-info (allocator inst)
+  (mapcar #'second (gethash inst (allocator-debug-variable-value-map allocator))))
 
 (defun build-live-ranges (allocator)
   (let* ((ranges (make-array 128 :adjustable t :fill-pointer 0))
@@ -320,25 +338,31 @@
          (live-in (allocator-live-in allocator))
          (live-out (allocator-live-out allocator))
          (active-vregs '())
+         (active-zombie-vregs '())
          (vreg-liveness-start (make-hash-table :test 'eq :synchronized nil))
          (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
          (vreg-move-hint (make-hash-table :test 'eq :synchronized nil))
          (arch (allocator-architecture allocator))
          (arg-regs (target-argument-registers arch))
          (funcall-reg (target-funcall-register arch))
-         (fref-reg (target-fref-register arch)))
-    (flet ((add-range (vreg end)
-             (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
-                                                        (set-difference (architectural-physical-registers (allocator-architecture allocator))
-                                                                        (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
-                                                                                                           (allocator-architecture allocator)))))
-             (let ((range (make-instance 'live-range
-                                         :vreg vreg
-                                         :start (gethash vreg vreg-liveness-start)
-                                         :end end
-                                         :conflicts (gethash vreg vreg-conflicts))))
+         (fref-reg (target-fref-register arch))
+         (starts (make-hash-table)))
+    (flet ((add-range (vreg end zombiep)
+             (when (not zombiep)
+               (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
+                                                          (set-difference (architectural-physical-registers (allocator-architecture allocator))
+                                                                          (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
+                                                                                                             (allocator-architecture allocator))))))
+             (let* ((start (gethash vreg vreg-liveness-start))
+                    (range (make-instance 'live-range
+                                          :vreg vreg
+                                          :start start
+                                          :end end
+                                          :conflicts (if zombiep '() (gethash vreg vreg-conflicts))
+                                          :zombie zombiep)))
                (when (not ir::*shut-up*)
                  (format t " Add range ~S~%" range))
+               (push range (gethash start starts '()))
                (vector-push-extend range ranges)
                (push range (gethash vreg vreg-ranges)))))
       (loop
@@ -348,23 +372,39 @@
            (let* ((clobbers (gethash inst (allocator-instruction-clobbers allocator)))
                   (vregs (virtual-registers-touched-by-instruction inst live-in live-out))
                   (newly-live-vregs (set-difference vregs active-vregs))
-                  (newly-dead-vregs (set-difference active-vregs vregs)))
+                  (newly-dead-vregs (set-difference active-vregs vregs))
+                  (debug-vregs (virtual-registers-used-by-debug-info allocator inst))
+                  (zombie-vregs (set-difference debug-vregs vregs))
+                  (newly-live-zombie-vregs (set-difference zombie-vregs active-zombie-vregs))
+                  (newly-dead-zombie-vregs (set-difference active-zombie-vregs zombie-vregs)))
              (when (not ir::*shut-up*)
                (format t "~D:" range-start)
                (ir::print-instruction inst)
                (format t "active: ~:S~%" active-vregs)
                (format t "vregs: ~:S~%" vregs)
                (format t "newly live: ~:S~%" newly-live-vregs)
-               (format t "newly dead: ~:S~%" newly-dead-vregs))
+               (format t "newly dead: ~:S~%" newly-dead-vregs)
+               (format t "debug-vregs: ~:S~%" debug-vregs)
+               (format t "zombie-vregs: ~:S~%" zombie-vregs)
+               (format t "newly live zombie: ~:S~%" newly-live-zombie-vregs)
+               (format t "newly dead zombie: ~:S~%" newly-dead-zombie-vregs))
+             ;; Process vregs that have just become dead.
+             (let ((range-end (1- range-start)))
+               (dolist (vreg newly-dead-vregs)
+                 (add-range vreg range-end nil)))
+             ;; And zombie vregs that have just become dead.
+             (let ((range-end (1- range-start)))
+               (dolist (vreg newly-dead-zombie-vregs)
+                 (add-range vreg range-end t)))
              ;; Process vregs that have just become live.
              (dolist (vreg newly-live-vregs)
                (setf (gethash vreg vreg-liveness-start) range-start)
                (setf (gethash vreg vreg-conflicts) '()))
-             ;; And vregs that have just become dead.
-             (let ((range-end (1- range-start)))
-               (dolist (vreg newly-dead-vregs)
-                 (add-range vreg range-end)))
+             ;; and zombie vregs that have just become live.
+             (dolist (vreg newly-live-zombie-vregs)
+               (setf (gethash vreg vreg-liveness-start) range-start))
              (setf active-vregs vregs)
+             (setf active-zombie-vregs zombie-vregs)
              (dolist (vreg active-vregs)
                ;; Update conflicts for this vreg.
                ;; Don't conflict source/destination of move instructions.
@@ -392,10 +432,13 @@
       ;; Finish any remaining active ranges.
       (let ((range-end (1- (length ordering))))
         (dolist (vreg active-vregs)
-          (add-range vreg range-end))))
+          (add-range vreg range-end nil))
+        (dolist (vreg active-zombie-vregs)
+          (add-range vreg range-end t))))
     (setf (slot-value allocator '%ranges) (sort ranges #'> :key #'live-range-start)
           (slot-value allocator '%vreg-ranges) vreg-ranges
-          (slot-value allocator '%vreg-hints) vreg-move-hint))
+          (slot-value allocator '%vreg-hints) vreg-move-hint
+          (allocator-range-starts allocator) starts))
   (when (not ir::*shut-up*)
     (format t "Live ranges: ~:S~%" (allocator-remaining-ranges allocator)))
   (values))
@@ -487,7 +530,10 @@
             (format t "Interval ~S~%" interval)
             (format t "Candidates ~S~%" candidates)
             (format t "hint/reg ~S / ~S~%" hint reg))
-          (cond ((and (typep inst 'ir:argument-setup-instruction)
+          (cond ((live-range-zombie interval)
+                 ;; Zombie range, spill.
+                 (mark-interval-spilled allocator interval))
+                ((and (typep inst 'ir:argument-setup-instruction)
                       (eql instruction-index (live-range-end interval)))
                  ;; Argument setup instruction with an unused argument.
                  ;; Just spill it.
@@ -615,8 +661,9 @@
 
 (defun fix-locations-after-control-flow (allocator inst instruction-index target insert-point)
   (let* ((target-index (position target (allocator-instruction-ordering allocator)))
-         (active-vregs (remove-if-not (lambda (reg) (typep reg 'ir:virtual-register))
-                                      (gethash target (allocator-live-in allocator))))
+         (active-vregs (union (remove-if-not (lambda (reg) (typep reg 'ir:virtual-register))
+                                             (gethash target (allocator-live-in allocator)))
+                              (virtual-registers-used-by-debug-info allocator inst)))
          (input-intervals (mapcar (lambda (vreg) (interval-at allocator vreg instruction-index))
                                   active-vregs))
          (input-registers (mapcar (lambda (interval)
@@ -883,6 +930,18 @@
               (spilled-output-vregs (remove-if-not (lambda (vreg)
                                                      (spilledp allocator vreg instruction-index))
                                                    output-vregs)))
+         (when (not (typep inst 'ir:terminator-instruction))
+           ;; Spill registers that become zombies after the next instruction.
+           (dolist (range (gethash (1+ instruction-index)
+                                   (allocator-range-starts allocator)))
+             (when (and (live-range-zombie range)
+                        (not (spilledp allocator (live-range-vreg range) instruction-index)))
+               (ir:insert-after backend-function inst
+                                (make-instance 'ir:spill-instruction
+                                               :destination (live-range-vreg range)
+                                               :source (or (gethash (interval-at allocator (live-range-vreg range) instruction-index)
+                                                                    (allocator-range-allocations allocator))
+                                                           (error "Missing register to spill for new zombie range?")))))))
          (typecase inst
            (ir:move-instruction
             (rewrite-move-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))
@@ -893,9 +952,42 @@
            (t
             (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))))))
 
+(defun rebuild-debug-map (allocator)
+  (let ((result (make-hash-table))
+        (instruction-to-ordered-index (make-hash-table))
+        (original-debug-map (allocator-debug-variable-value-map allocator))
+        (last-index 0)
+        (last-instruction (ir:first-instruction (allocator-backend-function allocator))))
+    (loop
+       for instruction-index from 0
+       for inst in (allocator-instruction-ordering allocator)
+       do (setf (gethash inst instruction-to-ordered-index) instruction-index))
+    (ir:do-instructions (inst (allocator-backend-function allocator))
+      (multiple-value-bind (index debug-instruction)
+          (if (gethash inst instruction-to-ordered-index)
+              (values (gethash inst instruction-to-ordered-index) inst)
+              (values last-index last-instruction))
+        (loop
+           for (variable vreg repr) in (gethash debug-instruction original-debug-map)
+           for location = (if (spilledp allocator vreg index)
+                              vreg
+                              (gethash (interval-at allocator vreg index) (allocator-range-allocations allocator)))
+           do
+             (when (not ir::*shut-up*)
+               (format t "~D: ~S ~S ~S~%" index inst vreg location))
+             (push (list variable location repr) (gethash inst result '())))
+           ;; Use this to guess debug info for newly inserted instructions.
+        (when (not (eql last-index index))
+          (setf last-index index
+                last-instruction debug-instruction))))
+    (setf (allocator-debug-variable-value-map allocator) result)))
+
 (defun allocate-registers (backend-function arch &key ordering)
   (sys.c:with-metering (:backend-register-allocation)
     (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
       (build-live-ranges allocator)
       (linear-scan-allocate allocator)
-      (rewrite-after-allocation allocator))))
+      (rewrite-after-allocation allocator)
+      (rebuild-debug-map allocator)
+      ;; Return the updated debug map.
+      (allocator-debug-variable-value-map allocator))))

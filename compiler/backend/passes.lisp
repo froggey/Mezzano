@@ -161,3 +161,58 @@
          until (not (unbox-phis-1 backend-function basic-blocks bb-preds))
          do (incf total))
       total)))
+
+(defun lower-one-local-variable (backend-function binding)
+  (let* ((var (bind-local-ast binding))
+         (vreg (make-instance 'virtual-register :name var))
+         (to-remove '()))
+    ;; Replace loads & stores with move instructions.
+    (do-instructions (inst backend-function)
+      (typecase inst
+        (load-local-instruction
+         (when (eql (load-local-local inst) binding)
+           (insert-before backend-function inst
+                          (make-instance 'move-instruction
+                                         :source vreg
+                                         :destination (load-local-destination inst)))
+           (push inst to-remove)))
+        (store-local-instruction
+         (when (eql (store-local-local inst) binding)
+           (insert-before backend-function inst
+                          (make-instance 'move-instruction
+                                         :source (store-local-value inst)
+                                         :destination vreg))
+           (push inst to-remove)))
+        (unbind-local-instruction
+         (when (eql (unbind-local-local inst) binding)
+           (insert-before backend-function inst
+                          (make-instance 'debug-unbind-variable-instruction
+                                         :variable var))
+           (push inst to-remove)))
+        ((or debug-bind-variable-instruction
+             debug-update-variable-instruction
+             debug-unbind-variable-instruction)
+         (when (eql (debug-variable inst) var)
+           (push inst to-remove)))))
+    ;; Initial value.
+    (insert-before backend-function binding
+                   (make-instance 'move-instruction
+                                  :source (bind-local-value binding)
+                                  :destination vreg))
+    (insert-before backend-function binding
+                   (make-instance 'debug-bind-variable-instruction
+                                  :variable var
+                                  :value vreg))
+    (remove-instruction backend-function binding)
+    (dolist (inst to-remove)
+      (remove-instruction backend-function inst))))
+
+(defun lower-local-variables (backend-function)
+  "Convert remaining local variables to virtual registers.
+Must be performed after SSA conversion."
+  (let ((to-convert '()))
+    (do-instructions (inst backend-function)
+      (when (typep inst 'bind-local-instruction)
+        (push inst to-convert)))
+    (dolist (binding to-convert)
+      (lower-one-local-variable backend-function binding))))

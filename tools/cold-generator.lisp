@@ -197,6 +197,7 @@
     "compiler/backend/multiple-values.lisp"
     "compiler/backend/ssa.lisp"
     "compiler/backend/passes.lisp"
+    "compiler/backend/debug.lisp"
     "compiler/backend/register-allocation.lisp"
     "compiler/backend/x86-64.lisp"
     "compiler/backend/x86-64/target.lisp"

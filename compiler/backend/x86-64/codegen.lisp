@@ -21,6 +21,20 @@
   (dolist (i instructions)
     (push i *emitted-lap*)))
 
+(defun emit-debug-info (info stack-layout)
+  (emit `(:debug ,(loop
+                     for (variable location repr) in info
+                     collect (list* (sys.c::lexical-variable-name variable)
+                                    (if (typep location 'ir:virtual-register)
+                                        (or (position location stack-layout)
+                                            (error "Missing stack slot for spilled virtual ~S" location))
+                                        location)
+                                    repr
+                                    (if (getf (sys.c:lexical-variable-plist variable)
+                                              'sys.c::hide-from-debug-info)
+                                        (list :hidden t)
+                                        ()))))))
+
 (defun emit-gc-info (&rest metadata)
   (emit `(:gc :frame :layout ,*current-frame-layout* ,@metadata)))
 
@@ -107,13 +121,16 @@
       (when (sys.c:lambda-information-environment-layout
              (mezzano.compiler.backend::ast backend-function))
         (setf environment-slot
-              (position-if (lambda (x)
-                             (and (listp x)
-                                  (member (first (sys.c:lambda-information-environment-layout
-                                                  (mezzano.compiler.backend::ast backend-function)))
-                                          x
-                                          :key #'bind-local-ast)))
-                           layout)))
+              (or (position-if (lambda (x)
+                                 (and (listp x)
+                                      (member (first (sys.c:lambda-information-environment-layout
+                                                      (mezzano.compiler.backend::ast backend-function)))
+                                              x
+                                              :key #'bind-local-ast)))
+                               layout)
+                  (sys.c:lexical-variable-name
+                   (first (sys.c:lambda-information-environment-layout
+                           (mezzano.compiler.backend::ast backend-function)))))))
       (values (make-array (length layout)
                           :adjustable t
                           :fill-pointer t
@@ -157,7 +174,7 @@
                  (vector-push-extend value *literals/128*))))
     `(:rip (+ literal-pool/128 ,(* pos 16)))))
 
-(defun to-lap (backend-function)
+(defun to-lap (backend-function debug-map)
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
     (multiple-value-bind (*stack-layout* debug-layout environment-slot)
@@ -185,7 +202,8 @@
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
               (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
           ;; Create stack frame.
-          (emit `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+          (emit `(:debug ())
+                `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
                 `(lap:push :rbp)
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
                 `(lap:mov64 :rbp :rsp)
@@ -202,10 +220,10 @@
                     (emit `(lap:mov64 (:stack ,i) nil)))))
           (emit-gc-info :incoming-arguments :rcx)
           (do-instructions (inst-or-label backend-function)
+            (emit-debug-info (gethash inst-or-label debug-map '()) *stack-layout*)
             (cond ((typep inst-or-label 'label)
                    (push (gethash inst-or-label *labels*) *emitted-lap*))
                   (t
-                                        ;(emit `(:comment ,(format nil "~S"  inst-or-label)))
                    (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
                      (if (eql (gethash inst-or-label mv-flow) :multiple)
                          (emit-gc-info :multiple-values 0)
@@ -1153,3 +1171,5 @@
     (:xmm
      (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
 
+(defmethod emit-lap (backend-function (instruction debug-instruction) uses defs)
+  nil)

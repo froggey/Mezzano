@@ -47,6 +47,9 @@
 (defmethod multiple-value-safe-p ((instruction store-local-instruction) architecture)
   t)
 
+(defmethod multiple-value-safe-p ((instruction debug-instruction) architecture)
+  t)
+
 (defun multiple-value-flow (function architecture)
   (let ((flow (make-hash-table :test 'eq :synchronized nil))
         (worklist (list (cons (first-instruction function) nil))))
@@ -118,7 +121,15 @@
            (load-local-instruction
             (assert (member (load-local-local inst) stack)))
            (store-local-instruction
-            (assert (member (store-local-local inst) stack))))
+            (assert (member (store-local-local inst) stack)))
+           (debug-bind-variable-instruction
+            (assert (not (member (debug-variable inst) stack)))
+            (push (debug-variable inst) stack))
+           (debug-update-variable-instruction
+            (assert (member (debug-variable inst) stack)))
+           (debug-unbind-variable-instruction
+            (assert (eql (debug-variable inst) (first stack)))
+            (pop stack)))
          (dolist (next (successors function inst))
            (multiple-value-bind (next-stack visitedp)
                (gethash next contour)

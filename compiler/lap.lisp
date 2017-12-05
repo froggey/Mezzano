@@ -20,6 +20,7 @@
 (defvar *bytes-emitted* nil)
 (defvar *fixups* nil)
 (defvar *gc-data* nil)
+(defvar *debug-data*)
 (defvar *relocations* nil)
 (defvar *symbols* nil)
 (defvar *chunks*)
@@ -36,6 +37,7 @@
   ((%symbols :initarg :symbols :reader chunk-symbols)
    (%relocations :initarg :relocations :reader chunk-relocations)
    (%gcmd :initarg :gcmd :reader chunk-gcmd)
+   (%debug-md :initarg :debug-md :reader chunk-debug-md)
    (%fixups :initarg :fixups :reader chunk-fixups)))
 
 (defclass variably-sized-chunk (chunk)
@@ -50,12 +52,14 @@
                          :symbols *symbols*
                          :relocations *relocations*
                          :gcmd (reverse *gc-data*)
+                         :debug-md (reverse *debug-data*)
                          :fixups *fixups*)
           *chunks*)
     (setf *machine-code* (make-array 16 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)
           *symbols* '()
           *relocations* '()
           *gc-data* '()
+          *debug-data* '()
           *fixups* '()))
   (setf *instruction-is-variably-sized* t))
 
@@ -206,7 +210,8 @@
         (:d16/le (apply 'emit-d16/le (rest instruction)))
         (:d32/le (apply 'emit-d32/le (rest instruction)))
         (:d64/le (apply 'emit-d64/le (rest instruction)))
-        (:gc (apply 'emit-gc (rest instruction))))
+        (:gc (apply 'emit-gc (rest instruction)))
+        (:debug (apply 'emit-debug (rest instruction))))
       (let ((handler (gethash (first instruction) instruction-set)))
         (if handler
             (funcall handler instruction)
@@ -220,6 +225,7 @@
         (*symbols* '())
         (*fixups* '())
         (*gc-data* '())
+        (*debug-data* '())
         (*chunks* '()))
     (dolist (i code-list)
       (let ((*instruction-is-variably-sized* nil))
@@ -246,6 +252,7 @@
                          :symbols *symbols*
                          :relocations *relocations*
                          :gcmd (reverse *gc-data*)
+                         :debug-md (reverse *debug-data*)
                          :fixups *fixups*)
           *chunks*)
     (reverse *chunks*)))
@@ -309,6 +316,7 @@ a vector of constants and an alist of symbols & addresses."
                                    :fill-pointer 0))
             (result-fixups '())
             (result-gcmd '())
+            (result-debug-md '())
             (*current-address* base-address))
         (dolist (chunk chunks)
           (let ((offset (length result-mc)))
@@ -339,9 +347,26 @@ a vector of constants and an alist of symbols & addresses."
                                (equal (rest (first result-gcmd)) metadata)))
                          (t
                           (push (cons address metadata) result-gcmd)))))
+            (loop for (offset . metadata) in (chunk-debug-md chunk) do
+                 (let ((address (+ *current-address* offset)))
+                   ;; More recent entries overwrite older entries.
+                   (cond ((eql (first (first result-debug-md)) address)
+                          (setf (rest (first result-debug-md)) metadata))
+                         ;; Do nothing if the previous entry is the same as the new entry.
+                         ((and result-debug-md
+                               (equal (rest (first result-debug-md)) metadata)))
+                         (t
+                          (push (cons address metadata) result-debug-md)))))
             (loop for (name . offset) in (chunk-fixups chunk) do
                  (push (cons name (+ *current-address* offset)) result-fixups)))
           (incf *current-address* (length (chunk-code chunk))))
+        ;; Hackishly append to the debug info. This should put it in the 10th position.
+        ;; TODO: Delta compress entries.
+        (when (and (>= (length *constant-pool*) 2)
+                   (consp (aref *constant-pool* 1))
+                   (eql (first (aref *constant-pool* 1)) :debug-info))
+          (setf (aref *constant-pool* 1)
+                (append (aref *constant-pool* 1) (list (reverse result-debug-md)))))
         (values result-mc
                 *constant-pool*
                 result-fixups
@@ -483,6 +508,16 @@ a vector of constants and an alist of symbols & addresses."
                        frame-mode
                        gc-keys)
                 *gc-data*)))))
+
+(defun emit-debug (current-layout)
+  (let ((debug-data (list :layout current-layout)))
+    ;; Most recent takes priority.
+    (if (eql (first (first *debug-data*)) (length *machine-code*))
+        (setf (first *debug-data*) (list* (length *machine-code*)
+                                          debug-data))
+        (push (list* (length *machine-code*)
+                     debug-data)
+              *debug-data*))))
 
 (defun append-vu32 (value vector)
   (let ((low-bits (ldb (byte 7 0) value))
