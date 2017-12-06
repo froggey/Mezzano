@@ -89,8 +89,10 @@
 (sys.int::defglobal *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (sys.int::defglobal *standard-class-slot-storage-layout-position*)
 (sys.int::defglobal *standard-class-hash-position*)
+(sys.int::defglobal *standard-class-finalized-p-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
+(sys.int::defglobal *standard-class-effective-slots-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -387,12 +389,18 @@
   (setf (slot-value class 'class-precedence-list) new-value))
 
 (defun class-slots (class)
-  (slot-value class 'effective-slots))
+  (let ((class-of-class (class-of class)))
+    (cond ((clos-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-effective-slots-position*))
+          (t (slot-value class 'effective-slots)))))
 (defun (setf class-slots) (new-value class)
   (setf (slot-value class 'effective-slots) new-value))
 
 (defun class-slot-storage-layout (class)
-  (slot-value class 'slot-storage-layout))
+  (let ((class-of-class (class-of class)))
+    (cond ((clos-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-slot-storage-layout-position*))
+          (t (slot-value class 'slot-storage-layout)))))
 (defun (setf class-slot-storage-layout) (new-value class)
   (setf (slot-value class 'slot-storage-layout) new-value))
 
@@ -408,7 +416,7 @@
 
 (defun class-direct-default-initargs (class)
   (let ((class-of-class (class-of class)))
-    (cond ((std-class-p class-of-class)
+    (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-direct-default-initargs-position*))
           (t (slot-value class 'direct-default-initargs)))))
 (defun (setf class-direct-default-initargs) (new-value class)
@@ -428,7 +436,10 @@
   (setf (slot-value class 'hash) new-value))
 
 (defun class-finalized-p (class)
-  (std-slot-value class 'finalized-p))
+  (let ((class-of-class (class-of class)))
+    (cond ((clos-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-finalized-p-position*))
+          (t (std-slot-value class 'finalized-p)))))
 (defun (setf class-finalized-p) (new-value class)
   (setf (slot-value class 'finalized-p) new-value))
 
