@@ -78,9 +78,10 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform mmx-vector-value ((value mmx-vector))
-      ((:optimize (= safety 0) (= speed 3)))
+      ((:result-type (unsigned-byte 64)) ; ### hack
+       (:optimize (= safety 0) (= speed 3)))
     `(the (unsigned-byte 64) (sys.c::call %mmx-vector-value ,value)))
-  (sys.c::define-transform %mmx-vector-value ((value mmx-vector))
+  (sys.c::define-transform mmx-vector-value ((value mmx-vector))
       ((:result-type fixnum)
        (:optimize (= safety 0) (= speed 3)))
     `(the (and fixnum (integer 0)) (sys.c::call %mmx-vector-value/fixnum ,value)))
