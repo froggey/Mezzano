@@ -742,10 +742,7 @@
              (and (structure-object-p ,obj-sym)
                   (or (eq (%struct-slot ,obj-sym 0) ',struct-type)
                       (structure-type-p ,obj-sym ',struct-type))))))))
-  (multiple-value-bind (expansion expanded-p)
-      (typeexpand-1 type-specifier)
-    (when expanded-p
-      (compile-typep-expression object expansion))))
+  nil)
 )
 
 (define-compiler-macro typep (&whole whole object type-specifier &optional environment)
@@ -757,8 +754,8 @@
                (= (list-length type-specifier) 2)
                (eql (first type-specifier) 'quote))
     (return-from typep whole))
-  (setf type-specifier (second type-specifier))
-  (or (compile-typep-expression object type-specifier)
+  (or (compile-typep-expression object
+                                (typeexpand (second type-specifier) environment))
       whole))
 
 (defun type-of (object)
