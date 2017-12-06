@@ -53,6 +53,105 @@ Returns NIL if the function captures no variables."
   (let* ((return-address (memref-signed-byte-64 (second frame) 1)))
     (return-address-to-function return-address)))
 
+(defun decode-debug-register (reg)
+  #+x86-64
+  (elt *debug-x86-64-register-encodings* reg)
+  #+arm64
+  (elt *debug-arm64-register-encodings* reg))
+
+(defun decode-precise-debug-info (function encoded-info)
+  (let ((result '())
+        (index 0))
+    (labels ((consume ()
+               (prog1
+                   (let ((value (aref encoded-info index)))
+                     value)
+                 (incf index)))
+             (read-vu32 ()
+               (let ((shift 0)
+                     (result 0))
+                 (loop
+                    (let ((b (consume)))
+                      (setf result (logior result (ash (logand b #x7F) shift)))
+                    (when (not (logtest b #x80))
+                      (return))
+                    (incf shift 7)))
+                 result))
+             (read-location ()
+               (let* ((loc (consume))
+                      (real-loc (cond ((eql loc #xFF)
+                                       (read-vu32))
+                                      ((logtest loc #x80)
+                                       (logand loc #x7F))
+                                      (t
+                                       (decode-debug-register loc))))
+                      (repr (read-vu32))
+                      (real-repr (ecase repr
+                                   (#.+debug-repr-value+ :value)
+                                   (#.+debug-repr-single-float+ :single-float)
+                                   (#.+debug-repr-double-float+ :double-float)
+                                   (#.+debug-repr-mmx-vector+ 'mezzano.simd:mmx-vector)
+                                   (#.+debug-repr-sse-vector+ 'mezzano.simd:sse-vector))))
+                 (values real-loc real-repr))))
+      (loop
+         (when (>= index (length encoded-info))
+           (return))
+         (let ((offset (read-vu32))
+               (compressed-layout '()))
+           (loop
+              (let ((op (consume)))
+                (ecase (logand op #xF0)
+                  (#.+debug-end-entry-op+
+                   (return))
+                  (#.+debug-add-var-op+
+                   (let ((var (function-pool-object function (read-vu32)))
+                         (hiddenp (eql op +debug-add-hidden-var-op+)))
+                     (multiple-value-bind (location repr)
+                         (read-location)
+                       (push `(:add ,var ,location ,repr :hidden ,hiddenp)
+                             compressed-layout))))
+                  (#.+debug-drop-n-op+
+                   (push `(:drop ,(logand op #x0F)) compressed-layout))
+                  (#.+debug-drop-op+
+                   (push `(:drop ,(read-vu32)) compressed-layout))
+                  ((#.+debug-update-n-op+ #.+debug-update-op+)
+                   (let ((var (if (eql op +debug-update-op+)
+                                  (read-vu32)
+                                  (logand op #x0F))))
+                     (multiple-value-bind (location repr)
+                         (read-location)
+                       (push `(:update ,var ,location ,repr) compressed-layout)))))))
+           (push `(,offset :compressed-layout ,(reverse compressed-layout)) result)))
+      (reverse result))))
+
+(defun decompress-debug-layout (prev-layout ops)
+  (let ((current (copy-list prev-layout)))
+    (dolist (op ops)
+      (ecase (first op)
+        (:add
+         (setf current (append current
+                               (list (rest op)))))
+        (:drop
+         (destructuring-bind (n) (rest op)
+           (setf current (subseq current 0 n))))
+        (:update
+         (destructuring-bind (index loc repr) (rest op)
+           (let ((existing (nth index current)))
+             (setf (nth index current) (list* (first existing)
+                                              loc repr
+                                              (cdddr existing))))))))
+    current))
+
+(defun decompress-precise-debug-info (info)
+  (loop
+     with last-layout = ()
+     for entry in info
+     collect (destructuring-bind (offset &key compressed-layout)
+                 entry
+               (let ((new-layout (decompress-debug-layout last-layout compressed-layout)))
+                 (setf last-layout new-layout)
+                 `(,offset :layout ,new-layout)))))
+
 (defun read-frame-slot (frame slot &optional (repr :value))
   (typecase slot
     (integer
@@ -68,6 +167,9 @@ Returns NIL if the function captures no variables."
           (%integer-as-double-float (memref-unsigned-byte-64 address)))
          (t
           :$inaccessible-value$))))
+    ((cons (eql quote))
+     ;; Constant.
+     (second slot))
     (cons
      ;; Environment vector path.
      (case repr
@@ -97,6 +199,8 @@ Returns NIL if the function captures no variables."
           (setf (memref-unsigned-byte-64 address) (%double-float-as-integer value)))
          (t
           (error "Cannot write to this variable. Unknown representation ~S." repr)))))
+    ((cons (eql quote))
+     (error "Cannot write to this variable. Is constant."))
     (cons
      ;; Environment vector path.
      ;; Looks like: (environment-slot [parent-indices...] value-index)
@@ -104,7 +208,7 @@ Returns NIL if the function captures no variables."
        (:value
         (loop
            for (x . xs) on slot
-           for vec = (read-frame-slot frame x) then (elt vec x)
+           for vec = (read-frame-slot frame x) then (if xs (elt vec x) vec)
            when (null xs) do
              (setf (elt vec x) value)
              (loop-finish))
@@ -124,8 +228,11 @@ Returns NIL if the function captures no variables."
             function offset)))
 
 (defun local-variables-at-offset (function offset)
-  (let ((data (debug-info-precise-variable-data
-               (function-debug-info function))))
+  (let ((data (decompress-precise-debug-info
+               (decode-precise-debug-info
+                function
+                (debug-info-precise-variable-data
+                 (function-debug-info function))))))
     (when (null data)
       ;; Precise information not present. Fall back on the stack map.
       (return-from local-variables-at-offset
@@ -147,7 +254,7 @@ Returns NIL if the function captures no variables."
   (multiple-value-bind (fn offset)
       (function-from-frame frame)
     (let* ((info (function-debug-info fn))
-           (var-id 0)
+           (var-id -1)
            (result '()))
       (loop
          for (name location repr . plist) in (local-variables-at-offset fn offset)

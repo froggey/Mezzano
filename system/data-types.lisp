@@ -362,3 +362,32 @@ reserved on the disk, but no specific block has been allocated.")
     (28 :private-use)
     (29 :unassigned)))
 )
+
+(defconstant +debug-end-entry-op+ #x00)
+(defconstant +debug-add-var-op+ #x10)
+(defconstant +debug-add-hidden-var-op+ #x11)
+(defconstant +debug-drop-n-op+ #x40)
+(defconstant +debug-drop-op+ #x50)
+(defconstant +debug-update-n-op+ #x60)
+(defconstant +debug-update-op+ #x70)
+
+(defconstant +debug-repr-value+ 0)
+(defconstant +debug-repr-single-float+ 0)
+(defconstant +debug-repr-double-float+ 1)
+(defconstant +debug-repr-mmx-vector+ 2)
+(defconstant +debug-repr-sse-vector+ 3)
+
+(defvar *debug-x86-64-register-encodings* #(:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi
+                                            :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
+                                            :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
+                                            :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7
+                                            :xmm8 :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
+
+(defvar *debug-arm64-register-encodings* #(:x0 :x1 :x2 :x3 :x4 :x5 :x6 :x7
+                                           :x8 :x9 :x10 :x11 :x12 :x13 :x14 :x15
+                                           :x16 :x17 :x18 :x19 :x20 :x21 :x22 :x23
+                                           :x24 :x25 :x26 :x27 :x28 :x29 :x30 :xzr
+                                           :q0 :q1 :q2 :q3 :q4 :q5 :q6 :q7
+                                           :q8 :q9 :q10 :q11 :q12 :q13 :q14 :q15
+                                           :q16 :q17 :q18 :q19 :q20 :q21 :q22 :q23
+                                           :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31))

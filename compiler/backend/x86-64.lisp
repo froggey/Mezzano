@@ -274,7 +274,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                ;; Top-level form number
                sys.int::*top-level-form-number*
                (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-               (sys.c:lambda-information-docstring ast-lambda))) ; docstring
+               (sys.c:lambda-information-docstring ast-lambda) ; docstring
+               nil)) ; precise debug info
        nil
        :x86-64))))
 

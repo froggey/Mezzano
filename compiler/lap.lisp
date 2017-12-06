@@ -264,6 +264,105 @@
          (when (not (eql (aref a i) (aref b i)))
            (return nil)))))
 
+(defun delta-compress-debug-info-1 (old-layout new-layout)
+  (let ((result '())
+        (current '()))
+    ;; Bring variable definitions in-line.
+    (do ((old old-layout (rest old))
+         (new new-layout (rest new))
+         (index 0 (1+ index)))
+        ((or (endp old) (endp new)
+             (not (eql (first (first old)) (first (first new))))
+             (not (equal (cdddr (first old)) (cdddr (first new)))))
+         (when (not (endp old))
+           (push `(:drop ,index) result))
+         (when (not (endp new))
+           (dolist (e new)
+             (push e current)
+             (push `(:add ,@e) result)))
+         (setf current (reverse current)))
+      (push (first old) current))
+    ;; Now update locations.
+    (loop
+       for i from 0
+       for prev-layout in current
+       for curr-layout in new-layout
+       when (not (and (eql (second prev-layout) (second curr-layout))
+                      (eql (third prev-layout) (third curr-layout))))
+       do (push `(:update ,i ,(second curr-layout) ,(third curr-layout)) result))
+    (reverse result)))
+
+(defun delta-compress-debug-info (info)
+  (loop
+     with previous-layout = '()
+     for entry in info
+     collect (destructuring-bind (offset &key layout)
+                 entry
+               (prog1
+                   (list offset :compressed-layout (delta-compress-debug-info-1 previous-layout layout))
+                 (setf previous-layout layout)))))
+
+
+(defun encode-debug-representation (repr)
+  (ecase repr
+    (:value sys.int::+debug-repr-value+)
+    (:single-float sys.int::+debug-repr-single-float+)
+    (:double-float sys.int::+debug-repr-double-float+)
+    (mezzano.simd:mmx-vector sys.int::+debug-repr-mmx-vector+)
+    (mezzano.simd:sse-vector sys.int::+debug-repr-sse-vector+)))
+
+(defun encode-debug-location (location repr output)
+  (cond ((integerp location)
+         (cond ((< location 127)
+                (vector-push-extend (logior #x80 location) output)) ; Stack, short form.
+               (t
+                (vector-push-extend #xFF output) ; Stack, with following vu32.
+                (append-vu32 location output))))
+        (t
+         ;; A register.
+         (append-vu32 (or (position location sys.int::*debug-x86-64-register-encodings*)
+                          (position location sys.int::*debug-arm64-register-encodings*)
+                          (error "Unable to encode debug location ~S" location))
+                      output)))
+  (append-vu32 (encode-debug-representation repr) output))
+
+(defun encode-compressed-layout (layout output constant-pool)
+  (loop for (op . data) in layout do
+       (ecase op
+         (:add
+          (destructuring-bind (name location repr &key hidden) data
+            (vector-push-extend (if hidden
+                                    sys.int::+debug-add-hidden-var-op+
+                                    sys.int::+debug-add-var-op+)
+                                output)
+            (append-vu32 (position name constant-pool) output)
+            (encode-debug-location location repr output)))
+         (:drop
+          (destructuring-bind (index) data
+            (cond ((<= 0 index 15)
+                   (vector-push-extend (logior sys.int::+debug-drop-n-op+ index) output))
+                  (t
+                   (vector-push-extend sys.int::+debug-drop-op+ output)
+                   (append-vu32 index output)))))
+         (:update
+          (destructuring-bind (index location repr) data
+            (cond ((<= 0 index 15)
+                   (vector-push-extend (logior sys.int::+debug-update-n-op+ index) output))
+                  (t
+                   (vector-push-extend sys.int::+debug-update-op+ output)
+                   (append-vu32 index output)))
+            (encode-debug-location location repr output)))))
+  (vector-push-extend sys.int::+debug-end-entry-op+ output))
+
+(defun encode-debug-info (info constant-pool)
+  (let ((delta-compressed-info (delta-compress-debug-info info))
+        (result (make-array 16 :adjustable t :fill-pointer 0 :element-type '(unsigned-byte 8))))
+    (dolist (entry delta-compressed-info)
+      (destructuring-bind (offset &key compressed-layout) entry
+        (append-vu32 offset result)
+        (encode-compressed-layout compressed-layout result constant-pool)))
+    result))
+
 (defun perform-assembly (instruction-set code-list &key (base-address 0) (initial-symbols '()) info &allow-other-keys)
   "Assemble a list of instructions, returning a u-b 8 vector of machine code,
 a vector of constants and an alist of symbols & addresses."
@@ -360,13 +459,19 @@ a vector of constants and an alist of symbols & addresses."
             (loop for (name . offset) in (chunk-fixups chunk) do
                  (push (cons name (+ *current-address* offset)) result-fixups)))
           (incf *current-address* (length (chunk-code chunk))))
-        ;; Hackishly append to the debug info. This should put it in the 10th position.
-        ;; TODO: Delta compress entries.
+        (setf result-debug-md (reverse result-debug-md))
         (when (and (>= (length *constant-pool*) 2)
                    (consp (aref *constant-pool* 1))
-                   (eql (first (aref *constant-pool* 1)) :debug-info))
-          (setf (aref *constant-pool* 1)
-                (append (aref *constant-pool* 1) (list (reverse result-debug-md)))))
+                   (eql (first (aref *constant-pool* 1)) :debug-info)
+                   (>= (length (aref *constant-pool* 1)) 10))
+          ;; Make sure all variable names are present in the constant pool.
+          (dolist (entry result-debug-md)
+            (destructuring-bind (offset &key layout) entry
+              (declare (ignore offset))
+              (dolist (var layout)
+                (when (not (find (first var) *constant-pool*))
+                  (vector-push-extend (first var) *constant-pool*)))))
+          (setf (tenth (aref *constant-pool* 1)) (encode-debug-info result-debug-md *constant-pool*)))
         (values result-mc
                 *constant-pool*
                 result-fixups
