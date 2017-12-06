@@ -139,7 +139,7 @@
   (cond ((and (integerp n)
               (<= 0 n 32)) ; Don't generate a zillion temporaries for large N.
          (let ((temps (loop
-                         repeat (1- n)
+                         repeat n
                          collect (gensym)))
                (value (gensym "VALUE")))
            `(multiple-value-bind (,@temps ,value)
