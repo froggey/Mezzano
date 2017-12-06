@@ -69,10 +69,15 @@ Returns NIL if the function captures no variables."
          (t
           :$inaccessible-value$))))
     (cons
-     ;; Environment vector/index pair.
-     (if (eql repr :value)
-         (elt (car slot) (cdr slot))
-         :$inaccessible-value$))
+     ;; Environment vector path.
+     (case repr
+       (:value
+        (let ((value (read-frame-slot frame (first slot))))
+          (dolist (index (rest slot))
+            (setf value (elt value index)))
+          value))
+       (t
+        :$inaccessible-value$)))
     (t
      ;; A register?
      :$inaccessible-value$)))
@@ -93,10 +98,19 @@ Returns NIL if the function captures no variables."
          (t
           (error "Cannot write to this variable. Unknown representation ~S." repr)))))
     (cons
-     ;; Environment vector/index pair.
-     (if (eql repr :value)
-         (elt (car slot) (cdr slot))
-         (error "Cannot write to this variable. Unsupported representation ~S for environment access" repr)))
+     ;; Environment vector path.
+     ;; Looks like: (environment-slot [parent-indices...] value-index)
+     (case repr
+       (:value
+        (loop
+           for (x . xs) on slot
+           for vec = (read-frame-slot frame x) then (elt vec x)
+           when (null xs) do
+             (setf (elt vec x) value)
+             (loop-finish))
+        value)
+       (t
+        (error "Cannot write to this variable. Unsupported representation ~S for environment access" repr))))
     (t
      ;; A register?
      (error "Cannot write to this variable. Unsupported location ~S" slot))))
@@ -144,28 +158,28 @@ Returns NIL if the function captures no variables."
       (multiple-value-bind (env-slot env-layout)
           (sys.int::debug-info-closure-layout info)
         (when env-slot
-          (let ((env-object (read-frame-slot frame env-slot)))
+          (let ((base-path (list env-slot)))
             (dolist (level env-layout)
               (loop
                  for i from 1
                  for name in level
                  when name
-                 do (push (list name (incf var-id) (cons env-object i) :value) result))
-              (setf env-object (svref env-object 0))))))
+                 do (push (list name (incf var-id) (reverse (list* i base-path)) :value) result))
+              (push 0 base-path)))))
       (multiple-value-bind (env-var env-layout)
           (sys.int::debug-info-precise-closure-layout info)
         (when env-var
           (let ((env-slot (second (find env-var (local-variables-at-offset fn offset)
                                         :key #'first))))
             (when env-slot
-              (let ((env-object (read-frame-slot frame env-slot)))
+              (let ((base-path (list env-slot)))
                 (dolist (level env-layout)
                   (loop
                      for i from 1
                      for name in level
                      when name
-                     do (push (list name (incf var-id) (cons env-object i) :value) result))
-                  (setf env-object (svref env-object 0))))))))
+                     do (push (list name (incf var-id) (reverse (list* i base-path)) :value) result))
+                  (push 0 base-path)))))))
       (reverse result))))
 
 (defun debugger-show-variables (frame)
