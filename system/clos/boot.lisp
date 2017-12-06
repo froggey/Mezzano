@@ -559,6 +559,7 @@
 ;; Known important classes.
 (setf *the-class-standard-class* (find-class 'standard-class)
       *the-class-funcallable-standard-class* (find-class 'funcallable-standard-class)
+      *the-class-built-in-class* (find-class 'built-in-class)
       *the-class-standard-direct-slot-definition* (find-class 'standard-direct-slot-definition)
       *the-class-standard-effective-slot-definition* (find-class 'standard-effective-slot-definition)
       *the-class-standard-gf* (find-class 'standard-generic-function)
@@ -567,12 +568,17 @@
 
 ;; Positions of various slots in standard-class and funcallable-standard-class.
 (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
-  ;; Verify that standard-class and funcallable-standard-class have the same layout.
+  ;; Verify that standard-class, funcallable-standard-class, and built-in-class have the same layout.
   (when (not (equalp s-c-layout
                      (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
     (error (format nil "STANARD-CLASS and FUNCALLABLE-STANDARD-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
                    s-c-layout
                    (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout))))
+  (when (not (equalp s-c-layout
+                     (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
+    (error (format nil "STANARD-CLASS and BUILT-IN-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
+                   s-c-layout
+                   (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout))))
   (setf *standard-class-effective-slots-position* (position 'effective-slots s-c-layout)
         *standard-class-slot-storage-layout-position* (position 'slot-storage-layout s-c-layout)
         *standard-class-hash-position* (position 'hash s-c-layout)

@@ -82,6 +82,7 @@
 
 (sys.int::defglobal *the-class-standard-class*)    ;standard-class's class metaobject
 (sys.int::defglobal *the-class-funcallable-standard-class*)
+(sys.int::defglobal *the-class-built-in-class*)
 (sys.int::defglobal *the-class-standard-direct-slot-definition*)
 (sys.int::defglobal *the-class-standard-effective-slot-definition*)
 (sys.int::defglobal *the-class-t*)
@@ -420,7 +421,7 @@
 
 (defun class-hash (class)
   (let ((class-of-class (class-of class)))
-    (cond ((std-class-p class-of-class)
+    (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-hash-position*))
           (t (std-slot-value class 'hash)))))
 (defun (setf class-hash) (new-value class)
@@ -484,6 +485,12 @@ Other arguments are included directly."
   "Returns true if METACLASS is either STANDARD-CLASS or FUNCALLABLE-STANDARD-CLASS."
   (or (eq metaclass *the-class-standard-class*)
       (eq metaclass *the-class-funcallable-standard-class*)))
+
+(defun clos-class-p (metaclass)
+  "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS, or BUILT-IN-CLASS."
+  (or (eq metaclass *the-class-standard-class*)
+      (eq metaclass *the-class-funcallable-standard-class*)
+      (eq metaclass *the-class-built-in-class*)))
 
 (defun convert-to-direct-slot-definition (class canonicalized-slot)
   (apply #'make-instance
