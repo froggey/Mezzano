@@ -59,13 +59,13 @@
       (return-from compile-simple-array-type
         (compile-array-type-1 object 'simple-array-p element-type dimensions)))
     (let ((info (upgraded-array-info element-type)))
-      (when (not (second info))
+      (when (not (specialized-array-definition-tag info))
         (return-from compile-simple-array-type
           (compile-array-type-1 object 'simple-array-p element-type dimensions)))
       (cond ((eql (first dimensions) '*)
-             `(sys.int::%object-of-type-p ,object ,(second info)))
+             `(sys.int::%object-of-type-p ,object ,(specialized-array-definition-tag info)))
             (t
-             `(and (sys.int::%object-of-type-p ,object ,(second info))
+             `(and (sys.int::%object-of-type-p ,object ,(specialized-array-definition-tag info))
                    (eq (%object-header-data ,object) ,(first dimensions))))))))
 (%define-compound-type-optimizer 'simple-array 'compile-simple-array-type)
 )
@@ -171,12 +171,12 @@
            ;; NIL promotes to T.
            *array-t-info*
            (dolist (info *array-info* *array-t-info*)
-             (let ((type (first info)))
+             (let ((type (specialized-array-definition-type info)))
                (when (subtypep typespec type environment)
                  (return info))))))))
 
 (defun upgraded-array-element-type (typespec &optional environment)
-  (first (upgraded-array-info typespec environment)))
+  (specialized-array-definition-type (upgraded-array-info typespec environment)))
 )
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -216,7 +216,7 @@
     (when initial-element-p
       (unless (typep initial-element element-type)
         (error 'type-error :expected-type element-type :datum initial-element))
-      (unless (eql initial-element (fifth info))
+      (unless (eql initial-element (specialized-array-definition-zero-element info))
         (fill array initial-element)))
     array))
 
@@ -308,14 +308,14 @@
                (info (upgraded-array-info (if (consp element-type)
                                               (second element-type)
                                               element-type))))
-           (when (not (second info))
+           (when (not (specialized-array-definition-tag info))
              (return-from make-array whole))
            `(let* ((,area-sym ,area)
                    (,array-sym (make-array-with-known-element-type
                                 ,dimensions ,element-type ',info ,area-sym
                                 ,(if initial-element-p
                                      initial-element
-                                     `',(fifth info))
+                                     `',(specialized-array-definition-zero-element info))
                                 ',adjustable
                                 ',fill-pointer)))
               ,@(when initial-contents-p
@@ -330,7 +330,7 @@
   (cond ((integerp dimensions)
          (assert (<= 0 dimensions))
          (let ((array (make-simple-array-1 dimensions info area)))
-           (when (not (eql initial-element (fifth info)))
+           (when (not (eql initial-element (specialized-array-definition-zero-element info)))
              (fill array initial-element))
            (when (or adjustable fill-pointer)
              (when fill-pointer
@@ -481,7 +481,9 @@
          ;; Same element type.
          (let* ((array-info (%simple-array-info array))
                 (new-array (make-simple-array-1 (first new-dimensions) array-info area)))
-           (when initial-element-p
+           (when (and initial-element-p
+                      (not (eql (specialized-array-definition-zero-element array-info)
+                                initial-element)))
              (fill new-array initial-element))
            (cond (initial-contents-p
                   (initialize-from-initial-contents new-array initial-contents))

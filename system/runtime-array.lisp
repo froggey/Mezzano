@@ -6,6 +6,18 @@
 ;; Required for the cross-compiler.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defstruct (specialized-array-definition
+             (:type vector))
+  type
+  tag
+  element-size
+  pad-p
+  zero-element)
+
+)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 ;; Information about the various specialized arrays.
 ;; A list of (type tag size-in-bits 16-byte-aligned-p zero-value) lists.
 ;; This must be sorted from most-specific type to least-specific type.
@@ -19,35 +31,57 @@
 
 (defun cold-array-initialization ()
   "Called during cold-load to initialize array support variables."
-  (setf *array-t-info* '(t #.+object-tag-array-t+ 64 nil 0)
-        *array-bit-info* '(bit #.+object-tag-array-bit+ 1 nil 0)
-        *array-character-info* '(character nil nil nil #\Nul))
+  (setf *array-t-info* (make-specialized-array-definition :type 't
+                                                          :tag +object-tag-array-t+
+                                                          :element-size 64
+                                                          :pad-p nil
+                                                          :zero-element 0)
+        *array-bit-info* (make-specialized-array-definition :type 'bit
+                                                            :tag +object-tag-array-bit+
+                                                            :element-size 1
+                                                            :pad-p nil
+                                                            :zero-element 0)
+        *array-character-info* (make-specialized-array-definition :type 'character
+                                                                  :tag nil
+                                                                  :element-size nil
+                                                                  :pad-p nil
+                                                                  :zero-element #\Nul))
   (setf *array-info*
-        '((bit                    #.+object-tag-array-bit+                    1 nil 0)
-          ((unsigned-byte 2)      #.+object-tag-array-unsigned-byte-2+        2 nil 0)
-          ((unsigned-byte 4)      #.+object-tag-array-unsigned-byte-4+        4 nil 0)
-          ((unsigned-byte 8)      #.+object-tag-array-unsigned-byte-8+        8 nil 0)
-          ((unsigned-byte 16)     #.+object-tag-array-unsigned-byte-16+      16 nil 0)
-          ((unsigned-byte 32)     #.+object-tag-array-unsigned-byte-32+      32 nil 0)
-          ((unsigned-byte 64)     #.+object-tag-array-unsigned-byte-64+      64 nil 0)
-          ((signed-byte 1)        #.+object-tag-array-signed-byte-1+          1 nil 0)
-          ((signed-byte 2)        #.+object-tag-array-signed-byte-2+          2 nil 0)
-          ((signed-byte 4)        #.+object-tag-array-signed-byte-4+          4 nil 0)
-          ((signed-byte 8)        #.+object-tag-array-signed-byte-8+          8 nil 0)
-          ((signed-byte 16)       #.+object-tag-array-signed-byte-16+        16 nil 0)
-          ((signed-byte 32)       #.+object-tag-array-signed-byte-32+        32 nil 0)
-          (fixnum                 #.+object-tag-array-fixnum+                64 nil 0)
-          ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil 0)
-          (single-float           #.+object-tag-array-single-float+          32 t   0.0f0)
-          (double-float           #.+object-tag-array-double-float+          64 t   0.0d0)
-          (short-float            #.+object-tag-array-short-float+           16 t   0.0s0)
-          (long-float             #.+object-tag-array-long-float+           128 t   0.0l0)
-          ((complex single-float) #.+object-tag-array-complex-single-float+  64 t   #C(0.0f0 0.0f0))
-          ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t   #C(0.0d0 0.0d0))
-          ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #C(0.0s0 0.0s0))
-          ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t   #C(0.0l0 0.0l0))
-          (character              nil                                       nil nil #\Nul)
-          (t                      #.+object-tag-array-t+                     64 nil 0)))
+        (loop for (type tag element-size pad-p zero-element) in
+             '((bit)
+               ((unsigned-byte 2)      #.+object-tag-array-unsigned-byte-2+        2 nil 0)
+               ((unsigned-byte 4)      #.+object-tag-array-unsigned-byte-4+        4 nil 0)
+               ((unsigned-byte 8)      #.+object-tag-array-unsigned-byte-8+        8 nil 0)
+               ((unsigned-byte 16)     #.+object-tag-array-unsigned-byte-16+      16 nil 0)
+               ((unsigned-byte 32)     #.+object-tag-array-unsigned-byte-32+      32 nil 0)
+               ((unsigned-byte 64)     #.+object-tag-array-unsigned-byte-64+      64 nil 0)
+               ((signed-byte 1)        #.+object-tag-array-signed-byte-1+          1 nil 0)
+               ((signed-byte 2)        #.+object-tag-array-signed-byte-2+          2 nil 0)
+               ((signed-byte 4)        #.+object-tag-array-signed-byte-4+          4 nil 0)
+               ((signed-byte 8)        #.+object-tag-array-signed-byte-8+          8 nil 0)
+               ((signed-byte 16)       #.+object-tag-array-signed-byte-16+        16 nil 0)
+               ((signed-byte 32)       #.+object-tag-array-signed-byte-32+        32 nil 0)
+               (fixnum                 #.+object-tag-array-fixnum+                64 nil 0)
+               ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil 0)
+               (single-float           #.+object-tag-array-single-float+          32 t   0.0f0)
+               (double-float           #.+object-tag-array-double-float+          64 t   0.0d0)
+               (short-float            #.+object-tag-array-short-float+           16 t   0.0s0)
+               (long-float             #.+object-tag-array-long-float+           128 t   0.0l0)
+               ((complex single-float) #.+object-tag-array-complex-single-float+  64 t   #C(0.0f0 0.0f0))
+               ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t   #C(0.0d0 0.0d0))
+               ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #C(0.0s0 0.0s0))
+               ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t   #C(0.0l0 0.0l0))
+               (character)
+               (t))
+           collect (case type
+                     ((bit) *array-bit-info*)
+                     ((character) *array-character-info*)
+                     ((t) *array-t-info*)
+                     (t (make-specialized-array-definition :type type
+                                                           :tag tag
+                                                           :element-size element-size
+                                                           :pad-p pad-p
+                                                           :zero-element zero-element)))))
   (setf *array-types*
         #(t
           fixnum
@@ -77,16 +111,15 @@
 ;; Only for the benefit of the cross-compiler,
 ;; this is the very first thing INITIALIZE-LISP calls.
 (cold-array-initialization)
-
 )
 
 (defun make-simple-array-1 (length info area)
-  (let* ((total-size (+ (if (fourth info) 64 0) ; padding for alignment.
-                        (* length (third info)))))
+  (let* ((total-size (+ (if (specialized-array-definition-pad-p info) 64 0) ; padding for alignment.
+                        (* length (specialized-array-definition-element-size info)))))
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))
       (incf total-size (- 64 (rem total-size 64))))
-    (mezzano.runtime::%allocate-object (second info) length (truncate total-size 64) area)))
+    (mezzano.runtime::%allocate-object (specialized-array-definition-tag info) length (truncate total-size 64) area)))
 
 (defun sign-extend (value width)
   "Convert an unsigned integer to a signed value."
@@ -261,5 +294,5 @@
 (defun %simple-array-info (array)
   (dolist (info *array-info*
            (error "~S isn't a simple array?" array))
-    (when (%object-of-type-p array (second info))
+    (when (%object-of-type-p array (specialized-array-definition-tag info))
       (return info))))
