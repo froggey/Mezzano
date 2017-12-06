@@ -989,6 +989,8 @@
                     (not (stringp object)) (not (bit-vector-p object))
                     (not (structure-type-p (type-of object))))
                (pretty-array xp object))
+              ((and *print-pretty* (sys.int::structure-object-p object))
+               (pretty-struct xp object))
               (T (let ((stuff
                          (with-output-to-string (s)
                            (non-pretty-print object s))))
@@ -1340,6 +1342,18 @@
               (if (= (incf i) end) (return nil))
               (write-char++ #\space xp)
               (pprint-newline+ :fill xp))))))
+
+(defun pretty-struct (xp object)
+  (write-string++ "#S" xp 0 2)
+  (let ((contents (list (type-of object)))
+        (type (sys.int::%struct-slot object 0)))
+    (write+ (list* (type-of object)
+                   (loop
+                      for i from 1
+                      for slot in (sys.int::structure-slots type)
+                      collect (intern (symbol-name (sys.int::structure-slot-name slot)) "KEYWORD")
+                      collect (sys.int::%struct-slot object i)))
+            xp)))
 
 (proclaim '(special *prefix*))
 
