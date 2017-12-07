@@ -174,7 +174,8 @@ A list of any declaration-specifiers."
         (error "TODO: cannot compile functions defined outside the null lexical environment."))
       (setf definition lambda-expression)))
   (multiple-value-bind (fn warnings-p errors-p)
-      (let ((*load-time-value-hook* 'eval-load-time-value))
+      (let ((*load-time-value-hook* 'eval-load-time-value)
+            (*gensym-counter* 0))
         (compile-lambda definition))
     (cond (name
            (if (and (symbolp name) (macro-function name))

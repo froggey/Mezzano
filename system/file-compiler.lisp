@@ -595,7 +595,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*top-level-form-number* 0)
            (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
-           (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*)))
+           (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*))
+           (*gensym-counter* 0))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))
