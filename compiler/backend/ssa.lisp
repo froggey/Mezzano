@@ -211,16 +211,29 @@ Virtual registers must be defined exactly once."
         (build-use/def-maps backend-function)
       (declare (ignore defs))
       (do-instructions (inst backend-function)
-        (when (and (typep inst 'load-local-instruction)
+        (cond ((and (typep inst 'load-local-instruction)
                    (member (load-local-local inst) candidates))
-          (dolist (u (gethash (load-local-destination inst) uses))
-            (replace-all-registers u
-                                   (lambda (reg)
-                                     (cond ((eql reg (load-local-destination inst))
-                                            (bind-local-value (load-local-local inst)))
-                                           (t reg)))))
-          (push inst remove-me)
-          (incf n-simple-loads-converted))))
+               (dolist (u (gethash (load-local-destination inst) uses))
+                 (replace-all-registers u
+                                        (lambda (reg)
+                                          (cond ((eql reg (load-local-destination inst))
+                                                 (bind-local-value (load-local-local inst)))
+                                                (t reg)))))
+               (push inst remove-me)
+               (incf n-simple-loads-converted))
+              ((and (typep inst 'bind-local-instruction)
+                    (member inst candidates))
+               (insert-before backend-function inst
+                              (make-instance 'debug-bind-variable-instruction
+                                             :variable (bind-local-ast inst)
+                                             :value (bind-local-value inst)))
+               (push inst remove-me))
+              ((and (typep inst 'unbind-local-instruction)
+                    (member (unbind-local-local inst) candidates))
+               (insert-before backend-function inst
+                              (make-instance 'debug-unbind-variable-instruction
+                                             :variable (bind-local-ast (unbind-local-local inst))))
+               (push inst remove-me)))))
     (dolist (inst remove-me)
       (remove-instruction backend-function inst))
     (when (not *shut-up*)
@@ -306,7 +319,8 @@ Virtual registers must be defined exactly once."
                                      :variable (bind-local-ast candidate)
                                      :value phi))))
     ;; Now walk the dominator tree to rename values, starting at the binding's basic block.
-    (let ((uses (build-use/def-maps backend-function)))
+    (let ((uses (build-use/def-maps backend-function))
+          (remove-me '()))
       (labels ((rename (bb stack)
                  (let ((inst bb))
                    (loop
@@ -321,12 +335,22 @@ Virtual registers must be defined exactly once."
                                                       (lambda (reg)
                                                         (cond ((eql reg load-value)
                                                                new-value)
-                                                              (t reg))))))))
+                                                              (t reg)))))
+                             (push inst remove-me))))
                         (store-local-instruction
                          (when (eql (store-local-local inst) candidate)
+                           (insert-after backend-function inst
+                                         (make-instance 'debug-update-variable-instruction
+                                                        :variable (bind-local-ast candidate)
+                                                        :value (store-local-value inst)))
+                           (push inst remove-me)
                            (push (store-local-value inst) stack)))
                         (unbind-local-instruction
                          (when (eql (unbind-local-local inst) candidate)
+                           (insert-after backend-function inst
+                                         (make-instance 'debug-unbind-variable-instruction
+                                                        :variable (bind-local-ast candidate)))
+                           (push inst remove-me)
                            ;; Stop renaming this branch of the dom tree
                            ;; when the variable is unbound.
                            (return-from rename))))
@@ -335,9 +359,16 @@ Virtual registers must be defined exactly once."
                       (setf inst (next-instruction backend-function inst))))
                  (dolist (child (mezzano.compiler.backend.dominance:dominator-tree-children dom bb))
                    (rename child stack))))
+        (insert-after backend-function candidate
+                      (make-instance 'debug-bind-variable-instruction
+                                     :variable (bind-local-ast candidate)
+                                     :value (bind-local-value candidate)))
+        (push candidate remove-me)
         (rename binding-bb
                 ;; Initial value is whatever value it was bound with.
-                (list (bind-local-value candidate)))))
+                (list (bind-local-value candidate)))
+        (dolist (inst remove-me)
+          (remove-instruction backend-function inst))))
     t))
 
 (defun ssa-convert-locals (backend-function candidates)

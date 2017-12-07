@@ -188,11 +188,6 @@
            (insert-before backend-function inst
                           (make-instance 'debug-unbind-variable-instruction
                                          :variable var))
-           (push inst to-remove)))
-        ((or debug-bind-variable-instruction
-             debug-update-variable-instruction
-             debug-unbind-variable-instruction)
-         (when (eql (debug-variable inst) var)
            (push inst to-remove)))))
     ;; Initial value.
     (insert-before backend-function binding

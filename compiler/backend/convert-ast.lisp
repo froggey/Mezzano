@@ -99,10 +99,7 @@
                                           :ast variable
                                           :value register)))
                  (emit inst)
-                 (setf (gethash variable *variable-registers*) inst)
-                 (emit (make-instance 'debug-bind-variable-instruction
-                                      :variable variable
-                                      :value register))))))
+                 (setf (gethash variable *variable-registers*) inst)))))
       (frob-arg (lambda-information-fref-arg lambda) fref-reg)
       (frob-arg (lambda-information-closure-arg lambda) closure-reg)
       (frob-arg (lambda-information-count-arg lambda) count-reg)
@@ -175,8 +172,6 @@
             (emit (make-instance 'forget-multiple-instruction
                                  :context (second entry))))
            (:binding
-            (emit (make-instance 'debug-unbind-variable-instruction
-                                 :variable (bind-local-ast (second entry))))
             (emit (make-instance 'unbind-local-instruction
                                  :local (second entry)))))))))
 
@@ -442,17 +437,12 @@
                                       :value value)))
              (emit inst)
              (push (list :binding inst) *dynamic-stack*)
-             (setf (gethash var *variable-registers*) inst)
-             (emit (make-instance 'debug-bind-variable-instruction
-                                  :variable var
-                                  :value value)))))
+             (setf (gethash var *variable-registers*) inst))))
     (let ((result (cg-form (ast-body form) result-mode)))
       (when result
         (loop
            for (var init-form) in (reverse (ast-bindings form))
            do
-             (emit (make-instance 'debug-unbind-variable-instruction
-                                  :variable var))
              (emit (make-instance 'unbind-local-instruction
                                   :local (gethash var *variable-registers*)))))
       result)))
@@ -490,15 +480,10 @@
          do
            (emit inst)
            (push (list :binding inst) *dynamic-stack*)
-           (setf (gethash var *variable-registers*) inst)
-           (emit (make-instance 'debug-bind-variable-instruction
-                                :variable var
-                                :value reg)))
+           (setf (gethash var *variable-registers*) inst))
       (let ((result (cg-form (ast-body form) result-mode)))
         (when result
           (dolist (var (reverse (ast-bindings form)))
-            (emit (make-instance 'debug-unbind-variable-instruction
-                                 :variable var))
             (emit (make-instance 'unbind-local-instruction
                                  :local (gethash var *variable-registers*)))))
         result))))
@@ -607,16 +592,9 @@
     (assert (localp var))
     (when (not value)
       (return-from cg-form nil))
-    (let ((old-value (make-instance 'virtual-register)))
-      (emit (make-instance 'load-local-instruction
-                           :local loc
-                           :destination old-value))
-      (emit (make-instance 'store-local-instruction
-                           :local loc
-                           :value value))
-      (emit (make-instance 'debug-update-variable-instruction
-                           :variable var
-                           :value value)))
+    (emit (make-instance 'store-local-instruction
+                         :local loc
+                         :value value))
     value))
 
 (defun tagbody-localp (info)
