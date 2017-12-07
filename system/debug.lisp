@@ -88,10 +88,13 @@ Returns NIL if the function captures no variables."
                       (repr (read-vu32))
                       (real-repr (ecase repr
                                    (#.+debug-repr-value+ :value)
-                                   (#.+debug-repr-single-float+ :single-float)
-                                   (#.+debug-repr-double-float+ :double-float)
+                                   (#.+debug-repr-single-float+ single-float)
+                                   (#.+debug-repr-double-float+ double-float)
                                    (#.+debug-repr-mmx-vector+ 'mezzano.simd:mmx-vector)
-                                   (#.+debug-repr-sse-vector+ 'mezzano.simd:sse-vector))))
+                                   (#.+debug-repr-sse-vector+ 'mezzano.simd:sse-vector)
+                                   (#.+debug-repr-fixnum+ 'fixnum)
+                                   (#.+debug-repr-unsigned-byte-64+ :unsigned-byte-64)
+                                   (#.+debug-repr-signed-byte-64+ :signed-byte-64))))
                  (values real-loc real-repr))))
       (loop
          (when (>= index (length encoded-info))
@@ -159,11 +162,15 @@ Returns NIL if the function captures no variables."
      (let ((address (+ (memref-unsigned-byte-64 (second frame) 0)
                        (* (- (1+ slot)) 8))))
        (case repr
-         (:value
+         ((:value fixnum)
           (memref-t address))
-         (:single-float
+         (:unsigned-byte-64
+          (memref-unsigned-byte-64 address))
+         (:signed-byte-64
+          (memref-signed-byte-64 address))
+         (single-float
           (%integer-as-single-float (memref-unsigned-byte-32 address)))
-         (:double-float
+         (double-float
           (%integer-as-double-float (memref-unsigned-byte-64 address)))
          (t
           :$inaccessible-value$))))
@@ -191,11 +198,15 @@ Returns NIL if the function captures no variables."
      (let ((address (+ (memref-unsigned-byte-64 (second frame) 0)
                        (* (- (1+ slot)) 8))))
        (case repr
-         (:value
+         ((:value fixnum)
           (setf (memref-t address) value))
-         (:single-float
+         (:unsigned-byte-64
+          (setf (memref-unsigned-byte-64 address) value))
+         (:signed-byte-64
+          (setf (memref-signed-byte-64 address) value))
+         (single-float
           (setf (memref-unsigned-byte-32 address) (%single-float-as-integer value)))
-         (:double-float
+         (double-float
           (setf (memref-unsigned-byte-64 address) (%double-float-as-integer value)))
          (t
           (error "Cannot write to this variable. Unknown representation ~S." repr)))))

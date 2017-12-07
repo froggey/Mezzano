@@ -306,10 +306,13 @@
 (defun encode-debug-representation (repr)
   (ecase repr
     (:value sys.int::+debug-repr-value+)
-    (:single-float sys.int::+debug-repr-single-float+)
-    (:double-float sys.int::+debug-repr-double-float+)
+    (single-float sys.int::+debug-repr-single-float+)
+    (double-float sys.int::+debug-repr-double-float+)
     (mezzano.simd:mmx-vector sys.int::+debug-repr-mmx-vector+)
-    (mezzano.simd:sse-vector sys.int::+debug-repr-sse-vector+)))
+    (mezzano.simd:sse-vector sys.int::+debug-repr-sse-vector+)
+    (fixnum sys.int::+debug-repr-fixnum+)
+    (:unsigned-byte-64 sys.int::+debug-repr-unsigned-byte-64+)
+    (:signed-byte-64 sys.int::+debug-repr-signed-byte-64+)))
 
 (defun encode-debug-location (location repr output)
   (cond ((integerp location)

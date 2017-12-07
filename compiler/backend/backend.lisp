@@ -1085,7 +1085,7 @@
   ())
 
 (defmethod box-type ((instruction box-unsigned-byte-64-instruction))
-  'unsigned-byte-64)
+  :unsigned-byte-64)
 
 (defmethod print-instruction ((instruction box-unsigned-byte-64-instruction))
   (format t "   ~S~%"
@@ -1097,7 +1097,7 @@
   ())
 
 (defmethod box-type ((instruction box-signed-byte-64-instruction))
-  'signed-byte-64)
+  :signed-byte-64)
 
 (defmethod print-instruction ((instruction box-signed-byte-64-instruction))
   (format t "   ~S~%"
@@ -1163,7 +1163,7 @@
   ())
 
 (defmethod box-type ((instruction unbox-unsigned-byte-64-instruction))
-  'unsigned-byte-64)
+  :unsigned-byte-64)
 
 (defmethod print-instruction ((instruction unbox-unsigned-byte-64-instruction))
   (format t "   ~S~%"
@@ -1175,7 +1175,7 @@
   ())
 
 (defmethod box-type ((instruction unbox-signed-byte-64-instruction))
-  'signed-byte-64)
+  :signed-byte-64)
 
 (defmethod print-instruction ((instruction unbox-signed-byte-64-instruction))
   (format t "   ~S~%"

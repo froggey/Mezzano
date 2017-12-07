@@ -372,10 +372,13 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +debug-update-op+ #x70)
 
 (defconstant +debug-repr-value+ 0)
-(defconstant +debug-repr-single-float+ 0)
-(defconstant +debug-repr-double-float+ 1)
-(defconstant +debug-repr-mmx-vector+ 2)
-(defconstant +debug-repr-sse-vector+ 3)
+(defconstant +debug-repr-single-float+ 1)
+(defconstant +debug-repr-double-float+ 2)
+(defconstant +debug-repr-mmx-vector+ 3)
+(defconstant +debug-repr-sse-vector+ 4)
+(defconstant +debug-repr-fixnum+ 5)
+(defconstant +debug-repr-unsigned-byte-64+ 6)
+(defconstant +debug-repr-signed-byte-64+ 7)
 
 (defvar *debug-x86-64-register-encodings* #(:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi
                                             :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
