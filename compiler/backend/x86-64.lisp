@@ -244,11 +244,11 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
     (mezzano.compiler.backend::remove-unused-instructions backend-function)
     (mezzano.compiler.backend::check-cfg backend-function)))
 
-(defun compile-backend-function-2 (backend-function debug-map *target*)
+(defun compile-backend-function-2 (backend-function debug-map spill-locations stack-layout *target*)
   (declare (special *target*))
-  (multiple-value-bind (lap debug-layout environment-slot)
+  (multiple-value-bind (lap environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function debug-map))
+        (to-lap backend-function debug-map spill-locations stack-layout))
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (format t "~{~S~%~}" lap))
@@ -259,7 +259,7 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
        (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
          (list :debug-info
                (backend-function-name backend-function) ; name
-               debug-layout ; local variable stack positions
+               nil ; local variable stack positions
                ;; Environment index
                environment-slot
                ;; Environment layout
@@ -278,5 +278,6 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
 
 (defun compile-backend-function (backend-function target)
   (compile-backend-function-1 backend-function target)
-  (let ((debug-map (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)))
-    (compile-backend-function-2 backend-function debug-map target)))
+  (multiple-value-bind (debug-map spill-locations stack-layout allocator)
+      (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)
+    (compile-backend-function-2 backend-function debug-map spill-locations stack-layout target)))

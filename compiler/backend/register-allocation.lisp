@@ -985,12 +985,93 @@
                 last-instruction debug-instruction))))
     (setf (allocator-debug-variable-value-map allocator) result)))
 
+(defun all-spilled-ranges (allocator)
+  "Return a vector of ranges for every spilled variable."
+  (let ((result (make-array (hash-table-count (allocator-spilled-ranges allocator))
+                            :adjustable t
+                            :fill-pointer 0))
+        (spilled-variables '()))
+    (loop
+       for range being the hash-keys in (allocator-spilled-ranges allocator)
+       do (pushnew (live-range-vreg range) spilled-variables))
+    (dolist (vreg spilled-variables)
+      (dolist (range (gethash vreg (allocator-vreg-ranges allocator)))
+        (vector-push-extend range result)))
+    result))
+
+(defun build-interference-graph (allocator)
+  "Construct the interference graph for spilled variables."
+  (when (not ir::*shut-up*)
+    (loop
+       for i from 0
+       for inst in (allocator-instruction-ordering allocator)
+       do (format t "~D: " i) (ir::print-instruction inst)))
+  (let ((result (make-hash-table))
+        (spilled-ranges (sort (all-spilled-ranges allocator)
+                              #'<
+                              :key #'live-range-start))
+        (live '()))
+    (loop for range across spilled-ranges do
+         (when (not ir::*shut-up*)
+           (let ((*print-length* 2))
+             (format t "Process range ~S~%" range)
+             (dolist (r live)
+               (format t "   ~S~%" r))))
+         (let ((current-range-start (live-range-start range))
+               (current-vreg (live-range-vreg range)))
+           ;; Expire old ranges.
+           (setf live (remove-if (lambda (x)
+                                   (< (live-range-end x) current-range-start))
+                                 live))
+           ;; Make sure this vreg exists in the result
+           (when (not (nth-value 1 (gethash current-vreg result)))
+             (setf (gethash current-vreg result) '()))
+           ;; Add new interference edges.
+           (dolist (range live)
+             (when (not (eql (live-range-vreg range) current-vreg))
+               (pushnew current-vreg (gethash (live-range-vreg range) result))
+               (pushnew (live-range-vreg range) (gethash current-vreg result))))
+           (push range live)))
+    result))
+
+(defun assign-stack-slots (interference-graph)
+  (let ((slots (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
+        (slot-classes (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
+        (locations (make-hash-table)))
+    (loop
+       for vreg being the hash-keys of interference-graph
+       do
+         (dotimes (i (length slots)
+                   (progn
+                     ;; SSE slots are 2 wide.
+                     ;; TODO: Force 16-byte alignment.
+                     (when (eql (ir:virtual-register-kind vreg) :sse)
+                       (vector-push-extend (list vreg) slots)
+                       (vector-push-extend :pad slot-classes))
+                     (setf (gethash vreg locations) (length slots))
+                     (vector-push-extend (list vreg) slots)
+                     (vector-push-extend (ir:virtual-register-kind vreg) slot-classes)))
+           (when (and (eql (aref slot-classes i) (ir:virtual-register-kind vreg))
+                      (not (dolist (entry (aref slots i) nil)
+                             (when (member vreg (gethash entry interference-graph))
+                               (return t)))))
+             ;; Does not interfere with any register in this slot.
+             (push vreg (aref slots i))
+             (setf (gethash vreg locations) i)
+             (return))))
+    (values locations slot-classes slots)))
+
 (defun allocate-registers (backend-function arch &key ordering)
   (sys.c:with-metering (:backend-register-allocation)
     (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
       (build-live-ranges allocator)
       (linear-scan-allocate allocator)
-      (rewrite-after-allocation allocator)
-      (rebuild-debug-map allocator)
-      ;; Return the updated debug map.
-      (allocator-debug-variable-value-map allocator))))
+      (multiple-value-bind (spill-locations stack-layout)
+          (assign-stack-slots (build-interference-graph allocator))
+        (rewrite-after-allocation allocator)
+        (rebuild-debug-map allocator)
+        ;; Return the updated debug map and the stack layout.
+        (values (allocator-debug-variable-value-map allocator)
+                spill-locations
+                stack-layout
+                allocator)))))
