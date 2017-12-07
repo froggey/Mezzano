@@ -48,50 +48,58 @@
 (defun sys.int::%complex-array-storage (complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (sys.int::%object-ref-t complex-array sys.int::+complex-array-storage+))
 
 (defun (setf sys.int::%complex-array-storage) (value complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (setf (sys.int::%object-ref-t complex-array sys.int::+complex-array-storage+) value))
 
 (defun sys.int::%complex-array-fill-pointer (complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (sys.int::%object-ref-t complex-array sys.int::+complex-array-fill-pointer+))
 
 (defun (setf sys.int::%complex-array-fill-pointer) (value complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (setf (sys.int::%object-ref-t complex-array sys.int::+complex-array-fill-pointer+) value))
 
 (defun sys.int::%complex-array-info (complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (sys.int::%object-ref-t complex-array sys.int::+complex-array-info+))
 
 (defun (setf sys.int::%complex-array-info) (value complex-array)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (setf (sys.int::%object-ref-t complex-array sys.int::+complex-array-info+) value))
 
 (defun sys.int::%complex-array-dimension (complex-array axis)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (sys.int::%bounds-check complex-array axis)
   (sys.int::%object-ref-t complex-array (+ sys.int::+complex-array-axis-0+ axis)))
 
 (defun (setf sys.int::%complex-array-dimension) (value complex-array axis)
   (when (not (sys.int::complex-array-p complex-array))
     (sys.int::raise-type-error complex-array '(and array
-                                               (not (simple-array * (*))))))
+                                               (not (simple-array * (*)))))
+    (sys.int::%%unreachable))
   (sys.int::%bounds-check complex-array axis)
   (setf (sys.int::%object-ref-t complex-array (+ sys.int::+complex-array-axis-0+ axis)) value))
 

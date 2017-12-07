@@ -336,7 +336,8 @@
                       (and (structure-object-p ,value)
                            (or (eql (%struct-slot ,value 0) ,struct-type-sym)
                                (structure-type-p ,value ,struct-type-sym)))))
-         (raise-type-error ,value (structure-name ,struct-type-sym))))))
+         (raise-type-error ,value (structure-name ,struct-type-sym))
+         (%%unreachable)))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions

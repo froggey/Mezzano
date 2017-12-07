@@ -73,7 +73,8 @@
 (declaim (inline sys.int::%type-check))
 (defun sys.int::%type-check (object object-tag expected-type)
   (unless (sys.int::%object-of-type-p object object-tag)
-    (sys.int::raise-type-error object expected-type)))
+    (sys.int::raise-type-error object expected-type)
+    (sys.int::%%unreachable)))
 
 (declaim (inline characterp))
 (defun characterp (object)

@@ -15,7 +15,8 @@
         ((consp list)
          (%car list))
         (t
-         (sys.int::raise-type-error list 'list))))
+         (sys.int::raise-type-error list 'list)
+         (sys.int::%%unreachable))))
 
 (defun cdr (list)
   (declare (optimize (debug 0)))
@@ -24,7 +25,8 @@
         ((consp list)
          (%cdr list))
         (t
-         (sys.int::raise-type-error list 'list))))
+         (sys.int::raise-type-error list 'list)
+         (sys.int::%%unreachable))))
 
 (declaim (inline (setf car) (setf cdr)))
 (defun (setf car) (value cons)
@@ -32,11 +34,13 @@
   (cond ((consp cons)
          (setf (%car cons) value))
         (t
-         (sys.int::raise-type-error cons 'cons))))
+         (sys.int::raise-type-error cons 'cons)
+         (sys.int::%%unreachable))))
 
 (defun (setf cdr) (value cons)
   (declare (optimize (debug 0)))
   (cond ((consp cons)
          (setf (%cdr cons) value))
         (t
-         (sys.int::raise-type-error cons 'cons))))
+         (sys.int::raise-type-error cons 'cons)
+         (sys.int::%%unreachable))))
