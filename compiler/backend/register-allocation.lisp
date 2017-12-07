@@ -305,11 +305,12 @@
   (multiple-value-bind (basic-blocks bb-preds bb-succs)
       (ir::build-cfg backend-function)
     (declare (ignore basic-blocks bb-succs))
-    ;; Construct the debug map & remove debug instructions before computing liveness.
-    (let ((debug-map (ir::build-debug-variable-value-map backend-function)))
-      (ir::remove-debug-variable-instructions backend-function)
-      (multiple-value-bind (live-in live-out)
-          (ir::compute-liveness backend-function architecture)
+    (multiple-value-bind (live-in live-out)
+        (ir::compute-liveness backend-function architecture)
+      ;; Construct the debug map & remove debug instructions after computing liveness
+      ;; so that live ranges extend to the debug instructions (and the beginning of their zombie ranges).
+      (let ((debug-map (ir::build-debug-variable-value-map backend-function)))
+        (ir::remove-debug-variable-instructions backend-function)
         (let ((order (if ordering
                          (funcall ordering backend-function)
                          (instructions-reverse-postorder backend-function)))
