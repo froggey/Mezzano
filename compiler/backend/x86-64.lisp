@@ -218,12 +218,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
 
 (defun compile-backend-function-1 (backend-function target)
   (mezzano.compiler.backend::simplify-cfg backend-function)
-  (when (> (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'speed) 1)
-    ;; Always perform SSA construction above speed 1.
-    (mezzano.compiler.backend::construct-ssa backend-function))
-  (when (= (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'debug) 0)
-    ;; Leave local variables in place unless the user really wants them gone.
-    (mezzano.compiler.backend::remove-unused-local-variables backend-function))
+  (mezzano.compiler.backend::construct-ssa backend-function)
+  (mezzano.compiler.backend::remove-unused-local-variables backend-function)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::lower-builtins backend-function))
   (sys.c:with-metering (:backend-optimize)
@@ -237,6 +233,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
            (return)))))
   (mezzano.compiler.backend::deconstruct-ssa backend-function)
   (mezzano.compiler.backend::lower-local-variables backend-function)
+  (when (= (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'debug) 0)
+    (mezzano.compiler.backend::remove-debug-variable-instructions backend-function))
   (sys.c:with-metering (:backend-misc)
     (lower-complicated-box-instructions backend-function)
     (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function target)
