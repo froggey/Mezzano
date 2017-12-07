@@ -110,6 +110,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :cl-video-wav)
 (require :cl-wav)
 (require :swank)
+(require :mcclim)
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
