@@ -75,7 +75,7 @@
 
 ;; TODO: Sort the layout so stack slots for values are all together and trim
 ;; the gc layout bitvector. #*111 instead of #*0010101
-(defun compute-stack-layout (backend-function uses defs)
+(defun compute-stack-layout (backend-function uses defs debug-map)
   (let* ((local-layout (layout-local-variables backend-function))
          (layout (loop
                     for vreg being the hash-keys of defs using (hash-value vreg-defs)
@@ -87,10 +87,11 @@
                     ;; If a vreg is only ever defined by an argument-setup instruction
                     ;; and never used, then don't spill it.
                     ;; This prevents slots being allocated for count & fref registers if they're not used.
-                    when (not (and (not (endp vreg-defs))
-                                   (endp (rest vreg-defs))
-                                   (typep (first vreg-defs) 'argument-setup-instruction)
-                                   (endp (gethash vreg uses))))
+                    when (or (gethash vreg debug-map)
+                             (not (and (not (endp vreg-defs))
+                                       (endp (rest vreg-defs))
+                                       (typep (first vreg-defs) 'argument-setup-instruction)
+                                       (endp (gethash vreg uses)))))
                     collect vreg))
          (max-local-slot (loop
                             for slot being the hash-values of local-layout
@@ -178,7 +179,7 @@
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
     (multiple-value-bind (*stack-layout* debug-layout environment-slot)
-        (compute-stack-layout backend-function uses defs)
+        (compute-stack-layout backend-function uses defs debug-map)
       (let ((*saved-multiple-values* (make-hash-table :test 'eq :synchronized nil))
             (*dx-root-visibility* (make-hash-table :test 'eq :synchronized nil))
             (*prepass-data* (make-hash-table :test 'eq :synchronized nil))
@@ -289,7 +290,8 @@
   ;; Spill count/fref.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
-               (not (endp (gethash reg uses))))))
+               (not (endp (gethash reg uses)))
+               (find reg *stack-layout*))))
     (when (usedp (argument-setup-fref instruction))
       (emit `(lap:mov64 ,(effective-address (argument-setup-fref instruction)) :r13)))
     (when (usedp (argument-setup-count instruction))

@@ -976,6 +976,8 @@
            do
              (when (not ir::*shut-up*)
                (format t "~D: ~S ~S ~S~%" index inst vreg location))
+             ;; Mark vregs as used.
+             (setf (gethash vreg result) t)
              (push (list variable location repr) (gethash inst result '())))
            ;; Use this to guess debug info for newly inserted instructions.
         (when (not (eql last-index index))
