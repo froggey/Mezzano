@@ -985,6 +985,13 @@
                 last-instruction debug-instruction))))
     (setf (allocator-debug-variable-value-map allocator) result)))
 
+(defun unused-spill-p (allocator range)
+  ;; Prevents arguments (including count/fref registers) from being spilled
+  ;; if they are not used.
+  (declare (ignore allocator))
+  (and (eql (live-range-start range) 0)
+       (eql (live-range-end range) 0)))
+
 (defun all-spilled-ranges (allocator)
   "Return a vector of ranges for every spilled variable."
   (let ((result (make-array (hash-table-count (allocator-spilled-ranges allocator))
@@ -993,6 +1000,7 @@
         (spilled-variables '()))
     (loop
        for range being the hash-keys in (allocator-spilled-ranges allocator)
+       when (not (unused-spill-p allocator range))
        do (pushnew (live-range-vreg range) spilled-variables))
     (dolist (vreg spilled-variables)
       (dolist (range (gethash vreg (allocator-vreg-ranges allocator)))
