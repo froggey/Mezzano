@@ -251,7 +251,14 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
         (to-lap backend-function debug-map spill-locations stack-layout))
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
-      (format t "~{~S~%~}" lap))
+      (dolist (inst lap)
+        (when (not (and (not (eql sys.c::*trace-asm* :full))
+                        (consp inst)
+                        (member (first inst) '(:gc :debug))))
+          (cond ((symbolp inst)
+                 (format t "~S~%" inst))
+                (t
+                 (format t "  ~S~%" inst))))))
     (sys.c:with-metering (:lap-assembly)
       (sys.int::assemble-lap
        lap
