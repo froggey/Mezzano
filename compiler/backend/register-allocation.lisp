@@ -955,34 +955,40 @@
 
 (defun rebuild-debug-map (allocator)
   (let ((result (make-hash-table))
-        (instruction-to-ordered-index (make-hash-table))
-        (original-debug-map (allocator-debug-variable-value-map allocator))
-        (last-index 0)
-        (last-instruction (ir:first-instruction (allocator-backend-function allocator))))
+        (original-debug-map (allocator-debug-variable-value-map allocator)))
+    ;; Walk ranges & known instructions to produce a partial debug map.
+    ;; Only valid for instructions originally in the function.
     (loop
-       for instruction-index from 0
+       with starts = (allocator-range-starts allocator)
+       with active-ranges = '()
+       with range-allocations = (allocator-range-allocations allocator)
+       for index from 0
        for inst in (allocator-instruction-ordering allocator)
-       do (setf (gethash inst instruction-to-ordered-index) instruction-index))
-    (ir:do-instructions (inst (allocator-backend-function allocator))
-      (multiple-value-bind (index debug-instruction)
-          (if (gethash inst instruction-to-ordered-index)
-              (values (gethash inst instruction-to-ordered-index) inst)
-              (values last-index last-instruction))
-        (loop
-           for (variable vreg repr) in (gethash debug-instruction original-debug-map)
-           for location = (if (spilledp allocator vreg index)
-                              vreg
-                              (gethash (interval-at allocator vreg index) (allocator-range-allocations allocator)))
-           do
-             (when (not ir::*shut-up*)
-               (format t "~D: ~S ~S ~S~%" index inst vreg location))
-             ;; Mark vregs as used.
-             (setf (gethash vreg result) t)
-             (push (list variable location repr) (gethash inst result '())))
-           ;; Use this to guess debug info for newly inserted instructions.
-        (when (not (eql last-index index))
-          (setf last-index index
-                last-instruction debug-instruction))))
+       do
+         (setf active-ranges (remove-if (lambda (range)
+                                          (< (live-range-end range) index))
+                                        active-ranges))
+         (dolist (new-range (gethash index starts))
+           (push new-range active-ranges))
+         (loop
+            for (variable vreg repr) in (gethash inst original-debug-map)
+            for range = (find vreg active-ranges :key #'live-range-vreg) ; might be worth maintaining this as a hash-table.
+            for location = (if (interval-spilled-p allocator range)
+                               vreg
+                               (gethash range range-allocations))
+            do
+            ;; Mark vregs as used.
+              (setf (gethash vreg result) t)
+              (push (list variable location repr) (gethash inst result '()))))
+    ;; Now loop over all instructions & patch up any that were missed.
+    (let ((last-entry '()))
+      (ir:do-instructions (inst (allocator-backend-function allocator))
+        (multiple-value-bind (existing-debug-entry presentp)
+            (gethash inst result)
+          (cond (presentp
+                 (setf last-entry existing-debug-entry))
+                (t
+                 (setf (gethash inst result) last-entry))))))
     (setf (allocator-debug-variable-value-map allocator) result)))
 
 (defun unused-spill-p (allocator range)
