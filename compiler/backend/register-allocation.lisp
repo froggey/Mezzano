@@ -436,7 +436,16 @@
         (dolist (vreg active-zombie-vregs)
           (add-range vreg range-end t))))
     (setf (slot-value allocator '%ranges) (sort ranges #'> :key #'live-range-start)
-          (slot-value allocator '%vreg-ranges) vreg-ranges
+          (slot-value allocator '%vreg-ranges) (let ((real-vreg-ranges (make-hash-table :test 'eq :synchronized nil)))
+                                                 ;; INTERVAL-AT binary searches through this, ranges must be sorted.
+                                                 (loop
+                                                    for vreg being the hash-keys of vreg-ranges using (hash-value ranges)
+                                                    do
+                                                      (setf (gethash vreg real-vreg-ranges) (sort (make-array (length ranges)
+                                                                                                              :initial-contents ranges)
+                                                                                                  #'<
+                                                                                                  :key #'live-range-start)))
+                                                 real-vreg-ranges)
           (slot-value allocator '%vreg-hints) vreg-move-hint
           (allocator-range-starts allocator) starts))
   (when (not ir::*shut-up*)
@@ -643,10 +652,22 @@
   (assert (endp (allocator-active-ranges allocator))))
 
 (defun interval-at (allocator vreg index)
-  (dolist (interval (gethash vreg (allocator-vreg-ranges allocator))
-           (error "Missing interval for ~S at index ~S" vreg index))
-    (when (<= (live-range-start interval) index (live-range-end interval))
-      (return interval))))
+  ;; IMIN/IMAX are inclusive indicies.
+  (do* ((intervals (gethash vreg (allocator-vreg-ranges allocator) #()))
+        (imin 0)
+        (imax (1- (length intervals))))
+      ((< imax imin)
+       (error "Missing interval for ~S at index ~S" vreg index))
+    (declare (type simple-vector intervals))
+    (let* ((imid (ash (+ imin imax) -1))
+           (interval (svref intervals imid))
+           (start (live-range-start interval)))
+      (cond ((<= start index (live-range-end interval))
+             (return interval))
+            ((< start index)
+             (setf imin (1+ imid)))
+            (t
+             (setf imax (1- imid)))))))
 
 (defun interval-spilled-p (allocator interval)
   (gethash interval (allocator-spilled-ranges allocator) nil))
@@ -1010,8 +1031,9 @@
        when (not (unused-spill-p allocator range))
        do (pushnew (live-range-vreg range) spilled-variables))
     (dolist (vreg spilled-variables)
-      (dolist (range (gethash vreg (allocator-vreg-ranges allocator)))
-        (vector-push-extend range result)))
+      (loop
+         for range across (gethash vreg (allocator-vreg-ranges allocator))
+         do (vector-push-extend range result)))
     result))
 
 (defun build-interference-graph (allocator)
