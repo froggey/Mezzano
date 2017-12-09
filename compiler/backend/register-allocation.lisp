@@ -261,18 +261,17 @@
     clobbers))
 
 (defun virtual-registers-touched-by-instruction (inst live-in live-out)
-  (union (union
-          (remove-duplicates
-           (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                          (gethash inst live-in)))
-          (remove-duplicates
-           (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                          (gethash inst live-out))))
-         ;; If a vreg isn't used, then it won't show up in the liveness maps.
-         ;; Scan the instruction's outputs to catch this.
-         (remove-duplicates
-          (remove-if-not (lambda (x) (typep x 'ir:virtual-register))
-                         (ir::instruction-outputs inst)))))
+  (let ((result '()))
+    (flet ((frob (values)
+             (dolist (x values)
+               (when (typep x 'ir:virtual-register)
+                 (pushnew x result :test 'eq)))))
+      (frob (gethash inst live-in))
+      (frob (gethash inst live-out))
+      ;; If a vreg isn't used, then it won't show up in the liveness maps.
+      ;; Scan the instruction's outputs to catch this.
+      (frob (ir::instruction-outputs inst)))
+    result))
 
 (defclass linear-allocator ()
   ((%function :initarg :function :reader allocator-backend-function)
@@ -961,6 +960,7 @@
     (loop
        with starts = (allocator-range-starts allocator)
        with active-ranges = '()
+       with active-vreg-to-range-table = (make-hash-table :synchronized nil)
        with range-allocations = (allocator-range-allocations allocator)
        for index from 0
        for inst in (allocator-instruction-ordering allocator)
@@ -969,10 +969,11 @@
                                           (< (live-range-end range) index))
                                         active-ranges))
          (dolist (new-range (gethash index starts))
+           (setf (gethash (live-range-vreg new-range) active-vreg-to-range-table) new-range)
            (push new-range active-ranges))
          (loop
             for (variable vreg repr) in (gethash inst original-debug-map)
-            for range = (find vreg active-ranges :key #'live-range-vreg) ; might be worth maintaining this as a hash-table.
+            for range = (gethash vreg active-vreg-to-range-table)
             for location = (if (interval-spilled-p allocator range)
                                vreg
                                (gethash range range-allocations))
@@ -1020,7 +1021,7 @@
        for i from 0
        for inst in (allocator-instruction-ordering allocator)
        do (format t "~D: " i) (ir::print-instruction inst)))
-  (let ((result (make-hash-table))
+  (let ((result (make-hash-table :synchronized nil :test 'eq))
         (spilled-ranges (sort (all-spilled-ranges allocator)
                               #'<
                               :key #'live-range-start))
@@ -1042,9 +1043,9 @@
              (setf (gethash current-vreg result) '()))
            ;; Add new interference edges.
            (dolist (range live)
-             (when (not (eql (live-range-vreg range) current-vreg))
-               (pushnew current-vreg (gethash (live-range-vreg range) result))
-               (pushnew (live-range-vreg range) (gethash current-vreg result))))
+             (when (not (eq (live-range-vreg range) current-vreg))
+               (pushnew current-vreg (gethash (live-range-vreg range) result) :test 'eq)
+               (pushnew (live-range-vreg range) (gethash current-vreg result) :test 'eq)))
            (push range live)))
     result))
 
