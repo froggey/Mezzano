@@ -513,8 +513,7 @@
             :key key))
 
 (defun assoc (item alist &key key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
@@ -537,8 +536,7 @@
              :key key))
 
 (defun member (item list &key key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
@@ -606,8 +604,7 @@
   (cons (cons key datum) alist))
 
 (defun sublis (alist tree &key key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
@@ -682,8 +679,7 @@
             :key key))
 
 (defun subst (new old tree &key key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
@@ -720,8 +716,7 @@
              :key key))
 
 (defun rassoc (item alist &key key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
@@ -780,8 +775,7 @@
 (defun subsetp (list-1 list-2 &key key test test-not)
   (check-type list-1 list)
   (check-type list-2 list)
-  (when (and test test-not)
-    (error ":TEST and :TEST-NOT specified"))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (setf test (or test #'eql))
@@ -791,8 +785,7 @@
          list-1))
 
 (defun tree-equal (tree-1 tree-2 &key test test-not)
-  (when (and test test-not)
-    (error "TEST and TEST-NOT specified."))
+  (check-test-test-not test test-not)
   (when test-not
     (setf test (complement test-not)))
   (unless test
