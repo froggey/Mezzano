@@ -235,29 +235,33 @@
 (defun delete-if-not (test sequence &key from-end (start 0) end count key)
   (remove-if-not test sequence :from-end from-end :start start :end end :count count :key key))
 
-(defun remove-duplicates (sequence &key from-end test test-not key) ; (start 0) end
+(defun remove-duplicates (sequence &key from-end test test-not key (start 0) end)
   (check-test-test-not test test-not)
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
   (unless key (setf key 'identity))
+  (when (or (not (eql start 0))
+            end)
+    (setf sequence (subseq sequence start end)))
   (etypecase sequence
-    (list (if from-end
-              (do* ((result (cons nil nil))
-                    (tail result)
-                    (i sequence (cdr i)))
-                   ((null i)
-                    (cdr result))
-                (unless (member (car i) (cdr result) :test test :key key)
-                  (setf (cdr tail) (cons (car i) nil)
-                        tail (cdr tail))))
-              (do* ((result (cons nil nil))
-                    (tail result)
-                    (i sequence (cdr i)))
-                   ((null i)
-                    (cdr result))
-                (unless (member (car i) (cdr i) :test test :key key)
-                  (setf (cdr tail) (cons (car i) nil)
-                        tail (cdr tail))))))
+    (list
+     (if from-end
+         (do* ((result (cons nil nil))
+               (tail result)
+               (i sequence (cdr i)))
+              ((null i)
+               (cdr result))
+           (unless (member (car i) (cdr result) :test test :key key)
+             (setf (cdr tail) (cons (car i) nil)
+                   tail (cdr tail))))
+         (do* ((result (cons nil nil))
+               (tail result)
+               (i sequence (cdr i)))
+              ((null i)
+               (cdr result))
+           (unless (member (car i) (cdr i) :test test :key key)
+             (setf (cdr tail) (cons (car i) nil)
+                   tail (cdr tail))))))
     (vector
      (when from-end
        (setf sequence (reverse sequence)))
@@ -274,6 +278,15 @@
          (setf result (nreverse result)))
        ;; Simplify result.
        (subseq result 0)))))
+
+(defun delete-duplicates (sequence &key from-end test test-not (start 0) end key)
+  (remove-duplicates sequence
+                     :from-end from-end
+                     :test test
+                     :test-not test-not
+                     :start start
+                     :end end
+                     :key key))
 
 (defun subseq-list (sequence start end)
   ;; Seek in sequence
@@ -778,8 +791,6 @@
 
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
-;; missing function...
-(setf (fdefinition 'delete-duplicates) #'remove-duplicates)
 
 (defun make-sequence (result-type size &key (initial-element nil initial-element-p))
   (cond ((subtypep result-type 'list)
