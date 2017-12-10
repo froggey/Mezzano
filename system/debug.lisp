@@ -50,7 +50,9 @@ Returns NIL if the function captures no variables."
 (defvar *default-frames-to-print* 15)
 
 (defun function-from-frame (frame)
-  (let* ((return-address (memref-signed-byte-64 (second frame) 1)))
+  ;; Decrement the return address by one to point at the calls
+  ;; instead of the following instruction.
+  (let ((return-address (1- (memref-signed-byte-64 (second frame) 1))))
     (return-address-to-function return-address)))
 
 (defun decode-debug-register (reg)
