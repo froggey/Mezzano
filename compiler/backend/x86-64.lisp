@@ -221,76 +221,9 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                     :outputs (list (x86-fake-three-operand-result inst))
                     :prefix nil))))
 
-(defun compile-backend-function-1 (backend-function target)
-  (mezzano.compiler.backend::simplify-cfg backend-function)
-  (mezzano.compiler.backend::construct-ssa backend-function)
-  (mezzano.compiler.backend::convert-rest-arg-to-dx backend-function)
-  (sys.c:with-metering (:backend-misc)
-    (mezzano.compiler.backend.x86-64::lower-builtins backend-function))
-  (sys.c:with-metering (:backend-optimize)
-    (loop
-       (let ((total 0))
-         (incf total (mezzano.compiler.backend::unbox-phis backend-function))
-         (incf total (mezzano.compiler.backend::unbox-debug-values backend-function))
-         (incf total (mezzano.compiler.backend::eliminate-redundant-boxing backend-function))
-         (incf total (mezzano.compiler.backend::remove-unused-instructions backend-function))
-         (when (zerop total)
-           (return)))))
-  (mezzano.compiler.backend::deconstruct-ssa backend-function)
-  (mezzano.compiler.backend::lower-local-variables backend-function)
-  (when (= (sys.c::optimize-quality (mezzano.compiler.backend::ast backend-function) 'debug) 0)
-    (mezzano.compiler.backend::remove-debug-variable-instructions backend-function))
-  (sys.c:with-metering (:backend-misc)
-    (lower-complicated-box-instructions backend-function)
-    (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function target)
-    (mezzano.compiler.backend.register-allocator::canonicalize-argument-setup backend-function target)
-    (mezzano.compiler.backend.register-allocator::canonicalize-nlx-values backend-function target)
-    (mezzano.compiler.backend.register-allocator::canonicalize-values backend-function target)
-    (lower-fake-three-operand-instructions backend-function)
-    (mezzano.compiler.backend::remove-unused-instructions backend-function)
-    (mezzano.compiler.backend::check-cfg backend-function)))
+(defmethod ir:perform-target-lowering (backend-function (target sys.c:x86-64-target))
+  (lower-builtins backend-function))
 
-(defun compile-backend-function-2 (backend-function debug-map spill-locations stack-layout *target*)
-  (declare (special *target*))
-  (multiple-value-bind (lap environment-slot)
-      (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function debug-map spill-locations stack-layout))
-    (when sys.c::*trace-asm*
-      (format t "~S:~%" (backend-function-name backend-function))
-      (dolist (inst lap)
-        (when (not (and (not (eql sys.c::*trace-asm* :full))
-                        (consp inst)
-                        (member (first inst) '(:gc :debug))))
-          (cond ((symbolp inst)
-                 (format t "~S~%" inst))
-                (t
-                 (format t "  ~S~%" inst))))))
-    (sys.c:with-metering (:lap-assembly)
-      (sys.int::assemble-lap
-       lap
-       (backend-function-name backend-function)
-       (let* ((ast-lambda (mezzano.compiler.backend::ast backend-function)))
-         (list :debug-info
-               (backend-function-name backend-function) ; name
-               nil ; local variable stack positions
-               ;; Environment index
-               environment-slot
-               ;; Environment layout
-               (second (sys.c:lambda-information-environment-layout ast-lambda))
-               ;; Source file
-               (if *compile-file-pathname*
-                   (namestring *compile-file-pathname*)
-                   nil)
-               ;; Top-level form number
-               sys.int::*top-level-form-number*
-               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-               (sys.c:lambda-information-docstring ast-lambda) ; docstring
-               nil)) ; precise debug info
-       nil
-       :x86-64))))
-
-(defun compile-backend-function (backend-function target)
-  (compile-backend-function-1 backend-function target)
-  (multiple-value-bind (debug-map spill-locations stack-layout allocator)
-      (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)
-    (compile-backend-function-2 backend-function debug-map spill-locations stack-layout target)))
+(defmethod ir:perform-target-lowering-post-ssa (backend-function (target sys.c:x86-64-target))
+  (lower-complicated-box-instructions backend-function)
+  (lower-fake-three-operand-instructions backend-function))

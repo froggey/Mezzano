@@ -97,7 +97,7 @@
                  (vector-push-extend value *literals/128*))))
     `(:rip (+ literal-pool/128 ,(* pos 16)))))
 
-(defun to-lap (backend-function debug-map spill-locations stack-layout)
+(defmethod ir:perform-target-lap-generation (backend-function debug-map spill-locations stack-layout (*target* sys.c:x86-64-target))
   (multiple-value-bind (uses defs)
       (mezzano.compiler.backend::build-use/def-maps backend-function)
     (multiple-value-bind (*stack-layout* *spill-locations* environment-slot)

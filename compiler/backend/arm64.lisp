@@ -120,68 +120,8 @@
                           :source :x0))
           (ir:remove-instruction backend-function inst))))))
 
-(defun compile-backend-function-1 (backend-function target)
-  (ir::simplify-cfg backend-function)
-  (when (> (sys.c::optimize-quality (ir::ast backend-function) 'speed) 1)
-    ;; Always perform SSA construction above speed 1.
-    (ir::construct-ssa backend-function))
-  (when (= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
-    ;; Leave local variables in place unless the user really wants them gone.
-    (ir::remove-unused-local-variables backend-function))
-  (sys.c:with-metering (:backend-misc)
-    (lower-builtins backend-function))
-  (sys.c:with-metering (:backend-optimize)
-    (loop
-       (let ((total 0))
-         (incf total (ir::unbox-phis backend-function))
-         (incf total (ir::unbox-debug-values backend-function))
-         (incf total (ir::eliminate-redundant-boxing backend-function))
-         (incf total (ir::remove-unused-instructions backend-function))
-         (when (zerop total)
-           (return)))))
-  (ir::deconstruct-ssa backend-function)
-  (ir::lower-local-variables backend-function)
-  (sys.c:with-metering (:backend-misc)
-    (ra::canonicalize-call-operands backend-function target)
-    (ra::canonicalize-argument-setup backend-function target)
-    (ra::canonicalize-nlx-values backend-function target)
-    (ra::canonicalize-values backend-function target)
-    (ir::remove-unused-instructions backend-function)
-    (ir::check-cfg backend-function)))
+(defmethod ir:perform-target-lowering (backend-function (target sys.c:arm64-target))
+  (lower-builtins backend-function))
 
-(defun compile-backend-function-2 (backend-function debug-map *target*)
-  (declare (special *target*))
-  (multiple-value-bind (lap debug-layout environment-slot)
-      (sys.c:with-metering (:backend-lap-generation)
-        (to-lap backend-function debug-map))
-    (when sys.c::*trace-asm*
-      (format t "~S:~%" (ir:backend-function-name backend-function))
-      (format t "~{~S~%~}" lap))
-    (sys.c:with-metering (:lap-assembly)
-      (sys.int::assemble-lap
-       lap
-       (ir:backend-function-name backend-function)
-       (let* ((ast-lambda (ir::ast backend-function)))
-         (list :debug-info
-               (ir:backend-function-name backend-function) ; name
-               debug-layout ; local variable stack positions
-               ;; Environment index
-               environment-slot
-               ;; Environment layout
-               (second (sys.c:lambda-information-environment-layout ast-lambda))
-               ;; Source file
-               (if *compile-file-pathname*
-                   (namestring *compile-file-pathname*)
-                   nil)
-               ;; Top-level form number
-               sys.int::*top-level-form-number*
-               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-               (sys.c:lambda-information-docstring ast-lambda) ; docstring
-               nil)) ; precise debug info
-       nil
-       :arm64))))
-
-(defun compile-backend-function (backend-function target)
-  (compile-backend-function-1 backend-function target)
-  (let ((debug-map (ra::allocate-registers backend-function target)))
-    (compile-backend-function-2 backend-function debug-map target)))
+(defmethod ir:perform-target-lowering-post-ssa (backend-function (target sys.c:arm64-target))
+  (lower-complicated-box-instructions backend-function))

@@ -6,6 +6,8 @@
 (defvar *function-reference-resolver* nil
   "Function used to convert :function memory references into constants.")
 
+(defgeneric perform-assembly-using-target (target &rest args))
+
 (defvar *current-address* nil
   "Address of the current instruction.")
 (defvar *machine-code* nil
@@ -181,7 +183,6 @@
              (aref vector (+ offset 1)) (ldb (byte 8 8) instruction)
              (aref vector (+ offset 2)) (ldb (byte 8 16) instruction)
              (aref vector (+ offset 3)) (ldb (byte 8 24) instruction))))))
-
 
 (defun perform-relocations (base-address)
   (loop for (kind immediate addend address) in *relocations* do

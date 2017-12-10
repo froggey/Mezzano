@@ -708,26 +708,16 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (ecase architecture
-        (:x86-64
-         (sys.lap-x86:assemble code
-           :base-address 16
-           :initial-symbols '((nil . :fixup)
-                              (t . :fixup)
-                              (:unbound-value . :fixup)
-                              (:undefined-function . :fixup)
-                              (:closure-trampoline . :fixup)
-                              (:funcallable-instance-trampoline . :fixup))
-           :info (list name debug-info)))
-        (:arm64
-         (mezzano.lap.arm64:assemble code
-           :base-address 16
-           :initial-symbols '((nil . :fixup)
-                              (t . :fixup)
-                              (:unbound-value . :fixup)
-                              (:undefined-function . :fixup)
-                              (:closure-trampoline . :fixup)
-                              (:funcallable-instance-trampoline . :fixup))
-           :info (list name debug-info))))
+      (sys.lap:perform-assembly-using-target
+       (sys.c::canonicalize-target architecture)
+       code
+       :base-address 16
+       :initial-symbols '((nil . :fixup)
+                          (t . :fixup)
+                          (:unbound-value . :fixup)
+                          (:undefined-function . :fixup)
+                          (:closure-trampoline . :fixup)
+                          (:funcallable-instance-trampoline . :fixup))
+       :info (list name debug-info))
     (declare (ignore symbols))
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))

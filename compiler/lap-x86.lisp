@@ -21,6 +21,9 @@ Used to make rip-relative addressing line up right.")
   (let ((*cpu-mode* cpu-mode))
     (apply 'perform-assembly *instruction-assemblers* code-list args)))
 
+(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) &rest args)
+  (apply #'assemble args))
+
 (defmacro define-instruction (name lambda-list &body body)
   (let ((insn (gensym)))
     `(add-instruction ',name #'(lambda (,insn)

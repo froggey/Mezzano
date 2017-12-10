@@ -169,3 +169,76 @@
            (format t " ~S ~:S~%" c (label-phis c)))
           (t
            (print-instruction c)))))
+
+(defgeneric perform-target-lowering (backend-function target))
+(defgeneric perform-target-lowering-post-ssa (backend-function target))
+(defgeneric perform-target-lap-generation (backend-function debug-map spill-locations stack-layout target))
+
+(defun compile-backend-function-1 (backend-function target)
+  (simplify-cfg backend-function)
+  (construct-ssa backend-function)
+  (convert-rest-arg-to-dx backend-function)
+  (perform-target-lowering backend-function target)
+  (loop
+     (let ((total 0))
+       (incf total (unbox-phis backend-function))
+       (incf total (unbox-debug-values backend-function))
+       (incf total (eliminate-redundant-boxing backend-function))
+       (incf total (remove-unused-instructions backend-function))
+       (when (zerop total)
+         (return))))
+  (deconstruct-ssa backend-function)
+  (lower-local-variables backend-function)
+  (when (= (sys.c::optimize-quality (ast backend-function) 'debug) 0)
+    (remove-debug-variable-instructions backend-function))
+  (perform-target-lowering-post-ssa backend-function target)
+  (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function target)
+  (mezzano.compiler.backend.register-allocator::canonicalize-argument-setup backend-function target)
+  (mezzano.compiler.backend.register-allocator::canonicalize-nlx-values backend-function target)
+  (mezzano.compiler.backend.register-allocator::canonicalize-values backend-function target)
+  (remove-unused-instructions backend-function)
+  (check-cfg backend-function))
+
+(defun compile-backend-function-2 (backend-function debug-map spill-locations stack-layout target)
+  (multiple-value-bind (lap environment-slot)
+      (sys.c:with-metering (:backend-lap-generation)
+        (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target))
+    (when sys.c::*trace-asm*
+      (format t "~S:~%" (backend-function-name backend-function))
+      (dolist (inst lap)
+        (when (not (and (not (eql sys.c::*trace-asm* :full))
+                        (consp inst)
+                        (member (first inst) '(:gc :debug))))
+          (cond ((symbolp inst)
+                 (format t "~S~%" inst))
+                (t
+                 (format t "  ~S~%" inst))))))
+    (sys.c:with-metering (:lap-assembly)
+      (sys.int::assemble-lap
+       lap
+       (backend-function-name backend-function)
+       (let* ((ast-lambda (ast backend-function)))
+         (list :debug-info
+               (backend-function-name backend-function) ; name
+               nil ; local variable stack positions
+               ;; Environment index
+               environment-slot
+               ;; Environment layout
+               (second (sys.c:lambda-information-environment-layout ast-lambda))
+               ;; Source file
+               (if *compile-file-pathname*
+                   (namestring *compile-file-pathname*)
+                   nil)
+               ;; Top-level form number
+               sys.int::*top-level-form-number*
+               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
+               (sys.c:lambda-information-docstring ast-lambda) ; docstring
+               nil)) ; precise debug info
+       nil
+       target))))
+
+(defun compile-backend-function (backend-function target)
+  (compile-backend-function-1 backend-function target)
+  (multiple-value-bind (debug-map spill-locations stack-layout)
+      (mezzano.compiler.backend.register-allocator::allocate-registers backend-function target)
+    (compile-backend-function-2 backend-function debug-map spill-locations stack-layout target)))

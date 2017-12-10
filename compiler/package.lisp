@@ -377,7 +377,8 @@
 (defpackage :sys.lap
   (:documentation "The system assembler.")
   (:use :cl)
-  (:export #:perform-assembly
+  (:export #:perform-assembly-using-target
+           #:perform-assembly
            #:emit
            #:emit-relocation
            #:immediatep
@@ -564,6 +565,19 @@
            #:unbox-signed-byte-64-instruction
            #:unbox-single-float-instruction
            #:unbox-double-float-instruction
+
+           #:debug-instruction
+           #:debug-bind-variable-instruction
+           #:debug-unbind-variable-instruction
+           #:debug-update-variable-instruction
+           #:debug-variable
+           #:debug-value
+
+           #:compile-backend-function
+
+           #:perform-target-lowering
+           #:perform-target-lowering-post-ssa
+           #:perform-target-lap-generation
 ))
 
 (defpackage :mezzano.compiler.backend.dominance

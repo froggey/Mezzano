@@ -535,7 +535,8 @@
 (defpackage :sys.lap
   (:documentation "The system assembler.")
   (:use :cross-cl)
-  (:export #:perform-assembly
+  (:export #:perform-assembly-using-target
+           #:perform-assembly
            #:emit
            #:emit-relocation
            #:immediatep
@@ -729,6 +730,12 @@
            #:debug-update-variable-instruction
            #:debug-variable
            #:debug-value
+
+           #:compile-backend-function
+
+           #:perform-target-lowering
+           #:perform-target-lowering-post-ssa
+           #:perform-target-lap-generation
 ))
 
 (defpackage :mezzano.compiler.backend.dominance

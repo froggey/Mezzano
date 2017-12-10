@@ -5,6 +5,7 @@
 
 (defvar *emitted-lap*)
 (defvar *stack-layout*)
+(defvar *spill-locations*)
 (defvar *saved-multiple-values*)
 (defvar *dx-root-visibility*)
 (defvar *current-frame-layout*)
@@ -21,12 +22,12 @@
   (dolist (i instructions)
     (push i *emitted-lap*)))
 
-(defun emit-debug-info (info stack-layout)
+(defun emit-debug-info (info spill-locations)
   (emit `(:debug ,(loop
                      for (variable location repr) in info
                      collect (list* (sys.c::lexical-variable-name variable)
                                     (if (typep location 'ir:virtual-register)
-                                        (or (position location stack-layout)
+                                        (or (gethash location spill-locations)
                                             (error "Missing stack slot for spilled virtual ~S" location))
                                         location)
                                     repr
@@ -46,97 +47,27 @@
 
 (defvar *target*)
 
-;; Local variables are bound/unbound in a stack-like fashion.
-;; Traverse the function to reconstruct the stack and assign stack slots
-;; to locals.
-(defun layout-local-variables (backend-function)
-  (let ((worklist (list (cons (ir:first-instruction backend-function) '())))
-        (visited (make-hash-table :test 'eq :synchronized nil))
-        (layout (make-hash-table :test 'eq :synchronized nil)))
-    (loop
-       (when (endp worklist)
-         (return))
-       (let* ((entry (pop worklist))
-              (inst (car entry))
-              (stack (cdr entry)))
-         (setf (gethash inst visited) t)
-         (typecase inst
-           (ir:bind-local-instruction
-            (setf (gethash inst layout) (length stack))
-            (push inst stack))
-           (ir:unbind-local-instruction
-            (assert (eql (ir:unbind-local-local inst)
-                         (first stack)))
-            (pop stack)))
-         (dolist (next (ir:successors backend-function inst))
-           (when (not (gethash next visited))
-             (push (cons next stack) worklist)))))
-    layout))
-
 ;; TODO: Sort the layout so stack slots for values are all together and trim
 ;; the gc layout bitvector. #*111 instead of #*0010101
-(defun compute-stack-layout (backend-function uses defs)
-  (let* ((local-layout (layout-local-variables backend-function))
-         (layout (loop
-                    for vreg being the hash-keys of defs using (hash-value vreg-defs)
-                    ;; SSE slots are 2 wide.
-                    ;; TODO: Force 16-byte alignment.
-                    when (eql (ir:virtual-register-kind vreg) :sse)
-                      collect :raw
-                    end
-                    ;; If a vreg is only ever defined by an argument-setup instruction
-                    ;; and never used, then don't spill it.
-                    ;; This prevents slots being allocated for count & fref registers if they're not used.
-                    when (not (and (not (endp vreg-defs))
-                                   (endp (rest vreg-defs))
-                                   (typep (first vreg-defs) 'ir:argument-setup-instruction)
-                                   (endp (gethash vreg uses))))
-                    collect vreg))
-         (max-local-slot (loop
-                            for slot being the hash-values of local-layout
-                            maximize (1+ slot)))
-         (local-slots (make-array max-local-slot :initial-element '())))
+(defun compute-stack-layout (backend-function spill-locations stack-layout)
+  (when (ir:argument-setup-rest (ir:first-instruction backend-function))
+    ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
     (loop
-       for local being the hash-keys of local-layout using (hash-value slot)
-       do
-         (push local (aref local-slots slot)))
-    (setf layout (append (coerce local-slots 'list) layout))
-    (when (ir:argument-setup-rest (ir:first-instruction backend-function))
-      ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
-      (push :raw layout))
-    (let ((debug-layout '())
-          (environment-slot nil))
-      (loop
-         for entry in layout
-         for slot from 0
-         do
-           (when (listp entry)
-             (loop
-                for local in entry
-                for ast = (ir:bind-local-ast local)
-                when (and (sys.c:lexical-variable-p ast)
-                          (not (getf (sys.c:lexical-variable-plist ast)
-                                     'sys.c::hide-from-debug-info)))
-                do (push (list (sys.c::lexical-variable-name ast) slot) debug-layout))))
-      (when (sys.c:lambda-information-environment-layout
-             (ir::ast backend-function))
-        (setf environment-slot
-              (or (position-if (lambda (x)
-                                 (and (listp x)
-                                      (member (first (sys.c:lambda-information-environment-layout
-                                                      (ir::ast backend-function)))
-                                              x
-                                              :key #'ir:bind-local-ast)))
-                               layout)
-                  (sys.c:lexical-variable-name
-                   (first (sys.c:lambda-information-environment-layout
-                           (ir::ast backend-function)))))))
-      (values (make-array (length layout)
-                          :adjustable t
-                          :fill-pointer t
-                          :initial-contents layout)
-              debug-layout
-              environment-slot))))
+       for vreg being the hash-keys of spill-locations
+       do (incf (gethash vreg spill-locations)))
+    (let ((tmp (make-array (1+ (length stack-layout)) :adjustable t :fill-pointer t)))
+      (replace tmp stack-layout :start1 1)
+      (setf (aref tmp 0) :raw)
+      (setf stack-layout tmp)))
+  (let ((environment-slot nil))
+    (when (sys.c:lambda-information-environment-layout
+           (ir::ast backend-function))
+      (setf environment-slot (sys.c:lexical-variable-name
+                              (first (sys.c:lambda-information-environment-layout
+                                      (ir::ast backend-function))))))
+    (values stack-layout
+            spill-locations
+            environment-slot)))
 
 (defun allocate-stack-slots (count &key (livep t) aligned)
   (assert (not *current-frame-layout*) ()
@@ -149,20 +80,12 @@
   (prog1
       (length *stack-layout*)
     (dotimes (i count)
-      (vector-push-extend (if livep :live :raw) *stack-layout*))))
+      (vector-push-extend (if livep :value :raw) *stack-layout*))))
 
 (defun vreg-stack-slot (vreg)
   (check-type vreg ir:virtual-register)
-  (or (position vreg *stack-layout*)
+  (or (gethash vreg *spill-locations*)
       (error "Missing stack slot for vreg ~S" vreg)))
-
-(defun local-variable-stack-slot (binding)
-  (check-type binding ir:bind-local-instruction)
-  (or (position-if (lambda (slot)
-                     (and (listp slot)
-                          (member binding slot)))
-                   *stack-layout*)
-      (error "Missing stack slot for local ~S" binding)))
 
 (defun fetch-literal (value)
   (let ((pos (or (position value *literals*)
@@ -237,11 +160,11 @@
 (defun emit-stack-store (reg slot &optional temp)
   (emit-stack-op 'lap:str reg slot temp))
 
-(defun to-lap (backend-function debug-map)
+(defmethod ir:perform-target-lap-generation (backend-function debug-map spill-locations stack-layout (*target* sys.c:arm64-target))
   (multiple-value-bind (uses defs)
       (ir::build-use/def-maps backend-function)
-    (multiple-value-bind (*stack-layout* debug-layout environment-slot)
-        (compute-stack-layout backend-function uses defs)
+    (multiple-value-bind (*stack-layout* *spill-locations* environment-slot)
+        (compute-stack-layout backend-function spill-locations stack-layout)
       (let ((*saved-multiple-values* (make-hash-table :test 'eq :synchronized nil))
             (*dx-root-visibility* (make-hash-table :test 'eq :synchronized nil))
             (*prepass-data* (make-hash-table :test 'eq :synchronized nil))
@@ -255,9 +178,7 @@
         (let ((*emitted-lap* '())
               (*current-frame-layout* (coerce (loop
                                                  for elt across *stack-layout*
-                                                 collect (if (or (eql elt :raw)
-                                                                 (and (typep elt 'ir:virtual-register)
-                                                                      (not (eql (ir:virtual-register-kind elt) :value))))
+                                                 collect (if (not (eql elt :value))
                                                              0
                                                              1))
                                               'simple-bit-vector))
@@ -287,7 +208,7 @@
                     (emit-stack-store :x26 i))))
           (emit-gc-info :incoming-arguments :rcx)
           (ir:do-instructions (inst-or-label backend-function)
-            (emit-debug-info (gethash inst-or-label debug-map '()) *stack-layout*)
+            (emit-debug-info (gethash inst-or-label debug-map '()) *spill-locations*)
             (cond ((typep inst-or-label 'ir:label)
                    (push (gethash inst-or-label *labels*) *emitted-lap*))
                   (t
@@ -305,7 +226,6 @@
           (loop for value across *literals* do
                (emit `(:d64/le ,value)))
           (values (reverse *emitted-lap*)
-                  debug-layout
                   environment-slot))))))
 
 (defmethod lap-prepass (backend-function (instruction ir:argument-setup-instruction) uses defs)
@@ -507,20 +427,6 @@
     ;; Code above jumps directly here with NIL in R13 when there are no arguments.
     (emit rest-list-done)))
 
-(defmethod emit-lap (backend-function (instruction ir:bind-local-instruction) uses defs)
-  (emit-stack-store (ir:bind-local-value instruction) (local-variable-stack-slot instruction)))
-
-(defmethod emit-lap (backend-function (instruction ir:unbind-local-instruction) uses defs)
-  nil)
-
-(defmethod emit-lap (backend-function (instruction ir:load-local-instruction) uses defs)
-  (emit-stack-load (ir:load-local-destination instruction)
-                   (local-variable-stack-slot (ir:load-local-local instruction))))
-
-(defmethod emit-lap (backend-function (instruction ir:store-local-instruction) uses defs)
-  (emit-stack-store (ir:store-local-value instruction)
-                    (local-variable-stack-slot (ir:store-local-local instruction))))
-
 (defmethod emit-lap (backend-function (instruction ir:move-instruction) uses defs)
   (ecase (lap::register-class (ir:move-destination instruction))
     (:gpr-64
@@ -627,7 +533,7 @@
   (let ((value (ir:constant-value instruction))
         (dest (ir:constant-destination instruction)))
     (cond ((typep value 'ir:backend-function)
-           (emit `(lap:ldr ,dest (:constant ,(compile-backend-function value *target*)))))
+           (emit `(lap:ldr ,dest (:constant ,(ir:compile-backend-function value *target*)))))
           ((sys.c::fixnump value)
            (load-literal dest (mezzano.compiler.codegen.x86-64::fixnum-to-raw value)))
           ((characterp value)

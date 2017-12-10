@@ -8,6 +8,9 @@
 (defun assemble (code-list &rest args &key &allow-other-keys)
   (apply 'sys.lap:perform-assembly *instruction-assemblers* code-list args))
 
+(defmethod sys.lap:perform-assembly-using-target ((target sys.c:arm64-target) &rest args)
+  (apply #'assemble args))
+
 (defun add-instruction (name function)
   (unless (keywordp name)
     (export name :mezzano.lap.arm64))
