@@ -61,6 +61,9 @@
 (defmethod replace-all-registers ((instruction bind-local-instruction) substitution-function)
   (setf (bind-local-value instruction) (funcall substitution-function (bind-local-value instruction))))
 
+(defmethod multiple-value-safe-p ((instruction bind-local-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction bind-local-instruction))
   (format t "   ~S~%"
           `(:bind-local ,(bind-local-ast instruction)
@@ -79,6 +82,9 @@
 (defmethod replace-all-registers ((instruction unbind-local-instruction) substitution-function)
   nil)
 
+(defmethod multiple-value-safe-p ((instruction unbind-local-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction unbind-local-instruction))
   (format t "   ~S~%"
           `(:unbind-local ,(unbind-local-local instruction))))
@@ -95,6 +101,9 @@
 
 (defmethod replace-all-registers ((instruction load-local-instruction) substitution-function)
   (setf (load-local-destination instruction) (funcall substitution-function (load-local-destination instruction))))
+
+(defmethod multiple-value-safe-p ((instruction load-local-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction load-local-instruction))
   (format t "   ~S~%"
@@ -117,6 +126,9 @@
 (defmethod replace-all-registers ((instruction store-local-instruction) substitution-function)
   (setf (store-local-value instruction) (funcall substitution-function (store-local-value instruction))))
 
+(defmethod multiple-value-safe-p ((instruction store-local-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction store-local-instruction))
   (format t "   ~S~%"
           `(:store-local ,(store-local-local instruction)
@@ -136,6 +148,9 @@
 (defmethod replace-all-registers ((instruction move-instruction) substitution-function)
   (setf (move-destination instruction) (funcall substitution-function (move-destination instruction)))
   (setf (move-source instruction) (funcall substitution-function (move-source instruction))))
+
+(defmethod multiple-value-safe-p ((instruction move-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction move-instruction))
   (format t "   ~S~%"
@@ -179,6 +194,9 @@
 (defmethod instruction-outputs ((instruction spill-instruction))
   (list (spill-destination instruction)))
 
+(defmethod multiple-value-safe-p ((instruction spill-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction spill-instruction))
   (format t "   ~S~%"
           `(:spill ,(spill-destination instruction)
@@ -194,6 +212,9 @@
 
 (defmethod instruction-outputs ((instruction fill-instruction))
   (list (fill-destination instruction)))
+
+(defmethod multiple-value-safe-p ((instruction fill-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction fill-instruction))
   (format t "   ~S~%"
@@ -213,6 +234,9 @@
 
 (defmethod replace-all-registers ((instruction constant-instruction) substitution-function)
   (setf (constant-destination instruction) (funcall substitution-function (constant-destination instruction))))
+
+(defmethod multiple-value-safe-p ((instruction constant-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction constant-instruction))
   (format t "   ~S~%"
@@ -314,6 +338,9 @@
 (defmethod replace-all-registers ((instruction forget-multiple-instruction) substitution-function)
   nil)
 
+(defmethod multiple-value-safe-p ((instruction forget-multiple-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction forget-multiple-instruction))
   (format t "   ~S~%"
           `(:forget-multiple ,(forget-multiple-context instruction))))
@@ -335,6 +362,9 @@
 
 (defmethod replace-all-registers ((instruction jump-instruction) substitution-function)
   (setf (jump-values instruction) (mapcar substitution-function (jump-values instruction))))
+
+(defmethod multiple-value-safe-p ((instruction jump-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction jump-instruction))
   (format t "   ~S~%"
@@ -669,6 +699,9 @@
 
 (defmethod replace-all-registers ((instruction finish-nlx-instruction) substitution-function)
   (setf (nlx-context instruction) (funcall substitution-function (nlx-context instruction))))
+
+(defmethod multiple-value-safe-p ((instruction finish-nlx-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction finish-nlx-instruction))
   (format t "   ~S~%"
@@ -1055,6 +1088,9 @@
 ;;; Instruction-level debug info.
 
 (defclass debug-instruction (backend-instruction) ())
+
+(defmethod multiple-value-safe-p ((instruction debug-instruction) architecture)
+  t)
 
 (defclass debug-bind-variable-instruction (debug-instruction)
   ((%variable :initarg :variable :accessor debug-variable)

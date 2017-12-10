@@ -275,3 +275,28 @@ Must be performed after SSA conversion."
                    (remove-instruction backend-function use))))
               (t
                (incf *rest-args-not-converted*)))))))
+
+(defun remove-unused-instructions-1 (backend-function uses)
+  (do* ((n-removed 0)
+        (inst (first-instruction backend-function) next-inst)
+        (next-inst (next-instruction backend-function inst) (if inst (next-instruction backend-function inst))))
+       ((null inst)
+        n-removed)
+    (when (and (instruction-pure-p inst)
+               (every (lambda (out)
+                        (and (typep out 'virtual-register)
+                             (endp (gethash out uses))))
+                      (instruction-outputs inst)))
+      (incf n-removed)
+      (remove-instruction backend-function inst))))
+
+(defun remove-unused-instructions (backend-function)
+  (loop
+     with total = 0
+     do (multiple-value-bind (uses defs)
+            (build-use/def-maps backend-function)
+          (declare (ignore defs))
+          (let ((n (remove-unused-instructions-1 backend-function uses)))
+            (incf total n)
+            (when (zerop n)
+              (return total))))))

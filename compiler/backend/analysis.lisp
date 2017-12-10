@@ -74,27 +74,54 @@
           (pushnew inst (gethash def defs '())))))
     (values uses defs)))
 
-(defun remove-unused-instructions-1 (backend-function uses)
-  (do* ((n-removed 0)
-        (inst (first-instruction backend-function) next-inst)
-        (next-inst (next-instruction backend-function inst) (if inst (next-instruction backend-function inst))))
-       ((null inst)
-        n-removed)
-    (when (and (instruction-pure-p inst)
-               (every (lambda (out)
-                        (and (typep out 'virtual-register)
-                             (endp (gethash out uses))))
-                      (instruction-outputs inst)))
-      (incf n-removed)
-      (remove-instruction backend-function inst))))
-
-(defun remove-unused-instructions (backend-function)
-  (loop
-     with total = 0
-     do (multiple-value-bind (uses defs)
-            (build-use/def-maps backend-function)
-          (declare (ignore defs))
-          (let ((n (remove-unused-instructions-1 backend-function uses)))
-            (incf total n)
-            (when (zerop n)
-              (return total))))))
+(defun dynamic-contours (function)
+  (let ((contour (make-hash-table :test 'eq :synchronized nil))
+        (worklist (list (cons (first-instruction function) '()))))
+    (loop
+       (when (endp worklist)
+         (return))
+       (let* ((entry (pop worklist))
+              (inst (car entry))
+              (stack (cdr entry)))
+         (setf (gethash inst contour) stack)
+         (typecase inst
+           (begin-nlx-instruction
+            (push inst stack))
+           (finish-nlx-instruction
+            (assert (eql (nlx-region inst) (first stack)))
+            (pop stack))
+           (save-multiple-instruction
+            (push inst stack))
+           (restore-multiple-instruction
+            (assert (eql (restore-multiple-context inst) (first stack)))
+            (pop stack))
+           (forget-multiple-instruction
+            (assert (eql (forget-multiple-context inst) (first stack)))
+            (pop stack))
+           (bind-local-instruction
+            (push inst stack))
+           (unbind-local-instruction
+            (assert (eql (unbind-local-local inst)
+                         (first stack)))
+            (pop stack))
+           (load-local-instruction
+            (assert (member (load-local-local inst) stack)))
+           (store-local-instruction
+            (assert (member (store-local-local inst) stack)))
+           (debug-bind-variable-instruction
+            (assert (not (member (debug-variable inst) stack)))
+            (push (debug-variable inst) stack))
+           (debug-update-variable-instruction
+            (assert (member (debug-variable inst) stack)))
+           (debug-unbind-variable-instruction
+            (assert (eql (debug-variable inst) (first stack)))
+            (pop stack)))
+         (dolist (next (successors function inst))
+           (multiple-value-bind (next-stack visitedp)
+               (gethash next contour)
+             (cond
+               (visitedp
+                (assert (eql stack next-stack)))
+               (t
+                (push (cons next stack) worklist)))))))
+    contour))

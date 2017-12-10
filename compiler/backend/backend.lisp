@@ -131,6 +131,9 @@
   (:method ((inst backend-instruction))
     nil))
 
+(defgeneric multiple-value-safe-p (instruction architecture)
+  (:method (instruction architecture) nil))
+
 (defgeneric instruction-pure-p (instruction)
   (:method ((instruction backend-instruction))
     nil))
@@ -158,6 +161,9 @@
 
 (defmethod replace-all-registers ((instruction label) substitution-function)
   (setf (label-phis instruction) (mapcar substitution-function (label-phis instruction))))
+
+(defmethod multiple-value-safe-p ((instruction label) architecture)
+  t)
 
 (defmethod print-instruction ((instruction label))
   (format t "~S ~:S~%" instruction (label-phis instruction)))
