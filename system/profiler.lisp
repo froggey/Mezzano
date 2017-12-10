@@ -369,7 +369,7 @@ thread states & call-stacks."
                  (format t "~S:~%" thread)
                  (loop
                     for s across samples
-                    do (format t "  ~D ~D%~10T~D ~D%~20T~S~%"
+                    do (format t "  ~D ~D%~15T~D ~D%~30T~S~%"
                                (profile-entry-direct-count s) (* (/ (profile-entry-direct-count s) total-direct) 100.0)
                                (profile-entry-total-count s) (* (/ (profile-entry-total-count s) total-total) 100.0)
                                (profile-entry-function s)))
@@ -378,11 +378,19 @@ thread states & call-stacks."
                     for s across samples
                     do
                       (format t "  --------------------~%")
-                      (maphash (lambda (caller count)
-                                 (format t "    ~D~10T~S~%" count caller))
-                               (profile-entry-callers s))
+                      (let ((callers (make-array 10 :adjustable t :fill-pointer 0)))
+                        (maphash (lambda (caller count)
+                                   (vector-push-extend (cons caller count) callers))
+                                 (profile-entry-callers s))
+                        (setf callers (sort callers #'> :key #'cdr))
+                        (loop for (caller . count) across callers do
+                             (format t "    ~D~10T~S~%" count caller)))
                       (format t "  ~S~10T~S~%" (profile-entry-total-count s) (profile-entry-function s))
-                      (maphash (lambda (callee count)
-                                 (format t "    ~D~10T~S~%" count callee))
-                               (profile-entry-callees s)))))
+                      (let ((callees (make-array 10 :adjustable t :fill-pointer 0)))
+                        (maphash (lambda (callee count)
+                                   (vector-push-extend (cons callee count) callees))
+                                 (profile-entry-callees s))
+                        (setf callees (sort callees #'> :key #'cdr))
+                        (loop for (callee . count) across callees do
+                             (format t "    ~D~10T~S~%" count callee))))))
              threads)))
