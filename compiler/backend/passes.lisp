@@ -211,3 +211,67 @@ Must be performed after SSA conversion."
         (push inst to-convert)))
     (dolist (binding to-convert)
       (lower-one-local-variable backend-function binding))))
+
+(defun rest-arg-safe-to-make-dx-p (backend-function uses)
+  "Return true if the rest arg or it's spine is never captured by something with effectively non-dynamic extent and if the spine is never modified."
+  (let ((worklist (list (argument-setup-rest (first-instruction backend-function))))
+        (visited '())
+        (failed nil))
+    (loop until (endp worklist) do
+         (let ((value (pop worklist)))
+           (when (not (member value visited))
+             (push value visited)
+             (dolist (use (gethash value uses))
+               (typecase use
+                 ((or call-instruction call-multiple-instruction)
+                  (case (call-function use)
+                    ((copy-list)
+                     ;; Must be first argument, result must meet checks.
+                     (cond ((or (not (eql (length (call-arguments use)) 1))
+                                (typep use 'call-multiple-instruction))
+                            (setf failed t))
+                           (t
+                            (push (call-result use) worklist))))
+                    ((cons)
+                     ;; Must be second argument, result must meet checks.
+                     (cond ((or (not (eql (length (call-arguments use)) 2))
+                                (eql (first (call-arguments use)) value)
+                                (typep use 'call-multiple-instruction))
+                            (setf failed t))
+                           (t
+                            (push (call-result use) worklist))))
+                    ((mezzano.runtime::%apply)
+                     ;; Must be second argument.
+                     (when (or (not (eql (length (call-arguments use)) 2))
+                               (eql (first (call-arguments use)) value))
+                       (setf failed t)))
+                    ((get-properties)
+                     ;; Must be first argument.
+                     (when (or (not (eql (length (call-arguments use)) 2))
+                               (eql (second (call-arguments use)) value))
+                       (setf failed t)))
+                    (t
+                     (setf failed t))))
+                 (debug-instruction)
+                 (branch-instruction)
+                 (t
+                  (setf failed t)))))))
+    (not failed)))
+
+(defvar *rest-args-converted* 0)
+(defvar *rest-args-not-converted* 0)
+
+(defun convert-rest-arg-to-dx (backend-function)
+  (let ((rest (argument-setup-rest (first-instruction backend-function))))
+    (when rest
+      (let ((uses (build-use/def-maps backend-function)))
+        (cond ((rest-arg-safe-to-make-dx-p backend-function uses)
+               (incf *rest-args-converted*)
+               ;; Replace all calls to COPY-LIST involving the rest arg with the rest arg itself.
+               (dolist (use (gethash rest uses))
+                 (when (and (typep use 'call-instruction)
+                            (eql (call-function use) 'copy-list))
+                   (replace-all-uses (call-result use) rest uses)
+                   (remove-instruction backend-function use))))
+              (t
+               (incf *rest-args-not-converted*)))))))

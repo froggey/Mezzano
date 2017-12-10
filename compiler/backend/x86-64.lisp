@@ -224,6 +224,7 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
 (defun compile-backend-function-1 (backend-function target)
   (mezzano.compiler.backend::simplify-cfg backend-function)
   (mezzano.compiler.backend::construct-ssa backend-function)
+  (mezzano.compiler.backend::convert-rest-arg-to-dx backend-function)
   (sys.c:with-metering (:backend-misc)
     (mezzano.compiler.backend.x86-64::lower-builtins backend-function))
   (sys.c:with-metering (:backend-optimize)
