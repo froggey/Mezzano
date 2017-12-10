@@ -193,6 +193,7 @@
        (incf total (remove-unused-instructions backend-function))
        (when (zerop total)
          (return))))
+  (remove-extraneous-multiple-value-saves backend-function)
   (deconstruct-ssa backend-function)
   (lower-local-variables backend-function)
   (when (= (sys.c::optimize-quality (ast backend-function) 'debug) 0)

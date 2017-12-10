@@ -45,3 +45,25 @@
                (:multiple
                 (assert mv-active-p)))))))
     flow))
+
+(defun remove-extraneous-multiple-value-saves (backend-function)
+  (let ((to-remove '())
+        (n-removed 0))
+    (do-instructions (inst backend-function)
+      (when (typep inst 'save-multiple-instruction)
+        ;; Look forward in this basic block for a matching restore.
+        (loop
+           for forward = (next-instruction backend-function inst) then (next-instruction backend-function forward)
+           until (typep forward 'terminator-instruction)
+           do
+             (when (and (typep forward 'restore-multiple-instruction)
+                        (eql (restore-multiple-context forward) inst))
+               (incf n-removed)
+               (push inst to-remove)
+               (push forward to-remove)
+               (loop-finish))
+             (when (not (multiple-value-safe-p forward nil))
+               (loop-finish)))))
+    (dolist (inst to-remove)
+      (remove-instruction backend-function inst))
+    n-removed))
