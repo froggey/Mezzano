@@ -1019,8 +1019,8 @@
   ;; It's a symbol and the current value.
   (emit-object-load :x6 :x28 :slot 6) ;; ### special-stack-pointer
   ;; Pop the stack.
-  (emit-object-load :x2 :x6 :slot 0)
-  (emit-object-store :x2 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-load :x7 :x6 :slot 0)
+  (emit-object-store :x7 :x28 :slot 6) ;; ### special-stack-pointer
   ;; Recompute the symbol hash.
   (emit-object-load :x9 :x6 :slot sys.int::+symbol-value-cell-symbol+)
   (emit `(lap:add :x9 :xzr :x9 :lsr 1)
@@ -1039,11 +1039,11 @@
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
   (emit-object-load :x6 :x28 :slot 6) ; ### special-stack-pointer
-  (emit-object-load :x0 :x6 :slot 1)
-  (emit-object-load :x5 :x6 :slot 2)
-  (emit `(lap:add :x5 :xzr :x5 :lsl 2)
-        `(lap:sub :x5 :x5 ,(- (object-slot-displacement 0)))
-        `(lap:str :x26 (:x0 :x5)))
+  (emit-object-load :x7 :x6 :slot 1)
+  (emit-object-load :x9 :x6 :slot 2)
+  (emit `(lap:add :x9 :xzr :x9 :lsl 2)
+        `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))
+        `(lap:str :x26 (:x7 :x9)))
   (emit-object-load :x6 :x6 :slot 0)
   (emit-object-store :x6 :x28 :slot 6)) ; ### special-stack-pointer
 

@@ -849,6 +849,9 @@
 (defmethod replace-all-registers ((instruction unbind-instruction) substitution-function)
   nil)
 
+(defmethod multiple-value-safe-p ((instruction unbind-instruction) architecture)
+  t)
+
 (defmethod print-instruction ((instruction unbind-instruction))
   (format t "   ~S~%"
           `(:unbind)))
@@ -864,6 +867,9 @@
 
 (defmethod replace-all-registers ((instruction disestablish-block-or-tagbody-instruction) substitution-function)
   nil)
+
+(defmethod multiple-value-safe-p ((instruction disestablish-block-or-tagbody-instruction) architecture)
+  t)
 
 (defmethod print-instruction ((instruction disestablish-block-or-tagbody-instruction))
   (format t "   ~S~%"

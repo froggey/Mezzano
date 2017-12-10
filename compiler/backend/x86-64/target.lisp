@@ -110,7 +110,7 @@
   '(:rbx :r13 :rax))
 
 (defmethod ra:instruction-clobbers ((instruction ir:disestablish-block-or-tagbody-instruction) (architecture sys.c:x86-64-target))
-  '(:rbx :r13 :rcx))
+  '(:rbx :r13 :rax))
 
 (defmethod ra:instruction-clobbers ((instruction ir:disestablish-unwind-protect-instruction) (architecture sys.c:x86-64-target))
   '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15

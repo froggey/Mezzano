@@ -148,10 +148,10 @@
   '(:x9))
 
 (defmethod ra:instruction-clobbers ((instruction ir:unbind-instruction) (architecture sys.c:arm64-target))
-  '(:x2 :x6 :x7 :x9 :x10))
+  '(:x6 :x7 :x9 :x10))
 
 (defmethod ra:instruction-clobbers ((instruction ir:disestablish-block-or-tagbody-instruction) (architecture sys.c:arm64-target))
-  '(:x0 :x5 :x6 :x7))
+  '(:x9 :x6 :x7))
 
 (defmethod ra:instruction-clobbers ((instruction ir:disestablish-unwind-protect-instruction) (architecture sys.c:arm64-target))
   '(:x0 :x1 :x2 :x3 :x4 :x5 :x6 :x7
