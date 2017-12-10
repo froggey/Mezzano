@@ -333,6 +333,11 @@ TLB shootdown must be protected by the VM lock."
   next
   (sys.lap-x86:ret))
 
+(sys.int::define-lap-function %wbinvd (())
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:wbinvd)
+  (sys.lap-x86:ret))
+
 (defun populate-idt (vector)
   ;; IDT completely fills the second page (256 * 16)
   (dotimes (i 256)
@@ -423,6 +428,7 @@ TLB shootdown must be protected by the VM lock."
   ;; properly. Liberal use of address-size-override and 32-bit addressing
   ;; modes are required in 16-bit code.
   (sys.lap-x86:!code16)
+  (sys.lap-x86:wbinvd)
   ;; Unify segments.
   ;; All memory access must be relative to CS until in 64-bit mode.
   (sys.lap-x86:movseg :bx :cs)
@@ -495,6 +501,8 @@ TLB shootdown must be protected by the VM lock."
                                    (ash 1 1) ; MP
                                    (ash 1 5) ; NE
                                    (ash 1 16))) ; WP
+  ;; Clear CD/NW. VirtualBox, KVM, and Bochs start CPUs with them set.
+  (sys.lap-x86:and32 :eax #.(lognot #x60000000))
   (sys.lap-x86:movcr :cr0 :eax)
   ;; Clear EFLAGS.
   (sys.lap-x86:push 0)
@@ -643,7 +651,9 @@ TLB shootdown must be protected by the VM lock."
   (setf (physical-memref-unsigned-byte-64 (+ physical-address +ap-bootstrap-real-pml4-offset+))
         (sys.int::%cr3))
   (setf (physical-memref-unsigned-byte-64 (+ physical-address +ap-bootstrap-initial-pml4-offset+))
-        initial-pml4))
+        initial-pml4)
+  ;; Make sure other CPUs see the trampoline before they receive INIT.
+  (%wbinvd))
 
 (defun lapic-setup ()
   (setf (lapic-reg +lapic-reg-spurious-interrupt-vector+) #x1FF))
