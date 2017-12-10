@@ -142,7 +142,7 @@
   '(:x9 :x10))
 
 (defmethod ra:instruction-clobbers ((instruction ir:push-special-stack-instruction) (architecture sys.c:arm64-target))
-  '(:x7 :x9))
+  '(:x9))
 
 (defmethod ra:instruction-clobbers ((instruction ir:flush-binding-cache-entry-instruction) (architecture sys.c:arm64-target))
   '(:x9))

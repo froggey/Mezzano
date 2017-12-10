@@ -797,37 +797,45 @@
 
 (defclass push-special-stack-instruction (backend-instruction)
   ((%a-value :initarg :a-value :accessor push-special-stack-a-value)
-   (%b-value :initarg :b-value :accessor push-special-stack-b-value)))
+   (%b-value :initarg :b-value :accessor push-special-stack-b-value)
+   (%frame :initarg :frame :accessor push-special-stack-frame)))
 
 (defmethod instruction-inputs ((instruction push-special-stack-instruction))
   (list (push-special-stack-a-value instruction) (push-special-stack-b-value instruction)))
 
 (defmethod instruction-outputs ((instruction push-special-stack-instruction))
-  (list))
+  (list (push-special-stack-frame instruction)))
 
 (defmethod replace-all-registers ((instruction push-special-stack-instruction) substitution-function)
   (setf (push-special-stack-a-value instruction) (funcall substitution-function (push-special-stack-a-value instruction)))
-  (setf (push-special-stack-b-value instruction) (funcall substitution-function (push-special-stack-b-value instruction))))
+  (setf (push-special-stack-b-value instruction) (funcall substitution-function (push-special-stack-b-value instruction)))
+  (setf (push-special-stack-frame instruction) (funcall substitution-function (push-special-stack-frame instruction))))
 
 (defmethod print-instruction ((instruction push-special-stack-instruction))
   (format t "   ~S~%"
-          `(:push-special-stack ,(push-special-stack-a-value instruction) ,(push-special-stack-b-value instruction))))
+          `(:push-special-stack ,(push-special-stack-frame instruction)
+                                ,(push-special-stack-a-value instruction)
+                                ,(push-special-stack-b-value instruction))))
 
 (defclass flush-binding-cache-entry-instruction (backend-instruction)
-  ((%symbol :initarg :symbol :accessor flush-binding-cache-entry-symbol)))
+  ((%symbol :initarg :symbol :accessor flush-binding-cache-entry-symbol)
+   (%new-value :initarg :new-value :accessor flush-binding-cache-entry-new-value)))
 
 (defmethod instruction-inputs ((instruction flush-binding-cache-entry-instruction))
-  (list (flush-binding-cache-entry-symbol instruction)))
+  (list (flush-binding-cache-entry-symbol instruction)
+        (flush-binding-cache-entry-new-value instruction)))
 
 (defmethod instruction-outputs ((instruction flush-binding-cache-entry-instruction))
   (list))
 
 (defmethod replace-all-registers ((instruction flush-binding-cache-entry-instruction) substitution-function)
-  (setf (flush-binding-cache-entry-symbol instruction) (funcall substitution-function (flush-binding-cache-entry-symbol instruction))))
+  (setf (flush-binding-cache-entry-symbol instruction) (funcall substitution-function (flush-binding-cache-entry-symbol instruction)))
+  (setf (flush-binding-cache-entry-new-value instruction) (funcall substitution-function (flush-binding-cache-entry-new-value instruction))))
 
 (defmethod print-instruction ((instruction flush-binding-cache-entry-instruction))
   (format t "   ~S~%"
-          `(:flush-binding-cache-entry ,(flush-binding-cache-entry-symbol instruction))))
+          `(:flush-binding-cache-entry ,(flush-binding-cache-entry-symbol instruction)
+                                       ,(flush-binding-cache-entry-new-value instruction))))
 
 (defclass unbind-instruction (backend-instruction)
   ())

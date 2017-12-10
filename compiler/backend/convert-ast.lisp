@@ -829,18 +829,23 @@
                                    ,@body))))
 
 (define-primitive sys.int::%%push-special-stack ((a b) result-mode)
-  (emit (make-instance 'push-special-stack-instruction
-                       :a-value a
-                       :b-value b))
-  a)
+  (let ((frame (make-instance 'virtual-register)))
+    (emit (make-instance 'push-special-stack-instruction
+                         :a-value a
+                         :b-value b
+                         :frame frame))
+    frame))
 
 (define-primitive sys.int::%%bind ((symbol value) result-mode)
-  (emit (make-instance 'push-special-stack-instruction
-                       :a-value symbol
-                       :b-value value))
-  (emit (make-instance 'flush-binding-cache-entry-instruction
-                       :symbol symbol))
-  value)
+  (let ((frame (make-instance 'virtual-register)))
+    (emit (make-instance 'push-special-stack-instruction
+                         :a-value symbol
+                         :b-value value
+                         :frame frame))
+    (emit (make-instance 'flush-binding-cache-entry-instruction
+                         :symbol symbol
+                         :new-value frame))
+    value))
 
 (define-primitive sys.int::%%unbind (() result-mode)
   (emit (make-instance 'unbind-instruction))

@@ -103,9 +103,6 @@
 (defmethod ra:instruction-clobbers ((instruction ir:switch-instruction) (architecture sys.c:x86-64-target))
   '(:rax))
 
-(defmethod ra:instruction-clobbers ((instruction ir:push-special-stack-instruction) (architecture sys.c:x86-64-target))
-  '(:r13))
-
 (defmethod ra:instruction-clobbers ((instruction ir:flush-binding-cache-entry-instruction) (architecture sys.c:x86-64-target))
   '(:rax))
 

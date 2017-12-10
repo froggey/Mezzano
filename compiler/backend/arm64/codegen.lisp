@@ -989,30 +989,30 @@
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 
 (defmethod emit-lap (backend-function (instruction ir:push-special-stack-instruction) uses defs)
-  (let ((slots (gethash instruction *prepass-data*)))
+  (let ((slots (gethash instruction *prepass-data*))
+        (frame-reg (push-special-stack-frame instruction)))
     ;; Store header.
     (load-literal :x9 (ash 3 sys.int::+object-data-shift+))
     (emit-stack-store :x9  (+ slots 3))
     ;; Store bits.
     (emit-stack-store (ir:push-special-stack-a-value instruction) (+ slots 1))
     (emit-stack-store (ir:push-special-stack-b-value instruction) (+ slots 0))
-    ;; Store link.
-    (emit-object-load :x7 :x28 :slot 6) ; ### special-stack-pointer
-    (emit-stack-store :x7 (+ slots 2))
+    ;; Store link. Misuses frame-reg slightly.
+    (emit-object-load ,frame-reg :x28 :slot 6) ; ### special-stack-pointer
+    (emit-stack-store ,frame-reg (+ slots 2))
     ;; Generate pointer.
     (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 3))
                          sys.int::+tag-object+))
-    (emit `(lap:add :x7 :x29 :x9))
+    (emit `(lap:add ,frame-reg :x29 :x9))
     ;; Push.
-    (emit-object-store :x7 :x28 :slot 6))) ; ### special-stack-pointer
+    (emit-object-store ,frame-reg :x28 :slot 6))) ; ### special-stack-pointer
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:add :x9 :xzr ,(ir:flush-binding-cache-entry-symbol instruction) :lsr 1)
         `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
   ;; Store the new binding stack entry into the cache entry.
-  ;; FIXME: Don't hard-code the register!
   (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
-        `(lap:str :x7 (:x28 :x9))))
+        `(lap:str ,(flush-binding-cache-entry-new-value instruction) (:x28 :x9))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.

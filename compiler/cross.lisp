@@ -688,9 +688,11 @@
            #:push-special-stack-instruction
            #:push-special-stack-a-value
            #:push-special-stack-b-value
+           #:push-special-stack-frame
 
            #:flush-binding-cache-entry-instruction
            #:flush-binding-cache-entry-symbol
+           #:flush-binding-cache-entry-new-value
 
            #:unbind-instruction
            #:disestablish-block-or-tagbody-instruction

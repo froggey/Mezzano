@@ -898,7 +898,8 @@
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 
 (defmethod emit-lap (backend-function (instruction push-special-stack-instruction) uses defs)
-  (let ((slots (gethash instruction *prepass-data*)))
+  (let ((slots (gethash instruction *prepass-data*))
+        (frame-reg (push-special-stack-frame instruction)))
     ;; Flush slots.
     (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+object-data-shift+))
           `(lap:mov64 (:stack ,(+ slots 2)) nil)
@@ -907,25 +908,24 @@
     ;; Store bits.
     (emit `(lap:mov64 (:stack ,(+ slots 1)) ,(push-special-stack-a-value instruction))
           `(lap:mov64 (:stack ,(+ slots 0)) ,(push-special-stack-b-value instruction)))
-    ;; Store link.
+    ;; Store link. Misuses frame-reg slightly.
     (emit `(lap:gs)
-          `(lap:mov64 :r13 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
-          `(lap:mov64 (:stack ,(+ slots 2)) :r13))
+          `(lap:mov64 ,frame-reg (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
+          `(lap:mov64 (:stack ,(+ slots 2)) ,frame-reg))
     ;; Generate pointer.
-    (emit `(lap:lea64 :r13 (:rbp ,(+ (- (* (1+ (+ slots 3)) 8))
-                                     sys.int::+tag-object+))))
+    (emit `(lap:lea64 ,frame-reg (:rbp ,(+ (- (* (1+ (+ slots 3)) 8))
+                                           sys.int::+tag-object+))))
     ;; Push.
     (emit `(lap:gs)
-          `(lap:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) :r13))))
+          `(lap:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) ,frame-reg))))
 
 (defmethod emit-lap (backend-function (instruction flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:mov64 :rax ,(flush-binding-cache-entry-symbol instruction))
         `(sys.lap-x86:shr32 :eax 4)
         `(sys.lap-x86:and32 :eax ,(1- 128)))
   ;; Store the new binding stack entry into the cache entry.
-  ;; FIXME: Don't hard-code the register!
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil 128 :rax) :r13)))
+        `(sys.lap-x86:mov64 (:object nil 128 :rax) ,(flush-binding-cache-entry-new-value instruction))))
 
 (defmethod emit-lap (backend-function (instruction unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
