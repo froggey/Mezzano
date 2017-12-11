@@ -215,6 +215,18 @@
                ;; subtract +tag-object+, skip object header.
                ;; Return an expression, so slot goes through symbol resolution, etc.
                `(+ (- #b1001) 8 (* ,slot 8)))))
+    (:car
+     (destructuring-bind (base)
+         (rest address)
+       (values :base-plus-immediate
+               base
+               -3)))
+    (:cdr
+     (destructuring-bind (base)
+         (rest address)
+       (values :base-plus-immediate
+               base
+               (+ -3 8))))
     (:pc
      (assert (and (rest address)
                   (endp (cddr address))))
