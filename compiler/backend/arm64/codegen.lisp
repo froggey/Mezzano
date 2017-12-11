@@ -990,7 +990,7 @@
 
 (defmethod emit-lap (backend-function (instruction ir:push-special-stack-instruction) uses defs)
   (let ((slots (gethash instruction *prepass-data*))
-        (frame-reg (push-special-stack-frame instruction)))
+        (frame-reg (ir:push-special-stack-frame instruction)))
     ;; Store header.
     (load-literal :x9 (ash 3 sys.int::+object-data-shift+))
     (emit-stack-store :x9  (+ slots 3))
@@ -1012,7 +1012,7 @@
         `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
   ;; Store the new binding stack entry into the cache entry.
   (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
-        `(lap:str ,(flush-binding-cache-entry-new-value instruction) (:x28 :x9))))
+        `(lap:str ,(ir:flush-binding-cache-entry-new-value instruction) (:x28 :x9))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
@@ -1084,13 +1084,13 @@
 (defmethod emit-lap (backend-function (instruction ir:make-dx-closure-instruction) uses defs)
   (let ((slots (gethash instruction *prepass-data*)))
     ;; Closure tag and size.
-    (load-literal :x7 (logior (ash 3 sys.int::+object-data-shift+)
+    (load-literal :x9 (logior (ash 3 sys.int::+object-data-shift+)
                               (ash sys.int::+object-tag-closure+
                                    sys.int::+object-type-shift+)))
-    (emit-stack-store :x7 (+ slots 3))
+    (emit-stack-store :x9 (+ slots 3))
     ;; Entry point is CODE's entry point.
-    (emit-object-load :x7 (ir:make-dx-closure-function instruction))
-    (emit-stack-store :x7 (+ slots 2))
+    (emit-object-load :x9 (ir:make-dx-closure-function instruction))
+    (emit-stack-store :x9 (+ slots 2))
     ;; Store function & environment.
     (emit-stack-store (ir:make-dx-closure-function instruction) (+ slots 1))
     (emit-stack-store (ir:make-dx-closure-environment instruction) (+ slots 0))

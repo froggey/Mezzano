@@ -163,8 +163,11 @@
     :q16 :q17 :q18 :q19 :q20 :q21 :q22 :q23
     :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31))
 
+(defmethod ra:instruction-clobbers ((instruction ir:make-dx-simple-vector-instruction) (architecture sys.c:arm64-target))
+  '(:x9))
+
 (defmethod ra:instruction-clobbers ((instruction ir:make-dx-closure-instruction) (architecture sys.c:arm64-target))
-  '(:x5 :x9))
+  '(:x9))
 
 (defmethod ra:instruction-clobbers ((instruction ir:box-single-float-instruction) (architecture sys.c:arm64-target))
   '(:x9))
