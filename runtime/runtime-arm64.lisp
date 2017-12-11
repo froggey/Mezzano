@@ -265,3 +265,252 @@
 (defun sys.int::%fill-words (destination-address value count)
   (dotimes (i count)
     (setf (sys.int::memref-t destination-address i) value)))
+
+(sys.int::define-lap-function %allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #* :incoming-arguments :rcx)
+  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
+  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  ;; Attempt to quickly allocate from the general area. Will call
+  ;; %SLOW-ALLOCATE-FROM-GENERAL-AREA if things get too hairy.
+  ;; R8 = tag; R9 = data; R10 = words
+  ;; Check argument count.
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.ne SLOW-PATH-BAD-ARGS)
+  (:gc :no-frame :layout #*00)
+  ;; Update allocation meter.
+  ;; *BYTES-CONSED* is updated elsewhere.
+  (mezzano.lap.arm64:ldr :x6 (:constant *general-allocation-count*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  ;; FIXME: Should be atomic add.
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:str :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
+  (mezzano.lap.arm64:ldr :x6 (:constant *enable-allocation-profiling*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x4 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x4 :x26)
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Check *GC-IN-PROGRESS*.
+  (mezzano.lap.arm64:ldr :x6 (:constant sys.int::*gc-in-progress*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x4 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x4 :x26)
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Try the real fast allocator.
+  (mezzano.lap.arm64:ldr :x7 (:function %do-allocate-from-general-area))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Done. Return everything.
+  (mezzano.lap.arm64:ldr :x6 (:constant *general-fast-path-hits*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  ;; FIXME: Should be atomic add.
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:str :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:ret)
+  SLOW-PATH
+  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
+  (mezzano.lap.arm64:movz :x5 #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #* :incoming-arguments :rcx)
+  (mezzano.lap.arm64:ldr :x7 (:function %slow-allocate-from-general-area))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))
+
+(sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #*)
+  ;; Attempt to quickly allocate from the general area.
+  ;; Returns (values tag data words t) on failure, just the object on success.
+  ;; X0 = tag; X1 = data; X2 = words.
+  ;; Fetch symbol value cells.
+  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*general-area-bump*))
+  (mezzano.lap.arm64:ldr :x7 (:object :x7 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*general-area-limit*))
+  (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x4 (:constant sys.int::*dynamic-mark-bit*))
+  (mezzano.lap.arm64:ldr :x4 (:object :x4 #.sys.int::+symbol-value+))
+  ;; X7 = bump. X3 = limit. X4 = mark.
+  ;; Assemble the final header value in X12.
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :lsl #.(- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
+  ;; If a garbage collection occurs, it must rewind IP back here.
+  ;; Additionally, configure linked mode with :x9 linked to :x7
+  (:gc :no-frame :layout #* :restart t :extra-registers :rax-rcx)
+  ;; Fetch and increment the current bump pointer.
+  (mezzano.lap.arm64:add :x6 :xzr :x2 :lsl 3) ; words * 8
+  ;; Address generation.
+  (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
+  ;; Atomic add. Blech, load/store linked suck.
+  ATOMIC-RETRY
+  (mezzano.lap.arm64:ldaxr :x10 (:x9))
+  (mezzano.lap.arm64:add :x11 :x10 :x6)
+  (mezzano.lap.arm64:orr :x6 :xzr :x10)
+  (mezzano.lap.arm64:stlxr :w10 :x11 (:x9))
+  (mezzano.lap.arm64:cbnz :x10 ATOMIC-RETRY)
+  ;; X6 is old bump pointer, the address of the cons.
+  ;; X11 is the new bump pointer.
+  ;; Test against limit.
+  (mezzano.lap.arm64:ldr :x10 (:object :x3 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x11 :x10)
+  (mezzano.lap.arm64:b.hi SLOW-PATH)
+  ;; Generate the object.
+  ;; Unfixnumize address. This still looks like a fixnum due to alignment.
+  (mezzano.lap.arm64:add :x6 :xzr :x6 :lsr #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits and the tag bits.
+  ;; Set address bits, tag bits, and the mark bit.
+  (mezzano.lap.arm64:ldr :x9 (:pc general-address-object-tag))
+  (mezzano.lap.arm64:ldr :x10 (:object :x4 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x10 :xzr :x10 :lsr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:orr :x9 :x9 :x10)
+  (mezzano.lap.arm64:orr :x6 :x6 :x9)
+  ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
+  ;; The gc metadata at this point has :restart t, so if a GC occurs before
+  ;; writing the final header, this process will be restarted from the beginning.
+  ;; This is required as the GC will only copy 2 words, leaving the rest of the memory in an invalid state.
+  ;; Write back the header.
+  ;; This must be done in a single write so the GC always sees a correct header.
+  (mezzano.lap.arm64:str :x12 (:object :x6 -1))
+  ;; Leave restart region.
+  (:gc :no-frame :layout #*)
+  ;; Done. Return everything.
+  (mezzano.lap.arm64:orr :x0 :xzr :x6)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  SLOW-PATH
+  (mezzano.lap.arm64:ldr :x3 (:constant t))
+  (mezzano.lap.arm64:movz :x5 #.(ash 4 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  (:align 16)
+  general-address-object-tag
+  (:d64/le #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                     sys.int::+tag-object+)))
+
+(sys.int::define-lap-function do-cons ((car cdr))
+  (:gc :no-frame :layout #*)
+  ;; Attempt to quickly allocate a cons.
+  ;; Returns (values car cdr t) on failure, just the cons on success.
+  ;; R8 = car; R9 = cdr
+  ;; Fetch symbol value cells.
+  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*cons-area-bump*))
+  (mezzano.lap.arm64:ldr :x7 (:object :x7 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*cons-area-limit*))
+  (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x4 (:constant sys.int::*dynamic-mark-bit*))
+  (mezzano.lap.arm64:ldr :x4 (:object :x4 #.sys.int::+symbol-value+))
+  ;; R13 = bump. R11 = limit. R12 = mark.
+  ;; Additionally, configure linked mode with :x9 linked to :x7
+  (:gc :no-frame :layout #* :restart t :extra-registers :rax-rcx)
+  ;; Fetch and increment the current bump pointer.
+  (mezzano.lap.arm64:movz :x6 #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
+  ;; Address generation.
+  (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
+  ;; Atomic add. Blech, load/store linked suck.
+  ATOMIC-RETRY
+  (mezzano.lap.arm64:ldaxr :x6 (:x9))
+  (mezzano.lap.arm64:add :x11 :x6 #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
+  (mezzano.lap.arm64:stlxr :w10 :x11 (:x9))
+  (mezzano.lap.arm64:cbnz :x10 ATOMIC-RETRY)
+  ;; RBX is old bump pointer, the address of the cons.
+  ;; X11 is the new bump pointer.
+  ;; Test against limit.
+  (mezzano.lap.arm64:ldr :x10 (:object :x3 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x11 :x10)
+  (mezzano.lap.arm64:b.hi SLOW-PATH)
+  ;; Generate the cons object.
+  ;; Unfixnumize address. This still looks like a fixnum due to alignment.
+  (mezzano.lap.arm64:add :x6 :xzr :x6 :lsr #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits, tag bits, and the mark bit.
+  (mezzano.lap.arm64:ldr :x9 (:pc CONS-ADDRESS-CONS-TAG))
+  (mezzano.lap.arm64:ldr :x10 (:object :x4 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:orr :x9 :x9 :x10 :lsr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:orr :x6 :x6 :x9)
+  ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
+  ;; It is safe to leave the restart region.
+  (:gc :no-frame :layout #*)
+  ;; Initialize the CAR & CDR outside the restart region to minimise the potential restarts.
+  (mezzano.lap.arm64:str :x0 (:car :x6))
+  (mezzano.lap.arm64:str :x1 (:cdr :x6))
+  ;; Done. Return everything.
+  (mezzano.lap.arm64:orr :x0 :xzr :x6)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  SLOW-PATH
+  (mezzano.lap.arm64:ldr :x2 (:constant t))
+  (mezzano.lap.arm64:movz :x5 #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  (:align 16)
+  CONS-ADDRESS-CONS-TAG
+  (:d64/le #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                     sys.int::+tag-cons+)))
+
+(sys.int::define-lap-function cons ((car cdr))
+  (:gc :no-frame :layout #* :incoming-arguments :rcx)
+  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
+  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
+  ;; R8 = car; R9 = cdr
+  ;; Check argument count.
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.ne SLOW-PATH-BAD-ARGS)
+  ;; Update allocation meter.
+  ;; FIXME: Should be atomic add.
+  (mezzano.lap.arm64:ldr :x6 (:constant *cons-allocation-count*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:str :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:ldr :x6 (:constant *bytes-consed*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x9 :x9 #.(ash 16 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:str :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
+  #| Logging every cons tends to explode the profile buffer & exhaust memory.
+  (mezzano.lap.arm64:ldr :x6 (:constant *enable-allocation-profiling*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x6 :x26)
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  |#
+  ;; Check *GC-IN-PROGRESS*.
+  (mezzano.lap.arm64:ldr :x6 (:constant sys.int::*gc-in-progress*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:subs :xzr :x6 :x26)
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Try the real fast allocator.
+  (mezzano.lap.arm64:ldr :x7 (:function do-cons))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Done. Return everything.
+  (mezzano.lap.arm64:ldr :x6 (:constant *cons-fast-path-hits*))
+  (mezzano.lap.arm64:ldr :x6 (:object :x6 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:str :x9 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:ret)
+  SLOW-PATH
+  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  ;; Tail call into SLOW-CONS.
+  (mezzano.lap.arm64:movz :x5 #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #* :incoming-arguments :rcx)
+  (mezzano.lap.arm64:ldr :x7 (:function slow-cons))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))

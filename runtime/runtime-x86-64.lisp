@@ -489,3 +489,205 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
   (sys.lap-x86:xor32 :edx :edx)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
+
+;; This relies on memory being initialized to zero, so it looks like
+;; many simple vectors of length 0.
+(sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #*0)
+  ;; Attempt to quickly allocate from the general area.
+  ;; Returns (values tag data words t) on failure, just the object on success.
+  ;; R8 = tag; R9 = data; R10 = words.
+  ;; Fetch symbol value cells.
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::*general-area-bump*))
+  (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r11 (:constant sys.int::*general-area-limit*))
+  (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r12 (:constant sys.int::*dynamic-mark-bit*))
+  (sys.lap-x86:mov64 :r12 (:object :r12 #.sys.int::+symbol-value+))
+    ;; R13 = bump. R11 = limit. R12 = mark.
+  ;; Assemble the final header value in RDI.
+  (sys.lap-x86:mov64 :rdi :r9)
+  (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:lea64 :rdi (:rdi (:r8 #.(ash 1 (- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+)))))
+  ;; If a garbage collection occurs, it must rewind IP back here.
+  (:gc :no-frame :layout #*0 :restart t)
+  ;; Fetch and increment the current bump pointer.
+  (sys.lap-x86:lea64 :rbx ((:r10 8))) ; words * 8
+  (sys.lap-x86:lock)
+  (sys.lap-x86:xadd64 (:object :r13 #.sys.int::+symbol-value-cell-value+) :rbx)
+  ;; RBX is old bump pointer, the address of the cons.
+  ;; Find the new bump pointer.
+  (sys.lap-x86:lea64 :rsi (:rbx (:r10 8)))
+    ;; Test against limit.
+  (sys.lap-x86:cmp64 :rsi (:object :r11 #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:ja SLOW-PATH)
+  ;; Generate the object.
+  ;; Unfixnumize address. This still looks like a fixnum due to alignment.
+  (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits and the tag bits.
+  ;; Set address bits, tag bits, and the mark bit.
+  (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                    sys.int::+tag-object+))
+  (sys.lap-x86:mov64 :rdx (:object :r12 #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:shr64 :rdx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:or64 :rax :rdx)
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
+  ;; The gc metadata at this point has :restart t, so if a GC occurs before
+  ;; writing the final header, this process will be restarted from the beginning.
+  ;; This is required as the GC will only copy 2 words, leaving the rest of the memory in an invalid state.
+  ;; Write back the header.
+  ;; This must be done in a single write so the GC always sees a correct header.
+  (sys.lap-x86:mov64 (:object :rbx -1) :rdi)
+  ;; Leave restart region.
+  (:gc :no-frame :layout #*0)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  (sys.lap-x86:mov64 :r11 t)
+  (sys.lap-x86:mov32 :ecx #.(ash 4 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function %allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #*0)
+  ;; Attempt to quickly allocate from the general area. Will call
+  ;; %SLOW-ALLOCATE-FROM-GENERAL-AREA if things get too hairy.
+  ;; R8 = tag; R9 = data; R10 = words
+  ;; Check argument count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
+  ;; Update allocation meter.
+  ;; *BYTES-CONSED* is updated elsewhere.
+  (sys.lap-x86:mov64 :rbx (:constant *general-allocation-count*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:lock)
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
+  (sys.lap-x86:mov64 :rbx (:constant *enable-allocation-profiling*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Check *GC-IN-PROGRESS*.
+  (sys.lap-x86:mov64 :rbx (:constant sys.int::*gc-in-progress*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Try the real fast allocator.
+  (sys.lap-x86:mov64 :r13 (:function %do-allocate-from-general-area))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :rbx (:constant *general-fast-path-hits*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:lock)
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
+  (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (sys.lap-x86:mov64 :r13 (:function %slow-allocate-from-general-area))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
+(sys.int::define-lap-function do-cons ((car cdr))
+  (:gc :no-frame :layout #*0)
+  ;; Attempt to quickly allocate a cons.
+  ;; Returns (values car cdr t) on failure, just the cons on success.
+  ;; R8 = car; R9 = cdr
+  ;; Fetch symbol value cells.
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::*cons-area-bump*))
+  (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r11 (:constant sys.int::*cons-area-limit*))
+  (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r12 (:constant sys.int::*dynamic-mark-bit*))
+  (sys.lap-x86:mov64 :r12 (:object :r12 #.sys.int::+symbol-value+))
+  ;; R13 = bump. R11 = limit. R12 = mark.
+  (:gc :no-frame :layout #*0 :restart t)
+  ;; Fetch and increment the current bump pointer.
+  (sys.lap-x86:mov64 :rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
+  (sys.lap-x86:lock)
+  (sys.lap-x86:xadd64 (:object :r13 #.sys.int::+symbol-value-cell-value+) :rbx)
+  ;; RBX is old bump pointer, the address of the cons.
+  ;; Find the new bump pointer.
+  (sys.lap-x86:lea64 :rsi (:rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)))
+  ;; Test against limit.
+  (sys.lap-x86:cmp64 :rsi (:object :r11 #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:ja SLOW-PATH)
+  ;; Generate the cons object.
+  ;; Unfixnumize address. This still looks like a fixnum due to alignment.
+  (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits, tag bits, and the mark bit.
+  (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                    sys.int::+tag-cons+))
+  (sys.lap-x86:mov64 :rdx (:object :r12 #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:shr64 :rdx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:or64 :rax :rdx)
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
+  ;; It is safe to leave the restart region.
+  (:gc :no-frame :layout #*0)
+  ;; Initialize the CAR & CDR outside the restart region to minimise the potential restarts.
+  (sys.lap-x86:mov64 (:car :rbx) :r8)
+  (sys.lap-x86:mov64 (:cdr :rbx) :r9)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  (sys.lap-x86:mov64 :r10 t)
+  (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function cons ((car cdr))
+  (:gc :no-frame :layout #*0)
+  ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
+  ;; R8 = car; R9 = cdr
+  ;; Check argument count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
+  ;; Update allocation meter.
+  (sys.lap-x86:mov64 :rbx (:constant *cons-allocation-count*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:lock)
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov64 :rbx (:constant *bytes-consed*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:lock)
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 16 sys.int::+n-fixnum-bits+))
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
+  #| Logging every cons tends to explode the profile buffer & exhaust memory.
+  (sys.lap-x86:mov64 :rbx (:constant *enable-allocation-profiling*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  |#
+  ;; Check *GC-IN-PROGRESS*.
+  (sys.lap-x86:mov64 :rbx (:constant sys.int::*gc-in-progress*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Try the real fast allocator.
+  (sys.lap-x86:mov64 :r13 (:function do-cons))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :rbx (:constant *cons-fast-path-hits*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:lock)
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  ;; Tail call into SLOW-CONS.
+  (sys.lap-x86:mov32 :ecx #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  SLOW-PATH-BAD-ARGS
+  (sys.lap-x86:mov64 :r13 (:function slow-cons))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
