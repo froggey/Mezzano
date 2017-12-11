@@ -998,14 +998,14 @@
     (emit-stack-store (ir:push-special-stack-a-value instruction) (+ slots 1))
     (emit-stack-store (ir:push-special-stack-b-value instruction) (+ slots 0))
     ;; Store link. Misuses frame-reg slightly.
-    (emit-object-load ,frame-reg :x28 :slot 6) ; ### special-stack-pointer
-    (emit-stack-store ,frame-reg (+ slots 2))
+    (emit-object-load frame-reg :x28 :slot 6) ; ### special-stack-pointer
+    (emit-stack-store frame-reg (+ slots 2))
     ;; Generate pointer.
     (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 3))
                          sys.int::+tag-object+))
     (emit `(lap:add ,frame-reg :x29 :x9))
     ;; Push.
-    (emit-object-store ,frame-reg :x28 :slot 6))) ; ### special-stack-pointer
+    (emit-object-store frame-reg :x28 :slot 6))) ; ### special-stack-pointer
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:add :x9 :xzr ,(ir:flush-binding-cache-entry-symbol instruction) :lsr 1)
