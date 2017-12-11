@@ -35,6 +35,26 @@
                          :inputs (list temp)
                          :outputs (list)))))
 
+(define-builtin mezzano.runtime::%%simple-1d-array-p ((object) :ls)
+  (let ((header (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:ldr
+                         :operands (list header `(,object ,(object-slot-displacement -1)))
+                         :inputs (list object)
+                         :outputs (list header)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:and
+                         :operands (list temp header #b11111100)
+                         :inputs (list header)
+                         :outputs (list temp)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:subs
+                         :operands (list :xzr temp (ash sys.int::+last-simple-1d-array-object-tag+
+                                                        sys.int::+object-type-shift+))
+                         :inputs (list temp)
+                         :outputs (list)))))
+
 (define-builtin sys.int::%object-ref-t ((object index) result)
   (cond ((constant-value-p index 'fixnum)
          (let ((disp (object-slot-displacement (fetch-constant-value index))))
@@ -116,16 +136,55 @@
                        :source value
                        :destination result)))
 
+(define-builtin sys.int::%object-header-data ((object) result)
+  (let ((temp1 (make-instance 'ir:virtual-register))
+        (temp2 (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:ldr
+                         :operands (list temp1 `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list temp1)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:and
+                         :operands (list temp2 temp1 (lognot (1- (ash 1 sys.int::+object-data-shift+))))
+                         :inputs (list temp1)
+                         :outputs (list temp2)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list result :xzr temp2 :lsr (- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
+                         :inputs (list temp2)
+                         :outputs (list result)))))
+
 (define-builtin mezzano.runtime::%car ((cons) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:ldr
-                       :operands (list result `(,cons ,(- sys.int::+tag-cons+)))
+                       :operands (list result `(:car ,cons))
                        :inputs (list cons)
                        :outputs (list result))))
 
 (define-builtin mezzano.runtime::%cdr ((cons) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:ldr
-                       :operands (list result `(,cons ,(+ (- sys.int::+tag-cons+) 8)))
+                       :operands (list result `(:cdr ,cons))
                        :inputs (list cons)
                        :outputs (list result))))
+
+(define-builtin (setf mezzano.runtime::%car) ((value cons) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:str
+                       :operands (list value `(:car ,cons))
+                       :inputs (list cons value)
+                       :outputs (list)))
+  (emit (make-instance 'ir:move-instruction
+                       :source value
+                       :destination result)))
+
+(define-builtin (setf mezzano.runtime::%cdr) ((value cons) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:str
+                       :operands (list value `(:cdr ,cons))
+                       :inputs (list cons value)
+                       :outputs (list)))
+  (emit (make-instance 'ir:move-instruction
+                       :source value
+                       :destination result)))
