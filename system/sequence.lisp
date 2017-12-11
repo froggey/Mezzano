@@ -809,6 +809,8 @@
   (setf end1 (or end1 (length sequence-1)))
   (setf end2 (or end2 (length sequence-2)))
   (check-test-test-not test test-not)
+  (when test-not
+    (setf test (complement test-not)))
   (setf test (or test #'eql))
   (setf key (or key #'identity))
   (do ((index2 start2 (1+ index2))
