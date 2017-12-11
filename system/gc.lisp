@@ -384,7 +384,8 @@ This is required to make the GC interrupt safe."
                  ;; Not all settings are valid in arm64.
                  #+arm64
                  (when (or (not (eql extra-registers nil))
-                           (not (eql extra-registers :rax)))
+                           (not (or (eql extra-registers :rax)
+                                    (eql extra-registers :rax-rcx))))
                    (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))))
       (when interruptp
         ;; Thread is partway through popping an interrupt frame.
@@ -439,6 +440,14 @@ This is required to make the GC interrupt safe."
            (scavengef (memref-signed-byte-64 interrupt-frame-pointer 6))
            (setf (memref-signed-byte-64 interrupt-frame-pointer 13)
                  (+ (memref-signed-byte-64 interrupt-frame-pointer 6)
+                    offset))))
+        ((:rax-rcx)
+         ;; x9 (rax) contains an interior pointer into :x7 (r13)
+         (let ((offset (- (memref-signed-byte-64 interrupt-frame-pointer 13) ; x9
+                          (memref-signed-byte-64 interrupt-frame-pointer 2)))) ; x7
+           (scavengef (memref-signed-byte-64 interrupt-frame-pointer 2))
+           (setf (memref-signed-byte-64 interrupt-frame-pointer 13)
+                 (+ (memref-signed-byte-64 interrupt-frame-pointer 2)
                     offset)))))
       (when block-or-tagbody-thunk
         ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
@@ -688,7 +697,8 @@ This is required to make the GC interrupt safe."
                  ;; Not all settings are valid in arm64.
                  #+arm64
                  (when (or (not (eql extra-registers nil))
-                           (not (eql extra-registers :rax)))
+                           (not (or (eql extra-registers :rax)
+                                    (eql extra-registers :rax-rcx))))
                    (bad-metadata ":EXTRA-REGISTERS has undefined setting"))))))
       (when interruptp
         ;; Thread is partway through popping an interrupt frame.
@@ -737,6 +747,14 @@ This is required to make the GC interrupt safe."
            (scavengef (mezzano.supervisor:thread-state-r9 thread))
            (setf (mezzano.supervisor:thread-state-rax thread)
                  (+ (mezzano.supervisor:thread-state-r9 thread)
+                    offset))))
+        ((:rax-rcx)
+         ;; x9 (rax) contains an interior pointer into :x7 (r13)
+         (let ((offset (- (mezzano.supervisor:thread-state-rax thread)
+                          (mezzano.supervisor:thread-state-r13 thread))))
+           (scavengef (mezzano.supervisor:thread-state-r13 thread))
+           (setf (mezzano.supervisor:thread-state-rax thread)
+                 (+ (mezzano.supervisor:thread-state-r13 thread)
                     offset)))))
       (when block-or-tagbody-thunk
         ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
