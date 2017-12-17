@@ -634,6 +634,46 @@
           (word (+ addr 6)) read-only)
     (make-value addr sys.int::+tag-object+)))
 
+(defun vmake-structure (type &rest initargs &key &allow-other-keys)
+  ;; Look up the associated structure definition.
+  (let* ((def (sys.int::get-structure-type type))
+         (n-slots (length (sys.c::structure-type-slots def)))
+         (address (allocate (+ 2 n-slots) ; header + type + slots
+                            (sys.c::structure-type-area def))))
+    ;; header
+    (setf (word (+ address 0)) (array-header sys.int::+object-tag-structure-object+ (1+ n-slots))) ; includes type
+    ;; type
+    (setf (word (+ address 1)) (make-value (first (or (gethash type *struct-table*)
+                                                      (error "Missing structure ~S?" type)))
+                                           sys.int::+tag-object+))
+    ;; Initialize slots to NIL.
+    (loop
+       for i from 2
+       repeat n-slots
+       do
+         (setf (word (+ address i)) (vsym nil)))
+    ;; Populate from initargs.
+    (loop
+       for (name value) on initargs by #'cddr
+       ;; Initargs are keywords, slot names are other symbols.
+       ;; Hack around this by comparing symbol names.
+       for loc = (or (position name (sys.c::structure-type-slots def)
+                               :test #'string=
+                               :key #'sys.c::structure-slot-name)
+                     (error "Unknown slot ~S in structure ~S" name type))
+       do
+         (format t "Position of slot ~S in ~S is ~S @ ~X~%" name type loc (+ address 2 loc))
+         (setf (word (+ address 2 loc)) value))
+    (make-value address sys.int::+tag-object+)))
+
+(defun (setf structure-slot) (value object type slot)
+  (let* ((def (sys.int::get-structure-type type))
+         (index (or (position slot (sys.c::structure-type-slots def)
+                              :key #'sys.c::structure-slot-name)
+                    (error "Unknown slot ~S in structure ~S" slot type))))
+    (format t "Position of slot ~S in ~S is ~S (setf) @ ~X~%" slot type index (+ (truncate object 8) 2 index))
+    (setf (word (+ (pointer-part object) 2 index)) value)))
+
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))
         (bml3e (ldb (byte 9 30) virtual-address))
