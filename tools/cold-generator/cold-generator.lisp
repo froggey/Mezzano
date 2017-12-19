@@ -627,6 +627,13 @@
          (setf (word (+ address 2 loc)) value))
     (make-value address sys.int::+tag-object+)))
 
+(defun structure-slot (object type slot)
+  (let* ((def (sys.int::get-structure-type type))
+         (index (or (position slot (sys.c::structure-type-slots def)
+                              :key #'sys.c::structure-slot-name)
+                    (error "Unknown slot ~S in structure ~S" slot type))))
+    (word (+ (pointer-part object) 2 index))))
+
 (defun (setf structure-slot) (value object type slot)
   (let* ((def (sys.int::get-structure-type type))
          (index (or (position slot (sys.c::structure-type-slots def)
