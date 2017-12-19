@@ -228,11 +228,28 @@
          (error 'storage-condition))
        (sys.int::gc)))
 
+(defun with-live-objects-helper (&rest objects)
+  (declare (ignore objects)))
+
+(defmacro with-live-objects (objects &body body)
+  "Hold OBJECTS live during the extent of BODY."
+  (let ((syms (loop
+                 for obj in objects
+                 collect (gensym))))
+    `(let ,(loop
+              for obj in objects
+              for sym in syms
+              collect (list sym obj))
+       (multiple-value-prog1
+           (progn ,@body)
+         (with-live-objects-helper ,@syms)))))
+
 (defun mangle-pinned/wired-cons (object)
   ;; Convert an object-tagged cons into a cons-tagged cons.
-  (let ((addr (sys.int::lisp-object-address object)))
-    (sys.int::%%assemble-value (+ (logand addr (lognot #b1111)) 16)
-                               sys.int::+tag-cons+)))
+  (with-live-objects (object)
+    (let ((addr (sys.int::lisp-object-address object)))
+      (sys.int::%%assemble-value (+ (logand addr (lognot #b1111)) 16)
+                                 sys.int::+tag-cons+))))
 
 (defun %cons-in-pinned-area (car cdr)
   (let ((object (mangle-pinned/wired-cons
