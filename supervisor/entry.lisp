@@ -45,8 +45,10 @@
            (error 'storage-condition))
          (debug-print-line "No memory for stack, calling GC.")
          (sys.int::gc))
+    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
     (sys.int::make-weak-pointer stack stack
                                 (lambda ()
+                                  (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))
                                   (release-memory-range addr size))
                                 :wired)
     stack))

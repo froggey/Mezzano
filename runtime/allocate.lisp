@@ -13,6 +13,9 @@
 (sys.int::defglobal sys.int::*general-area-limit*)
 (sys.int::defglobal sys.int::*cons-area-bump*)
 (sys.int::defglobal sys.int::*cons-area-limit*)
+
+(sys.int::defglobal sys.int::*bytes-allocated-to-stacks*)
+(sys.int::defglobal sys.int::*wired-stack-area-bump*)
 (sys.int::defglobal sys.int::*stack-area-bump*)
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
@@ -82,7 +85,8 @@
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
-        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")))
+        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
+        sys.int::*bytes-allocated-to-stacks* sys.int::*wired-stack-area-bump*))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
