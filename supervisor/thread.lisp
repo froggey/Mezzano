@@ -874,7 +874,7 @@ Interrupts must be off and the global thread lock must be held."
     ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
     (multiple-value-prog1
         (funcall thunk)
-      (with-mutex (*world-stop-lock*)
+      (with-world-stop-lock ()
         ;; Release the dogs!
         (safe-without-interrupts (self)
           (acquire-global-thread-lock)
