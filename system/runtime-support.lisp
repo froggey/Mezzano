@@ -330,6 +330,19 @@
 VALUE may be nil to make the fref unbound."
   (check-type value (or function null))
   (check-type fref function-reference)
+  ;; Check for and update any existing TRACE-WRAPPER.
+  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+  (let ((existing (function-reference-function fref)))
+    (when (locally
+              (declare (notinline typep)) ; bootstrap hack.
+            (typep existing 'trace-wrapper))
+      (cond ((not value)
+             ;; This fref is being made unbound, untrace the function and drop into the normal code.
+             (%untrace (function-reference-name fref)))
+            (t
+             ;; Update the traced function instead of setting the fref's function.
+             (setf (trace-wrapper-original existing) value)
+             (return-from function-reference-function)))))
   (multiple-value-bind (new-fn new-entry-point)
       (cond
         ((not value)
