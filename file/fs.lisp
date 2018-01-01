@@ -70,7 +70,8 @@
          (setf *host-alist*
                (list* (list name new-value)
                       (remove name *host-alist* :key 'first :test 'string=))))
-        (t (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=)))))
+        (t (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=))))
+  new-value)
 
 (defun list-all-hosts ()
   (mapcar #'second *host-alist*))
