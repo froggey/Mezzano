@@ -5,7 +5,9 @@
 
 (defpackage :mezzano.file-system.local
   (:export #:add-local-file-host)
-  (:use #:cl #:mezzano.file-system))
+  (:use #:cl #:mezzano.file-system)
+  (:import-from :sys.int
+                #:explode))
 
 (in-package :mezzano.file-system.local)
 
@@ -65,18 +67,6 @@
   (setf (find-host name)
         (make-instance 'local-file-host
                        :name (string-upcase name))))
-
-(defun explode (character string &optional (start 0) end)
-  (setf end (or end (length string)))
-  (do ((elements '())
-       (i start (1+ i))
-       (elt-start start))
-      ((>= i end)
-       (push (subseq string elt-start i) elements)
-       (nreverse elements))
-    (when (eql (char string i) character)
-      (push (subseq string elt-start i) elements)
-      (setf elt-start (1+ i)))))
 
 (defmethod parse-namestring-using-host ((host local-file-host) namestring junk-allowed)
   (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")

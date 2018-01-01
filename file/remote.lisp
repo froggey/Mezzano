@@ -6,7 +6,9 @@
 (defpackage :mezzano.file-system.remote
   (:export #:add-simple-file-host
            #:test-host-connectivity)
-  (:use #:cl #:mezzano.file-system))
+  (:use #:cl #:mezzano.file-system)
+  (:import-from :sys.int
+                #:explode))
 
 (in-package :mezzano.file-system.remote)
 
@@ -69,18 +71,6 @@
                        :name (string-upcase name)
                        :address address
                        :port port)))
-
-(defun explode (character string &optional (start 0) end)
-  (setf end (or end (length string)))
-  (do ((elements '())
-       (i start (1+ i))
-       (elt-start start))
-      ((>= i end)
-       (push (subseq string elt-start i) elements)
-       (nreverse elements))
-    (when (eql (char string i) character)
-      (push (subseq string elt-start i) elements)
-      (setf elt-start (1+ i)))))
 
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)
