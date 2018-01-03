@@ -631,7 +631,12 @@
            #:sse-vector-value
            #:make-sse-vector-single-float
            #:sse-vector-single-float-element
+           #:sse-vector-single-float-1-ref
+           #:sse-vector-single-float-2-ref
+           #:sse-vector-single-float-4-ref
            #:make-sse-vector-double-float
            #:sse-vector-double-float-element
+           #:sse-vector-double-float-1-ref
+           #:sse-vector-double-float-2-ref
            #:sse-vector
            #:sse-vector-p))

@@ -197,15 +197,15 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform sse-vector-value ((value sse-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (unsigned-byte 128) (sys.c::call %sse-vector-value ,value)))
+    `(sys.c::call %sse-vector-value ,value))
   (sys.c::define-transform %sse-vector-value ((value sse-vector))
       ((:result-type (unsigned-byte 64))
        (:optimize (= safety 0) (= speed 3)))
-    `(the (unsigned-byte 64) (sys.c::call %sse-vector-value/ub64 ,value)))
+    `(sys.c::call %sse-vector-value/ub64 ,value))
   (sys.c::define-transform %sse-vector-value ((value sse-vector))
       ((:result-type fixnum)
        (:optimize (= safety 0) (= speed 3)))
-    `(the (and finxum (integer 0)) (sys.c::call %sse-vector-value/fixnum ,value)))
+    `(the (and fixnum (integer 0)) (sys.c::call %sse-vector-value/fixnum ,value)))
   (sys.c::mark-as-constant-foldable 'sse-vector-value)
   (sys.c::mark-as-constant-foldable '%sse-vector-value)
   (sys.c::mark-as-constant-foldable '%sse-vector-value/ub64)
@@ -279,6 +279,74 @@ Equivalent to the _mm_set_ps intrinsic."
 The values in the other lanes of the vector are indeterminate and may not be zero."
   (%single-float-to-sse-vector vector))
 
+(defun sse-vector-single-float-1-ref (vector index)
+  "Read 1 single-float from the simple 1D single-float array VECTOR into lane 0 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array single-float (*)))
+  (make-sse-vector-single-float (aref vector index)))
+
+(defun (setf sse-vector-single-float-1-ref) (sse-vector vector index)
+  "Store lane 0 of SSE-VECTOR into the simple 1D single-float array VECTOR."
+  (check-type vector (simple-array single-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sse-vector-single-float-element sse-vector 0))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-single-float-1-ref ((vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))
+  (sys.c::define-transform (setf sse-vector-single-float-1-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
+
+(defun sse-vector-single-float-2-ref (vector index)
+  "Read 2 single-floats from the simple 1D single-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array single-float (*)))
+  (make-sse-vector-single-float (aref vector index)
+                                (aref vector (1+ index))))
+
+(defun (setf sse-vector-single-float-2-ref) (sse-vector vector index)
+  "Store lanes 0 and 1 of SSE-VECTOR into the simple 1D single-float array VECTOR."
+  (check-type vector (simple-array single-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sse-vector-single-float-element sse-vector 0)
+        (aref vector (1+ index)) (sse-vector-single-float-element sse-vector 1))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-single-float-2-ref ((vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))
+  (sys.c::define-transform (setf sse-vector-single-float-2-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
+
+(defun sse-vector-single-float-4-ref (vector index)
+  "Read 4 single-floats from the simple 1D single-float array VECTOR into an sse-vector."
+  (check-type vector (simple-array single-float (*)))
+  (make-sse-vector-single-float (aref vector (+ index 0))
+                                (aref vector (+ index 1))
+                                (aref vector (+ index 2))
+                                (aref vector (+ index 3))))
+
+(defun (setf sse-vector-single-float-4-ref) (sse-vector vector index)
+  "Store SSE-VECTOR into the simple 1D single-float array VECTOR."
+  (check-type vector (simple-array single-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector (+ index 0)) (sse-vector-single-float-element sse-vector 0)
+        (aref vector (+ index 1)) (sse-vector-single-float-element sse-vector 1)
+        (aref vector (+ index 2)) (sse-vector-single-float-element sse-vector 2)
+        (aref vector (+ index 3)) (sse-vector-single-float-element sse-vector 3))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-single-float-4-ref ((vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))
+  (sys.c::define-transform (setf sse-vector-single-float-4-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
+
 (declaim (inline make-sse-vector-double-float))
 (defun make-sse-vector-double-float (&optional (a 0.0d0) (b 0.0d0))
   "Construct an SSE-VECTOR from 2 DOUBLE-FLOAT values.
@@ -330,32 +398,74 @@ Equivalent to the _mm_set_pd intrinsic."
 The values in the other lanes of the vector are indeterminate and may not be zero."
   (%double-float-to-sse-vector vector))
 
+(defun sse-vector-double-float-1-ref (vector index)
+  "Read 1 double-float from the simple 1D double-float array VECTOR into lane 0 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array double-float (*)))
+  (make-sse-vector-double-float (aref vector index)))
+
+(defun (setf sse-vector-double-float-1-ref) (sse-vector vector index)
+  "Store lane 0 of SSE-VECTOR into the simple 1D double-float array VECTOR."
+  (check-type vector (simple-array double-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sse-vector-double-float-element sse-vector 0))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-double-float-1-ref ((vector (simple-array double-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))
+  (sys.c::define-transform (setf sse-vector-double-float-1-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
+
+(defun sse-vector-double-float-2-ref (vector index)
+  "Read 2 double-floats from the simple 1D double-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array double-float (*)))
+  (make-sse-vector-double-float (aref vector index)
+                                (aref vector (1+ index))))
+
+(defun (setf sse-vector-double-float-2-ref) (sse-vector vector index)
+  "Store lanes 0 and 1 of SSE-VECTOR into the simple 1D double-float array VECTOR."
+  (check-type vector (simple-array double-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sse-vector-double-float-element sse-vector 0)
+        (aref vector (1+ index)) (sse-vector-double-float-element sse-vector 1))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-double-float-2-ref ((vector (simple-array double-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))
+  (sys.c::define-transform (setf sse-vector-double-float-2-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
+
 (declaim (inline %object-ref-sse-vector/32 %object-ref-sse-vector/64 %object-ref-sse-vector/128
                  (setf %object-ref-sse-vector/32) (setf %object-ref-sse-vector/64) (setf %object-ref-sse-vector/128)))
 
 (defun %object-ref-sse-vector/32 (object &optional (index 0))
   "MOVD"
-  (%%object-ref-sse-vector/32 object index))
+  (%%object-ref-sse-vector/32-unscaled object (the fixnum (* index 4))))
 
 (defun (setf %object-ref-sse-vector/32) (value object &optional (index 0))
   "MOVD"
-  (setf (%%object-ref-sse-vector/32 object index) value))
+  (setf (%%object-ref-sse-vector/32-unscaled object (the fixnum (* index 4))) value))
 
 (defun %object-ref-sse-vector/64 (object &optional (index 0))
   "MOVQ"
-  (%%object-ref-sse-vector/64 object index))
+  (%%object-ref-sse-vector/64-unscaled object (the fixnum (* index 8))))
 
 (defun (setf %object-ref-sse-vector/64) (value object &optional (index 0))
   "MOVQ"
-  (setf (%%object-ref-sse-vector/64 object index) value))
+  (setf (%%object-ref-sse-vector/64-unscaled object (the fixnum (* index 8))) value))
 
 (defun %object-ref-sse-vector/128 (object &optional (index 0))
   "MOVDQU"
-  (%%object-ref-sse-vector/128 object index))
+  (%%object-ref-sse-vector/128-unscaled object (the fixnum (* index 16))))
 
 (defun (setf %object-ref-sse-vector/128) (value object &optional (index 0))
   "MOVDQU"
-  (setf (%%object-ref-sse-vector/128 object index) value))
+  (setf (%%object-ref-sse-vector/128-unscaled object (the fixnum (* index 16))) value))
 
 (defmethod print-object ((object sse-vector) stream)
   (print-unreadable-object (object stream :type t)

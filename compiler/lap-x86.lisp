@@ -399,6 +399,17 @@ Remaining values describe the effective address: base index scale disp rip-relat
                    ;; Return an expression, so slot goes through symbol resolution, etc.
                    `(+ (- #b1001) 8 (* ,slot 8))
                    nil)))
+        ((eql (first form) :object-unscaled)
+         (destructuring-bind (base slot &optional index (scale 1))
+             (rest form)
+           (values nil
+                   base
+                   index
+                   (if index scale nil)
+                   ;; subtract +tag-object+, skip object header.
+                   ;; Return an expression, so slot goes through symbol resolution, etc.
+                   `(+ (- #b1001) 8 ,slot)
+                   nil)))
         (t (let (base index scale disp rip-relative)
              (dolist (elt form)
                (cond ((eql elt :rip)

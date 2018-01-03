@@ -235,77 +235,143 @@
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin mezzano.simd::%%object-ref-sse-vector/32 ((object index) result)
-  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movd
-                         :operands (list result-unboxed `(:object ,object 0 ,index 2))
-                         :inputs (list object index)
-                         :outputs (list result-unboxed)))
+(define-builtin mezzano.simd::%%object-ref-sse-vector/32-unscaled ((object index) result)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movd
+                                :operands (list result-unboxed `(:object-unscaled ,object ,(fetch-constant-value index)))
+                                :inputs (list object)
+                                :outputs (list result-unboxed))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movd
+                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :inputs (list object index-unboxed)
+                                :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/32) ((value object index) result)
-  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/32-unscaled) ((value object index) result)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
     (emit (make-instance 'unbox-sse-vector-instruction
                          :source value
                          :destination value-unboxed))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movd
-                         :operands (list `(:object ,object 0 ,index 2) value-unboxed)
-                         :inputs (list object index value-unboxed)
-                         :outputs (list)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movd
+                                :operands (list `(:object-unscaled ,object ,(fetch-constant-value index)) value-unboxed)
+                                :inputs (list object value-unboxed)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movd
+                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :inputs (list object index-unboxed value-unboxed)
+                                :outputs (list)))))
     (emit (make-instance 'move-instruction
                          :source value
                          :destination result))))
 
-(define-builtin mezzano.simd::%%object-ref-sse-vector/64 ((object index) result)
-  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movq
-                         :operands (list result-unboxed `(:object ,object 0 ,index 4))
-                         :inputs (list object index)
-                         :outputs (list result-unboxed)))
+(define-builtin mezzano.simd::%%object-ref-sse-vector/64-unscaled ((object index) result)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movq
+                                :operands (list result-unboxed `(:object-unscaled ,object ,(fetch-constant-value index)))
+                                :inputs (list object)
+                                :outputs (list result-unboxed))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movq
+                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :inputs (list object index-unboxed)
+                                :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/64) ((value object index) result)
-  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/64-unscaled) ((value object index) result)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
     (emit (make-instance 'unbox-sse-vector-instruction
                          :source value
                          :destination value-unboxed))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movq
-                         :operands (list `(:object ,object 0 ,index 4) value-unboxed)
-                         :inputs (list object index value-unboxed)
-                         :outputs (list)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movq
+                                :operands (list `(:object-unscaled ,object ,(fetch-constant-value index)) value-unboxed)
+                                :inputs (list object value-unboxed)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movq
+                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :inputs (list object index-unboxed value-unboxed)
+                                :outputs (list)))))
     (emit (make-instance 'move-instruction
                          :source value
                          :destination result))))
 
-(define-builtin mezzano.simd::%%object-ref-sse-vector/128 ((object index) result)
-  (let ((result-unboxed (make-instance 'virtual-register :kind :sse)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movdqu
-                         :operands (list result-unboxed `(:object ,object 0 ,index 8))
-                         :inputs (list object index)
-                         :outputs (list result-unboxed)))
+(define-builtin mezzano.simd::%%object-ref-sse-vector/128-unscaled ((object index) result)
+  (let ((result-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movdqu
+                                :operands (list result-unboxed `(:object-unscaled ,object ,(fetch-constant-value index)))
+                                :inputs (list object)
+                                :outputs (list result-unboxed))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movdqu
+                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :inputs (list object index-unboxed)
+                                :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/128) ((value object index) result)
-  (let ((value-unboxed (make-instance 'virtual-register :kind :sse)))
+(define-builtin (setf mezzano.simd::%%object-ref-sse-vector/128-unscaled) ((value object index) result)
+  (let ((value-unboxed (make-instance 'virtual-register :kind :sse))
+        (index-unboxed (make-instance 'virtual-register :kind :integer)))
     (emit (make-instance 'unbox-sse-vector-instruction
                          :source value
                          :destination value-unboxed))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movdqu
-                         :operands (list `(:object ,object 0 ,index 8) value-unboxed)
-                         :inputs (list object index value-unboxed)
-                         :outputs (list)))
+    (cond ((constant-value-p index '(signed-byte 32))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movdqu
+                                :operands (list `(:object-unscaled ,object ,(fetch-constant-value index)) value-unboxed)
+                                :inputs (list object value-unboxed)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'unbox-fixnum-instruction
+                                :destination index-unboxed
+                                :source index))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movdqu
+                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :inputs (list object index-unboxed value-unboxed)
+                                :outputs (list)))))
     (emit (make-instance 'move-instruction
                          :source value
                          :destination result))))
