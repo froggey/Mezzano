@@ -1002,8 +1002,9 @@ This is required to make the GC interrupt safe."
 (defun scan-function (object)
   ;; Scan the constant pool.
   (let* ((address (ash (%pointer-field object) 4))
-         (mc-size (* (memref-unsigned-byte-16 address 1) 16))
-         (pool-size (memref-unsigned-byte-16 address 2)))
+         (header (%object-header-data object))
+         (mc-size (* (ldb +function-header-code-size+ header) 16))
+         (pool-size (ldb +function-header-pool-size+ header)))
     (scavenge-many (+ address mc-size) pool-size)))
 
 (defun scan-object (object)
@@ -1154,9 +1155,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           4)
          (#.+object-tag-function+
           ;; The size of a function is the sum of the MC, the GC info and the constant pool.
-          (ceiling (+ (* (ldb (byte 16 8) length) 16)  ; mc size
-                      (* (ldb (byte 16 24) length) 8)  ; pool size
-                      (ldb (byte 16 40) length)) ; gc-info size.
+          (ceiling (+ (* (ldb +function-header-code-size+ length) 16)  ; mc size
+                      (* (ldb +function-header-pool-size+ length) 8)  ; pool size
+                      (ldb +function-header-metadata-size+ length)) ; gc-info size.
                    8))
          ((#.+object-tag-simple-string+
            #.+object-tag-string+

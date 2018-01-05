@@ -515,12 +515,15 @@
          (gc-info-size (ceiling (length gc-info) 8))
          (pool-size (length constants))
          (total (+ (* mc-size 2) pool-size gc-info-size)))
+    (assert (< mc-size (ash 1 (byte-size sys.int::+function-header-code-size+))))
+    (assert (< pool-size (ash 1 (byte-size sys.int::+function-header-pool-size+))))
+    (assert (< (length gc-info) (ash 1 (byte-size sys.int::+function-header-metadata-size+))))
     (when (oddp total)
       (incf total))
     (let* ((object (%allocate-object tag
-                                     (logior (ash mc-size 8)
-                                             (ash pool-size 24)
-                                             (ash (length gc-info) 40))
+                                     (logior (dpb mc-size sys.int::+function-header-code-size+ 0)
+                                             (dpb pool-size sys.int::+function-header-pool-size+ 0)
+                                             (dpb (length gc-info) sys.int::+function-header-metadata-size+ 0))
                                      (1- total) ; subtract header.
                                      (if wired :wired :pinned)))
            (address (ash (sys.int::%pointer-field object) 4)))

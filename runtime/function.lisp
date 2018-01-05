@@ -9,16 +9,11 @@
 
 (defun function-pool-size (function)
   (check-type function function)
-  (ldb (byte +function-constant-pool-size+
-             +function-constant-pool-position+)
-       (%object-header-data function)))
+  (ldb +function-header-pool-size+ (%object-header-data function)))
 
 (defun function-code-size (function)
   (check-type function function)
-  (* (ldb (byte +function-machine-code-size+
-                +function-machine-code-position+)
-          (%object-header-data function))
-     16))
+  (* (ldb +function-header-code-size+ (%object-header-data function)) 16))
 
 (defun function-pool-object (function offset)
   (check-type function function)
@@ -35,8 +30,7 @@
   "Return the address of and the number of bytes in FUNCTION's GC info."
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
-         (gc-length (ldb (byte +function-gc-metadata-size+
-                               +function-gc-metadata-position+)
+         (gc-length (ldb +function-header-metadata-size+
                          (%object-header-data function)))
          (mc-size (function-code-size function))
          (n-constants (function-pool-size function)))
@@ -61,18 +55,11 @@ Arguments to FUNCTION:
   (check-type function function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
-         (mc-size (* (ldb (byte +function-machine-code-size+
-                                +function-machine-code-position+)
-                          header-data)
-                     16))
-         (n-constants (ldb (byte +function-constant-pool-size+
-                                 +function-constant-pool-position+)
-                           header-data))
+         (mc-size (* (ldb +function-header-code-size+ header-data) 16))
+         (n-constants (ldb +function-header-pool-size+ header-data))
          ;; Address of GC metadata & the length.
          (address (+ fn-address mc-size (* n-constants 8)))
-         (length (ldb (byte +function-gc-metadata-size+
-                            +function-gc-metadata-position+)
-                      header-data))
+         (length (ldb +function-header-metadata-size+ header-data))
          ;; Position within the metadata.
          (position 0))
     (flet ((consume (&optional (errorp t))

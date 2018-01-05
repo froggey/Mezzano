@@ -141,18 +141,12 @@
 (defconstant +symbol-mode-global+ 4)
 
 ;;; Layout of a function's header.
-;;; Currently applies to all 3 function types.
-
+;;; Only applies to compiled functions.
 ;; Machine code size is measured in paragraphs (16 byte units) and starts
 ;; at the beginning of the object, including the header.
-(defconstant +function-machine-code-size+ 16)
-(defconstant +function-machine-code-position+ 8)
-;; Number of entries in the constant pool.
-(defconstant +function-constant-pool-size+ 16)
-(defconstant +function-constant-pool-position+ 24)
-;; Size of the GC metadata in bytes.
-(defconstant +function-gc-metadata-size+ 16)
-(defconstant +function-gc-metadata-position+ 40)
+(defconstant +function-header-code-size+ (byte 16 8))
+(defconstant +function-header-pool-size+ (byte 16 24))
+(defconstant +function-header-metadata-size+ (byte 16 40))
 
 ;;; Layout of functions.
 ;;; Common to all functions.

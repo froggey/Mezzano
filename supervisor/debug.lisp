@@ -196,9 +196,7 @@
                (return))
             (let* ((function (sys.int::return-address-to-function return-address))
                    (info (sys.int::%object-header-data function))
-                   (mc-size (ldb (byte sys.int::+function-machine-code-size+
-                                       sys.int::+function-machine-code-position+)
-                                 info))
+                   (mc-size (ldb sys.int::+function-header-code-size+ info))
                    ;; First entry in the constant pool.
                    (address (logand (sys.int::lisp-object-address function) -16))
                    (name (sys.int::memref-t address (* mc-size 2))))
@@ -242,9 +240,7 @@
                  (return))
               (let* ((function (sys.int::return-address-to-function return-address))
                      (info (sys.int::%object-header-data function))
-                     (mc-size (ldb (byte sys.int::+function-machine-code-size+
-                                         sys.int::+function-machine-code-position+)
-                                   info))
+                     (mc-size (ldb sys.int::+function-header-code-size+ info))
                      ;; First entry in the constant pool.
                      (address (logand (sys.int::lisp-object-address function) -16))
                      (name (sys.int::memref-t address (* mc-size 2))))

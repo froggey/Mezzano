@@ -440,12 +440,7 @@
           (dotimes (i (truncate (length mc) 8))
             (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
           ;; Set header word.
-          (setf (word address) 0)
-          (setf (ldb (byte 16 0) (word address)) (ash sys.int::+object-tag-function+
-                                                      sys.int::+object-type-shift+) ; tag
-                (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
-                (ldb (byte 16 32) (word address)) (length constants)
-                (ldb (byte 16 48) (word address)) (length gc-info))
+          (setf (word address) (function-header (- (length mc) 16) (length constants) (length gc-info)))
           (setf (word (1+ address)) (* (+ address 2) 8))
           ;; Copy GC bytes.
           (setf gc-info (adjust-array gc-info (* (ceiling (length gc-info) 8) 8)))
@@ -1701,6 +1696,15 @@
              (:lazy
               (first value)))))))
 
+(defun function-header (code-length pool-length metadata-length &optional (tag sys.int::+object-tag-function+))
+  (assert (< (ceiling (+ code-length 16) 16) (expt 2 (cross-cl:byte-size sys.int::+function-header-code-size+))))
+  (assert (< pool-length (expt 2 (cross-cl:byte-size sys.int::+function-header-pool-size+))))
+  (assert (< metadata-length (expt 2 (cross-cl:byte-size sys.int::+function-header-metadata-size+))))
+  (array-header tag
+                (logior (cross-cl:dpb (ceiling (+ code-length 16) 16) sys.int::+function-header-code-size+ 0)
+                        (cross-cl:dpb pool-length sys.int::+function-header-pool-size+ 0)
+                        (cross-cl:dpb metadata-length sys.int::+function-header-metadata-size+ 0))))
+
 (defun load-llf-function (stream stack)
   ;; n constants on stack.
   ;; list of fixups on stack.
@@ -1754,10 +1758,7 @@
     (setf (word address) 0)
     (setf (word (1+ address)) (* (+ address 2) 8))
     (lock-word (1+ address))
-    (setf (ldb (byte  8 0) (word address)) (ash tag sys.int::+object-type-shift+)
-          (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 16) 16)
-          (ldb (byte 16 32) (word address)) n-constants
-          (ldb (byte 16 48) (word address)) gc-info-length)
+    (setf (word address) (function-header mc-length n-constants gc-info-length tag))
     (lock-word address)
     ;; Set constant pool.
     (dotimes (i (length constants))
