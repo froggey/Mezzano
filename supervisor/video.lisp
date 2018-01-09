@@ -73,10 +73,15 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
 (defun current-framebuffer ()
   *current-framebuffer*)
 
-(defun framebuffer-blit (fb nrows ncols from-array from-row from-col to-row to-col)
+(defvar *mcclim-mode* :mezzano)
+
+(defun framebuffer-blit (fb nrows ncols from-array from-row from-col to-row to-col &optional mcclim-p)
   "Update a region of the system framebuffer.
 Returns false if the framebuffer is invalid, true otherwise.
 If the framebuffer is invalid, the caller should fetch the current framebuffer and discard the old one."
+  (when (or (and (eq *mcclim-mode* :mezzano) mcclim-p)
+            (and (eq *mcclim-mode* :mcclim) (not mcclim-p)))
+    (return-from  framebuffer-blit t))
   (when (not (eql (array-rank from-array) 2))
     (error 'type-error
            :expected-type '(array (unsigned-byte 32) (* *))
@@ -117,6 +122,8 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (incf ncols to-col)
       (decf from-col to-col)
       (setf to-col 0))
+    (when (and (eq *mcclim-mode* :both) mcclim-p)
+      (incf to-col (/ (framebuffer-width fb) 2)))
     ;; Clamp from row/column.
     (when (< from-row 0)
       (incf nrows from-row)
@@ -128,7 +135,9 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (setf from-col 0))
     ;; Clamp nrows/ncols.
     (setf nrows (max 0 (min nrows (- (framebuffer-height fb) to-row) (- from-height from-row))))
-    (setf ncols (max 0 (min ncols (- (framebuffer-width fb) to-col) (- from-width from-col))))
+    (if (and (eq *mcclim-mode* :both) (not mcclim-p))
+        (setf ncols (max 0 (min ncols (- (/ (framebuffer-width fb) 2) to-col) (- from-width from-col))))
+        (setf ncols (max 0 (min ncols (- (framebuffer-width fb) to-col) (- from-width from-col)))))
     ;; Disable snapshotting and the GC while this is in progress, as we're touching physical memory.
     (with-pseudo-atomic
       (when (not (eql fb *current-framebuffer*))
