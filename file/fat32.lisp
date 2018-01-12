@@ -1,9 +1,9 @@
 ;;;; Copyright (c) 2017-2018 Bruno Cichon <ebrasca@librepanther.com>
 ;;;; This code is licensed under the MIT license.
-;;;; For now only suport reading fat32 FS.
+;;;; For now only support reading fat32 FS.
 
 (defpackage :mezzano.fat32-file-system
-  (:use :cl)
+  (:use :cl :mezzano.file-system)
   (:export #:read-fat32-structure
            #:read-fat32-info-structure
            #:read-sector
@@ -206,12 +206,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (reserved-1 nil) ; 496 12
   (trail-signature nil :type (unsigned-byte 32)))
 
-(defun read-sector (disk sector)
-  (let* ((array (make-array (* 1 (mezzano.supervisor:disk-sector-size disk)) :area :wired
+(defun read-sector (disk sector &optional (n 1))
+  (let* ((array (make-array (* n (mezzano.supervisor:disk-sector-size disk)) :area :wired
                             :element-type '(unsigned-byte 8))))
     (mezzano.supervisor:disk-read disk
                                   sector
-                                  1
+                                  n
                                   array)
     array))
 
@@ -235,16 +235,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defun read-file (file disk fat32)
   (when (file-p file)
-    (loop for n from 0 to (file-size-in-sectors file fat32)
-       :do
-         (loop with sector = (read-sector disk
-                                          (+ n
-                                             (first-sector-of-cluster fat32
-                                                                      (virtual-dir-first-cluster file))))
-            for i from 0 to (1- (array-total-size sector))
-            for octet = (aref sector i)
-            :unless (zerop octet)
-            :do (princ (code-char octet))))))
+    (read-sector disk
+                 (first-sector-of-cluster fat32
+                                          (virtual-dir-first-cluster file))
+                 (+ 2 (file-size-in-sectors file fat32)))))
 
 (defun file-p (file)
   (let* ((n (virtual-dir-attributes file))
@@ -406,10 +400,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (name-2 nil :type vector))
 
 (defun root-dir-sectors (fat32)
-  (ceiling
-   (/ (+ (* (fat32-root-entry-count fat32) 32)
-         (1- (fat32-bytes-per-sector fat32)))
-      (fat32-bytes-per-sector fat32))))
+  0 ;for fat32 is always 0
+  ;; (ceiling
+  ;;  (/ (+ (* (fat32-root-entry-count fat32) 32)
+  ;;        (1- (fat32-bytes-per-sector fat32)))
+  ;;     (fat32-bytes-per-sector fat32)))
+  )
 
 (defun data-sectors (fat32)
   (- (fat32-total-sectors32 fat32)
@@ -434,8 +430,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
      (root-dir-sectors fat32)))
 
 (defun first-sector-of-cluster (fat32 cluster)
-  (+ -2
-     (* (- cluster 2)
+  (+ (* (- cluster 2)
         (fat32-sectors-per-cluster fat32))
      (first-data-sector fat32)))
 
@@ -444,67 +439,227 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
    (/ (virtual-dir-file-size file)
       (fat32-bytes-per-sector fat32))))
 
+;;;; Host integration
+
+(defclass fat32-host ()
+  ((%name :initarg :name
+          :reader host-name)
+   (%lock :initarg :lock
+          :reader fat32-host-lock)
+   (partition :initarg :partition
+              :reader partition)
+   (fat32-structure :initarg :fat32-structure
+                    :reader fat32-structure)
+   (fat32-info :initarg :fat32-info
+               :reader fat32-info))
+  (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
+
+(defmethod host-default-device ((host fat32-host))
+  nil)
+
+(defmethod parse-namestring-using-host ((host fat32-host) namestring junk-allowed)
+  (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
+  (let ((start 0)
+        (end (length namestring))
+        (directory '())
+        (name "")
+        (type ""))
+
+    (loop for i from start to (1- end)
+       for char = (aref namestring i)
+       :do (when (char= char #\>)
+             (unless (< i 1)
+               (progn (push (subseq namestring (1+ start) i) directory)
+                      (setf start i)))))
+
+    (loop for i from start to (1- end)
+       for char = (aref namestring i)
+       :initially (setf name (subseq namestring (1+ start) end))
+       :do (cond ((char= char #\.)
+                  (progn (setf name (subseq namestring (1+ start) i)
+                               type (subseq namestring (1+ i) end))
+                         (return)))))
+
+    (make-pathname :host host
+                   :directory directory
+                   :name name
+                   :type type
+                   :version :newest)))
+
+(defmethod unparse-pathname (pathname (host fat32-host))
+  (let ((dir (pathname-directory pathname))
+        (name (pathname-name pathname))
+        (type (pathname-type pathname)))
+    (values dir
+            (if (string= "" type)
+                name
+                (format nil "~a.~a" name type)))))
+
+(defclass fat32-file-stream (sys.gray:fundamental-binary-input-stream
+                             sys.gray:fundamental-binary-output-stream
+                             file-stream)
+  ((path :initarg :path :reader path)
+   (pathname :initarg :pathname :reader file-stream-pathname)
+   (host :initarg :host :reader host)
+   (direction :initarg :direction :reader direction)
+   ;; Buffer itself.
+   (read-buffer :initarg :read-buffer
+                :accessor read-buffer)
+   ;; File position where the buffer data starts.
+   (read-buffer-position :initarg :read-buffer-position
+                         :initform 0
+                         :accessor read-buffer-position)
+   ;; Current offset into the buffer.
+   (read-buffer-offset :initarg :read-buffer-offset
+                       :initform 0
+                       :accessor read-buffer-offset)
+   ;; File size
+   (read-buffer-size :initarg :read-buffer-size
+                     :initform 0
+                     :accessor read-buffer-size)
+   ;; Write buffer.
+   (write-buffer :initform nil :accessor write-buffer)
+   (write-buffer-position :accessor write-buffer-position)
+   (write-buffer-offset :accessor write-buffer-offset)
+   (abort-action :initarg :abort-action :accessor abort-action)))
+
+(defclass fat32-file-character-stream (sys.gray:fundamental-character-input-stream
+                                       sys.gray:fundamental-character-output-stream
+                                       fat32-file-stream
+                                       sys.gray:unread-char-mixin)
+  ())
+
+(defmacro with-fat32-host-locked ((host) &body body)
+  `(mezzano.supervisor:with-mutex ((fat32-host-lock ,host))
+     ,@body))
+
+;; WIP Don't require to load entire file
+(defmethod open-using-host ((host fat32-host) pathname
+                            &key direction element-type if-exists if-does-not-exist external-format)
+
+  (with-fat32-host-locked (host)
+    (let* ((disk (partition host))
+           (fat32 (fat32-structure host))
+           (buffer nil)
+           (root-dir (mezzano.fat32-file-system:read-dir-from-cluster
+                      (mezzano.fat32-file-system:read-cluster
+                       fat32 disk
+                       (mezzano.fat32-file-system::first-root-dir-sector fat32))
+                      fat32))
+           (read-buffer-size 0))
+
+      (when (member direction '(:output :io))
+        (error "Feature not implemented"))
+
+      (multiple-value-bind (directory name) (unparse-pathname pathname host)
+        (loop for dir-name in directory
+           with dir = root-dir
+           do (loop for file in dir
+                 do (when (string= dir-name (virtual-dir-name file))
+                      (setf dir
+                            (read-dir-from-file (fat32-structure host)
+                                                (partition host)
+                                                file))))
+           finally (loop for file in dir
+                      do (when (string= name (virtual-dir-name file))
+                           (setf buffer (mezzano.fat32-file-system:read-file file disk fat32)
+                                 read-buffer-size (virtual-dir-file-size file))
+                           (return))
+                      finally (ecase if-does-not-exist
+                                (:error (error 'simple-file-error
+                                               :pathname pathname
+                                               :format-control "File ~A does not exist. ~S"
+                                               :format-arguments (list pathname name)))
+                                (:create (error "Feature not implemented"))))))
+
+      (let ((stream (cond ((or (eql element-type :default)
+                               (subtypep element-type 'character))
+                           (assert (member external-format '(:default :utf-8))
+                                   (external-format))
+                           (make-instance 'fat32-file-character-stream
+                                          :direction direction
+                                          :read-buffer buffer
+                                          :read-buffer-position -1
+                                          :read-buffer-size read-buffer-size))
+                          ((and (subtypep element-type '(unsigned-byte 8))
+                                (subtypep '(unsigned-byte 8) element-type))
+                           (assert (eql external-format :default) (external-format))
+                           (make-instance 'fat32-file-stream
+                                          :direction direction
+                                          :read-buffer buffer
+                                          :read-buffer-position -1
+                                          :read-buffer-size read-buffer-size))
+                          (t (error "Unsupported element-type ~S." element-type)))))
+        stream))))
+
+(defmethod sys.gray:stream-element-type ((stream fat32-file-stream))
+  '(unsigned-byte 8))
+
+(defmethod sys.gray:stream-element-type ((stream fat32-file-character-stream))
+  'character)
+
+(defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
+  (error "Feature not implemented"))
+
+(defmethod sys.gray:stream-read-byte ((stream fat32-file-stream))
+  (assert (member (direction stream) '(:input :io)))
+  (let ((char (aref (read-buffer stream)
+                    (+ (read-buffer-position stream)
+                       (incf (read-buffer-offset stream))))))
+    (if (< (read-buffer-size stream)
+           (read-buffer-offset stream))
+        :eof
+        char)))
+
+(defmethod sys.gray:stream-read-sequence ((stream fat32-file-stream) sequence &optional (start 0) end)
+  (assert (member (direction stream) '(:input :io)))
+  (error "Feature not implemented"))
+
+(defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
+  (error "Feature not implemented"))
+
+(defmethod sys.gray:stream-read-sequence ((stream fat32-file-character-stream) sequence &optional (start 0) end)
+  (assert (member (direction stream) '(:input :io)))
+  (error "Feature not implemented"))
+
+(defmethod sys.gray:stream-read-char ((stream fat32-file-character-stream))
+  (assert (member (direction stream) '(:input :io)))
+  (let ((char (aref (read-buffer stream)
+                    (+ (read-buffer-position stream)
+                       (incf (read-buffer-offset stream))))))
+    (if (< (read-buffer-size stream)
+           (read-buffer-offset stream))
+        :eof
+        (code-char char))))
+
+(defmethod sys.gray:stream-file-position ((stream fat32-file-stream) &optional (position-spec nil position-specp))
+  (error "Feature not implemented"))
+
+(defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
+  (error "Feature not implemented"))
+
 ;;;; testing
 #|
-;; Change (nth 3 to your disk number
+;; Mount partition
+(let* ((partition-name "FAT32") ; Put your name here
+       (partition-number 3) ; Change to your partition number
+       (partition (nth partition-number (mezzano.supervisor:all-disks)))
+       (fat32-structure (mezzano.fat32-file-system:read-fat32-structure
+                         (mezzano.fat32-file-system:read-sector partition 0)))
+       (fat32-info (mezzano.fat32-file-system:read-fat32-info-structure
+                    (mezzano.fat32-file-system:read-sector
+                     partition
+                     (mezzano.fat32-file-system::fat32-fat-info fat32-structure))))
+       (instance (make-instance 'fat32-host
+                                :name partition-name
+                                :partition partition
+                                :fat32-structure fat32-structure
+                                :fat32-info fat32-info)))
+  (setf (mezzano.file-system:find-host partition-name)
+        instance))
 
-;;; Read sector / cluster
-(let* ((disk (nth 3 (mezzano.supervisor:all-disks))))
-  (mezzano.fat32-file-system:read-sector disk 0))
-
-(let* ((disk (nth 3 (mezzano.supervisor:all-disks)))
-       (fat32 (mezzano.fat32-file-system::read-fat32-structure
-               (mezzano.fat32-file-system:read-sector disk 0))))
-  (length
-   (mezzano.fat32-file-system:read-cluster fat32 disk 0)))
-
-;;; Read fat32 structure
-(let ((disk (nth 3 (mezzano.supervisor:all-disks))))
-  (mezzano.fat32-file-system:read-fat32-structure
-   (mezzano.fat32-file-system:read-sector disk 0)))
-
-;;; Read fat32 info structure
-(let* ((disk (nth 3 (mezzano.supervisor:all-disks)))
-       (fat32 (mezzano.fat32-file-system:read-fat32-structure
-               (mezzano.fat32-file-system:read-sector disk 0))))
-  (mezzano.fat32-file-system:read-fat32-info-structure
-   (mezzano.fat32-file-system:read-sector disk
-                                          (mezzano.fat32-file-system::fat32-fat-info fat32))))
-
-;;; Read root directory and return it files and directories
-(let* ((disk (nth 3 (mezzano.supervisor:all-disks)))
-       (fat32 (mezzano.fat32-file-system:read-fat32-structure
-               (mezzano.fat32-file-system:read-sector disk 0))))
-  (mezzano.fat32-file-system:read-dir-from-cluster
-   (mezzano.fat32-file-system:read-cluster fat32
-                                           disk
-                                           (mezzano.fat32-file-system::first-root-dir-sector fat32))
-   fat32))
-
-;;; Read some data from fat32
-(let* ((disk (nth 3 (mezzano.supervisor:all-disks)))
-       (fat32 (mezzano.fat32-file-system:read-fat32-structure
-               (mezzano.fat32-file-system:read-sector disk 0))))
-  (loop :for file0 :in (nreverse
-                        (mezzano.fat32-file-system:read-dir-from-cluster
-                         (mezzano.fat32-file-system:read-cluster fat32
-                                                                 disk
-                                                                 (mezzano.fat32-file-system::first-root-dir-sector fat32))
-                         fat32))
-     :do (if (and (mezzano.fat32-file-system:file-p file0)
-                  (not (string= ""
-                                (mezzano.fat32-file-system::virtual-dir-name file0))))
-             (progn (format t "Filename :~s~%" (mezzano.fat32-file-system::virtual-dir-name file0))
-                    (mezzano.fat32-file-system:read-file file0 disk fat32)
-                    (terpri)(terpri))
-             
-             (loop :for file1 :in (nreverse
-                                   (mezzano.fat32-file-system:read-dir-from-file fat32 disk file0))
-                :do (if (and (mezzano.fat32-file-system:file-p file1)
-                             (not (string= ""
-                                           (mezzano.fat32-file-system::virtual-dir-name file1))))
-                        (progn (format t "Filename :~s~%" (mezzano.fat32-file-system::virtual-dir-name file1))
-                               (mezzano.fat32-file-system:read-file file1 disk fat32)
-                               (terpri)(terpri))
-                        (format t "Filename :~s~%" (mezzano.fat32-file-system::virtual-dir-name file1)))))))
+;; Read some file
+(with-open-file (file #P"FOO:>dir1>log-1") ; put your file path
+  (loop for line = (read-line file nil nil)
+     while line do (print line)))
 |#
