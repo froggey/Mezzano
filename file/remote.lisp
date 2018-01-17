@@ -127,6 +127,10 @@
   (parse-simple-file-path host namestring))
 
 (defun unparse-simple-file-path (pathname)
+  (when (pathname-device pathname)
+    (error 'no-namestring-error
+           :pathname pathname
+           :format-control "Pathname has a device component"))
   (let ((dir (pathname-directory pathname))
         (name (pathname-name pathname))
         (type (pathname-type pathname))
@@ -140,7 +144,11 @@
           ((eql d :up) (write-string ".." s))
           ((eql d :wild) (write-char #\* s))
           ((eql d :wild-inferiors) (write-string "**" s))
-          (t (error "Invalid directory component ~S." d)))
+          (t
+           (error 'no-namestring-error
+                  :pathname pathname
+                  :format-control "Invalid directory component ~S."
+                  :format-arguments (list d))))
         (write-char #\/ s))
       (if (eql name :wild)
           (write-char #\* s)

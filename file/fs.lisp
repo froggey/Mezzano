@@ -24,7 +24,8 @@
            #:file-stream-pathname
            #:simple-file-error
            #:stream-truename
-           #:truename-using-host))
+           #:truename-using-host
+           #:no-namestring-error))
 
 (in-package :mezzano.file-system)
 
@@ -34,6 +35,10 @@
 
 (define-condition simple-file-error (file-error simple-error)
   ())
+
+(define-condition no-namestring-error (simple-error)
+  ((pathname :initarg :pathname
+             :reader no-namestring-error-pathname)))
 
 (defgeneric file-stream-pathname (stream))
 
@@ -229,12 +234,26 @@
 
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
-         (format stream "#P~S" (namestring object)))
-        (t (print-unreadable-object (object stream :type t)
-             (format stream ":HOST ~S :DEVICE ~S :DIRECTORY ~S :NAME ~S :TYPE ~S :VERSION ~S"
-                     (pathname-host object) (pathname-device object)
-                     (pathname-directory object) (pathname-name object)
-                     (pathname-type object) (pathname-version object))))))
+         (handler-case
+             (format stream "#P~S" (namestring object))
+           (no-namestring-error (c)
+               (print-unreadable-object (object stream :type t)
+                 (format stream "with no namestring ~S"
+                         (list :host (pathname-host object)
+                               :device (pathname-device object)
+                               :directory (pathname-directory object)
+                               :name (pathname-name object)
+                               :type (pathname-type object)
+                               :version (pathname-version object)))))))
+        (t
+         (print-unreadable-object (object stream :type t)
+           (format stream "with no host ~S"
+                   (list :host (pathname-host object)
+                         :device (pathname-device object)
+                         :directory (pathname-directory object)
+                         :name (pathname-name object)
+                         :type (pathname-type object)
+                         :version (pathname-version object)))))))
 
 (defun pathname (pathname)
   (cond ((pathnamep pathname)
