@@ -189,8 +189,28 @@
 (defun host-namestring (pathname)
   (host-name (pathname-host pathname)))
 
+(defmethod unparse-pathname-file (pathname host)
+  (unparse-pathname (make-pathname :host host
+                                   :device nil
+                                   :directory nil
+                                   :name (pathname-name pathname)
+                                   :type (pathname-type pathname)
+                                   :version (pathname-version pathname)
+                                   :defaults pathname)
+                    host))
+
 (defun file-namestring (pathname)
   (unparse-pathname-file pathname (pathname-host pathname)))
+
+(defmethod unparse-pathname-directory (pathname host)
+  (unparse-pathname (make-pathname :host host
+                                   :device nil
+                                   :directory (pathname-directory pathname)
+                                   :name nil
+                                   :type nil
+                                   :version nil
+                                   :defaults pathname)
+                    host))
 
 (defun directory-namestring (pathname)
   (unparse-pathname-directory pathname (pathname-host pathname)))
