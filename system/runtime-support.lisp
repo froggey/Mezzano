@@ -330,19 +330,6 @@
 VALUE may be nil to make the fref unbound."
   (check-type value (or function null))
   (check-type fref function-reference)
-  ;; Check for and update any existing TRACE-WRAPPER.
-  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
-  (let ((existing (function-reference-function fref)))
-    (when (locally
-              (declare (notinline typep)) ; bootstrap hack.
-            (typep existing 'trace-wrapper))
-      (cond ((not value)
-             ;; This fref is being made unbound, untrace the function and drop into the normal code.
-             (%untrace (function-reference-name fref)))
-            (t
-             ;; Update the traced function instead of setting the fref's function.
-             (setf (trace-wrapper-original existing) value)
-             (return-from function-reference-function)))))
   (multiple-value-bind (new-fn new-entry-point)
       (cond
         ((not value)
@@ -374,19 +361,47 @@ VALUE may be nil to make the fref unbound."
   value)
 
 (defun fdefinition (name)
-  (or (function-reference-function (function-reference name))
-      (error 'undefined-function :name name)))
+  (let ((fn (function-reference-function (function-reference name))))
+    (when (not fn)
+      (error 'undefined-function :name name))
+    ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
+    ;; FIXME: Doesn't match the behaviour of FUNCTION.
+    (when (and (funcallable-std-instance-p fn) ; Avoid typep in the usual case.
+               (locally
+                   (declare (notinline typep)) ; bootstrap hack.
+                 (typep fn 'trace-wrapper)))
+      (setf fn (trace-wrapper-original fn)))
+    fn))
 
 (defun (setf fdefinition) (value name)
   (check-type value function)
-  (setf (function-reference-function (function-reference name)) value))
+  ;; Check for and update any existing TRACE-WRAPPER.
+  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+  (let* ((fref (function-reference name))
+         (existing (function-reference-function fref)))
+    (when (locally
+              (declare (notinline typep)) ; bootstrap hack.
+            (typep existing 'trace-wrapper))
+      ;; Update the traced function instead of setting the fref's function.
+      (setf (trace-wrapper-original existing) value)
+      (return-from fdefinition value))
+    (setf (function-reference-function fref) value)))
 
 (defun fboundp (name)
   (not (null (function-reference-function (function-reference name)))))
 
 (defun fmakunbound (name)
-  (setf (function-reference-function (function-reference name)) nil)
-  name)
+  ;; Check for and update any existing TRACE-WRAPPER.
+  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+  (let* ((fref (function-reference name))
+         (existing (function-reference-function fref)))
+    (when (locally
+              (declare (notinline typep)) ; bootstrap hack.
+            (typep existing 'trace-wrapper))
+      ;; Untrace the function.
+      (%untrace (function-reference-name fref)))
+    (setf (function-reference-function (function-reference name)) nil)
+    name))
 
 (defun symbol-function (symbol)
   (check-type symbol symbol)

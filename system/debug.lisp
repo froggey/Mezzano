@@ -530,7 +530,8 @@ Returns NIL if the function captures no variables."
   (dolist (name functions)
     (when (fboundp name)
       (pushnew name *traced-functions* :test #'equal)
-      (let ((fn (fdefinition name)))
+      (let* ((fref (function-reference name))
+             (fn (function-reference-function fref)))
         (when (not (typep fn 'trace-wrapper))
           (let ((wrapper (make-instance 'trace-wrapper
                                         :name name
@@ -553,21 +554,21 @@ Returns NIL if the function captures no variables."
                                                                     (apply old-definition args)))))
                            (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result))
                          (values-list result)))))))
-            (setf (fdefinition name) wrapper))))))
+            (setf (function-reference-function fref) wrapper))))))
   *traced-functions*)
 
+(defun untrace-function (name)
+  (let* ((fref (function-reference name))
+         (fn (function-reference-function fref)))
+    (setf *traced-functions* (remove name *traced-functions* :test #'equal))
+    (when (typep fn 'trace-wrapper)
+      ;; Directly set the fref to override the existing trace wrapper.
+      (setf (function-reference-function fref) (trace-wrapper-original fn)))))
+
 (defun %untrace (&rest functions)
-  (cond ((null functions)
-         (dolist (name *traced-functions*)
-           (let ((fn (fdefinition name)))
-             (when (typep fn 'trace-wrapper)
-               (setf (fdefinition name) (trace-wrapper-original fn))))))
-        (t
-         (dolist (name functions)
-           (setf *traced-functions* (remove name *traced-functions* :test #'equal))
-           (let ((fn (fdefinition name)))
-             (when (typep fn 'trace-wrapper)
-               (setf (fdefinition name) (trace-wrapper-original fn))))))))
+  (dolist (name (or functions
+                    *traced-functions*))
+    (untrace-function name)))
 
 (defmacro trace (&rest functions)
   `(%trace ,@(mapcar (lambda (f) (list 'quote f)) functions)))
