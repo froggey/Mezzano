@@ -451,6 +451,9 @@
         file-size))))
 
 (defmethod directory-using-host ((host simple-file-host) pathname &key)
+  (when (eql (pathname-device pathname) :wild)
+    (setf pathname (make-pathname :device nil
+                                  :defaults pathname)))
   (let ((path (unparse-simple-file-path pathname))
         (x nil))
     (with-connection (con host)

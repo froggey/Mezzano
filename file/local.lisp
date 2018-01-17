@@ -449,6 +449,9 @@
       (error 'simple-file-error
              :pathname pathname
              :format-control "Non-absolute pathname."))
+    (when (eql (pathname-device pathname) :wild)
+      (setf pathname (make-pathname :device nil
+                                    :defaults pathname)))
     (let ((winf (member :wild-inferiors dir)))
       (when (cdr winf)
         ;; Implmentation limitation. FIXME...
