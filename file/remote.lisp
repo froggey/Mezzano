@@ -159,33 +159,6 @@
 (defmethod unparse-pathname (path (host simple-file-host))
   (unparse-simple-file-path path))
 
-(defmethod unparse-pathname-file (pathname (host simple-file-host))
-  (let ((name (pathname-name pathname))
-        (type (pathname-type pathname))
-        (version (pathname-version pathname)))
-    (when name
-      (with-output-to-string (s)
-        (write-string name s)
-        (when type
-          (write-char #\. s)
-          (write-string type s))
-        (when (eql version :previous)
-          (write-char #\~ s))))))
-
-(defmethod unparse-pathname-directory (pathname (host simple-file-host))
-  (let ((dir (pathname-directory pathname)))
-    (with-output-to-string (s)
-      (when (eql (first dir) :absolute)
-        (write-char #\/ s))
-      (dolist (d (rest dir))
-        (cond
-          ((stringp d) (write-string d s))
-          ((eql d :up) (write-string ".." s))
-          ((eql d :wild) (write-char #\* s))
-          ((eql d :wild-inferiors) (write-string "**" s))
-          (t (error "Invalid directory component ~S." d)))
-        (write-char #\/ s)))))
-
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
      (with-standard-io-syntax

@@ -162,42 +162,6 @@
            (write-string ".*" s))
           (t (format s ".~D" version)))))))
 
-(defmethod unparse-pathname-file (pathname (host local-file-host))
-  (let ((name (pathname-name pathname))
-        (type (pathname-type pathname))
-        (version (pathname-version pathname)))
-    (when name
-      (with-output-to-string (s)
-        (when name
-          (write-string name s)
-          (cond (type
-                 (write-char #\. s)
-                 (if (eql type :wild)
-                     (write-char #\* s)
-                     (write-string type s)))
-                ((not (member version '(nil :newest)))
-                 (write-char #\. s)))
-          (case version
-            ((nil :newest))
-            (:oldest
-             (write-string ".oldest" s))
-            (:previous
-             (write-string ".previous" s))
-            (t (format s ".~D" version))))))))
-
-(defmethod unparse-pathname-directory (pathname (host local-file-host))
-  (let ((dir (pathname-directory pathname)))
-    (with-output-to-string (s)
-      (when (eql (first dir) :absolute)
-        (write-char #\> s))
-      (dolist (d (rest dir))
-        (cond
-          ((stringp d) (write-string d s))
-          ((eql d :wild) (write-char #\* s))
-          ((eql d :wild-inferiors) (write-string "**" s))
-          (t (error "Invalid directory component ~S." d)))
-        (write-char #\> s)))))
-
 (defun file-container-key (f)
   (pathname-version (file-truename f)))
 
