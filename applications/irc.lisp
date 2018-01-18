@@ -8,6 +8,8 @@
 (in-package :irc-client)
 
 (defvar *irc-history* (make-instance 'mezzano.line-editor:history-table))
+(defvar *irc-init-file* "SYS:HOME;IRC-INIT.lisp")
+(defvar *default-nick* "Mezzie")
 
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)
@@ -611,6 +613,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (fifo (mezzano.supervisor:make-fifo 50)))
+      (load *irc-init-file* :if-does-not-exist nil)
       (mezzano.gui.compositor:with-window (window fifo 640 480)
         (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
                (frame (make-instance 'mezzano.gui.widgets:frame
@@ -655,7 +658,8 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                    :frame frame
                                    :font font
                                    :display-pane display-pane
-                                   :input-pane input-pane)))
+                                   :input-pane input-pane
+				   :nickname *default-nick*)))
           (setf (slot-value input-pane '%irc) irc)
           (draw-seperating-line irc (mezzano.gui.compositor:width window) (mezzano.gui.compositor:height window) framebuffer)
           (mezzano.gui.widgets:draw-frame frame)
