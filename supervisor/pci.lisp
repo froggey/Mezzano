@@ -350,14 +350,14 @@
 (defun pci-driver-compatible-p (driver device)
   (or
    (loop
-      for (base-class sub-class pi) in (pci-driver-classes driver)
+      for (base-class sub-class prog-interface) in (pci-driver-classes driver)
       do
         (when (and (or (not base-class)
                        (eql (pci-base-class device) base-class))
                    (or (not sub-class)
                        (eql (pci-sub-class device) sub-class))
-                   (or (not pi)
-                       (eql (pci-programming-interface device) pi)))
+                   (or (not prog-interface)
+                       (eql (pci-programming-interface device) prog-interface)))
           (return t)))
    (loop
       for (vid did) in (pci-driver-pci-ids driver)
