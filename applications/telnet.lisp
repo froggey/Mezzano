@@ -175,7 +175,7 @@ party to perform, the indicated option.")
              (vector-push-extend key line)))))))
 
 (defgeneric dispatch-event (telnet event)
-  (:method (t e)))
+  (:method (telnet event)))
 
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-activation-event))
   (setf (mezzano.gui.widgets:activep (frame telnet)) (mezzano.gui.compositor:state event))
