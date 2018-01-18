@@ -106,6 +106,7 @@
         ;; Add required, optional and rest arguments to the environment & lambda.
         (labels ((add-var (name)
                    (let ((var (make-variable name declares)))
+                     (check-variable-bindable var)
                      (setf env (extend-environment env :variables (list (list name var))))
                      var)))
           (setf (lambda-information-required-args info) (mapcar #'add-var required))
