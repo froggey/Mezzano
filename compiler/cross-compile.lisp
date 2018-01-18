@@ -443,7 +443,8 @@
              (keywordp symbol)
              (cl:constantp symbol))
          :constant)
-        (t (gethash symbol *system-symbol-declarations*))))
+        (t
+         (values (gethash symbol *system-symbol-declarations*)))))
 
 (defvar *output-fasl*)
 (defvar *output-map*)

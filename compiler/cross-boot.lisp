@@ -128,7 +128,7 @@
 
 (defun sys.int::symbol-mode (symbol)
   (check-type symbol symbol)
-  (values (gethash symbol *system-symbol-declarations*)))
+  (sys.int::variable-information symbol))
 
 (defun mezzano.runtime::symbol-type (symbol)
   (check-type symbol symbol)
