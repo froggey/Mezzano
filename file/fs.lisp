@@ -509,7 +509,15 @@ NAMESTRING as the second."
 
 (defun translate-pathname (source from-wildcard to-wildcard &key)
   (make-pathname :host (pathname-host to-wildcard)
-                 :device (translate-one source from-wildcard to-wildcard 'pathname-device)
+                 :device (cond ((typep source 'logical-pathname)
+                                ;; Always favour the to-wildcard's device when
+                                ;; translating from a logical pathname.
+                                ;; Logical pathnames always have a device of
+                                ;; :UNSPECIFIC, which would otherwise override
+                                ;; any device specified in a translation.
+                                (pathname-device to-wildcard))
+                               (t
+                                (translate-one source from-wildcard to-wildcard 'pathname-device)))
                  :name (translate-one source from-wildcard to-wildcard 'pathname-name)
                  :type (translate-one source from-wildcard to-wildcard 'pathname-type)
                  :version (translate-one source from-wildcard to-wildcard 'pathname-version)
