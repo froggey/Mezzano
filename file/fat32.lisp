@@ -261,8 +261,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
      :with res := nil
      :do
      (let ((first-byte (aref cluster (* i 32))))
-       (unless  (or (zerop first-byte)
-                    (= #xE5 first-byte))
+       (unless (or (zerop first-byte)
+                   (= #xE5 first-byte))
          (if (= #x0F (aref cluster (+ 11 (* i 32))))
              (push (make-long-dir
                     :order (aref cluster (* i 32))
@@ -305,18 +305,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
      :finally (return res)))
 
 (defun decode-dir (list fat32)
-  (loop :for file :in list
-     :with name := ""
-     :with attributes
-     :with time-tenth
-     :with time
-     :with date
-     :with access-date
-     :with write-time
-     :with write-date
-     :with first-cluster
-     :with file-size
-     :do (if (long-dir-p file)
+  (let ((name ""))
+    (dolist (file (nreverse list))
+      (cond ((long-dir-p file)
+             ;; Read long name
              (loop for octet across (concatenate 'vector
                                                  (long-dir-name-0 file)
                                                  (long-dir-name-1 file)
@@ -325,29 +317,27 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                             (= octet 255))
                 :do (setf name
                           (concatenate 'string name
-                                       (format nil "~a" (code-char octet)))))
-             (setf attributes (dir-attributes file)
-                   time-tenth (dir-time-tenth file)
-                   time (dir-time file)
-                   date (dir-date file)
-                   access-date (dir-access-date file)
-                   write-time (dir-write-time file)
-                   write-date (dir-write-date file)
-                   first-cluster (logior (ash (dir-first-cluster-high file) 16)
-                                         (ash (dir-first-cluster-low file) 0))
-                   file-size (dir-file-size file)))
-     :finally (return
-                (make-virtual-dir
-                 :name name
-                 :attributes attributes
-                 :time-tenth time-tenth
-                 :time time
-                 :date date
-                 :access-date access-date
-                 :write-time write-time
-                 :write-date write-date
-                 :first-cluster first-cluster
-                 :file-size file-size))))
+                                       (format nil "~a" (code-char octet))))))
+            ((dir-p file)
+             ;; Set short name for . and ..
+             (cond
+               ((string= ".          " (dir-name file))
+                (setf name "."))
+               ((string= "..         " (dir-name file))
+                (setf name "..")))
+
+             (return (make-virtual-dir
+                      :name name
+                      :attributes (dir-attributes file)
+                      :time-tenth (dir-time-tenth file)
+                      :time (dir-time file)
+                      :date (dir-date file)
+                      :access-date (dir-access-date file)
+                      :write-time (dir-write-time file)
+                      :write-date (dir-write-date file)
+                      :first-cluster (logior (ash (dir-first-cluster-high file) 16)
+                                             (ash (dir-first-cluster-low file) 0))
+                      :file-size (dir-file-size file))))))))
 
 ;;; bits 0-4 2-second count, 5-10 minutes, 11-15 hours
 (defun decode-time (array)
@@ -457,43 +447,115 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod host-default-device ((host fat32-host))
   nil)
 
-(defmethod parse-namestring-using-host ((host fat32-host) namestring junk-allowed)
-  (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
+(defun explode (character string &optional (start 0) end)
+  (setf end (or end (length string)))
+  (do ((elements '())
+       (i start (1+ i))
+       (elt-start start))
+      ((>= i end)
+       (push (subseq string elt-start i) elements)
+       (nreverse elements))
+    (when (eql (char string i) character)
+      (push (subseq string elt-start i) elements)
+      (setf elt-start (1+ i)))))
+
+(defun parse-simple-file-path (host namestring)
   (let ((start 0)
         (end (length namestring))
         (directory '())
-        (name "")
-        (type ""))
-
-    (loop for i from start to (1- end)
-       for char = (aref namestring i)
-       :do (when (char= char #\>)
-             (unless (< i 1)
-               (progn (push (subseq namestring (1+ start) i) directory)
-                      (setf start i)))))
-
-    (loop for i from start to (1- end)
-       for char = (aref namestring i)
-       :initially (setf name (subseq namestring (1+ start) end))
-       :do (cond ((char= char #\.)
-                  (progn (setf name (subseq namestring (1+ start) i)
-                               type (subseq namestring (1+ i) end))
-                         (return)))))
-
+        (name nil)
+        (type nil))
+    (when (eql start end)
+      (return-from parse-simple-file-path (make-pathname :host host)))
+    (cond ((eql (char namestring start) #\>)
+           (push :absolute directory)
+           (incf start))
+          (t (push :relative directory)))
+    ;; Last element is the name.
+    (do* ((x (explode #\> namestring start end) (cdr x)))
+         ((null (cdr x))
+          (let* ((name-element (car x))
+                 (end (length name-element)))
+            (unless (zerop (length name-element))
+              ;; Find the last dot.
+              (let ((dot-position (position #\. name-element :from-end t)))
+                (cond ((and dot-position (not (zerop dot-position)))
+                       (setf type (subseq name-element (1+ dot-position) end))
+                       (setf name (subseq name-element 0 dot-position)))
+                      (t (setf name (subseq name-element 0 end))))))))
+      (let ((dir (car x)))
+        (cond ((or (string= "" dir)
+                   (string= "." dir)))
+              ((string= ".." dir)
+               (push :up directory))
+              ((string= "*" dir)
+               (push :wild directory))
+              ((string= "**" dir)
+               (push :wild-inferiors directory))
+              (t (push dir directory)))))
+    (when (string= name "*") (setf name :wild))
+    (when (string= type "*") (setf type :wild))
     (make-pathname :host host
-                   :directory directory
+                   :directory (nreverse directory)
                    :name name
                    :type type
                    :version :newest)))
 
-(defmethod unparse-pathname (pathname (host fat32-host))
+(defmethod parse-namestring-using-host ((host fat32-host) namestring junk-allowed)
+  (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
+  (parse-simple-file-path host namestring))
+
+(defun unparse-simple-file-path (pathname)
   (let ((dir (pathname-directory pathname))
         (name (pathname-name pathname))
         (type (pathname-type pathname)))
-    (values dir
-            (if (string= "" type)
-                name
-                (format nil "~a.~a" name type)))))
+    (with-output-to-string (s)
+      (when (eql (first dir) :absolute)
+        (write-char #\> s))
+      (dolist (sub-dir (rest dir))
+        (cond
+          ((stringp sub-dir) (write-string sub-dir s))
+          ((eql sub-dir :up) (write-string ".." s)) ;
+          ((eql sub-dir :wild) (write-char #\* s)) ;
+          ((eql sub-dir :wild-inferiors) (write-string "**" s)) ;
+          (t (error "Invalid directory component ~S." sub-dir))) ;
+        (write-char #\> s))
+      (if (eql name :wild)
+          (write-char #\* s)
+          (write-string name s))
+      (when type
+        (write-char #\. s)
+        (if (eql type :wild)
+            (write-char #\* s)
+            (write-string type s)))
+      s)))
+
+(defmethod unparse-pathname (pathname (host fat32-host))
+  (unparse-simple-file-path pathname))
+
+(defmethod unparse-pathname-file (pathname (host fat32-host))
+  (let ((name (pathname-name pathname))
+        (type (pathname-type pathname)))
+    (when name
+      (with-output-to-string (s)
+        (write-string name s)
+        (when type
+          (write-char #\. s)
+          (write-string type s))))))
+
+(defmethod unparse-pathname-directory (pathname (host fat32-host))
+  (let ((dir (pathname-directory pathname)))
+    (with-output-to-string (s)
+      (when (eql (first dir) :absolute)
+        (write-char #\> s))
+      (dolist (d (rest dir))
+        (cond
+          ((stringp d) (write-string d s))
+          ((eql d :up) (write-string ".." s))
+          ((eql d :wild) (write-char #\* s))
+          ((eql d :wild-inferiors) (write-string "**" s))
+          (t (error "Invalid directory component ~S." d)))
+        (write-char #\> s)))))
 
 (defclass fat32-file-stream (sys.gray:fundamental-binary-input-stream
                              sys.gray:fundamental-binary-output-stream
@@ -502,7 +564,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
    (pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
    (direction :initarg :direction :reader direction)
-   ;; Buffer itself.
+   ;; Read buffer.
    (read-buffer :initarg :read-buffer
                 :accessor read-buffer)
    ;; File position where the buffer data starts.
@@ -533,44 +595,64 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   `(mezzano.supervisor:with-mutex ((fat32-host-lock ,host))
      ,@body))
 
+(defun read-dir-from-pathname (host pathname)
+  (loop
+     with disk = (partition host)
+     with fat32 = (fat32-structure host)
+     for dir-name on (pathname-directory pathname)
+     for dir =
+       (cond
+         ;; Read root dir
+         ((eql :absolute (car dir-name))
+          (mezzano.fat32-file-system:read-dir-from-cluster
+           (mezzano.fat32-file-system:read-cluster
+            fat32 disk
+            (mezzano.fat32-file-system::first-root-dir-sector fat32))
+           fat32))
+         ;; Travel path
+         (t (loop
+               for file in dir
+               when (string= (car dir-name) (virtual-dir-name file))
+               do (return (read-dir-from-file (fat32-structure host)
+                                              (partition host)
+                                              file))
+               finally
+                 (:error (error 'simple-file-error
+                                :pathname pathname
+                                :format-control "Directory ~S does not exist. ~S"
+                                :format-arguments (list (car dir-name) pathname))))))
+     ;; Returt all files and subdirectories in dir
+     finally (return dir)))
+
 ;; WIP Don't require to load entire file
+;; TODO Add write suport
 (defmethod open-using-host ((host fat32-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
 
   (with-fat32-host-locked (host)
-    (let* ((disk (partition host))
-           (fat32 (fat32-structure host))
-           (buffer nil)
-           (root-dir (mezzano.fat32-file-system:read-dir-from-cluster
-                      (mezzano.fat32-file-system:read-cluster
-                       fat32 disk
-                       (mezzano.fat32-file-system::first-root-dir-sector fat32))
-                      fat32))
-           (read-buffer-size 0))
+    (let ((buffer nil)
+          (read-buffer-size 0))
 
       (when (member direction '(:output :io))
-        (error "Feature not implemented"))
-
-      (multiple-value-bind (directory name) (unparse-pathname pathname host)
-        (loop for dir-name in directory
-           with dir = root-dir
-           do (loop for file in dir
-                 do (when (string= dir-name (virtual-dir-name file))
-                      (setf dir
-                            (read-dir-from-file (fat32-structure host)
-                                                (partition host)
-                                                file))))
-           finally (loop for file in dir
-                      do (when (string= name (virtual-dir-name file))
-                           (setf buffer (mezzano.fat32-file-system:read-file file disk fat32)
-                                 read-buffer-size (virtual-dir-file-size file))
-                           (return))
-                      finally (ecase if-does-not-exist
-                                (:error (error 'simple-file-error
-                                               :pathname pathname
-                                               :format-control "File ~A does not exist. ~S"
-                                               :format-arguments (list pathname name)))
-                                (:create (error "Feature not implemented"))))))
+        (error "Feature not implemented: ~a, ~a" ':output ':io))
+      
+      (loop
+         with file-name = (concatenate 'string (pathname-name pathname)
+                                       "." (pathname-type pathname))
+         for file in (read-dir-from-pathname host pathname)
+         when (string= file-name (virtual-dir-name file))
+         do (progn
+              (setf buffer (mezzano.fat32-file-system:read-file file (partition host)
+                                                                (fat32-structure host))
+                    read-buffer-size (virtual-dir-file-size file))
+              (return))
+         finally
+           (ecase if-does-not-exist
+             (:error (error 'simple-file-error
+                            :pathname pathname
+                            :format-control "File ~A does not exist. ~S"
+                            :format-arguments (list pathname file-name)))
+             (:create (error "Feature :create not implemented for :if-does-not-exist"))))
 
       (let ((stream (cond ((or (eql element-type :default)
                                (subtypep element-type 'character))
@@ -592,6 +674,38 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
 
+(defmethod directory-using-host ((host fat32-host) pathname &key)
+  (loop
+     for file in (read-dir-from-pathname host pathname)
+     unless (or (string= "." (virtual-dir-name file))
+                (string= ".." (virtual-dir-name file)))
+     collecting
+       (parse-simple-file-path host
+                               (format nil
+                                       (if (file-p file)
+                                           "~a~a"
+                                           "~a~a>")
+                                       (unparse-pathname-directory pathname host)
+                                       (virtual-dir-name file)))))
+
+(defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
+  (error "Feature not implemented: ~a" 'ensure-directories-exist-using-host))
+
+(defmethod rename-file-using-host ((host fat32-host) source dest)
+  (error "Feature not implemented: ~a" 'rename-file-using-host))
+
+(defmethod file-write-date-using-host ((host fat32-host) path)
+  (error "Feature not implemented: ~a" 'file-write-date-using-host))
+
+(defmethod delete-file-using-host ((host fat32-host) path &key)
+  (error "Feature not implemented: ~a" 'delete-file-using-host))
+
+(defmethod expunge-directory-using-host ((host fat32-host) path &key)
+  (error "Feature not implemented: ~a" 'expunge-directory-using-host))
+
+(defmethod stream-truename ((stream fat32-file-stream))
+  (file-stream-pathname stream))
+
 (defmethod sys.gray:stream-element-type ((stream fat32-file-stream))
   '(unsigned-byte 8))
 
@@ -599,7 +713,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   'character)
 
 (defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-write-byte))
 
 (defmethod sys.gray:stream-read-byte ((stream fat32-file-stream))
   (assert (member (direction stream) '(:input :io)))
@@ -613,14 +727,14 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-read-sequence))
 
 (defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-write-char))
 
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-character-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-read-sequence))
 
 (defmethod sys.gray:stream-read-char ((stream fat32-file-character-stream))
   (assert (member (direction stream) '(:input :io)))
@@ -633,10 +747,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (code-char char))))
 
 (defmethod sys.gray:stream-file-position ((stream fat32-file-stream) &optional (position-spec nil position-specp))
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-file-position))
 
 (defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
-  (error "Feature not implemented"))
+  (error "Feature not implemented: ~a" 'sys.gray:stream-file-length))
 
 ;;;; testing
 #|
@@ -659,7 +773,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         instance))
 
 ;; Read some file
-(with-open-file (file #P"FOO:>dir1>log-1") ; put your file path
+(with-open-file (file #P"FAT32:>dir1>log-1") ; put your file path
   (loop for line = (read-line file nil nil)
      while line do (print line)))
 |#
