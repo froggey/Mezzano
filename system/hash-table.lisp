@@ -246,14 +246,18 @@ is below the rehash-threshold."
                   (hash-table-value-at hash-table free-slot) value)))))))
 
 (defun make-hash-table-iterator (hash-table)
-  (declare (type hash-table hash-table))
-  (cons hash-table 0))
+  (check-type hash-table hash-table)
+  ;; Take the current table to prevent read-triggered rehashes from
+  ;; shuffling the table under us and invalidating the current index.
+  (cons (hash-table-storage hash-table) 0))
 
 (defun hash-table-iterator-next (iterator)
-  (let ((ht (car iterator)))
-    (do () ((>= (cdr iterator) (hash-table-size ht)))
-      (let ((key (hash-table-key-at ht (cdr iterator)))
-            (value (hash-table-value-at ht (cdr iterator))))
+  (let* ((ht (car iterator))
+         (size (truncate (length ht) 2)))
+    (do () ((>= (cdr iterator) size))
+      (let* ((index (* (cdr iterator) 2))
+             (key (svref ht index))
+             (value (svref ht (1+ index))))
         ;; Increment the key until a non-unbound/-tombstone key is found.
         (incf (cdr iterator))
         (unless (or (eq key *hash-table-unbound-value*)
