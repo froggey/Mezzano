@@ -573,7 +573,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                          :accessor read-buffer-position)
    ;; Current offset into the buffer.
    (read-buffer-offset :initarg :read-buffer-offset
-                       :initform 0
+                       :initform -1
                        :accessor read-buffer-offset)
    ;; File size
    (read-buffer-size :initarg :read-buffer-size
@@ -631,6 +631,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
   (with-fat32-host-locked (host)
     (let ((buffer nil)
+          (read-buffer-position 0)
           (read-buffer-size 0))
 
       (when (member direction '(:output :io))
@@ -644,6 +645,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
          do (progn
               (setf buffer (mezzano.fat32-file-system:read-file file (partition host)
                                                                 (fat32-structure host))
+                    read-buffer-position (* (fat32-bytes-per-sector fat32)
+                                            (virtual-dir-first-cluster file))
                     read-buffer-size (virtual-dir-file-size file))
               (return))
          finally
@@ -661,7 +664,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                            (make-instance 'fat32-file-character-stream
                                           :direction direction
                                           :read-buffer buffer
-                                          :read-buffer-position -1
+                                          :read-buffer-position read-buffer-position
                                           :read-buffer-size read-buffer-size))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
@@ -669,7 +672,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                            (make-instance 'fat32-file-stream
                                           :direction direction
                                           :read-buffer buffer
-                                          :read-buffer-position -1
+                                          :read-buffer-position read-buffer-position
                                           :read-buffer-size read-buffer-size))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
@@ -718,31 +721,39 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-read-byte ((stream fat32-file-stream))
   (assert (member (direction stream) '(:input :io)))
   (let ((char (aref (read-buffer stream)
-                    (+ (read-buffer-position stream)
-                       (incf (read-buffer-offset stream))))))
-    (if (< (read-buffer-size stream)
-           (read-buffer-offset stream))
+                    (incf (read-buffer-offset stream)))))
+    (if (<= (read-buffer-size stream)
+            (read-buffer-offset stream))
         :eof
         char)))
 
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
-  (error "Feature not implemented: ~a" 'sys.gray:stream-read-sequence))
+  (unless end (setf end (length sequence)))
+  (let ((end2 (min end (read-buffer-size stream))))
+    (replace sequence (read-buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
+    end2))
 
 (defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
   (error "Feature not implemented: ~a" 'sys.gray:stream-write-char))
 
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-character-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
-  (error "Feature not implemented: ~a" 'sys.gray:stream-read-sequence))
+  (unless end (setf end (length sequence)))
+  (let ((end2 (min end (read-buffer-size stream))))
+    (loop
+       for n1 from start to (1- end)
+       for n2 to (1- end2)
+       do (setf (aref sequence n1)
+                (code-char (aref (read-buffer stream) n2))))
+    end2))
 
 (defmethod sys.gray:stream-read-char ((stream fat32-file-character-stream))
   (assert (member (direction stream) '(:input :io)))
   (let ((char (aref (read-buffer stream)
-                    (+ (read-buffer-position stream)
-                       (incf (read-buffer-offset stream))))))
-    (if (< (read-buffer-size stream)
-           (read-buffer-offset stream))
+                    (incf (read-buffer-offset stream)))))
+    (if (<= (read-buffer-size stream)
+            (read-buffer-offset stream))
         :eof
         (code-char char))))
 
@@ -750,7 +761,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (error "Feature not implemented: ~a" 'sys.gray:stream-file-position))
 
 (defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
-  (error "Feature not implemented: ~a" 'sys.gray:stream-file-length))
+  (read-buffer-size stream))
 
 ;;;; testing
 #|
