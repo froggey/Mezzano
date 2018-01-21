@@ -725,7 +725,7 @@
              alist
              :key key))
 
-(declaim (inline set-difference union intersection set-exclusive-or))
+(declaim (inline set-difference union nunion intersection set-exclusive-or))
 (defun set-difference (list-1 list-2 &key key test test-not)
   (check-type list-1 list)
   (check-type list-2 list)
@@ -755,18 +755,6 @@
            result))
         (list-1)
         (list-2)))
-
-(defun nunion (list-1 list-2 &key key test test-not)
-  (check-type list-1 list)
-  (check-type list-2 list)
-  (when (not key)
-    (setf key 'identity))
-  (let ((result list-2))
-    (dolist (e list-1)
-      (when (not (member (funcall key e) list-2
-                         :key key :test test :test-not test-not))
-        (push e result)))
-    result))
 
 (defun nunion (list-1 list-2 &key key test test-not)
   (check-type list-1 list)
