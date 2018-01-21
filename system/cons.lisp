@@ -768,6 +768,18 @@
         (push e result)))
     result))
 
+(defun nunion (list-1 list-2 &key key test test-not)
+  (check-type list-1 list)
+  (check-type list-2 list)
+  (when (not key)
+    (setf key 'identity))
+  (let ((result list-2))
+    (dolist (e list-1)
+      (when (not (member (funcall key e) list-2
+                         :key key :test test :test-not test-not))
+        (push e result)))
+    result))
+
 (defun intersection (list-1 list-2 &key key test test-not)
   (check-type list-1 list)
   (check-type list-2 list)
