@@ -377,7 +377,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;;; bits 0-4 2-second count, 5-10 minutes, 11-15 hours
 (defun decode-time (array)
   (let ((n (sys.int::ub16ref/le array 0)))
-    (values (ldb (byte 5 0) n)
+    (values (ash (ldb (byte 5 0) n) 1)
             (ldb (byte 6 5) n)
             (ldb (byte 5 11) n))))
 
@@ -386,7 +386,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (let ((n (sys.int::ub16ref/le array 0)))
     (values (ldb (byte 5 0) n)
             (ldb (byte 4 5) n)
-            (ldb (byte 7 9) n))))
+            (+ 1980 (ldb (byte 7 9) n)))))
 
 (defun root-dir-sectors ()
   0)
@@ -692,7 +692,14 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (error "Feature not implemented: ~a" 'rename-file-using-host))
 
 (defmethod file-write-date-using-host ((host fat32-host) path)
-  (error "Feature not implemented: ~a" 'file-write-date-using-host))
+  (loop
+     with file-name = (concatenate 'string (pathname-name path)
+                                   "." (pathname-type path))
+     for file in (read-dir-from-pathname host path)
+     when (string= file-name (virtual-dir-name file))
+     do (multiple-value-bind (second minute hour) (decode-time (virtual-dir-write-time file))
+          (multiple-value-bind (day month year) (decode-date (virtual-dir-write-date file))
+            (return (encode-universal-time second minute hour day month year))))))
 
 (defmethod delete-file-using-host ((host fat32-host) path &key)
   (error "Feature not implemented: ~a" 'delete-file-using-host))
