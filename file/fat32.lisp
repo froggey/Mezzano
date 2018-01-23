@@ -17,7 +17,89 @@
 
 (in-package :mezzano.fat32-file-system)
 
+(defstruct fat32
+  (boot-jmp nil)
+  (oem-name nil :type string)
+  (bytes-per-sector nil :type (unsigned-byte 16))
+  (sectors-per-cluster nil :type (unsigned-byte 8))
+  (reserved-sector-count nil :type (unsigned-byte 16))
+  (table-count nil :type (unsigned-byte 8))
+  (root-entry-count nil :type (unsigned-byte 16))
+  (total-sectors16 nil :type (unsigned-byte 16))
+  (media-type nil :type (unsigned-byte 8))
+  (table-size-16 nil :type (unsigned-byte 16))
+  (sectors-per-track nil :type (unsigned-byte 16))
+  (head-side-count nil :type (unsigned-byte 16))
+  (hidden-sector-count nil :type (unsigned-byte 32))
+  (total-sectors32 nil :type (unsigned-byte 32))
+  ;;fat32
+  (table-size-32 nil :type (unsigned-byte 32))
+  (extended-flags nil)
+  (fat-version nil)
+  (root-cluster nil :type (unsigned-byte 32))
+  (fat-info nil :type (unsigned-byte 16))
+  (backup-BS-sector nil :type (unsigned-byte 16))
+  (reserved-0 nil)
+  (drive-number nil :type (unsigned-byte 8))
+  (reserved-1 nil)
+  (boot-signature nil :type (unsigned-byte 8))
+  (volume-id nil :type (unsigned-byte 32))
+  (volume-label nil :type string)
+  (fat-type-label nil :type string)
+  (bc nil) ; 90 420
+  (bps nil :type (unsigned-byte 32)))
+
 (defconstant +bootable-partition-signature+ #xAA55)
+
+(defun check-boot-jmp (boot-jmp)
+  (let ((n0 (aref boot-jmp 0))
+        (n2 (aref boot-jmp 2)))
+    (if (or (and (= n0 #xEB)
+                 (= n2 #x90))
+            (= n0 #xE9))
+        boot-jmp
+        (error "Bad boot-jmp : ~a .
+Valid forms are : #(#xEB x #x90) and #(#xE9 x x).
+X is for some 1 byte number." boot-jmp))))
+
+(defun check-bytes-per-sector (bytes-per-sector)
+  "Ensure that bytes-per-sector is valid."
+  (loop :for n :in '(512 1024 2048 4096)
+     :do (when (= n bytes-per-sector)
+           (return bytes-per-sector))
+     :finally (error "Bad bytes-per-sector : ~a .
+Valid bytes-per-sector are 512, 1024, 2048 and 4096" bytes-per-sector)))
+
+(defun check-sectors-per-cluster (sectors-per-cluster bytes-per-sector)
+  (loop :for n :in '(1 2 4 8 16 32 64 128)
+     :do (when (= n sectors-per-cluster)
+           (return sectors-per-cluster))
+     :finally (error "Bad sectors-per-cluster : ~a .
+Valid bytes-per-sector are 1,2,4,8,16,32,64,128" sectors-per-cluster))
+  (when (> (* sectors-per-cluster bytes-per-sector)
+           32768)
+    (error "Error sectors-per-cluster * bytes-per-sector > 32KiB .
+sectors-per-cluster= ~a bytes-per-sector= ~a" sectors-per-cluster bytes-per-sector))
+  sectors-per-cluster)
+
+(defun check-media-type (media-type)
+  (loop :for n :in '(#xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF)
+     :do (when (= n media-type)
+           (return media-type))
+     :finally (error "Bad media-type : ~a .
+Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
+
+(defun check-fat-type-label32 (fat-type-label)
+  (if (string= "FAT32   " fat-type-label)
+      fat-type-label
+      (error "Bad fat-type-label : ~a .
+Valid media-type ara 'FAT32   ' " fat-type-label)))
+
+(defun check-bps (bps)
+  (unless (= bps +bootable-partition-signature+)
+    (error "Bad bps : ~a .
+Valid bps are ~a" bps +bootable-partition-signature+))
+  bps)
 
 (defun read-fat32-structure (sector)
   (let ((boot-jmp (subseq sector 0 3))
@@ -77,107 +159,18 @@
       :bc nil
       :bps bps))))
 
-(defun check-boot-jmp (boot-jmp)
-  (let ((n0 (aref boot-jmp 0))
-        (n2 (aref boot-jmp 2)))
-    (if (or (and (= n0 #xEB)
-                 (= n2 #x90))
-            (= n0 #xE9))
-        boot-jmp
-        (error "Bad boot-jmp : ~a .
-Valid forms are : #(#xEB x #x90) and #(#xE9 x x).
-X is for some 1 byte number." boot-jmp))))
-
-(defun check-bytes-per-sector (bytes-per-sector)
-  "Ensure that bytes-per-sector is valid."
-  (loop :for n :in '(512 1024 2048 4096)
-     :do (when (= n bytes-per-sector)
-           (return bytes-per-sector))
-     :finally (error "Bad bytes-per-sector : ~a .
-Valid bytes-per-sector are 512, 1024, 2048 and 4096" bytes-per-sector)))
-
-(defun check-sectors-per-cluster (sectors-per-cluster bytes-per-sector)
-  (loop :for n :in '(1 2 4 8 16 32 64 128)
-     :do (when (= n sectors-per-cluster)
-           (return sectors-per-cluster))
-     :finally (error "Bad sectors-per-cluster : ~a .
-Valid bytes-per-sector are 1,2,4,8,16,32,64,128" sectors-per-cluster))
-  (when (> (* sectors-per-cluster bytes-per-sector)
-           32768)
-    (error "Error sectors-per-cluster * bytes-per-sector > 32KiB .
-sectors-per-cluster= ~a bytes-per-sector= ~a" sectors-per-cluster bytes-per-sector))
-  sectors-per-cluster)
-
-(defun check-media-type (media-type)
-  (loop :for n :in '(#xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF)
-     :do (when (= n media-type)
-           (return media-type))
-     :finally (error "Bad media-type : ~a .
-Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
-
-(defun check-fat-type-label32 (fat-type-label)
-  (if (string= "FAT32   " fat-type-label)
-      fat-type-label
-      (error "Bad fat-type-label : ~a .
-Valid media-type ara 'FAT32   ' " fat-type-label)))
-
-(defun check-bps (bps)
-  (unless (= bps +bootable-partition-signature+)
-    (error "Bad bps : ~a .
-Valid bps are ~a" bps +bootable-partition-signature+))
-  bps)
-
-(defstruct fat32
-  (boot-jmp nil)
-  (oem-name nil :type string)
-  (bytes-per-sector nil :type (unsigned-byte 16))
-  (sectors-per-cluster nil :type (unsigned-byte 8))
-  (reserved-sector-count nil :type (unsigned-byte 16))
-  (table-count nil :type (unsigned-byte 8))
-  (root-entry-count nil :type (unsigned-byte 16))
-  (total-sectors16 nil :type (unsigned-byte 16))
-  (media-type nil :type (unsigned-byte 8))
-  (table-size-16 nil :type (unsigned-byte 16))
-  (sectors-per-track nil :type (unsigned-byte 16))
-  (head-side-count nil :type (unsigned-byte 16))
-  (hidden-sector-count nil :type (unsigned-byte 32))
-  (total-sectors32 nil :type (unsigned-byte 32))
-  ;;fat32
-  (table-size-32 nil :type (unsigned-byte 32))
-  (extended-flags nil)
-  (fat-version nil)
-  (root-cluster nil :type (unsigned-byte 32))
-  (fat-info nil :type (unsigned-byte 16))
-  (backup-BS-sector nil :type (unsigned-byte 16))
-  (reserved-0 nil)
-  (drive-number nil :type (unsigned-byte 8))
-  (reserved-1 nil)
-  (boot-signature nil :type (unsigned-byte 8))
-  (volume-id nil :type (unsigned-byte 32))
-  (volume-label nil :type string)
-  (fat-type-label nil :type string)
-  (bc nil) ; 90 420
-  (bps nil :type (unsigned-byte 32)))
+(defstruct fs-info
+  (lead-signature nil :type (unsigned-byte 32))
+  (reserved-0 nil) ; 4 480
+  (structure-signature nil :type (unsigned-byte 32))
+  (last-free-cluster nil :type (unsigned-byte 32))
+  (next-free-cluster nil :type (unsigned-byte 32))
+  (reserved-1 nil) ; 496 12
+  (trail-signature nil :type (unsigned-byte 32)))
 
 (defconstant +lead-signature+ #x41615252)
 (defconstant +structure-signature+ #x61417272)
 (defconstant +trail-signature+ #xAA550000)
-
-(defun read-fat32-info-structure (sector)
-  (let ((lead-signature (sys.int::ub32ref/le sector 0))
-        (structure-signature (sys.int::ub32ref/le sector 484))
-        (trail-signature (sys.int::ub32ref/le sector 508)))
-    (check-lead-signature lead-signature)
-    (check-structure-signature structure-signature)
-    (check-trail-signature trail-signature)
-    (make-fs-info
-     :lead-signature lead-signature
-     :reserved-0 nil
-     :structure-signature structure-signature
-     :last-free-cluster (sys.int::ub32ref/le sector 488)
-     :next-free-cluster (sys.int::ub32ref/le sector 492)
-     :reserved-1 nil
-     :trail-signature trail-signature)))
 
 (defun check-lead-signature (lead-signature)
   (if (= lead-signature +lead-signature+)
@@ -197,14 +190,21 @@ Valid structure-signature is ~a" structure-signature +structure-signature+)))
       (error "Bad trail-signature : ~a .
 Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
-(defstruct fs-info
-  (lead-signature nil :type (unsigned-byte 32))
-  (reserved-0 nil) ; 4 480
-  (structure-signature nil :type (unsigned-byte 32))
-  (last-free-cluster nil :type (unsigned-byte 32))
-  (next-free-cluster nil :type (unsigned-byte 32))
-  (reserved-1 nil) ; 496 12
-  (trail-signature nil :type (unsigned-byte 32)))
+(defun read-fat32-info-structure (sector)
+  (let ((lead-signature (sys.int::ub32ref/le sector 0))
+        (structure-signature (sys.int::ub32ref/le sector 484))
+        (trail-signature (sys.int::ub32ref/le sector 508)))
+    (check-lead-signature lead-signature)
+    (check-structure-signature structure-signature)
+    (check-trail-signature trail-signature)
+    (make-fs-info
+     :lead-signature lead-signature
+     :reserved-0 nil
+     :structure-signature structure-signature
+     :last-free-cluster (sys.int::ub32ref/le sector 488)
+     :next-free-cluster (sys.int::ub32ref/le sector 492)
+     :reserved-1 nil
+     :trail-signature trail-signature)))
 
 (defun read-sector (disk sector &optional (n 1))
   (let* ((array (make-array (* n (mezzano.supervisor:disk-sector-size disk)) :area :wired
@@ -225,6 +225,42 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                   array)
     array))
 
+(defstruct virtual-dir
+  (name nil)
+  (attributes nil :type (unsigned-byte 8))
+  (time-tenth nil :type (unsigned-byte 8))
+  (time nil :type vector)
+  (date nil :type vector)
+  (access-date nil :type vector)
+  (write-time nil :type vector)
+  (write-date nil :type vector)
+  (first-cluster nil :type (unsigned-byte 32))
+  (file-size nil :type (unsigned-byte 32)))
+
+(defstruct dir
+  (name nil)
+  (attributes nil :type (unsigned-byte 8))
+  (reserved nil) ; 12 1
+  (time-tenth nil :type (unsigned-byte 8))
+  (time nil :type vector)
+  (date nil :type vector)
+  (access-date nil :type vector)
+  (first-cluster-high nil :type (unsigned-byte 16))
+  (write-time nil :type vector)
+  (write-date nil :type vector)
+  (first-cluster-low nil :type (unsigned-byte 16))
+  (file-size nil :type (unsigned-byte 32)))
+
+(defstruct long-dir
+  (order nil :type (unsigned-byte 8))
+  (name-0 nil :type vector)
+  (attributes nil :type (unsigned-byte 8))
+  (type nil :type (unsigned-byte 8))
+  (checksum nil :type (unsigned-byte 8))
+  (name-1 nil :type vector)
+  (first-cluster-low nil :type (unsigned-byte 16))
+  (name-2 nil :type vector))
+
 ;;; bit offset
 (defconstant +attribute-read-only+ 0)
 (defconstant +attribute-hidden+ 1)
@@ -233,6 +269,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defconstant +attribute-directory+ 4)
 (defconstant +attribute-archive+ 5)
 
+(defun file-p (file)
+  (let* ((n (virtual-dir-attributes file))
+         (attribute-bit (ldb (byte 1 +attribute-directory+) n)))
+    (if (= attribute-bit 1)
+        nil file)))
+
 (defun read-file (file disk fat32)
   (when (file-p file)
     (read-sector disk
@@ -240,18 +282,40 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           (virtual-dir-first-cluster file))
                  (+ 2 (file-size-in-sectors file fat32)))))
 
-(defun file-p (file)
-  (let* ((n (virtual-dir-attributes file))
-         (attribute-bit (ldb (byte 1 +attribute-directory+) n)))
-    (if (= attribute-bit 1)
-        nil file)))
+(defun decode-dir (list)
+  (let ((name ""))
+    (dolist (file (nreverse list))
+      (cond ((long-dir-p file)
+             ;; Read long name
+             (loop for octet across (concatenate 'vector
+                                                 (long-dir-name-0 file)
+                                                 (long-dir-name-1 file)
+                                                 (long-dir-name-2 file))
+                :unless (or (= octet 0)
+                            (= octet 255))
+                :do (setf name
+                          (concatenate 'string name
+                                       (format nil "~a" (code-char octet))))))
+            ((dir-p file)
+             ;; Set short name for . and ..
+             (cond
+               ((string= ".          " (dir-name file))
+                (setf name "."))
+               ((string= "..         " (dir-name file))
+                (setf name "..")))
 
-(defun read-dir-from-file (fat32 disk file)
-  (let ((cluster (read-cluster fat32
-                               disk
-                               (first-sector-of-cluster fat32
-                                                        (virtual-dir-first-cluster file)))))
-    (read-dir-from-cluster cluster fat32)))
+             (return (make-virtual-dir
+                      :name name
+                      :attributes (dir-attributes file)
+                      :time-tenth (dir-time-tenth file)
+                      :time (dir-time file)
+                      :date (dir-date file)
+                      :access-date (dir-access-date file)
+                      :write-time (dir-write-time file)
+                      :write-date (dir-write-date file)
+                      :first-cluster (logior (ash (dir-first-cluster-high file) 16)
+                                             (ash (dir-first-cluster-low file) 0))
+                      :file-size (dir-file-size file))))))))
 
 (defun read-dir-from-cluster (cluster fat32)
   (loop :for i :from 0 :to (1- (/ (* (fat32-sectors-per-cluster fat32)
@@ -298,46 +362,17 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                         :write-date (subseq cluster (+ 24 (* i 32)) (+ 26 (* i 32)))
                         :first-cluster-low (sys.int::ub16ref/le cluster (+ 26 (* i 32)))
                         :file-size (sys.int::ub32ref/le cluster (+ 28 (* i 32))))
-                       stack)
-                 fat32)
+                       stack))
                 res)
                (setf stack nil)))))
      :finally (return res)))
 
-(defun decode-dir (list fat32)
-  (let ((name ""))
-    (dolist (file (nreverse list))
-      (cond ((long-dir-p file)
-             ;; Read long name
-             (loop for octet across (concatenate 'vector
-                                                 (long-dir-name-0 file)
-                                                 (long-dir-name-1 file)
-                                                 (long-dir-name-2 file))
-                :unless (or (= octet 0)
-                            (= octet 255))
-                :do (setf name
-                          (concatenate 'string name
-                                       (format nil "~a" (code-char octet))))))
-            ((dir-p file)
-             ;; Set short name for . and ..
-             (cond
-               ((string= ".          " (dir-name file))
-                (setf name "."))
-               ((string= "..         " (dir-name file))
-                (setf name "..")))
-
-             (return (make-virtual-dir
-                      :name name
-                      :attributes (dir-attributes file)
-                      :time-tenth (dir-time-tenth file)
-                      :time (dir-time file)
-                      :date (dir-date file)
-                      :access-date (dir-access-date file)
-                      :write-time (dir-write-time file)
-                      :write-date (dir-write-date file)
-                      :first-cluster (logior (ash (dir-first-cluster-high file) 16)
-                                             (ash (dir-first-cluster-low file) 0))
-                      :file-size (dir-file-size file))))))))
+(defun read-dir-from-file (fat32 disk file)
+  (let ((cluster (read-cluster fat32
+                               disk
+                               (first-sector-of-cluster fat32
+                                                        (virtual-dir-first-cluster file)))))
+    (read-dir-from-cluster cluster fat32)))
 
 ;;; bits 0-4 2-second count, 5-10 minutes, 11-15 hours
 (defun decode-time (array)
@@ -353,56 +388,15 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             (ldb (byte 4 5) n)
             (ldb (byte 7 9) n))))
 
-(defstruct virtual-dir
-  (name nil)
-  (attributes nil :type (unsigned-byte 8))
-  (time-tenth nil :type (unsigned-byte 8))
-  (time nil :type vector)
-  (date nil :type vector)
-  (access-date nil :type vector)
-  (write-time nil :type vector)
-  (write-date nil :type vector)
-  (first-cluster nil :type (unsigned-byte 32))
-  (file-size nil :type (unsigned-byte 32)))
-
-(defstruct dir
-  (name nil)
-  (attributes nil :type (unsigned-byte 8))
-  (reserved nil) ; 12 1
-  (time-tenth nil :type (unsigned-byte 8))
-  (time nil :type vector)
-  (date nil :type vector)
-  (access-date nil :type vector)
-  (first-cluster-high nil :type (unsigned-byte 16))
-  (write-time nil :type vector)
-  (write-date nil :type vector)
-  (first-cluster-low nil :type (unsigned-byte 16))
-  (file-size nil :type (unsigned-byte 32)))
-
-(defstruct long-dir
-  (order nil :type (unsigned-byte 8))
-  (name-0 nil :type vector)
-  (attributes nil :type (unsigned-byte 8))
-  (type nil :type (unsigned-byte 8))
-  (checksum nil :type (unsigned-byte 8))
-  (name-1 nil :type vector)
-  (first-cluster-low nil :type (unsigned-byte 16))
-  (name-2 nil :type vector))
-
-(defun root-dir-sectors (fat32)
-  0 ;for fat32 is always 0
-  ;; (ceiling
-  ;;  (/ (+ (* (fat32-root-entry-count fat32) 32)
-  ;;        (1- (fat32-bytes-per-sector fat32)))
-  ;;     (fat32-bytes-per-sector fat32)))
-  )
+(defun root-dir-sectors ()
+  0)
 
 (defun data-sectors (fat32)
   (- (fat32-total-sectors32 fat32)
      (+ (fat32-reserved-sector-count fat32)
         (* (fat32-table-count fat32)
            (fat32-table-size-32 fat32))
-        (root-dir-sectors fat32))))
+        (root-dir-sectors))))
 
 (defun total-clusters (fat32)
   (floor
@@ -413,11 +407,11 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (+ (fat32-reserved-sector-count fat32)
      (* (fat32-table-count fat32)
         (fat32-table-size-32 fat32))
-     (root-dir-sectors fat32)))
+     (root-dir-sectors)))
 
 (defun first-root-dir-sector (fat32)
   (- (first-data-sector fat32)
-     (root-dir-sectors fat32)))
+     (root-dir-sectors)))
 
 (defun first-sector-of-cluster (fat32 cluster)
   (+ (* (- cluster 2)
@@ -429,7 +423,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
    (/ (virtual-dir-file-size file)
       (fat32-bytes-per-sector fat32))))
 
-;;;; Host integration
+;;; Host integration
 
 (defclass fat32-host ()
   ((%name :initarg :name
@@ -763,7 +757,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
   (read-buffer-size stream))
 
-;;;; testing
+;;; testing
 #|
 ;; Mount partition
 (let* ((partition-name "FAT32") ; Put your name here
