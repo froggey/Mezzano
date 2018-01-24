@@ -701,6 +701,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
 
 (define-simple-instruction fninit (#xDB #xE3))
 
+(define-simple-instruction lfence (#x0F #xAE #xE8))
+(define-simple-instruction mfence (#x0F #xAE #xF8))
+(define-simple-instruction sfence (#x0F #xAE #xF0))
+
 (defmacro define-integer-define-instruction (name lambda-list (bitness class) &body body)
   `(defmacro ,name ,lambda-list
      `(progn ,@(mapcar (lambda (,bitness ,class) ,@body)
