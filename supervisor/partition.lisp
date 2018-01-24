@@ -61,6 +61,10 @@
            n-sectors
            buffer))
 
+(defun flush-disk-partition (device buffer)
+  (funcall (disk-flush-fn (partition-disk device))
+           (disk-device (partition-disk device))))
+
 (defun detect-disk-partitions ()
   (dolist (disk (all-disks))
     ;; Search for a GPT, then a PC MBR.
@@ -100,7 +104,8 @@
                          sector-size
                          (disk-max-transfer disk)
                          'read-disk-partition
-                         'write-disk-partition))))))
+                         'write-disk-partition
+                         'flush-disk-partition))))))
 
 (defun detect-gpt-partition-table (disk)
   (let* ((sector-size (disk-sector-size disk))
@@ -157,7 +162,8 @@
                              sector-size
                              (disk-max-transfer disk)
                              'read-disk-partition
-                             'write-disk-partition)))))
+                             'write-disk-partition
+                             'flush-disk-partition)))))
       found-table-p)))
 
 (defun find-iso9660-primary-volume-descriptor (disk buffer)
@@ -226,5 +232,6 @@
                                     2048
                                     (disk-max-transfer disk)
                                     'read-disk-partition
-                                    'write-disk-partition))
+                                    'write-disk-partition
+                                    'flush-disk-partition))
                    (incf offset rec-len)))))))))

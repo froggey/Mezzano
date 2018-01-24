@@ -489,6 +489,11 @@
                    +ata-command-write-dma-ext+
                    t))
 
+(defun ahci-flush (port-info)
+  ;; TODO. Should be pretty simple, but I'm not sure if this needs a DMA buffer
+  ;; configured. There's no data being transfered.
+  t)
+
 (defun ahci-detect-atapi-drive (ahci port)
   ;; Issue IDENTIFY PACKET.
   ;; Dump the IDENTIFY PACKET data just after the command table.
@@ -574,7 +579,7 @@
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
       ;; FIXME: Can transfer more than 256 sectors at once...
-      (register-disk port-info t sector-count sector-size 256 'ahci-read 'ahci-write))))
+      (register-disk port-info t sector-count sector-size 256 'ahci-read 'ahci-write 'ahci-flush))))
 
 (defun (setf ahci-fis) (value ahci port offset)
   "Write an octet into the command FIS for PORT."
