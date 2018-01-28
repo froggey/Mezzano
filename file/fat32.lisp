@@ -645,7 +645,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
          do (progn
               (setf buffer (mezzano.fat32-file-system:read-file file (partition host)
                                                                 (fat32-structure host))
-                    read-buffer-position (* (fat32-bytes-per-sector fat32)
+                    read-buffer-position (* (fat32-bytes-per-sector (fat32-structure host))
                                             (virtual-dir-first-cluster file))
                     read-buffer-size (virtual-dir-file-size file))
               (return))
