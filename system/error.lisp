@@ -156,7 +156,7 @@
 (define-condition unbound-slot (cell-error)
   ((instance :initarg :instance
              :reader unbound-slot-instance))
-  (:rebort (lambda (condition stream)
+  (:report (lambda (condition stream)
              (format stream "The slot ~S is unbound in the object ~S."
                      (cell-error-name condition)
                      (unbound-slot-instance condition)))))
