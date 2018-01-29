@@ -1658,6 +1658,13 @@ has only has class specializer."
 (defmethod make-instance ((class symbol) &rest initargs)
   (apply #'make-instance (find-class class) initargs))
 
+(define-compiler-macro make-instance (&whole whole class &rest initargs &key &allow-other-keys)
+  (cond ((typep class '(cons (eql quote) (cons symbol null)))
+         ;; Avoid the dispatch on symbol and the class lookup.
+         `(make-instance (find-class ,class) ,@initargs))
+        (t
+         whole)))
+
 (defgeneric initialize-instance (instance &key &allow-other-keys))
 (defmethod initialize-instance ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance t initargs))
