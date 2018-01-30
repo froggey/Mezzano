@@ -234,29 +234,33 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   "Read sectors from disk"
   (let* ((array (make-array (* 1 (mezzano.supervisor:disk-sector-size disk))
                             :area :wired :element-type '(unsigned-byte 8))))
-    (mezzano.supervisor:disk-read disk sector 1 array)
+    (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-read disk sector 1 array)
+      (when (not successp)
+        (error "Disk read error: ~S" error-reason)))
     array))
 
 (defun write-sector (disk sector array)
   "Write sectors to disk"
-  (mezzano.supervisor:disk-write disk sector 1 array)
-  t)
+  (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-write disk sector 1 array)
+    (when (not successp)
+      (error "Disk write error: ~S" error-reason))))
 
 (defun read-cluster (fat32 disk cluster-sector)
   "Read cluster from cluster"
   (let* ((spc (fat32-sectors-per-cluster fat32))
          (cluster (make-array (* spc (mezzano.supervisor:disk-sector-size disk))
                               :area :wired :element-type '(unsigned-byte 8))))
-    (mezzano.supervisor:disk-read disk cluster-sector spc cluster)
+    (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-read disk cluster-sector spc cluster)
+      (when (not successp)
+        (error "Disk read error: ~S" error-reason)))
     cluster))
 
 (defun write-cluster (disk cluster-sector fat32 array)
   "Write cluster to disk"
-  (mezzano.supervisor:disk-write disk
-                                 cluster-sector
-                                 (fat32-sectors-per-cluster fat32)
-                                 array)
-  t)
+  (multiple-value-bind (successp error-reason)
+      (mezzano.supervisor:disk-write disk cluster-sector (fat32-sectors-per-cluster fat32) array)
+    (when (not successp)
+      (error "Disk write error: ~S" error-reason))))
 
 ;;; bit offsets
 (defconstant +attribute-read-only+ 0)
