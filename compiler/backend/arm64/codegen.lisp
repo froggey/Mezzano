@@ -186,7 +186,8 @@
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
               (mv-flow (ir::multiple-value-flow backend-function :x86-64)))
           ;; Create stack frame.
-          (emit `(:debug ())
+          (emit 'entry-point
+                `(:debug ())
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*)
                 `(lap:stp :x29 :x30 (:pre :sp -16))
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
@@ -254,12 +255,15 @@
   ;; Check the argument count.
   (let ((args-ok (gensym)))
     (flet ((emit-arg-error ()
-             (emit `(:gc :frame)
-                   `(lap:orr :x5 :xzr :xzr)
-                   `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
+             ;; If this is a closure, then it must have been invoked using
+             ;; the closure calling convention and the closure object will
+             ;; still be in RBX. For non-closures, reconstruct the function
+             ;; object and put that in RBX.
+             (when (not (sys.c::lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
+               (emit `(lap:adr :x6 (:pc (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+             (emit `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
              (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
-             (emit `(lap:blr :x9)
-                   `(lap:hlt 0)
+             (emit `(lap:br :x9)
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       ;; FIXME: Support more than 2047 arguments (subs immediate limit).

@@ -123,7 +123,8 @@
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
               (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
           ;; Create stack frame.
-          (emit `(:debug ())
+          (emit 'entry-point
+                `(:debug ())
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
                 `(lap:push :rbp)
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
@@ -169,11 +170,18 @@
   ;; Check the argument count.
   (let ((args-ok (gensym)))
     (flet ((emit-arg-error ()
-             (emit `(:gc :frame)
-                   `(lap:xor32 :ecx :ecx)
-                   `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-                   `(lap:call (:object :r13 ,sys.int::+fref-entry-point+))
-                   `(lap:ud2)
+             ;; If this is a closure, then it must have been invoked using
+             ;; the closure calling convention and the closure object will
+             ;; still be in RBX. For non-closures, reconstruct the function
+             ;; object and put that in RBX.
+             (when (not (sys.c::lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
+               (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+             (emit `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
+                   ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
+                   ;; the arguments in place.
+                   `(lap:leave)
+                   `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+                   `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       (cond ((argument-setup-rest instruction)

@@ -53,7 +53,18 @@ Returns NIL if the function captures no variables."
   ;; Decrement the return address by one to point at the calls
   ;; instead of the following instruction.
   (let ((return-address (1- (memref-signed-byte-64 (second frame) 1))))
-    (return-address-to-function return-address)))
+    (multiple-value-bind (fn offset)
+        (return-address-to-function return-address)
+      ;; HACK, replace RAISE-INVALID-ARGUMENT-ERROR with the real caller.
+      (when (eql fn #'raise-invalid-argument-error)
+        (loop
+           for (name location repr . plist) in (local-variables-at-offset fn offset)
+           when (eql name 'function)
+           do
+             (setf fn (read-frame-slot frame location repr)
+                   offset 0)
+             (return)))
+      (values fn offset))))
 
 (defun decode-debug-register (reg)
   #+x86-64
@@ -508,7 +519,7 @@ Returns NIL if the function captures no variables."
      (when (and limit (> i limit))
        (return-from backtrace))
      (let* ((return-address (memref-unsigned-byte-64 fp 1))
-            (fn (return-address-to-function return-address))
+            (fn (function-from-frame (list nil fp nil)))
             (name (when (functionp fn) (function-name fn))))
        (format t "~&~X ~X ~S" fp return-address name)))))
 
