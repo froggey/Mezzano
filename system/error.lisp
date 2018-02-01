@@ -295,7 +295,15 @@
   ;; up in backtraces. Fixing this probably involves a non-trivial rework
   ;; of the invalid args mechanism.
   ;; This is currently worked around with a hack in FUNCTION-FROM-FRAME.
-  (error 'invalid-argument-error :function function :arguments args))
+  (restart-case
+      (error 'invalid-argument-error :function function :arguments args)
+    (use-value (&rest values)
+      :interactive (lambda ()
+                     (format *query-io* "Enter a value to return (evaluated): ")
+                     (finish-output *query-io*)
+                     (multiple-value-list (eval (read *query-io*))))
+      :report "Supply a value to use instead."
+      (values-list values))))
 
 (defun raise-stack-alignment-error ()
   (error "Stack was misaligned."))
