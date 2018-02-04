@@ -322,7 +322,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (with-output-to-string (s)
     (loop :for i :from offset :to (+ 10 offset)
           :for octet := (aref cluster i)
-          :do (write-char (code-char octet)))))
+          :do (write-char (code-char octet) s))))
 
 (defmacro with-file ((var start) cluster finally &body body)
   (alexandria:with-gensyms (checksum)
