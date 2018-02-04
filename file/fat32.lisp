@@ -427,6 +427,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (parse-simple-file-path host namestring))
 
 (defmethod unparse-pathname (pathname (host fat32-host))
+  (when (pathname-device pathname)
+    (error 'no-namestring-error
+           :pathname pathname
+           :format-control "Pathname has a device component"))
   (let ((dir (pathname-directory pathname))
         (name (pathname-name pathname))
         (type (pathname-type pathname)))
@@ -436,10 +440,14 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (dolist (sub-dir (rest dir))
         (cond
           ((stringp sub-dir) (write-string sub-dir s))
-          ((eql sub-dir :up) (write-string ".." s)) ;
-          ((eql sub-dir :wild) (write-char #\* s)) ;
-          ((eql sub-dir :wild-inferiors) (write-string "**" s)) ;
-          (t (error "Invalid directory component ~S." sub-dir))) ;
+          ((eql sub-dir :up) (write-string ".." s))
+          ((eql sub-dir :wild) (write-char #\* s))
+          ((eql sub-dir :wild-inferiors) (write-string "**" s))
+          (t
+           (error 'no-namestring-error
+                  :pathname pathname
+                  :format-control "Invalid directory component ~S."
+                  :format-arguments (list sub-dir))))
         (write-char #\> s))
       (if (eql name :wild)
           (write-char #\* s)
