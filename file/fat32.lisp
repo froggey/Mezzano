@@ -232,18 +232,18 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (* (fat32-sectors-per-cluster fat32)
      (fat32-bytes-per-sector fat32)))
 
-(defun read-sector (disk sector)
+(defun read-sector (disk sector n)
   "Read sectors from disk"
-  (let* ((array (make-array (* 1 (mezzano.supervisor:disk-sector-size disk))
+  (let* ((array (make-array (* n (mezzano.supervisor:disk-sector-size disk))
                             :area :wired :element-type '(unsigned-byte 8))))
-    (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-read disk sector 1 array)
+    (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-read disk sector n array)
       (when (not successp)
         (error "Disk read error: ~S" error-reason)))
     array))
 
-(defun write-sector (disk sector array)
+(defun write-sector (disk sector array n)
   "Write sectors to disk"
-  (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-write disk sector 1 array)
+  (multiple-value-bind (successp error-reason) (mezzano.supervisor:disk-write disk sector n array)
     (when (not successp)
       (error "Disk write error: ~S" error-reason))))
 
@@ -277,12 +277,17 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
            (aref cluster (+ 11 offset)))
       1))
 
-(defun read-file (fat32 disk cluster start)
-  (when (file-p cluster start)
-    (read-cluster fat32
-                  disk
-                  (first-sector-of-cluster fat32
-                                           (read-first-cluster cluster start)))))
+(defun read-file (fat32 disk cluster-n fat)
+  (let ((file-buffer #()))
+    (do ((sector (read-sector disk (fat32-reserved-sector-count fat32) 1))
+         (i cluster-n
+            (sys.int::ub32ref/le fat (* i 4))))
+        ((>= i #x0FFFFFF8) file-buffer)
+      (setf file-buffer
+            (concatenate 'vector
+                         file-buffer
+                         (read-cluster fat32 disk
+                                       (first-sector-of-cluster fat32 i)))))))
 
 (defun read-first-cluster (cluster offset)
   (logior (ash (sys.int::ub16ref/le cluster (+ 20 offset)) 16)
@@ -337,7 +342,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defun read-long-name (cluster start)
   (let ((name ""))
     (with-file (i start) cluster
-               '()
+      '()
       (progn (setf name
                    (concatenate 'string name
                                 (with-output-to-string (sub-name)
@@ -346,7 +351,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                                  :for octet := (aref cluster offset)
                                                  :when (and (/= octet 0)
                                                             (/= octet 255))
-                                                   :do (write-char (code-char octet) sub-name))))
+                                                 :do (write-char (code-char octet) sub-name))))
                                     (add 1 10)
                                     (add 14 25)
                                     (add 28 31)))))
@@ -355,12 +360,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defun remove-file (cluster start disk sector fat32)
   (with-file (i start) cluster
-             (write-cluster disk
-                            sector
-                            fat32
-                            cluster)
-             (setf (aref cluster i)
-                   #xE5)))
+    (write-cluster disk
+                   sector
+                   fat32
+                   cluster)
+    (setf (aref cluster i)
+          #xE5)))
 
 ;;; Host integration
 
@@ -374,7 +379,9 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
    (fat32-structure :initarg :fat32-structure
                     :reader fat32-structure)
    (fat32-info :initarg :fat32-info
-               :reader fat32-info))
+               :reader fat32-info)
+   (fat :initarg :fat
+        :reader fat))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
 (defmethod host-default-device ((host fat32-host))
@@ -499,6 +506,37 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   `(mezzano.supervisor:with-mutex ((fat32-host-lock ,host))
      ,@body))
 
+(defun file-name (path)
+  "Return file name"
+  (unless (or (eql :wild (pathname-name path))
+              (eql :wild (pathname-type path)))
+    (if (pathname-type path)
+        (concatenate 'string (pathname-name path) "." (pathname-type path))
+        (pathname-name path))))
+
+(defun find-file (host pathname)
+  (loop :with fat32 := (fat32-structure host)
+        :with disk := (partition host)
+        :with file-name := (file-name pathname)
+        :with cluster-sector := (first-root-dir-sector fat32)
+        :with cluster := (read-file fat32
+                                    disk
+                                    (fat32-root-cluster fat32)
+                                    (fat host))
+        :for file :in (rest (pathname-directory pathname))
+        :do (do-files (start) cluster
+              (when (string= file (read-long-name cluster start))
+                (let ((directory (read-file fat32
+                                            disk
+                                            (read-first-cluster cluster start)
+                                            (fat host))))
+                  (setf cluster directory
+                        cluster-sector (first-sector-of-cluster fat32
+                                                                directory)))))
+        :finally (do-files (start) cluster
+                   (when (string= file-name (read-long-name cluster start))
+                     (return-from find-file (values cluster cluster-sector start))))))
+
 (defmethod delete-file-using-host ((host fat32-host) path &key)
   (let* ((disk (partition host))
          (fat32 (fat32-structure host)))
@@ -527,33 +565,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                        fat32
                        cluster)))))
 
-(defun file-name (path)
-  "Return file name"
-  (unless (or (eql :wild (pathname-name path))
-              (eql :wild (pathname-type path)))
-    (if (pathname-type path)
-        (concatenate 'string (pathname-name path) "." (pathname-type path))
-        (pathname-name path))))
-
-(defun find-file (host pathname)
-  (loop :with fat32 := (fat32-structure host)
-        :with disk := (partition host)
-        :with file-name := (file-name pathname)
-        :with cluster-sector := (first-root-dir-sector fat32)
-        :with cluster := (read-cluster fat32 disk cluster-sector)
-        :for file :in (rest (pathname-directory pathname))
-        :do (do-files (start) cluster
-              (when (string= file (read-long-name cluster start))
-                (let ((sector (first-sector-of-cluster fat32
-                                                       (read-first-cluster cluster start))))
-                  (setf cluster
-                        (read-cluster fat32 disk
-                                      sector)
-                        cluster-sector sector))))
-        :finally (do-files (start) cluster
-                   (when (string= file-name (read-long-name cluster start))
-                     (return-from find-file (values cluster cluster-sector start))))))
-
 ;; WIP
 (defmethod open-using-host ((host fat32-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
@@ -569,8 +580,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (if start
             (progn (setf buffer (read-file (fat32-structure host)
                                            (partition host)
-                                           cluster
-                                           start)
+                                           (read-first-cluster cluster start)
+                                           (fat host))
                          read-buffer-position (first-sector-of-cluster (fat32-structure host)
                                                                        (read-first-cluster cluster start))
                          read-buffer-size (read-size cluster start)))
@@ -646,7 +657,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod directory-using-host ((host fat32-host) pathname &key)
   (let ((cluster (find-file host pathname)))
     (let (stack '())
-      (do-files (file) cluster
+      (do-files
+          (file) cluster
         (push
          (parse-simple-file-path host
                                  (format nil
@@ -712,10 +724,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (let ((char (aref (read-buffer stream)
                     (buffer-offset stream))))
     (incf (buffer-offset stream))
-    (if (or (< 4095 ;; tmp
-               (buffer-offset stream))
-             (<= (read-buffer-size stream)
-                 (buffer-offset stream)))
+    (if (<= (read-buffer-size stream)
+            (buffer-offset stream))
         :eof
         char)))
 
@@ -744,10 +754,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (let ((char (aref (read-buffer stream)
                     (buffer-offset stream))))
     (incf (buffer-offset stream))
-    (if (or (< 4095 ;; tmp
-               (buffer-offset stream))
-             (<= (read-buffer-size stream)
-                 (buffer-offset stream)))
+    (if (<= (read-buffer-size stream)
+            (buffer-offset stream))
         :eof
         (code-char char))))
 
@@ -770,14 +778,15 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;; WIP
 ;; TODO Change access-date , write-time and write-date.
 ;; FIXME Don't make smaler file size
+;; Write don't work with multi clusters
 (defmethod close ((stream fat32-file-stream) &key abort)
-  (cond ((not abort)
-         (write-cluster (partition (host stream))
-                        (read-buffer-position stream)
-                        (fat32-structure (host stream))
-                        (read-buffer stream))
-         (write-file-size stream))
-        (t (error "Aborted close not suported")))
+  ;; (cond ((not abort)
+  ;;        (write-cluster (partition (host stream))
+  ;;                       (read-buffer-position stream)
+  ;;                       (fat32-structure (host stream))
+  ;;                       (read-buffer stream))
+  ;;        (write-file-size stream))
+  ;;       (t (error "Aborted close not suported")))
   t)
 
 ;;; testing
@@ -785,13 +794,18 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;; Mount partition
 ;; (let* ((disk-name "FAT32")
 ;;        (disk (nth 3 (mezzano.supervisor:all-disks)))
-;;        (fat32 (read-fat32-structure (read-sector disk 0)))
-;;        (fat32-info (read-fat32-info-structure (read-sector disk (fat32-fat-info fat32))))
+;;        (fat32 (read-fat32-structure (read-sector disk 0 1)))
+;;        (fat32-info (read-fat32-info-structure (read-sector disk (fat32-fat-info fat32) 1)))
+;;        (fat (read-sector disk
+;;                          (fat32-reserved-sector-count fat32)
+;;                          (/ (fat32-table-size-32 fat32)
+;;                             (fat32-table-count fat32))))
 ;;        (instance (make-instance 'fat32-host
 ;;                                 :name disk-name
 ;;                                 :partition disk
 ;;                                 :fat32-structure fat32
-;;                                 :fat32-info fat32-info)))
+;;                                 :fat32-info fat32-info
+;;                                 :fat fat)))
 ;;   (setf (mezzano.file-system:find-host disk-name)
 ;;         instance))
 
