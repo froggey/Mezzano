@@ -548,7 +548,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                                        (read-first-cluster cluster start))))
                   (setf cluster
                         (read-cluster fat32 disk
-                                      sector)))))
+                                      sector)
+                        cluster-sector sector))))
         :finally (do-files (start) cluster
                    (when (string= file-name (read-long-name cluster start))
                      (return-from find-file (values cluster cluster-sector start))))))
