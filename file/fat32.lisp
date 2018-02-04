@@ -4,7 +4,9 @@
 
 (defpackage :mezzano.fat32-file-system
   (:use :cl :mezzano.file-system)
-  (:export))
+  (:export)
+  (:import-from :sys.int
+                #:explode))
 
 (in-package :mezzano.fat32-file-system)
 
@@ -377,20 +379,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defmethod host-default-device ((host fat32-host))
   nil)
-
-(defun explode (character string &optional (start 0) end)
-  "Returns an list of strings, each of which is a substring of string formed by
-splitting it on boundaries formed by the character delimiter. "
-  (setf end (or end (length string)))
-  (do ((elements '())
-       (i start (1+ i))
-       (elt-start start))
-      ((>= i end)
-       (push (subseq string elt-start i) elements)
-       (nreverse elements))
-    (when (eql (char string i) character)
-      (push (subseq string elt-start i) elements)
-      (setf elt-start (1+ i)))))
 
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)
