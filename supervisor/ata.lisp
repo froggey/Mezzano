@@ -439,17 +439,18 @@ This is used to implement the INTRQ_Wait state."
 (defun ata-configure-prdt (controller phys-addr n-octets direction)
   (let* ((prdt (ata-controller-prdt-phys controller))
          (prdt-virt (convert-to-pmap-address prdt)))
-    (do ((offset 0))
+    (ensure (<= (+ phys-addr n-octets) #x100000000))
+    (ensure (not (eql n-octets 0)))
+    (do ((offset 0 (+ offset 2)))
         ((<= n-octets #x10000)
          ;; Write final chunk.
          (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
-               (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) (logior #x80000000
-                                                                                ;; 0 = 64k
-                                                                                (logand n-octets #xFFFF))))
+               (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) (logior #x80000000 n-octets)))
       ;; Write 64k chunks.
       (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
-            (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) 0)
-      (incf phys-addr #x10000))
+            (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) 0) ; 0 = 64k
+      (incf phys-addr #x10000)
+      (decf n-octets #x10000))
     ;; Write the PRDT location.
     (setf (pci-io-region/32 (ata-controller-bus-master-register controller) +ata-bmr-prdt-address+) prdt
           ;; Clear DMA status. Yup. You have to write 1 to clear bits.
