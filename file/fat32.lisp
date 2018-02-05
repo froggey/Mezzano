@@ -264,6 +264,21 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (when (not successp)
       (error "Disk write error: ~S" error-reason))))
 
+(defun read-fat (disk fat32)
+  "Read file allocation table"
+  (read-sector disk
+               (fat32-reserved-sector-count fat32)
+               (/ (fat32-table-size-32 fat32)
+                  (fat32-table-count fat32))))
+
+(defun write-fat (disk fat32 fat)
+  "Write file allocation table to disk"
+  (write-sector disk
+                (fat32-reserved-sector-count fat32)
+                fat
+                (/ (fat32-table-size-32 fat32)
+                   (fat32-table-count fat32))))
+
 ;;; bit offsets
 (defconstant +attribute-read-only+ 0)
 (defconstant +attribute-hidden+ 1)
@@ -279,8 +294,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defun read-file (fat32 disk cluster-n fat)
   (let ((file-buffer #()))
-    (do ((sector (read-sector disk (fat32-reserved-sector-count fat32) 1))
-         (i cluster-n
+    (do ((i cluster-n
             (sys.int::ub32ref/le fat (* i 4))))
         ((>= i #x0FFFFFF8) file-buffer)
       (setf file-buffer
@@ -288,6 +302,26 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                          file-buffer
                          (read-cluster fat32 disk
                                        (first-sector-of-cluster fat32 i)))))))
+
+;; WIP
+;; TODO Allocate new clusters
+;; TODO Update write-time and write-date
+(defun write-file (file disk fat32 fat first-cluster)
+  (do ((cluster-length (bytes-per-cluster
+                        (fat32-structure (find-host "FAT32"))))
+       (n 0 (+ cluster-length n))
+       (i first-cluster
+          (sys.int::ub32ref/le fat (* i 4))))
+      ((>= n (length file))
+       t)
+    (when (>= i #x0FFFFFF8)
+      (error "Allocate new clusters not implemented"))
+    (write-cluster disk
+                   (first-sector-of-cluster fat32 i)
+                   fat32
+                   (make-array cluster-length
+                               :area :wired :element-type '(unsigned-byte 8)
+                               :initial-contents (subseq file n (+ cluster-length n))))))
 
 (defun read-first-cluster (cluster offset)
   (logior (ash (sys.int::ub16ref/le cluster (+ 20 offset)) 16)
@@ -582,8 +616,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                            (partition host)
                                            (read-first-cluster cluster start)
                                            (fat host))
-                         read-buffer-position (first-sector-of-cluster (fat32-structure host)
-                                                                       (read-first-cluster cluster start))
+                         read-buffer-position (read-first-cluster cluster start)
                          read-buffer-size (read-size cluster start)))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
@@ -706,8 +739,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-element-type ((stream fat32-file-character-stream))
   'character)
 
-;; WIP
-;; TODO resize to files bigger than 1 cluster
 (defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
@@ -736,8 +767,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (replace sequence (read-buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
     end2))
 
-;; WIP
-;; TODO resize to files bigger than 1 cluster
 (defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
@@ -776,17 +805,17 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (read-buffer-size stream))
 
 ;; WIP
-;; TODO Change access-date , write-time and write-date.
-;; FIXME Don't make smaler file size
-;; Write don't work with multi clusters
+;; TODO Change access-date.
 (defmethod close ((stream fat32-file-stream) &key abort)
-  ;; (cond ((not abort)
-  ;;        (write-cluster (partition (host stream))
-  ;;                       (read-buffer-position stream)
-  ;;                       (fat32-structure (host stream))
-  ;;                       (read-buffer stream))
-  ;;        (write-file-size stream))
-  ;;       (t (error "Aborted close not suported")))
+  (when (member (direction stream) '(:output :io))
+    (cond ((not abort)
+           (let ((host (host stream)))
+             (write-file (read-buffer stream)
+                         (partition host)
+                         (fat32-structure host)
+                         (fat host)
+                         (read-buffer-position stream))))
+          (t (error "Aborted close not suported"))))
   t)
 
 ;;; testing
@@ -796,10 +825,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;;        (disk (nth 3 (mezzano.supervisor:all-disks)))
 ;;        (fat32 (read-fat32-structure (read-sector disk 0 1)))
 ;;        (fat32-info (read-fat32-info-structure (read-sector disk (fat32-fat-info fat32) 1)))
-;;        (fat (read-sector disk
-;;                          (fat32-reserved-sector-count fat32)
-;;                          (/ (fat32-table-size-32 fat32)
-;;                             (fat32-table-count fat32))))
+;;        (fat (read-fat disk fat32))
 ;;        (instance (make-instance 'fat32-host
 ;;                                 :name disk-name
 ;;                                 :partition disk
