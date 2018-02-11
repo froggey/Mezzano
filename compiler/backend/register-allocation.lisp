@@ -1065,9 +1065,11 @@
              (setf (gethash current-vreg result) '()))
            ;; Add new interference edges.
            (dolist (range live)
-             (when (not (eq (live-range-vreg range) current-vreg))
-               (pushnew current-vreg (gethash (live-range-vreg range) result) :test 'eq)
-               (pushnew (live-range-vreg range) (gethash current-vreg result) :test 'eq)))
+             (let ((other-vreg (live-range-vreg range)))
+               (when (and (not (eq other-vreg current-vreg))
+                          (not (member current-vreg (gethash other-vreg result) :test 'eq)))
+                 (push current-vreg (gethash other-vreg result))
+                 (push other-vreg (gethash current-vreg result)))))
            (push range live)))
     result))
 
