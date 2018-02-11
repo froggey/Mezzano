@@ -85,11 +85,12 @@
 ;;; Wrapper around x86 branch instructions.
 (defclass x86-branch-instruction (ir:terminator-instruction)
   ((%opcode :initarg :opcode :accessor x86-instruction-opcode)
-   (%target :initarg :target :accessor x86-branch-target)))
+   (%true-target :initarg :true-target :accessor x86-branch-true-target)
+   (%false-target :initarg :false-target :accessor x86-branch-false-target)))
 
 (defmethod ir:successors (function (instruction x86-branch-instruction))
-  (list (ir:next-instruction function instruction)
-        (x86-branch-target instruction)))
+  (list (x86-branch-true-target instruction)
+        (x86-branch-false-target instruction)))
 
 (defmethod ir:instruction-inputs ((instruction x86-branch-instruction))
   '())
@@ -102,7 +103,7 @@
 
 (defmethod ir:print-instruction ((instruction x86-branch-instruction))
   (format t "   ~S~%"
-          `(:x86-branch ,(x86-instruction-opcode instruction) ,(x86-branch-target instruction))))
+          `(:x86-branch ,(x86-instruction-opcode instruction) ,(x86-branch-true-target instruction) ,(x86-branch-false-target instruction))))
 
 ;;; SSE/MMX (un)boxing instructions.
 

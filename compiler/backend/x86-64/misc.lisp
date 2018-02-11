@@ -20,7 +20,9 @@
                               :inputs (list symbol)
                               :outputs (list result))))
         (t
-         (let ((not-global (make-instance 'ir:label :name :symbol-cache-not-global))
+         (let ((is-global (make-instance 'ir:label :name :symbol-cache-global))
+               (not-global (make-instance 'ir:label :name :symbol-cache-not-global))
+               (cache-hit (make-instance 'ir:label :name :symbol-cache-hit))
                (cache-miss (make-instance 'ir:label :name :symbol-cache-miss))
                (resume (make-instance 'ir:label :name :symbol-cache-resume :phis (list result)))
                (global-cell (make-instance 'ir:virtual-register))
@@ -46,8 +48,9 @@
                                   :outputs '()))
              (emit (make-instance 'x86-branch-instruction
                                   :opcode 'lap:jne
-                                  :target not-global))
-             (emit (make-instance 'ir:label :name :symbol-cache-global))
+                                  :true-target not-global
+                                  :false-target is-global))
+             (emit is-global)
              (emit (make-instance 'x86-instruction
                                   :opcode 'lap:mov64
                                   :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
@@ -87,10 +90,12 @@
                                 :operands (list cache-temp cache-temp)
                                 :inputs (list cache-temp)
                                 :outputs (list)))
-           (emit (make-instance 'x86-branch-instruction
-                                :opcode 'lap:jz
-                                :target cache-miss))
-           (emit (make-instance 'ir:label))
+           (let ((tmp (make-instance 'ir:label)))
+             (emit (make-instance 'x86-branch-instruction
+                                  :opcode 'lap:jz
+                                  :true-target cache-miss
+                                  :false-target tmp))
+             (emit tmp))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:cmp64
                                 :operands (list symbol `(:object ,cache-temp ,sys.int::+symbol-value-cell-symbol+))
@@ -98,9 +103,10 @@
                                 :outputs (list)))
            (emit (make-instance 'x86-branch-instruction
                                 :opcode 'lap:jne
-                                :target cache-miss))
+                                :true-target cache-miss
+                                :false-target cache-hit))
            ;; Cache hit. Log.
-           (emit (make-instance 'ir:label :name :symbol-cache-hit))
+           (emit cache-hit)
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:add64
                                 :operands (list `(:object nil 22) (ash 1 sys.int::+n-fixnum-bits+))

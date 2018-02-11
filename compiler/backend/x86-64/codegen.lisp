@@ -469,7 +469,9 @@
 
 (defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
   (emit (list (x86-instruction-opcode instruction)
-              (resolve-label (x86-branch-target instruction)))))
+              (resolve-label (x86-branch-true-target instruction))))
+  (emit (list 'lap:jmp
+              (resolve-label (x86-branch-false-target instruction)))))
 
 (defmethod emit-lap (backend-function (instruction ir:constant-instruction) uses defs)
   (let ((value (ir:constant-value instruction))

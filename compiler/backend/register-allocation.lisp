@@ -797,11 +797,11 @@
            (setf (first i) l)
            (return))))
       (mezzano.compiler.backend.x86-64::x86-branch-instruction
-       (cond ((eql (ir:next-instruction backend-function terminator) target)
-              (ir:insert-after backend-function terminator l))
+       (cond ((eql (mezzano.compiler.backend.x86-64::x86-branch-true-target terminator) target)
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target terminator) l))
              (t
-              (ir:insert-before backend-function target l)
-              (setf (mezzano.compiler.backend.x86-64::x86-branch-target terminator) l))))
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target terminator) l)))
+       (ir:insert-before backend-function target l))
       (mezzano.compiler.backend.arm64::arm64-branch-instruction
        (cond ((eql (ir:next-instruction backend-function terminator) target)
               (ir:insert-after backend-function terminator l))

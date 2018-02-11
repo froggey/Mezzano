@@ -132,11 +132,8 @@
                             :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
                                      (mezzano.compiler.codegen.x86-64::predicate-info
                                       pred))
-                            :target (ir:branch-true-target next-inst)))
-            (ir:insert-before backend-function inst (make-instance 'ir:label))
-            (ir:insert-before
-             backend-function inst
-             (make-instance 'ir:jump-instruction :target (ir:branch-false-target next-inst) :values '()))
+                            :true-target (ir:branch-true-target next-inst)
+                            :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))
               (ir:remove-instruction backend-function inst)
               (ir:remove-instruction backend-function next-inst)

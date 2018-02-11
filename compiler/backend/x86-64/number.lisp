@@ -14,6 +14,7 @@
 
 (define-builtin mezzano.runtime::%fixnum-+ ((lhs rhs) result)
   (let ((out (make-instance 'ir:label :phis (list result)))
+        (no-overflow (make-instance 'ir:label :name :+-no-overflow))
         (overflow (make-instance 'ir:label :name :+-overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
@@ -32,8 +33,9 @@
                                 :rhs rhs))))
     (emit (make-instance 'x86-branch-instruction
                          :opcode 'lap:jo
-                         :target overflow))
-    (emit (make-instance 'ir:label :name :+-no-overflow))
+                         :true-target overflow
+                         :false-target no-overflow))
+    (emit no-overflow)
     (emit (make-instance 'ir:jump-instruction
                          :target out
                          :values (list fixnum-result)))
@@ -87,6 +89,7 @@
 
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
   (let ((out (make-instance 'ir:label :phis (list result)))
+        (no-overflow (make-instance 'ir:label :name :--no-overflow))
         (overflow (make-instance 'ir:label :name :--overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
@@ -105,8 +108,9 @@
                                 :rhs rhs))))
     (emit (make-instance 'x86-branch-instruction
                          :opcode 'lap:jo
-                         :target overflow))
-    (emit (make-instance 'ir:label :name :--no-overflow))
+                         :true-target overflow
+                         :false-target no-overflow))
+    (emit no-overflow)
     (emit (make-instance 'ir:jump-instruction
                          :target out
                          :values (list fixnum-result)))
@@ -167,6 +171,7 @@
   (let ((out (make-instance 'ir:label :phis (list result)))
         (low-half (make-instance 'ir:virtual-register :kind :integer))
         (high-half (make-instance 'ir:virtual-register :kind :integer))
+        (no-overflow (make-instance 'ir:label :name :*-no-overflow))
         (overflow (make-instance 'ir:label :name :*-overflow))
         (overflow-temp (make-instance 'ir:virtual-register :kind :integer))
         (fixnum-result (make-instance 'ir:virtual-register))
@@ -194,8 +199,9 @@
                          :source :rdx))
     (emit (make-instance 'x86-branch-instruction
                          :opcode 'lap:jo
-                         :target overflow))
-    (emit (make-instance 'ir:label :name :*-no-overflow))
+                         :true-target overflow
+                         :false-target no-overflow))
+    (emit no-overflow)
     (emit (make-instance 'ir:move-instruction
                          :source low-half
                          :destination fixnum-result))

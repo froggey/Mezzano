@@ -531,7 +531,9 @@
 
 (defmethod emit-lap (backend-function (instruction arm64-branch-instruction) uses defs)
   (emit (list (arm64-instruction-opcode instruction)
-              (resolve-label (arm64-branch-target instruction)))))
+              (resolve-label (arm64-branch-true-target instruction))))
+  (emit (list 'lap:b
+              (resolve-label (arm64-branch-false-target instruction)))))
 
 (defmethod emit-lap (backend-function (instruction ir:constant-instruction) uses defs)
   (let ((value (ir:constant-value instruction))

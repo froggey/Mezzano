@@ -115,6 +115,7 @@ does not visit unreachable blocks."
                                          'branch-false-instruction
                                          'branch-true-instruction))
                   (incf total)))))
+        #+(or)
         (mezzano.compiler.backend.x86-64::x86-branch-instruction
          (let ((target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-target inst))))
            (cond ((and (typep target 'jump-instruction)
