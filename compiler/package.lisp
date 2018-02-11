@@ -114,8 +114,7 @@
 
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
-  (:use :cl)
-  (:export #:assemble))
+  (:use :cl))
 
 (defpackage :mezzano.compiler.codegen.arm64
   (:use :cl :mezzano.compiler)
@@ -390,8 +389,7 @@
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
-  (:use :cl :sys.lap)
-  (:export #:assemble))
+  (:use :cl :sys.lap))
 
 (defpackage :mezzano.compiler.backend
   (:use :cl :mezzano.compiler)
