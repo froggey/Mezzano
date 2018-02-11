@@ -485,10 +485,9 @@
            #:jump-target
 
            #:branch-instruction
-           #:branch-true-instruction
-           #:branch-false-instruction
            #:branch-value
-           #:branch-target
+           #:branch-true-target
+           #:branch-false-target
 
            #:switch-instruction
            #:switch-value

@@ -584,13 +584,10 @@
        for target in (ir:switch-targets instruction)
        do (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))))
 
-(defmethod emit-lap (backend-function (instruction ir:branch-true-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:branch-instruction) uses defs)
   (emit `(lap:subs :xzr ,(ir:branch-value instruction) :x26)
-        `(lap:b.ne ,(resolve-label (ir:branch-target instruction)))))
-
-(defmethod emit-lap (backend-function (instruction ir:branch-false-instruction) uses defs)
-  (emit `(lap:subs :xzr ,(ir:branch-value instruction) :x26)
-        `(lap:b.eq ,(resolve-label (ir:branch-target instruction)))))
+        `(lap:b.ne ,(resolve-label (ir:branch-true-target instruction)))
+        `(lap:b ,(resolve-label (ir:branch-false-target instruction)))))
 
 (defun call-argument-setup (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))

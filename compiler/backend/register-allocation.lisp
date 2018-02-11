@@ -783,11 +783,11 @@
   (let ((l (make-instance 'ir:label :name :broken-critical-edge)))
     (etypecase terminator
       (ir:branch-instruction
-       (cond ((eql (ir:next-instruction backend-function terminator) target)
-              (ir:insert-after backend-function terminator l))
+       (cond ((eql (ir:branch-true-target terminator) target)
+              (setf (ir:branch-true-target terminator) l))
              (t
-              (ir:insert-before backend-function target l)
-              (setf (ir:branch-target terminator) l))))
+              (setf (ir:branch-false-target terminator) l)))
+       (ir:insert-before backend-function target l))
       (ir:switch-instruction
        (do ((i (ir:switch-targets terminator)
                (rest i)))

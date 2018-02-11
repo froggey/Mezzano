@@ -311,11 +311,12 @@
   (let* ((fref-reg (make-instance 'virtual-register))
          (fref-index (make-instance 'virtual-register))
          (fname-reg (make-instance 'virtual-register))
-         (is-defined (make-instance 'virtual-register))
+         (is-undefined (make-instance 'virtual-register))
          (result (make-instance 'virtual-register))
          (fref-function (make-instance 'virtual-register))
          (fdefinition-function (make-instance 'virtual-register))
          (out (make-instance 'label :name :out :phis (list result)))
+         (is-undefined-label (make-instance 'label :name :is-undefined))
          (is-defined-label (make-instance 'label :name :is-defined)))
     (emit (make-instance 'constant-instruction
                          :destination fref-reg
@@ -328,13 +329,14 @@
                          :result fref-function
                          :arguments (list fref-reg fref-index)))
     (emit (make-instance 'call-instruction
-                         :result is-defined
+                         :result is-undefined
                          :function 'sys.int::%undefined-function-p
                          :arguments (list fref-function)))
-    (emit (make-instance 'branch-false-instruction
-                         :value is-defined
-                         :target is-defined-label))
-    (emit (make-instance 'label))
+    (emit (make-instance 'branch-instruction
+                         :value is-undefined
+                         :true-target is-undefined-label
+                         :false-target is-defined-label))
+    (emit is-undefined-label)
     ;; Not defined, fall back to FDEFINITION.
     (emit (make-instance 'constant-instruction
                          :destination fname-reg
@@ -361,6 +363,7 @@
 
 (defmethod cg-form ((form ast-if) result-mode)
   (let* ((result (make-instance 'virtual-register :name :if-result))
+         (then-label (make-instance 'label :name :if-then))
          (else-label (make-instance 'label :name :if-else))
          (exit-label (make-instance 'label
                                     :name :if-exit
@@ -371,10 +374,11 @@
          (exit-reached nil))
     (when (not test-value)
       (return-from cg-form nil))
-    (emit (make-instance 'branch-false-instruction
+    (emit (make-instance 'branch-instruction
                          :value test-value
-                         :target else-label))
-    (emit (make-instance 'label :name :if-then))
+                         :true-target then-label
+                         :false-target else-label))
+    (emit then-label)
     (let ((then-value (cg-form (ast-if-then form) result-mode)))
       (when then-value
         (setf exit-reached t)

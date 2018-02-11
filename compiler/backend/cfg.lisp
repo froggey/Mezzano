@@ -79,6 +79,7 @@ does not visit unreachable blocks."
   (let ((total 0))
     (do-instructions (inst backend-function)
       (typecase inst
+        #+(or)
         (branch-instruction
          (let ((target (skip-label backend-function (branch-target inst)))
                (fallthrough (skip-label backend-function (next-instruction backend-function inst))))
@@ -174,9 +175,10 @@ does not visit unreachable blocks."
                (branch-value (first (jump-values inst)))
                (new-label (next-instruction backend-function target-branch))
                (new-branch (insert-before backend-function inst
-                                          (make-instance (class-of target-branch)
+                                          (make-instance 'branch-instruction
                                                          :value branch-value
-                                                         :target (branch-target target-branch)))))
+                                                         :true-target (branch-true-target target-branch)
+                                                         :false-target (branch-false-target target-branch)))))
           (insert-before backend-function inst (make-instance 'label))
           (setf (jump-target inst) new-label)
           (setf (jump-values inst) '())
@@ -187,23 +189,19 @@ does not visit unreachable blocks."
     total))
 
 (defun remove-trivially-constant-branches (backend-function uses defs)
-  "Remove (branch-true/-false (constant some-constant) target)"
+  "Remove (branch (constant some-constant) target)"
   (let ((total 0)
         (remove-me '()))
     (do-instructions (inst backend-function)
       (when (typep inst 'branch-instruction)
         (let ((value (first (gethash (branch-value inst) defs))))
           (when (typep value 'constant-instruction)
-            (let* ((known-value (constant-value value))
-                   (is-true (if (typep inst 'branch-true-instruction)
-                                known-value
-                                (not known-value))))
-              ;; Branch to the target if true, otherwise the following basic block.
-              (insert-before backend-function inst
-                             (make-instance 'jump-instruction
-                                            :target (if is-true
-                                                        (branch-target inst)
-                                                        (next-instruction backend-function inst)))))
+            ;; Branch to the target if true, otherwise the following basic block.
+            (insert-before backend-function inst
+                           (make-instance 'jump-instruction
+                                          :target (if (constant-value value)
+                                                      (branch-true-target inst)
+                                                      (branch-false-target inst))))
             (push inst remove-me)
             (incf total)))))
     (dolist (inst remove-me)
