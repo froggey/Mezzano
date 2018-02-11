@@ -223,6 +223,11 @@ Successors of jumps and branches must be labels."
              (next-instruction backend-function inst)))
       ((null inst)
        (error "Missing terminator on last basic block in ~S" backend-function))
+    (when (typep inst 'label)
+      (assert (typep (prev-instruction backend-function inst) 'terminator-instruction)
+              (backend-function inst)
+              "Instruction preceeding label ~S is not a terminator"
+              inst (prev-instruction backend-function inst)))
     (when (typep inst 'terminator-instruction)
       (dolist (succ (successors backend-function inst))
         (assert (typep succ 'label) (backend-function inst succ)
