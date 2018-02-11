@@ -766,7 +766,7 @@
            #:allow-memory-operand-p))
 
 (defpackage :mezzano.compiler.backend.x86-64
-  (:use :cross-cl :mezzano.compiler.backend)
+  (:use :cross-cl)
   (:local-nicknames (:lap :sys.lap-x86)
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)))
