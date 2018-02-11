@@ -121,6 +121,7 @@
     (or (catch :format-compilation-error
           `(apply #'maybe-initiate-xp-printing
                   (lambda (xp &rest args)
+                    (declare (ignorable xp args))
                     ,@(bind-initial
                        `((block top
                            ,@(let ((*get-arg-carefully* nil)
