@@ -14,9 +14,21 @@
 (defvar *literals*)
 (defvar *literals/128*)
 
-(defun resolve-label (label)
-  (or (gethash label *labels*)
-      (error "Unknown label ~S" label)))
+(defun resolve-label (label &key (snap t))
+  (cond (snap
+         (let ((visited '())
+               (current label))
+           (loop
+              (when (member current visited)
+                (return (resolve-label label :snap nil)))
+              (let ((next (ir:next-instruction nil current)))
+                (when (not (typep next 'ir:jump-instruction))
+                  (return (resolve-label current :snap nil)))
+                (push current visited)
+                (setf current (jump-target next))))))
+        (t
+         (or (gethash label *labels*)
+             (error "Unknown label ~S" label)))))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)

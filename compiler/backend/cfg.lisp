@@ -80,19 +80,33 @@ does not visit unreachable blocks."
     (do-instructions (inst backend-function)
       (typecase inst
         (branch-instruction
-         (let ((target (skip-label backend-function (branch-target inst))))
+         (let ((target (skip-label backend-function (branch-target inst)))
+               (fallthrough (skip-label backend-function (next-instruction backend-function inst))))
            (cond ((and (typep target 'jump-instruction)
                        ;; Don't snap if there are phi nodes at the target.
                        (endp (jump-values target)))
                   (setf (branch-target inst) (jump-target target))
                   (incf total))
-                 ((and (typep (next-instruction backend-function inst) 'jump-instruction)
-                       (endp (jump-values (next-instruction backend-function inst)))
-                       (eql (next-instruction backend-function (next-instruction backend-function inst)) (branch-target inst)))
-                  ;; Rewrite "(branch foo t1) (jump t2) t1"
-                  ;; to "(branch (not foo) t2) t1"
-                  (setf (branch-target inst) (jump-target (next-instruction backend-function inst)))
-                  (remove-instruction backend-function (next-instruction backend-function inst))
+                 ((and (typep fallthrough 'jump-instruction)
+                       (endp (jump-values fallthrough))
+                       (eql (next-instruction backend-function fallthrough) (branch-target inst))
+                       (eql (jump-target fallthrough) (branch-target inst)))
+                  ;; Rewrite "(branch foo t1) x (jump t1) t1"
+                  ;; to "(jump t1) x (jump t1) t1"
+                  (change-class inst 'jump-instruction
+                                :target (branch-target inst)
+                                :values '())
+                  (incf total))
+                 ((and (typep fallthrough 'jump-instruction)
+                       (endp (jump-values fallthrough))
+                       (eql (next-instruction backend-function fallthrough) (branch-target inst)))
+                  ;; Rewrite "(branch foo t1) x (jump t2) t1"
+                  ;; to "(branch (not foo) t2) y (jump t1) x (jump t2) t1"
+                  (insert-after backend-function inst
+                                (make-instance 'jump-instruction :target (branch-target inst)))
+                  (insert-after backend-function inst
+                                (make-instance 'label))
+                  (setf (branch-target inst) (jump-target fallthrough))
                   (change-class inst (if (typep inst 'branch-true-instruction)
                                          'branch-false-instruction
                                          'branch-true-instruction))
@@ -120,6 +134,8 @@ does not visit unreachable blocks."
                                      (make-instance (class-of target)
                                                     :value (branch-value target)
                                                     :target (branch-target target)))
+                      (insert-before backend-function inst
+                                     (make-instance 'label))
                       (setf (jump-target inst) new-label)
                       (incf total)))))))))
     total))
@@ -204,9 +220,8 @@ does not visit unreachable blocks."
                        (remove-unused-instructions-1 backend-function uses))))
              (when (zerop n)
                (return))
+             (remove-unreachable-basic-blocks backend-function)
              (incf total n)))
-        (when (not (zerop total))
-          (remove-unreachable-basic-blocks backend-function))
         ;; TODO: Break critical edges.
         (check-cfg backend-function)
         total))))
