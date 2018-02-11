@@ -97,6 +97,9 @@ does not visit unreachable blocks."
                                 :target (branch-target inst)
                                 :values '())
                   (incf total))
+                 ;; Doesn't quite work with tight loops.
+                 ;; (lambda (x) (tagbody foo (if x (go foo))))
+                 #+(or)
                  ((and (typep fallthrough 'jump-instruction)
                        (endp (jump-values fallthrough))
                        (eql (next-instruction backend-function fallthrough) (branch-target inst)))
@@ -126,6 +129,8 @@ does not visit unreachable blocks."
                          (endp (jump-values target)))
                     (setf (jump-target inst) (jump-target target))
                     (incf total))
+                   ;; Also has issues around tight loops.
+                   #+(or)
                    ((typep target 'branch-instruction)
                     ;; Insert a label after the branch to give the jump
                     ;; somewhere to target.
