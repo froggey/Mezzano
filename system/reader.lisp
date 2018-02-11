@@ -390,9 +390,10 @@
         ;; If there was an integer part, then the next character
         ;; must be either a decimal-digit or an exponent marker.
         ;; If there was no integer part, it must be a decimal-digit.
-        (when (and (not (or (not saw-integer-digits)
-                            (find (peek) *exponent-markers*)))
-                   (not (find (peek) *decimal-digits*)))
+        (when (not (if saw-integer-digits
+                       (or (find (peek) *exponent-markers*)
+                           (find (peek) *decimal-digits*))
+                       (find (peek) *exponent-markers*)))
           (return-from read-float))
         ;; Accumulate decimal digits.
         (let ((first-decimal position))
