@@ -173,13 +173,16 @@ does not visit unreachable blocks."
       (when (typep inst 'branch-instruction)
         (let ((value (first (gethash (branch-value inst) defs))))
           (when (typep value 'constant-instruction)
-            (let ((known-value (constant-value value)))
-              ;; If the condition is satisfied then replace with a jump, otherwise just remove.
-              (when (if (typep inst 'branch-true-instruction)
-                        known-value
-                        (not known-value))
-                (insert-before backend-function inst
-                               (make-instance 'jump-instruction :target (branch-target inst)))))
+            (let* ((known-value (constant-value value))
+                   (is-true (if (typep inst 'branch-true-instruction)
+                                known-value
+                                (not known-value))))
+              ;; Branch to the target if true, otherwise the following basic block.
+              (insert-before backend-function inst
+                             (make-instance 'jump-instruction
+                                            :target (if is-true
+                                                        (branch-target inst)
+                                                        (next-instruction backend-function inst)))))
             (push inst remove-me)
             (incf total)))))
     (dolist (inst remove-me)
