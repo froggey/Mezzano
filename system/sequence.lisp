@@ -662,6 +662,8 @@
      (when (not (consp sequence))
        (error 'type-error :datum sequence :expected-type 'sequence))
      GENERIC
+     (when (not end)
+       (setf end (length sequence)))
      (assert (<= 0 start end (length sequence)))
      (dotimes (i (- end start))
        (setf (elt sequence (+ i start)) item))
