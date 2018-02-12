@@ -467,11 +467,29 @@
                                         (t op)))))
     (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
+(defun invert-branch (opcode)
+  (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
+                                   :key 'third))))
+    (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
+     (mezzano.compiler.codegen.x86-64::predicate-info inverse-pred))))
+
+(defun emit-branch (backend-function instruction opcode true-target false-target)
+  (cond ((eql (ir:next-instruction backend-function instruction) true-target)
+         ;; Invert the opcode, jump to the false target, fall-through to
+         ;; the true target.
+         (emit (list (invert-branch opcode) (resolve-label false-target))))
+        (t
+         ;; Jump to the true target, maybe fall-through to the true target.
+         (emit (list opcode (resolve-label true-target)))
+         (when (not (eql (ir:next-instruction backend-function instruction) false-target))
+           (emit (list 'lap:jmp (resolve-label false-target)))))))
+
 (defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
-  (emit (list (x86-instruction-opcode instruction)
-              (resolve-label (x86-branch-true-target instruction))))
-  (emit (list 'lap:jmp
-              (resolve-label (x86-branch-false-target instruction)))))
+  (emit-branch backend-function
+               instruction
+               (x86-instruction-opcode instruction)
+               (x86-branch-true-target instruction)
+               (x86-branch-false-target instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:constant-instruction) uses defs)
   (let ((value (ir:constant-value instruction))
@@ -523,9 +541,12 @@
        do (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))))
 
 (defmethod emit-lap (backend-function (instruction ir:branch-instruction) uses defs)
-  (emit `(lap:cmp64 ,(ir:branch-value instruction) nil)
-        `(lap:jne ,(resolve-label (ir:branch-true-target instruction)))
-        `(lap:jmp ,(resolve-label (ir:branch-false-target instruction)))))
+  (emit `(lap:cmp64 ,(ir:branch-value instruction) nil))
+  (emit-branch backend-function
+               instruction
+               'lap:jne
+               (ir:branch-true-target instruction)
+               (ir:branch-false-target instruction)))
 
 (defun call-argument-setup (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))
