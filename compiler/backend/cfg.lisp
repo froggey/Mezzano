@@ -79,50 +79,40 @@ does not visit unreachable blocks."
   (let ((total 0))
     (do-instructions (inst backend-function)
       (typecase inst
-        #+(or)
         (branch-instruction
-         (let ((target (skip-label backend-function (branch-target inst)))
-               (fallthrough (skip-label backend-function (next-instruction backend-function inst))))
-           (cond ((and (typep target 'jump-instruction)
-                       ;; Don't snap if there are phi nodes at the target.
-                       (endp (jump-values target)))
-                  (setf (branch-target inst) (jump-target target))
-                  (incf total))
-                 ((and (typep fallthrough 'jump-instruction)
-                       (endp (jump-values fallthrough))
-                       (eql (next-instruction backend-function fallthrough) (branch-target inst))
-                       (eql (jump-target fallthrough) (branch-target inst)))
-                  ;; Rewrite "(branch foo t1) x (jump t1) t1"
-                  ;; to "(jump t1) x (jump t1) t1"
-                  (change-class inst 'jump-instruction
-                                :target (branch-target inst)
-                                :values '())
-                  (incf total))
-                 ;; Doesn't quite work with tight loops.
-                 ;; (lambda (x) (tagbody foo (if x (go foo))))
-                 #+(or)
-                 ((and (typep fallthrough 'jump-instruction)
-                       (endp (jump-values fallthrough))
-                       (eql (next-instruction backend-function fallthrough) (branch-target inst)))
-                  ;; Rewrite "(branch foo t1) x (jump t2) t1"
-                  ;; to "(branch (not foo) t2) y (jump t1) x (jump t2) t1"
-                  (insert-after backend-function inst
-                                (make-instance 'jump-instruction :target (branch-target inst)))
-                  (insert-after backend-function inst
-                                (make-instance 'label))
-                  (setf (branch-target inst) (jump-target fallthrough))
-                  (change-class inst (if (typep inst 'branch-true-instruction)
-                                         'branch-false-instruction
-                                         'branch-true-instruction))
-                  (incf total)))))
-        #+(or)
+         (let ((true-target (skip-label backend-function (branch-true-target inst)))
+               (false-target (skip-label backend-function (branch-false-target inst))))
+           (when (and (typep true-target 'jump-instruction)
+                      ;; Don't snap if there are phi nodes at the target.
+                      (endp (jump-values true-target)))
+             (setf true-target (jump-target true-target)
+                   (branch-true-target inst) true-target)
+             (incf total))
+           (when (and (typep false-target 'jump-instruction)
+                      ;; Don't snap if there are phi nodes at the target.
+                      (endp (jump-values false-target)))
+             (setf false-target (jump-target false-target)
+                   (branch-false-target inst) false-target)
+             (incf total))
+           (when (eql true-target false-target)
+             (change-class inst
+                           'jump-instruction
+                           :target true-target
+                           :values '())
+             (incf total))))
         (mezzano.compiler.backend.x86-64::x86-branch-instruction
-         (let ((target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-target inst))))
-           (cond ((and (typep target 'jump-instruction)
+         (let ((true-target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-true-target inst)))
+               (false-target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-false-target inst))))
+           (when (and (typep true-target 'jump-instruction)
+                      ;; Don't snap if there are phi nodes at the target.
+                      (endp (jump-values true-target)))
+             (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target inst) (jump-target true-target))
+             (incf total))
+           (when (and (typep false-target 'jump-instruction)
                        ;; Don't snap if there are phi nodes at the target.
-                       (endp (jump-values target)))
-                  (setf (mezzano.compiler.backend.x86-64::x86-branch-target inst) (jump-target target))
-                  (incf total)))))
+                      (endp (jump-values false-target)))
+             (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target inst) (jump-target false-target))
+             (incf total))))
         (jump-instruction
          (when (endp (jump-values inst))
            (let ((target (skip-label backend-function (jump-target inst))))
@@ -131,20 +121,14 @@ does not visit unreachable blocks."
                          (endp (jump-values target)))
                     (setf (jump-target inst) (jump-target target))
                     (incf total))
-                   ;; Also has issues around tight loops.
-                   #+(or)
                    ((typep target 'branch-instruction)
-                    ;; Insert a label after the branch to give the jump
-                    ;; somewhere to target.
-                    (let ((new-label (next-instruction backend-function target)))
-                      (insert-before backend-function inst
-                                     (make-instance (class-of target)
-                                                    :value (branch-value target)
-                                                    :target (branch-target target)))
-                      (insert-before backend-function inst
-                                     (make-instance 'label))
-                      (setf (jump-target inst) new-label)
-                      (incf total)))))))))
+                    ;; Convert to branch.
+                    (change-class inst
+                                  'branch-instruction
+                                  :value (branch-value target)
+                                  :true-target (branch-true-target target)
+                                  :false-target (branch-false-target target))
+                    (incf total))))))))
     total))
 
 (defun branch-pushback (backend-function uses)
