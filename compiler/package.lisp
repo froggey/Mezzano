@@ -114,8 +114,7 @@
 
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
-  (:use :cl)
-  (:export #:assemble))
+  (:use :cl))
 
 (defpackage :mezzano.compiler.codegen.arm64
   (:use :cl :mezzano.compiler)
@@ -390,8 +389,7 @@
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
-  (:use :cl :sys.lap)
-  (:export #:assemble))
+  (:use :cl :sys.lap))
 
 (defpackage :mezzano.compiler.backend
   (:use :cl :mezzano.compiler)
@@ -487,10 +485,9 @@
            #:jump-target
 
            #:branch-instruction
-           #:branch-true-instruction
-           #:branch-false-instruction
            #:branch-value
-           #:branch-target
+           #:branch-true-target
+           #:branch-false-target
 
            #:switch-instruction
            #:switch-value
@@ -610,7 +607,7 @@
            #:allow-memory-operand-p))
 
 (defpackage :mezzano.compiler.backend.x86-64
-  (:use :cl :mezzano.compiler.backend)
+  (:use :cl)
   (:local-nicknames (:lap :sys.lap-x86)
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)))

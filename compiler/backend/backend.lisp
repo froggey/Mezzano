@@ -207,6 +207,9 @@
   (check-cfg backend-function))
 
 (defun compile-backend-function-2 (backend-function debug-map spill-locations stack-layout target)
+  ;; Register allocation will break critical edges by inserting empty basic blocks.
+  ;; Undo that.
+  (simplify-cfg backend-function)
   (multiple-value-bind (lap environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
         (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target))

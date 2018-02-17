@@ -14,9 +14,21 @@
 (defvar *literals*)
 (defvar *literals/128*)
 
-(defun resolve-label (label)
-  (or (gethash label *labels*)
-      (error "Unknown label ~S" label)))
+(defun resolve-label (label &key (snap t))
+  (cond (snap
+         (let ((visited '())
+               (current label))
+           (loop
+              (when (member current visited)
+                (return (resolve-label label :snap nil)))
+              (let ((next (ir:next-instruction nil current)))
+                (when (not (typep next 'ir:jump-instruction))
+                  (return (resolve-label current :snap nil)))
+                (push current visited)
+                (setf current (ir:jump-target next))))))
+        (t
+         (or (gethash label *labels*)
+             (error "Unknown label ~S" label)))))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
@@ -50,7 +62,7 @@
 ;; TODO: Sort the layout so stack slots for values are all together and trim
 ;; the gc layout bitvector. #*111 instead of #*0010101
 (defun compute-stack-layout (backend-function spill-locations stack-layout)
-  (when (argument-setup-rest (mezzano.compiler.backend::first-instruction backend-function))
+  (when (ir:argument-setup-rest (ir:first-instruction backend-function))
     ;; Reserve slot 0 for the saved argument count. Required for &rest list generation.
     (loop
        for vreg being the hash-keys of spill-locations
@@ -61,10 +73,10 @@
       (setf stack-layout tmp)))
   (let ((environment-slot nil))
     (when (sys.c:lambda-information-environment-layout
-           (mezzano.compiler.backend::ast backend-function))
+           (ir::ast backend-function))
       (setf environment-slot (sys.c:lexical-variable-name
                               (first (sys.c:lambda-information-environment-layout
-                                      (mezzano.compiler.backend::ast backend-function))))))
+                                      (ir::ast backend-function))))))
     (values stack-layout
             spill-locations
             environment-slot)))
@@ -83,7 +95,7 @@
       (vector-push-extend (if livep :value :raw) *stack-layout*))))
 
 (defun effective-address (vreg)
-  (check-type vreg virtual-register)
+  (check-type vreg ir:virtual-register)
   `(:stack ,(or (gethash vreg *spill-locations*)
                 (error "Missing stack slot for vreg ~S" vreg))))
 
@@ -99,7 +111,7 @@
 
 (defmethod ir:perform-target-lap-generation (backend-function debug-map spill-locations stack-layout (*target* sys.c:x86-64-target))
   (multiple-value-bind (uses defs)
-      (mezzano.compiler.backend::build-use/def-maps backend-function)
+      (ir::build-use/def-maps backend-function)
     (multiple-value-bind (*stack-layout* *spill-locations* environment-slot)
         (compute-stack-layout backend-function spill-locations stack-layout)
       (let ((*saved-multiple-values* (make-hash-table :test 'eq :synchronized nil))
@@ -107,8 +119,8 @@
             (*prepass-data* (make-hash-table :test 'eq :synchronized nil))
             (*current-frame-layout* nil)
             (*labels* (make-hash-table :test 'eq :synchronized nil)))
-        (do-instructions (inst-or-label backend-function)
-          (cond ((typep inst-or-label 'label)
+        (ir:do-instructions (inst-or-label backend-function)
+          (cond ((typep inst-or-label 'ir:label)
                  (setf (gethash inst-or-label *labels*) (gensym)))
                 (t
                  (lap-prepass backend-function inst-or-label uses defs))))
@@ -121,9 +133,10 @@
                                               'simple-bit-vector))
               (*literals* (make-array 8 :adjustable t :fill-pointer 0))
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
-              (mv-flow (mezzano.compiler.backend::multiple-value-flow backend-function :x86-64)))
+              (mv-flow (ir::multiple-value-flow backend-function :x86-64)))
           ;; Create stack frame.
-          (emit `(:debug ())
+          (emit 'entry-point
+                `(:debug ())
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
                 `(lap:push :rbp)
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
@@ -140,12 +153,12 @@
                do (when (not (zerop elt))
                     (emit `(lap:mov64 (:stack ,i) nil)))))
           (emit-gc-info :incoming-arguments :rcx)
-          (do-instructions (inst-or-label backend-function)
+          (ir:do-instructions (inst-or-label backend-function)
             (emit-debug-info (gethash inst-or-label debug-map '()) *spill-locations*)
-            (cond ((typep inst-or-label 'label)
+            (cond ((typep inst-or-label 'ir:label)
                    (push (gethash inst-or-label *labels*) *emitted-lap*))
                   (t
-                   (when (not (eql inst-or-label (mezzano.compiler.backend::first-instruction backend-function)))
+                   (when (not (eql inst-or-label (ir:first-instruction backend-function)))
                      (if (eql (gethash inst-or-label mv-flow) :multiple)
                          (emit-gc-info :multiple-values 0)
                          (emit-gc-info)))
@@ -161,44 +174,51 @@
           (values (reverse *emitted-lap*)
                   environment-slot))))))
 
-(defmethod lap-prepass (backend-function (instruction argument-setup-instruction) uses defs)
-  (when (argument-setup-rest instruction)
+(defmethod lap-prepass (backend-function (instruction ir:argument-setup-instruction) uses defs)
+  (when (ir:argument-setup-rest instruction)
     (setf (gethash instruction *prepass-data*) (allocate-stack-slots 1))))
 
-(defmethod emit-lap (backend-function (instruction argument-setup-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:argument-setup-instruction) uses defs)
   ;; Check the argument count.
   (let ((args-ok (gensym)))
     (flet ((emit-arg-error ()
-             (emit `(:gc :frame)
-                   `(lap:xor32 :ecx :ecx)
-                   `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-                   `(lap:call (:object :r13 ,sys.int::+fref-entry-point+))
-                   `(lap:ud2)
+             ;; If this is a closure, then it must have been invoked using
+             ;; the closure calling convention and the closure object will
+             ;; still be in RBX. For non-closures, reconstruct the function
+             ;; object and put that in RBX.
+             (when (not (sys.c::lambda-information-environment-arg (ir::ast backend-function)))
+               (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+             (emit `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
+                   ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
+                   ;; the arguments in place.
+                   `(lap:leave)
+                   `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+                   `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
-      (cond ((argument-setup-rest instruction)
+      (cond ((ir:argument-setup-rest instruction)
              ;; If there are no required parameters, then don't generate a lower-bound check.
-             (when (argument-setup-required instruction)
+             (when (ir:argument-setup-required instruction)
                ;; Minimum number of arguments.
-               (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
+               (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                      `(lap:jnl ,args-ok))
                (emit-arg-error)))
-            ((and (argument-setup-required instruction)
-                  (argument-setup-optional instruction))
+            ((and (ir:argument-setup-required instruction)
+                  (ir:argument-setup-optional instruction))
              ;; A range.
              (emit `(lap:mov32 :eax :ecx)
-                   `(lap:sub32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
-                   `(lap:cmp32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-optional instruction))))
+                   `(lap:sub32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                   `(lap:cmp32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
-            ((argument-setup-optional instruction)
+            ((ir:argument-setup-optional instruction)
              ;; Maximum number of arguments.
-             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-optional instruction))))
+             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
-            ((argument-setup-required instruction)
+            ((ir:argument-setup-required instruction)
              ;; Exact number of arguments.
-             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (argument-setup-required instruction))))
+             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                    `(lap:je ,args-ok))
              (emit-arg-error))
             ;; No arguments
@@ -211,10 +231,10 @@
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
                (not (endp (gethash reg uses)))
                (gethash reg *spill-locations*))))
-    (when (usedp (argument-setup-fref instruction))
-      (emit `(lap:mov64 ,(effective-address (argument-setup-fref instruction)) :r13)))
-    (when (usedp (argument-setup-count instruction))
-      (emit `(lap:mov64 ,(effective-address (argument-setup-count instruction)) :rcx)))
+    (when (usedp (ir:argument-setup-fref instruction))
+      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-fref instruction)) :r13)))
+    (when (usedp (ir:argument-setup-count instruction))
+      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-count instruction)) :rcx)))
     ;; Arguments are delivered in registers, and then on the caller's stack.
     ;; Stack arguments are currently copied from the caller's stack into the
     ;; callee's stack, however this could be avoided for required arguments
@@ -223,20 +243,20 @@
     (let ((stack-argument-index 0))
       ;; Stack &required args.
       (loop
-         for req in (argument-setup-required instruction)
-         do (when (typep req 'virtual-register)
+         for req in (ir:argument-setup-required instruction)
+         do (when (typep req 'ir:virtual-register)
               (when (usedp req)
                 (emit `(lap:mov64 :r13 (:rbp ,(* (+ stack-argument-index 2) 8))))
                 (emit `(lap:mov64 ,(effective-address req) :r13)))
               (incf stack-argument-index)))
       ;; &optional processing.
       (loop
-         for i from (length (argument-setup-required instruction))
-         for opt in (argument-setup-optional instruction)
+         for i from (length (ir:argument-setup-required instruction))
+         for opt in (ir:argument-setup-optional instruction)
          do
            (when (usedp opt)
              (emit `(lap:cmp64 :rcx ,(ash i sys.int::+n-fixnum-bits+))))
-           (cond ((typep opt 'virtual-register)
+           (cond ((typep opt 'ir:virtual-register)
                   ;; Load from stack.
                   (when (usedp opt)
                     (emit `(lap:mov64 :r13 nil)
@@ -248,15 +268,15 @@
                   (when (usedp opt)
                     (emit `(lap:cmov64le ,opt (:constant nil))))))))
     ;; &rest generation.
-    (when (and (argument-setup-rest instruction)
-               (usedp (argument-setup-rest instruction)))
+    (when (and (ir:argument-setup-rest instruction)
+               (usedp (ir:argument-setup-rest instruction)))
       ;; Only emit when used.
       (emit-dx-rest-list instruction)
-      (emit `(lap:mov64 ,(effective-address (argument-setup-rest instruction)) :r13)))))
+      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-rest instruction)) :r13)))))
 
 (defun emit-dx-rest-list (argument-setup)
-  (let* ((regular-argument-count (+ (length (argument-setup-required argument-setup))
-                                    (length (argument-setup-optional argument-setup))))
+  (let* ((regular-argument-count (+ (length (ir:argument-setup-required argument-setup))
+                                    (length (ir:argument-setup-optional argument-setup))))
          (rest-clear-loop-head (gensym "REST-CLEAR-LOOP-HEAD"))
          (rest-loop-head (gensym "REST-LOOP-HEAD"))
          (rest-loop-end (gensym "REST-LOOP-END"))
@@ -343,97 +363,97 @@
     ;; Code above jumps directly here with NIL in R13 when there are no arguments.
     (emit rest-list-done)))
 
-(defmethod emit-lap (backend-function (instruction move-instruction) uses defs)
-  (ecase (lap::reg-class (move-destination instruction))
+(defmethod emit-lap (backend-function (instruction ir:move-instruction) uses defs)
+  (ecase (lap::reg-class (ir:move-destination instruction))
     (:gpr-64
-     (ecase (lap::reg-class (move-source instruction))
+     (ecase (lap::reg-class (ir:move-source instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(move-destination instruction) ,(move-source instruction))))
+        (emit `(lap:mov64 ,(ir:move-destination instruction) ,(ir:move-source instruction))))
        (:mm
-        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
+        (emit `(lap:movq ,(ir:move-destination instruction) ,(ir:move-source instruction))))
        (:xmm
-        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))))
+        (emit `(lap:movq ,(ir:move-destination instruction) ,(ir:move-source instruction))))))
     (:mm
-     (ecase (lap::reg-class (move-source instruction))
+     (ecase (lap::reg-class (ir:move-source instruction))
        (:gpr-64
-        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
+        (emit `(lap:movq ,(ir:move-destination instruction) ,(ir:move-source instruction))))
        (:mm
-        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))))
+        (emit `(lap:movq ,(ir:move-destination instruction) ,(ir:move-source instruction))))))
     (:xmm
-     (ecase (lap::reg-class (move-source instruction))
+     (ecase (lap::reg-class (ir:move-source instruction))
        (:gpr-64
-        (emit `(lap:movq ,(move-destination instruction) ,(move-source instruction))))
+        (emit `(lap:movq ,(ir:move-destination instruction) ,(ir:move-source instruction))))
        (:xmm
-        (emit `(lap:movdqa ,(move-destination instruction) ,(move-source instruction))))))))
+        (emit `(lap:movdqa ,(ir:move-destination instruction) ,(ir:move-source instruction))))))))
 
-(defmethod emit-lap (backend-function (instruction swap-instruction) uses defs)
-  (when (not (eql (swap-lhs instruction) (swap-rhs instruction)))
-    (assert (eql (lap::reg-class (swap-lhs instruction)) (lap::reg-class (swap-rhs instruction))))
-    (ecase (lap::reg-class (swap-rhs instruction))
+(defmethod emit-lap (backend-function (instruction ir:swap-instruction) uses defs)
+  (when (not (eql (ir:swap-lhs instruction) (ir:swap-rhs instruction)))
+    (assert (eql (lap::reg-class (ir:swap-lhs instruction)) (lap::reg-class (ir:swap-rhs instruction))))
+    (ecase (lap::reg-class (ir:swap-rhs instruction))
       ((:mm :xmm)
-       (emit `(lap:pxor ,(swap-lhs instruction) ,(swap-rhs instruction))
-             `(lap:pxor ,(swap-rhs instruction) ,(swap-lhs instruction))
-             `(lap:pxor ,(swap-lhs instruction) ,(swap-rhs instruction))))
+       (emit `(lap:pxor ,(ir:swap-lhs instruction) ,(ir:swap-rhs instruction))
+             `(lap:pxor ,(ir:swap-rhs instruction) ,(ir:swap-lhs instruction))
+             `(lap:pxor ,(ir:swap-lhs instruction) ,(ir:swap-rhs instruction))))
       (:gpr-64
-       (emit `(lap:xchg64 ,(swap-lhs instruction) ,(swap-rhs instruction)))))))
+       (emit `(lap:xchg64 ,(ir:swap-lhs instruction) ,(ir:swap-rhs instruction)))))))
 
-(defmethod emit-lap (backend-function (instruction spill-instruction) uses defs)
-  (ecase (virtual-register-kind (spill-destination instruction))
+(defmethod emit-lap (backend-function (instruction ir:spill-instruction) uses defs)
+  (ecase (ir:virtual-register-kind (ir:spill-destination instruction))
     ((:value :integer)
-     (ecase (lap::reg-class (spill-source instruction))
+     (ecase (lap::reg-class (ir:spill-source instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+        (emit `(lap:mov64 ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+        (emit `(lap:movq ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))))
     (:single-float
-     (ecase (lap::reg-class (spill-source instruction))
+     (ecase (lap::reg-class (ir:spill-source instruction))
        (:gpr-64
-        (emit `(lap:mov32 ,(effective-address (spill-destination instruction)) ,(lap::convert-width (spill-source instruction) 32))))
+        (emit `(lap:mov32 ,(effective-address (ir:spill-destination instruction)) ,(lap::convert-width (ir:spill-source instruction) 32))))
        ((:mm :xmm)
-        (emit `(lap:movd ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+        (emit `(lap:movd ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))))
     (:double-float
-     (ecase (lap::reg-class (spill-source instruction))
+     (ecase (lap::reg-class (ir:spill-source instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+        (emit `(lap:mov64 ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+        (emit `(lap:movq ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))))
     (:mmx
-     (ecase (lap::reg-class (spill-source instruction))
+     (ecase (lap::reg-class (ir:spill-source instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))
+        (emit `(lap:mov64 ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+        (emit `(lap:movq ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))))
     (:sse
-     (emit `(lap:movdqu ,(effective-address (spill-destination instruction)) ,(spill-source instruction))))))
+     (emit `(lap:movdqu ,(effective-address (ir:spill-destination instruction)) ,(ir:spill-source instruction))))))
 
-(defmethod emit-lap (backend-function (instruction fill-instruction) uses defs)
-  (ecase (virtual-register-kind (fill-source instruction))
+(defmethod emit-lap (backend-function (instruction ir:fill-instruction) uses defs)
+  (ecase (ir:virtual-register-kind (ir:fill-source instruction))
     ((:value :integer)
-     (ecase (lap::reg-class (fill-destination instruction))
+     (ecase (lap::reg-class (ir:fill-destination instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+        (emit `(lap:mov64 ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+        (emit `(lap:movq ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))))
     (:single-float
-     (ecase (lap::reg-class (fill-destination instruction))
+     (ecase (lap::reg-class (ir:fill-destination instruction))
        (:gpr-64
-        (emit `(lap:mov32 ,(lap::convert-width (fill-destination instruction) 32) ,(effective-address (fill-source instruction)))))
+        (emit `(lap:mov32 ,(lap::convert-width (ir:fill-destination instruction) 32) ,(effective-address (ir:fill-source instruction)))))
        ((:mm :xmm)
-        (emit `(lap:movd ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+        (emit `(lap:movd ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))))
     (:double-float
-     (ecase (lap::reg-class (fill-destination instruction))
+     (ecase (lap::reg-class (ir:fill-destination instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+        (emit `(lap:mov64 ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+        (emit `(lap:movq ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))))
     (:mmx
-     (ecase (lap::reg-class (fill-destination instruction))
+     (ecase (lap::reg-class (ir:fill-destination instruction))
        (:gpr-64
-        (emit `(lap:mov64 ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))
+        (emit `(lap:mov64 ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))
        ((:mm :xmm)
-        (emit `(lap:movq ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+        (emit `(lap:movq ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))))
     (:sse
-     (emit `(lap:movdqu ,(fill-destination instruction) ,(effective-address (fill-source instruction)))))))
+     (emit `(lap:movdqu ,(ir:fill-destination instruction) ,(effective-address (ir:fill-source instruction)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-instruction) uses defs)
   (when (x86-instruction-prefix instruction)
@@ -447,15 +467,35 @@
                                         (t op)))))
     (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
-(defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
-  (emit (list (x86-instruction-opcode instruction)
-              (resolve-label (x86-branch-target instruction)))))
+(defun invert-branch (opcode)
+  (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
+                                   :key 'third))))
+    (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
+     (mezzano.compiler.codegen.x86-64::predicate-info inverse-pred))))
 
-(defmethod emit-lap (backend-function (instruction constant-instruction) uses defs)
-  (let ((value (constant-value instruction))
-        (dest (constant-destination instruction)))
-    (cond ((typep value 'backend-function)
-           (emit `(lap:mov64 ,dest (:constant ,(compile-backend-function value *target*)))))
+(defun emit-branch (backend-function instruction opcode true-target false-target)
+  (cond ((eql (ir:next-instruction backend-function instruction) true-target)
+         ;; Invert the opcode, jump to the false target, fall-through to
+         ;; the true target.
+         (emit (list (invert-branch opcode) (resolve-label false-target))))
+        (t
+         ;; Jump to the true target, maybe fall-through to the true target.
+         (emit (list opcode (resolve-label true-target)))
+         (when (not (eql (ir:next-instruction backend-function instruction) false-target))
+           (emit (list 'lap:jmp (resolve-label false-target)))))))
+
+(defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
+  (emit-branch backend-function
+               instruction
+               (x86-instruction-opcode instruction)
+               (x86-branch-true-target instruction)
+               (x86-branch-false-target instruction)))
+
+(defmethod emit-lap (backend-function (instruction ir:constant-instruction) uses defs)
+  (let ((value (ir:constant-value instruction))
+        (dest (ir:constant-destination instruction)))
+    (cond ((typep value 'ir:backend-function)
+           (emit `(lap:mov64 ,dest (:constant ,(ir:compile-backend-function value *target*)))))
           ((eql value 0)
            (emit `(lap:xor64 ,dest ,dest)))
           ((eql value 'nil)
@@ -469,44 +509,44 @@
           (t
            (emit `(lap:mov64 ,dest (:constant ,value)))))))
 
-(defmethod emit-lap (backend-function (instruction return-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:return-instruction) uses defs)
   (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1))
         `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0)
         `(lap:ret)))
 
-(defmethod emit-lap (backend-function (instruction return-multiple-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:return-multiple-instruction) uses defs)
   (emit `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0 :multiple-values 0)
         `(lap:ret)))
 
-(defmethod emit-lap (backend-function (instruction unreachable-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:unreachable-instruction) uses defs)
   (emit `(lap:ud2)))
 
-(defmethod emit-lap (backend-function (instruction jump-instruction) uses defs)
-  (when (not (eql (next-instruction backend-function instruction)
-                  (jump-target instruction)))
-    (emit `(lap:jmp ,(resolve-label (jump-target instruction))))))
+(defmethod emit-lap (backend-function (instruction ir:jump-instruction) uses defs)
+  (when (not (eql (ir:next-instruction backend-function instruction)
+                  (ir:jump-target instruction)))
+    (emit `(lap:jmp ,(resolve-label (ir:jump-target instruction))))))
 
-(defmethod emit-lap (backend-function (instruction switch-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:switch-instruction) uses defs)
   (let ((jump-table (gensym)))
     (emit `(lap:lea64 :rax (:rip ,jump-table))
-          `(lap:add64 :rax (:rax (,(switch-value instruction) ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
+          `(lap:add64 :rax (:rax (,(ir:switch-value instruction) ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
           `(lap:jmp :rax))
     (emit jump-table)
     (loop
-       for target in (switch-targets instruction)
+       for target in (ir:switch-targets instruction)
        do (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))))
 
-(defmethod emit-lap (backend-function (instruction branch-true-instruction) uses defs)
-  (emit `(lap:cmp64 ,(branch-value instruction) nil)
-        `(lap:jne ,(resolve-label (branch-target instruction)))))
-
-(defmethod emit-lap (backend-function (instruction branch-false-instruction) uses defs)
-  (emit `(lap:cmp64 ,(branch-value instruction) nil)
-        `(lap:je ,(resolve-label (branch-target instruction)))))
+(defmethod emit-lap (backend-function (instruction ir:branch-instruction) uses defs)
+  (emit `(lap:cmp64 ,(ir:branch-value instruction) nil))
+  (emit-branch backend-function
+               instruction
+               'lap:jne
+               (ir:branch-true-target instruction)
+               (ir:branch-false-target instruction)))
 
 (defun call-argument-setup (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))
@@ -543,26 +583,26 @@
   (when (gethash fn mezzano.compiler.codegen.x86-64::*builtins*)
     (incf (gethash fn *missed-builtins* 0))))
 
-(defmethod emit-lap (backend-function (instruction call-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
-  (maybe-log-missed-builtin (call-function instruction))
-  (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
+(defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
+  (maybe-log-missed-builtin (ir:call-function instruction))
+  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
-  (call-argument-teardown (call-arguments instruction)))
+  (call-argument-teardown (ir:call-arguments instruction)))
 
-(defmethod emit-lap (backend-function (instruction call-multiple-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
-  (maybe-log-missed-builtin (call-function instruction))
-  (emit `(lap:mov64 :r13 (:function ,(call-function instruction)))
+(defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
+  (maybe-log-missed-builtin (ir:call-function instruction))
+  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (emit-gc-info :multiple-values 0)
-  (call-argument-teardown (call-arguments instruction)))
+  (call-argument-teardown (ir:call-arguments instruction)))
 
-(defmethod emit-lap (backend-function (instruction tail-call-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
-  (maybe-log-missed-builtin (call-function instruction))
-  (emit `(lap:mov64 :r13 (:function ,(call-function instruction))))
-  (cond ((<= (length (call-arguments instruction)) 5)
+(defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
+  (maybe-log-missed-builtin (ir:call-function instruction))
+  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction))))
+  (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
                `(:gc :no-frame :layout #*0)
@@ -575,9 +615,9 @@
                `(:gc :no-frame :layout #*0)
                `(lap:ret)))))
 
-(defmethod emit-lap (backend-function (instruction tail-funcall-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
-  (cond ((<= (length (call-arguments instruction)) 5)
+(defmethod emit-lap (backend-function (instruction ir:tail-funcall-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
+  (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
                `(:gc :no-frame :layout #*0)
@@ -590,21 +630,21 @@
                `(:gc :no-frame :layout #*0)
                `(lap:ret)))))
 
-(defmethod emit-lap (backend-function (instruction funcall-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
+(defmethod emit-lap (backend-function (instruction ir:funcall-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
   (emit `(lap:call (:object :rbx ,sys.int::+function-entry-point+)))
-  (call-argument-teardown (call-arguments instruction)))
+  (call-argument-teardown (ir:call-arguments instruction)))
 
-(defmethod emit-lap (backend-function (instruction funcall-multiple-instruction) uses defs)
-  (call-argument-setup (call-arguments instruction))
+(defmethod emit-lap (backend-function (instruction ir:funcall-multiple-instruction) uses defs)
+  (call-argument-setup (ir:call-arguments instruction))
   (emit `(lap:call (:object :rbx ,sys.int::+function-entry-point+)))
   (emit-gc-info :multiple-values 0)
-  (call-argument-teardown (call-arguments instruction)))
+  (call-argument-teardown (ir:call-arguments instruction)))
 
-(defmethod lap-prepass (backend-function (instruction multiple-value-funcall-multiple-instruction) uses defs)
+(defmethod lap-prepass (backend-function (instruction ir:multiple-value-funcall-multiple-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 1 :livep nil)))
 
-(defmethod emit-lap (backend-function (instruction multiple-value-funcall-multiple-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:multiple-value-funcall-multiple-instruction) uses defs)
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
@@ -648,10 +688,10 @@
     ;; the stack pointer.
     (emit `(lap:mov64 :rsp (:stack ,stack-pointer-save-area)))))
 
-(defmethod lap-prepass (backend-function (instruction multiple-value-funcall-instruction) uses defs)
+(defmethod lap-prepass (backend-function (instruction ir:multiple-value-funcall-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 1 :livep nil)))
 
-(defmethod emit-lap (backend-function (instruction multiple-value-funcall-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:multiple-value-funcall-instruction) uses defs)
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
@@ -695,10 +735,10 @@
     ;; the stack pointer.
     (emit `(lap:mov64 :rsp (:stack ,stack-pointer-save-area)))))
 
-(defmethod lap-prepass (backend-function (instruction begin-nlx-instruction) uses defs)
+(defmethod lap-prepass (backend-function (instruction ir:begin-nlx-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :livep nil)))
 
-(defmethod emit-lap (backend-function (instruction begin-nlx-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:begin-nlx-instruction) uses defs)
   (let ((control-info (gethash instruction *prepass-data*))
         (jump-table (gensym))
         (over (gensym)))
@@ -709,15 +749,15 @@
           `(lap:mov64 (:stack ,(+ control-info 2)) :rax)
           `(lap:mov64 (:stack ,(+ control-info 1)) :rsp)
           `(lap:mov64 (:stack ,(+ control-info 0)) :rbp)
-          `(lap:lea64 ,(nlx-context instruction) (:stack ,(+ control-info 3))))
+          `(lap:lea64 ,(ir:nlx-context instruction) (:stack ,(+ control-info 3))))
         ;; FIXME: Emit jump table as trailer.
     (emit `(lap:jmp ,over)
           jump-table)
-    (dolist (target (begin-nlx-targets instruction))
+    (dolist (target (ir:begin-nlx-targets instruction))
       (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))
     (emit over)))
 
-(defmethod emit-lap (backend-function (instruction finish-nlx-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:finish-nlx-instruction) uses defs)
   )
 
 (defun emit-nlx-entry (region multiple-values-p)
@@ -730,37 +770,37 @@
   (dolist (dx-root (gethash region *dx-root-visibility*))
     (emit `(lap:mov64 (:stack ,dx-root) nil))))
 
-(defmethod emit-lap (backend-function (instruction nlx-entry-instruction) uses defs)
-  (emit-nlx-entry (nlx-region instruction) nil))
+(defmethod emit-lap (backend-function (instruction ir:nlx-entry-instruction) uses defs)
+  (emit-nlx-entry (ir:nlx-region instruction) nil))
 
-(defmethod emit-lap (backend-function (instruction nlx-entry-multiple-instruction) uses defs)
-  (emit-nlx-entry (nlx-region instruction) t))
+(defmethod emit-lap (backend-function (instruction ir:nlx-entry-multiple-instruction) uses defs)
+  (emit-nlx-entry (ir:nlx-region instruction) t))
 
 (defun emit-invoke-nlx (instruction)
-  (emit `(lap:mov64 :rax ,(nlx-context instruction))
+  (emit `(lap:mov64 :rax ,(ir:nlx-context instruction))
         `(lap:mov64 :rdx (:rax 0))
-        `(lap:add64 :rdx (:rdx ,(* (invoke-nlx-index instruction) 8)))
+        `(lap:add64 :rdx (:rdx ,(* (ir:invoke-nlx-index instruction) 8)))
         `(lap:jmp :rdx)))
 
-(defmethod emit-lap (backend-function (instruction invoke-nlx-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:invoke-nlx-instruction) uses defs)
   (emit-invoke-nlx instruction))
 
-(defmethod emit-lap (backend-function (instruction invoke-nlx-multiple-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:invoke-nlx-multiple-instruction) uses defs)
   (emit-invoke-nlx instruction))
 
 ;; FIXME: Don't recompute contours for each save instruction.
-(defmethod lap-prepass (backend-function (instruction save-multiple-instruction) uses defs)
-  (let ((contours (mezzano.compiler.backend::dynamic-contours backend-function)))
+(defmethod lap-prepass (backend-function (instruction ir:save-multiple-instruction) uses defs)
+  (let ((contours (ir::dynamic-contours backend-function)))
     ;; Allocate dx-root & stack pointer save slots
     (let ((dx-root (allocate-stack-slots 1))
           (saved-stack-pointer (allocate-stack-slots 1 :livep nil)))
       (setf (gethash instruction *saved-multiple-values*)
             (cons dx-root saved-stack-pointer))
       (dolist (region (gethash instruction contours))
-        (when (typep region 'begin-nlx-instruction)
+        (when (typep region 'ir:begin-nlx-instruction)
           (push dx-root (gethash region *dx-root-visibility*)))))))
 
-(defmethod emit-lap (backend-function (instruction save-multiple-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:save-multiple-instruction) uses defs)
   (let* ((save-data (gethash instruction *saved-multiple-values*))
          (sv-save-area (car save-data))
          (saved-stack-pointer (cdr save-data))
@@ -827,8 +867,8 @@
     ;; Finished saving values.
     (emit save-done)))
 
-(defmethod emit-lap (backend-function (instruction restore-multiple-instruction) uses defs)
-  (let* ((save-data (gethash (restore-multiple-context instruction) *saved-multiple-values*))
+(defmethod emit-lap (backend-function (instruction ir:restore-multiple-instruction) uses defs)
+  (let* ((save-data (gethash (ir:restore-multiple-context instruction) *saved-multiple-values*))
          (sv-save-area (car save-data))
          (saved-stack-pointer (cdr save-data)))
     ;; Create a normal object from the saved dx root.
@@ -844,19 +884,19 @@
     (emit `(lap:mov64 (:stack ,sv-save-area) nil))
     (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))))
 
-(defmethod emit-lap (backend-function (instruction forget-multiple-instruction) uses defs)
-  (let* ((save-data (gethash (forget-multiple-context instruction) *saved-multiple-values*))
+(defmethod emit-lap (backend-function (instruction ir:forget-multiple-instruction) uses defs)
+  (let* ((save-data (gethash (ir:forget-multiple-context instruction) *saved-multiple-values*))
          (sv-save-area (car save-data))
          (saved-stack-pointer (cdr save-data)))
     ;; Kill the dx root and restore the old stack pointer.
     (emit `(lap:mov64 (:stack ,sv-save-area) nil))
     (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))))
 
-(defmethod emit-lap (backend-function (instruction multiple-value-bind-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:multiple-value-bind-instruction) uses defs)
   (loop
      with regs = '(:r8 :r9 :r10 :r11 :r12)
      for i from 0
-     for value in (multiple-value-bind-values instruction)
+     for value in (ir:multiple-value-bind-values instruction)
      do
        (cond (regs
               (let ((reg (pop regs)))
@@ -873,14 +913,14 @@
                                                 8))))
                     `(lap:mov64 ,(effective-address value) :r13))))))
 
-(defmethod emit-lap (backend-function (instruction values-instruction) uses defs)
-  (cond ((endp (values-values instruction))
+(defmethod emit-lap (backend-function (instruction ir:values-instruction) uses defs)
+  (cond ((endp (ir:values-values instruction))
          (emit `(lap:mov64 :r8 nil)
                `(lap:xor32 :ecx :ecx)))
         (t
-         (emit `(lap:mov64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (min 5 (length (values-values instruction))))))
+         (emit `(lap:mov64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
          (loop
-            for value in (nthcdr 5 (values-values instruction))
+            for value in (nthcdr 5 (ir:values-values instruction))
             for i from 0
             do
               (emit `(lap:mov64 :r13 ,(effective-address value))
@@ -894,20 +934,20 @@
               (emit `(lap:add64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
 
-(defmethod lap-prepass (backend-function (instruction push-special-stack-instruction) uses defs)
+(defmethod lap-prepass (backend-function (instruction ir:push-special-stack-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 
-(defmethod emit-lap (backend-function (instruction push-special-stack-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:push-special-stack-instruction) uses defs)
   (let ((slots (gethash instruction *prepass-data*))
-        (frame-reg (push-special-stack-frame instruction)))
+        (frame-reg (ir:push-special-stack-frame instruction)))
     ;; Flush slots.
     (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+object-data-shift+))
           `(lap:mov64 (:stack ,(+ slots 2)) nil)
           `(lap:mov64 (:stack ,(+ slots 1)) nil)
           `(lap:mov64 (:stack ,(+ slots 0)) nil))
     ;; Store bits.
-    (emit `(lap:mov64 (:stack ,(+ slots 1)) ,(push-special-stack-a-value instruction))
-          `(lap:mov64 (:stack ,(+ slots 0)) ,(push-special-stack-b-value instruction)))
+    (emit `(lap:mov64 (:stack ,(+ slots 1)) ,(ir:push-special-stack-a-value instruction))
+          `(lap:mov64 (:stack ,(+ slots 0)) ,(ir:push-special-stack-b-value instruction)))
     ;; Store link. Misuses frame-reg slightly.
     (emit `(lap:gs)
           `(lap:mov64 ,frame-reg (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
@@ -919,15 +959,15 @@
     (emit `(lap:gs)
           `(lap:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) ,frame-reg))))
 
-(defmethod emit-lap (backend-function (instruction flush-binding-cache-entry-instruction) uses defs)
-  (emit `(lap:mov64 :rax ,(flush-binding-cache-entry-symbol instruction))
+(defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
+  (emit `(lap:mov64 :rax ,(ir:flush-binding-cache-entry-symbol instruction))
         `(sys.lap-x86:shr32 :eax 4)
         `(sys.lap-x86:and32 :eax ,(1- 128)))
   ;; Store the new binding stack entry into the cache entry.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil 128 :rax) ,(flush-binding-cache-entry-new-value instruction))))
+        `(sys.lap-x86:mov64 (:object nil 128 :rax) ,(ir:flush-binding-cache-entry-new-value instruction))))
 
-(defmethod emit-lap (backend-function (instruction unbind-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
   (emit `(sys.lap-x86:gs)
@@ -949,7 +989,7 @@
           `(sys.lap-x86:mov64 (:object nil 128 :rax) 0))
     (emit after-flush)))
 
-(defmethod emit-lap (backend-function (instruction disestablish-block-or-tagbody-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:disestablish-block-or-tagbody-instruction) uses defs)
   ;; Top entry in the binding stack is a block or tagbody entry.
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
@@ -962,7 +1002,7 @@
         `(sys.lap-x86:gs)
         `(sys.lap-x86:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) :rbx)))
 
-(defmethod emit-lap (backend-function (instruction disestablish-unwind-protect-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:disestablish-unwind-protect-instruction) uses defs)
   ;; Top entry in the binding stack is an unwind-protect entry.
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
@@ -976,25 +1016,25 @@
         `(sys.lap-x86:xor32 :ecx :ecx)
         `(sys.lap-x86:call (:object :r13 0))))
 
-(defmethod lap-prepass (backend-function (instruction make-dx-simple-vector-instruction) uses defs)
-  (setf (gethash instruction *prepass-data*) (allocate-stack-slots (1+ (make-dx-simple-vector-size instruction)) :aligned t)))
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-simple-vector-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*) (allocate-stack-slots (1+ (ir:make-dx-simple-vector-size instruction)) :aligned t)))
 
-(defmethod emit-lap (backend-function (instruction make-dx-simple-vector-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:make-dx-simple-vector-instruction) uses defs)
   (let* ((slots (gethash instruction *prepass-data*))
-         (size (make-dx-simple-vector-size instruction))
+         (size (ir:make-dx-simple-vector-size instruction))
          (words (1+ size)))
     (when (oddp words)
       (incf words))
     ;; Initialize the header.
     (emit `(lap:mov64 (:stack ,(+ slots words -1)) ,(ash size sys.int::+object-data-shift+)))
     ;; Generate pointer.
-    (emit `(lap:lea64 ,(make-dx-simple-vector-result instruction) (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
-                                                                            sys.int::+tag-object+))))))
+    (emit `(lap:lea64 ,(ir:make-dx-simple-vector-result instruction) (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
+                                                                               sys.int::+tag-object+))))))
 
-(defmethod lap-prepass (backend-function (instruction make-dx-closure-instruction) uses defs)
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-closure-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 
-(defmethod emit-lap (backend-function (instruction make-dx-closure-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:make-dx-closure-instruction) uses defs)
   (let ((slots (gethash instruction *prepass-data*)))
     (emit `(lap:lea64 :rax (:stack ,(+ slots 4 -1)))
           ;; Closure tag and size.
@@ -1002,78 +1042,78 @@
                                       (ash sys.int::+object-tag-closure+
                                            sys.int::+object-type-shift+)))
           ;; Entry point is CODE's entry point.
-          `(lap:mov64 :rcx (:object ,(make-dx-closure-function instruction) 0))
+          `(lap:mov64 :rcx (:object ,(ir:make-dx-closure-function instruction) 0))
           `(lap:mov64 (:rax 8) :rcx))
-    (emit `(lap:lea64 ,(make-dx-closure-result instruction) (:rax ,sys.int::+tag-object+)))
+    (emit `(lap:lea64 ,(ir:make-dx-closure-result instruction) (:rax ,sys.int::+tag-object+)))
     ;; Initiaize constant pool.
-    (emit `(lap:mov64 (:object ,(make-dx-closure-result instruction) 1) ,(make-dx-closure-function instruction))
-          `(lap:mov64 (:object ,(make-dx-closure-result instruction) 2) ,(make-dx-closure-environment instruction)))))
+    (emit `(lap:mov64 (:object ,(ir:make-dx-closure-result instruction) 1) ,(ir:make-dx-closure-function instruction))
+          `(lap:mov64 (:object ,(ir:make-dx-closure-result instruction) 2) ,(ir:make-dx-closure-environment instruction)))))
 
-(defmethod emit-lap (backend-function (instruction box-fixnum-instruction) uses defs)
-  (emit `(lap:lea64 ,(box-destination instruction) (,(box-source instruction) ,(box-source instruction)))))
+(defmethod emit-lap (backend-function (instruction ir:box-fixnum-instruction) uses defs)
+  (emit `(lap:lea64 ,(ir:box-destination instruction) (,(ir:box-source instruction) ,(ir:box-source instruction)))))
 
-(defmethod emit-lap (backend-function (instruction unbox-fixnum-instruction) uses defs)
-  (emit `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
-        `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
+(defmethod emit-lap (backend-function (instruction ir:unbox-fixnum-instruction) uses defs)
+  (emit `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
+        `(lap:sar64 ,(ir:unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
 
-(defmethod emit-lap (backend-function (instruction unbox-unsigned-byte-64-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:unbox-unsigned-byte-64-instruction) uses defs)
   (let ((bignum-path (gensym))
         (out (gensym)))
-    (emit `(lap:test64 ,(unbox-source instruction) 1)
+    (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
-          `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
-          `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
+          `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
+          `(lap:sar64 ,(ir:unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
           `(lap:jmp ,out)
           bignum-path
-          `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
+          `(lap:mov64 ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))
           out)))
 
-(defmethod emit-lap (backend-function (instruction unbox-signed-byte-64-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:unbox-signed-byte-64-instruction) uses defs)
   (let ((bignum-path (gensym))
         (out (gensym)))
-    (emit `(lap:test64 ,(unbox-source instruction) 1)
+    (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
-          `(lap:mov64 ,(unbox-destination instruction) ,(unbox-source instruction))
-          `(lap:sar64 ,(unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
+          `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
+          `(lap:sar64 ,(ir:unbox-destination instruction) ,sys.int::+n-fixnum-bits+)
           `(lap:jmp ,out)
           bignum-path
-          `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))
+          `(lap:mov64 ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))
           out)))
 
 (defmethod emit-lap (backend-function (instruction unbox-mmx-vector-instruction) uses defs)
-  (ecase (lap::reg-class (unbox-destination instruction))
+  (ecase (lap::reg-class (ir:unbox-destination instruction))
     (:gpr-64
-     (emit `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))
+     (emit `(lap:mov64 ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))))
     (:mm
-     (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
+     (emit `(lap:movq ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))))))
 
 (defmethod emit-lap (backend-function (instruction unbox-sse-vector-instruction) uses defs)
-  (emit `(lap:movdqa ,(unbox-destination instruction) (:object ,(unbox-source instruction) 1))))
+  (emit `(lap:movdqa ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 1))))
 
 ;; TODO: Do this without a temporary integer register.
-(defmethod emit-lap (backend-function (instruction box-single-float-instruction) uses defs)
-  (cond ((eql (lap::reg-class (box-source instruction)) :gpr-64)
-         (emit `(lap:mov64 :rax ,(box-source instruction))))
+(defmethod emit-lap (backend-function (instruction ir:box-single-float-instruction) uses defs)
+  (cond ((eql (lap::reg-class (ir:box-source instruction)) :gpr-64)
+         (emit `(lap:mov64 :rax ,(ir:box-source instruction))))
         (t
-         (emit `(lap:movd :eax ,(box-source instruction)))))
+         (emit `(lap:movd :eax ,(ir:box-source instruction)))))
   (emit `(lap:shl64 :rax 32)
-        `(lap:lea64 ,(box-destination instruction) (:rax ,sys.int::+tag-single-float+))))
+        `(lap:lea64 ,(ir:box-destination instruction) (:rax ,sys.int::+tag-single-float+))))
 
-(defmethod emit-lap (backend-function (instruction unbox-single-float-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:unbox-single-float-instruction) uses defs)
   (let ((tmp :rax))
-    (when (eql (lap::reg-class (unbox-destination instruction)) :gpr-64)
-      (setf tmp (unbox-destination instruction)))
-    (emit `(lap:mov64 ,tmp ,(unbox-source instruction))
+    (when (eql (lap::reg-class (ir:unbox-destination instruction)) :gpr-64)
+      (setf tmp (ir:unbox-destination instruction)))
+    (emit `(lap:mov64 ,tmp ,(ir:unbox-source instruction))
           `(lap:shr64 ,tmp 32))
-    (unless (eql (lap::reg-class (unbox-destination instruction)) :gpr-64)
-      (emit `(lap:movd ,(unbox-destination instruction) :eax)))))
+    (unless (eql (lap::reg-class (ir:unbox-destination instruction)) :gpr-64)
+      (emit `(lap:movd ,(ir:unbox-destination instruction) :eax)))))
 
-(defmethod emit-lap (backend-function (instruction unbox-double-float-instruction) uses defs)
-  (ecase (lap::reg-class (unbox-destination instruction))
+(defmethod emit-lap (backend-function (instruction ir:unbox-double-float-instruction) uses defs)
+  (ecase (lap::reg-class (ir:unbox-destination instruction))
     (:gpr-64
-     (emit `(lap:mov64 ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))
+     (emit `(lap:mov64 ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))))
     (:xmm
-     (emit `(lap:movq ,(unbox-destination instruction) (:object ,(unbox-source instruction) 0))))))
+     (emit `(lap:movq ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))))))
 
-(defmethod emit-lap (backend-function (instruction debug-instruction) uses defs)
+(defmethod emit-lap (backend-function (instruction ir:debug-instruction) uses defs)
   nil)

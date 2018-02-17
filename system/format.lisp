@@ -709,9 +709,12 @@
          (do-format stream)))
       ((and (stringp destination)
             (array-has-fill-pointer-p destination))
-       (do-format (make-instance 'sys.int::string-output-stream
-                                 :element-type 'character
-                                 :string destination)))
+       (do-format (locally
+                      ;; ### Bootstrap hack.
+                      (declare (notinline make-instance))
+                    (make-instance 'sys.int::string-output-stream
+                                   :element-type 'character
+                                   :string destination))))
       ((eql destination 't)
        (do-format *standard-output*))
       ((streamp destination)

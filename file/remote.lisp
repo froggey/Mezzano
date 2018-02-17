@@ -237,31 +237,31 @@
            (when (listp x)
              (error "Cannot create ~A. ~S" pathname x)))
           ((:overwrite :append))
-          ((nil) (return-from open-using-host nil))))
-      (let ((stream (cond ((or (eql element-type :default)
-                               (subtypep element-type 'character))
-                           (assert (member external-format '(:default :utf-8))
-                                   (external-format))
-                           (make-instance 'simple-file-character-stream
-                                          :path path
-                                          :pathname pathname
-                                          :host host
-                                          :direction direction
-                                          :abort-action abort-action))
-                          ((and (subtypep element-type '(unsigned-byte 8))
-                                (subtypep '(unsigned-byte 8) element-type))
-                           (assert (eql external-format :default) (external-format))
-                           (make-instance 'simple-file-stream
-                                          :path path
-                                          :pathname pathname
-                                          :host host
-                                          :direction direction
-                                          :abort-action abort-action))
-                          (t (error "Unsupported element-type ~S." element-type)))))
-        (when (and (member direction '(:output :io))
-                   (eql if-exists :append))
-          (file-position stream :end))
-        stream))))
+          ((nil) (return-from open-using-host nil)))))
+    (let ((stream (cond ((or (eql element-type :default)
+                             (subtypep element-type 'character))
+                         (assert (member external-format '(:default :utf-8))
+                                 (external-format))
+                         (make-instance 'simple-file-character-stream
+                                        :path path
+                                        :pathname pathname
+                                        :host host
+                                        :direction direction
+                                        :abort-action abort-action))
+                        ((and (subtypep element-type '(unsigned-byte 8))
+                              (subtypep '(unsigned-byte 8) element-type))
+                         (assert (eql external-format :default) (external-format))
+                         (make-instance 'simple-file-stream
+                                        :path path
+                                        :pathname pathname
+                                        :host host
+                                        :direction direction
+                                        :abort-action abort-action))
+                        (t (error "Unsupported element-type ~S." element-type)))))
+      (when (and (member direction '(:output :io))
+                 (eql if-exists :append))
+        (file-position stream :end))
+      stream)))
 
 (defmethod sys.gray:stream-element-type ((stream simple-file-stream))
   '(unsigned-byte 8))

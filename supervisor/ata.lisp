@@ -66,6 +66,8 @@
 (defconstant +ata-command-write-sectors-ext+ #x3A)
 (defconstant +ata-command-write-dma+ #xCA)
 (defconstant +ata-command-write-dma-ext+ #x35)
+(defconstant +ata-command-flush-cache+ #xE7)
+(defconstant +ata-command-flush-cache-ext+ #xEA)
 (defconstant +ata-command-identify+ #xEC)
 (defconstant +ata-command-identify-packet+ #xA1)
 (defconstant +ata-command-packet+ #xA0)
@@ -283,7 +285,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (debug-print-line "Features (83): " supported-command-sets)
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
-      (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
+      (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write 'ata-flush))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
@@ -437,17 +439,18 @@ This is used to implement the INTRQ_Wait state."
 (defun ata-configure-prdt (controller phys-addr n-octets direction)
   (let* ((prdt (ata-controller-prdt-phys controller))
          (prdt-virt (convert-to-pmap-address prdt)))
-    (do ((offset 0))
+    (ensure (<= (+ phys-addr n-octets) #x100000000))
+    (ensure (not (eql n-octets 0)))
+    (do ((offset 0 (+ offset 2)))
         ((<= n-octets #x10000)
          ;; Write final chunk.
          (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
-               (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) (logior #x80000000
-                                                                                ;; 0 = 64k
-                                                                                (logand n-octets #xFFFF))))
+               (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) (logior #x80000000 n-octets)))
       ;; Write 64k chunks.
       (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
-            (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) 0)
-      (incf phys-addr #x10000))
+            (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) 0) ; 0 = 64k
+      (incf phys-addr #x10000)
+      (decf n-octets #x10000))
     ;; Write the PRDT location.
     (setf (pci-io-region/32 (ata-controller-bus-master-register controller) +ata-bmr-prdt-address+) prdt
           ;; Clear DMA status. Yup. You have to write 1 to clear bits.
@@ -563,6 +566,35 @@ This is used to implement the INTRQ_Wait state."
 (defun ata-write (device lba count mem-addr)
   (ata-read-write device lba count mem-addr
                   :write #'ata-write-dma #'ata-write-pio))
+
+(defun ata-flush (device)
+  (let ((controller (ata-device-controller device)))
+    (when (not (ata-issue-lba-command device 0 0
+                                      +ata-command-flush-cache+
+                                      +ata-command-flush-cache-ext+))
+      (return-from ata-flush (values nil :device-error)))
+    ;; HND0: INTRQ_Wait
+    (ata-intrq-wait controller)
+    ;; HND1: Check_Status
+    ;; Sample the alt-status register for the required delay.
+    (ata-alt-status controller)
+    (loop
+       with timeout = 60 ; Spec sez flush can take longer than 30 but I can't find an upper bound.
+       do
+         (when (not (logtest (ata-alt-status controller) +ata-bsy+))
+           (return))
+       ;; Stay in Check_Status.
+         (when (<= timeout 0)
+           ;; FIXME: Should reset the device here.
+           (debug-print-line "Device timeout during flush.")
+           (return-from ata-flush (values nil :device-error)))
+         (sleep 0.001)
+         (decf timeout 0.001))
+    ;; Transition to Host_Idle, checking error status.
+    (when (logtest (ata-alt-status controller) +ata-err+)
+      (debug-print-line "Device error " (ata-error controller) " during flush.")
+      (return-from ata-flush (values nil :device-error)))
+    t))
 
 (defun ata-submit-packet-command (device cdb result-len dma dmadir)
   (let* ((controller (atapi-device-controller device))

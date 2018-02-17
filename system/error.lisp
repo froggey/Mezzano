@@ -109,8 +109,17 @@
 (define-condition program-error (error)
   ())
 
-(define-condition invalid-arguments (program-error)
-  ())
+(define-condition invalid-argument-error (program-error)
+  ((function :initarg :function
+             :initform '()
+             :reader invalid-argument-error-function)
+   (arguments :initarg :arguments
+              :initform '()
+              :reader invalid-argument-error-arguments))
+  (:report (lambda (condition stream)
+             (format stream "Function ~S called with invalid arguments ~:S."
+                     (invalid-argument-error-function condition)
+                     (invalid-argument-error-arguments condition)))))
 
 (define-condition simple-program-error (program-error simple-error)
   ())
@@ -156,7 +165,7 @@
 (define-condition unbound-slot (cell-error)
   ((instance :initarg :instance
              :reader unbound-slot-instance))
-  (:rebort (lambda (condition stream)
+  (:report (lambda (condition stream)
              (format stream "The slot ~S is unbound in the object ~S."
                      (cell-error-name condition)
                      (unbound-slot-instance condition)))))
@@ -281,8 +290,20 @@
 (defun raise-type-error (datum expected-type)
   (error 'type-error :datum datum :expected-type expected-type))
 
-(defun raise-invalid-argument-error ()
-  (error 'invalid-arguments))
+(defun raise-invalid-argument-error (&rest args &closure function)
+  ;; FIXME: The wronged function tail-calls here, causing it to not show
+  ;; up in backtraces. Fixing this probably involves a non-trivial rework
+  ;; of the invalid args mechanism.
+  ;; This is currently worked around with a hack in FUNCTION-FROM-FRAME.
+  (restart-case
+      (error 'invalid-argument-error :function function :arguments args)
+    (use-value (&rest values)
+      :interactive (lambda ()
+                     (format *query-io* "Enter a value to return (evaluated): ")
+                     (finish-output *query-io*)
+                     (multiple-value-list (eval (read *query-io*))))
+      :report "Supply a value to use instead."
+      (values-list values))))
 
 (defun raise-stack-alignment-error ()
   (error "Stack was misaligned."))

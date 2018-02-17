@@ -1339,6 +1339,95 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (double-float
      (decode-double-float f))))
 
+;;; These functions let us create floats from bits with the
+;;; significand uniformly represented as an integer. This is less
+;;; efficient for double floats, but is more convenient when making
+;;; special values, etc.
+(defun single-from-bits (sign exp sig)
+  (declare (type bit sign) (type (unsigned-byte 24) sig)
+           (type (unsigned-byte 8) exp))
+  (%integer-as-single-float
+   (dpb exp +single-float-exponent-byte+
+        (dpb sig +single-float-significand-byte+
+             (if (zerop sign) 0 -1)))))
+(defun double-from-bits (sign exp sig)
+  (declare (type bit sign) (type (unsigned-byte 53) sig)
+           (type (unsigned-byte 11) exp))
+  (%integer-as-double-float
+   (logior (ash (dpb exp +double-float-exponent-byte+
+                     (dpb (ash sig -32)
+                          +double-float-significand-byte+
+                          (if (zerop sign) 0 -1)))
+                32)
+           (ldb (byte 32 0) sig))))
+
+;;; Ratio to float conversion from SBCL 1.4.2
+
+;;; Convert a ratio to a float. We avoid any rounding error by doing an
+;;; integer division. Accuracy is important to preserve print-read
+;;; consistency, since this is ultimately how the reader reads a float. We
+;;; scale the numerator by a power of two until the division results in the
+;;; desired number of fraction bits, then do round-to-nearest.
+(defun ratio-to-float (x format)
+  (let* ((signed-num (numerator x))
+         (plusp (plusp signed-num))
+         (num (if plusp signed-num (- signed-num)))
+         (den (denominator x))
+         (digits (ecase format
+                   (single-float +single-float-digits+)
+                   (double-float +double-float-digits+)))
+         (scale 0))
+    (declare (fixnum digits scale))
+    ;; Strip any trailing zeros from the denominator and move it into the scale
+    ;; factor (to minimize the size of the operands.)
+    (let ((den-twos (1- (integer-length (logxor den (1- den))))))
+      (declare (fixnum den-twos))
+      (decf scale den-twos)
+      (setq den (ash den (- den-twos))))
+    ;; Guess how much we need to scale by from the magnitudes of the numerator
+    ;; and denominator. We want one extra bit for a guard bit.
+    (let* ((num-len (integer-length num))
+           (den-len (integer-length den))
+           (delta (- den-len num-len))
+           (shift (1+ (the fixnum (+ delta digits))))
+           (shifted-num (ash num shift)))
+      (declare (fixnum delta shift))
+      (decf scale delta)
+      (labels ((float-and-scale (bits)
+                 (let* ((bits (ash bits -1))
+                        (len (integer-length bits)))
+                   (cond ((> len digits)
+                          (assert (= len (the fixnum (1+ digits))))
+                          (scale-float (floatit (ash bits -1)) (1+ scale)))
+                         (t
+                          (scale-float (floatit bits) scale)))))
+               (floatit (bits)
+                 (let ((sign (if plusp 0 1)))
+                   (case format
+                     (single-float
+                      (single-from-bits sign +single-float-bias+ bits))
+                     (double-float
+                      (double-from-bits sign +double-float-bias+ bits))))))
+        (loop
+          (multiple-value-bind (fraction-and-guard rem)
+              (truncate shifted-num den)
+            (let ((extra (- (integer-length fraction-and-guard) digits)))
+              (declare (fixnum extra))
+              (cond ((/= extra 1)
+                     (assert (> extra 1)))
+                    ((oddp fraction-and-guard)
+                     (return
+                      (if (zerop rem)
+                          (float-and-scale
+                           (if (zerop (logand fraction-and-guard 2))
+                               fraction-and-guard
+                               (1+ fraction-and-guard)))
+                          (float-and-scale (1+ fraction-and-guard)))))
+                    (t
+                     (return (float-and-scale fraction-and-guard)))))
+            (setq shifted-num (ash shifted-num -1))
+            (incf scale)))))))
+
 (defun rational (number)
   (check-type number real)
   (etypecase number

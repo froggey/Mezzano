@@ -16,13 +16,9 @@
   "Number of immediate bytes following an encoded effective address.
 Used to make rip-relative addressing line up right.")
 
-(defun assemble (code-list &rest args &key (cpu-mode 64) &allow-other-keys)
-  (declare (dynamic-extent args))
+(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
   (let ((*cpu-mode* cpu-mode))
     (apply 'perform-assembly *instruction-assemblers* code-list args)))
-
-(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) &rest args)
-  (apply #'assemble args))
 
 (defmacro define-instruction (name lambda-list &body body)
   (let ((insn (gensym)))
@@ -700,6 +696,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simple-instruction pause (#xF3 #x90))
 
 (define-simple-instruction fninit (#xDB #xE3))
+
+(define-simple-instruction lfence (#x0F #xAE #xE8))
+(define-simple-instruction mfence (#x0F #xAE #xF8))
+(define-simple-instruction sfence (#x0F #xAE #xF0))
 
 (defmacro define-integer-define-instruction (name lambda-list (bitness class) &body body)
   `(defmacro ,name ,lambda-list

@@ -569,41 +569,110 @@
              (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i)))))))
   sequence-1)
 
+(defmacro object-type-dispatch (object &body body)
+  "Fast CASE on (%OBJECT-TAG object)"
+  (let ((object-tags (make-array 64 :initial-element nil))
+        (targets '())
+        (default-form nil)
+        (default-target (gensym))
+        (block-name (gensym)))
+    (loop
+       for (keys . forms) in body
+       for sym = (gensym)
+       do
+         (cond ((eql keys t)
+                (when default-form
+                  (error "Duplicate default forms"))
+                (setf default-form `(return-from ,block-name (progn ,@forms))))
+               (t
+                (when (not (listp keys))
+                  (setf keys (list keys)))
+                (dolist (key keys)
+                  (assert (<= 0 key 64))
+                  (when (aref object-tags key)
+                    (error "Duplicate key ~S~%" key))
+                  (setf (aref object-tags key) sym))
+                (push sym targets)
+                (push `(return-from ,block-name (progn ,@forms)) targets))))
+    `(block ,block-name
+       (tagbody
+          (%jump-table (%object-tag ,object)
+                       ,@(loop
+                            for target across object-tags
+                            collect `(go ,(or target default-target))))
+          ,@(reverse targets)
+          ,default-target
+          ,default-form))))
+
+(defun fill-known-args (sequence item start end)
+  (check-type start (integer 0))
+  (prog ((original-sequence sequence))
+     (when (not (%value-has-tag-p sequence +tag-object+))
+       (go NOT-OBJECT))
+     RETRY-COMPLEX-ARRAY
+     (macrolet ((fast-vector-fill (type)
+                  `(progn
+                     (check-type item ,type)
+                     (locally
+                         (declare (type (simple-array ,type (*)) sequence)
+                                  (type ,type item)
+                                  (optimize speed (safety 0) (debug 0)))
+                       (cond (end
+                              (assert (<= start end))
+                              (assert (<= end (length sequence))))
+                             (t
+                              (assert (<= start (length sequence)))
+                              (setf end (length sequence))))
+                       (locally
+                           (declare (type fixnum start end))
+                         (loop
+                            for i fixnum below (the fixnum (- end start))
+                            do
+                              (setf (aref sequence (the fixnum (+ start i))) item)))))))
+       (object-type-dispatch sequence
+         (#.+object-tag-array-t+ (fast-vector-fill t))
+         (#.+object-tag-array-unsigned-byte-8+ (fast-vector-fill (unsigned-byte 8)))
+         (#.+object-tag-array-unsigned-byte-16+ (fast-vector-fill (unsigned-byte 16)))
+         (#.+object-tag-array-unsigned-byte-32+ (fast-vector-fill (unsigned-byte 32)))
+         (#.+object-tag-array-unsigned-byte-64+ (fast-vector-fill (unsigned-byte 64)))
+         (#.+object-tag-array-signed-byte-8+ (fast-vector-fill (signed-byte 8)))
+         (#.+object-tag-array-signed-byte-16+ (fast-vector-fill (signed-byte 16)))
+         (#.+object-tag-array-signed-byte-32+ (fast-vector-fill (signed-byte 32)))
+         (#.+object-tag-array-signed-byte-64+ (fast-vector-fill (signed-byte 64)))
+         (#.+object-tag-array-single-float+ (fast-vector-fill single-float))
+         (#.+object-tag-array-double-float+ (fast-vector-fill double-float))
+         ((#.+object-tag-simple-array+ #.+object-tag-array+)
+          (when (not (eql (array-rank sequence) 1))
+            (error 'type-error :datum sequence :expected-type 'sequence))
+          (when (array-displacement sequence)
+            (go GENERIC))
+          ;; 1D non-displaced array. Adjustable or has a fill-pointer.
+          (when (array-has-fill-pointer-p sequence)
+            (cond (end
+                   (assert (<= end (fill-pointer sequence))))
+                  (t
+                   (setf end (fill-pointer sequence)))))
+          (setf sequence (sys.int::%complex-array-storage sequence))
+          (go RETRY-COMPLEX-ARRAY))
+         ;; TODO: Strings. Check item is a character, expand underlying array as required, fill underlying array with char-as-int.
+         (t
+          (go GENERIC))))
+     (return original-sequence)
+     NOT-OBJECT
+     (when (not (consp sequence))
+       (error 'type-error :datum sequence :expected-type 'sequence))
+     GENERIC
+     (when (not end)
+       (setf end (length sequence)))
+     (assert (<= 0 start end (length sequence)))
+     (dotimes (i (- end start))
+       (setf (elt sequence (+ i start)) item))
+     (return original-sequence)))
+
+;; Avoid keyword argument setup.
+(declaim (inline fill))
 (defun fill (sequence item &key (start 0) end)
-  (unless end (setf end (length sequence)))
-  (assert (<= 0 start end (length sequence)))
-  (macrolet ((fast-vector (type)
-               `(if (and (typep sequence '(array ,type (*)))
-                         (typep item ',type)
-                         (not (array-displacement sequence)))
-                    (let ((simple-vector (if (typep sequence '(simple-array ,type (*)))
-                                             sequence
-                                             (sys.int::%complex-array-storage sequence))))
-                      (declare (type (simple-array ,type (*)) simple-vector)
-                               (type ,type item)
-                               (type fixnum start end)
-                               (optimize speed (safety 0)))
-                      (loop
-                         for i fixnum below (the fixnum (- end start))
-                         do
-                           (setf (aref simple-vector (the fixnum (+ start i))) item))
-                      t)
-                    nil)))
-    (cond ((fast-vector (unsigned-byte 8)))
-          ((fast-vector (unsigned-byte 16)))
-          ((fast-vector (unsigned-byte 32)))
-          ((fast-vector (unsigned-byte 64)))
-          ((fast-vector (signed-byte 8)))
-          ((fast-vector (signed-byte 16)))
-          ((fast-vector (signed-byte 32)))
-          ((fast-vector (signed-byte 64)))
-          ((fast-vector t))
-          ((fast-vector single-float))
-          ((fast-vector double-float))
-          (t
-           (dotimes (i (- end start))
-             (setf (elt sequence (+ i start)) item)))))
-  sequence)
+  (fill-known-args sequence item start end))
 
 (defun map (result-type function first-sequence &rest more-sequences)
   (let* ((sequences (cons first-sequence more-sequences))

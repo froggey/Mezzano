@@ -6,7 +6,7 @@
 (defvar *function-reference-resolver* nil
   "Function used to convert :function memory references into constants.")
 
-(defgeneric perform-assembly-using-target (target &rest args))
+(defgeneric perform-assembly-using-target (target code-list &rest args))
 
 (defvar *current-address* nil
   "Address of the current instruction.")

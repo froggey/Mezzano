@@ -783,11 +783,11 @@
   (let ((l (make-instance 'ir:label :name :broken-critical-edge)))
     (etypecase terminator
       (ir:branch-instruction
-       (cond ((eql (ir:next-instruction backend-function terminator) target)
-              (ir:insert-after backend-function terminator l))
+       (cond ((eql (ir:branch-true-target terminator) target)
+              (setf (ir:branch-true-target terminator) l))
              (t
-              (ir:insert-before backend-function target l)
-              (setf (ir:branch-target terminator) l))))
+              (setf (ir:branch-false-target terminator) l)))
+       (ir:insert-before backend-function target l))
       (ir:switch-instruction
        (do ((i (ir:switch-targets terminator)
                (rest i)))
@@ -797,11 +797,11 @@
            (setf (first i) l)
            (return))))
       (mezzano.compiler.backend.x86-64::x86-branch-instruction
-       (cond ((eql (ir:next-instruction backend-function terminator) target)
-              (ir:insert-after backend-function terminator l))
+       (cond ((eql (mezzano.compiler.backend.x86-64::x86-branch-true-target terminator) target)
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target terminator) l))
              (t
-              (ir:insert-before backend-function target l)
-              (setf (mezzano.compiler.backend.x86-64::x86-branch-target terminator) l))))
+              (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target terminator) l)))
+       (ir:insert-before backend-function target l))
       (mezzano.compiler.backend.arm64::arm64-branch-instruction
        (cond ((eql (ir:next-instruction backend-function terminator) target)
               (ir:insert-after backend-function terminator l))
@@ -1065,9 +1065,11 @@
              (setf (gethash current-vreg result) '()))
            ;; Add new interference edges.
            (dolist (range live)
-             (when (not (eq (live-range-vreg range) current-vreg))
-               (pushnew current-vreg (gethash (live-range-vreg range) result) :test 'eq)
-               (pushnew (live-range-vreg range) (gethash current-vreg result) :test 'eq)))
+             (let ((other-vreg (live-range-vreg range)))
+               (when (and (not (eq other-vreg current-vreg))
+                          (not (member current-vreg (gethash other-vreg result) :test 'eq)))
+                 (push current-vreg (gethash other-vreg result))
+                 (push other-vreg (gethash current-vreg result)))))
            (push range live)))
     result))
 

@@ -40,11 +40,12 @@
 ;;; Wrapper around arm64 branch instructions.
 (defclass arm64-branch-instruction (ir:terminator-instruction)
   ((%opcode :initarg :opcode :accessor arm64-instruction-opcode)
-   (%target :initarg :target :accessor arm64-branch-target)))
+   (%true-target :initarg :true-target :accessor arm64-branch-true-target)
+   (%false-target :initarg :false-target :accessor arm64-branch-false-target)))
 
 (defmethod ir:successors (function (instruction arm64-branch-instruction))
-  (list (ir:next-instruction function instruction)
-        (arm64-branch-target instruction)))
+  (list (arm64-branch-true-target instruction)
+        (arm64-branch-false-target instruction)))
 
 (defmethod ir:instruction-inputs ((instruction arm64-branch-instruction))
   '())
@@ -57,7 +58,7 @@
 
 (defmethod ir:print-instruction ((instruction arm64-branch-instruction))
   (format t "   ~S~%"
-          `(:arm64-branch ,(arm64-instruction-opcode instruction) ,(arm64-branch-target instruction))))
+          `(:arm64-branch ,(arm64-instruction-opcode instruction) ,(arm64-branch-true-target instruction) ,(arm64-branch-false-target instruction))))
 
 (defun lower-complicated-box-instructions (backend-function)
   (do* ((inst (ir:first-instruction backend-function) next-inst)

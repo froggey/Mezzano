@@ -92,6 +92,10 @@
 (defun virtio-block-write (device lba count mem-addr)
   (virtio-block-rw device lba count mem-addr :write))
 
+(defun virtio-block-flush (device)
+  ;; TODO
+  t)
+
 (defun virtio-block-irq-handler (blk)
   (latch-trigger (virtio-block-irq-latch blk)))
 
@@ -123,7 +127,7 @@
     ;; Read data from the config area.
     ;; TODO: Set the BLK-SIZE feature and use non-512 byte blocks.
     (let ((capacity (virtio-device-specific-header/64 device +virtio-block-capacity+)))
-      (register-disk blk t capacity 512 256 'virtio-block-read 'virtio-block-write))
+      (register-disk blk t capacity 512 256 'virtio-block-read 'virtio-block-write 'virtio-block-flush))
     ;; Enable IRQ handler.
     (setf (virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.
