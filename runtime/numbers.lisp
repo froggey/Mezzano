@@ -59,8 +59,9 @@
        (double-float
         (%%coerce-bignum-to-double-float number))))
     (ratio
-     (/ (float (numerator number) prototype)
-        (float (denominator number) prototype)))))
+     (sys.int::ratio-to-float number (etypecase prototype
+                                       ((or null single-float) 'single-float)
+                                       (double-float 'double-float))))))
 
 (defun sys.int::generic-< (x y)
   (cond
