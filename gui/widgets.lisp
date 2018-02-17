@@ -22,7 +22,9 @@
            #:text-widget
            #:resize-text-widget
            #:reset
-           #:cursor-visible))
+           #:cursor-visible
+           #:in-frame-header-p
+           #:in-frame-border-p))
 
 (in-package :mezzano.gui.widgets)
 
