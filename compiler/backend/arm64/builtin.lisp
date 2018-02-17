@@ -132,7 +132,8 @@
                             :opcode (mezzano.compiler.codegen.arm64::predicate-instruction-jump-instruction
                                      (mezzano.compiler.codegen.arm64::predicate-info
                                       pred))
-                            :target (ir:branch-target next-inst)))
+                            :true-target (ir:branch-true-target next-inst)
+                            :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))
               (ir:remove-instruction backend-function inst)
               (ir:remove-instruction backend-function next-inst)
