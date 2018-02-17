@@ -347,7 +347,7 @@
 (defvar *decimal-digits* "0123456789")
 
 (defun read-float (string)
-  ;; float    = sign? decimal-digit* decimal-point decimal-digit+
+  ;; float    = sign? decimal-digit* decimal-point decimal-digit+ [exponent]
   ;;          = sign? decimal-digit+ [decimal-point decimal-digit*] exponent
   ;; exponent = exponent-marker [sign] decimal-digit+
   ;; exponent-marker = d | D | e | E | f | F | l | L | s | S
@@ -393,7 +393,7 @@
         (when (not (if saw-integer-digits
                        (or (find (peek) *exponent-markers*)
                            (find (peek) *decimal-digits*))
-                       (find (peek) *exponent-markers*)))
+                       (find (peek) *decimal-digits*)))
           (return-from read-float))
         ;; Accumulate decimal digits.
         (let ((first-decimal position))
@@ -414,9 +414,10 @@
                (setf exponent-sign -1))
           (#\+ (consume)))
         ;; Must be at least one digit in the exponent
-        ;; and one digit in the integer part
+        ;; and either one digit in the integer part or a decimal point.
         (when (or (not (find (peek) *decimal-digits*))
-                  (not saw-integer-digits))
+                  (not (or saw-integer-digits
+                           saw-decimal-point)))
           (return-from read-float))
         ;; Read exponent part.
         (loop (when (not (find (peek) *decimal-digits*))
