@@ -16,6 +16,7 @@
       (typecase inst
         (terminator-instruction
          (dolist (succ (successors backend-function inst))
+           (assert (typep succ 'label))
            (pushnew succ targets)
            (pushnew succ (gethash active-bb successors))
            (pushnew active-bb (gethash succ predecessors)))
@@ -24,6 +25,7 @@
            (push active-bb basic-blocks)))
         (begin-nlx-instruction
          (dolist (succ (begin-nlx-targets inst))
+           (assert (typep succ 'label))
            (pushnew succ targets)
            (pushnew succ (gethash active-bb successors))
            (pushnew active-bb (gethash succ predecessors))))))
@@ -67,31 +69,26 @@ does not visit unreachable blocks."
         (remove-basic-block backend-function bb))
       unreachable)))
 
-(defun skip-label (backend-function inst)
-  (loop
-     (when (or (not (typep inst 'label))
-               (not (endp (label-phis inst))))
-       (return inst))
-     (setf inst (next-instruction backend-function inst))))
-
 (defun simplify-cfg-1 (backend-function)
   "Eliminate jumps and branches to jumps."
   (let ((total 0))
     (do-instructions (inst backend-function)
       (typecase inst
         (branch-instruction
-         (let ((true-target (skip-label backend-function (branch-true-target inst)))
-               (false-target (skip-label backend-function (branch-false-target inst))))
-           (when (and (typep true-target 'jump-instruction)
+         (let* ((true-target (branch-true-target inst))
+                (true-next (next-instruction backend-function true-target))
+                (false-target (branch-false-target inst))
+                (false-next (next-instruction backend-function false-target)))
+           (when (and (typep true-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values true-target)))
-             (setf true-target (jump-target true-target)
+                      (endp (jump-values true-next)))
+             (setf true-target (jump-target true-next)
                    (branch-true-target inst) true-target)
              (incf total))
-           (when (and (typep false-target 'jump-instruction)
+           (when (and (typep false-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values false-target)))
-             (setf false-target (jump-target false-target)
+                      (endp (jump-values false-next)))
+             (setf false-target (jump-target false-next)
                    (branch-false-target inst) false-target)
              (incf total))
            (when (eql true-target false-target)
@@ -101,33 +98,36 @@ does not visit unreachable blocks."
                            :values '())
              (incf total))))
         (mezzano.compiler.backend.x86-64::x86-branch-instruction
-         (let ((true-target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-true-target inst)))
-               (false-target (skip-label backend-function (mezzano.compiler.backend.x86-64::x86-branch-false-target inst))))
-           (when (and (typep true-target 'jump-instruction)
+         (let* ((true-target (mezzano.compiler.backend.x86-64::x86-branch-true-target inst))
+                (true-next (next-instruction backend-function true-target))
+                (false-target (mezzano.compiler.backend.x86-64::x86-branch-false-target inst))
+                (false-next (next-instruction backend-function false-target)))
+           (when (and (typep true-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values true-target)))
-             (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target inst) (jump-target true-target))
+                      (endp (jump-values true-next)))
+             (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target inst) (jump-target true-next))
              (incf total))
-           (when (and (typep false-target 'jump-instruction)
+           (when (and (typep false-next 'jump-instruction)
                        ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values false-target)))
-             (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target inst) (jump-target false-target))
+                      (endp (jump-values false-next)))
+             (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target inst) (jump-target false-next))
              (incf total))))
         (jump-instruction
          (when (endp (jump-values inst))
-           (let ((target (skip-label backend-function (jump-target inst))))
-             (cond ((and (typep target 'jump-instruction)
+           (let* ((target (jump-target inst))
+                  (target-next (next-instruction backend-function target)))
+             (cond ((and (typep target-next 'jump-instruction)
                          ;; Don't snap if there are phi nodes at the target.
-                         (endp (jump-values target)))
-                    (setf (jump-target inst) (jump-target target))
+                         (endp (jump-values target-next)))
+                    (setf (jump-target inst) (jump-target target-next))
                     (incf total))
                    ((typep target 'branch-instruction)
                     ;; Convert to branch.
                     (change-class inst
                                   'branch-instruction
                                   :value (branch-value target)
-                                  :true-target (branch-true-target target)
-                                  :false-target (branch-false-target target))
+                                  :true-target (branch-true-target target-next)
+                                  :false-target (branch-false-target target-next))
                     (incf total))))))))
     total))
 
