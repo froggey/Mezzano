@@ -544,7 +544,7 @@
 (defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
   (if string-form
       `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (setf (string-output-stream-string stream) ,string-form)
+         (setf (string-output-stream-string ,var) ,string-form)
          (unwind-protect (progn ,@body)
            (close ,var)))
       `(let ((,var (make-string-output-stream :element-type ,element-type)))
