@@ -8,7 +8,7 @@
 ;; Line traversal functions.
 
 (defun %bitblt-line (blender to to-offset ncols from from-offset)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type function blender)
            (type fixnum to-offset ncols from-offset)
            (type (simple-array (unsigned-byte 32) (*)) to from))
@@ -18,7 +18,7 @@
     (incf from-offset)))
 
 (defun %bitset-line (blender to to-offset ncols colour)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type function blender)
            (type fixnum to-offset ncols)
            (type (simple-array (unsigned-byte 32) (*)) to)
@@ -28,7 +28,7 @@
     (incf to-offset)))
 
 (defun %bitset-mask-1-line (blender to to-offset ncols mask mask-offset colour)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type function blender)
            (type fixnum to-offset ncols mask-offset)
            (type (simple-array (unsigned-byte 32) (*)) to)
@@ -41,7 +41,7 @@
     (incf mask-offset)))
 
 (defun %bitset-mask-8-line (blender to to-offset ncols mask mask-offset colour)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type function blender)
            (type fixnum to-offset ncols mask-offset)
            (type (simple-array (unsigned-byte 32) (*)) to)
@@ -81,14 +81,14 @@
 ;;; Final blending functions.
 
 (defun %%set-one-argb8888-argb8888 (source to to-offset)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type (unsigned-byte 32) source)
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type fixnum to-offset))
   (setf (aref to to-offset) source))
 
 (defun %%xor-one-argb8888-argb8888 (source to to-offset)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type (unsigned-byte 32) source)
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type fixnum to-offset))
@@ -99,7 +99,7 @@
 ;; src = GL_ONE
 ;; dst = GL_ONE_MINUS_SRC_ALPHA
 (defun %%alpha-blend-one-argb8888-argb8888 (source to to-offset)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type (unsigned-byte 32) source)
            (type (simple-array (unsigned-byte 32) (*)) to)
            (type fixnum to-offset))

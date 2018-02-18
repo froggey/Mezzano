@@ -128,7 +128,7 @@
       (sys.int::cas (svref slots location) old new)))
 
 (defun fast-sv-position (value simple-vector)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type simple-vector simple-vector))
   (position value simple-vector :test #'eq))
 
