@@ -292,7 +292,8 @@
    (%cfg-preds :initarg :cfg-preds :reader allocator-cfg-preds)
    (%instruction-clobbers :initarg :instruction-clobbers :reader allocator-instruction-clobbers)
    (%range-starts :initarg :range-starts :accessor allocator-range-starts)
-   (%debug-variable-value-map :initarg :debug-variable-value-map :accessor allocator-debug-variable-value-map)))
+   (%debug-variable-value-map :initarg :debug-variable-value-map :accessor allocator-debug-variable-value-map)
+   (%max-debug-p :initarg :max-debug-p :reader max-debug-p)))
 
 (defun program-ordering (backend-function)
   (let ((order '()))
@@ -326,10 +327,13 @@
                          :mv-flow mv-flow
                          :cfg-preds bb-preds
                          :instruction-clobbers clobbers
-                         :debug-variable-value-map debug-map))))))
+                         :debug-variable-value-map debug-map
+                         :max-debug-p (= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 3)))))))
 
 (defun virtual-registers-used-by-debug-info (allocator inst)
-  (mapcar #'second (gethash inst (allocator-debug-variable-value-map allocator))))
+  (if (max-debug-p allocator)
+      (mapcar #'second (gethash inst (allocator-debug-variable-value-map allocator)))
+      '()))
 
 (defun build-live-ranges (allocator)
   (let* ((ranges (make-array 128 :adjustable t :fill-pointer 0))
@@ -803,11 +807,11 @@
               (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target terminator) l)))
        (ir:insert-before backend-function target l))
       (mezzano.compiler.backend.arm64::arm64-branch-instruction
-       (cond ((eql (ir:next-instruction backend-function terminator) target)
-              (ir:insert-after backend-function terminator l))
+       (cond ((eql (mezzano.compiler.backend.arm64::arm64-branch-true-target terminator) target)
+              (setf (mezzano.compiler.backend.arm64::arm64-branch-true-target terminator) l))
              (t
-              (ir:insert-before backend-function target l)
-              (setf (mezzano.compiler.backend.arm64::arm64-branch-target terminator) l)))))
+              (setf (mezzano.compiler.backend.arm64::arm64-branch-false-target terminator) l)))
+       (ir:insert-before backend-function target l)))
     (ir:insert-after backend-function l (make-instance 'ir:jump-instruction :target target :values '()))
     l))
 
