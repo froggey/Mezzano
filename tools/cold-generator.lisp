@@ -1217,6 +1217,12 @@
      ;; Fifth group. Not byteswapped.
      (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))
 
+(defun git-revision ()
+  "Return the current git hash as a string or NIL if it can't be determined."
+  (ignore-errors
+    (values (uiop/run-program:run-program '("git" "rev-parse" "HEAD")
+                                          :output '(:string :stripped t)))))
+
 (defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64) uuid)
   (cond ((stringp uuid)
          (setf uuid (parse-uuid uuid)))
@@ -1384,6 +1390,10 @@
                                    :element-type '(unsigned-byte 64)
                                    :initial-element 0)
                        :wired))
+    (let ((git-rev (git-revision)))
+      (when git-rev
+        (setf (cold-symbol-value 'sys.int::*lisp-implementation-version*)
+              (make-value (store-string git-rev) sys.int::+tag-object+))))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
