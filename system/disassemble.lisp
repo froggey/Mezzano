@@ -10,7 +10,7 @@
 (defun disassemble (fn)
   (disassemble-function fn))
 
-(defun disassemble-function (fn &key gc-metadata debug-metadata)
+(defun disassemble-function (fn &key (gc-metadata t) debug-metadata)
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
   (when (not (functionp fn))
@@ -34,27 +34,128 @@
            (format t "~S (implemented by ~S):~%" fn fundamental-fn)))
     (let ((base-address (logand (sys.int::lisp-object-address fundamental-fn) -16))
           (offset 16)
-          (context (make-instance 'disassembler-context :function fundamental-fn)))
+          (context (make-instance 'disassembler-context :function fundamental-fn))
+          (gc-md (sys.int::decode-function-gc-info fundamental-fn))
+          (true-end (sys.int::function-code-size fundamental-fn)))
+      ;; Find the approximate end of the function. The size is rounded up to 16 bytes and
+      ;; it's padded with zeros.
       (loop
-         (when (>= offset (sys.int::function-code-size fundamental-fn))
+         (when (not (zerop (sys.int::function-code-byte fundamental-fn (1- true-end))))
            (return))
-         (multiple-value-bind (decoded len)
-             (disassemble-one-instruction context)
+         (decf true-end))
+      (loop
+         (when (>= offset true-end)
+           (return))
+         (when (and gc-md
+                    (>= offset (first (first gc-md))))
+           (when gc-metadata
+             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
+           (pop gc-md))
+         (let ((label (label context offset))
+               (decoded (disassemble-one-instruction context)))
+           (when label
+             (format t " L~D" label))
+           (format t "~7T~8,'0X: " (+ base-address offset))
            (cond (decoded
-                  (format t "  ~8,'0X: ~{~2,'0X ~}~46T~S~%"
-                          (+ base-address offset)
+                  (format t "~{~2,'0X ~}~50T"
                           (loop
-                             repeat len
+                             repeat (inst-size decoded)
                              for i from offset
-                             collect (sys.int::function-code-byte fundamental-fn i))
-                          decoded)
-                  (incf offset len))
+                             collect (sys.int::function-code-byte fundamental-fn i)))
+                  (print-instruction context decoded)
+                  (terpri)
+                  (incf offset (inst-size decoded)))
                  (t
-                  (format t "  ~8,'0X: <bad ~2,'0X>~%"
-                          (+ base-address offset)
+                  (format t "<bad ~2,'0X>~%"
                           (sys.int::function-code-byte fundamental-fn offset))
                   (incf offset 1)))))))
   nil)
+
+(defun print-instruction (context instruction)
+  (let ((annotations '()))
+    (format t "(")
+    (cond ((eql (inst-opcode instruction) :jump-target)
+           (format t ":D64/LE (- L~D L~D)"
+                   (label context (first (inst-operands instruction)))
+                   (label context (+ (first (inst-operands instruction)) (second (inst-operands instruction))))))
+          (t
+           (format t "~A" (inst-opcode instruction))
+           (dolist (operand (inst-operands instruction))
+             (format t " ")
+             (cond ((typep operand 'effective-address)
+                    (cond ((eql (ea-base operand) :rip)
+                           (let* ((address (logand (sys.int::lisp-object-address (context-function context)) -16))
+                                  (target (+ (inst-offset instruction)
+                                             (inst-size instruction)
+                                             (ea-disp operand)))
+                                  (pool-index (truncate (- target (sys.int::function-code-size (context-function context))) 8))
+                                  (label (label context target)))
+                             (cond
+                                   (label
+                                    (format t "L~D" label))
+                                   (t
+                                    (cond ((and (not (logtest target #b111))
+                                                (<= 0 pool-index)
+                                                (< pool-index (sys.int::function-pool-size (context-function context))))
+                                           (let ((pool-object (sys.int::function-pool-object (context-function context) pool-index)))
+                                             (push
+                                              (let ((*print-lines* 1)
+                                                    (*print-length* 2)
+                                                    (*print-level* 2))
+                                                (format nil "'~S" pool-object))
+                                              annotations)))
+                                          ((and (eql (inst-opcode instruction) 'sys.lap-x86:lea64)
+                                                (eql target sys.int::+tag-object+))
+                                           ;; The function itself, used for invalid args handling.
+                                           (push (format nil "'~S" (context-function context)) annotations)))
+                                    (format t "(:RIP #x~X)" (+ address target))))))
+                          (t
+                           (when (and (not (ea-index operand))
+                                      (eql (logand (ea-disp operand) 7) 7))
+                             (push (format nil "slot ~D" (truncate (+ (ea-disp operand) 1) 8)) annotations))
+                           (when (and (not (ea-index operand))
+                                      (eql (ea-disp operand) -3))
+                             (push "car" annotations))
+                           (when (and (not (ea-index operand))
+                                      (eql (ea-disp operand) 5))
+                             (push "cdr" annotations))
+                           (format t "~S" (append (if (ea-base operand)
+                                                      (list (ea-base operand))
+                                                      ())
+                                                  (if (ea-index operand)
+                                                      (list (list (ea-index operand) (ea-scale operand)))
+                                                      ())
+                                                  (if (not (zerop (ea-disp operand)))
+                                                      (list (ea-disp operand))
+                                                      ()))))))
+                   ((integerp operand)
+                    (cond ((eql operand (sys.int::lisp-object-address nil))
+                           (push (format nil "'~S" nil) annotations))
+                          ((eql operand (sys.int::lisp-object-address t))
+                           (push (format nil "'~S" t) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%undefined-function)))
+                           (push (format nil "'~S" (sys.int::%undefined-function)) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
+                           (push (format nil "'~S" (sys.int::%closure-trampoline)) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%unbound-value)))
+                           (push (format nil "'~S" (sys.int::%unbound-value)) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))
+                           (push (format nil "'~S" (sys.int::%funcallable-instance-trampoline)) annotations))
+                          ((not (logbitp 0 operand))
+                           (push (format nil "'~D" (ash operand -1)) annotations))
+                          ((or (eql (logand operand 15) sys.int::+tag-byte-specifier+)
+                               (eql (logand operand 15) sys.int::+tag-character+)
+                               (eql (logand operand 15) sys.int::+tag-single-float+))
+                           (push (format nil "'~S" (sys.int::%%assemble-value operand 0)) annotations)))
+                    (push (format nil "~D" operand) annotations)
+                    (format t "#x~X" operand))
+                   (t
+                    (format t "~S" operand))))))
+    (format t ")")
+    (when annotations
+      (format t "~85T; ~A" (pop annotations))
+      (dolist (an annotations)
+        (format t ", ~A" an)))))
 
 (defun decode-gpr8 (reg rex-field)
   (elt #(:al :cl :dl :bl :spl :bpl :sil :dil
@@ -105,7 +206,9 @@
 (defconstant +sib-base+ (byte 3 0))
 
 (defclass instruction ()
-  ((%opcode :initarg :opcode :reader inst-opcode)
+  ((%offset :reader inst-offset)
+   (%size :reader inst-size)
+   (%opcode :initarg :opcode :reader inst-opcode)
    (%operands :initarg :operands :reader inst-operands)))
 
 (defun make-instruction (opcode &rest operands)
@@ -121,7 +224,16 @@
 
 (defclass disassembler-context ()
   ((%function :initarg :function :reader context-function)
-   (%offset :initform 16 :accessor context-code-offset)))
+   (%offset :initform 16 :accessor context-code-offset)
+   (%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)
+   (%label-table :initform (make-hash-table) :reader context-label-table)))
+
+(defun label (context offset &key createp)
+  (let ((table (context-label-table context)))
+    (when (and createp
+               (not (gethash offset table)))
+      (setf (gethash offset table) (hash-table-count table)))
+    (values (gethash offset table))))
 
 (defun consume-octet (context)
   (prog1
@@ -350,8 +462,8 @@
     nil
     nil
     nil ; movsxd (?)
-    nil
-    nil
+    (decode-simple sys.lap-x86:fs)
+    (decode-simple sys.lap-x86:gs)
     nil
     nil
     (decode-iz sys.lap-x86:push) ; 68
@@ -490,7 +602,7 @@
     nil
     nil
     nil
-    nil ; F0
+    (decode-simple sys.lap-x86:lock) ; F0
     nil
     nil
     nil
@@ -700,8 +812,8 @@
     nil
     nil
     nil
-    nil ; C0
-    nil
+    (decode-eb-gb sys.lap-x86:xadd8) ; C0
+    (decode-ev-gv sys.lap-x86:xadd16 sys.lap-x86:xadd32 sys.lap-x86:xadd64)
     nil
     nil
     nil
@@ -819,7 +931,8 @@
 
 (defun decode+rgv64 (context opcode-byte rex opcode)
   (declare (ignore context))
-  `(,opcode ,(decode-gpr64 (ldb (byte 3 0) opcode-byte) (rex-b rex))))
+  (make-instruction opcode
+                    (decode-gpr64 (ldb (byte 3 0) opcode-byte) (rex-b rex))))
 
 (defun decode-ev-gv (context opcode-byte rex opcode16 opcode32 opcode64)
   (declare (ignore opcode-byte opcode16))
@@ -827,11 +940,13 @@
       (disassemble-ordinary-modr/m context rex)
     (if (rex-w rex)
         (and opcode64
-             `(,opcode64 ,(decode-gpr64-or-mem r/m (rex-b rex))
-                         ,(decode-gpr64 reg (rex-r rex))))
+             (make-instruction opcode64
+                               (decode-gpr64-or-mem r/m (rex-b rex))
+                               (decode-gpr64 reg (rex-r rex))))
         (and opcode32
-             `(,opcode32 ,(decode-gpr32-or-mem r/m (rex-b rex))
-                         ,(decode-gpr32 reg (rex-r rex)))))))
+             (make-instruction opcode32
+                               (decode-gpr32-or-mem r/m (rex-b rex))
+                               (decode-gpr32 reg (rex-r rex)))))))
 
 (defun decode-gv-ev (context opcode-byte rex opcode16 opcode32 opcode64)
   (declare (ignore opcode-byte opcode16))
@@ -839,11 +954,13 @@
       (disassemble-ordinary-modr/m context rex)
     (if (rex-w rex)
         (and opcode64
-             `(,opcode64 ,(decode-gpr64 reg (rex-r rex))
-                         ,(decode-gpr64-or-mem r/m (rex-b rex))))
+             (make-instruction opcode64
+                               (decode-gpr64 reg (rex-r rex))
+                               (decode-gpr64-or-mem r/m (rex-b rex))))
         (and opcode32
-             `(,opcode32 ,(decode-gpr32 reg (rex-r rex))
-                         ,(decode-gpr32-or-mem r/m (rex-b rex)))))))
+             (make-instruction opcode32
+                               (decode-gpr32 reg (rex-r rex))
+                               (decode-gpr32-or-mem r/m (rex-b rex)))))))
 
 (defun decode-ev64 (context opcode-byte rex group-table)
   (declare (ignore opcode-byte))
@@ -851,14 +968,20 @@
       (disassemble-ordinary-modr/m context rex)
     (let ((opcode (aref (symbol-value group-table) reg)))
       (cond (opcode
-             `(,opcode
-               ,(decode-gpr64-or-mem r/m (rex-b rex))))
+             (make-instruction opcode
+                               (decode-gpr64-or-mem r/m (rex-b rex))))
             (t nil)))))
 
 (defun decode-al-ib (context opcode-byte rex opcode)
   (declare (ignore opcode-byte rex))
-  (let ((imm (consume-sb8 context)))
-    `(,opcode :al ,imm)))
+  (make-instruction opcode :al (consume-sb8 context)))
+
+(defun decode-ax-iz (context opcode-byte rex opcode16 opcode32 opcode64)
+  (declare (ignore opcode-byte opcode16))
+  (let ((imm (consume-sb32/le context)))
+    (if (rex-w rex)
+        (make-instruction opcode64 :rax imm)
+        (make-instruction opcode32 :eax imm))))
 
 (defun decode-eb-ib (context opcode-byte rex group-table)
   (declare (ignore opcode-byte))
@@ -866,19 +989,39 @@
       (disassemble-ordinary-modr/m context rex)
     (let ((opcodes (aref (symbol-value group-table) reg)))
       (cond (opcodes
-             (let ((imm (consume-sb8 context)))
-               (and (first opcodes)
-                    `(,(first opcodes)
-                       ,(decode-gpr8-or-mem r/m (rex-b rex))
-                       ,imm))))
+             (and (first opcodes)
+                  (make-instruction (first opcodes)
+                                    (decode-gpr8-or-mem r/m (rex-b rex))
+                                    (consume-sb8 context))))
             (t nil)))))
+
+(defun decode-eb-gb (context opcode-byte rex opcode)
+  (declare (ignore opcode-byte))
+  (multiple-value-bind (reg r/m)
+      (disassemble-ordinary-modr/m context rex)
+    (make-instruction opcode
+                      (decode-gpr8-or-mem r/m (rex-b rex))
+                      (decode-gpr8 reg (rex-r rex)))))
 
 (defun decode-gb-eb (context opcode-byte rex opcode)
   (declare (ignore opcode-byte))
   (multiple-value-bind (reg r/m)
       (disassemble-ordinary-modr/m context rex)
-    `(,opcode ,(decode-gpr8 reg (rex-r rex))
-              ,(decode-gpr8-or-mem r/m (rex-b rex)))))
+    (make-instruction opcode
+                      (decode-gpr8 reg (rex-r rex))
+                      (decode-gpr8-or-mem r/m (rex-b rex)))))
+
+(defun decode-eb-1 (context opcode-byte rex group-table)
+  (declare (ignore opcode-byte))
+  (multiple-value-bind (reg r/m)
+      (disassemble-ordinary-modr/m context rex)
+    (let ((opcodes (aref (symbol-value group-table) reg)))
+      (cond (opcodes
+             (and (first opcodes)
+                  (make-instruction (fourth opcodes)
+                                    (decode-gpr8-or-mem r/m (rex-b rex))
+                                    1)))
+            (t nil)))))
 
 (defun decode-ev-1 (context opcode-byte rex group-table)
   (declare (ignore opcode-byte))
@@ -888,13 +1031,13 @@
       (cond (opcodes
              (if (rex-w rex)
                  (and (fourth opcodes)
-                      `(,(fourth opcodes)
-                         ,(decode-gpr64-or-mem r/m (rex-b rex))
-                         1))
+                      (make-instruction (fourth opcodes)
+                                        (decode-gpr64-or-mem r/m (rex-b rex))
+                                        1))
                  (and (third opcodes)
-                      `(,(third opcodes)
-                         ,(decode-gpr32-or-mem r/m (rex-b rex))
-                         1))))
+                      (make-instruction (third opcodes)
+                                        (decode-gpr32-or-mem r/m (rex-b rex))
+                                        1))))
             (t nil)))))
 
 (defun decode-ev-ib (context opcode-byte rex group-table)
@@ -906,13 +1049,13 @@
              (let ((imm (consume-sb8 context)))
                (if (rex-w rex)
                    (and (fourth opcodes)
-                        `(,(fourth opcodes)
-                           ,(decode-gpr64-or-mem r/m (rex-b rex))
-                           ,imm))
+                        (make-instruction (fourth opcodes)
+                                          (decode-gpr64-or-mem r/m (rex-b rex))
+                                          imm))
                    (and (third opcodes)
-                        `(,(third opcodes)
-                           ,(decode-gpr32-or-mem r/m (rex-b rex))
-                           ,imm)))))
+                        (make-instruction (third opcodes)
+                                          (decode-gpr32-or-mem r/m (rex-b rex))
+                                          imm)))))
             (t nil)))))
 
 (defun decode-ev-iz (context opcode-byte rex group-table)
@@ -924,22 +1067,26 @@
              (let ((imm (consume-sb32/le context)))
                (if (rex-w rex)
                    (and (fourth opcodes)
-                        `(,(fourth opcodes)
-                           ,(decode-gpr64-or-mem r/m (rex-b rex))
-                           ,imm))
+                        (make-instruction (fourth opcodes)
+                                          (decode-gpr64-or-mem r/m (rex-b rex))
+                                          imm))
                    (and (third opcodes)
-                        `(,(third opcodes)
-                           ,(decode-gpr32-or-mem r/m (rex-b rex))
-                           ,imm)))))
+                        (make-instruction (third opcodes)
+                                          (decode-gpr32-or-mem r/m (rex-b rex))
+                                          imm)))))
             (t nil)))))
 
 (defun decode-jb (context opcode-byte rex opcode)
   (declare (ignore opcode-byte rex))
-  `(,opcode ,(consume-sb8 context)))
+  (make-instruction opcode (make-instance 'effective-address
+                                          :base :rip
+                                          :disp (consume-sb8 context))))
 
 (defun decode-jz (context opcode-byte rex opcode)
   (declare (ignore opcode-byte rex))
-  `(,opcode ,(consume-sb32/le context)))
+  (make-instruction opcode (make-instance 'effective-address
+                                          :base :rip
+                                          :disp (consume-sb32/le context))))
 
 (defun decode-group-3-ev (context opcode-byte rex)
   (declare (ignore opcode-byte))
@@ -949,24 +1096,28 @@
       (0
        (let ((imm (consume-sb32/le context)))
          (if (rex-w rex)
-             `(sys.lap-x86:test64 ,(decode-gpr64-or-mem r/m (rex-b rex)) ,imm)
-             `(sys.lap-x86:test32 ,(decode-gpr32-or-mem r/m (rex-b rex)) ,imm))))
+             (make-instruction 'sys.lap-x86:test64
+                               (decode-gpr64-or-mem r/m (rex-b rex))
+                               imm)
+             (make-instruction 'sys.lap-x86:test32
+                               ,(decode-gpr32-or-mem r/m (rex-b rex))
+                               imm))))
       (t nil))))
 
 (defun decode-mov+r-iv (context opcode-byte rex)
   (let ((reg (ldb (byte 3 0) opcode-byte)))
     (cond ((rex-w rex)
-           (let ((imm (consume-sb64/le context)))
-             `(sys.lap-x86:mov64 ,(decode-gpr64 reg (rex-b rex))
-                                 ,imm)))
+           (make-instruction 'sys.lap-x86:mov64
+                             (decode-gpr64 reg (rex-b rex))
+                             (consume-sb64/le context)))
           (t
-           (let ((imm (consume-sb32/le context)))
-             `(sys.lap-x86:mov32 ,(decode-gpr32 reg (rex-b rex))
-                                 ,imm))))))
+           (make-instruction 'sys.lap-x86:mov32
+                             (decode-gpr32 reg (rex-b rex))
+                             (consume-sb32/le context))))))
 
 (defun decode-simple (context opcode-byte rex opcode)
   (declare (ignore context opcode-byte rex))
-  `(,opcode))
+  (make-instruction opcode))
 
 (defun disassemble-one-instruction-1 (context)
   (let* ((byte (consume-ub8 context))
@@ -985,9 +1136,48 @@
             (t nil)))))
 
 (defun disassemble-one-instruction (context)
-  (let ((start (context-code-offset context))
-        (inst (disassemble-one-instruction-1 context)))
-    (cond (inst
-           (values inst (- (context-code-offset context) start)))
+  (let* ((start (context-code-offset context))
+         (code-start 16)
+         (code-end (+ code-start (sys.int::function-code-size (context-function context)))))
+    (cond ((decoding-jump-table-p context)
+           (let* ((dest (consume-ub64/le context))
+                  (absolute-dest (+ (decoding-jump-table-p context) dest)))
+             ;; Best guess...
+             ;; If the destination is outside the function's code,
+             ;; then this is probably past the end of the table.
+             (cond ((<= code-start absolute-dest code-end)
+                    (let ((inst (make-instruction :jump-target (decoding-jump-table-p context) dest)))
+                      (setf (slot-value inst '%offset) start
+                            (slot-value inst '%size) 8)
+                      (label context absolute-dest :createp t)
+                      inst))
+                   (t
+                    ;; Rewind & try again.
+                    (setf (decoding-jump-table-p context) nil
+                          (slot-value context '%offset) start)
+                    (disassemble-one-instruction context)))))
           (t
-           nil))))
+           (let ((inst (disassemble-one-instruction-1 context)))
+             (cond (inst
+                    ;; Hack - Guess where jump tables start.
+                    (when (and (eql (inst-opcode inst) 'sys.lap-x86:jmp)
+                               (equal (inst-operands inst) '(:rax)))
+                      (label context (context-code-offset context) :createp t)
+                      (setf (decoding-jump-table-p context) (context-code-offset context)))
+                    (setf (slot-value inst '%offset) start
+                          (slot-value inst '%size) (- (context-code-offset context) start))
+                    ;; Update labels.
+                    (dolist (operand (inst-operands inst))
+                      (when (and (typep operand 'effective-address)
+                                 (eql (ea-base operand) :rip)
+                                 (<= code-start
+                                     (+ (context-code-offset context) (ea-disp operand))
+                                     code-end))
+                        (label context
+                               (+ (context-code-offset context)
+                                  (ea-disp operand))
+                               :createp t)))
+                    inst)
+                   (t
+                    (setf (slot-value context '%offset) (1+ start))
+                    nil)))))))
