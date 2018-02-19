@@ -1483,7 +1483,31 @@ No type information will be provided."
 (defun weak-pointer-p (object)
   (%object-of-type-p object +object-tag-weak-pointer+))
 
+(defun weak-pointer-pair (object)
+  "Returns the key, the value, and T if the key is still live, otherwise NIL, NIL and NIL."
+  (check-type object weak-pointer)
+  ;; Make a strong reference to key & value first.
+  ;; It'll be set to some other live value if the weak pointer is dead.
+  (let ((key (%object-ref-t object +weak-pointer-key+))
+        (value (%object-ref-t object +weak-pointer-value+)))
+    ;; Inspect the livep header bit.
+    (if (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+        (values key value t)
+        (values nil nil nil))))
+
+(defun weak-pointer-key (object)
+  "Returns the key and T if the key is still live, otherwise NIL and NIL."
+  (check-type object weak-pointer)
+  ;; Make a strong reference to key first.
+  ;; It'll be set to some other live value if the weak pointer is dead.
+  (let ((key (%object-ref-t object +weak-pointer-key+)))
+    ;; Inspect the livep header bit.
+    (if (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+        (values key t)
+        (values nil nil))))
+
 (defun weak-pointer-value (object)
+  "Returns the value and T if the key is still live, otherwise NIL and NIL."
   (check-type object weak-pointer)
   ;; Make a strong reference to value first.
   ;; It'll be set to some other live value if the weak pointer is dead.
