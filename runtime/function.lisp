@@ -137,13 +137,13 @@ Arguments to FUNCTION:
                        ;; Start offset in the function.
                        start-offset-in-function
                        ;; Frame/no-frame.
-                       (logtest flags-and-pvr #b00001)
+                       (logbitp 0 flags-and-pvr)
                        ;; Interrupt.
-                       (logtest flags-and-pvr #b00010)
+                       (logbitp 1 flags-and-pvr)
                        ;; Pushed-values.
                        pv
                        ;; Pushed-values-register.
-                       (if (logtest flags-and-pvr #b10000)
+                       (if (logbitp 4 flags-and-pvr)
                            :rcx
                            nil)
                        ;; Layout-address. Fixnum pointer to virtual memory
@@ -157,23 +157,23 @@ Arguments to FUNCTION:
                            nil
                            (ldb (byte 4 0) mv-and-ia))
                        ;; Incoming-arguments.
-                       (if (logtest flags-and-pvr #b1000)
+                       (if (logbitp 3 flags-and-pvr)
                            (if (eql (ldb (byte 4 4) mv-and-ia) 15)
                                :rcx
                                (ldb (byte 4 4) mv-and-ia))
                            nil)
                        ;; Block-or-tagbody-thunk.
-                       (if (logtest flags-and-pvr #b0100)
+                       (if (logbitp 2 flags-and-pvr)
                            :rax
                            nil)
                        ;; Extra-registers.
-                       (case (ldb (byte 2 6) flags-and-pvr)
+                       (case (ldb (byte 2 5) flags-and-pvr)
                          (0 nil)
                          (1 :rax)
                          (2 :rax-rcx)
                          (3 :rax-rcx-rdx))
                        ;; Restart
-                       (logtest flags-and-pvr #b10000000)))))))
+                       (logbitp 7 flags-and-pvr)))))))
 
 (defun decode-function-gc-info (function)
   (let ((result '()))
