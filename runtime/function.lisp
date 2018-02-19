@@ -8,27 +8,44 @@
   (%object-tag function))
 
 (defun function-pool-size (function)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (ldb +function-header-pool-size+ (%object-header-data function)))
 
 (defun function-code-size (function)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (* (ldb +function-header-code-size+ (%object-header-data function)) 16))
 
+(defun function-gc-metadata-size (function)
+  (%type-check function +object-tag-function+ function)
+  (ldb +function-header-metadata-size+ (%object-header-data function)))
+
 (defun function-pool-object (function offset)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-pool-size function)))
   (let ((address (logand (lisp-object-address function) -16))
         (mc-size (truncate (function-code-size function) 8))) ; in words.
     (memref-t address (+ mc-size offset))))
 
 (defun function-code-byte (function offset)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-code-size function)))
   (let ((address (logand (lisp-object-address function) -16)))
     (memref-unsigned-byte-8 address offset)))
 
+(defun function-gc-metadata-byte (function offset)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-gc-metadata-size function)))
+  (let* ((address (logand (lisp-object-address function) -16))
+         (mc-size (function-code-size function))
+         (n-constants (function-pool-size function)))
+    (memref-unsigned-byte-8 address (+ mc-size (* n-constants 8) offset))))
+
 (defun function-gc-info (function)
   "Return the address of and the number of bytes in FUNCTION's GC info."
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (let* ((address (logand (lisp-object-address function) -16))
          (gc-length (ldb +function-header-metadata-size+
                          (%object-header-data function)))
@@ -52,7 +69,7 @@ Arguments to FUNCTION:
  block-or-tagbody-thunk
  extra-registers
  restart"
-  (check-type function function)
+  (%type-check function-to-inspect +object-tag-function+ function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
          (mc-size (* (ldb +function-header-code-size+ header-data) 16))

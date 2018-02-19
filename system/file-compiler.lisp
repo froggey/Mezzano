@@ -189,6 +189,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defgeneric save-one-object (object object-map stream))
 
 (defmethod save-one-object ((object function) omap stream)
+  (when (not (eql (function-tag object) +object-tag-function+))
+    (error "Cannot save complicated function ~S" object))
   (dotimes (i (function-pool-size object))
     (save-object (function-pool-object object i) omap stream))
   ;; FIXME: This should be the fixup list.
