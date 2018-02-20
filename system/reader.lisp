@@ -566,19 +566,29 @@
         (vector-push-extend (read-char stream t nil t) string)
         (vector-push-extend x string))))
 
+(defvar *backquote-depth* 0)
+
 (defun read-backquote (stream first)
   (declare (ignore first))
-  (list 'backquote (read stream t nil t)))
+  (list 'backquote
+        (let ((*backquote-depth* (1+ *backquote-depth*)))
+          (read stream t nil t))))
 
 (defun read-comma (stream first)
   (declare (ignore first))
-  (case (peek-char nil stream t)
-    (#\@ (read-char stream t nil t)
-         (list 'bq-comma-atsign (read stream t nil t)))
-    (#\. (read-char stream t nil t)
-         (list 'bq-comma-dot (read stream t nil t)))
-    (otherwise
-     (list 'bq-comma (read stream t nil t)))))
+  (when (zerop *backquote-depth*)
+    (error 'simple-reader-error
+           :stream stream
+           :format-control "Comma not inside a backquote"
+           :format-arguments '()))
+  (let ((*backquote-depth* (1- *backquote-depth*)))
+    (case (peek-char nil stream t)
+      (#\@ (read-char stream t nil t)
+           (list 'bq-comma-atsign (read stream t nil t)))
+      (#\. (read-char stream t nil t)
+           (list 'bq-comma-dot (read stream t nil t)))
+      (otherwise
+       (list 'bq-comma (read stream t nil t))))))
 
 (defun read-dispatch-char (stream first)
   "Dispatch to a dispatching macro character."
@@ -686,13 +696,14 @@
 
 (defun read-#-dot (stream ch p)
   (ignore-#-argument ch p)
-  (cond (*read-suppress*
-         (read stream t nil t))
-        (*read-eval*
-         (eval (read stream t nil t)))
-        (t (error 'simple-reader-error :stream stream
-                  :format-control "Cannot #. when *READ-EVAL* is false."
-                  :format-arguments '()))))
+  (let ((*backquote-depth* 0))
+    (cond (*read-suppress*
+           (read stream t nil t))
+          (*read-eval*
+           (eval (read stream t nil t)))
+          (t (error 'simple-reader-error :stream stream
+                    :format-control "Cannot #. when *READ-EVAL* is false."
+                    :format-arguments '())))))
 
 (defun read-#-radix (stream ch p)
   "Read a number in the specified radix."
