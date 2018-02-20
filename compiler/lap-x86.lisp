@@ -694,6 +694,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simple-instruction cpuid (#x0F #xA2))
 (define-simple-instruction rsm (#x0F #xAA))
 (define-simple-instruction pause (#xF3 #x90))
+(define-simple-instruction nop #x90)
 
 (define-simple-instruction fninit (#xDB #xE3))
 
