@@ -300,7 +300,7 @@
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
   (sys.lap-x86:leave)
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 ;;; Support function for APPLY.
 ;;; Takes a function & a list of arguments.
