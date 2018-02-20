@@ -49,7 +49,11 @@
            (fdefinition object)))
        (let ((fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
          (if (sys.int::%undefined-function-p fn)
-             (fdefinition object)
+             ;; Return a function that will signal an undefined-function error
+             ;; with appropriate restarts when called.
+             ;; This is not inlined so as to avoid closing over object in
+             ;; the common case.
+             (sys.int::make-deferred-undefined-function fref)
              fn))))
     (t
      (raise-type-error object '(or function symbol))
