@@ -33,8 +33,10 @@
          :reader cell-error-name)))
 
 (defmethod print-object ((c cell-error) s)
-  (print-unreadable-object (c s :type t)
-    (write (cell-error-name c) :stream s)))
+  (if (slot-boundp c 'name)
+      (print-unreadable-object (c s :type t)
+        (write (cell-error-name c) :stream s))
+      (call-next-method)))
 
 (define-condition control-error (error)
   ())
