@@ -23,18 +23,6 @@
 
 (defgeneric make-load-form (object &optional environment))
 
-(defun raise-undefined-function (&rest args &fref invoked-through)
-  (setf invoked-through (function-reference-name invoked-through))
-  ;; Allow restarting.
-  ;; FIXME: Restarting doesn't actually work, as args are lost by the undefined function thunk.
-  (restart-case (error 'undefined-function :name invoked-through)
-    (use-value (v)
-      :interactive (lambda ()
-                     (format t "Enter a new value (evaluated): ")
-                     (list (eval (read))))
-      :report (lambda (s) (format s "Input a value to be used in place of ~S." `(fdefinition ',invoked-through)))
-      (apply v args))))
-
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
