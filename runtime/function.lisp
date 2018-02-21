@@ -137,13 +137,13 @@ Arguments to FUNCTION:
                        ;; Start offset in the function.
                        start-offset-in-function
                        ;; Frame/no-frame.
-                       (logbitp 0 flags-and-pvr)
+                       (logbitp +gcmd-flag0-frame+ flags-and-pvr)
                        ;; Interrupt.
-                       (logbitp 1 flags-and-pvr)
+                       (logbitp +gcmd-flag0-interrupt+ flags-and-pvr)
                        ;; Pushed-values.
                        pv
                        ;; Pushed-values-register.
-                       (if (logbitp 4 flags-and-pvr)
+                       (if (logbitp +gcmd-flag0-pushed-values-register+ flags-and-pvr)
                            :rcx
                            nil)
                        ;; Layout-address. Fixnum pointer to virtual memory
@@ -153,27 +153,27 @@ Arguments to FUNCTION:
                        ;; Number of bits in the layout.
                        n-layout-bits
                        ;; Multiple-values.
-                       (if (eql (ldb (byte 4 0) mv-and-ia) 15)
+                       (if (eql (ldb +gcmd-flag1-multiple-values+ mv-and-ia) 15)
                            nil
-                           (ldb (byte 4 0) mv-and-ia))
+                           (ldb +gcmd-flag1-multiple-values+ mv-and-ia))
                        ;; Incoming-arguments.
                        (if (logbitp 3 flags-and-pvr)
-                           (if (eql (ldb (byte 4 4) mv-and-ia) 15)
+                           (if (eql (ldb +gcmd-flag1-incoming-arguments-location+ mv-and-ia) 15)
                                :rcx
-                               (ldb (byte 4 4) mv-and-ia))
+                               (ldb +gcmd-flag1-incoming-arguments-location+ mv-and-ia))
                            nil)
                        ;; Block-or-tagbody-thunk.
-                       (if (logbitp 2 flags-and-pvr)
+                       (if (logbitp +gcmd-flag0-block-or-tagbody-thunk+ flags-and-pvr)
                            :rax
                            nil)
                        ;; Extra-registers.
-                       (case (ldb (byte 2 5) flags-and-pvr)
+                       (case (ldb +gcmd-flag0-extra-registers+ flags-and-pvr)
                          (0 nil)
                          (1 :rax)
                          (2 :rax-rcx)
                          (3 :rax-rcx-rdx))
                        ;; Restart
-                       (logbitp 7 flags-and-pvr)))))))
+                       (logbitp +gcmd-flag0-restart+ flags-and-pvr)))))))
 
 (defun decode-function-gc-info (function)
   (let ((result '()))

@@ -388,3 +388,14 @@ reserved on the disk, but no specific block has been allocated.")
                                            :q8 :q9 :q10 :q11 :q12 :q13 :q14 :q15
                                            :q16 :q17 :q18 :q19 :q20 :q21 :q22 :q23
                                            :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31))
+
+(defconstant +gcmd-flag0-frame+ 0)
+(defconstant +gcmd-flag0-interrupt+ 1)
+(defconstant +gcmd-flag0-block-or-tagbody-thunk+ 2)
+(defconstant +gcmd-flag0-incoming-arguments+ 3)
+(defconstant +gcmd-flag0-pushed-values-register+ 4)
+(defconstant +gcmd-flag0-extra-registers+ (byte 2 5))
+(defconstant +gcmd-flag0-restart+ 7)
+
+(defconstant +gcmd-flag1-multiple-values+ (byte 4 0))
+(defconstant +gcmd-flag1-incoming-arguments-location+ (byte 4 4))
