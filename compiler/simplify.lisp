@@ -675,12 +675,78 @@
                                                lhs))))
     form))
 
+(defun simp-array-rank (form)
+  (let* ((array (first (arguments form)))
+         (type (if (typep array 'ast-the)
+                   (ast-the-type array)
+                   't)))
+    (cond ((and (consp type)
+                ;; Arrays never change rank.
+                (member (first type) '(array simple-array)))
+           (let ((dims (nth-value 1 (sys.int::parse-array-type type))))
+             ;; Some kind of array. See if the rank is known.
+             (cond ((listp dims)
+                    ;; It is! Replace with the known length.
+                    (ast `(progn ,array
+                                 ',(length dims))
+                         form))
+                   (t form))))
+          (t
+           form))))
+
+(defun simp-array-dimension (form)
+  (let* ((array (first (arguments form)))
+         (axis (second (arguments form)))
+         (type (if (typep array 'ast-the)
+                   (ast-the-type array)
+                   't)))
+    (cond ((and (typep axis 'ast-quote)
+                (integerp (ast-value axis))
+                (consp type)
+                (member (first type) '(simple-array array)))
+           (multiple-value-bind (element-type dims)
+               (sys.int::parse-array-type type)
+             (let* ((rank (if (listp dims)
+                              (length dims)
+                              -1))
+                    (axis (ast-value axis))
+                    (dim (if (<= 0 axis (1- rank))
+                             (elt dims axis)
+                             nil)))
+               (cond ((integerp dim)
+                      ;; This axis has a known dimension.
+                      (ast `(progn ,array
+                                   ',dim)
+                           form))
+                     ((and (eql dim '*)
+                           (not (eql element-type '*)))
+                      ;; This axis is unknown, but the axis is valid.
+                      (if (and (eql rank 1)
+                               ;; Strings are always complex arrays.
+                               (not (compiler-subtypep element-type 'character)))
+                          (ast `(the fixnum (call sys.int::%object-header-data ,array) form))
+                          (ast `(the fixnum (call sys.int::%object-ref-t
+                                                  ,array
+                                                  ',(+ sys.int::+complex-array-axis-0+ axis)))
+                               form)))
+                   (t form)))))
+          (t
+           form))))
+
 (defmethod simp-form ((form ast-call))
   (simp-form-list (arguments form))
   (cond ((eql (name form) 'eql)
          (simp-eql form))
         ((eql (name form) 'ash)
          (simp-ash form))
+        ((and (eql (name form) 'array-rank)
+              (eql (length (arguments form)) 1)
+              (match-optimize-settings form '((= safety 0) (= speed 3))))
+         (simp-array-rank form))
+        ((and (eql (name form) 'array-dimension)
+              (eql (length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3))))
+         (simp-array-dimension form))
         ((and (member (name form) '(sys.int::binary-logand %fast-fixnum-logand))
               (eql (length (arguments form)) 2)
               (match-optimize-settings form '((= safety 0) (= speed 3))))
