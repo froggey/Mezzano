@@ -309,6 +309,7 @@
          ((throw) (pass1-throw form env))
          ((unwind-protect) (pass1-unwind-protect form env))
          ((sys.int::%jump-table) (pass1-jump-table form env))
+         ((declare) (pass1-free-declare form env))
          (t (multiple-value-bind (expansion expanded-p)
                 (compiler-macroexpand-1 form env)
               (if expanded-p
@@ -883,3 +884,10 @@
                    :environment env
                    :value (pass1-form test-form env)
                    :targets (pass1-implicit-progn forms env))))
+
+(defun pass1-free-declare (form env)
+  (warn "Saw free DECLARE expression ~S" form)
+  (pass1-form `(error 'sys.int::simple-program-error
+                      :format-control "Attemted to evaluate DECLARE expression ~S"
+                      :format-arguments (list ',form))
+              env))
