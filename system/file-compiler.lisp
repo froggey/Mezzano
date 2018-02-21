@@ -582,7 +582,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                   (external-format :default)
                                   (parallel *compile-parallel*))
   (with-open-file (input-stream input-file :external-format external-format)
-    (format t ";; Compiling file ~S.~%" input-file)
+    (when verbose
+      (format t ";; Compiling file ~S.~%" input-file))
     (let* ((*package* *package*)
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
