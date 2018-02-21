@@ -1391,9 +1391,10 @@
                                    :initial-element 0)
                        :wired))
     (let ((git-rev (git-revision)))
-      (when git-rev
-        (setf (cold-symbol-value 'sys.int::*lisp-implementation-version*)
-              (make-value (store-string git-rev) sys.int::+tag-object+))))
+      (setf (cold-symbol-value 'sys.int::*git-revision*)
+            (if git-rev
+                (make-value (store-string git-rev) sys.int::+tag-object+)
+                (vsym nil))))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
