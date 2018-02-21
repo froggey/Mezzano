@@ -297,7 +297,7 @@
 (defun consume-sb64/le (context)
   (consume-word/le context 8 t))
 
-(defun disassemble-ordinary-modr/m (context info)
+(defun disassemble-modr/m (context info)
   ;; Returns reg, r/m, len.
   ;; r/m will either be an undecoded register or a decoded effective address.
   (let* ((modr/m (consume-ub8 context))
@@ -950,6 +950,11 @@
 (defun rex-b (info)
   (logbitp 0 (getf info :rex 0)))
 
+(defun operand-size (info)
+  (cond ((rex-w info) 64)
+        ((getf info :osize) 16)
+        (t 32)))
+
 (defun decode+rgv64 (context info opcode)
   (declare (ignore context))
   (make-instruction opcode
@@ -961,87 +966,48 @@
   (make-instruction opcode
                     (consume-sb32/le context)))
 
-(defun decode-ev-gv-ib (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((imm (consume-sb8 context)))
-      (if (rex-w info)
-          (and opcode64
-               (make-instruction opcode64
-                                 (decode-gpr64-or-mem r/m (rex-b info))
-                                 (decode-gpr64 reg (rex-r info))
-                                 imm))
-          (and opcode32
-               (make-instruction opcode32
-                                 (decode-gpr32-or-mem r/m (rex-b info))
-                                 (decode-gpr32 reg (rex-r info))
-                                 imm))))))
+(defmacro define-modr/m-decoder (name (context info opcode r/m reg) &body body)
+  `(defun ,name (,context ,info opcode16 opcode32 opcode64)
+     (multiple-value-bind (,reg ,r/m)
+         (disassemble-modr/m ,context ,info)
+       (ecase (operand-size ,info)
+         (64 (and opcode64
+                  (let ((,opcode opcode64)
+                        (,reg (decode-gpr64 ,reg (rex-r ,info)))
+                        (,r/m (decode-gpr64-or-mem ,r/m (rex-b ,info))))
+                    ,@body)))
+         (32 (and opcode32
+                  (let ((,opcode opcode32)
+                        (,reg (decode-gpr32 ,reg (rex-r ,info)))
+                        (,r/m (decode-gpr32-or-mem ,r/m (rex-b ,info))))
+                    ,@body)))
+         (16
+          (and opcode16
+               (let ((,opcode opcode16)
+                     (,reg (decode-gpr16 ,reg (rex-r ,info)))
+                     (,r/m (decode-gpr16-or-mem ,r/m (rex-b ,info))))
+                 ,@body)))))))
 
-(defun decode-ev-gv-cl (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (if (rex-w info)
-        (and opcode64
-             (make-instruction opcode64
-                               (decode-gpr64-or-mem r/m (rex-b info))
-                               (decode-gpr64 reg (rex-r info))
-                               :cl))
-        (and opcode32
-             (make-instruction opcode32
-                               (decode-gpr32-or-mem r/m (rex-b info))
-                               (decode-gpr32 reg (rex-r info))
-                               :cl)))))
+(define-modr/m-decoder decode-ev-gv-ib (context info opcode r/m reg)
+  (let ((imm (consume-sb8 context)))
+    (make-instruction opcode r/m reg imm)))
 
-(defun decode-ev-gv (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (if (rex-w info)
-        (and opcode64
-             (make-instruction opcode64
-                               (decode-gpr64-or-mem r/m (rex-b info))
-                               (decode-gpr64 reg (rex-r info))))
-        (and opcode32
-             (make-instruction opcode32
-                               (decode-gpr32-or-mem r/m (rex-b info))
-                               (decode-gpr32 reg (rex-r info)))))))
+(define-modr/m-decoder decode-ev-gv-cl (context info opcode r/m reg)
+  (make-instruction opcode r/m reg :cl))
 
-(defun decode-gv-ev (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (if (rex-w info)
-        (and opcode64
-             (make-instruction opcode64
-                               (decode-gpr64 reg (rex-r info))
-                               (decode-gpr64-or-mem r/m (rex-b info))))
-        (and opcode32
-             (make-instruction opcode32
-                               (decode-gpr32 reg (rex-r info))
-                               (decode-gpr32-or-mem r/m (rex-b info)))))))
+(define-modr/m-decoder decode-ev-gv (context info opcode r/m reg)
+  (make-instruction opcode r/m reg))
 
-(defun decode-gv-ev-ib (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((imm (consume-sb8 context)))
-      (if (rex-w info)
-          (and opcode64
-               (make-instruction opcode64
-                                 (decode-gpr64 reg (rex-r info))
-                                 (decode-gpr64-or-mem r/m (rex-b info))
-                                 imm))
-          (and opcode32
-               (make-instruction opcode32
-                                 (decode-gpr32 reg (rex-r info))
-                                 (decode-gpr32-or-mem r/m (rex-b info))
-                                 imm))))))
+(define-modr/m-decoder decode-gv-ev-ib (context info opcode r/m reg)
+  (let ((imm (consume-sb8 context)))
+    (make-instruction opcode reg r/m imm)))
+
+(define-modr/m-decoder decode-gv-ev (context info opcode r/m reg)
+  (make-instruction opcode reg r/m))
 
 (defun decode-ev64 (context info group-table)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcode (aref (symbol-value group-table) reg)))
       (cond (opcode
              (make-instruction opcode
@@ -1053,15 +1019,18 @@
   (make-instruction opcode :al (consume-sb8 context)))
 
 (defun decode-ax-iz (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode16))
-  (let ((imm (consume-sb32/le context)))
-    (if (rex-w info)
-        (make-instruction opcode64 :rax imm)
-        (make-instruction opcode32 :eax imm))))
+  (let* ((osize (operand-size info))
+         (imm (if (eql osize 16)
+                  (consume-sb16/le context)
+                  (consume-sb32/le context))))
+    (ecase osize
+      (64 (make-instruction opcode64 :rax imm))
+      (32 (make-instruction opcode32 :eax imm))
+      (16 (make-instruction opcode16 :ax imm)))))
 
 (defun decode-eb-ib (context info group-table)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcodes (aref (symbol-value group-table) reg)))
       (cond (opcodes
              (and (first opcodes)
@@ -1072,21 +1041,21 @@
 
 (defun decode-eb-gb (context info opcode)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction opcode
                       (decode-gpr8-or-mem r/m (rex-b info))
                       (decode-gpr8 reg (rex-r info)))))
 
 (defun decode-gb-eb (context info opcode)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction opcode
                       (decode-gpr8 reg (rex-r info))
                       (decode-gpr8-or-mem r/m (rex-b info)))))
 
 (defun decode-eb-1 (context info group-table)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcodes (aref (symbol-value group-table) reg)))
       (cond (opcodes
              (and (first opcodes)
@@ -1095,25 +1064,9 @@
                                     1)))
             (t nil)))))
 
-(defun decode-ev-1 (context info group-table)
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((opcodes (aref (symbol-value group-table) reg)))
-      (cond (opcodes
-             (if (rex-w info)
-                 (and (fourth opcodes)
-                      (make-instruction (fourth opcodes)
-                                        (decode-gpr64-or-mem r/m (rex-b info))
-                                        1))
-                 (and (third opcodes)
-                      (make-instruction (third opcodes)
-                                        (decode-gpr32-or-mem r/m (rex-b info))
-                                        1))))
-            (t nil)))))
-
 (defun decode-eb-cl (context info group-table)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcodes (aref (symbol-value group-table) reg)))
       (cond (opcodes
              (and (first opcodes)
@@ -1122,55 +1075,41 @@
                                     :cl)))
             (t nil)))))
 
-(defun decode-ev-cl (context info group-table)
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((opcodes (aref (symbol-value group-table) reg)))
-      (cond (opcodes
-             (if (rex-w info)
-                 (and (fourth opcodes)
-                      (make-instruction (fourth opcodes)
-                                        (decode-gpr64-or-mem r/m (rex-b info))
-                                        :cl))
-                 (and (third opcodes)
-                      (make-instruction (third opcodes)
-                                        (decode-gpr32-or-mem r/m (rex-b info))
-                                        :cl))))
-            (t nil)))))
+(defmacro define-modr/m-group-decoder (name (context info opcode r/m reg) &body body)
+  `(defun ,name (,context ,info group-table)
+     (multiple-value-bind (,reg ,r/m)
+         (disassemble-modr/m ,context ,info)
+       (let ((opcodes (aref (symbol-value group-table) reg)))
+         (ecase (operand-size ,info)
+           (64 (and (fourth opcodes)
+                    (let ((,opcode (fourth opcodes))
+                          (,r/m (decode-gpr64-or-mem ,r/m (rex-b ,info))))
+                      ,@body)))
+           (32 (and (third opcodes)
+                    (let ((,opcode (third opcodes))
+                          (,r/m (decode-gpr32-or-mem ,r/m (rex-b ,info))))
+                      ,@body)))
+           (16
+            (and (second opcodes)
+                 (let ((,opcode (second opcodes))
+                       (,r/m (decode-gpr16-or-mem ,r/m (rex-b ,info))))
+                   ,@body))))))))
 
-(defun decode-ev-ib (context info group-table)
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((opcodes (aref (symbol-value group-table) reg)))
-      (cond (opcodes
-             (let ((imm (consume-sb8 context)))
-               (if (rex-w info)
-                   (and (fourth opcodes)
-                        (make-instruction (fourth opcodes)
-                                          (decode-gpr64-or-mem r/m (rex-b info))
-                                          imm))
-                   (and (third opcodes)
-                        (make-instruction (third opcodes)
-                                          (decode-gpr32-or-mem r/m (rex-b info))
-                                          imm)))))
-            (t nil)))))
+(define-modr/m-group-decoder decode-ev-1 (context info opcode r/m reg)
+  (make-instruction opcode r/m 1))
 
-(defun decode-ev-iz (context info group-table)
-  (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (let ((opcodes (aref (symbol-value group-table) reg)))
-      (cond (opcodes
-             (let ((imm (consume-sb32/le context)))
-               (if (rex-w info)
-                   (and (fourth opcodes)
-                        (make-instruction (fourth opcodes)
-                                          (decode-gpr64-or-mem r/m (rex-b info))
-                                          imm))
-                   (and (third opcodes)
-                        (make-instruction (third opcodes)
-                                          (decode-gpr32-or-mem r/m (rex-b info))
-                                          imm)))))
-            (t nil)))))
+(define-modr/m-group-decoder decode-ev-cl (context info opcode r/m reg)
+  (make-instruction opcode r/m :cl))
+
+(define-modr/m-group-decoder decode-ev-ib (context info opcode r/m reg)
+  (let ((imm (consume-sb8 context)))
+    (make-instruction opcode r/m imm)))
+
+(define-modr/m-group-decoder decode-ev-iz (context info opcode r/m reg)
+  (let ((imm (if (eql (operand-size info) 16)
+                 (consume-sb16/le context)
+                 (consume-sb32/le context))))
+    (make-instruction opcode r/m imm)))
 
 (defun decode-jb (context info opcode)
   (declare (ignore info))
@@ -1186,7 +1125,7 @@
 
 (defun decode-group-1a (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (case reg
       (0
        (make-instruction 'sys.lap-x86:pop
@@ -1195,7 +1134,7 @@
 
 (defun decode-group-3-eb (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (case reg
       (0
        (let ((imm (consume-sb8 context)))
@@ -1225,59 +1164,37 @@
 
 (defun decode-group-3-ev (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
-    (case reg
-      (0
-       (let ((imm (consume-sb32/le context)))
-         (if (rex-w info)
-             (make-instruction 'sys.lap-x86:test64
-                               (decode-gpr64-or-mem r/m (rex-b info))
-                               imm)
-             (make-instruction 'sys.lap-x86:test32
-                               (decode-gpr32-or-mem r/m (rex-b info))
-                               imm))))
-      (2
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:not64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:not32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      (3
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:neg64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:neg32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      (4
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:mul64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:mul32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      (5
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:imul64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:imul32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      #+(or)
-      (6
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:div64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:div32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      (7
-       (if (rex-w info)
-           (make-instruction 'sys.lap-x86:idiv64
-                             (decode-gpr64-or-mem r/m (rex-b info)))
-           (make-instruction 'sys.lap-x86:idiv32
-                             (decode-gpr32-or-mem r/m (rex-b info)))))
-      (t nil))))
+      (disassemble-modr/m context info)
+    (multiple-value-bind (opcode16 opcode32 opcode64 has-imm)
+        (case reg
+          (0 (values 'sys.lap-x86:test16 'sys.lap-x86:test32 'sys.lap-x86:test64 t))
+          (2 (values 'sys.lap-x86:not16 'sys.lap-x86:not32 'sys.lap-x86:not64))
+          (3 (values 'sys.lap-x86:neg16 'sys.lap-x86:neg32 'sys.lap-x86:neg64))
+          (4 (values 'sys.lap-x86:mul16 'sys.lap-x86:mul32 'sys.lap-x86:mul64))
+          (5 (values 'sys.lap-x86:imul16 'sys.lap-x86:imul32 'sys.lap-x86:imul64))
+          #+(or)
+          (6 (values 'sys.lap-x86:div16 'sys.lap-x86:div32 'sys.lap-x86:div64))
+          (7 (values 'sys.lap-x86:idiv16 'sys.lap-x86:idiv32 'sys.lap-x86:idiv64)))
+      (ecase (operand-size info)
+        (64
+         (and opcode64
+              (if has-imm
+                  (make-instruction opcode64 (decode-gpr64-or-mem r/m (rex-b info)) (consume-sb32/le context))
+                  (make-instruction opcode64 (decode-gpr64-or-mem r/m (rex-b info))))))
+        (32
+         (and opcode32
+              (if has-imm
+                  (make-instruction opcode32 (decode-gpr32-or-mem r/m (rex-b info)) (consume-sb32/le context))
+                  (make-instruction opcode32 (decode-gpr32-or-mem r/m (rex-b info))))))
+        (16
+         (and opcode16
+              (if has-imm
+                  (make-instruction opcode16 (decode-gpr16-or-mem r/m (rex-b info)) (consume-sb16/le context))
+                  (make-instruction opcode16 (decode-gpr16-or-mem r/m (rex-b info))))))))))
 
 (defun decode-group-6 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcode (elt #(nil
                          nil
                          nil
@@ -1293,7 +1210,7 @@
 
 (defun decode-group-7 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((opcode (elt #(nil
                          nil
                          sys.lap-x86:lgdt
@@ -1309,7 +1226,7 @@
 
 (defun decode-group-9 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (case reg
       (1
        (if (rex-w info)
@@ -1322,7 +1239,7 @@
 
 (defun decode-mov-r-c (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (when (integerp r/m)
       (make-instruction 'sys.lap-x86:movcr
                         (elt #(:cr0 :cr1 :cr2 :cr3 :cr4 :cr5 :cr6 :cr7) reg)
@@ -1330,7 +1247,7 @@
 
 (defun decode-mov-c-r (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (when (integerp r/m)
       (make-instruction 'sys.lap-x86:movcr
                         (decode-gpr64 r/m (rex-b info))
@@ -1338,7 +1255,7 @@
 
 (defun decode-mov-r-d (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (when (integerp r/m)
       (make-instruction 'sys.lap-x86:movdr
                         (elt #(:dr0 :dr1 :dr2 :dr3 :dr4 :dr5 :dr6 :dr7) reg)
@@ -1346,7 +1263,7 @@
 
 (defun decode-mov-d-r (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (when (integerp r/m)
       (make-instruction 'sys.lap-x86:movdr
                         (decode-gpr64 r/m (rex-b info))
@@ -1360,14 +1277,16 @@
 
 (defun decode-mov+r-iv (context info)
   (let ((reg (ldb (byte 3 0) (getf info :opcode))))
-    (cond ((rex-w info)
-           (make-instruction 'sys.lap-x86:mov64
-                             (decode-gpr64 reg (rex-b info))
-                             (consume-sb64/le context)))
-          (t
-           (make-instruction 'sys.lap-x86:mov32
-                             (decode-gpr32 reg (rex-b info))
-                             (consume-sb32/le context))))))
+    (ecase (operand-size info)
+      (64 (make-instruction 'sys.lap-x86:mov64
+                            (decode-gpr64 reg (rex-b info))
+                            (consume-sb64/le context)))
+      (32 (make-instruction 'sys.lap-x86:mov32
+                            (decode-gpr32 reg (rex-b info))
+                            (consume-sb32/le context)))
+      (16 (make-instruction 'sys.lap-x86:mov16
+                            (decode-gpr16 reg (rex-b info))
+                            (consume-sb16/le context))))))
 
 (defun decode-al-ob (context info opcode)
   (make-instruction opcode
@@ -1376,15 +1295,15 @@
                                    :disp (consume-sb64/le context))))
 
 (defun decode-ax-ov (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode 16))
-  (make-instruction (if (rex-w info)
-                        opcode64
-                        opcode32)
-                    (if (rex-w info)
-                        :rax
-                        :eax)
-                    (make-instance 'effective-address
-                                   :disp (consume-sb64/le context))))
+  (multiple-value-bind (opcode reg)
+      (ecase (operand-size info)
+        (64 (values opcode64 :rax))
+        (32 (values opcode32 :eax))
+        (16 (values opcode16 :ax)))
+    (make-instruction opcode
+                      reg
+                      (make-instance 'effective-address
+                                     :disp (consume-sb64/le context)))))
 
 (defun decode-ob-al (context info opcode)
   (make-instruction opcode
@@ -1393,59 +1312,64 @@
                     :al))
 
 (defun decode-ov-ax (context info opcode16 opcode32 opcode64)
-  (declare (ignore opcode 16))
-  (make-instruction (if (rex-w info)
-                        opcode64
-                        opcode32)
-                    (make-instance 'effective-address
-                                   :disp (consume-sb64/le context))
-                    (if (rex-w info)
-                        :rax
-                        :eax)))
+  (multiple-value-bind (opcode reg)
+      (ecase (operand-size info)
+        (64 (values opcode64 :rax))
+        (32 (values opcode32 :eax))
+        (16 (values opcode16 :ax)))
+    (make-instruction opcode
+                      (make-instance 'effective-address
+                                     :disp (consume-sb64/le context))
+                      reg)))
 
 (defun decode-movzx8 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction 'sys.lap-x86:movzx8
-                      (if (rex-w info)
-                          (decode-gpr64 reg (rex-r info))
-                          (decode-gpr32 reg (rex-r info)))
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64 reg (rex-r info)))
+                        (32 (decode-gpr32 reg (rex-r info)))
+                        (16 (decode-gpr16 reg (rex-r info))))
                       (decode-gpr8-or-mem r/m (rex-b info)))))
 
 (defun decode-movzx16 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction 'sys.lap-x86:movzx16
-                      (if (rex-w info)
-                          (decode-gpr64 reg (rex-r info))
-                          (decode-gpr32 reg (rex-r info)))
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64 reg (rex-r info)))
+                        (32 (decode-gpr32 reg (rex-r info)))
+                        (16 (decode-gpr16 reg (rex-r info))))
                       (decode-gpr16-or-mem r/m (rex-b info)))))
 
 (defun decode-movsx8 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction 'sys.lap-x86:movsx8
-                      (if (rex-w info)
-                          (decode-gpr64 reg (rex-r info))
-                          (decode-gpr32 reg (rex-r info)))
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64 reg (rex-r info)))
+                        (32 (decode-gpr32 reg (rex-r info)))
+                        (16 (decode-gpr16 reg (rex-r info))))
                       (decode-gpr8-or-mem r/m (rex-b info)))))
 
 (defun decode-movsx16 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction 'sys.lap-x86:movsx16
-                      (if (rex-w info)
-                          (decode-gpr64 reg (rex-r info))
-                          (decode-gpr32 reg (rex-r info)))
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64 reg (rex-r info)))
+                        (32 (decode-gpr32 reg (rex-r info)))
+                        (16 (decode-gpr16 reg (rex-r info))))
                       (decode-gpr16-or-mem r/m (rex-b info)))))
 
 (defun decode-movsx32 (context info)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction 'sys.lap-x86:movsx32
-                      (if (rex-w info)
-                          (decode-gpr64 reg (rex-r info))
-                          (decode-gpr32 reg (rex-r info)))
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64 reg (rex-r info)))
+                        (32 (decode-gpr32 reg (rex-r info)))
+                        (16 (decode-gpr16 reg (rex-r info))))
                       (decode-gpr32-or-mem r/m (rex-b info)))))
 
 (defun decode-xchg+r (context info)
@@ -1457,18 +1381,21 @@
            (if (eql (getf info :rep) #xF3)
                (make-instruction 'sys.lap-x86:pause)
                (make-instruction 'sys.lap-x86:nop)))
-          ((rex-w info)
-           (make-instruction 'sys.lap-x86:xchg64
-                             :rax
-                             (decode-gpr64 reg (rex-b info))))
           (t
-           (make-instruction 'sys.lap-x86:xchg32
-                             :eax
-                             (decode-gpr32 reg (rex-b info)))))))
+           (ecase (operand-size info)
+             (64 (make-instruction 'sys.lap-x86:xchg64
+                                   :rax
+                                   (decode-gpr64 reg (rex-b info))))
+             (32 (make-instruction 'sys.lap-x86:xchg32
+                                   :eax
+                                   (decode-gpr32 reg (rex-b info))))
+             (16 (make-instruction 'sys.lap-x86:xchg16
+                                   :ax
+                                   (decode-gpr16 reg (rex-b info)))))))))
 
 (defun decode-pd-ed/q (context info opcode32 opcode64)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction (if (rex-w info)
                           opcode64
                           opcode32)
@@ -1481,7 +1408,7 @@
 
 (defun decode-ed/q-pd (context info opcode32 opcode64)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (make-instruction (if (rex-w info)
                           opcode64
                           opcode32)
@@ -1494,7 +1421,7 @@
 
 (defun decode-pq-qd (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (cond ((getf info :osize)
            (and opcode-66
                 (make-instruction opcode-66
@@ -1518,7 +1445,7 @@
 
 (defun decode-pq-qq (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (cond ((getf info :osize)
            (and opcode-66
                 (make-instruction opcode-66
@@ -1542,7 +1469,7 @@
 
 (defun decode-qq-pq (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (cond ((getf info :osize)
            (and opcode-66
                 (make-instruction opcode-66
@@ -1566,7 +1493,7 @@
 
 (defun decode-v-w (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (cond ((getf info :osize)
            (and opcode-66
                 (make-instruction opcode-66
@@ -1590,7 +1517,7 @@
 
 (defun decode-v-w-ib (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
-      (disassemble-ordinary-modr/m context info)
+      (disassemble-modr/m context info)
     (let ((imm (consume-ub8 context)))
       (cond ((getf info :osize)
              (and opcode-66
