@@ -91,24 +91,25 @@
                                   (pool-index (truncate (- target (sys.int::function-code-size (context-function context))) 8))
                                   (label (label context target)))
                              (cond
-                                   (label
-                                    (format t "L~D" label))
-                                   (t
-                                    (cond ((and (not (logtest target #b111))
-                                                (<= 0 pool-index)
-                                                (< pool-index (sys.int::function-pool-size (context-function context))))
-                                           (let ((pool-object (sys.int::function-pool-object (context-function context) pool-index)))
-                                             (push
-                                              (let ((*print-lines* 1)
-                                                    (*print-length* 2)
-                                                    (*print-level* 2))
-                                                (format nil "'~S" pool-object))
-                                              annotations)))
-                                          ((and (eql (inst-opcode instruction) 'sys.lap-x86:lea64)
-                                                (eql target sys.int::+tag-object+))
-                                           ;; The function itself, used for invalid args handling.
-                                           (push (format nil "'~S" (context-function context)) annotations)))
-                                    (format t "(:RIP #x~X)" (+ address target))))))
+                               (label
+                                (push (format nil "#x~8,'0X" (+ address target)) annotations)
+                                (format t "L~D" label))
+                               (t
+                                (cond ((and (not (logtest target #b111))
+                                            (<= 0 pool-index)
+                                            (< pool-index (sys.int::function-pool-size (context-function context))))
+                                       (let ((pool-object (sys.int::function-pool-object (context-function context) pool-index)))
+                                         (push
+                                          (let ((*print-lines* 1)
+                                                (*print-length* 2)
+                                                (*print-level* 2))
+                                            (format nil "'~S" pool-object))
+                                          annotations)))
+                                      ((and (eql (inst-opcode instruction) 'sys.lap-x86:lea64)
+                                            (eql target sys.int::+tag-object+))
+                                       ;; The function itself, used for invalid args handling.
+                                       (push (format nil "'~S" (context-function context)) annotations)))
+                                (format t "(:RIP #x~X)" (+ address target))))))
                           (t
                            (when (eql (logand (ea-disp operand) 7) 7)
                              (if (ea-index operand)
