@@ -540,17 +540,20 @@
                                                            :fill-pointer 0)))
   (vector-push-extend character (string-output-stream-string stream)))
 
-;; TODO: declares and other stuff.
 (defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
-  (if string-form
-      `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (setf (string-output-stream-string ,var) ,string-form)
-         (unwind-protect (progn ,@body)
-           (close ,var)))
-      `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (unwind-protect (progn ,@body)
-           (close ,var))
-         (get-output-stream-string ,var))))
+  (multiple-value-bind (real-body declares)
+      (parse-declares body)
+    (if string-form
+        `(let ((,var (make-string-output-stream :element-type ,element-type)))
+           (declare ,@declares)
+           (setf (string-output-stream-string ,var) ,string-form)
+           (unwind-protect (progn ,@real-body)
+             (close ,var)))
+        `(let ((,var (make-string-output-stream :element-type ,element-type)))
+           (declare ,@declares)
+           (unwind-protect (progn ,@real-body)
+             (close ,var))
+           (get-output-stream-string ,var)))))
 
 (defun write-to-string (object &key
                                  (array *print-array*)

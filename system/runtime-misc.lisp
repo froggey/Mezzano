@@ -106,6 +106,37 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~D ~S" (mezzano.supervisor::cpu-apic-id object) (mezzano.supervisor::cpu-state object))))
 
+(defmethod print-object ((object bit-vector) stream)
+  (if *print-array*
+      (write-bit-vector object stream)
+      (call-next-method)))
+
+(defmethod print-object ((object vector) stream)
+  (if *print-array*
+      (write-vector object stream)
+      (call-next-method)))
+
+(defmethod print-object ((object array) stream)
+  (cond (*print-array*
+         (write-char #\# stream)
+         (write (array-rank object) :stream stream :base 10)
+         (write-char #\A stream)
+         (labels ((print-level (dims index)
+                    (cond ((null dims)
+                           (write (row-major-aref object index) :stream stream)
+                           (1+ index))
+                          (t
+                           (write-char #\( stream)
+                           (dotimes (i (first dims))
+                             (setf index (print-level (rest dims) index))
+                             (when (not (eql i (1- (first dims))))
+                               (write-char #\Space stream)))
+                           (write-char #\) stream)
+                           index))))
+           (print-level (array-dimensions object) 0)))
+        (t
+         (call-next-method))))
+
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
 To be run this in the basic repl after ipl completes."
