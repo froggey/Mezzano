@@ -247,15 +247,6 @@
 (defparameter *unicode-data* "tools/UnicodeData.txt")
 (defparameter *pci-ids* "tools/pci.ids")
 
-(defun compile-warm-source (&optional force)
-  (dolist (file *warm-source-files*)
-    (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
-      (when (or (not (probe-file llf-path))
-                (<= (file-write-date llf-path) (file-write-date file))
-                force)
-        (format t "~A is out of date will be recompiled.~%" llf-path)
-        (sys.c::cross-compile-file file)))))
-
 (defvar *symbol-table*)
 (defvar *reverse-symbol-table*)
 ;; Hash-table mapping function names to function references.
@@ -987,11 +978,35 @@
                                             (format nil "~A" name)
                                             "#\\Newline"))))))
 
+(defun build-directory ()
+  (merge-pathnames (make-pathname :directory `(:relative ,(format nil "~(build-~A~)" sys.c::*target-architecture*)))))
+
 ;; Ugh.
 (defun load-compiler-builtins ()
-  (sys.c::save-compiler-builtins "%%compiler-builtins.llf"
-                                 sys.c::*target-architecture*)
-  (load-source-file "%%compiler-builtins.llf" t t))
+  (let ((llf-path (merge-pathnames "%%compiler-builtins.llf"
+                                   (build-directory))))
+    (ensure-directories-exist llf-path)
+    (sys.c::save-compiler-builtins llf-path
+                                   sys.c::*target-architecture*)
+    (load-source-file llf-path t t)))
+
+(defun maybe-compile-file (path)
+  (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults path)
+                                   (build-directory))))
+    (ensure-directories-exist llf-path)
+    (with-open-file (s llf-path
+                       :element-type '(unsigned-byte 8)
+                       :if-does-not-exist nil)
+      (when s
+        (handler-case (validate-llf-header s)
+          (invalid-llf (c)
+            (format t "Rebuilding ~A: ~A~%" llf-path c)
+            (delete-file s)))))
+    (when (or (not (probe-file llf-path))
+              (<= (file-write-date llf-path) (file-write-date path)))
+      (format t "~A is out of date will be recompiled.~%" llf-path)
+      (sys.c::cross-compile-file path :output-file llf-path))
+    llf-path))
 
 (defun save-ub1-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 64)) area)))
@@ -1141,7 +1156,7 @@
         (pinned-free-bins (allocate (1+ 64) :wired))
         ;; Ensure a minium amount of free space in :wired.
         ;; And :pinned as well, but that matters less.
-        (wired-free-area (allocate (* 4 1024 1024) :wired))
+        (wired-free-area (allocate (* 8 1024 1024) :wired))
         (pinned-free-area (allocate 4 :pinned)))
     (setf (word wired-free-bins) (array-header sys.int::+object-tag-array-t+ 64)
           (word pinned-free-bins) (array-header sys.int::+object-tag-array-t+ 64))
@@ -1216,6 +1231,36 @@
      (b 19) (b 21)
      ;; Fifth group. Not byteswapped.
      (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))
+
+(defun git-revision ()
+  "Return the current git hash as a string or NIL if it can't be determined."
+  (ignore-errors
+    (values (uiop/run-program:run-program '("git" "rev-parse" "HEAD")
+                                          :output '(:string :stripped t)))))
+
+(define-condition invalid-llf (simple-error) ())
+
+(defun validate-llf-header (stream)
+  ;; Check the header.
+  (when (not (and (eql (read-byte stream) #x4C)
+                  (eql (read-byte stream) #x4C)
+                  (eql (read-byte stream) #x46)
+                  (eql (read-byte stream) #x01)))
+    (error 'invalid-llf
+           :format-control "Bad LLF magic."))
+  (let ((version (load-integer stream)))
+    (when (not (eql version sys.int::*llf-version*))
+      (error 'invalid-llf
+             :format-control "Bad LLF version ~D, wanted version ~D."
+             :format-arguments (list version sys.int::*llf-version*))))
+  (let ((arch (case (load-integer stream)
+                (#.sys.int::+llf-arch-x86-64+ :x86-64)
+                (#.sys.int::+llf-arch-arm64+ :arm64)
+                (t :unknown))))
+    (when (not (eql arch sys.c::*target-architecture*))
+      (error 'invalid-llf
+             :format-control "LLF compiled for wrong architecture ~S. Wanted ~S."
+             :format-arguments (list arch sys.c::*target-architecture*)))))
 
 (defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64) uuid)
   (cond ((stringp uuid)
@@ -1314,11 +1359,7 @@
                                                             "runtime/float-x86-64.lisp"))
                                              t
                                              sys.c::*use-new-compiler*))
-              (llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
-          (when (or (not (probe-file llf-path))
-                    (<= (file-write-date llf-path) (file-write-date file)))
-            (format t "~A is out of date will be recompiled.~%" llf-path)
-            (sys.c::cross-compile-file file))
+              (llf-path (maybe-compile-file file)))
           (format t "Loading ~A.~%" llf-path)
           (with-open-file (warm llf-path :element-type '(unsigned-byte 8))
             (let ((vec (make-array (file-length warm) :element-type '(unsigned-byte 8))))
@@ -1384,6 +1425,11 @@
                                    :element-type '(unsigned-byte 64)
                                    :initial-element 0)
                        :wired))
+    (let ((git-rev (git-revision)))
+      (setf (cold-symbol-value 'sys.int::*git-revision*)
+            (if git-rev
+                (make-value (store-string git-rev) sys.int::+tag-object+)
+                (vsym nil))))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
@@ -1407,7 +1453,9 @@
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
-    (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
+    (write-map-file (merge-pathnames (or map-file-name (format nil "~A.map" image-name))
+                                     (build-directory))
+                    *function-map*)
     (format t "UUID ~/cold-generator::format-uuid/~%" uuid)
     (if (streamp image-name)
         (write-image image-name
@@ -1417,7 +1465,8 @@
                      image-size
                      header-path
                      uuid)
-        (with-open-file (s (make-pathname :type "image" :defaults image-name)
+        (with-open-file (s (merge-pathnames (make-pathname :type "image" :defaults image-name)
+                                            (build-directory))
                            :direction :output
                            :element-type '(unsigned-byte 8)
                            :if-exists :supersede)
@@ -2050,36 +2099,17 @@ Tag with +TAG-OBJECT+."
                      (vector-push-extend value stack)))))))))
 
 (defun load-source-file (file set-fdefinitions &optional wired)
-  (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
-        (*load-should-set-fdefinitions* set-fdefinitions)
+  (let ((*load-should-set-fdefinitions* set-fdefinitions)
         (*default-general-allocation-area* (if wired :wired :general))
         (*default-cons-allocation-area* (if wired :wired :cons))
-        (*default-pinned-allocation-area* (if wired :wired :pinned)))
-    (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
-               (or (not (probe-file llf-path))
-                   (<= (file-write-date llf-path) (file-write-date file))))
-      (format t "~A is out of date will be recompiled.~%" llf-path)
-      (sys.c::cross-compile-file file))
+        (*default-pinned-allocation-area* (if wired :wired :pinned))
+        (llf-path (if (string-equal (pathname-type (pathname file)) "llf")
+                      file
+                      (maybe-compile-file file))))
     (format t ";; Loading ~S.~%" llf-path)
     (with-open-file (s llf-path :element-type '(unsigned-byte 8))
       ;; Check the header.
-      (assert (and (eql (read-byte s) #x4C)
-                   (eql (read-byte s) #x4C)
-                   (eql (read-byte s) #x46)
-                   (eql (read-byte s) #x01))
-              ()
-              "Bad LLF magic. Probably old-style LLF, please remove and rebuild.")
-      (let ((version (load-integer s)))
-        (assert (eql version sys.int::*llf-version*)
-                ()
-                "Bad LLF version ~D, wanted version ~D." version sys.int::*llf-version*))
-      (let ((arch (case (load-integer s)
-                    (#.sys.int::+llf-arch-x86-64+ :x86-64)
-                    (#.sys.int::+llf-arch-arm64+ :arm64)
-                    (t :unknown))))
-        (assert (eql arch sys.c::*target-architecture*) ()
-                "LLF compiled for wrong architecture ~S. Wanted ~S."
-                arch sys.c::*target-architecture*))
+      (validate-llf-header s)
       ;; Read forms.
       (load-llf s))))
 

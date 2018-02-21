@@ -616,7 +616,7 @@
                      (locally
                          (declare (type (simple-array ,type (*)) sequence)
                                   (type ,type item)
-                                  (optimize speed (safety 0) (debug 0)))
+                                  (optimize speed (safety 0) (debug 1)))
                        (cond (end
                               (assert (<= start end))
                               (assert (<= end (length sequence))))

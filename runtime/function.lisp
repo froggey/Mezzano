@@ -8,27 +8,44 @@
   (%object-tag function))
 
 (defun function-pool-size (function)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (ldb +function-header-pool-size+ (%object-header-data function)))
 
 (defun function-code-size (function)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (* (ldb +function-header-code-size+ (%object-header-data function)) 16))
 
+(defun function-gc-metadata-size (function)
+  (%type-check function +object-tag-function+ function)
+  (ldb +function-header-metadata-size+ (%object-header-data function)))
+
 (defun function-pool-object (function offset)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-pool-size function)))
   (let ((address (logand (lisp-object-address function) -16))
         (mc-size (truncate (function-code-size function) 8))) ; in words.
     (memref-t address (+ mc-size offset))))
 
 (defun function-code-byte (function offset)
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-code-size function)))
   (let ((address (logand (lisp-object-address function) -16)))
     (memref-unsigned-byte-8 address offset)))
 
+(defun function-gc-metadata-byte (function offset)
+  (%type-check function +object-tag-function+ function)
+  (check-type offset (integer 0))
+  (assert (< offset (function-gc-metadata-size function)))
+  (let* ((address (logand (lisp-object-address function) -16))
+         (mc-size (function-code-size function))
+         (n-constants (function-pool-size function)))
+    (memref-unsigned-byte-8 address (+ mc-size (* n-constants 8) offset))))
+
 (defun function-gc-info (function)
   "Return the address of and the number of bytes in FUNCTION's GC info."
-  (check-type function function)
+  (%type-check function +object-tag-function+ function)
   (let* ((address (logand (lisp-object-address function) -16))
          (gc-length (ldb +function-header-metadata-size+
                          (%object-header-data function)))
@@ -52,7 +69,7 @@ Arguments to FUNCTION:
  block-or-tagbody-thunk
  extra-registers
  restart"
-  (check-type function function)
+  (%type-check function-to-inspect +object-tag-function+ function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
          (mc-size (* (ldb +function-header-code-size+ header-data) 16))
@@ -120,13 +137,13 @@ Arguments to FUNCTION:
                        ;; Start offset in the function.
                        start-offset-in-function
                        ;; Frame/no-frame.
-                       (logtest flags-and-pvr #b00001)
+                       (logbitp +gcmd-flag0-frame+ flags-and-pvr)
                        ;; Interrupt.
-                       (logtest flags-and-pvr #b00010)
+                       (logbitp +gcmd-flag0-interrupt+ flags-and-pvr)
                        ;; Pushed-values.
                        pv
                        ;; Pushed-values-register.
-                       (if (logtest flags-and-pvr #b10000)
+                       (if (logbitp +gcmd-flag0-pushed-values-register+ flags-and-pvr)
                            :rcx
                            nil)
                        ;; Layout-address. Fixnum pointer to virtual memory
@@ -136,27 +153,27 @@ Arguments to FUNCTION:
                        ;; Number of bits in the layout.
                        n-layout-bits
                        ;; Multiple-values.
-                       (if (eql (ldb (byte 4 0) mv-and-ia) 15)
+                       (if (eql (ldb +gcmd-flag1-multiple-values+ mv-and-ia) 15)
                            nil
-                           (ldb (byte 4 0) mv-and-ia))
+                           (ldb +gcmd-flag1-multiple-values+ mv-and-ia))
                        ;; Incoming-arguments.
-                       (if (logtest flags-and-pvr #b1000)
-                           (if (eql (ldb (byte 4 4) mv-and-ia) 15)
+                       (if (logbitp 3 flags-and-pvr)
+                           (if (eql (ldb +gcmd-flag1-incoming-arguments-location+ mv-and-ia) 15)
                                :rcx
-                               (ldb (byte 4 4) mv-and-ia))
+                               (ldb +gcmd-flag1-incoming-arguments-location+ mv-and-ia))
                            nil)
                        ;; Block-or-tagbody-thunk.
-                       (if (logtest flags-and-pvr #b0100)
+                       (if (logbitp +gcmd-flag0-block-or-tagbody-thunk+ flags-and-pvr)
                            :rax
                            nil)
                        ;; Extra-registers.
-                       (case (ldb (byte 2 6) flags-and-pvr)
+                       (case (ldb +gcmd-flag0-extra-registers+ flags-and-pvr)
                          (0 nil)
                          (1 :rax)
                          (2 :rax-rcx)
                          (3 :rax-rcx-rdx))
                        ;; Restart
-                       (logtest flags-and-pvr #b10000000)))))))
+                       (logbitp +gcmd-flag0-restart+ flags-and-pvr)))))))
 
 (defun decode-function-gc-info (function)
   (let ((result '()))

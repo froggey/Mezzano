@@ -6,3 +6,4 @@
 /*.iso
 /*.vmdk
 /*.vdi
+/build-*

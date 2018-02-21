@@ -54,6 +54,7 @@
     ((eval-when)
      (multiple-value-bind (compile load eval)
          (sys.int::parse-eval-when-situation (second form))
+       (declare (ignore compile load))
        (when eval
          (eval-progn-body (cddr form) env))))
     ((multiple-value-call)
@@ -90,11 +91,16 @@
               (eval-compile form env))
              (t (multiple-value-bind (expansion expanded-p)
                     (macroexpand form env)
-                  (if expanded-p
-                      (eval-in-lexenv expansion env)
-                      (apply (symbol-function (first form))
-                             (mapcar (lambda (f) (eval-in-lexenv f env))
-                                     (rest form))))))))))
+                  (cond (expanded-p
+                         (eval-in-lexenv expansion env))
+                        ((not (fboundp (first form)))
+                         ;; Punt if the function is not bound, take advantage
+                         ;; of the restarts set up by the runtime.
+                         (eval-compile form env))
+                        (t
+                         (apply (symbol-function (first form))
+                                (mapcar (lambda (f) (eval-in-lexenv f env))
+                                        (rest form)))))))))))
 
 (defun eval-symbol (form env)
   (let ((expanded (macroexpand form env)))

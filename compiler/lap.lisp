@@ -664,45 +664,50 @@ a vector of constants and an alist of symbols & addresses."
       (append-vu32 address bytes)
       (vector-push-extend (logior (ecase frame-mode
                                     (:frame
-                                     #b00000001)
+                                     (ash 1 sys.int::+gcmd-flag0-frame+))
                                     (:no-frame 0))
                                   (cond
                                     (interrupt
-                                     #b00000010)
+                                     (ash 1 sys.int::+gcmd-flag0-interrupt+))
                                     (t 0))
                                   (cond
                                     (block-or-tagbody-thunk
                                      (assert (eql block-or-tagbody-thunk :rax))
-                                     #b00000100)
+                                     (ash 1 sys.int::+gcmd-flag0-block-or-tagbody-thunk+))
                                     (t 0))
                                   (cond
                                     (incoming-arguments
-                                     #b00001000)
+                                     (ash 1 sys.int::+gcmd-flag0-incoming-arguments+))
                                     (t 0))
                                   (cond
                                     (pushed-values-register
                                      (assert (eql pushed-values-register :rcx))
-                                     #b00010000)
+                                     (ash 1 sys.int::+gcmd-flag0-pushed-values-register+))
                                     (t 0))
-                                  (ecase extra-registers
-                                    ((nil) 0)
-                                    ((:rax)         #b00100000)
-                                    ((:rax-rcx)     #b01000000)
-                                    ((:rax-rcx-rdx) #b01100000))
+                                  (dpb (ecase extra-registers
+                                         ((nil)          0)
+                                         ((:rax)         1)
+                                         ((:rax-rcx)     2)
+                                         ((:rax-rcx-rdx) 3))
+                                       sys.int::+gcmd-flag0-extra-registers+
+                                       0)
                                   (cond
                                     (restart
-                                     #b10000000)
+                                     sys.int::+gcmd-flag0-restart+)
                                     (t 0)))
                           bytes)
-      (vector-push-extend (logior (or multiple-values #b1111)
-                                  (ash (cond ((keywordp incoming-arguments)
+      (vector-push-extend (logior (dpb (or multiple-values #b1111)
+                                       sys.int::+gcmd-flag1-multiple-values+
+                                       0)
+                                  (dpb (cond ((keywordp incoming-arguments)
                                               (assert (eql incoming-arguments :rcx))
                                               15)
                                              (incoming-arguments
                                               (check-type incoming-arguments (integer 0 (15)))
                                               incoming-arguments)
                                              (t 15))
-                                       4))
+                                       sys.int::+gcmd-flag1-incoming-arguments-location+
+                                       0))
                           bytes)
       (append-vs32 pushed-values bytes)
       (append-vu32 (length layout) bytes)

@@ -128,10 +128,15 @@
 
 (defmethod describe-object ((object standard-object) stream)
   (format stream "A Closette object~%~
-             Printed representation: ~S~%~
+             Printed representation: ~A~%~
              Class: ~S~%~
              Structure~%"
-          object
+          (handler-case
+              (format nil "~S" object)
+            (error ()
+              (with-output-to-string (s)
+                (print-unreadable-object (object s :type t :identity t)
+                  (format s "<<error printing object>>")))))
           (class-of object))
   (dolist (sn (mapcar #'mezzano.clos:slot-definition-name
                       (mezzano.clos:class-slots (class-of object))))

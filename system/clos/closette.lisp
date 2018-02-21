@@ -128,7 +128,7 @@
       (sys.int::cas (svref slots location) old new)))
 
 (defun fast-sv-position (value simple-vector)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type simple-vector simple-vector))
   (position value simple-vector :test #'eq))
 
@@ -2171,3 +2171,10 @@ has only has class specializer."
 (defgeneric slot-missing (class object slot-name operation &optional new-value))
 (defmethod slot-missing ((class t) object slot-name operation &optional new-value)
   (error "Slot ~S missing from class ~S when performing ~S." slot-name class operation))
+
+(defgeneric function-keywords (method))
+
+(defmethod function-keywords ((method standard-method))
+  (let ((lambda-list-info (analyze-lambda-list (method-lambda-list method))))
+    (values (getf lambda-list-info :keywords)
+            (getf lambda-list-info :allow-other-keys))))

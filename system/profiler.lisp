@@ -227,6 +227,7 @@ thread states & call-stacks."
 (defun save-profile (path profile &key (verbosity :report) order-by)
   "Convert a profile into an almost human-readable format."
   (with-open-file (s path :direction :output :if-exists :new-version :if-does-not-exist :create)
+    (format s "Version ~A~%" (lisp-implementation-version))
     (when (member verbosity '(:report :full))
       (let ((*standard-output* s))
         (generate-report profile order-by))

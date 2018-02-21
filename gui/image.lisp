@@ -38,19 +38,19 @@
     (check-type data (simple-array (unsigned-byte 8) (*)))
     (assert (<= 0 x-offset (+ x-offset width) dest-width))
     (assert (<= 0 y-offset (+ y-offset height) dest-height))
-    (let ((dest-storage (sys.int::%complex-array-storage dest-array)))
+    (locally
       (declare (type fixnum dest-width dest-height)
-               (type (simple-array (unsigned-byte 32) (*)) dest-storage)
+               (type (simple-array (unsigned-byte 32) (* *)) dest-array)
                (type (simple-array (unsigned-byte 8) (*)) data)
                (optimize speed (safety 0)))
       (loop
          for y fixnum below height do
            (loop
               for x fixnum below width
-              for src-idx = (the fixnum (* (the fixnum (+ (the fixnum (* y width)) x)) 3))
-              for dst-idx = (the fixnum (+ (the fixnum (* (the fixnum (+ y-offset y)) dest-width))
-                                           (the fixnum (+ x-offset x))))
-              do (setf (aref dest-storage dst-idx)
+              for src-idx fixnum = (* (the fixnum (+ (the fixnum (* y width)) x)) 3)
+              for dst-idx fixnum = (+ (the fixnum (* (the fixnum (+ y-offset y)) dest-width))
+                                      (the fixnum (+ x-offset x)))
+              do (setf (row-major-aref dest-array dst-idx)
                        (the fixnum
                             (logior #xFF000000
                                     (the fixnum (ash (aref data (the fixnum (+ src-idx 2))) 16))

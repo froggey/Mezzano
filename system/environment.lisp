@@ -89,10 +89,13 @@ A list of two elements, the short & long name." )
 (defun lisp-implementation-type ()
   "Mezzano")
 
+(defvar *git-revision*) ; Set by the cold generator.
 (defvar *lisp-implementation-version* "devel")
 
 (defun lisp-implementation-version ()
-  *lisp-implementation-version*)
+  (if *git-revision*
+      (format nil "~A ~A" *lisp-implementation-version* *git-revision*)
+      *lisp-implementation-version*))
 
 (defun short-site-name () (first *site-info*))
 (defun long-site-name () (second *site-info*))

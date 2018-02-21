@@ -189,7 +189,10 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;gui;music-player.lisp")
 (sys.int::cal "sys:source;applications;filer.lisp")
 (sys.int::cal "sys:source;applications;memory-monitor.lisp")
+
+;; Other stuff.
 (sys.int::cal "sys:source;file;http.lisp")
+(sys.int::cal "sys:source;system;disassemble.lisp")
 
 ;; Load the desktop image and start the desktop.
 (sys.int::copy-file (merge-pathnames "Ducks.jpg" (user-homedir-pathname))

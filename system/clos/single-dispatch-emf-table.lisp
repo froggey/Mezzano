@@ -15,7 +15,7 @@
   (count 0))
 
 (defun single-dispatch-emf-entry (emf-table class)
-  (declare (optimize speed (safety 0) (debug 0))
+  (declare (optimize speed (safety 0) (debug 1))
            (type single-dispatch-emf-table emf-table))
   (let ((storage (single-dispatch-emf-table-table emf-table)))
     (cond ((consp storage)

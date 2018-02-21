@@ -103,7 +103,7 @@
   (declare (dynamic-extent more-args))
   (check-type function (or function symbol) "a function-designator")
   (when (symbolp function)
-    (setf function (symbol-function function)))
+    (setf function (%coerce-to-callable function)))
   (cond (more-args
          ;; Convert (... (final-list ...)) to (... final-list...)
          (do* ((arg-list (cons arg more-args))
