@@ -1128,7 +1128,7 @@
 
 (defun decode-al-ib (context info opcode)
   (declare (ignore info))
-  (make-instruction opcode :al (consume-sb8 context)))
+  (make-instruction opcode :al (consume-ub8 context)))
 
 (defun decode-ax-iz (context info opcode16 opcode32 opcode64)
   (let* ((osize (operand-size info))
@@ -1148,7 +1148,7 @@
              (and (first opcodes)
                   (make-instruction (first opcodes)
                                     (decode-gpr8-or-mem r/m (rex-b info))
-                                    (consume-sb8 context))))
+                                    (consume-ub8 context))))
             (t nil)))))
 
 (defun decode-eb-gb (context info opcode)
@@ -1385,7 +1385,7 @@
   (let ((reg (ldb (byte 3 0) (getf info :opcode))))
     (make-instruction 'sys.lap-x86:mov8
                       (decode-gpr8 reg (rex-b info))
-                      (consume-sb8 context))))
+                      (consume-ub8 context))))
 
 (defun decode-mov+r-iv (context info)
   (let ((reg (ldb (byte 3 0) (getf info :opcode))))
