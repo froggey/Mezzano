@@ -141,14 +141,15 @@
     (unwind-protect
          (loop
             (when (and (not run-forever)
-                       (zerop (mod (incf instructions-stepped) next-stop-boundary)))
+                       (not (zerop instructions-stepped))
+                       (zerop (mod instructions-stepped next-stop-boundary)))
               (when (y-or-n-p "Thread has run for ~D instructions. Stop?" instructions-stepped)
                 (mezzano.supervisor:terminate-thread thread)
                 (mezzano.supervisor::resume-thread thread)
                 (return))
               (setf next-stop-boundary (* next-stop-boundary 2)))
             (when (eql (mezzano.supervisor:thread-state thread) :dead)
-              (format t "Thread has died.~%")
+              (format t "Thread has died. ~:D instructions executed~%" instructions-stepped)
               (return))
             (when full-dump
               (dump-thread-state thread))
@@ -192,6 +193,7 @@
                          (when inst
                            (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
                          (terpri))
+                       (incf instructions-stepped)
                        (setf prev-fn fn)))
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
                            (not (eql offset 16)))
