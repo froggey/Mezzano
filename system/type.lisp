@@ -284,6 +284,22 @@
              (typep (cdr object) cdr-type)))))
 (%define-compound-type 'cons 'cons-type-p)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-cons-type (object type)
+  (destructuring-bind (&optional (car-type '*) (cdr-type '*))
+      (cdr type)
+    (when (eql car-type '*)
+      (setf car-type 't))
+    (when (eql cdr-type '*)
+      (setf cdr-type 't))
+    `(and (consp ,object)
+          ,@(when (not (eql car-type 't))
+              `((typep (car ,object) ',car-type)))
+          ,@(when (not (eql cdr-type 't))
+              `((typep (cdr ,object) ',cdr-type))))))
+(%define-compound-type-optimizer 'cons 'compile-cons-type)
+)
+
 (deftype null ()
   '(eql nil))
 
