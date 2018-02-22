@@ -134,6 +134,8 @@
                    (label context (first (inst-operands instruction)))
                    (label context (+ (first (inst-operands instruction)) (second (inst-operands instruction))))))
           (t
+           (when (inst-lock-prefix instruction)
+             (format t "LOCK "))
            (format t "~A" (inst-opcode instruction))
            (dolist (operand (inst-operands instruction))
              (format t " ")
@@ -176,7 +178,10 @@
                            (when (and (not (ea-index operand))
                                       (eql (ea-disp operand) 5))
                              (push "cdr" annotations))
-                           (format t "~S" (append (if (ea-base operand)
+                           (format t "~S" (append (if (ea-segment operand)
+                                                      (list (ea-segment operand))
+                                                      ())
+                                                  (if (ea-base operand)
                                                       (list (ea-base operand))
                                                       ())
                                                   (if (ea-index operand)
@@ -285,6 +290,7 @@
 (defclass instruction ()
   ((%offset :reader inst-offset)
    (%size :reader inst-size)
+   (%lock-prefix :initarg :lock-prefix :reader inst-lock-prefix)
    (%opcode :initarg :opcode :reader inst-opcode)
    (%operands :initarg :operands :reader inst-operands)))
 
@@ -383,29 +389,35 @@
                     (let ((disp32 (consume-sb32/le context)))
                       (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                              (make-instance 'effective-address
-                                            :disp disp32))
+                                            :disp disp32
+                                            :segment (getf info :segment)))
                             (t
                              (make-instance 'effective-address
                                             :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
                                             :scale (ash 1 (ldb +sib-ss+ sib))
-                                            :disp disp32)))))
+                                            :disp disp32
+                                            :segment (getf info :segment))))))
                    (t
                     (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                            (make-instance 'effective-address
-                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)))
+                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
+                                          :segment (getf info :segment)))
                           (t
                            (make-instance 'effective-address
                                           :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
                                           :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
-                                          :scale (ash 1 (ldb +sib-ss+ sib)))))))))
+                                          :scale (ash 1 (ldb +sib-ss+ sib))
+                                          :segment (getf info :segment))))))))
           (#b101
            (let ((disp32 (consume-sb32/le context)))
              (make-instance 'effective-address
                             :base :rip
-                            :disp disp32)))
+                            :disp disp32
+                            :segment (getf info :segment))))
           (t
            (make-instance 'effective-address
-                          :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)))))
+                          :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
+                          :segment (getf info :segment)))))
        (#b01
         (case (ldb +modr/m-r/m+ modr/m)
           (#b100
@@ -414,18 +426,21 @@
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
                                    :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :disp disp8))
+                                   :disp disp8
+                                   :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
                                    :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
                                    :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
                                    :scale (ash 1 (ldb +sib-ss+ sib))
-                                   :disp disp8)))))
+                                   :disp disp8
+                                   :segment (getf info :segment))))))
           (t
            (let ((disp8 (consume-sb8 context)))
              (make-instance 'effective-address
                             :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
-                            :disp disp8)))))
+                            :disp disp8
+                            :segment (getf info :segment))))))
        (#b10
         (case (ldb +modr/m-r/m+ modr/m)
           (#b100
@@ -434,18 +449,21 @@
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
                                    :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :disp disp32))
+                                   :disp disp32
+                                   :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
                                    :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
                                    :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
                                    :scale (ash 1 (ldb +sib-ss+ sib))
-                                   :disp disp32)))))
+                                   :disp disp32
+                                   :segment (getf info :segment))))))
           (t
            (let ((disp32 (consume-sb32/le context)))
              (make-instance 'effective-address
                             :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
-                            :disp disp32)))))
+                            :disp disp32
+                            :segment (getf info :segment))))))
        (#b11
         (ldb +modr/m-r/m+ modr/m))))))
 
@@ -550,8 +568,8 @@
     nil
     nil
     (decode-movsx32)
-    (decode-simple sys.lap-x86:fs)
-    (decode-simple sys.lap-x86:gs)
+    nil
+    nil
     nil
     nil
     (decode-iz sys.lap-x86:push) ; 68
@@ -690,7 +708,7 @@
     (decode-io sys.lap-x86:in16 sys.lap-x86:in32 :dx)
     (decode-io sys.lap-x86:out8 sys.lap-x86:out8 :dx)
     (decode-io sys.lap-x86:out16 sys.lap-x86:out32 :dx)
-    (decode-simple sys.lap-x86:lock) ; F0
+    nil ; F0
     nil
     nil
     nil
@@ -1636,14 +1654,28 @@
          (info '()))
     ;; Read ordinary prefixes
     (loop
-       (cond ((member byte '(#xF2 #xF3))
-              (setf (getf info :rep) byte)
-              (setf byte (consume-ub8 context)))
-             ((eql byte #x66)
-              (setf (getf info :osize) byte)
-              (setf byte (consume-ub8 context)))
-             (t
-              (return))))
+       (case byte
+         ((#xF2 #xF3)
+          (setf (getf info :rep) byte))
+         (#x2E
+          (setf (getf info :segment) :cs))
+         (#x36
+          (setf (getf info :segment) :ss))
+         (#x3E
+          (setf (getf info :segment) :ds))
+         (#x26
+          (setf (getf info :segment) :es))
+         (#x64
+          (setf (getf info :segment) :fs))
+         (#x65
+          (setf (getf info :segment) :gs))
+         (#x66
+          (setf (getf info :osize) byte))
+         (#xF0
+          (setf (getf info :lock) byte))
+         (t
+          (return)))
+       (setf byte (consume-ub8 context)))
     (when (eql (logand byte #xF0) #x40)
       ;; REX prefix.
       (setf (getf info :rex) byte)
@@ -1654,7 +1686,10 @@
     (let ((entry (aref table byte)))
       (setf (getf info :opcode) byte)
       (cond (entry
-             (apply (first entry) context info (rest entry)))
+             (let ((inst (apply (first entry) context info (rest entry))))
+               (when inst
+                 (setf (slot-value inst '%lock-prefix) (getf info :lock)))
+               inst))
             (t nil)))))
 
 (defun disassemble-one-instruction (context)
