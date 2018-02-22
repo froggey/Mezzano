@@ -12,22 +12,6 @@
 (deftype array-axis ()
   `(integer 0 (,array-rank-limit)))
 
-(deftype simple-vector (&optional size)
-  (check-type size (or non-negative-fixnum (eql *)))
-  `(simple-array t (,size)))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-(defun compile-simple-vector-type (object type)
-  (destructuring-bind (&optional (size '*)) (rest type)
-    (check-type size (or non-negative-fixnum (eql *)))
-    (if (eql size '*)
-        `(simple-vector-p ,object)
-        `(and (simple-vector-p ,object)
-              (eq (%object-header-data ,object) ',size)))))
-(%define-compound-type-optimizer 'simple-vector 'compile-simple-vector-type)
-(%define-type-symbol 'simple-vector 'simple-vector-p)
-)
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-array-type-1 (object base-predicate element-type dimensions)
   `(and (,base-predicate ,object)
@@ -69,6 +53,10 @@
                    (eq (%object-header-data ,object) ,(first dimensions))))))))
 (%define-compound-type-optimizer 'simple-array 'compile-simple-array-type)
 )
+
+(deftype simple-vector (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
+  `(simple-array t (,size)))
 
 (deftype vector (&optional element-type size)
   (check-type size (or non-negative-fixnum (eql *)))
@@ -187,28 +175,22 @@
   (check-type array array)
   (not (%simple-1d-array-p array)))
 
+(declaim (inline simple-vector-p vectorp bit-array-p simple-bit-vector-p bit-vector-p))
+
+(defun simple-vector-p (object)
+  (typep object 'simple-vector))
+
 (defun vectorp (object)
-  (or (%simple-1d-array-p object)
-      (and (arrayp object)
-           (eql (array-rank object) 1))))
-(eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'vector 'vectorp)
-)
+  (typep object 'vector))
 
 (defun bit-array-p (object)
-  (and (arrayp object)
-       (eql (array-element-type object) 'bit)))
+  (typep object '(array bit *)))
 
 (defun simple-bit-vector-p (object)
-  (and (%simple-1d-array-p object)
-       (eql (array-element-type object) 'bit)))
+  (typep object '(simple-array bit (*))))
 
 (defun bit-vector-p (object)
-  (and (vectorp object)
-       (eql (array-element-type object) 'bit)))
-(eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'bit-vector 'bit-vector-p)
-)
+  (typep object '(array bit (*))))
 
 (defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
   (let* ((info (upgraded-array-info element-type))
