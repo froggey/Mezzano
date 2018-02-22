@@ -98,7 +98,7 @@
     (when (sys.int::closure-p fundamental-fn)
       (setf fundamental-fn (sys.int::%closure-function fundamental-fn)))
     (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
-    function))
+    fundamental-fn))
 
 (defun make-disassembler-context (function &optional architecture)
   (declare (ignore architecture))

@@ -126,14 +126,16 @@
                        (when stopped
                          (return))
                        (mezzano.supervisor:thread-yield))
-                    (funcall function))))
+                    (funcall function))
+                  :name "Trace thread"))
          (instructions-stepped 0)
          (prev-fn nil)
          (disassembler-context (mezzano.disassemble:make-disassembler-context function))
          (in-single-step-wrapper nil)
          (single-step-wrapper-sp nil)
          (prestart t)
-         (entry-sp nil))
+         (entry-sp nil)
+         (fundamental-function (mezzano.disassemble::peel-function function)))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
@@ -156,7 +158,7 @@
                   (return-address-to-function rip)
                 (when (and (not entry-sp)
                            prestart
-                           (eql fn function))
+                           (eql fn fundamental-function))
                   (setf entry-sp (mezzano.supervisor:thread-state-rsp thread))
                   (setf prestart nil))
                 (cond (prestart)
@@ -194,7 +196,9 @@
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
                            (not (eql offset 16)))
                   (setf prestart t)))))
-      (mezzano.supervisor:terminate-thread thread))))
+      (mezzano.supervisor:terminate-thread thread)
+      (ignore-errors
+        (mezzano.supervisor::resume-thread thread)))))
 
 (defun print-safely-to-string (obj)
   (handler-case
