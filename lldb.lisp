@@ -118,7 +118,7 @@
 
 (defun trace-execution (function &key full-dump run-forever)
   (check-type function function)
-  (let* ((next-stop-boundary 1000)
+  (let* ((next-stop-boundary 10000)
          (stopped nil)
          (thread (mezzano.supervisor:make-thread
                   (lambda ()
@@ -128,7 +128,8 @@
                        (mezzano.supervisor:thread-yield))
                     (funcall function))))
          (instructions-stepped 0)
-         (prev-fn nil))
+         (prev-fn nil)
+         (disassembler-context (mezzano.disassemble:make-disassembler-context function)))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
@@ -149,7 +150,8 @@
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
                   (return-address-to-function rip)
-                (format t "~8,'0X: ~S + ~D~%" rip fn offset)
+                (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
+                  (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
                 (when (and prev-fn
                            (not (eql fn prev-fn)))
                   (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
@@ -161,6 +163,11 @@
                                  prev-fn fn
                                  (mapcar #'print-safely-to-string
                                          (fetch-thread-return-values thread))))))
+                (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
+                  (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
+                  (when inst
+                    (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
+                  (terpri))
                 (setf prev-fn fn))))
       (mezzano.supervisor:terminate-thread thread))))
 

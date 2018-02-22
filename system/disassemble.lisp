@@ -3,7 +3,12 @@
 
 (defpackage :mezzano.disassemble
   (:use :cl)
-  (:export #:disassemble #:disassemble-function))
+  (:export #:disassemble
+           #:disassemble-function
+           #:make-disassembler-context
+           #:disassembler-context-function
+           #:instruction-at
+           #:print-instruction))
 
 (in-package :mezzano.disassemble)
 
@@ -22,18 +27,7 @@
   (setf architecture (sys.c::canonicalize-target architecture))
   (let ((*print-gc-metadata* gc-metadata)
         (*print-debug-metadata* debug-metadata)
-        (fundamental-fn fn))
-    ;; If this is a funcallable-instance, peel it apart to get the juicy bit
-    ;; inside. Bail out if there are multiple levels to funcallable-instances.
-    (when (sys.int::funcallable-std-instance-p fundamental-fn)
-      (setf fundamental-fn (sys.int::funcallable-std-instance-function fundamental-fn)))
-    (when (sys.int::funcallable-std-instance-p fundamental-fn)
-      (format t "~S:~%" fn)
-      (format t "  nested call to ~S~%" fundamental-fn)
-      (return-from disassemble-function))
-    (when (sys.int::closure-p fundamental-fn)
-      (setf fundamental-fn (sys.int::%closure-function fundamental-fn)))
-    (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
+        (fundamental-fn (peel-function fn)))
     (cond ((eql fundamental-fn fn)
            (format t "~S:~%" fn))
           (t
@@ -92,8 +86,23 @@
                         (sys.int::function-code-byte function offset))
                 (incf offset 1))))))
 
-(defun make-disassembler-context (function architecture)
+(defun peel-function (function)
+  "Remove layers of closures and funcallable-instances from FUNCTION."
+  (check-type function function)
+  (let ((fundamental-fn function))
+    (when (sys.int::funcallable-std-instance-p fundamental-fn)
+      (setf fundamental-fn (sys.int::funcallable-std-instance-function fundamental-fn)))
+    (when (sys.int::funcallable-std-instance-p fundamental-fn)
+      ;; Bail out if there are multiple levels to funcallable-instances.
+      (error "~S contains a nested funcallable-instance ~S." function fundamental-fn))
+    (when (sys.int::closure-p fundamental-fn)
+      (setf fundamental-fn (sys.int::%closure-function fundamental-fn)))
+    (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
+    function))
+
+(defun make-disassembler-context (function &optional architecture)
   (declare (ignore architecture))
+  (setf function (peel-function function))
   (let ((context (make-instance 'disassembler-context :function function))
         (true-end (sys.int::function-code-size function))
         (offset 16))
@@ -117,7 +126,7 @@
         (read-past-end-of-machine-code ()))
       context))
 
-(defun print-instruction (context instruction)
+(defun print-instruction (context instruction &key (print-annotations t) (print-labels t))
   (let ((annotations '()))
     (format t "(")
     (cond ((eql (inst-opcode instruction) :jump-target)
@@ -137,7 +146,7 @@
                                   (pool-index (truncate (- target (sys.int::function-code-size (context-function context))) 8))
                                   (label (label context target)))
                              (cond
-                               (label
+                               ((and print-labels label)
                                 (push (format nil "#x~8,'0X" (+ address target)) annotations)
                                 (format t "L~D" label))
                                (t
@@ -202,7 +211,7 @@
                    (t
                     (format t "~S" operand))))))
     (format t ")")
-    (when annotations
+    (when (and print-annotations annotations)
       (format t "~85T; ~A" (pop annotations))
       (dolist (an annotations)
         (format t ", ~A" an)))))
@@ -291,11 +300,17 @@
   (:default-initargs :base nil :index nil :scale nil :disp 0 :segment nil))
 
 (defclass disassembler-context ()
-  ((%function :initarg :function :reader context-function)
+  ((%function :initarg :function :reader context-function :reader disassembler-context-function)
    (%offset :initform 16 :accessor context-code-offset)
    (%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)
    (%label-table :initform (make-hash-table) :reader context-label-table)
    (%instructions :initform (make-array 0 :adjustable t :fill-pointer 0) :reader context-instructions)))
+
+(defun instruction-at (context offset)
+  (loop
+     for inst across (context-instructions context)
+     when (and inst (eql (inst-offset inst) offset))
+     do (return inst)))
 
 (defun label (context offset &key createp)
   (let ((table (context-label-table context)))
