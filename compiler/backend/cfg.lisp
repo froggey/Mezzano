@@ -118,7 +118,8 @@ does not visit unreachable blocks."
                   (target-next (next-instruction backend-function target)))
              (cond ((and (typep target-next 'jump-instruction)
                          ;; Don't snap if there are phi nodes at the target.
-                         (endp (jump-values target-next)))
+                         (endp (jump-values target-next))
+                         (not (eql (jump-target inst) (jump-target target-next))))
                     (setf (jump-target inst) (jump-target target-next))
                     (incf total))
                    ((typep target 'branch-instruction)
