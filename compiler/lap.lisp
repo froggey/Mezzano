@@ -693,7 +693,7 @@ a vector of constants and an alist of symbols & addresses."
                                        0)
                                   (cond
                                     (restart
-                                     sys.int::+gcmd-flag0-restart+)
+                                     (ash 1 sys.int::+gcmd-flag0-restart+))
                                     (t 0)))
                           bytes)
       (vector-push-extend (logior (dpb (or multiple-values #b1111)
