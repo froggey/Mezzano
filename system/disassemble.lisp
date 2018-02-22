@@ -376,7 +376,8 @@
   (let* ((modr/m (consume-ub8 context))
          (mod (ldb +modr/m-mod+ modr/m))
          (rex-b (rex-b info))
-         (rex-x (rex-x info)))
+         (rex-x (rex-x info))
+         (asize (getf info :asize)))
     (values
      (ldb +modr/m-reg+ modr/m)
      (ecase (ldb +modr/m-mod+ modr/m)
@@ -393,19 +394,27 @@
                                             :segment (getf info :segment)))
                             (t
                              (make-instance 'effective-address
-                                            :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                            :index (if asize
+                                                       (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                                       (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                             :scale (ash 1 (ldb +sib-ss+ sib))
                                             :disp disp32
                                             :segment (getf info :segment))))))
                    (t
                     (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                            (make-instance 'effective-address
-                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
+                                          :base (if asize
+                                                    (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                                    (decode-gpr64 (ldb +sib-base+ sib) rex-b))
                                           :segment (getf info :segment)))
                           (t
                            (make-instance 'effective-address
-                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                          :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                          :base (if asize
+                                                    (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                                    (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                          :index (if asize
+                                                     (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                                     (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                           :scale (ash 1 (ldb +sib-ss+ sib))
                                           :segment (getf info :segment))))))))
           (#b101
@@ -416,7 +425,9 @@
                             :segment (getf info :segment))))
           (t
            (make-instance 'effective-address
-                          :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
+                          :base (if asize
+                                    (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                    (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
                           :segment (getf info :segment)))))
        (#b01
         (case (ldb +modr/m-r/m+ modr/m)
@@ -425,20 +436,28 @@
                  (disp8 (consume-sb8 context)))
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
                                    :disp disp8
                                    :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :index (if asize
+                                              (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                              (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                    :scale (ash 1 (ldb +sib-ss+ sib))
                                    :disp disp8
                                    :segment (getf info :segment))))))
           (t
            (let ((disp8 (consume-sb8 context)))
              (make-instance 'effective-address
-                            :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
+                            :base (if asize
+                                      (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                      (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
                             :disp disp8
                             :segment (getf info :segment))))))
        (#b10
@@ -448,20 +467,28 @@
                  (disp32 (consume-sb32/le context)))
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
                                    :disp disp32
                                    :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :index (if asize
+                                              (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                              (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                    :scale (ash 1 (ldb +sib-ss+ sib))
                                    :disp disp32
                                    :segment (getf info :segment))))))
           (t
            (let ((disp32 (consume-sb32/le context)))
              (make-instance 'effective-address
-                            :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
+                            :base (if asize
+                                      (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                      (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
                             :disp disp32
                             :segment (getf info :segment))))))
        (#b11
@@ -1671,6 +1698,8 @@
           (setf (getf info :segment) :gs))
          (#x66
           (setf (getf info :osize) byte))
+         (#x67
+          (setf (getf info :asize) byte))
          (#xF0
           (setf (getf info :lock) byte))
          (t
