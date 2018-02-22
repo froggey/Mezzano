@@ -7,16 +7,22 @@
 
 (in-package :mezzano.disassemble)
 
+(defvar *print-gc-metadata* t)
+(defvar *print-debug-metadata* nil)
+
 (defun disassemble (fn)
   (disassemble-function fn))
 
-(defun disassemble-function (fn &key (gc-metadata t) debug-metadata)
+(defun disassemble-function (fn &key (gc-metadata *print-gc-metadata*) (debug-metadata *print-debug-metadata*) architecture)
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
   (when (not (functionp fn))
     (setf fn (fdefinition fn)))
   (check-type fn function)
-  (let ((fundamental-fn fn))
+  (setf architecture (sys.c::canonicalize-target architecture))
+  (let ((*print-gc-metadata* gc-metadata)
+        (*print-debug-metadata* debug-metadata)
+        (fundamental-fn fn))
     ;; If this is a funcallable-instance, peel it apart to get the juicy bit
     ;; inside. Bail out if there are multiple levels to funcallable-instances.
     (when (sys.int::funcallable-std-instance-p fundamental-fn)
@@ -32,44 +38,84 @@
            (format t "~S:~%" fn))
           (t
            (format t "~S (implemented by ~S):~%" fn fundamental-fn)))
-    (let ((base-address (logand (sys.int::lisp-object-address fundamental-fn) -16))
-          (offset 16)
-          (context (make-instance 'disassembler-context :function fundamental-fn))
-          (gc-md (sys.int::decode-function-gc-info fundamental-fn))
-          (true-end (sys.int::function-code-size fundamental-fn)))
+    (disassemble-subfunction fundamental-fn architecture)
+    ;; Recursively traverse the function looking for closures and disassemble them too.
+    (let ((closures '())
+          (worklist (list fundamental-fn)))
+      (loop
+         until (endp worklist)
+         for fn = (pop worklist)
+         do
+           (when (not (member fn closures))
+             (when (not (eql fn fundamental-fn))
+               (push fn closures))
+             (dotimes (i (sys.int::function-pool-size fn))
+               (let ((entry (sys.int::function-pool-object fn i)))
+                 (when (sys.int::%object-of-type-p entry sys.int::+object-tag-function+)
+                   (push entry worklist))))))
+      (setf closures (reverse closures))
+      (dolist (fn closures)
+        (format t "----------~%" fn)
+        (format t "~S:~%" fn)
+        (disassemble-subfunction fn architecture))))
+  nil)
+
+(defun disassemble-subfunction (function architecture)
+  (let ((base-address (logand (sys.int::lisp-object-address function) -16))
+        (offset 16)
+        (context (make-disassembler-context function architecture))
+        (gc-md (sys.int::decode-function-gc-info function))
+        (true-end (sys.int::function-code-size function)))
+    (loop
+       for decoded across (context-instructions context)
+       do
+         (when (and gc-md
+                    (>= offset (first (first gc-md))))
+           (when *print-gc-metadata*
+             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
+           (pop gc-md))
+         (let ((label (label context offset)))
+           (when label
+             (format t " L~D" label)))
+         (format t "~7T~8,'0X: " (+ base-address offset))
+         (cond (decoded
+                (format t "~{~2,'0X ~}~50T"
+                        (loop
+                           repeat (inst-size decoded)
+                           for i from offset
+                           collect (sys.int::function-code-byte function i)))
+                (print-instruction context decoded)
+                (terpri)
+                (incf offset (inst-size decoded)))
+               (t
+                (format t "<bad ~2,'0X>~%"
+                        (sys.int::function-code-byte function offset))
+                (incf offset 1))))))
+
+(defun make-disassembler-context (function architecture)
+  (declare (ignore architecture))
+  (let ((context (make-instance 'disassembler-context :function function))
+        (true-end (sys.int::function-code-size function))
+        (offset 16))
       ;; Find the approximate end of the function. The size is rounded up to 16 bytes and
       ;; it's padded with zeros.
       (loop
-         (when (not (zerop (sys.int::function-code-byte fundamental-fn (1- true-end))))
+         (when (not (zerop (sys.int::function-code-byte function (1- true-end))))
            (return))
          (decf true-end))
-      (loop
-         (when (>= offset true-end)
-           (return))
-         (when (and gc-md
-                    (>= offset (first (first gc-md))))
-           (when gc-metadata
-             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
-           (pop gc-md))
-         (let ((label (label context offset))
-               (decoded (disassemble-one-instruction context)))
-           (when label
-             (format t " L~D" label))
-           (format t "~7T~8,'0X: " (+ base-address offset))
-           (cond (decoded
-                  (format t "~{~2,'0X ~}~50T"
-                          (loop
-                             repeat (inst-size decoded)
-                             for i from offset
-                             collect (sys.int::function-code-byte fundamental-fn i)))
-                  (print-instruction context decoded)
-                  (terpri)
-                  (incf offset (inst-size decoded)))
-                 (t
-                  (format t "<bad ~2,'0X>~%"
-                          (sys.int::function-code-byte fundamental-fn offset))
-                  (incf offset 1)))))))
-  nil)
+      ;; Disassemble all instructions.
+      (handler-case
+          (loop
+             (when (>= offset true-end)
+               (return))
+             (let ((inst (disassemble-one-instruction context)))
+               (vector-push-extend inst
+                                   (context-instructions context))
+               (incf offset (if inst
+                                (inst-size inst)
+                                1))))
+        (read-past-end-of-machine-code ()))
+      context))
 
 (defun print-instruction (context instruction)
   (let ((annotations '()))
@@ -248,7 +294,8 @@
   ((%function :initarg :function :reader context-function)
    (%offset :initform 16 :accessor context-code-offset)
    (%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)
-   (%label-table :initform (make-hash-table) :reader context-label-table)))
+   (%label-table :initform (make-hash-table) :reader context-label-table)
+   (%instructions :initform (make-array 0 :adjustable t :fill-pointer 0) :reader context-instructions)))
 
 (defun label (context offset &key createp)
   (let ((table (context-label-table context)))
@@ -257,7 +304,11 @@
       (setf (gethash offset table) (hash-table-count table)))
     (values (gethash offset table))))
 
+(define-condition read-past-end-of-machine-code (error) ())
+
 (defun consume-octet (context)
+  (when (>= (context-code-offset context) (sys.int::function-code-size (context-function context)))
+    (error 'read-past-end-of-machine-code))
   (prog1
       (sys.int::function-code-byte (context-function context) (context-code-offset context))
     (incf (context-code-offset context))))
