@@ -26,7 +26,7 @@
     (subseq (reverse vals) 0 count)))
 
 (defparameter *step-special-functions*
-  '(cons cons-in-area
+  '(mezzano.runtime::slow-cons
     mezzano.runtime::%allocate-object
     mezzano.supervisor::%call-on-wired-stack-without-interrupts
     mezzano.supervisor::call-with-mutex))
@@ -129,7 +129,11 @@
                     (funcall function))))
          (instructions-stepped 0)
          (prev-fn nil)
-         (disassembler-context (mezzano.disassemble:make-disassembler-context function)))
+         (disassembler-context (mezzano.disassemble:make-disassembler-context function))
+         (in-single-step-wrapper nil)
+         (single-step-wrapper-sp nil)
+         (prestart t)
+         (entry-sp nil))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
@@ -150,25 +154,46 @@
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
                   (return-address-to-function rip)
-                (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
-                  (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
-                (when (and prev-fn
-                           (not (eql fn prev-fn)))
-                  (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
-                         (format t "Entered function ~S with arguments ~:A.~%" fn
-                                 (mapcar #'print-safely-to-string
-                                         (fetch-thread-function-arguments thread))))
-                        (t
-                         (format t "Returning from function ~S to ~S with results ~:A.~%"
-                                 prev-fn fn
-                                 (mapcar #'print-safely-to-string
-                                         (fetch-thread-return-values thread))))))
-                (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
-                  (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
-                  (when inst
-                    (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
-                  (terpri))
-                (setf prev-fn fn))))
+                (when (and (not entry-sp)
+                           prestart
+                           (eql fn function))
+                  (setf entry-sp (mezzano.supervisor:thread-state-rsp thread))
+                  (setf prestart nil))
+                (cond (prestart)
+                      ((and (not in-single-step-wrapper)
+                            (eql fn #'single-step-wrapper))
+                       (setf single-step-wrapper-sp (mezzano.supervisor:thread-state-rsp thread))
+                       (setf in-single-step-wrapper t))
+                      (in-single-step-wrapper
+                       (when (and (eql fn #'single-step-wrapper)
+                                  (< single-step-wrapper-sp (mezzano.supervisor:thread-state-rsp thread))
+                                  (logtest #x8 (mezzano.supervisor:thread-state-rsp thread)))
+                         (setf in-single-step-wrapper nil)))
+                      (t
+                       (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
+                         (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
+                       (when (and prev-fn
+                                  (not (eql fn prev-fn)))
+                         (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                                (format t "Entered function ~S with arguments ~:A.~%"
+                                        (or (function-name fn) fn)
+                                        (mapcar #'print-safely-to-string
+                                                (fetch-thread-function-arguments thread))))
+                               (t
+                                (format t "Returning from function ~S to ~S with results ~:A.~%"
+                                        (or (function-name prev-fn) prev-fn)
+                                        (or (function-name fn) fn)
+                                        (mapcar #'print-safely-to-string
+                                                (fetch-thread-return-values thread))))))
+                       (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
+                         (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
+                         (when inst
+                           (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
+                         (terpri))
+                       (setf prev-fn fn)))
+                (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
+                           (not (eql offset 16)))
+                  (setf prestart t)))))
       (mezzano.supervisor:terminate-thread thread))))
 
 (defun print-safely-to-string (obj)
