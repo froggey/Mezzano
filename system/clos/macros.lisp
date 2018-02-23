@@ -277,8 +277,31 @@
                                          (if rest-arg
                                              `(&rest ,rest-arg)
                                              `())))
-           (captured-rest (gensym "CNM-REST")))
-      `(lambda (method next-emfun)
+           (captured-rest (gensym "CNM-REST"))
+           (method (gensym "METHOD"))
+           (next-emfun (gensym "NEXT-EMFUN"))
+           (inner-method-lambda
+            `(lambda ,(kludge-arglist lambda-list)
+               (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
+                        ,@declares)
+               (flet ((call-next-method (&rest cnm-args)
+                        (if cnm-args
+                            (if ,next-emfun
+                                (apply ,next-emfun cnm-args)
+                                (apply #'invoke-no-next-method ,method cnm-args))
+                            (if ,next-emfun
+                                ,(cond (rest-arg
+                                        `(apply ,next-emfun ,@req-args ,captured-rest))
+                                       (t
+                                        `(funcall ,next-emfun ,@req-args)))
+                                ,(cond (rest-arg
+                                        `(apply #'invoke-no-next-method ,method ,@req-args ,captured-rest))
+                                       (t
+                                        `(funcall #'invoke-no-next-method ,method ,@req-args))))))
+                      (next-method-p ()
+                        (not (null ,next-emfun))))
+                 ,form))))
+      `(lambda (,method ,next-emfun)
          (lambda ,incoming-lambda-list
            (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers))
                     ,@(if rest-arg
@@ -291,35 +314,10 @@
            (let (,@(if rest-arg
                        `((,captured-rest (copy-list ,rest-arg)))
                        `()))
-             (flet ((call-next-method (&rest cnm-args)
-                      (if cnm-args
-                          (if next-emfun
-                              (apply next-emfun cnm-args)
-                              (apply #'invoke-no-next-method method cnm-args))
-                          (if next-emfun
-                              ,(cond (rest-arg
-                                      `(apply next-emfun ,@req-args ,captured-rest))
-                                     (t
-                                      `(funcall next-emfun ,@req-args)))
-                              ,(cond (rest-arg
-                                      `(apply #'invoke-no-next-method method ,@req-args ,captured-rest))
-                                     (t
-                                      `(funcall #'invoke-no-next-method method ,@req-args))))))
-                    (next-method-p ()
-                      (not (null next-emfun))))
-               ,(cond (rest-arg
-                       `(apply (lambda ,(kludge-arglist lambda-list)
-                                 (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                          ,@declares)
-                                 ,form)
-                               ,@req-args
-                               ,rest-arg))
-                      (t
-                       `(funcall (lambda ,(kludge-arglist lambda-list)
-                                   (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                            ,@declares)
-                                   ,form)
-                                 ,@req-args))))))))))
+             ,(cond (rest-arg
+                     `(apply ,inner-method-lambda ,@req-args ,rest-arg))
+                    (t
+                     `(funcall ,inner-method-lambda ,@req-args)))))))))
 
 ;;; N.B. The function kludge-arglist is used to pave over the differences
 ;;; between argument keyword compatibility for regular functions versus
