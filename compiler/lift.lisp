@@ -335,6 +335,36 @@
 (defmethod ll-form ((form lexical-variable))
   form)
 
+(defun lift-apply-body (form)
+  ;; Rewrite (lambda (req... &rest rest) (%apply inner-lambda req... rest)) to inner-lambda.
+  ;; Outer lambda must have simple required & rest arguments only.
+  (when (not (and (every (lambda (x)
+                           (and (typep x 'lexical-variable)
+                                (localp x)))
+                         (lambda-information-required-args form))
+                  (endp (lambda-information-optional-args form))
+                  (not (lambda-information-enable-keys form))
+                  (typep (lambda-information-rest-arg form) 'lexical-variable)
+                  (localp (lambda-information-rest-arg form))
+                  (not (lambda-information-fref-arg form))
+                  (not (lambda-information-closure-arg form))
+                  (not (lambda-information-count-arg form))
+                  ;; Inner lambda must be a lambda.
+                  (lambda-information-p (first (arguments (lambda-information-body form))))))
+    (return-from lift-apply-body nil))
+  (multiple-value-bind (list-body list-tail)
+      (extract-list-like-forms (second (arguments (lambda-information-body form))))
+    (setf list-body (mapcar #'unwrap-the list-body))
+    (when list-tail
+      (setf list-tail (unwrap-the list-tail)))
+    ;; list-body must exactly be the required arguments and list-tail must be the rest argument.
+    (when (not (and (every 'eql (lambda-information-required-args form) list-body)
+                    (eql list-tail (lambda-information-rest-arg form))))
+      (return-from lift-apply-body nil))
+    ;; Replace with the inner lambda.
+    (change-made)
+    (first (arguments (lambda-information-body form)))))
+
 (defmethod ll-form ((form lambda-information))
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
@@ -342,4 +372,7 @@
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (ll-form (second arg))))
     (setf (lambda-information-body form) (ll-form (lambda-information-body form))))
-  form)
+  (or (and (and (typep (lambda-information-body form) 'ast-call)
+                (eql (name (lambda-information-body form)) 'mezzano.runtime::%apply))
+           (lift-apply-body form))
+      form))
