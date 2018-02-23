@@ -27,7 +27,9 @@
 
 (defparameter *step-special-functions*
   '(mezzano.runtime::slow-cons
-    mezzano.runtime::%allocate-object
+    mezzano.runtime::%slow-allocate-from-general-area
+    mezzano.runtime::%allocate-from-pinned-area
+    mezzano.runtime::%allocate-from-wired-area
     mezzano.supervisor::%call-on-wired-stack-without-interrupts
     mezzano.supervisor::call-with-mutex))
 
