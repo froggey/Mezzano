@@ -932,7 +932,7 @@
           (setf *last-abbreviated-printing*
                 (let ((current-package *package*)
                       (copied-args (copy-list args)))
-                  (lambda (&optional (stream ',stream))
+                  (lambda (&optional (stream stream))
                     (let ((*package* current-package))
                       (apply #'maybe-initiate-xp-printing
                              fn stream copied-args))))))
