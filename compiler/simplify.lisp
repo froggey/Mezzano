@@ -741,7 +741,7 @@ First return value is a list of elements, second is the final dotted component (
     (ast-call
      (case (name form)
        ((list)
-        (values (call-arguments form) nil))
+        (values (arguments form) nil))
        ((list*)
         (multiple-value-bind (tail-components tail-tail)
             (extract-list-like-forms (first (last (arguments form))))

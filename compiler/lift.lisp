@@ -307,7 +307,7 @@
                                          ;; Otherwise it must be copied.
                                          (ast `(call copy-list ,list-tail) lambda)))
                (rest-value (if rest-values
-                               (ast `(call list* ,rest-values ,possibly-copied-tail) lambda)
+                               (ast `(call list* ,@rest-values ,possibly-copied-tail) lambda)
                                possibly-copied-tail)))
           ;; Bind argument forms to their variables.
           (ast `(let ,(mapcar #'list argument-vars list-body)
