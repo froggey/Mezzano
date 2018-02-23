@@ -733,6 +733,50 @@
           (t
            form))))
 
+(defun extract-list-like-forms (form)
+  "If FORM is a list-like series of calls, then return the objects that would form the elements of the list.
+First return value is a list of elements, second is the final dotted component (if any)."
+  (setf form (unwrap-the form))
+  (typecase form
+    (ast-call
+     (case (name form)
+       ((list)
+        (values (call-arguments form) nil))
+       ((list*)
+        (multiple-value-bind (tail-components tail-tail)
+            (extract-list-like-forms (first (last (arguments form))))
+          (values (append (butlast (arguments form))
+                          tail-components)
+                  tail-tail)))
+       ((cons)
+        (multiple-value-bind (tail-components tail-tail)
+            (extract-list-like-forms (second (arguments form)))
+          (values (append (list (first (arguments form)))
+                          tail-components)
+                  tail-tail)))
+       ((copy-list)
+        (extract-list-like-forms (first (arguments form))))
+       (t
+        (values nil form))))
+    (ast-quote
+     (if (eql (ast-value form) 'nil)
+         (values '() nil)
+         (values nil form)))
+    (t
+     (values nil form))))
+
+(defun simp-%apply (form)
+  (multiple-value-bind (list-body list-tail)
+      (extract-list-like-forms (second (arguments form)))
+    (cond ((not list-tail)
+           ;; (%apply foo (list ...)) => (%funcall foo ...)
+           (change-made)
+           (setf (name form) 'mezzano.runtime::%funcall
+                 (arguments form) (append (list (first (arguments form)))
+                                          list-body))
+           (simp-form form))
+          (t form))))
+
 (defmethod simp-form ((form ast-call))
   (simp-form-list (arguments form))
   (cond ((eql (name form) 'eql)
@@ -773,25 +817,8 @@
          (first (arguments form)))
         ;; (%apply #'foo (list ...)) => (foo ...)
         ((and (eql (name form) 'mezzano.runtime::%apply)
-              (eql (length (arguments form)) 2)
-              (typep (unwrap-the (first (arguments form))) 'ast-function)
-              (typep (second (arguments form)) 'ast-call)
-              (eql (name (second (arguments form))) 'list))
-         (change-made)
-         (setf (name form) (ast-name (unwrap-the (first (arguments form))))
-               (arguments form) (arguments (second (arguments form))))
-         (simp-form form))
-        ;; (%apply lambda (list ...)) => (%funcall lambda ...)
-        ((and (eql (name form) 'mezzano.runtime::%apply)
-              (eql (length (arguments form)) 2)
-              (typep (unwrap-the (first (arguments form))) 'lambda-information)
-              (typep (second (arguments form)) 'ast-call)
-              (eql (name (second (arguments form))) 'list))
-         (change-made)
-         (setf (name form) 'mezzano.runtime::%funcall
-               (arguments form) (append (list (first (arguments form)))
-                                        (arguments (second (arguments form)))))
-         (simp-form form))
+              (eql (length (arguments form)) 2))
+         (simp-%apply form))
         ;; (%funcall #'name ...) -> (name ...)
         ((and (eql (name form) 'mezzano.runtime::%funcall)
               (typep (unwrap-the (first (arguments form))) 'ast-function))
