@@ -682,6 +682,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (format t ";; Writing compiler builtins to ~A.~%" output-file)
     (write-llf-header output-stream output-file)
     (let* ((*llf-forms* nil)
+           (sys.c::*use-new-compiler* nil)
            (omap (make-hash-table)))
       (loop
          for (name lambda) in (ecase target-architecture
