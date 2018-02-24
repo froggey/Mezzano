@@ -873,6 +873,15 @@ Other arguments are included directly."
            (setf (fdefinition function-name) gf)
            gf))))
 
+(defun generic-function-unspecialized-dispatch-p (gf)
+  "Returns true when the generic function has no methods with non-t specialized arguments."
+  (and (eq (class-of gf) *the-class-standard-gf*)
+       (every (lambda (method)
+                (every (lambda (spec)
+                         (eql spec *the-class-t*))
+                       (method-specializers method)))
+              (generic-function-methods gf))))
+
 (defun generic-function-single-dispatch-p (gf)
   "Returns true when the generic function only one non-t specialized argument and
 has only has class specializer."
@@ -903,12 +912,13 @@ has only has class specializer."
             (setf (class-dependents class) (remove gf (class-dependents class))))
           (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
-        (t (loop
-              for classes being the hash-keys in (classes-to-emf-table gf)
-              do (loop
-                    for class in classes
-                    do (setf (class-dependents class) (remove gf (class-dependents class)))))
-           (clrhash (classes-to-emf-table gf)))))
+        ((classes-to-emf-table gf)
+         (loop
+            for classes being the hash-keys in (classes-to-emf-table gf)
+            do (loop
+                  for class in classes
+                  do (setf (class-dependents class) (remove gf (class-dependents class)))))
+         (clrhash (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
   (let ((number-required (length (gf-required-arglist gf))))
@@ -977,9 +987,11 @@ has only has class specializer."
           (setf (bit relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
-  (setf (classes-to-emf-table gf) (if (generic-function-single-dispatch-p gf)
-                                      (make-single-dispatch-emf-table)
-                                      (make-hash-table :test #'equal)))
+  (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
+                                         (make-single-dispatch-emf-table))
+                                        ((generic-function-unspecialized-dispatch-p gf)
+                                         nil)
+                                        (t (make-hash-table :test #'equal))))
   (setf (generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) *the-class-standard-gf*)
                      #'std-compute-discriminating-function
@@ -1329,6 +1341,8 @@ has only has class specializer."
         (generic-function-single-dispatch-p gf)
       (cond (single-dispatch-p
              (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
+            ((generic-function-unspecialized-dispatch-p gf)
+             (slow-unspecialized-dispatch-method-lookup gf args))
             (t (setf (generic-function-discriminating-function gf)
                      (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
@@ -1374,6 +1388,19 @@ has only has class specializer."
       (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
       (pushnew gf (class-dependents class))
       (apply emfun args))))
+
+(defun slow-unspecialized-dispatch-method-lookup (gf args)
+  (let* ((classes (loop
+                     for req in (required-portion gf args)
+                     collect *the-class-t*))
+         (applicable-methods (std-compute-applicable-methods-using-classes gf classes))
+         (emfun (cond (applicable-methods
+                        (std-compute-effective-method-function gf applicable-methods))
+                       (t
+                        (apply #'no-applicable-method gf args)))))
+    (setf (generic-function-discriminating-function gf) emfun)
+    (set-funcallable-instance-function gf emfun)
+    (apply emfun args)))
 
 ;;; compute-applicable-methods-using-classes
 
