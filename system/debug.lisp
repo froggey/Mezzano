@@ -339,7 +339,7 @@ Returns NIL if the function captures no variables."
           (t
            (format t "Unknown variable id ~S." id)))))
 
-(defun enter-debugger (condition)
+(defun debugger-main (&optional condition)
   (with-standard-io-syntax
     (let* ((*standard-input* *debug-io*)
            (*standard-output* *debug-io*)
@@ -495,6 +495,13 @@ Returns NIL if the function captures no variables."
                            (dolist (v result)
                              (fresh-line)
                              (write v))))))))))))))
+
+(defparameter *the-debugger* 'debugger-main)
+
+(defun enter-debugger (condition)
+  (funcall (or *the-debugger*
+               'debugger-main)
+           condition))
 
 (defun show-restarts (restarts)
   (let ((restart-count (length restarts)))
