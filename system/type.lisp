@@ -341,6 +341,21 @@
                     (upgraded-complex-part-type typespec))))))
 (%define-compound-type 'complex 'complex-type)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-complex-type (object type)
+  (destructuring-bind (&optional (typespec '*))
+      (if (listp type)
+          (rest type)
+          '(*))
+    (cond ((eql typespec '*)
+           `(complexp ,object))
+          (t
+           (let ((upgraded (upgraded-complex-part-type typespec)))
+             `(and (complexp ,object)
+                   (typep (realpart ,object) ',upgraded)))))))
+(%define-compound-type-optimizer 'complex 'compile-complex-type)
+)
+
 ;; Not exactly correct. This is a class, SUBTYPEP has problems with that.
 (deftype list ()
   `(or cons null))
