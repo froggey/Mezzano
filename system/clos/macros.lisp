@@ -21,8 +21,12 @@
          (sys.int::%compiler-defclass ',name))
        (ensure-class ',name
                      :direct-superclasses ',direct-superclasses
-                     :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
-                     ,@(mapcan #'canonicalize-defclass-option options)))))
+                     :direct-slots (list ,@(loop
+                                              for slot in direct-slots
+                                              collect (canonicalize-defclass-direct-slot name slot)))
+                     ,@(loop
+                          for option in options
+                          append (canonicalize-defclass-option name option))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -48,7 +52,7 @@
                :format-control "Malformed plist ~S."
                :format-arguments (list plist)))))
 
-(defun canonicalize-defclass-direct-slot (direct-slot)
+(defun canonicalize-defclass-direct-slot (class-name direct-slot)
   (check-type direct-slot (or (and symbol (not null))
                               cons))
   (cond ((symbolp direct-slot)
@@ -85,7 +89,9 @@
                (case sym
                  (:initform
                   (setf initform val
-                        initfunction `#'(lambda () ,val)))
+                        initfunction `#'(lambda ()
+                                          (sys.int::lambda-name (slot-initform ,class-name ,name))
+                                          ,val)))
                  (:initarg
                   (push val initargs))
                  (:reader
@@ -121,7 +127,7 @@
                                    `',(reverse values)
                                    `',(first values))))))))
 
-(defun canonicalize-defclass-option (option)
+(defun canonicalize-defclass-option (class-name option)
   (check-type (first option) symbol)
   (when (member (first option) *defclass-options*)
     (error 'sys.int::simple-program-error
@@ -130,7 +136,7 @@
   (push (first option) *defclass-options*)
   (case (first option)
     (:default-initargs
-     `(:direct-default-initargs ,(canonicalize-defclass-default-initargs (rest option))))
+     `(:direct-default-initargs ,(canonicalize-defclass-default-initargs class-name (rest option))))
     (:metaclass
      `(:metaclass ',(second option)))
     (:documentation
@@ -138,7 +144,7 @@
     (t
      `(',(first option) ',(rest option)))))
 
-(defun canonicalize-defclass-default-initargs (initargs)
+(defun canonicalize-defclass-default-initargs (class-name initargs)
   (check-plist initargs)
   (let ((seen-initargs '()))
     (loop
@@ -151,7 +157,9 @@
          (push initarg seen-initargs)))
   `(list ,@(loop
               for (initarg form) on initargs by #'cddr
-              collect `(list ',initarg ',form #'(lambda () ,form)))))
+              collect `(list ',initarg ',form #'(lambda ()
+                                                  (declare (sys.int::lambda-name (default-initarg ,class-name ,initarg)))
+                                                  ,form)))))
 
 )
 
