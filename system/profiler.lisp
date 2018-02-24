@@ -79,6 +79,9 @@
     sys.int::%%closure-trampoline
     sys.int::%%funcallable-instance-trampoline))
 
+(defclass profile-data ()
+  ((%data :initarg :data :reader profile-data)))
+
 (defstruct thread-sample
   thread
   state
@@ -138,10 +141,12 @@
                             (setf profile-buffer (decode-profile-buffer (mezzano.supervisor:stop-profiling)
                                                                         (if prune #'call-with-profiling nil)
                                                                         ignore-functions))))))))
-    (cond (path
-           (save-profile path profile-buffer :verbosity verbosity :order-by order-by)
-           (values-list results))
-          (t profile-buffer))))
+    (let ((data (make-instance 'profile-data :data profile-buffer)))
+      (cond (path
+             (save-profile path data :verbosity verbosity :order-by order-by)
+             (values-list results))
+            (t
+             data)))))
 
 (defun decode-profile-buffer (buffer &optional prune-function ignore-functions)
   "Convert the buffer returned by STOP-PROFILING into a more useful format.
@@ -227,13 +232,16 @@ thread states & call-stacks."
 (defun save-profile (path profile &key (verbosity :report) order-by)
   "Convert a profile into an almost human-readable format."
   (with-open-file (s path :direction :output :if-exists :new-version :if-does-not-exist :create)
+    (when (eql verbosity :flame-graph)
+      (generate-flame-graph profile s)
+      (return-from save-profile))
     (format s "Version ~A~%" (lisp-implementation-version))
     (when (member verbosity '(:report :full))
       (let ((*standard-output* s))
         (generate-report profile order-by))
     (when (eql verbosity :full)
       (loop
-         for sample across profile do
+         for sample across (profile-data profile) do
            (format s "------------------------~%")
            (loop
               for thread across sample do
@@ -305,6 +313,7 @@ thread states & call-stacks."
     :callees (make-hash-table)))
 
 (defun generate-report (profile order-by)
+  (setf profile (profile-data profile))
   (let ((threads (make-hash-table)))
     (labels ((entry-for (thread function)
                (let ((thread-samples (gethash thread threads)))
@@ -395,3 +404,20 @@ thread states & call-stacks."
                         (loop for (callee . count) across callees do
                              (format t "    ~D~10T~S~%" count callee))))))
              threads)))
+
+(defun generate-flame-graph (profile stream)
+  (loop
+     for sample across (profile-data profile)
+     do
+       (when (not (zerop (length sample)))
+         (loop
+            with first = t
+            for (fn . offset) across (reverse (thread-sample-call-stack (elt sample 0)))
+            do
+              (when (not (eql fn 0))
+                (cond (first (setf first nil))
+                      (t (write-char #\; stream)))
+                (write-string (substitute #\_ #\Space (substitute #\L #\< (substitute #\G #\> (format nil "~(~S~)" (sys.int::function-name fn))))) stream)))
+         (write-char #\Space stream)
+         (write 1 :stream stream)
+         (terpri stream))))
