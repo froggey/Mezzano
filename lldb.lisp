@@ -118,7 +118,7 @@
          (format t " rip: ~8,'0X~%" (sys.int::memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))))
   (values))
 
-(defun trace-execution (function &key full-dump run-forever)
+(defun trace-execution (function &key full-dump run-forever (print-instructions t))
   (check-type function function)
   (let* ((next-stop-boundary 10000)
          (stopped nil)
@@ -175,8 +175,6 @@
                                   (logtest #x8 (mezzano.supervisor:thread-state-rsp thread)))
                          (setf in-single-step-wrapper nil)))
                       (t
-                       (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
-                         (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
                        (when (and prev-fn
                                   (not (eql fn prev-fn)))
                          (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
@@ -190,11 +188,14 @@
                                         (or (function-name fn) fn)
                                         (mapcar #'print-safely-to-string
                                                 (fetch-thread-return-values thread))))))
-                       (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
-                         (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
-                         (when inst
-                           (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
-                         (terpri))
+                       (when print-instructions
+                         (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
+                           (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
+                         (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
+                           (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
+                           (when inst
+                             (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
+                           (terpri)))
                        (incf instructions-stepped)
                        (setf prev-fn fn)))
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
