@@ -441,71 +441,61 @@
          result))
       (t (error "Don't understand result-type ~S." result-type)))))
 
+(define-compiler-macro every (predicate first-seq &rest more-sequences)
+  (let* ((predicate-sym (gensym "PREDICATE"))
+         (block (gensym "EVERY"))
+         (n-sequences (1+ (length more-sequences)))
+         (element-vars (loop
+                          repeat n-sequences
+                          collect (gensym))))
+    `(let ((,predicate-sym ,predicate))
+       (block ,block
+         (map nil (lambda ,element-vars
+                    (when (not (funcall ,predicate-sym ,@element-vars))
+                      (return-from ,block nil)))
+              ,first-seq ,@more-sequences)
+         t))))
+
 (defun every (predicate first-seq &rest more-sequences)
-  (declare (dynamic-extent more-sequences))
-  (cond ((and (listp first-seq)
-              (null more-sequences))
-         ;; One list, used to implement the other cases.
-         (dolist (x first-seq t)
-           (unless (funcall predicate x)
-             (return nil))))
-        ((and (listp first-seq)
-              (every 'listp more-sequences))
-         ;; Many lists.
-         (do* ((lists (cons first-seq more-sequences)))
-              (nil)
-           (do* ((call-list (cons nil nil))
-                 (call-tail call-list (cdr call-tail))
-                 (itr lists (cdr itr)))
-                ((null itr)
-                 (when (not (apply predicate (cdr call-list)))
-                   (return-from every nil)))
-             (when (null (car itr))
-               (return-from every t))
-             (setf (cdr call-tail) (cons (caar itr) nil)
-                   (car itr) (cdar itr)))))
-        (t ;; One or more non-list sequence.
-         (let* ((sequences (cons first-seq more-sequences))
-                (n-elts (reduce 'min (mapcar 'length sequences))))
-           (dotimes (i n-elts t)
-             (unless (apply predicate (mapcar (lambda (seq) (elt seq i)) sequences))
-               (return nil)))))))
+  (apply #'map nil (lambda (&rest seqs)
+                     (when (not (apply predicate seqs))
+                       (return-from every nil)))
+         first-seq more-sequences)
+  t)
+
+(define-compiler-macro some (predicate first-seq &rest more-sequences)
+  (let* ((predicate-sym (gensym "PREDICATE"))
+         (block (gensym "SOME"))
+         (n-sequences (1+ (length more-sequences)))
+         (element-vars (loop
+                          repeat n-sequences
+                          collect (gensym)))
+         (pred-result (gensym)))
+    `(let ((,predicate-sym ,predicate))
+       (block ,block
+         (map nil (lambda ,element-vars
+                    (let ((,pred-result (funcall ,predicate-sym ,@element-vars)))
+                      (when ,pred-result
+                        (return-from ,block ,pred-result))))
+              ,first-seq ,@more-sequences)
+         nil))))
 
 (defun some (predicate first-seq &rest more-sequences)
-  (declare (dynamic-extent more-sequences))
-  (cond ((and (listp first-seq)
-              (null more-sequences))
-         ;; One list.
-         (dolist (x first-seq nil)
-           (let ((result (funcall predicate x)))
-             (when result
-               (return result)))))
-        ((and (listp first-seq)
-              (every 'listp more-sequences))
-         ;; Many lists.
-         (do* ((lists (cons first-seq more-sequences)))
-              (nil)
-           (do* ((call-list (cons nil nil))
-                 (call-tail call-list (cdr call-tail))
-                 (itr lists (cdr itr)))
-                ((null itr)
-                 (let ((result (apply predicate (cdr call-list))))
-                   (when result
-                     (return-from some result))))
-             (when (null (car itr))
-               (return-from some nil))
-             (setf (cdr call-tail) (cons (caar itr) nil)
-                   (car itr) (cdar itr)))))
-        (t ;; One or more non-list sequence.
-         (let* ((sequences (cons first-seq more-sequences))
-                (n-elts (reduce 'min (mapcar 'length sequences))))
-           (dotimes (i n-elts nil)
-             (let ((result (apply predicate (mapcar (lambda (seq) (elt seq i)) sequences))))
-               (when result
-                 (return result))))))))
+  (apply #'map nil (lambda (&rest seqs)
+                     (let ((pred-result (apply predicate seqs)))
+                       (when pred-result
+                         (return-from some pred-result))))
+         first-seq more-sequences)
+  nil)
+
+(define-compiler-macro notany (predicate first-seq &rest more-sequences)
+  `(not (some ,predicate ,first-seq ,@more-sequences)))
 
 (defun notany (predicate first-sequence &rest more-sequences)
   (not (apply 'some predicate first-sequence more-sequences)))
+
+(define-compiler-macro notevery (predicate first-seq &rest more-sequences)
+  `(not (every ,predicate ,first-seq ,@more-sequences)))
 
 (defun notevery (predicate first-sequence &rest more-sequences)
   (not (apply 'every predicate first-sequence more-sequences)))
@@ -673,6 +663,31 @@
 (declaim (inline fill))
 (defun fill (sequence item &key (start 0) end)
   (fill-known-args sequence item start end))
+
+(define-compiler-macro map (&whole whole result-type function first-sequence &rest more-sequences)
+  (when (not (or (eql result-type 'nil)
+                 (equal result-type ''nil)))
+    (return-from map whole))
+  (let* ((function-sym (gensym "FUNCTION"))
+         (n-sequences (1+ (length more-sequences)))
+         (seq-vars (loop
+                      repeat n-sequences
+                      collect (gensym)))
+         (n-results (gensym))
+         (iter (gensym)))
+    `(let* ((,function-sym ,function)
+            ,@(loop
+                 for seq in (list* first-sequence more-sequences)
+                 for var in seq-vars
+                 collect (list var seq))
+            (,n-results (min ,@(loop
+                                  for var in seq-vars
+                                  collect `(length ,var)))))
+       (loop
+          for ,iter below ,n-results
+          do (funcall ,function-sym ,@(loop
+                                         for var in seq-vars
+                                         collect `(elt ,var ,iter)))))))
 
 (defun map (result-type function first-sequence &rest more-sequences)
   (let* ((sequences (cons first-sequence more-sequences))
