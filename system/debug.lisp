@@ -341,7 +341,8 @@ Returns NIL if the function captures no variables."
 
 (defun debugger-main (&optional condition)
   (with-standard-io-syntax
-    (let* ((*standard-input* *debug-io*)
+    (let* ((*print-readably* nil)
+           (*standard-input* *debug-io*)
            (*standard-output* *debug-io*)
            (debug-level *debugger-depth*)
            (*debugger-depth* (1+ *debugger-depth*))
