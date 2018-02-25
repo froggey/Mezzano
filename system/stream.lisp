@@ -5,8 +5,9 @@
 
 ;;; TODO: Call write-string, terpri, start-line-p(?), fresh-line, advance-to-column, listen, read-line, read-char-no-hang, peek-char
 
-(defpackage :sys.gray
+(defpackage :mezzano.gray
   (:use :cl)
+  (:nicknames :sys.gray)
   (:export
    ;; Gray Streams classes.
    :fundamental-stream
