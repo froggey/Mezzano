@@ -282,25 +282,25 @@ thread states & call-stacks."
 (defun save-profile (path profile &key (verbosity :report) order-by)
   "Convert a profile into an almost human-readable format."
   (with-open-file (s path :direction :output :if-exists :new-version :if-does-not-exist :create)
-    (when (eql verbosity :flame-graph)
-      (generate-flame-graph profile s)
-      (return-from save-profile))
-    (format s "Version ~A~%" (lisp-implementation-version))
-    (when (member verbosity '(:report :full))
-      (generate-report profile order-by s))
-    (when (eql verbosity :full)
-      (loop
-         for sample across (profile-data profile) do
-           (format s "------------------------~%")
-           (loop
-              for thread across sample do
-                (format s "Thread ~S~%" (thread-sample-thread thread))
-                (format s " State ~S~%" (thread-sample-state thread))
-                (format s " Wait-item ~S~%" (thread-sample-wait-item thread))
-                (format s " Call-stack:~%")
-                (loop
-                   for (fn . offset) across (thread-sample-call-stack thread) do
-                     (format s "  ~S + ~D~%" fn offset))))))
+    (cond ((eql verbosity :flame-graph)
+           (generate-flame-graph profile s))
+          (t
+           (format s "Version ~A~%" (lisp-implementation-version))
+           (when (member verbosity '(:report :full))
+             (generate-report profile order-by s))
+           (when (eql verbosity :full)
+             (loop
+                for sample across (profile-data profile) do
+                  (format s "------------------------~%")
+                  (loop
+                     for thread across sample do
+                       (format s "Thread ~S~%" (thread-sample-thread thread))
+                       (format s " State ~S~%" (thread-sample-state thread))
+                       (format s " Wait-item ~S~%" (thread-sample-wait-item thread))
+                       (format s " Call-stack:~%")
+                       (loop
+                          for (fn . offset) across (thread-sample-call-stack thread) do
+                            (format s "  ~S + ~D~%" fn offset))))))))
   profile)
 
 (defstruct tree-branch
