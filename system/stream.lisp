@@ -1018,3 +1018,12 @@ CASE may be one of:
   (dotimes (i (- end start))
     (sys.gray:stream-write-char stream (char string (+ start i))))
   string)
+
+(defun write-string (string &optional stream &key (start 0) end)
+  (let ((s (frob-output-stream stream)))
+    (cond ((cold-stream-p s)
+           (unless end (setf end (length string)))
+           (dotimes (i (- end start))
+             (write-char (char string (+ start i)) stream)))
+          (t (sys.gray:stream-write-string s string start end))))
+  string)
