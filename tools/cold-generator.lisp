@@ -501,6 +501,7 @@
     object-address))
 
 (defun symbol-address (name package &optional (createp t))
+  (setf package (canonical-package-name package))
   (or (gethash (cons name package) *symbol-table*)
       (when (not createp)
         (error "Symbol ~A::~A does not exist."
@@ -900,6 +901,16 @@
         (create-thread "Initial thread"
                        :stack-size (* 16 1024)
                        :initial-state :active)))
+
+(defun canonical-package-name (package-name)
+  (cond ((or (string= package-name "CL")
+             (string= package-name "COMMON-LISP"))
+         "COMMON-LISP")
+        ((string= package-name "KEYWORD")
+         "KEYWORD")
+        (t
+         (package-name (or (find-package package-name)
+                           (error "Unknown package ~S" package-name))))))
 
 (defun canonical-symbol-package (symbol)
   (when (keywordp symbol)
