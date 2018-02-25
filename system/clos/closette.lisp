@@ -873,11 +873,21 @@ Other arguments are included directly."
            (setf (fdefinition function-name) gf)
            gf))))
 
+(defun generic-function-unspecialized-dispatch-p (gf)
+  "Returns true when the generic function has no methods with non-t specialized arguments."
+  (and (eq (class-of gf) *the-class-standard-gf*)
+       (every (lambda (method)
+                (every (lambda (spec)
+                         (eql spec *the-class-t*))
+                       (method-specializers method)))
+              (generic-function-methods gf))))
+
 (defun generic-function-single-dispatch-p (gf)
   "Returns true when the generic function only one non-t specialized argument and
 has only has class specializer."
   (when (and (eq (class-of gf) *the-class-standard-gf*)
-             (not (generic-function-has-unusual-specializers gf)))
+             (or (not (generic-function-has-unusual-specializers gf))
+                 (eql (generic-function-has-unusual-specializers gf) :eql)))
     (let ((specializers (generic-function-relevant-arguments gf))
           (count 0)
           (offset 0))
@@ -903,12 +913,13 @@ has only has class specializer."
             (setf (class-dependents class) (remove gf (class-dependents class))))
           (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
-        (t (loop
-              for classes being the hash-keys in (classes-to-emf-table gf)
-              do (loop
-                    for class in classes
-                    do (setf (class-dependents class) (remove gf (class-dependents class)))))
-           (clrhash (classes-to-emf-table gf)))))
+        ((classes-to-emf-table gf)
+         (loop
+            for classes being the hash-keys in (classes-to-emf-table gf)
+            do (loop
+                  for class in classes
+                  do (setf (class-dependents class) (remove gf (class-dependents class)))))
+         (clrhash (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
   (let ((number-required (length (gf-required-arglist gf))))
@@ -971,15 +982,22 @@ has only has class specializer."
       (do ((i 0 (1+ i))
            (spec (method-specializers m) (rest spec)))
           ((null spec))
-        (unless (typep (first spec) 'class)
-          (setf (generic-function-has-unusual-specializers gf) t))
+        (typecase (first spec)
+          (class)
+          (eql-specializer
+           (setf (generic-function-has-unusual-specializers gf) (or (generic-function-has-unusual-specializers gf)
+                                                                    :eql)))
+          (t
+           (setf (generic-function-has-unusual-specializers gf) t)))
         (unless (eql (first spec) class-t)
           (setf (bit relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
-  (setf (classes-to-emf-table gf) (if (generic-function-single-dispatch-p gf)
-                                      (make-single-dispatch-emf-table)
-                                      (make-hash-table :test #'equal)))
+  (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
+                                         (make-single-dispatch-emf-table))
+                                        ((generic-function-unspecialized-dispatch-p gf)
+                                         nil)
+                                        (t (make-hash-table :test #'equal))))
   (setf (generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) *the-class-standard-gf*)
                      #'std-compute-discriminating-function
@@ -1188,55 +1206,68 @@ has only has class specializer."
           (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
 
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
-  ;; Generate specialized dispatch functions for various combinations of
-  ;; arguments.
-  (macrolet ((gen-one (index n-required restp)
-               (let ((req-args (loop
-                                  for i below n-required
-                                  collect (gensym)))
-                     (rest-arg (when restp
-                                 (gensym))))
-                 `(when (and (eql ',index argument-offset)
-                             (eql (length (gf-required-arglist gf)) ',n-required)
-                             (eql (length (gf-optional-arglist gf)) '0)
-                             (or (and ',restp (gf-rest-arg-p gf))
-                                 (and (not ',restp) (not (gf-rest-arg-p gf)))))
-                    (lambda (,@req-args ,@(if rest-arg
-                                              `(&rest ,rest-arg)
-                                              '()))
-                      (declare (sys.int::lambda-name (1-effective-discriminator ,index ,n-required ,restp))
-                               ,@(if rest-arg
-                                     `((dynamic-extent ,rest-arg))
-                                     `()))
-                      (let* ((class (class-of ,(nth index req-args)))
-                             (emfun (single-dispatch-emf-entry emf-table class)))
-                        (if emfun
-                            ,(if rest-arg
-                                 `(apply emfun ,@req-args ,rest-arg)
-                                 `(funcall emfun ,@req-args))
-                            (slow-single-dispatch-method-lookup
-                             gf
-                             ,(if rest-arg
-                                  `(list* ,@req-args ,rest-arg)
-                                  `(list ,@req-args))
-                             class)))))))
-             (gen-all ()
-               `(or
-                 ,@(loop
-                      for idx from 0 below 5
-                      appending
-                        (loop
-                           for req from 1 to 5
-                           collect `(gen-one ,idx ,req nil)
-                           collect `(gen-one ,idx ,req t))))))
-    (or (gen-all)
-        (lambda (&rest args)
-          (declare (dynamic-extent args))
-          (let* ((class (class-of (nth argument-offset args)))
-                 (emfun (single-dispatch-emf-entry emf-table class)))
-            (if emfun
-                (apply emfun args)
-                (slow-single-dispatch-method-lookup gf args class)))))))
+  (let ((eql-table (compute-1-effective-eql-table gf argument-offset)))
+    ;; Generate specialized dispatch functions for various combinations of
+    ;; arguments.
+    (macrolet ((gen-one (index n-required restp eql-spec-p)
+                 (let ((req-args (loop
+                                    for i below n-required
+                                    collect (gensym)))
+                       (rest-arg (when restp
+                                   (gensym))))
+                   `(when (and (eql ',index argument-offset)
+                               (eql (length (gf-required-arglist gf)) ',n-required)
+                               (eql (length (gf-optional-arglist gf)) '0)
+                               (or (and ',restp (gf-rest-arg-p gf))
+                                   (and (not ',restp) (not (gf-rest-arg-p gf))))
+                               ,(if eql-spec-p
+                                    'eql-table
+                                    `(not eql-table)))
+                      (lambda (,@req-args ,@(if rest-arg
+                                                `(&rest ,rest-arg)
+                                                '()))
+                        (declare (sys.int::lambda-name (1-effective-discriminator ,index ,n-required ,restp ,eql-spec-p))
+                                 ,@(if rest-arg
+                                       `((dynamic-extent ,rest-arg))
+                                       `()))
+                        (block nil
+                          ,(when eql-spec-p
+                             `(let ((eql-emfun (assoc ,(nth index req-args) eql-table)))
+                                (when eql-emfun
+                                  (return ,(if rest-arg
+                                               `(apply (cdr eql-emfun) ,@req-args ,rest-arg)
+                                               `(funcall (cdr eql-emfun) ,@req-args))))))
+                          (let* ((class (class-of ,(nth index req-args)))
+                                 (emfun (single-dispatch-emf-entry emf-table class)))
+                            (if emfun
+                                ,(if rest-arg
+                                     `(apply emfun ,@req-args ,rest-arg)
+                                     `(funcall emfun ,@req-args))
+                                (slow-single-dispatch-method-lookup
+                                 gf
+                                 ,(if rest-arg
+                                      `(list* ,@req-args ,rest-arg)
+                                      `(list ,@req-args))
+                                 class))))))))
+               (gen-all ()
+                 `(or
+                   ,@(loop
+                        for idx from 0 below 5
+                        appending
+                          (loop
+                             for req from 1 to 5
+                             collect `(gen-one ,idx ,req nil nil)
+                             collect `(gen-one ,idx ,req nil t)
+                             collect `(gen-one ,idx ,req t   nil)
+                             collect `(gen-one ,idx ,req t   t))))))
+      (or (gen-all)
+          (lambda (&rest args)
+            (declare (dynamic-extent args))
+            (let* ((class (class-of (nth argument-offset args)))
+                   (emfun (single-dispatch-emf-entry emf-table class)))
+              (if emfun
+                  (apply emfun args)
+                  (slow-single-dispatch-method-lookup gf args class))))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args)
@@ -1249,6 +1280,20 @@ has only has class specializer."
       (if emfun
           (apply emfun args)
           (slow-method-lookup gf args classes)))))
+
+(defun compute-1-effective-eql-table (gf argument-offset)
+  (loop
+     with n-required = (length (gf-required-arglist gf))
+     for method in (generic-function-methods gf)
+     for spec = (elt (method-specializers method) argument-offset)
+     when (typep spec 'eql-specializer)
+     collect (cons (eql-specializer-object spec)
+                   (std-compute-effective-method-function
+                    gf
+                    (compute-applicable-methods gf
+                                                (loop
+                                                   repeat n-required
+                                                   collect (eql-specializer-object spec)))))))
 
 (defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
   (let ((emf-table (classes-to-emf-table gf)))
@@ -1295,10 +1340,9 @@ has only has class specializer."
        (reset-gf-emf-table gf)
        (let* ((classes (mapcar #'class-of (required-portion gf args)))
               (class (nth argument-offset classes))
-              (applicable-methods
-               (if (eql (class-of gf) *the-class-standard-gf*)
-                   (std-compute-applicable-methods-using-classes gf classes)
-                   (compute-applicable-methods-using-classes gf classes))))
+              (applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
+                                      (std-compute-applicable-methods-using-classes gf classes)
+                                      (compute-applicable-methods-using-classes gf classes))))
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
@@ -1329,6 +1373,8 @@ has only has class specializer."
         (generic-function-single-dispatch-p gf)
       (cond (single-dispatch-p
              (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
+            ((generic-function-unspecialized-dispatch-p gf)
+             (slow-unspecialized-dispatch-method-lookup gf args))
             (t (setf (generic-function-discriminating-function gf)
                      (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
@@ -1360,20 +1406,37 @@ has only has class specializer."
       (apply emfun args))))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
-  (let* ((classes (mapcar #'class-of
-                          (required-portion gf args)))
-         (applicable-methods
-          (if (eql (class-of gf) *the-class-standard-gf*)
-              (std-compute-applicable-methods-using-classes gf classes)
-              (compute-applicable-methods-using-classes gf classes))))
-    (let ((emfun (cond (applicable-methods
+  (let* ((classes (mapcar #'class-of (required-portion gf args))))
+    (multiple-value-bind (applicable-methods validp)
+        (if (eql (class-of gf) *the-class-standard-gf*)
+            (std-compute-applicable-methods-using-classes gf classes)
+            (compute-applicable-methods-using-classes gf classes))
+      (when (not validp)
+        ;; EQL specialized.
+        (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
+                                     (std-compute-applicable-methods gf args)
+                                     (compute-applicable-methods gf args))))
+      (let ((emfun (cond (applicable-methods
+                          (std-compute-effective-method-function gf applicable-methods))
+                         (t
+                          (lambda (&rest args)
+                            (apply #'no-applicable-method gf args))))))
+        (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
+        (pushnew gf (class-dependents class))
+        (apply emfun args)))))
+
+(defun slow-unspecialized-dispatch-method-lookup (gf args)
+  (let* ((classes (loop
+                     for req in (required-portion gf args)
+                     collect *the-class-t*))
+         (applicable-methods (std-compute-applicable-methods-using-classes gf classes))
+         (emfun (cond (applicable-methods
                         (std-compute-effective-method-function gf applicable-methods))
                        (t
-                        (lambda (&rest args)
-                          (apply #'no-applicable-method gf args))))))
-      (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
-      (pushnew gf (class-dependents class))
-      (apply emfun args))))
+                        (apply #'no-applicable-method gf args)))))
+    (setf (generic-function-discriminating-function gf) emfun)
+    (set-funcallable-instance-function gf emfun)
+    (apply emfun args)))
 
 ;;; compute-applicable-methods-using-classes
 

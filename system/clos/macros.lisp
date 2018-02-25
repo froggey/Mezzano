@@ -21,8 +21,12 @@
          (sys.int::%compiler-defclass ',name))
        (ensure-class ',name
                      :direct-superclasses ',direct-superclasses
-                     :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
-                     ,@(mapcan #'canonicalize-defclass-option options)))))
+                     :direct-slots (list ,@(loop
+                                              for slot in direct-slots
+                                              collect (canonicalize-defclass-direct-slot name slot)))
+                     ,@(loop
+                          for option in options
+                          append (canonicalize-defclass-option name option))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -48,7 +52,7 @@
                :format-control "Malformed plist ~S."
                :format-arguments (list plist)))))
 
-(defun canonicalize-defclass-direct-slot (direct-slot)
+(defun canonicalize-defclass-direct-slot (class-name direct-slot)
   (check-type direct-slot (or (and symbol (not null))
                               cons))
   (cond ((symbolp direct-slot)
@@ -85,7 +89,9 @@
                (case sym
                  (:initform
                   (setf initform val
-                        initfunction `#'(lambda () ,val)))
+                        initfunction `#'(lambda ()
+                                          (declare (sys.int::lambda-name (slot-initform ,class-name ,name)))
+                                          ,val)))
                  (:initarg
                   (push val initargs))
                  (:reader
@@ -121,7 +127,7 @@
                                    `',(reverse values)
                                    `',(first values))))))))
 
-(defun canonicalize-defclass-option (option)
+(defun canonicalize-defclass-option (class-name option)
   (check-type (first option) symbol)
   (when (member (first option) *defclass-options*)
     (error 'sys.int::simple-program-error
@@ -130,7 +136,7 @@
   (push (first option) *defclass-options*)
   (case (first option)
     (:default-initargs
-     `(:direct-default-initargs ,(canonicalize-defclass-default-initargs (rest option))))
+     `(:direct-default-initargs ,(canonicalize-defclass-default-initargs class-name (rest option))))
     (:metaclass
      `(:metaclass ',(second option)))
     (:documentation
@@ -138,7 +144,7 @@
     (t
      `(',(first option) ',(rest option)))))
 
-(defun canonicalize-defclass-default-initargs (initargs)
+(defun canonicalize-defclass-default-initargs (class-name initargs)
   (check-plist initargs)
   (let ((seen-initargs '()))
     (loop
@@ -151,7 +157,9 @@
          (push initarg seen-initargs)))
   `(list ,@(loop
               for (initarg form) on initargs by #'cddr
-              collect `(list ',initarg ',form #'(lambda () ,form)))))
+              collect `(list ',initarg ',form #'(lambda ()
+                                                  (declare (sys.int::lambda-name (default-initarg ,class-name ,initarg)))
+                                                  ,form)))))
 
 )
 
@@ -273,18 +281,38 @@
                              key-args-p)
                          (gensym "REST")
                          nil))
-           (trivial-rest-arg-p (not (or optional-args-p
-                                        key-args-p)))
            (incoming-lambda-list (append req-args
                                          (if rest-arg
                                              `(&rest ,rest-arg)
                                              `())))
-           (captured-rest (gensym "CNM-REST")))
-      `(lambda (method next-emfun)
+           (captured-rest (gensym "CNM-REST"))
+           (method (gensym "METHOD"))
+           (next-emfun (gensym "NEXT-EMFUN"))
+           (inner-method-lambda
+            `(lambda ,(kludge-arglist lambda-list)
+               (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
+                        ,@declares)
+               (flet ((call-next-method (&rest cnm-args)
+                        (if cnm-args
+                            (if ,next-emfun
+                                (apply ,next-emfun cnm-args)
+                                (apply #'invoke-no-next-method ,method cnm-args))
+                            (if ,next-emfun
+                                ,(cond (rest-arg
+                                        `(apply ,next-emfun ,@req-args ,captured-rest))
+                                       (t
+                                        `(funcall ,next-emfun ,@req-args)))
+                                ,(cond (rest-arg
+                                        `(apply #'invoke-no-next-method ,method ,@req-args ,captured-rest))
+                                       (t
+                                        `(funcall #'invoke-no-next-method ,method ,@req-args))))))
+                      (next-method-p ()
+                        (not (null ,next-emfun))))
+                 ,form))))
+      `(lambda (,method ,next-emfun)
          (lambda ,incoming-lambda-list
            (declare (sys.int::lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers))
-                    ,@(if (and rest-arg
-                               (not trivial-rest-arg-p))
+                    ,@(if rest-arg
                           `((dynamic-extent ,rest-arg))
                           `()))
            ,@(when docstring (list docstring))
@@ -292,49 +320,12 @@
            ;; Provide a non-dx copy of the &rest list for c-n-m in a way that the compiler
            ;; can eliminate if c-n-m is not used.
            (let (,@(if rest-arg
-                       (if trivial-rest-arg-p
-                           `((,captured-rest ,rest-arg))
-                           `((,captured-rest (copy-list ,rest-arg))))
+                       `((,captured-rest (copy-list ,rest-arg)))
                        `()))
-             (flet ((call-next-method (&rest cnm-args)
-                      (if cnm-args
-                          (if next-emfun
-                              (apply next-emfun cnm-args)
-                              (apply #'invoke-no-next-method method cnm-args))
-                          (if next-emfun
-                              ,(cond (rest-arg
-                                      `(apply next-emfun ,@req-args ,captured-rest))
-                                     (t
-                                      `(funcall next-emfun ,@req-args)))
-                              ,(cond (rest-arg
-                                      `(apply #'invoke-no-next-method method ,@req-args ,captured-rest))
-                                     (t
-                                      `(funcall #'invoke-no-next-method method ,@req-args))))))
-                    (next-method-p ()
-                      (not (null next-emfun))))
-               ,(cond ((and rest-arg trivial-rest-arg-p)
-                       ;; No &optional or &key args, pass the previously build &rest arg through as
-                       ;; an ordinary argument.
-                       ;; TODO: Preserve D-X &REST declaration, if any.
-                       `(funcall (lambda ,(remove '&rest (kludge-arglist lambda-list))
-                                   (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                            ,@declares)
-                                   ,form)
-                                 ,@req-args
-                                 ,rest-arg))
-                      (rest-arg
-                       `(apply (lambda ,(kludge-arglist lambda-list)
-                                 (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                          ,@declares)
-                                 ,form)
-                               ,@req-args
-                               ,rest-arg))
-                      (t
-                       `(funcall (lambda ,(kludge-arglist lambda-list)
-                                   (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
-                                            ,@declares)
-                                   ,form)
-                                 ,@req-args))))))))))
+             ,(cond (rest-arg
+                     `(apply ,inner-method-lambda ,@req-args ,rest-arg))
+                    (t
+                     `(funcall ,inner-method-lambda ,@req-args)))))))))
 
 ;;; N.B. The function kludge-arglist is used to pave over the differences
 ;;; between argument keyword compatibility for regular functions versus

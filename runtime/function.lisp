@@ -8,19 +8,19 @@
   (%object-tag function))
 
 (defun function-pool-size (function)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (ldb +function-header-pool-size+ (%object-header-data function)))
 
 (defun function-code-size (function)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (* (ldb +function-header-code-size+ (%object-header-data function)) 16))
 
 (defun function-gc-metadata-size (function)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (ldb +function-header-metadata-size+ (%object-header-data function)))
 
 (defun function-pool-object (function offset)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (check-type offset (integer 0))
   (assert (< offset (function-pool-size function)))
   (let ((address (logand (lisp-object-address function) -16))
@@ -28,14 +28,14 @@
     (memref-t address (+ mc-size offset))))
 
 (defun function-code-byte (function offset)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (check-type offset (integer 0))
   (assert (< offset (function-code-size function)))
   (let ((address (logand (lisp-object-address function) -16)))
     (memref-unsigned-byte-8 address offset)))
 
 (defun function-gc-metadata-byte (function offset)
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (check-type offset (integer 0))
   (assert (< offset (function-gc-metadata-size function)))
   (let* ((address (logand (lisp-object-address function) -16))
@@ -45,7 +45,7 @@
 
 (defun function-gc-info (function)
   "Return the address of and the number of bytes in FUNCTION's GC info."
-  (%type-check function +object-tag-function+ function)
+  (%type-check function +object-tag-function+ 'compiled-function)
   (let* ((address (logand (lisp-object-address function) -16))
          (gc-length (ldb +function-header-metadata-size+
                          (%object-header-data function)))

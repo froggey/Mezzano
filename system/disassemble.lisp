@@ -3,75 +3,130 @@
 
 (defpackage :mezzano.disassemble
   (:use :cl)
-  (:export #:disassemble #:disassemble-function))
+  (:export #:disassemble
+           #:disassemble-function
+           #:make-disassembler-context
+           #:disassembler-context-function
+           #:instruction-at
+           #:print-instruction))
 
 (in-package :mezzano.disassemble)
+
+(defvar *print-gc-metadata* t)
+(defvar *print-debug-metadata* nil)
 
 (defun disassemble (fn)
   (disassemble-function fn))
 
-(defun disassemble-function (fn &key (gc-metadata t) debug-metadata)
+(defun disassemble-function (fn &key (gc-metadata *print-gc-metadata*) (debug-metadata *print-debug-metadata*) architecture)
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
   (when (not (functionp fn))
     (setf fn (fdefinition fn)))
   (check-type fn function)
-  (let ((fundamental-fn fn))
-    ;; If this is a funcallable-instance, peel it apart to get the juicy bit
-    ;; inside. Bail out if there are multiple levels to funcallable-instances.
-    (when (sys.int::funcallable-std-instance-p fundamental-fn)
-      (setf fundamental-fn (sys.int::funcallable-std-instance-function fundamental-fn)))
-    (when (sys.int::funcallable-std-instance-p fundamental-fn)
-      (format t "~S:~%" fn)
-      (format t "  nested call to ~S~%" fundamental-fn)
-      (return-from disassemble-function))
-    (when (sys.int::closure-p fundamental-fn)
-      (setf fundamental-fn (sys.int::%closure-function fundamental-fn)))
-    (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
+  (setf architecture (sys.c::canonicalize-target architecture))
+  (let ((*print-gc-metadata* gc-metadata)
+        (*print-debug-metadata* debug-metadata)
+        (fundamental-fn (peel-function fn)))
     (cond ((eql fundamental-fn fn)
            (format t "~S:~%" fn))
           (t
            (format t "~S (implemented by ~S):~%" fn fundamental-fn)))
-    (let ((base-address (logand (sys.int::lisp-object-address fundamental-fn) -16))
-          (offset 16)
-          (context (make-instance 'disassembler-context :function fundamental-fn))
-          (gc-md (sys.int::decode-function-gc-info fundamental-fn))
-          (true-end (sys.int::function-code-size fundamental-fn)))
+    (disassemble-subfunction fundamental-fn architecture)
+    ;; Recursively traverse the function looking for closures and disassemble them too.
+    (let ((closures '())
+          (worklist (list fundamental-fn)))
+      (loop
+         until (endp worklist)
+         for fn = (pop worklist)
+         do
+           (when (not (member fn closures))
+             (when (not (eql fn fundamental-fn))
+               (push fn closures))
+             (dotimes (i (sys.int::function-pool-size fn))
+               (let ((entry (sys.int::function-pool-object fn i)))
+                 (when (sys.int::%object-of-type-p entry sys.int::+object-tag-function+)
+                   (push entry worklist))))))
+      (setf closures (reverse closures))
+      (dolist (fn closures)
+        (format t "----------~%" fn)
+        (format t "~S:~%" fn)
+        (disassemble-subfunction fn architecture))))
+  nil)
+
+(defun disassemble-subfunction (function architecture)
+  (let ((base-address (logand (sys.int::lisp-object-address function) -16))
+        (offset 16)
+        (context (make-disassembler-context function architecture))
+        (gc-md (sys.int::decode-function-gc-info function))
+        (true-end (sys.int::function-code-size function)))
+    (loop
+       for decoded across (context-instructions context)
+       do
+         (when (and gc-md
+                    (>= offset (first (first gc-md))))
+           (when *print-gc-metadata*
+             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
+           (pop gc-md))
+         (let ((label (label context offset)))
+           (when label
+             (format t " L~D" label)))
+         (format t "~7T~8,'0X: " (+ base-address offset))
+         (cond (decoded
+                (format t "~{~2,'0X ~}~50T"
+                        (loop
+                           repeat (inst-size decoded)
+                           for i from offset
+                           collect (sys.int::function-code-byte function i)))
+                (print-instruction context decoded)
+                (terpri)
+                (incf offset (inst-size decoded)))
+               (t
+                (format t "<bad ~2,'0X>~%"
+                        (sys.int::function-code-byte function offset))
+                (incf offset 1))))))
+
+(defun peel-function (function)
+  "Remove layers of closures and funcallable-instances from FUNCTION."
+  (check-type function function)
+  (let ((fundamental-fn function))
+    (when (sys.int::funcallable-std-instance-p fundamental-fn)
+      (setf fundamental-fn (sys.int::funcallable-std-instance-function fundamental-fn)))
+    (when (sys.int::funcallable-std-instance-p fundamental-fn)
+      ;; Bail out if there are multiple levels to funcallable-instances.
+      (error "~S contains a nested funcallable-instance ~S." function fundamental-fn))
+    (when (sys.int::closure-p fundamental-fn)
+      (setf fundamental-fn (sys.int::%closure-function fundamental-fn)))
+    (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
+    fundamental-fn))
+
+(defun make-disassembler-context (function &optional architecture)
+  (declare (ignore architecture))
+  (setf function (peel-function function))
+  (let ((context (make-instance 'disassembler-context :function function))
+        (true-end (sys.int::function-code-size function))
+        (offset 16))
       ;; Find the approximate end of the function. The size is rounded up to 16 bytes and
       ;; it's padded with zeros.
       (loop
-         (when (not (zerop (sys.int::function-code-byte fundamental-fn (1- true-end))))
+         (when (not (zerop (sys.int::function-code-byte function (1- true-end))))
            (return))
          (decf true-end))
-      (loop
-         (when (>= offset true-end)
-           (return))
-         (when (and gc-md
-                    (>= offset (first (first gc-md))))
-           (when gc-metadata
-             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
-           (pop gc-md))
-         (let ((label (label context offset))
-               (decoded (disassemble-one-instruction context)))
-           (when label
-             (format t " L~D" label))
-           (format t "~7T~8,'0X: " (+ base-address offset))
-           (cond (decoded
-                  (format t "~{~2,'0X ~}~50T"
-                          (loop
-                             repeat (inst-size decoded)
-                             for i from offset
-                             collect (sys.int::function-code-byte fundamental-fn i)))
-                  (print-instruction context decoded)
-                  (terpri)
-                  (incf offset (inst-size decoded)))
-                 (t
-                  (format t "<bad ~2,'0X>~%"
-                          (sys.int::function-code-byte fundamental-fn offset))
-                  (incf offset 1)))))))
-  nil)
+      ;; Disassemble all instructions.
+      (handler-case
+          (loop
+             (when (>= offset true-end)
+               (return))
+             (let ((inst (disassemble-one-instruction context)))
+               (vector-push-extend inst
+                                   (context-instructions context))
+               (incf offset (if inst
+                                (inst-size inst)
+                                1))))
+        (read-past-end-of-machine-code ()))
+      context))
 
-(defun print-instruction (context instruction)
+(defun print-instruction (context instruction &key (print-annotations t) (print-labels t))
   (let ((annotations '()))
     (format t "(")
     (cond ((eql (inst-opcode instruction) :jump-target)
@@ -79,6 +134,8 @@
                    (label context (first (inst-operands instruction)))
                    (label context (+ (first (inst-operands instruction)) (second (inst-operands instruction))))))
           (t
+           (when (inst-lock-prefix instruction)
+             (format t "LOCK "))
            (format t "~A" (inst-opcode instruction))
            (dolist (operand (inst-operands instruction))
              (format t " ")
@@ -91,7 +148,7 @@
                                   (pool-index (truncate (- target (sys.int::function-code-size (context-function context))) 8))
                                   (label (label context target)))
                              (cond
-                               (label
+                               ((and print-labels label)
                                 (push (format nil "#x~8,'0X" (+ address target)) annotations)
                                 (format t "L~D" label))
                                (t
@@ -121,7 +178,10 @@
                            (when (and (not (ea-index operand))
                                       (eql (ea-disp operand) 5))
                              (push "cdr" annotations))
-                           (format t "~S" (append (if (ea-base operand)
+                           (format t "~S" (append (if (ea-segment operand)
+                                                      (list (ea-segment operand))
+                                                      ())
+                                                  (if (ea-base operand)
                                                       (list (ea-base operand))
                                                       ())
                                                   (if (ea-index operand)
@@ -156,7 +216,7 @@
                    (t
                     (format t "~S" operand))))))
     (format t ")")
-    (when annotations
+    (when (and print-annotations annotations)
       (format t "~85T; ~A" (pop annotations))
       (dolist (an annotations)
         (format t ", ~A" an)))))
@@ -230,6 +290,7 @@
 (defclass instruction ()
   ((%offset :reader inst-offset)
    (%size :reader inst-size)
+   (%lock-prefix :initarg :lock-prefix :reader inst-lock-prefix)
    (%opcode :initarg :opcode :reader inst-opcode)
    (%operands :initarg :operands :reader inst-operands)))
 
@@ -245,10 +306,17 @@
   (:default-initargs :base nil :index nil :scale nil :disp 0 :segment nil))
 
 (defclass disassembler-context ()
-  ((%function :initarg :function :reader context-function)
+  ((%function :initarg :function :reader context-function :reader disassembler-context-function)
    (%offset :initform 16 :accessor context-code-offset)
    (%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)
-   (%label-table :initform (make-hash-table) :reader context-label-table)))
+   (%label-table :initform (make-hash-table) :reader context-label-table)
+   (%instructions :initform (make-array 0 :adjustable t :fill-pointer 0) :reader context-instructions)))
+
+(defun instruction-at (context offset)
+  (loop
+     for inst across (context-instructions context)
+     when (and inst (eql (inst-offset inst) offset))
+     do (return inst)))
 
 (defun label (context offset &key createp)
   (let ((table (context-label-table context)))
@@ -257,7 +325,11 @@
       (setf (gethash offset table) (hash-table-count table)))
     (values (gethash offset table))))
 
+(define-condition read-past-end-of-machine-code (error) ())
+
 (defun consume-octet (context)
+  (when (>= (context-code-offset context) (sys.int::function-code-size (context-function context)))
+    (error 'read-past-end-of-machine-code))
   (prog1
       (sys.int::function-code-byte (context-function context) (context-code-offset context))
     (incf (context-code-offset context))))
@@ -304,7 +376,8 @@
   (let* ((modr/m (consume-ub8 context))
          (mod (ldb +modr/m-mod+ modr/m))
          (rex-b (rex-b info))
-         (rex-x (rex-x info)))
+         (rex-x (rex-x info))
+         (asize (getf info :asize)))
     (values
      (ldb +modr/m-reg+ modr/m)
      (ecase (ldb +modr/m-mod+ modr/m)
@@ -317,29 +390,45 @@
                     (let ((disp32 (consume-sb32/le context)))
                       (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                              (make-instance 'effective-address
-                                            :disp disp32))
+                                            :disp disp32
+                                            :segment (getf info :segment)))
                             (t
                              (make-instance 'effective-address
-                                            :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                            :index (if asize
+                                                       (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                                       (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                             :scale (ash 1 (ldb +sib-ss+ sib))
-                                            :disp disp32)))))
+                                            :disp disp32
+                                            :segment (getf info :segment))))))
                    (t
                     (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                            (make-instance 'effective-address
-                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)))
+                                          :base (if asize
+                                                    (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                                    (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                          :segment (getf info :segment)))
                           (t
                            (make-instance 'effective-address
-                                          :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                          :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
-                                          :scale (ash 1 (ldb +sib-ss+ sib)))))))))
+                                          :base (if asize
+                                                    (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                                    (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                          :index (if asize
+                                                     (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                                     (decode-gpr64 (ldb +sib-index+ sib) rex-x))
+                                          :scale (ash 1 (ldb +sib-ss+ sib))
+                                          :segment (getf info :segment))))))))
           (#b101
            (let ((disp32 (consume-sb32/le context)))
              (make-instance 'effective-address
                             :base :rip
-                            :disp disp32)))
+                            :disp disp32
+                            :segment (getf info :segment))))
           (t
            (make-instance 'effective-address
-                          :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)))))
+                          :base (if asize
+                                    (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                    (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
+                          :segment (getf info :segment)))))
        (#b01
         (case (ldb +modr/m-r/m+ modr/m)
           (#b100
@@ -347,19 +436,30 @@
                  (disp8 (consume-sb8 context)))
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :disp disp8))
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :disp disp8
+                                   :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :index (if asize
+                                              (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                              (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                    :scale (ash 1 (ldb +sib-ss+ sib))
-                                   :disp disp8)))))
+                                   :disp disp8
+                                   :segment (getf info :segment))))))
           (t
            (let ((disp8 (consume-sb8 context)))
              (make-instance 'effective-address
-                            :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
-                            :disp disp8)))))
+                            :base (if asize
+                                      (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                      (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
+                            :disp disp8
+                            :segment (getf info :segment))))))
        (#b10
         (case (ldb +modr/m-r/m+ modr/m)
           (#b100
@@ -367,19 +467,30 @@
                  (disp32 (consume-sb32/le context)))
              (cond ((and (not rex-x) (eql (ldb +sib-index+ sib) 4))
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :disp disp32))
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :disp disp32
+                                   :segment (getf info :segment)))
                    (t
                     (make-instance 'effective-address
-                                   :base (decode-gpr64 (ldb +sib-base+ sib) rex-b)
-                                   :index (decode-gpr64 (ldb +sib-index+ sib) rex-x)
+                                   :base (if asize
+                                             (decode-gpr32 (ldb +sib-base+ sib) rex-b)
+                                             (decode-gpr64 (ldb +sib-base+ sib) rex-b))
+                                   :index (if asize
+                                              (decode-gpr32 (ldb +sib-index+ sib) rex-x)
+                                              (decode-gpr64 (ldb +sib-index+ sib) rex-x))
                                    :scale (ash 1 (ldb +sib-ss+ sib))
-                                   :disp disp32)))))
+                                   :disp disp32
+                                   :segment (getf info :segment))))))
           (t
            (let ((disp32 (consume-sb32/le context)))
              (make-instance 'effective-address
-                            :base (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b)
-                            :disp disp32)))))
+                            :base (if asize
+                                      (decode-gpr32 (ldb +modr/m-r/m+ modr/m) rex-b)
+                                      (decode-gpr64 (ldb +modr/m-r/m+ modr/m) rex-b))
+                            :disp disp32
+                            :segment (getf info :segment))))))
        (#b11
         (ldb +modr/m-r/m+ modr/m))))))
 
@@ -484,8 +595,8 @@
     nil
     nil
     (decode-movsx32)
-    (decode-simple sys.lap-x86:fs)
-    (decode-simple sys.lap-x86:gs)
+    nil
+    nil
     nil
     nil
     (decode-iz sys.lap-x86:push) ; 68
@@ -624,7 +735,7 @@
     (decode-io sys.lap-x86:in16 sys.lap-x86:in32 :dx)
     (decode-io sys.lap-x86:out8 sys.lap-x86:out8 :dx)
     (decode-io sys.lap-x86:out16 sys.lap-x86:out32 :dx)
-    (decode-simple sys.lap-x86:lock) ; F0
+    nil ; F0
     nil
     nil
     nil
@@ -1017,7 +1128,7 @@
 
 (defun decode-al-ib (context info opcode)
   (declare (ignore info))
-  (make-instruction opcode :al (consume-sb8 context)))
+  (make-instruction opcode :al (consume-ub8 context)))
 
 (defun decode-ax-iz (context info opcode16 opcode32 opcode64)
   (let* ((osize (operand-size info))
@@ -1037,7 +1148,7 @@
              (and (first opcodes)
                   (make-instruction (first opcodes)
                                     (decode-gpr8-or-mem r/m (rex-b info))
-                                    (consume-sb8 context))))
+                                    (consume-ub8 context))))
             (t nil)))))
 
 (defun decode-eb-gb (context info opcode)
@@ -1274,7 +1385,7 @@
   (let ((reg (ldb (byte 3 0) (getf info :opcode))))
     (make-instruction 'sys.lap-x86:mov8
                       (decode-gpr8 reg (rex-b info))
-                      (consume-sb8 context))))
+                      (consume-ub8 context))))
 
 (defun decode-mov+r-iv (context info)
   (let ((reg (ldb (byte 3 0) (getf info :opcode))))
@@ -1570,14 +1681,30 @@
          (info '()))
     ;; Read ordinary prefixes
     (loop
-       (cond ((member byte '(#xF2 #xF3))
-              (setf (getf info :rep) byte)
-              (setf byte (consume-ub8 context)))
-             ((eql byte #x66)
-              (setf (getf info :osize) byte)
-              (setf byte (consume-ub8 context)))
-             (t
-              (return))))
+       (case byte
+         ((#xF2 #xF3)
+          (setf (getf info :rep) byte))
+         (#x2E
+          (setf (getf info :segment) :cs))
+         (#x36
+          (setf (getf info :segment) :ss))
+         (#x3E
+          (setf (getf info :segment) :ds))
+         (#x26
+          (setf (getf info :segment) :es))
+         (#x64
+          (setf (getf info :segment) :fs))
+         (#x65
+          (setf (getf info :segment) :gs))
+         (#x66
+          (setf (getf info :osize) byte))
+         (#x67
+          (setf (getf info :asize) byte))
+         (#xF0
+          (setf (getf info :lock) byte))
+         (t
+          (return)))
+       (setf byte (consume-ub8 context)))
     (when (eql (logand byte #xF0) #x40)
       ;; REX prefix.
       (setf (getf info :rex) byte)
@@ -1588,7 +1715,10 @@
     (let ((entry (aref table byte)))
       (setf (getf info :opcode) byte)
       (cond (entry
-             (apply (first entry) context info (rest entry)))
+             (let ((inst (apply (first entry) context info (rest entry))))
+               (when inst
+                 (setf (slot-value inst '%lock-prefix) (getf info :lock)))
+               inst))
             (t nil)))))
 
 (defun disassemble-one-instruction (context)

@@ -284,6 +284,22 @@
              (typep (cdr object) cdr-type)))))
 (%define-compound-type 'cons 'cons-type-p)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-cons-type (object type)
+  (destructuring-bind (&optional (car-type '*) (cdr-type '*))
+      (cdr type)
+    (when (eql car-type '*)
+      (setf car-type 't))
+    (when (eql cdr-type '*)
+      (setf cdr-type 't))
+    `(and (consp ,object)
+          ,@(when (not (eql car-type 't))
+              `((typep (car ,object) ',car-type)))
+          ,@(when (not (eql cdr-type 't))
+              `((typep (cdr ,object) ',cdr-type))))))
+(%define-compound-type-optimizer 'cons 'compile-cons-type)
+)
+
 (deftype null ()
   '(eql nil))
 
@@ -324,6 +340,21 @@
              (typep (realpart object)
                     (upgraded-complex-part-type typespec))))))
 (%define-compound-type 'complex 'complex-type)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-complex-type (object type)
+  (destructuring-bind (&optional (typespec '*))
+      (if (listp type)
+          (rest type)
+          '(*))
+    (cond ((eql typespec '*)
+           `(complexp ,object))
+          (t
+           (let ((upgraded (upgraded-complex-part-type typespec)))
+             `(and (complexp ,object)
+                   (typep (realpart ,object) ',upgraded)))))))
+(%define-compound-type-optimizer 'complex 'compile-complex-type)
+)
 
 ;; Not exactly correct. This is a class, SUBTYPEP has problems with that.
 (deftype list ()

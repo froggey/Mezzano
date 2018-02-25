@@ -346,10 +346,11 @@ TLB shootdown must be protected by the VM lock."
             (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
                                      (svref sys.int::*interrupt-service-routines* i)
                                      sys.int::+function-entry-point+)
-                            :ist (cond ((eql i 14) 1) ; page fault.
-                                       ((eql i 6) 1) ; undefined op.
-                                       ((>= i 32) 2) ; IRQ
-                                       (t 0)))
+                            ;; Take CPU interrupts on the exception stack
+                            ;; and IRQs on the interrupt stack.
+                            :ist (if (< i 32)
+                                     1
+                                     2))
             (values 0 0))
       (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
             (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))

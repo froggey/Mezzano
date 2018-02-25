@@ -16,10 +16,6 @@
   (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
        (%%simple-1d-array-p object)))
 
-(declaim (inline simple-vector-p))
-(defun simple-vector-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-array-t+))
-
 (declaim (inline sys.int::character-array-p))
 (defun sys.int::character-array-p (object)
   (or (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+)

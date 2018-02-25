@@ -494,20 +494,24 @@
 (defmethod emit-lap (backend-function (instruction ir:constant-instruction) uses defs)
   (let ((value (ir:constant-value instruction))
         (dest (ir:constant-destination instruction)))
-    (cond ((typep value 'ir:backend-function)
-           (emit `(lap:mov64 ,dest (:constant ,(ir:compile-backend-function value *target*)))))
-          ((eql value 0)
-           (emit `(lap:xor64 ,dest ,dest)))
-          ((eql value 'nil)
-           (emit `(lap:mov64 ,dest nil)))
-          ((eql value 't)
-           (emit `(lap:mov64 ,dest t)))
-          ((sys.c::fixnump value)
-           (emit `(lap:mov64 ,dest ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw value))))
-          ((characterp value)
-           (emit `(lap:mov64 ,dest ,(mezzano.compiler.codegen.x86-64::character-to-raw value))))
-          (t
-           (emit `(lap:mov64 ,dest (:constant ,value)))))))
+    (flet ((load-int (value)
+             (typecase value
+               ((eql 0)
+                (emit `(lap:xor32 ,(lap::convert-width dest 32) ,(lap::convert-width dest 32))))
+               ((unsigned-byte 32)
+                (emit `(lap:mov32 ,(lap::convert-width dest 32) ,value)))
+               (t
+                (emit `(lap:mov64 ,dest ,value))))))
+      (cond ((typep value 'ir:backend-function)
+             (emit `(lap:mov64 ,dest (:constant ,(ir:compile-backend-function value *target*)))))
+            ((member value '(nil t))
+             (emit `(lap:mov32 ,(lap::convert-width dest 32) ,value)))
+            ((sys.c::fixnump value)
+             (load-int (mezzano.compiler.codegen.x86-64::fixnum-to-raw value)))
+            ((characterp value)
+             (load-int (mezzano.compiler.codegen.x86-64::character-to-raw value)))
+            (t
+             (emit `(lap:mov64 ,dest (:constant ,value))))))))
 
 (defmethod emit-lap (backend-function (instruction ir:return-instruction) uses defs)
   (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1))
@@ -918,7 +922,7 @@
          (emit `(lap:mov64 :r8 nil)
                `(lap:xor32 :ecx :ecx)))
         (t
-         (emit `(lap:mov64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
+         (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
          (loop
             for value in (nthcdr 5 (ir:values-values instruction))
             for i from 0

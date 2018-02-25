@@ -126,5 +126,10 @@
                `(complex (realpart ,obj) (imagpart ,obj)))
               ((subtypep result-type 'character)
                `(character ,obj))
+              ((subtypep result-type 'function)
+               (return-from coerce whole))
               (t
-               (return-from coerce whole))))))
+               `(progn
+                  (when (not (typep ,obj ',result-type))
+                    (error 'unknown-coercion :object ,obj :type ',result-type))
+                  ,obj))))))

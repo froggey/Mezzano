@@ -1,6 +1,9 @@
 (in-package :sys.int)
 
 (defun fetch-thread-function-arguments (thread)
+  (when (not (mezzano.supervisor:thread-full-save-p thread))
+    (format t "Thread not full save?~%")
+    (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
   (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
         (reg-vals (list (mezzano.supervisor:thread-state-r8-value thread)
                         (mezzano.supervisor:thread-state-r9-value thread)
@@ -9,25 +12,36 @@
                         (mezzano.supervisor:thread-state-r12-value thread)))
         (sp (mezzano.supervisor:thread-state-rsp thread))
         (stack-vals '()))
+    (when (not (fixnump count))
+      (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
+      (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
     (dotimes (i (max 0 (- count 5)))
       (push (memref-t sp (1+ i)) stack-vals))
     (subseq (append reg-vals (reverse stack-vals))
             0 count)))
 
 (defun fetch-thread-return-values (thread)
+  (when (not (mezzano.supervisor:thread-full-save-p thread))
+    (format t "Thread not full save?~%")
+    (return-from fetch-thread-return-values '(:thread-in-strange-state)))
   (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
         (vals (list (mezzano.supervisor:thread-state-r12-value thread)
                     (mezzano.supervisor:thread-state-r11-value thread)
                     (mezzano.supervisor:thread-state-r10-value thread)
                     (mezzano.supervisor:thread-state-r9-value thread)
                     (mezzano.supervisor:thread-state-r8-value thread))))
+    (when (not (fixnump count))
+      (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
+      (return-from fetch-thread-return-values '(:thread-in-strange-state)))
     (dotimes (i (max 0 (- count 5)))
       (push (%object-ref-t thread (+ mezzano.supervisor::+thread-mv-slots-start+ i)) vals))
     (subseq (reverse vals) 0 count)))
 
 (defparameter *step-special-functions*
-  '(cons cons-in-area
-    mezzano.runtime::%allocate-object
+  '(mezzano.runtime::slow-cons
+    mezzano.runtime::%slow-allocate-from-general-area
+    mezzano.runtime::%allocate-from-pinned-area
+    mezzano.runtime::%allocate-from-wired-area
     mezzano.supervisor::%call-on-wired-stack-without-interrupts
     mezzano.supervisor::call-with-mutex))
 
@@ -116,32 +130,57 @@
          (format t " rip: ~8,'0X~%" (sys.int::memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))))
   (values))
 
-(defun trace-execution (function &key full-dump run-forever)
+(defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t))
   (check-type function function)
-  (let* ((next-stop-boundary 1000)
+  (let* ((next-stop-boundary 10000)
          (stopped nil)
+         (terminal-io *terminal-io*)
+         (standard-input *standard-input*)
+         (standard-output *standard-output*)
+         (error-output *error-output*)
+         (trace-output *trace-output*)
+         (debug-io *debug-io*)
+         (query-io *query-io*)
          (thread (mezzano.supervisor:make-thread
                   (lambda ()
-                    (loop
-                       (when stopped
-                         (return))
-                       (mezzano.supervisor:thread-yield))
-                    (funcall function))))
+                    (let ((*terminal-io* terminal-io)
+                          (*standard-input* standard-input)
+                          (*standard-output* standard-output)
+                          (*error-output* error-output)
+                          (*trace-output* trace-output)
+                          (*debug-io* debug-io)
+                          (*query-io* query-io)
+                          (*the-debugger* (lambda (condition)
+                                            (declare (ignore condition))
+                                            (throw 'mezzano.supervisor:terminate-thread nil))))
+                      (loop
+                         (when stopped
+                           (return))
+                         (mezzano.supervisor:thread-yield))
+                      (funcall function)))
+                  :name "Trace thread"))
          (instructions-stepped 0)
-         (prev-fn nil))
+         (prev-fn nil)
+         (disassembler-context (mezzano.disassemble:make-disassembler-context function))
+         (in-single-step-wrapper nil)
+         (single-step-wrapper-sp nil)
+         (prestart trim-stepper-noise)
+         (entry-sp nil)
+         (fundamental-function (mezzano.disassemble::peel-function function)))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
          (loop
             (when (and (not run-forever)
-                       (zerop (mod (incf instructions-stepped) next-stop-boundary)))
+                       (not (zerop instructions-stepped))
+                       (zerop (mod instructions-stepped next-stop-boundary)))
               (when (y-or-n-p "Thread has run for ~D instructions. Stop?" instructions-stepped)
                 (mezzano.supervisor:terminate-thread thread)
                 (mezzano.supervisor::resume-thread thread)
                 (return))
               (setf next-stop-boundary (* next-stop-boundary 2)))
             (when (eql (mezzano.supervisor:thread-state thread) :dead)
-              (format t "Thread has died.~%")
+              (format t "Thread has died. ~:D instructions executed~%" instructions-stepped)
               (return))
             (when full-dump
               (dump-thread-state thread))
@@ -149,20 +188,72 @@
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
                   (return-address-to-function rip)
-                (format t "~8,'0X: ~S + ~D~%" rip fn offset)
-                (when (and prev-fn
-                           (not (eql fn prev-fn)))
-                  (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
-                         (format t "Entered function ~S with arguments ~:A.~%" fn
-                                 (mapcar #'print-safely-to-string
-                                         (fetch-thread-function-arguments thread))))
-                        (t
-                         (format t "Returning from function ~S to ~S with results ~:A.~%"
-                                 prev-fn fn
-                                 (mapcar #'print-safely-to-string
-                                         (fetch-thread-return-values thread))))))
-                (setf prev-fn fn))))
-      (mezzano.supervisor:terminate-thread thread))))
+                (when (and (not entry-sp)
+                           prestart
+                           (eql fn fundamental-function))
+                  (setf entry-sp (mezzano.supervisor:thread-state-rsp thread))
+                  (setf prestart nil))
+                (cond (prestart)
+                      ((and trim-stepper-noise
+                            (not in-single-step-wrapper)
+                            (eql fn #'single-step-wrapper))
+                       (setf single-step-wrapper-sp (mezzano.supervisor:thread-state-rsp thread))
+                       (setf in-single-step-wrapper t))
+                      (in-single-step-wrapper
+                       (when (and (eql fn #'single-step-wrapper)
+                                  (< single-step-wrapper-sp (mezzano.supervisor:thread-state-rsp thread))
+                                  (logtest #x8 (mezzano.supervisor:thread-state-rsp thread)))
+                         (setf in-single-step-wrapper nil)))
+                      (t
+                       (when (and prev-fn
+                                  (not (eql fn prev-fn)))
+                         (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                                (cond (trace-call-mode
+                                       (write-char #\>)
+                                       (write-char #\Space)
+                                       (write instructions-stepped)
+                                       (write-char #\Space)
+                                       (write (mezzano.supervisor:thread-state-rsp thread) :base 16)
+                                       (write-char #\Space)
+                                       (write (function-name fn))
+                                       (terpri))
+                                      (t
+                                       (format t "Entered function ~S with arguments ~:A.~%"
+                                               (or (function-name fn) fn)
+                                               (mapcar #'print-safely-to-string
+                                                       (fetch-thread-function-arguments thread))))))
+                               (t
+                                (cond (trace-call-mode
+                                       (write-char #\<)
+                                       (write-char #\Space)
+                                       (write instructions-stepped)
+                                       (write-char #\Space)
+                                       (write (mezzano.supervisor:thread-state-rsp thread) :base 16)
+                                       (write-char #\Space)
+                                       (write (function-name prev-fn))
+                                       (terpri))
+                                      (t
+                                       (format t "Returning from function ~S to ~S with results ~:A.~%"
+                                               (or (function-name prev-fn) prev-fn)
+                                               (or (function-name fn) fn)
+                                               (mapcar #'print-safely-to-string
+                                                       (fetch-thread-return-values thread))))))))
+                       (when print-instructions
+                         (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
+                           (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
+                         (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
+                           (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
+                           (when inst
+                             (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
+                           (terpri)))
+                       (incf instructions-stepped)
+                       (setf prev-fn fn)))
+                (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
+                           (not (eql offset 16)))
+                  (setf prestart t)))))
+      (mezzano.supervisor:terminate-thread thread)
+      (ignore-errors
+        (mezzano.supervisor::resume-thread thread)))))
 
 (defun print-safely-to-string (obj)
   (handler-case

@@ -793,6 +793,10 @@
 
 (defun read-#-features (stream suppress-if-false)
   "Common function to implement #+ and #-."
+  (when *read-suppress*
+    ;; Read & ignore the feature.
+    (read stream t nil t)
+    (return-from read-#-features (values)))
   (let* ((test (let ((*package* (find-package "KEYWORD")))
                  (read stream t nil t)))
          (*read-suppress* (or *read-suppress*

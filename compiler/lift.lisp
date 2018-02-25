@@ -274,18 +274,96 @@
                 ,(build-required-bindings required-args argument-vars))
              lambda)))))
 
+(defun lift-lambda-apply (lambda arguments)
+  (multiple-value-bind (list-body list-tail)
+      (extract-list-like-forms arguments)
+    (let ((n-requireds (length (lambda-information-required-args lambda))))
+      ;; Only supports lifting lambdas with required args *and* a &rest arg.
+      (when (and (not (lambda-information-enable-keys lambda))
+                 (endp (lambda-information-optional-args lambda))
+                 (not (lambda-information-fref-arg lambda))
+                 (not (lambda-information-count-arg lambda))
+                 (not (lambda-information-closure-arg lambda))
+                 (lambda-information-rest-arg lambda)
+                 ;; If there's no list-tail, simplify will transform this into
+                 ;; a %funcall and it'll be lowered normally.
+                 list-tail
+                 ;; Must have the right number of arguments.
+                 (>= (length list-body) n-requireds))
+        (let* ((argument-vars (loop
+                                 for x in list-body
+                                 collect (make-instance 'lexical-variable
+                                                        :inherit lambda
+                                                        :name (gensym)
+                                                        :definition-point *current-lambda*
+                                                        :ignore :maybe)))
+               (required-values (subseq argument-vars 0 n-requireds))
+               (rest-values (subseq argument-vars n-requireds))
+               (rest-arg (lambda-information-rest-arg lambda))
+               (possibly-copied-tail (if (and (typep rest-arg 'lexical-variable)
+                                              (lexical-variable-dynamic-extent rest-arg))
+                                         ;; If it is dynamic-extent, it can share structure with the remaining part.
+                                         list-tail
+                                         ;; Otherwise it must be copied.
+                                         (ast `(call copy-list ,list-tail) lambda)))
+               (rest-value (if rest-values
+                               (ast `(call list* ,@rest-values ,possibly-copied-tail) lambda)
+                               possibly-copied-tail)))
+          ;; Bind argument forms to their variables.
+          (ast `(let ,(mapcar #'list argument-vars list-body)
+                  ;; Bind required arguments.
+                  (let ,(mapcar #'list (lambda-information-required-args lambda) required-values)
+                    ;; Bind the rest list
+                    (let ((,rest-arg ,rest-value))
+                      ;; Finally splice in the body form.
+                      ,(ll-form (lambda-information-body lambda)))))
+               lambda))))))
+
 (defmethod ll-form ((form ast-call))
   (ll-implicit-progn (arguments form))
   (if *should-inline-functions*
       (or (and (eql (name form) 'mezzano.runtime::%funcall)
                (lambda-information-p (first (arguments form)))
                (lift-lambda (first (arguments form)) (rest (arguments form))))
+          (and (eql (name form) 'mezzano.runtime::%apply)
+               (lambda-information-p (first (arguments form)))
+               (lift-lambda-apply (first (arguments form)) (second (arguments form))))
           ;; Couldn't lift.
           form)
       form))
 
 (defmethod ll-form ((form lexical-variable))
   form)
+
+(defun lift-apply-body (form)
+  ;; Rewrite (lambda (req... &rest rest) (%apply inner-lambda req... rest)) to inner-lambda.
+  ;; Outer lambda must have simple required & rest arguments only.
+  (when (not (and (every (lambda (x)
+                           (and (typep x 'lexical-variable)
+                                (localp x)))
+                         (lambda-information-required-args form))
+                  (endp (lambda-information-optional-args form))
+                  (not (lambda-information-enable-keys form))
+                  (typep (lambda-information-rest-arg form) 'lexical-variable)
+                  (localp (lambda-information-rest-arg form))
+                  (not (lambda-information-fref-arg form))
+                  (not (lambda-information-closure-arg form))
+                  (not (lambda-information-count-arg form))
+                  ;; Inner lambda must be a lambda.
+                  (lambda-information-p (first (arguments (lambda-information-body form))))))
+    (return-from lift-apply-body nil))
+  (multiple-value-bind (list-body list-tail)
+      (extract-list-like-forms (second (arguments (lambda-information-body form))))
+    (setf list-body (mapcar #'unwrap-the list-body))
+    (when list-tail
+      (setf list-tail (unwrap-the list-tail)))
+    ;; list-body must exactly be the required arguments and list-tail must be the rest argument.
+    (when (not (and (every 'eql (lambda-information-required-args form) list-body)
+                    (eql list-tail (lambda-information-rest-arg form))))
+      (return-from lift-apply-body nil))
+    ;; Replace with the inner lambda.
+    (change-made)
+    (first (arguments (lambda-information-body form)))))
 
 (defmethod ll-form ((form lambda-information))
   (let ((*current-lambda* form))
@@ -294,4 +372,7 @@
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (ll-form (second arg))))
     (setf (lambda-information-body form) (ll-form (lambda-information-body form))))
-  form)
+  (or (and (and (typep (lambda-information-body form) 'ast-call)
+                (eql (name (lambda-information-body form)) 'mezzano.runtime::%apply))
+           (lift-apply-body form))
+      form))

@@ -2070,7 +2070,20 @@ Tag with +TAG-OBJECT+."
                                  sys.int::+object-type-shift+))
        (setf (word (+ address 1)) realpart
              (word (+ address 2)) imagpart)
-       (make-value address sys.int::+tag-object+)))))
+       (make-value address sys.int::+tag-object+)))
+    (#.sys.int::+llf-typed-array+
+     (let* ((n-dimensions (load-integer stream))
+            (dimensions (loop for i from 0 below n-dimensions
+                           collect (load-integer stream)))
+            (element-type (extract-object (stack-pop stack)))
+            (temp-array (make-array dimensions :element-type element-type))
+            (total-size (array-total-size temp-array)))
+       ;; Drop vector values and copy them into the image.
+       (decf (fill-pointer stack) total-size)
+       (dotimes (i total-size)
+         (setf (row-major-aref temp-array i) (extract-object (aref stack (+ (length stack) i)))))
+       (save-object temp-array)))
+))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))

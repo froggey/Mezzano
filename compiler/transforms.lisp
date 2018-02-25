@@ -557,3 +557,11 @@
 (define-transform sys.int::enable-unsafe-struct-access ()
     ((:optimize (/= safety 0)))
   `'nil)
+
+(define-transform list ()
+    ()
+  `'nil)
+
+(define-transform list* (object)
+    ()
+  object)
