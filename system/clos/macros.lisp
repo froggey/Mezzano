@@ -90,7 +90,7 @@
                  (:initform
                   (setf initform val
                         initfunction `#'(lambda ()
-                                          (sys.int::lambda-name (slot-initform ,class-name ,name))
+                                          (declare (sys.int::lambda-name (slot-initform ,class-name ,name)))
                                           ,val)))
                  (:initarg
                   (push val initargs))
