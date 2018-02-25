@@ -1217,9 +1217,10 @@ has only has class specializer."
                                    (gensym))))
                    `(when (and (eql ',index argument-offset)
                                (eql (length (gf-required-arglist gf)) ',n-required)
-                               (eql (length (gf-optional-arglist gf)) '0)
-                               (or (and ',restp (gf-rest-arg-p gf))
-                                   (and (not ',restp) (not (gf-rest-arg-p gf))))
+                               (or (and ',restp (or (gf-optional-arglist gf)
+                                                    (gf-rest-arg-p gf)))
+                                   (and (not ',restp) (not (or (gf-optional-arglist gf)
+                                                               (gf-rest-arg-p gf)))))
                                ,(if eql-spec-p
                                     'eql-table
                                     `(not eql-table)))
