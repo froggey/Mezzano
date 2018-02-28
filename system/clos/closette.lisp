@@ -701,17 +701,22 @@ Other arguments are included directly."
                                    (class-direct-slots super)
                                    :key #'slot-definition-name)))
                (when existing
-                 (cond ((eql super class)
-                        ;; This class defines the direct slot. Create a new cell to hold the value.
-                        ;; (FIXME: Need to preserve the location over class redefinition.)
-                        (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
-                       (t
-                        (let ((existing-effective (find (slot-definition-name slot)
-                                                        (class-slots super)
-                                                        :key #'slot-definition-name)))
+                 (let ((existing-effective (find (slot-definition-name slot)
+                                                 (class-slots super)
+                                                 :key #'slot-definition-name)))
+                   (cond ((eql super class)
+                          ;; This class defines the direct
+                          ;; slot. Create a new cell to hold the
+                          ;; value, or preserve the existing one if
+                          ;; the class is being redefined.
+                          (setf (slot-definition-location slot)
+                                (if existing-effective
+                                    (slot-definition-location existing-effective)
+                                    (cons (slot-definition-name slot) *secret-unbound-value*))))
+                         (t
                           (assert (consp (slot-definition-location existing-effective)))
-                          (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
-                 (return)))))
+                          (setf (slot-definition-location slot) (slot-definition-location existing-effective))))
+                   (return))))))
           (t
            (setf (slot-definition-location slot) nil)))))
 
