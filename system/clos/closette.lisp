@@ -92,7 +92,6 @@
 (sys.int::defglobal *standard-class-finalized-p-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
-(sys.int::defglobal *standard-class-effective-slots-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
