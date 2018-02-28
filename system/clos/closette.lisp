@@ -140,7 +140,9 @@
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance)
                                 instance
-                                (slot-definition-name (elt (class-slots (class-of instance)) location))))
+                                (if (consp location)
+                                    (car location)
+                                    (slot-definition-name (elt (class-slots (class-of instance)) location)))))
           val))))
 
 (defun fast-slot-write (new-value instance location)
