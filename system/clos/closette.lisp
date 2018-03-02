@@ -1473,13 +1473,16 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
-                     (std-class-p (class-of class))
-                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
-                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (assert location)
-                  (setf (single-dispatch-emf-entry emf-table class) location)
-                  (pushnew gf (class-dependents class))
-                  (fast-slot-read (first args) location)))
+                     (std-class-p (class-of class)))
+                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
+                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                         (assert location)
+                         (setf (single-dispatch-emf-entry emf-table class) location)
+                         (pushnew gf (class-dependents class))
+                         (fast-slot-read (first args) location)))
+                      (t
+                       ;; Slot not present, fall back on SLOT-VALUE.
+                       (slot-value (first args) (slot-value (first applicable-methods) 'slot-definition)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:writer
@@ -1492,13 +1495,16 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
-                     (std-class-p (class-of class))
-                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
-                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (assert location)
-                  (setf (single-dispatch-emf-entry emf-table class) location)
-                  (pushnew gf (class-dependents class))
-                  (fast-slot-write (first args) (second args) location)))
+                     (std-class-p (class-of class)))
+                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
+                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                         (assert location)
+                         (setf (single-dispatch-emf-entry emf-table class) location)
+                         (pushnew gf (class-dependents class))
+                         (fast-slot-write (first args) (second args) location)))
+                      (t
+                       ;; Slot not present, fall back on SLOT-VALUE.
+                       (setf (slot-value (second args) (slot-value (first applicable-methods) 'slot-definition)) (first args)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:never-called
