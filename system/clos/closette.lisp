@@ -296,7 +296,7 @@
 
 (define-compiler-macro (setf slot-value) (&whole whole value object slot-name)
   (cond ((typep slot-name '(cons (eql quote) (cons symbol null)))
-         `(funcall (load-time-value (fast-slot-value-reader ,slot-name))
+         `(funcall (load-time-value (fast-slot-value-writer ,slot-name))
                    ,value
                    ,object))
         (t
