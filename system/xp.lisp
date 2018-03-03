@@ -1121,8 +1121,8 @@
   (write-char+ char stream)
   char)
 
-(defmethod sys.gray:stream-write-string ((stream xp-structure) string &optional (start 0) (end (length string)))
-  (write-string+ string stream start end)
+(defmethod sys.gray:stream-write-string ((stream xp-structure) string &optional (start 0) end)
+  (write-string+ string stream start (or end (length string)))
   string)
 
 (defmethod sys.gray:stream-terpri ((stream xp-structure))

@@ -25,6 +25,12 @@
 (defun write-char (character &optional stream)
   (cold-write-char character stream))
 
+(defun write-string (string &optional stream &key (start 0) end)
+  (unless end (setf end (length string)))
+  (dotimes (i (- end start))
+    (write-char (char string (+ start i)) stream))
+  string)
+
 (defun start-line-p (stream)
   (cold-start-line-p stream))
 

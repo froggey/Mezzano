@@ -92,7 +92,6 @@
 (sys.int::defglobal *standard-class-finalized-p-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
-(sys.int::defglobal *standard-class-effective-slots-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -140,7 +139,9 @@
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance)
                                 instance
-                                (slot-definition-name (elt (class-slots (class-of instance)) location))))
+                                (if (consp location)
+                                    (car location)
+                                    (slot-definition-name (elt (class-slots (class-of instance)) location)))))
           val))))
 
 (defun fast-slot-write (new-value instance location)
@@ -201,6 +202,48 @@
                (slot-value-using-class (class-of object) object slot)
                (values (slot-missing (class-of object) object slot-name 'slot-value)))))))
 
+(defparameter *fast-slot-value-readers* (make-hash-table))
+
+(defun fast-slot-value-reader (slot-name)
+  (let ((gf (gethash slot-name *fast-slot-value-readers*)))
+    (when (not gf)
+      (setf gf (make-instance 'standard-generic-function
+                              :name `(slot-value ,slot-name)
+                              :lambda-list '(object)
+                              :method-class (find-class 'standard-method)))
+      ;; Add methods for both standard-object and structure-object to force
+      ;; the discriminator to take the 1-effective path instead of the
+      ;; unspecialized path.
+      (add-method gf
+                  (make-instance 'standard-reader-method
+                                 :lambda-list '(object)
+                                 :qualifiers ()
+                                 :specializers (list (find-class 'standard-object))
+                                 :function (lambda (method next-emfun)
+                                             (declare (ignore method next-emfun))
+                                             (lambda (object)
+                                               (slot-value object slot-name)))
+                                 :slot-definition slot-name))
+      (add-method gf
+                  (make-instance 'standard-reader-method
+                                 :lambda-list '(object)
+                                 :qualifiers ()
+                                 :specializers (list (find-class 'structure-object))
+                                 :function (lambda (method next-emfun)
+                                             (declare (ignore method next-emfun))
+                                             (lambda (object)
+                                               (slot-value object slot-name)))
+                                 :slot-definition slot-name))
+      (setf (gethash slot-name *fast-slot-value-readers*) gf))
+    gf))
+
+(define-compiler-macro slot-value (&whole whole object slot-name)
+  (cond ((typep slot-name '(cons (eql quote) (cons symbol null)))
+         `(funcall (load-time-value (fast-slot-value-reader ,slot-name))
+                   ,object))
+        (t
+         whole)))
+
 (defun (setf std-slot-value) (value instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
@@ -219,6 +262,46 @@
                  (t
                   (slot-missing (class-of object) object slot-name 'setf new-value)
                   new-value))))))
+
+(defparameter *fast-slot-value-writers* (make-hash-table))
+
+(defun fast-slot-value-writer (slot-name)
+  (let ((gf (gethash slot-name *fast-slot-value-writers*)))
+    (when (not gf)
+      (setf gf (make-instance 'standard-generic-function
+                              :name `((setf slot-value) ,slot-name)
+                              :lambda-list '(value object)
+                              :method-class (find-class 'standard-method)))
+      (add-method gf
+                  (make-instance 'standard-writer-method
+                                 :lambda-list '(value object)
+                                 :qualifiers ()
+                                 :specializers (list *the-class-t* (find-class 'standard-object))
+                                 :function (lambda (method next-emfun)
+                                             (declare (ignore method next-emfun))
+                                             (lambda (value object)
+                                               (setf (slot-value object slot-name) value)))
+                                 :slot-definition slot-name))
+      (add-method gf
+                  (make-instance 'standard-writer-method
+                                 :lambda-list '(value object)
+                                 :qualifiers ()
+                                 :specializers (list *the-class-t* (find-class 'structure-object))
+                                 :function (lambda (method next-emfun)
+                                             (declare (ignore method next-emfun))
+                                             (lambda (value object)
+                                               (setf (slot-value object slot-name) value)))
+                                 :slot-definition slot-name))
+      (setf (gethash slot-name *fast-slot-value-writers*) gf))
+    gf))
+
+(define-compiler-macro (setf slot-value) (&whole whole value object slot-name)
+  (cond ((typep slot-name '(cons (eql quote) (cons symbol null)))
+         `(funcall (load-time-value (fast-slot-value-writer ,slot-name))
+                   ,value
+                   ,object))
+        (t
+         whole)))
 
 (defun (sys.int::cas std-slot-value) (old new instance slot-name)
   (multiple-value-bind (slots location)
@@ -367,80 +450,103 @@
 (defun class-name (class)
   (std-slot-value class 'name))
 (defun (setf class-name) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'name) new-value))
 
 (defun class-direct-superclasses (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value class 'direct-superclasses))
 (defun (setf class-direct-superclasses) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-superclasses) new-value))
 
 (defun class-direct-slots (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value class 'direct-slots))
 (defun (setf class-direct-slots) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-slots) new-value))
 
 (defun class-precedence-list (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((std-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-precedence-list-position*))
           (t
            (slot-value class 'class-precedence-list)))))
 (defun (setf class-precedence-list) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'class-precedence-list) new-value))
 
 (defun class-slots (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-effective-slots-position*))
           (t (slot-value class 'effective-slots)))))
 (defun (setf class-slots) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'effective-slots) new-value))
 
 (defun class-slot-storage-layout (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-slot-storage-layout-position*))
           (t (slot-value class 'slot-storage-layout)))))
 (defun (setf class-slot-storage-layout) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'slot-storage-layout) new-value))
 
 (defun class-direct-subclasses (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value class 'direct-subclasses))
 (defun (setf class-direct-subclasses) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-subclasses) new-value))
 
 (defun class-direct-methods (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value class 'direct-methods))
 (defun (setf class-direct-methods) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-methods) new-value))
 
 (defun class-direct-default-initargs (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-direct-default-initargs-position*))
           (t (slot-value class 'direct-default-initargs)))))
 (defun (setf class-direct-default-initargs) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-default-initargs) new-value))
 
 (defun class-dependents (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (std-slot-value class 'dependents))
 (defun (setf class-dependents) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'dependents) new-value))
 
 (defun class-hash (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-hash-position*))
           (t (std-slot-value class 'hash)))))
 (defun (setf class-hash) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'hash) new-value))
 
 (defun class-finalized-p (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
     (cond ((clos-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-finalized-p-position*))
           (t (std-slot-value class 'finalized-p)))))
 (defun (setf class-finalized-p) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'finalized-p) new-value))
 
 ;;; Ensure class
@@ -549,53 +655,73 @@ Other arguments are included directly."
 ;;; Slot definition metaobjects
 
 (defun slot-definition-name (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'name))
 (defun (setf slot-definition-name) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'name) new-value))
 
 (defun slot-definition-initfunction (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'initfunction))
 (defun (setf slot-definition-initfunction) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'initfunction) new-value))
 
 (defun slot-definition-initform (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'initform))
 (defun (setf slot-definition-initform) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'initform) new-value))
 
 (defun slot-definition-initargs (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'initargs))
 (defun (setf slot-definition-initargs) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'initargs) new-value))
 
 (defun slot-definition-readers (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'readers))
 (defun (setf slot-definition-readers) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'readers) new-value))
 
 (defun slot-definition-writers (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'writers))
 (defun (setf slot-definition-writers) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'writers) new-value))
 
 (defun slot-definition-allocation (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'allocation))
 (defun (setf slot-definition-allocation) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'allocation) new-value))
 
 (defun slot-definition-location (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'location))
 (defun (setf slot-definition-location) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'location) new-value))
 
 (defun slot-definition-type (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'type))
 (defun (setf slot-definition-type) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'type) new-value))
 
 (defun slot-definition-documentation (slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value slot 'documentation))
 (defun (setf slot-definition-documentation) (new-value slot)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'documentation) new-value))
 
 ;;; finalize-inheritance
@@ -699,17 +825,22 @@ Other arguments are included directly."
                                    (class-direct-slots super)
                                    :key #'slot-definition-name)))
                (when existing
-                 (cond ((eql super class)
-                        ;; This class defines the direct slot. Create a new cell to hold the value.
-                        ;; (FIXME: Need to preserve the location over class redefinition.)
-                        (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
-                       (t
-                        (let ((existing-effective (find (slot-definition-name slot)
-                                                        (class-slots super)
-                                                        :key #'slot-definition-name)))
+                 (let ((existing-effective (find (slot-definition-name slot)
+                                                 (class-slots super)
+                                                 :key #'slot-definition-name)))
+                   (cond ((eql super class)
+                          ;; This class defines the direct
+                          ;; slot. Create a new cell to hold the
+                          ;; value, or preserve the existing one if
+                          ;; the class is being redefined.
+                          (setf (slot-definition-location slot)
+                                (if existing-effective
+                                    (slot-definition-location existing-effective)
+                                    (cons (slot-definition-name slot) *secret-unbound-value*))))
+                         (t
                           (assert (consp (slot-definition-location existing-effective)))
-                          (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
-                 (return)))))
+                          (setf (slot-definition-location slot) (slot-definition-location existing-effective))))
+                   (return))))))
           (t
            (setf (slot-definition-location slot) nil)))))
 
@@ -742,65 +873,89 @@ Other arguments are included directly."
 (sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
 
 (defun generic-function-name (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'name))
 (defun (setf generic-function-name) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'name) new-value))
 
 (defun generic-function-lambda-list (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'lambda-list))
 (defun (setf generic-function-lambda-list) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'lambda-list) new-value))
 
 (defun generic-function-methods (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'methods))
 (defun (setf generic-function-methods) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'methods) new-value))
 
 (defun generic-function-discriminating-function (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'discriminating-function))
 (defun (setf generic-function-discriminating-function) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'discriminating-function) new-value))
 
 (defun generic-function-method-class (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'method-class))
 (defun (setf generic-function-method-class) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'method-class) new-value))
 
 (defun generic-function-relevant-arguments (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'relevant-arguments))
 (defun (setf generic-function-relevant-arguments) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'relevant-arguments) new-value))
 
 (defun generic-function-has-unusual-specializers (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'weird-specializers-p))
 (defun (setf generic-function-has-unusual-specializers) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'weird-specializers-p) new-value))
 
 (defun generic-function-method-combination (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'method-combination))
 (defun (setf generic-function-method-combination) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'method-combination) new-value))
 
 (defun generic-function-argument-precedence-order (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'argument-precedence-order))
 (defun (setf generic-function-argument-precedence-order) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'argument-precedence-order) new-value))
 
 (defun generic-function-declarations (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'declarations))
 (defun (setf generic-function-declarations) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'declarations) new-value))
 
 ;;; Internal accessor for effective method function table
 
 (defun classes-to-emf-table (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'classes-to-emf-table))
 (defun (setf classes-to-emf-table) (new-value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'classes-to-emf-table) new-value))
 
 (defun argument-reordering-table (gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value gf 'argument-reordering-table))
 (defun (setf argument-reordering-table) (value gf)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value gf 'argument-reordering-table) value))
 
 ;;;
@@ -809,25 +964,39 @@ Other arguments are included directly."
 
 (sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
 
-(defun method-lambda-list (method) (slot-value method 'lambda-list))
+(defun method-lambda-list (method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (slot-value method 'lambda-list))
 (defun (setf method-lambda-list) (new-value method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value method 'lambda-list) new-value))
 
-(defun method-qualifiers (method) (slot-value method 'qualifiers))
+(defun method-qualifiers (method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (slot-value method 'qualifiers))
 (defun (setf method-qualifiers) (new-value method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value method 'qualifiers) new-value))
 
-(defun method-specializers (method) (slot-value method 'specializers))
+(defun method-specializers (method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (slot-value method 'specializers))
 (defun (setf method-specializers) (new-value method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value method 'specializers) new-value))
 
 (defun method-generic-function (method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (slot-value method 'generic-function))
 (defun (setf method-generic-function) (new-value method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value method 'generic-function) new-value))
 
-(defun method-function (method) (slot-value method 'function))
+(defun method-function (method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (slot-value method 'function))
 (defun (setf method-function) (new-value method)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value method 'function) new-value))
 
 ;;; ensure-generic-function
@@ -1217,9 +1386,10 @@ has only has class specializer."
                                    (gensym))))
                    `(when (and (eql ',index argument-offset)
                                (eql (length (gf-required-arglist gf)) ',n-required)
-                               (eql (length (gf-optional-arglist gf)) '0)
-                               (or (and ',restp (gf-rest-arg-p gf))
-                                   (and (not ',restp) (not (gf-rest-arg-p gf))))
+                               (or (and ',restp (or (gf-optional-arglist gf)
+                                                    (gf-rest-arg-p gf)))
+                                   (and (not ',restp) (not (or (gf-optional-arglist gf)
+                                                               (gf-rest-arg-p gf)))))
                                ,(if eql-spec-p
                                     'eql-table
                                     `(not eql-table)))
@@ -1296,6 +1466,7 @@ has only has class specializer."
                                                    collect (eql-specializer-object spec)))))))
 
 (defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((emf-table (classes-to-emf-table gf)))
     (ecase state
       (:reader
@@ -1308,13 +1479,16 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
-                     (std-class-p (class-of class))
-                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
-                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (assert location)
-                  (setf (single-dispatch-emf-entry emf-table class) location)
-                  (pushnew gf (class-dependents class))
-                  (fast-slot-read (first args) location)))
+                     (std-class-p (class-of class)))
+                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
+                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                         (assert location)
+                         (setf (single-dispatch-emf-entry emf-table class) location)
+                         (pushnew gf (class-dependents class))
+                         (fast-slot-read (first args) location)))
+                      (t
+                       ;; Slot not present, fall back on SLOT-VALUE.
+                       (slot-value (first args) (slot-value (first applicable-methods) 'slot-definition)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:writer
@@ -1327,13 +1501,16 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
-                     (std-class-p (class-of class))
-                     (slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition)))
-                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (assert location)
-                  (setf (single-dispatch-emf-entry emf-table class) location)
-                  (pushnew gf (class-dependents class))
-                  (fast-slot-write (first args) (second args) location)))
+                     (std-class-p (class-of class)))
+                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
+                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                         (assert location)
+                         (setf (single-dispatch-emf-entry emf-table class) location)
+                         (pushnew gf (class-dependents class))
+                         (fast-slot-write (first args) (second args) location)))
+                      (t
+                       ;; Slot not present, fall back on SLOT-VALUE.
+                       (setf (slot-value (second args) (slot-value (first applicable-methods) 'slot-definition)) (first args)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:never-called
@@ -1968,6 +2145,7 @@ has only has class specializer."
 ;;; Built-in-class.
 
 (defmethod initialize-instance :after ((class built-in-class) &rest args)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (apply #'std-after-initialization-for-classes class args)
   (when (not (slot-boundp class 'prototype))
     (setf (slot-value class 'prototype) (std-allocate-instance class))))
@@ -1981,6 +2159,7 @@ has only has class specializer."
   ((structure-definition :initarg :definition)))
 
 (defmethod allocate-instance ((class structure-class) &rest initargs)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (declare (ignore initargs))
   (let* ((def (slot-value class 'structure-definition))
          (slots (sys.int::structure-slots def))
@@ -2002,6 +2181,7 @@ has only has class specializer."
   (error "Cannot reinitialize structure classes."))
 
 (defmethod slot-value-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((def (slot-value class 'structure-definition))
         (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
@@ -2012,6 +2192,7 @@ has only has class specializer."
         (return (funcall (sys.int::structure-slot-accessor slot) instance))))))
 
 (defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot standard-effective-slot-definition))
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((def (slot-value class 'structure-definition))
         (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
@@ -2219,6 +2400,7 @@ has only has class specializer."
     (error "Class ~S has not been finalized." class)))
 
 (defmethod class-prototype ((class clos-class))
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (when (not (slot-boundp class 'prototype))
     (setf (slot-value class 'prototype) (allocate-instance class)))
   (slot-value class 'prototype))

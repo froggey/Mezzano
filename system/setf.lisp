@@ -39,17 +39,20 @@
                    ;; Expand one level of macros.
                    (get-setf-expansion expansion environment)
                    ;; Generate an expansion for a function call form place.
-                   (let ((vars '())
-                         (vals '())
-                         (store-sym (gensym)))
-                     (dolist (arg (cdr place))
-                       (setf vars (cons (gensym) vars)
-                             vals (cons arg vals)))
-                     (setf vars (nreverse vars)
-                           vals (nreverse vals))
-                     (values vars vals (list store-sym)
-                             `(funcall #'(setf ,(car place)) ,store-sym ,@vars)
-                             (list* (car place) vars))))))))
+                   (loop
+                      with store-sym = (gensym)
+                      for arg in (rest place)
+                      for var = (gensym)
+                      when (constantp arg environment)
+                      collect arg into call-vars
+                      else
+                      collect var into call-vars
+                      and collect var into vars
+                      and collect arg into vals
+                      finally
+                        (return (values vars vals (list store-sym)
+                                        `(funcall #'(setf ,(car place)) ,store-sym ,@call-vars)
+                                        (list* (car place) call-vars)))))))))
       (multiple-value-bind (expansion expanded-p)
           (macroexpand-1 place environment)
         (if expanded-p

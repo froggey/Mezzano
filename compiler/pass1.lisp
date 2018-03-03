@@ -223,7 +223,11 @@
                (compiler-macro-function name env))))
     (when (and fn
                (not (eql (inline-info-in-environment name env) 'notinline)))
-      (let ((expansion (funcall *macroexpand-hook* fn form env)))
+      (let ((expansion (handler-case (funcall *macroexpand-hook* fn form env)
+                         (error (c)
+                           (warn "Caught error ~A during compiler-macro expansion of ~S" c form)
+                           ;; Evaluate to FORM to reject expansion.
+                           form))))
         (when (not (eq expansion form))
           (return-from compiler-macroexpand-1
             (values expansion t))))))

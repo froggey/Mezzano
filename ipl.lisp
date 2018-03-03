@@ -17,7 +17,7 @@
 
 ;; Host where the initial system is kept.
 ;; Change the IP to the host computer's local IP.
-(mezzano.file-system.remote:add-simple-file-host :remote sys.int::*file-server-host-ip*)
+(mezzano.file-system.remote:add-remote-file-host :remote sys.int::*file-server-host-ip*)
 ;; Use PATHNAME instead of #p because the cross-compiler doesn't support #p.
 ;; Point *DEFAULT-PATHNAME-DEFAULTS* at the full path to the source tree.
 (setf *default-pathname-defaults* (pathname (concatenate 'string "REMOTE:" sys.int::*mezzano-source-path*)))
@@ -41,7 +41,7 @@ Make sure there is a virtio-net NIC attached.~%")
   (format t "Using network card ~S.~%" (first mezzano.network.ethernet::*cards*))
   ;; Check connectivity to the file-server.
   (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
-    (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-simple-file-port*)
+    (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-remote-file-port*)
     (when (mezzano.network.ip:address-equal
            (mezzano.network.ip:address-network fs-address 24)
            (mezzano.network.ip:make-ipv4-address "10.0.2.0"))
