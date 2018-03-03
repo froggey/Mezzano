@@ -92,7 +92,6 @@
 (sys.int::defglobal *standard-class-finalized-p-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
-(sys.int::defglobal *standard-class-effective-slots-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -140,7 +139,9 @@
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance)
                                 instance
-                                (slot-definition-name (elt (class-slots (class-of instance)) location))))
+                                (if (consp location)
+                                    (car location)
+                                    (slot-definition-name (elt (class-slots (class-of instance)) location)))))
           val))))
 
 (defun fast-slot-write (new-value instance location)
@@ -824,17 +825,22 @@ Other arguments are included directly."
                                    (class-direct-slots super)
                                    :key #'slot-definition-name)))
                (when existing
-                 (cond ((eql super class)
-                        ;; This class defines the direct slot. Create a new cell to hold the value.
-                        ;; (FIXME: Need to preserve the location over class redefinition.)
-                        (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
-                       (t
-                        (let ((existing-effective (find (slot-definition-name slot)
-                                                        (class-slots super)
-                                                        :key #'slot-definition-name)))
+                 (let ((existing-effective (find (slot-definition-name slot)
+                                                 (class-slots super)
+                                                 :key #'slot-definition-name)))
+                   (cond ((eql super class)
+                          ;; This class defines the direct
+                          ;; slot. Create a new cell to hold the
+                          ;; value, or preserve the existing one if
+                          ;; the class is being redefined.
+                          (setf (slot-definition-location slot)
+                                (if existing-effective
+                                    (slot-definition-location existing-effective)
+                                    (cons (slot-definition-name slot) *secret-unbound-value*))))
+                         (t
                           (assert (consp (slot-definition-location existing-effective)))
-                          (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
-                 (return)))))
+                          (setf (slot-definition-location slot) (slot-definition-location existing-effective))))
+                   (return))))))
           (t
            (setf (slot-definition-location slot) nil)))))
 
