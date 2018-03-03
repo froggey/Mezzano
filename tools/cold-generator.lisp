@@ -226,7 +226,8 @@
     "drivers/virtio-net.lisp"
     ("drivers/rtl8168.lisp" :x86-64)
     "drivers/sound.lisp"
-    ("drivers/intel-hda.lisp" :x86-64)
+    ;; Disabled due to conflict with the VirtualBox guest driver.
+    ;;("drivers/intel-hda.lisp" :x86-64)
     "net/package.lisp"
     "net/network.lisp"
     "net/ethernet.lisp"
