@@ -34,6 +34,10 @@
       (setf (gethash name *inline-forms*) source-lambda))
   nil)
 
+(defmacro sys.int::cas (place old new)
+  (declare (ignore place old new))
+  `(error "Cross-cas not supported"))
+
 (defun sys.int::%defun (name lambda)
   ;; Completely ignore CAS functions when cross compiling, they're not needed.
   (unless (and (consp name) (eql (first name) 'sys.int::cas))
