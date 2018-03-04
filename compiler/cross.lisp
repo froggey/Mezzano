@@ -803,6 +803,10 @@
   size
   position)
 
+(defmethod make-load-form ((object byte) &optional environment)
+  (declare (ignore environment))
+  `(byte ',(byte-size object) ',(byte-position object)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun loose-constant-equal (x y)
   (or (eql x y)
