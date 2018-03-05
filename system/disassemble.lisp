@@ -837,10 +837,10 @@
     (decode-v-w sys.lap-x86:sqrtps sys.lap-x86:sqrtpd sys.lap-x86:sqrtsd sys.lap-x86:sqrtss)
     nil
     nil
-    nil
-    nil
-    nil
-    nil
+    (decode-v-w sys.lap-x86:andps sys.lap-x86:andpd nil nil)
+    (decode-v-w sys.lap-x86:andnps sys.lap-x86:andnpd nil nil)
+    (decode-v-w sys.lap-x86:orps sys.lap-x86:orpd nil nil)
+    (decode-v-w sys.lap-x86:xorps sys.lap-x86:xorpd nil nil)
     (decode-v-w sys.lap-x86:addps sys.lap-x86:addpd sys.lap-x86:addsd sys.lap-x86:addss) ; 58
     (decode-v-w sys.lap-x86:mulps sys.lap-x86:mulpd sys.lap-x86:mulsd sys.lap-x86:mulss)
     (decode-v-w sys.lap-x86:cvtps2pd sys.lap-x86:cvtpd2ps sys.lap-x86:cvtsd2ss sys.lap-x86:cvtss2sd)
