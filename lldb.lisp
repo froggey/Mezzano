@@ -130,6 +130,85 @@
          (format t " rip: ~8,'0X~%" (sys.int::memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))))
   (values))
 
+(defun backtrace-next-frame (thread stack-pointer frame-pointer return-address)
+  (multiple-value-bind (fn fn-offset)
+      (return-address-to-function return-address)
+    (multiple-value-bind (framep interruptp pushed-values pushed-values-register
+                          layout-address layout-length
+                          multiple-values incoming-arguments
+                          block-or-tagbody-thunk extra-registers
+                          entry-offset restart)
+        (gc-info-for-function-offset fn fn-offset)
+      (cond (interruptp
+             (when (not framep)
+               (error "Frameless interrupt frames not implemented" framep interruptp pushed-values pushed-values-register
+                      layout-address layout-length
+                      multiple-values incoming-arguments
+                      block-or-tagbody-thunk extra-registers
+                      entry-offset restart))
+             (values
+              ;; Stack pointer is past the frame pointer & additional saved state.
+              (memref-unsigned-byte-64 frame-pointer 4)
+              (memref-unsigned-byte-64 frame-pointer 0)
+              (memref-unsigned-byte-64 frame-pointer 1)))
+            (framep
+             (values
+              ;; Stack pointer is past the frame pointer & saved return address.
+              (+ frame-pointer 16)
+              (memref-unsigned-byte-64 frame-pointer 0)
+              (memref-unsigned-byte-64 frame-pointer 1)))
+            (t
+             (values
+              ;; In a no-frame function the stack layout is directly
+              ;; represented by the layout field. Layout size = number of
+              ;; elements on the stack, including the return address.
+              (+ stack-pointer (* layout-length 8))
+              ;; Frame pointer is unchanged.
+              frame-pointer
+              ;; Return address should be the first entry on the stack.
+              (memref-unsigned-byte-64 stack-pointer (1- layout-length))))))))
+
+(defun map-thread-backtrace (thread fn)
+  (check-type thread mezzano.supervisor:thread)
+  (multiple-value-bind (stack-pointer frame-pointer return-address)
+      (cond ((mezzano.supervisor:thread-full-save-p thread)
+             (values (mezzano.supervisor:thread-state-rsp thread)
+                     (mezzano.supervisor:thread-state-rbp thread)
+                     (mezzano.supervisor:thread-state-rip thread)))
+            (t
+             (values (mezzano.supervisor:thread-state-rsp thread)
+                     (mezzano.supervisor:thread-state-rbp thread)
+                     (memref-signed-byte-64
+                      (mezzano.supervisor:thread-state-rsp thread)
+                      0))))
+    (loop
+       (funcall fn stack-pointer frame-pointer return-address
+               (return-address-to-function return-address))
+       (setf (values stack-pointer frame-pointer return-address)
+             (backtrace-next-frame thread stack-pointer frame-pointer return-address))
+       (when (or (zerop frame-pointer)
+                 (zerop return-address))
+         (return)))))
+
+(defun backtrace-thread (thread)
+  (map-thread-backtrace
+   thread
+   (lambda (stack-pointer frame-pointer return-address fn)
+     (format t "~X ~X ~X ~S~%" stack-pointer frame-pointer return-address fn))))
+
+(defun dump-thread-stack (thread &optional limit)
+  (loop
+     with sp = (logand (mezzano.supervisor:thread-state-rsp thread) -16)
+     with stack-top = (+ (mezzano.supervisor::stack-base (mezzano.supervisor:thread-stack thread))
+                         (mezzano.supervisor::stack-size (mezzano.supervisor:thread-stack thread)))
+     with n = (truncate (- stack-top sp) 8)
+     for i from 0 below (if limit (min limit n) n) by 2
+     do
+       (format t "~16,'0X: ~16,'0X ~16,'0X~%"
+               (+ sp (* i 8))
+               (memref-unsigned-byte-64 sp i)
+               (memref-unsigned-byte-64 sp (1+ i)))))
+
 (defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t))
   (check-type function function)
   (let* ((next-stop-boundary 10000)
@@ -251,6 +330,42 @@
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
                            (not (eql offset 16)))
                   (setf prestart t)))))
+      (mezzano.supervisor:terminate-thread thread)
+      (ignore-errors
+        (mezzano.supervisor::resume-thread thread)))))
+
+(defun profile-execution (function &key (sample-interval 1/100))
+  (check-type function function)
+  (let* ((terminal-io *terminal-io*)
+         (standard-input *standard-input*)
+         (standard-output *standard-output*)
+         (error-output *error-output*)
+         (trace-output *trace-output*)
+         (debug-io *debug-io*)
+         (query-io *query-io*)
+         (thread (mezzano.supervisor:make-thread
+                  (lambda ()
+                    (let ((*terminal-io* terminal-io)
+                          (*standard-input* standard-input)
+                          (*standard-output* standard-output)
+                          (*error-output* error-output)
+                          (*trace-output* trace-output)
+                          (*debug-io* debug-io)
+                          (*query-io* query-io)
+                          (*the-debugger* (lambda (condition)
+                                            (declare (ignore condition))
+                                            (throw 'mezzano.supervisor:terminate-thread nil))))
+                      (funcall function)))
+                  :name "Trace thread")))
+    (unwind-protect
+         (loop
+            (mezzano.supervisor::stop-thread thread)
+            (when (eql (mezzano.supervisor:thread-state thread) :dead)
+              (return))
+            (format t "------~%")
+            (backtrace-thread thread)
+            (mezzano.supervisor::resume-thread thread)
+            (sleep sample-interval))
       (mezzano.supervisor:terminate-thread thread)
       (ignore-errors
         (mezzano.supervisor::resume-thread thread)))))
