@@ -42,12 +42,14 @@
                                (ir:insert-before ,backend-function ,insertion-point inst))
                              (give-up ()
                                (return-from ,the-block nil))
+                             (finish ()
+                               (return-from ,the-block t))
                              (constant-value-p (value &optional (type 't))
                                (and (typep (first (gethash value ,defs)) 'ir:constant-instruction)
                                     (typep (ir:constant-value (first (gethash value ,defs))) type)))
                              (fetch-constant-value (value)
                                (ir:constant-value (first (gethash value ,defs)))))
-                        (declare (ignorable #'emit #'give-up #'constant-value-p #'fetch-constant-value))
+                        (declare (ignorable #'emit #'give-up #'finish #'constant-value-p #'fetch-constant-value))
                         ,@body
                         t))))))
 

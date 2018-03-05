@@ -18,7 +18,17 @@
         (overflow (make-instance 'ir:label :name :+-overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
-    (cond ((constant-value-p rhs '(signed-byte 31))
+    (cond ((constant-value-p rhs '(eql 0))
+           (emit (make-instance 'ir:move-instruction
+                                :source lhs
+                                :destination result))
+           (finish))
+          ((constant-value-p lhs '(eql 0))
+           (emit (make-instance 'ir:move-instruction
+                                :source rhs
+                                :destination result))
+           (finish))
+          ((constant-value-p rhs '(signed-byte 31))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:add64
                                 :result fixnum-result
@@ -73,7 +83,17 @@
     (emit out)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-+ ((lhs rhs) result)
-  (cond ((constant-value-p rhs '(signed-byte 31))
+  (cond ((constant-value-p rhs '(eql 0))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 0))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish))
+        ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-fake-three-operand-instruction
                               :opcode 'lap:add64
                               :result result
@@ -93,7 +113,12 @@
         (overflow (make-instance 'ir:label :name :--overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
-    (cond ((constant-value-p rhs '(signed-byte 31))
+    (cond ((constant-value-p rhs '(eql 0))
+           (emit (make-instance 'ir:move-instruction
+                                :source lhs
+                                :destination result))
+           (finish))
+          ((constant-value-p rhs '(signed-byte 31))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:sub64
                                 :result fixnum-result
@@ -153,7 +178,12 @@
     (emit out)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-- ((lhs rhs) result)
-  (cond ((constant-value-p rhs '(signed-byte 31))
+  (cond ((constant-value-p rhs '(eql 0))
+           (emit (make-instance 'ir:move-instruction
+                                :source lhs
+                                :destination result))
+         (finish))
+        ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-fake-three-operand-instruction
                               :opcode 'lap:sub64
                               :result result
@@ -168,6 +198,22 @@
                               :rhs rhs)))))
 
 (define-builtin mezzano.runtime::%fixnum-* ((lhs rhs) result)
+  (cond ((or (constant-value-p lhs '(eql 0))
+             (constant-value-p rhs '(eql 0)))
+         (emit (make-instance 'ir:constant-instruction
+                              :value 0
+                              :destination result))
+         (finish))
+        ((constant-value-p rhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish)))
   (let ((out (make-instance 'ir:label :phis (list result)))
         (low-half (make-instance 'ir:virtual-register :kind :integer))
         (high-half (make-instance 'ir:virtual-register :kind :integer))
@@ -276,6 +322,22 @@
     (emit out)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-* ((lhs rhs) result)
+  (cond ((or (constant-value-p lhs '(eql 0))
+             (constant-value-p rhs '(eql 0)))
+         (emit (make-instance 'ir:constant-instruction
+                              :value 0
+                              :destination result))
+         (finish))
+        ((constant-value-p rhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish)))
   ;; Convert the lhs to a raw integer, leaving the rhs as a fixnum.
   ;; This will cause the result to be a fixnum.
   (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
