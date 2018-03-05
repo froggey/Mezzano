@@ -758,6 +758,21 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin sys.int::%%single-float-abs ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:andps
+                         :result result-unboxed
+                         :lhs value-unboxed
+                         :rhs '(:literal/128 #x7FFFFFFF)))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 ;;; DOUBLE-FLOAT operations.
 
 (define-builtin sys.int::%double-float-as-integer ((value) result)
@@ -957,6 +972,21 @@
                          :operands (list result-unboxed value-unboxed)
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%double-float-abs ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:andpd
+                         :result result-unboxed
+                         :lhs value-unboxed
+                         :rhs '(:literal/128 #x7FFFFFFFFFFFFFFF)))
     (emit (make-instance 'ir:box-double-float-instruction
                          :source result-unboxed
                          :destination result))))

@@ -329,6 +329,10 @@
      (:result-type fixnum))
   `(call sys.int::%%truncate-single-float ,number))
 
+(define-transform abs ((number single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the single-float (call sys.int::%%single-float-abs ,number)))
+
 ;; Don't use EQ because NaNs are unorderable.
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -390,6 +394,10 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(the double-float
         (call mezzano.runtime::%%coerce-fixnum-to-double-float ,number)))
+
+(define-transform abs ((number double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the double-float (call sys.int::%%double-float-abs ,number)))
 
 ;; Don't use EQ because double floats are not immediates.
 (define-transform sys.int::binary-= ((lhs double-float) (rhs double-float))
