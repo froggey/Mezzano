@@ -224,6 +224,7 @@ thread states & call-stacks."
          (when (>= offset (length buffer))
            (return))
          (incf offset) ; Skip past :START
+         (incf offset) ; Skip past timestamp
          (let ((sample (make-array 10 :adjustable t :fill-pointer 0)))
            (loop
               (when (not (mezzano.supervisor:threadp (next)))

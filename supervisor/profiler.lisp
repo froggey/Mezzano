@@ -73,6 +73,7 @@
              (or *profile-sample-during-gc*
                  (not (world-stopped-p))))
     (profile-append-entry :start)
+    (profile-append-entry (get-internal-real-time))
     (when (or (not *profile-thread*)
               (eql *profile-thread* (current-thread)))
       ;; Dump the current thread.

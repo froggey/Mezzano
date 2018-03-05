@@ -42,6 +42,7 @@
 (defun log-allocation-profile-entry-1 ()
   (let ((*enable-allocation-profiling* nil))
     (vector-push-extend :start *allocation-profile*)
+    (vector-push-extend (get-internal-real-time) *allocation-profile*)
     (vector-push-extend (mezzano.supervisor:current-thread) *allocation-profile*)
     (vector-push-extend :active *allocation-profile*)
     (vector-push-extend :allocation *allocation-profile*)
