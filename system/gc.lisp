@@ -316,18 +316,21 @@ This is required to make the GC interrupt safe."
   ;; Thread has stopped due to an interrupt.
   ;; Examine it, then perform normal stack scavenging.
   (when *gc-debug-scavenge-stack* (gc-log "Scav interrupted frame... " interrupt-frame-pointer))
-  (let* ((return-address (memref-unsigned-byte-64 interrupt-frame-pointer 15))
-         (frame-pointer (memref-unsigned-byte-64 interrupt-frame-pointer 14))
-         (stack-pointer (memref-unsigned-byte-64 interrupt-frame-pointer 18))
+  (let* ((interrupt-stack-pointer (- interrupt-frame-pointer (* 14 8)))
+         (return-address (memref-unsigned-byte-64 interrupt-stack-pointer 15))
+         (frame-pointer (memref-unsigned-byte-64 interrupt-stack-pointer 14))
+         (stack-pointer (memref-unsigned-byte-64 interrupt-stack-pointer 18))
          (fn (return-address-to-function return-address))
          (fn-address (logand (lisp-object-address fn) -16))
          (fn-offset (- return-address fn-address)))
     (when *gc-debug-scavenge-stack*
+      (gc-log "ISP: " interrupt-stack-pointer)
       (gc-log "RA: " return-address)
       (gc-log "FP: " frame-pointer)
       (gc-log "SP: " stack-pointer)
       (gc-log "FNa: " fn-address)
       (gc-log "FNo: " fn-offset))
+    (scavenge-object fn)
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
@@ -393,73 +396,73 @@ This is required to make the GC interrupt safe."
         ;; See %%PARTIAL-SAVE-RETURN-THUNK.
         (cond (framep
                ;; MV, FPU & GPR state not restored. Copy to save area.
-               (sys.int::%copy-words interrupt-frame-pointer
+               (sys.int::%copy-words interrupt-stack-pointer
                                      stack-pointer
                                      20)
-               (sys.int::%copy-words (+ interrupt-frame-pointer (* 20 8))
+               (sys.int::%copy-words (+ interrupt-stack-pointer (* 20 8))
                                      (+ stack-pointer (* 20 8))
                                      (truncate 512 8))
-               (sys.int::%copy-words (+ interrupt-frame-pointer (* 20 8) 512)
+               (sys.int::%copy-words (+ interrupt-stack-pointer (* 20 8) 512)
                                      (+ stack-pointer (* 20 8) 512)
                                      (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
               (t
                ;; Only the iret frame remains on the stack.
-               (sys.int::%copy-words (+ interrupt-frame-pointer (* 15 8))
+               (sys.int::%copy-words (+ interrupt-stack-pointer (* 15 8))
                                         (* 15 8))
                                      stack-pointer
                                      5))
         (return-from scavenge-interrupt-stack-frame
-          (scavenge-interrupt-stack-frame interrupt-frame-pointer)))
+          (scavenge-interrupt-stack-frame interrupt-stack-pointer)))
       ;; Unconditionally scavenge the saved data registers.
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 7)) ; r8
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 6)) ; r9
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 5)) ; r10
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 4)) ; r11
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 3)) ; r12
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 2)) ; r13
-      (scavengef (memref-signed-byte-64 interrupt-frame-pointer 10)) ; rbx
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 7)) ; r8
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6)) ; r9
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 5)) ; r10
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 4)) ; r11
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 3)) ; r12
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2)) ; r13
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 10)) ; rbx
       #+x86-64
       (ecase extra-registers
         ((nil))
         ((:rax)
-         (scavengef (memref-t interrupt-frame-pointer 13))) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 13))) ; rax
         ((:rax-rcx)
-         (scavengef (memref-t interrupt-frame-pointer 13)) ; rax
-         (scavengef (memref-t interrupt-frame-pointer 12))) ; rcx
+         (scavengef (memref-t interrupt-stack-pointer 13)) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 12))) ; rcx
         ((:rax-rcx-rdx)
-         (scavengef (memref-t interrupt-frame-pointer 13)) ; rax
-         (scavengef (memref-t interrupt-frame-pointer 12)) ; rcx
-         (scavengef (memref-t interrupt-frame-pointer 11)))) ; rdx
+         (scavengef (memref-t interrupt-stack-pointer 13)) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 12)) ; rcx
+         (scavengef (memref-t interrupt-stack-pointer 11)))) ; rdx
       #+arm64
       (ecase extra-registers
         ((nil))
         ((:rax)
          ;; x9 (rax) contains an interior pointer into :x1 (r9)
-         (let ((offset (- (memref-signed-byte-64 interrupt-frame-pointer 13) ; x9
-                          (memref-signed-byte-64 interrupt-frame-pointer 6)))) ; x1
-           (scavengef (memref-signed-byte-64 interrupt-frame-pointer 6))
-           (setf (memref-signed-byte-64 interrupt-frame-pointer 13)
-                 (+ (memref-signed-byte-64 interrupt-frame-pointer 6)
+         (let ((offset (- (memref-signed-byte-64 interrupt-stack-pointer 13) ; x9
+                          (memref-signed-byte-64 interrupt-stack-pointer 6)))) ; x1
+           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6))
+           (setf (memref-signed-byte-64 interrupt-stack-pointer 13)
+                 (+ (memref-signed-byte-64 interrupt-stack-pointer 6)
                     offset))))
         ((:rax-rcx)
          ;; x9 (rax) contains an interior pointer into :x7 (r13)
-         (let ((offset (- (memref-signed-byte-64 interrupt-frame-pointer 13) ; x9
-                          (memref-signed-byte-64 interrupt-frame-pointer 2)))) ; x7
-           (scavengef (memref-signed-byte-64 interrupt-frame-pointer 2))
-           (setf (memref-signed-byte-64 interrupt-frame-pointer 13)
-                 (+ (memref-signed-byte-64 interrupt-frame-pointer 2)
+         (let ((offset (- (memref-signed-byte-64 interrupt-stack-pointer 13) ; x9
+                          (memref-signed-byte-64 interrupt-stack-pointer 2)))) ; x7
+           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2))
+           (setf (memref-signed-byte-64 interrupt-stack-pointer 13)
+                 (+ (memref-signed-byte-64 interrupt-stack-pointer 2)
                     offset)))))
       (when block-or-tagbody-thunk
         ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
         ;; pointed to by RAX.
-        (let ((nlx-info (memref-signed-byte-64 interrupt-frame-pointer 13)))
+        (let ((nlx-info (memref-signed-byte-64 interrupt-stack-pointer 13)))
           (setf stack-pointer (memref-signed-byte-64 nlx-info 2)
                 frame-pointer (memref-signed-byte-64 nlx-info 3))))
       (when multiple-values
         ;; Scavenge the MV area.
-        (let* ((n-values (+ (memref-t interrupt-frame-pointer 12) multiple-values))
+        (let* ((n-values (+ (memref-t interrupt-stack-pointer 12) multiple-values))
                (n-mv-area-values (max 0 (- n-values 5))))
-          (scavenge-many (+ interrupt-frame-pointer
+          (scavenge-many (+ interrupt-stack-pointer
                             (* 20 8)
                             512)
                          n-mv-area-values)))
@@ -467,20 +470,20 @@ This is required to make the GC interrupt safe."
         ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
         (setf incoming-arguments nil)
         (when *gc-debug-scavenge-stack*
-          (gc-log "ia-count " (memref-t interrupt-frame-pointer 12)))
+          (gc-log "ia-count " (memref-t interrupt-stack-pointer 12)))
         (scavenge-stack-n-incoming-arguments
          frame-pointer stack-pointer framep
          layout-length
-         (memref-t interrupt-frame-pointer 12)))
+         (memref-t interrupt-stack-pointer 12)))
       (when restart
         ;; rip
-        (setf (memref-t interrupt-frame-pointer 15) (+ fn-address entry-offset)))
+        (setf (memref-t interrupt-stack-pointer 15) (+ fn-address entry-offset)))
       (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                     layout-address layout-length
                                     incoming-arguments
                                     (+ pushed-values
                                        (if pushed-values-register
-                                           (memref-t interrupt-frame-pointer 12)
+                                           (memref-t interrupt-stack-pointer 12)
                                            0)))
       (cond #+arm64
             ((and (not framep)
@@ -596,7 +599,7 @@ This is required to make the GC interrupt safe."
                                (eql layout-length 0))
                       (bad-metadata "Tried to unwind through function with no available return address"))))))
          (cond (interruptp
-                (scavenge-interrupt-stack-frame stack-pointer)
+                (scavenge-interrupt-stack-frame frame-pointer)
                 (return))
                (t
                 (scavenge-regular-stack-frame frame-pointer stack-pointer framep
