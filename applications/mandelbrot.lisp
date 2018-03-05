@@ -10,16 +10,25 @@
 (defun hue-to-rgb (h)
   (declare (optimize (speed 3) (safety 0))
            (type single-float h))
-  (let* ((h* (/ (rem h 360.0f0) 60.0f0))
-         (x (- 1 (abs (- (mod h* 2.0f0) 1.0f0)))))
-    (declare (type single-float h* x))
-    (cond
-      ((< h* 1.0f0) (values 1.0f0 x     0.0f0))
-      ((< h* 2.0f0) (values x     1.0f0 0.0f0))
-      ((< h* 3.0f0) (values 0.0f0 1.0f0 x))
-      ((< h* 4.0f0) (values 0.0f0 x     1.0f0))
-      ((< h* 5.0f0) (values x     0.0f0 1.0f0))
-      ((< h* 6.0f0) (values 1.0f0 0.0f0 x)))))
+  (let* ((h* h)
+         ;; Convert 1.0 to 0.0
+         (h^ (* (the single-float
+                     (if (>= h* 1.0f0)
+                         (- h* 1.0f0)
+                         h*))
+                6.0f0))
+         (index (truncate h^))
+         (f (- h^ (float index 0.0f0)))
+         (q (- 1.0f0 f)))
+    (declare (type single-float h* h^ x)
+             (type fixnum index))
+    (case index
+      (0 (values 1.0f0 f     0.0f0))
+      (1 (values q     1.0f0 0.0f0))
+      (2 (values 0.0f0 1.0f0 f))
+      (3 (values 0.0f0 q     1.0f0))
+      (4 (values f     0.0f0 1.0f0))
+      (5 (values 1.0f0 0.0f0 q)))))
 
 (defun m (cr ci zr zi iterations)
   (declare (optimize (speed 3) (safety 0))
@@ -33,7 +42,7 @@
       (psetf zr (+ cr (- zr2 zi2))
              zi (+ ci (* zi zr) (* zr zi)))
       (when (> (+ zr2 zi2) 4.0f0)
-        (return (* (/ (float i 0.0f0) (float iterations 0.0f0)) 360.0f0))))))
+        (return (/ (float i 0.0f0) (float iterations 0.0f0)))))))
 
 (defun render-mandelbrot (x y width height hue-offset julia)
   "Render one pixel."
@@ -53,13 +62,19 @@
                             (m (- (* scale x) 0.5f0) (* scale y)
                                0.0f0 0.0f0
                                25))))
+               ;; Hue and hue-offset are both in [0,1]
                (when hue
-                 (multiple-value-bind (r* g* b*)
-                     (hue-to-rgb (+ hue-offset (the single-float hue)))
-                   (declare (type single-float r* g* b*))
-                   (incf r r*)
-                   (incf g g*)
-                   (incf b b*))))))
+                 ;; Keep the final hue within the range [0,1]
+                 (let ((final-hue (+ (the single-float hue) hue-offset)))
+                   (declare (type single-float final-hue))
+                   (when (>= final-hue 1.0f0)
+                     (decf final-hue 1.0f0))
+                   (multiple-value-bind (r* g* b*)
+                       (hue-to-rgb final-hue)
+                     (declare (type single-float r* g* b*))
+                     (incf r r*)
+                     (incf g g*)
+                     (incf b b*)))))))
       (frag    x^           y^)
       (frag (+ x^ 0.5f0)    y^)
       (frag    x^        (+ y^ 0.5f0))
@@ -121,13 +136,13 @@
 
 (defun benchmark (&key (width 500) (height width) julia (hue (get-universal-time)))
   (let ((framebuffer (mezzano.gui:make-surface width height))
-        (hue-offset (rem hue 360)))
+        (hue-offset (/ (rem hue 360) 360.0)))
     (dotimes (y height)
       (dotimes (x width)
         (setf (mezzano.gui:surface-pixel framebuffer x y)
               (render-mandelbrot (float x 0.0f0) (float y 0.0f0)
                                  (float width 0.0f0) (float height 0.0f0)
-                                 (float hue-offset 0.0f0)
+                                 hue-offset
                                  julia))))
     framebuffer))
 
@@ -161,7 +176,7 @@
                        (width (- (mezzano.gui.compositor:width window) left right))
                        (height (- (mezzano.gui.compositor:height window) top bottom))
                        (pixel-count 0)
-                       (hue-offset (rem (get-universal-time) 360)))
+                       (hue-offset (/ (rem (get-universal-time) 360) 360.0)))
                    ;; Render a line at a time, should do this in a seperate thread really...
                    ;; More than one thread, even.
                    (dotimes (y height)
@@ -169,7 +184,7 @@
                        (setf (mezzano.gui:surface-pixel framebuffer (+ left x) (+ top y))
                              (render-mandelbrot (float x) (float y)
                                                 (float width) (float height)
-                                                (float hue-offset)
+                                                hue-offset
                                                 (juliap app))))
                      (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
                      (loop
