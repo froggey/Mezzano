@@ -61,39 +61,43 @@
 (defun snapshot-copy-wired-area ()
   ;; FIXME: Only copy dirty pages.
   ;; Walk through each wired page and allocate a new block for it.
-  (loop
-     for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
-     for pte = (or (get-pte-for-address wired-page nil)
-                   (panic "No page table entry for wired-page " wired-page))
-     for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
-     for backing-frame = (physical-page-frame-next page-frame)
-     for bme-addr = (or (block-info-for-virtual-address-1 wired-page nil)
-                        (panic "No block map entry for wired-page " wired-page))
-     for bme = (sys.int::memref-unsigned-byte-64 bme-addr 0)
-     for new-block = (or (store-alloc 1)
-                         (panic "Aiiee, out of store when copying wired area!"))
-     for old-block = (ash bme (- sys.int::+block-map-id-shift+))
-     do
-       (setf (physical-page-frame-block-id backing-frame) new-block)
-       (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
-                         sys.int::+block-map-committed+
-                         (logand bme #xFF))
-             (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
-       (decf *store-fudge-factor*)
-       (store-deferred-free old-block 1))
+  (flet ((alloc-blocks (start end &key sparse)
+           (loop
+              for wired-page from start below end by #x1000
+              for pte = (or (get-pte-for-address wired-page nil)
+                            (panic "No page table entry for wired-page " wired-page))
+              for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
+              for backing-frame = (physical-page-frame-next page-frame)
+              for bme-addr = (or (block-info-for-virtual-address-1 wired-page nil)
+                                 (panic "No block map entry for wired-page " wired-page))
+              for bme = (sys.int::memref-unsigned-byte-64 bme-addr 0)
+              for new-block = (or (store-alloc 1)
+                                  (panic "Aiiee, out of store when copying wired area!"))
+              for old-block = (ash bme (- sys.int::+block-map-id-shift+))
+              do
+                (setf (physical-page-frame-block-id backing-frame) new-block)
+                (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                                  sys.int::+block-map-committed+
+                                  (logand bme #xFF))
+                      (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
+                (decf *store-fudge-factor*)
+                (store-deferred-free old-block 1))))
+    (alloc-blocks sys.int::*wired-area-base* sys.int::*wired-area-bump*))
   ;; I bet this could be partially done with CoW. Evil.
   ;; Copy without interrupts to avoid smearing.
   (without-interrupts
-    (loop
-       for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
-       for pte = (or (get-pte-for-address wired-page nil)
-                     (panic "No page table entry for " wired-page))
-       for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
-       for other-frame = (physical-page-frame-next page-frame)
-       do
-         (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
-                          wired-page)
-         (snapshot-add-to-writeback-list other-frame))))
+    (flet ((copy-pages (start end &key sparse)
+             (loop
+                for wired-page from start below end by #x1000
+                for pte = (or (get-pte-for-address wired-page nil)
+                              (panic "No page table entry for " wired-page))
+                for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
+                for other-frame = (physical-page-frame-next page-frame)
+                do
+                  (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
+                                   wired-page)
+                  (snapshot-add-to-writeback-list other-frame))))
+      (copy-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*))))
 
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
@@ -365,6 +369,24 @@ Returns 4 values:
      (%run-on-wired-stack-without-interrupts (sp fp)
       (%reschedule-via-wired-stack sp fp))))
 
+(defun allocate-snapshot-wired-backing-pages (start end &key sparse)
+  (loop
+     for wired-page from start below end by #x1000
+     ;; ### Could disable snapshotting if this can't be allocated.
+     do (let* ((pte (or (get-pte-for-address wired-page nil)
+                        (if sparse
+                            nil
+                            (panic "No page table entry for wired page " wired-page))))
+               (page-frame (and pte
+                                (page-present-p pte)
+                                (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))))
+          (when page-frame
+            (let ((frame (allocate-physical-pages 1
+                                                  :mandatory-p "wired backing pages"
+                                                  :type :wired-backing)))
+              (setf (physical-page-frame-next page-frame) frame)
+              (setf (physical-page-virtual-address frame) wired-page))))))
+
 (defun initialize-snapshot ()
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
@@ -373,17 +395,13 @@ Returns 4 values:
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...
-  (loop
-     for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
-     ;; ### Could disable snapshotting if this can't be allocated.
-     do (let* ((frame (allocate-physical-pages 1
-                                               :mandatory-p "wired backing pages"
-                                               :type :wired-backing))
-               (pte (or (get-pte-for-address wired-page nil)
-                        (panic "No page table entry for wired page " wired-page)))
-               (page-frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
-          (setf (physical-page-frame-next page-frame) frame)
-          (setf (physical-page-virtual-address frame) wired-page)))
+  (allocate-snapshot-wired-backing-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
+  ;; FIXME: The card table is mostly sparse. The system spends ages scanning
+  ;; it during boot looking for allocated regions but mostly doing nothing.
+  ;; Could modify the bootloader to allocate backing pages.
+  (allocate-snapshot-wired-backing-pages sys.int::+card-table-base+
+                                         (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
+                                         :sparse t)
   ;; ### same here.
   (setf *snapshot-bounce-buffer-page* (allocate-physical-pages 1
                                                                :mandatory-p "snapshot bounce page")))

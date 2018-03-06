@@ -5,8 +5,10 @@
 
 (sys.int::defglobal *paranoid-allocation*)
 
+(sys.int::defglobal sys.int::*wired-area-base*)
 (sys.int::defglobal sys.int::*wired-area-bump*)
 (sys.int::defglobal sys.int::*wired-area-free-bins*)
+(sys.int::defglobal sys.int::*pinned-area-base*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)
 (sys.int::defglobal sys.int::*pinned-area-free-bins*)
 (sys.int::defglobal sys.int::*general-area-bump*)
@@ -165,7 +167,7 @@
     (mezzano.supervisor:with-mutex (*allocator-lock*)
       (mezzano.supervisor:with-pseudo-atomic
         (when *paranoid-allocation*
-          (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*))
+          (verify-freelist sys.int::*pinned-area-freelist* sys.int::*pinned-area-base* sys.int::*pinned-area-bump*))
         (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
           (when address
             (sys.int::%%assemble-value address sys.int::+tag-object+)))))))
@@ -205,7 +207,7 @@
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (when *paranoid-allocation*
-    (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
+    (verify-freelist sys.int::*wired-area-freelist* sys.int::*wired-area-base* sys.int::*wired-area-bump*))
   (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
     (when address
       (sys.int::%%assemble-value address sys.int::+tag-object+))))

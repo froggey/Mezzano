@@ -243,10 +243,10 @@
 
 ;;; Memory allocation.
 
-;; Wired area starts at 2M.
-(defconstant +wired-area-base+ (* 2 1024 1024))
-;; Pinned at 2G.
-(defconstant +pinned-area-base+ (* 2 1024 1024 1024))
+;; Wired area starts near 0.
+(defconstant +wired-area-base+ sys.int::+allocation-minimum-alignment+)
+;; Pinned at 512G.
+(defconstant +pinned-area-base+ (* 512 1024 1024 1024))
 ;; Wired area stops at 2G, below the pinned area.
 (defconstant +wired-area-limit+ (* 2 1024 1024 1024))
 
@@ -274,6 +274,8 @@
 (defvar *cons-area-data*)
 (defvar *cons-area-store*)
 
+(defvar *card-offsets*)
+
 (defstruct stack
   base
   size
@@ -295,19 +297,24 @@
 (defun allocate-1 (size bump-symbol data-symbol data-offset limit tag name)
   (when (>= (+ (symbol-value bump-symbol) size) limit)
     (error "~A area exceeded limit." name))
-  (let ((address (symbol-value bump-symbol)))
+  (let ((address (logior (symbol-value bump-symbol)
+                         (ash tag sys.int::+address-tag-shift+))))
     (incf (symbol-value bump-symbol) size)
     ;; Keep data vector page aligned, but don't expand it too often.
     ;; Keeping it 2MB aligned is important - WRITE-IMAGE relies on this to
     ;; provide zeros in unallocated parts of the area.
-    (let ((dv-size (align-up (symbol-value bump-symbol) #x200000)))
+    (let ((dv-size (align-up (symbol-value bump-symbol) sys.int::+allocation-minimum-alignment+)))
       (when (not (eql (- dv-size data-offset)
                       (length (symbol-value data-symbol))))
         (setf (symbol-value data-symbol) (adjust-array (symbol-value data-symbol)
                                                        (- dv-size data-offset)
                                                        :element-type '(unsigned-byte 8)
                                                        :initial-element 0))))
-    (/ (logior address (ash tag sys.int::+address-tag-shift+)) 8)))
+    ;; Update the card table starts.
+    (loop
+       for card from (align-up address sys.int::+card-size+) below (+ address size) by sys.int::+card-size+
+       do (setf (gethash card *card-offsets*) (cons (- address card) address)))
+    (/ address 8)))
 
 (defun allocate (word-count &optional area)
   (when (oddp word-count) (incf word-count))
@@ -689,6 +696,38 @@
       (read-sequence data s)
       data)))
 
+(defun write-card-table (stream bml4 start size &key semispace)
+  (assert (zerop (rem start sys.int::+allocation-minimum-alignment+)))
+  (assert (zerop (rem size sys.int::+allocation-minimum-alignment+)))
+  (let ((table (make-array (* (/ size sys.int::+card-size+) sys.int::+card-table-entry-size+)
+                           :element-type '(unsigned-byte 8)
+                           :initial-element 0))
+        (store-base *store-bump*))
+    ;; Semispaces are empty.
+    (when (not semispace)
+      (loop
+         for i below size by sys.int::+card-size+
+         for offset = (car (or (gethash (+ start i) *card-offsets*)
+                               (error "Missing card offset for address ~X" (+ start i))))
+         do
+           (assert (not (plusp offset)))
+           (assert (not (logtest offset 15)))
+           (setf (nibbles:ub32ref/le table (* (/ i sys.int::+card-size+) sys.int::+card-table-entry-size+))
+                 (cross-cl:dpb (min (1- (expt 2 (cross-cl:byte-size sys.int::+card-table-entry-offset+)))
+                                    (/ (- offset) 16))
+                               sys.int::+card-table-entry-offset+
+                               0))))
+    (write-sequence table stream)
+    (incf *store-bump* (length table))
+    (add-region-to-block-map bml4
+                             (/ store-base #x1000)
+                             (+ sys.int::+card-table-base+
+                                (/ start sys.int::+card-size+))
+                             (/ size #x1000)
+                             (logior sys.int::+block-map-present+
+                                     sys.int::+block-map-writable+
+                                     sys.int::+block-map-wired+))))
+
 (defun write-image (s entry-fref initial-thread image-size header-path uuid)
   (format t "Writing image file to ~A.~%" (namestring s))
   (let* ((image-header-data (when header-path
@@ -770,43 +809,54 @@
             *cons-area-store* (length *cons-area-data*))
     (file-position s (+ image-offset *cons-area-store*))
     (write-sequence *cons-area-data* s)
+    ;; Write initial card table. Includes adding it to the block map.
+    (write-card-table s bml4 +wired-area-base+ (- *wired-area-bump* +wired-area-base+))
+    (write-card-table s bml4 +pinned-area-base+ (- *pinned-area-bump* +pinned-area-base+))
+    (write-card-table s bml4 (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+) *general-area-bump*)
+    (write-card-table s bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                      *general-area-bump* :semispace t)
+    (write-card-table s bml4 (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+) *cons-area-bump*)
+    (write-card-table s bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                      *cons-area-bump* :semispace t)
     ;; Generate the block map.
     (add-region-to-block-map bml4
                              (/ *wired-area-store* #x1000)
                              +wired-area-base+
-                             (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
+                             (/ (- (align-up *wired-area-bump* sys.int::+allocation-minimum-alignment+) +wired-area-base+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+
                                      sys.int::+block-map-wired+))
     (add-region-to-block-map bml4
                              (/ *pinned-area-store* #x1000)
                              +pinned-area-base+
-                             (/ (- (align-up *pinned-area-bump* #x200000) +pinned-area-base+) #x1000)
+                             (/ (- (align-up *pinned-area-bump* sys.int::+allocation-minimum-alignment+) +pinned-area-base+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
                              (/ *general-area-store* #x1000)
                              (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                             (/ (align-up *general-area-bump* #x200000) #x1000)
+                             (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
-                             (/ (+ *general-area-store* (align-up *general-area-bump* #x200000)) #x1000)
+                             (/ (+ *general-area-store* (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
                              (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
                                      (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                             (/ (align-up *general-area-bump* #x200000) #x1000)
+                             (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-zero-fill+))
     (add-region-to-block-map bml4
                              (/ *cons-area-store* #x1000)
                              (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                             (/ (align-up *cons-area-bump* #x200000) #x1000)
+                             (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
-                             (/ (+ *cons-area-store* (align-up *cons-area-bump* #x200000)) #x1000)
+                             (/ (+ *cons-area-store* (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
                              (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                      (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                             (/ (align-up *cons-area-bump* #x200000) #x1000)
+                             (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-zero-fill+))
     (dolist (stack *stack-list*)
       (add-region-to-block-map bml4
@@ -1151,7 +1201,18 @@
         ;; Ensure a minium amount of free space in :wired.
         ;; And :pinned as well, but that matters less.
         (wired-free-area (allocate (* 8 1024 1024) :wired))
-        (pinned-free-area (allocate 4 :pinned)))
+        (pinned-free-area (allocate (* 1 1024 1024) :pinned)))
+    ;; Allocate enough to align the area sizes up to the allocation alignment.
+    (flet ((align (area area-bump)
+             (allocate (/ (- sys.int::+allocation-minimum-alignment+
+                             (rem area-bump
+                                  sys.int::+allocation-minimum-alignment+))
+                          8)
+                       area)))
+      (align :wired *wired-area-bump*)
+      (align :pinned *pinned-area-bump*)
+      (align :general *general-area-bump*)
+      (align :cons *cons-area-bump*))
     (setf (word wired-free-bins) (array-header sys.int::+object-tag-array-t+ 64)
           (word pinned-free-bins) (array-header sys.int::+object-tag-array-t+ 64))
     (dotimes (i 64)
@@ -1159,31 +1220,33 @@
       (setf (word (+ pinned-free-bins 1 i)) (vsym nil)))
     (setf (cold-symbol-value 'sys.int::*wired-area-free-bins*) (make-value wired-free-bins sys.int::+tag-object+)
           (cold-symbol-value 'sys.int::*pinned-area-free-bins*) (make-value pinned-free-bins sys.int::+tag-object+))
-    (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
+    (setf *wired-area-bump* (align-up *wired-area-bump* sys.int::+allocation-minimum-alignment+))
     (let ((wired-size (truncate (- *wired-area-bump* (ldb (byte 44 0) (* wired-free-area 8))) 8)))
       (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                            (ash wired-size sys.int::+object-data-shift+))
             (word (1+ wired-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
       (setf (word (+ wired-free-bins 1 (integer-length wired-size))) (make-fixnum (* wired-free-area 8))))
-    (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
+    (setf *pinned-area-bump* (align-up *pinned-area-bump* sys.int::+allocation-minimum-alignment+))
     (let ((pinned-size (truncate (- *pinned-area-bump* (ldb (byte 44 0) (* pinned-free-area 8))) 8)))
       (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                             (ash pinned-size sys.int::+object-data-shift+))
             (word (1+ pinned-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
       (setf (word (+ pinned-free-bins 1 (integer-length pinned-size))) (make-fixnum (* pinned-free-area 8))))
-    (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
     (setf *wired-area-store* *store-bump*)
     (incf *store-bump* (- *wired-area-bump* +wired-area-base+))
-    (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
     (setf *pinned-area-store* *store-bump*)
     (incf *store-bump* (- *pinned-area-bump* +pinned-area-base+))
     (setf *general-area-store* *store-bump*)
-    (incf *store-bump* (* (align-up *general-area-bump* #x200000) 2))
+    (incf *store-bump* (* (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) 2))
     (setf *cons-area-store* *store-bump*)
-    (incf *store-bump* (* (align-up *cons-area-bump* #x200000) 2))
+    (incf *store-bump* (* (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) 2))
     (dolist (stack *stack-list*)
       (setf (stack-store stack) *store-bump*)
-      (incf *store-bump* (stack-size stack)))))
+      (incf *store-bump* (stack-size stack)))
+    (assert (zerop (rem *wired-area-bump* sys.int::+allocation-minimum-alignment+)))
+    (assert (zerop (rem *pinned-area-bump* sys.int::+allocation-minimum-alignment+)))
+    (assert (zerop (rem *general-area-bump* sys.int::+allocation-minimum-alignment+)))
+    (assert (zerop (rem *cons-area-bump* sys.int::+allocation-minimum-alignment+)))))
 
 (defun generate-uuid ()
   (let ((uuid (make-array 16 :element-type '(unsigned-byte 8))))
@@ -1270,7 +1333,8 @@
          (pf-exception-stack (create-stack (* 128 1024)))
          (irq-stack (create-stack (* 128 1024)))
          (wired-stack (create-stack (* 128 1024)))
-         (*image-to-cross-slot-definitions* (make-hash-table)))
+         (*image-to-cross-slot-definitions* (make-hash-table))
+         (*card-offsets* (make-hash-table)))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (ecase sys.c::*target-architecture*
@@ -1414,7 +1478,9 @@
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
+      (set-value 'sys.int::*wired-area-base* +wired-area-base+)
       (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
+      (set-value 'sys.int::*pinned-area-base* +pinned-area-base+)
       (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)
       (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)

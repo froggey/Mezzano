@@ -432,7 +432,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                (page-aligned-p length))
           (base length)
           "Range not page aligned.")
-  (assert (>= (+ base length) (* 2 1024 1024 1024)) () "Wired area can't be protected.")
+  (assert (>= (+ base length) (* 512 1024 1024 1024)) () "Wired area can't be protected.")
   ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
   ;; Actual possible implementation strategy: Commit if uncommitted, then back write to disk.
   (assert (or (block-info-present-p flags)

@@ -153,7 +153,7 @@
                   ;; This stops the disk-thread from touching memory that might not be
                   ;; wired.
                   ((and (sys.int::%value-has-tag-p buffer sys.int::+tag-object+)
-                        (< (sys.int::lisp-object-address buffer) (* 2 1024 1024 1024))
+                        (< (sys.int::lisp-object-address buffer) sys.int::*wired-area-bump*)
                         (eql (sys.int::%object-tag buffer) sys.int::+object-tag-array-unsigned-byte-8+))
                    ;; Reading or writing into an array, allocate a bounce buffer.
                    ;; TODO: Do this without the bounce buffer.

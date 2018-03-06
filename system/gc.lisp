@@ -1428,8 +1428,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                            *cons-area-limit*
                                            +block-map-zero-fill+)
   ;; Rebuild freelists.
-  (rebuild-freelist *wired-area-free-bins* :wired (* 2 1024 1024) *wired-area-bump*)
-  (rebuild-freelist *pinned-area-free-bins* :pinned (* 2 1024 1024 1024) *pinned-area-bump*)
+  (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
+  (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
   ;; Trim the dynamic areas.
   (let ((new-limit (align-up *general-area-bump* #x200000)))
     (mezzano.supervisor:release-memory-range (logior new-limit
@@ -1476,9 +1476,9 @@ No type information will be provided."
                       offset))
                   (incf offset (* (align-up size 2) 8)))))))
     ;; Search wired area.
-    (search (* 2 1024 1024) *wired-area-bump*)
+    (search *wired-area-bump* *wired-area-bump*)
     ;; Search pinned area.
-    (search (* 2 1024 1024 1024) *pinned-area-bump*)))
+    (search *pinned-area-bump* *pinned-area-bump*)))
 
 (deftype weak-pointer ()
   '(satisfies weak-pointer-p))

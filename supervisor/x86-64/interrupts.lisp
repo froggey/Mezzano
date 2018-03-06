@@ -196,12 +196,12 @@ If clear, the fault occured in supervisor mode.")
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
            (fatal-page-fault interrupt-frame info "Page fault with interrupts disabled" fault-addr))
-          ((or (<= 0 fault-addr (1- (* 2 1024 1024 1024)))
+          ((or (<= 0 fault-addr (1- (* 512 1024 1024 1024)))
                (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                    fault-addr
                    (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                       (* 512 1024 1024 1024))))
-           ;; Pages below 2G are wired and should never be unmapped or protected.
+           ;; Pages below 512G are wired and should never be unmapped or protected.
            ;; Same for pages in the wired stack area.
            (fatal-page-fault interrupt-frame info "Page fault in wired area" fault-addr))
           ((and (logbitp +page-fault-error-present+ info)

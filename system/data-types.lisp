@@ -218,6 +218,29 @@
 (defconstant +address-tag-general+      #b010)
 (defconstant +address-tag-cons+         #b011)
 
+(defconstant +card-size+ #x1000) ; Match page size for now.
+(defconstant +card-table-entry-size+ 4)
+
+(defconstant +card-table-entry-offset+ (byte 16 0)
+  "A negative 16-bit offset from the start of the card to the start
+of the first object in the card. Measured in 16-byte units.
+An offset of all ones (1- (expt 2 16)) indicates that the start of the
+object is further away than what can be encoded and the the system
+should continue looking backwards.")
+(defconstant +cart-table-entry-dirty+ 16)
+;; Bits 31-17 available.
+
+;; Cover the whole address space.
+(defconstant +card-table-size+ (* (/ (expt 2 47) +card-size+)
+                                  +card-table-entry-size+))
+(defconstant +card-table-base+ #x4000000000) ; 256GB, mostly arbitrary but in the wired area
+;; VM regions must meet this allocation requirement so that the card table
+;; entries associated with an allocation cover an exact number of pages.
+;; This allows the pager to map/unmap regions in the card table without worrying
+;; about partial page coverage.
+(defconstant +allocation-minimum-alignment+ (* (/ #x1000 +card-table-entry-size+)
+                                               +card-size+))
+
 (defconstant +block-map-present+ #x01
   "Entry is present. This entry may still have a block associated with it, even if it is not present.")
 (defconstant +block-map-writable+ #x02

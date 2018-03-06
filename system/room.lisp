@@ -201,8 +201,8 @@ FN will be called with the world stopped, it must not allocate."
   (check-type area (member :pinned :wired :general :cons))
   (mezzano.supervisor:with-world-stopped ()
     (case area
-      (:pinned (%walk-pinned-area (* 2 1024 1024 1024) *pinned-area-bump* fn))
-      (:wired (%walk-pinned-area (* 2 1024 1024) *wired-area-bump* fn))
+      (:pinned (%walk-pinned-area *pinned-area-base* *pinned-area-bump* fn))
+      (:wired (%walk-pinned-area *wired-area-base* *wired-area-bump* fn))
       (:general (%walk-general-area fn))
       (:cons (%walk-cons-area fn)))))
 
