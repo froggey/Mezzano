@@ -1305,7 +1305,15 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                      *pinned-mark-bit*))
        ;; Not marked, must be free.
        (return start))
-     (incf start (* (align-up (size-of-pinned-area-allocation start) 2) 8))))
+     (let ((size (* (align-up (size-of-pinned-area-allocation start) 2) 8)))
+       (loop
+          for card from (align-up start +card-size+) below (+ start size) by +card-size+
+          for delta = (- start card)
+          do (setf (card-table-offset card)
+                   (if (<= delta (- (* (1- (ash 1 (byte-size +card-table-entry-offset+))) 16)))
+                       nil
+                       delta)))
+       (incf start size))))
 
 (defun make-freelist-header (len)
   (when *gc-debug-freelist-rebuild*
@@ -1333,10 +1341,18 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (gc-log "finalize entry @" start "  len " len " bin " bin))
     (setf (memref-unsigned-byte-64 start 0) (make-freelist-header len)
           (memref-t start 1) (svref bins bin))
-    (setf (svref bins bin) start)))
+    (setf (svref bins bin) start)
+    (loop
+       for card from (align-up start +card-size+) below (+ start (* len 8)) by +card-size+
+       for delta = (- start card)
+       do (setf (card-table-offset card)
+                (if (<= delta (- (* (1- (ash 1 (byte-size +card-table-entry-offset+))) 16)))
+                    nil
+                    delta)))))
 
 (defun rebuild-freelist (bins name base limit)
-  "Sweep the pinned/wired area chain and rebuild the freelist."
+  "Sweep the pinned/wired area chain and rebuild the freelist.
+Additionally update the card table offset fields."
   (gc-log "rebuild freelist " name)
   (dotimes (i 64)
     (setf (svref bins i) nil))

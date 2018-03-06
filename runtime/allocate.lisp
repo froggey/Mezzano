@@ -665,6 +665,11 @@
 
 (in-package :sys.int)
 
+;; Card table offsets are only valid for pinned/wired objects.
+;; They are only needed for converting function return addresses
+;; to function objects, and functions can only be allocated in
+;; the pinned/wired areas.
+
 (defun card-table-offset (address)
   ;; 16-bit accesses are used here to avoid interfering with
   ;; accesses to the the high half containing the flag bits.
