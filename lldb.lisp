@@ -168,7 +168,7 @@
               ;; Return address should be the first entry on the stack.
               (memref-unsigned-byte-64 stack-pointer (1- layout-length))))))))
 
-(defun map-thread-backtrace (thread fn)
+(defun map-thread-backtrace (thread function)
   (check-type thread mezzano.supervisor:thread)
   (multiple-value-bind (stack-pointer frame-pointer return-address)
       (cond ((mezzano.supervisor:thread-full-save-p thread)
@@ -182,8 +182,9 @@
                       (mezzano.supervisor:thread-state-rsp thread)
                       0))))
     (loop
-       (funcall fn stack-pointer frame-pointer return-address
-               (return-address-to-function return-address))
+       (multiple-value-bind (fn fn-offset)
+           (return-address-to-function return-address)
+         (funcall function stack-pointer frame-pointer return-address fn fn-offset))
        (setf (values stack-pointer frame-pointer return-address)
              (backtrace-next-frame thread stack-pointer frame-pointer return-address))
        (when (or (zerop frame-pointer)
@@ -193,8 +194,8 @@
 (defun backtrace-thread (thread)
   (map-thread-backtrace
    thread
-   (lambda (stack-pointer frame-pointer return-address fn)
-     (format t "~X ~X ~X ~S~%" stack-pointer frame-pointer return-address fn))))
+   (lambda (stack-pointer frame-pointer return-address fn fn-offset)
+     (format t "~X ~X ~X ~S+~D~%" stack-pointer frame-pointer return-address fn fn-offset))))
 
 (defun dump-thread-stack (thread &optional limit)
   (loop
@@ -369,6 +370,49 @@
       (mezzano.supervisor:terminate-thread thread)
       (ignore-errors
         (mezzano.supervisor::resume-thread thread)))))
+
+(defvar *external-profile-buffer* (make-array (* 1024 1024)))
+(defvar *external-profile-buffer-head* 0)
+(defvar *external-profile-buffer-tail* 0)
+(defvar *external-profile-activep* nil)
+
+(defun external-profiler-sample-thread (thread)
+  (let ((stack (make-array 10 :adjustable t :fill-pointer 0)))
+    (mezzano.supervisor::stop-thread thread)
+    (when (eql (mezzano.supervisor:thread-state thread) :dead)
+      (return-from external-profiler-sample-thread nil))
+    (map-thread-backtrace
+     thread
+     (lambda (stack-pointer frame-pointer return-address fn fn-offset)
+       (declare (ignore stack-pointer frame-pointer return-address))
+       (when (not (or (eql fn #'mezzano.supervisor::stop-current-thread)
+                      (eql fn #'mezzano.supervisor::%%partial-save-return-thunk)))
+         (vector-push-extend (cons fn fn-offset) stack))))
+    (mezzano.supervisor::resume-thread thread)
+    stack))
+
+(defun external-profiler-sample (threads)
+  (let ((thread-samples (make-array 10 :adjustable t :fill-pointer 0)))
+    (loop
+       for thread in threads
+       for call-stack = (external-profiler-sample-thread thread)
+       when call-stack
+       do (vector-push-extend (mezzano.profiler::make-thread-sample
+                               :thread thread
+                               :state nil
+                               :wait-item nil
+                               :call-stack call-stack)
+                              thread-samples))
+    thread-samples))
+
+(defun external-profiler-worker ()
+  (loop
+     (setf (aref *external-profile-buffer* *external-profile-buffer-head*)
+           (external-profiler-sample *external-profile-activep*))
+     (incf *external-profile-buffer-head*)
+     (when (>= *external-profile-buffer-head* (length *external-profile-buffer*))
+       (setf *external-profile-buffer-head* 0))
+     (sleep 0.1)))
 
 (defun print-safely-to-string (obj)
   (handler-case
