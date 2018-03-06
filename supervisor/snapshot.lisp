@@ -60,29 +60,38 @@
 
 (defun snapshot-copy-wired-area ()
   ;; FIXME: Only copy dirty pages.
+  ;; FIXME: See comment in INITIALIZE-SNAPSHOT about card-table sparseness
   ;; Walk through each wired page and allocate a new block for it.
   (flet ((alloc-blocks (start end &key sparse)
            (loop
               for wired-page from start below end by #x1000
-              for pte = (or (get-pte-for-address wired-page nil)
-                            (panic "No page table entry for wired-page " wired-page))
-              for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
-              for backing-frame = (physical-page-frame-next page-frame)
-              for bme-addr = (or (block-info-for-virtual-address-1 wired-page nil)
-                                 (panic "No block map entry for wired-page " wired-page))
-              for bme = (sys.int::memref-unsigned-byte-64 bme-addr 0)
-              for new-block = (or (store-alloc 1)
-                                  (panic "Aiiee, out of store when copying wired area!"))
-              for old-block = (ash bme (- sys.int::+block-map-id-shift+))
               do
-                (setf (physical-page-frame-block-id backing-frame) new-block)
-                (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
-                                  sys.int::+block-map-committed+
-                                  (logand bme #xFF))
-                      (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
-                (decf *store-fudge-factor*)
-                (store-deferred-free old-block 1))))
-    (alloc-blocks sys.int::*wired-area-base* sys.int::*wired-area-bump*))
+                (let* ((pte (or (get-pte-for-address wired-page nil)
+                                (if sparse
+                                    nil
+                                    (panic "No page table entry for wired-page " wired-page))))
+                       (page-frame (and pte
+                                        (page-present-p pte 0)
+                                        (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))))
+                  (when page-frame
+                    (let* ((backing-frame (physical-page-frame-next page-frame))
+                           (bme-addr (or (block-info-for-virtual-address-1 wired-page nil)
+                                         (panic "No block map entry for wired-page " wired-page)))
+                           (bme (sys.int::memref-unsigned-byte-64 bme-addr 0))
+                           (new-block (or (store-alloc 1)
+                                          (panic "Aiiee, out of store when copying wired area!")))
+                           (old-block (ash bme (- sys.int::+block-map-id-shift+))))
+                      (setf (physical-page-frame-block-id backing-frame) new-block)
+                      (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                                        sys.int::+block-map-committed+
+                                        (logand bme #xFF))
+                            (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
+                      (decf *store-fudge-factor*)
+                      (store-deferred-free old-block 1)))))))
+    (alloc-blocks sys.int::*wired-area-base* sys.int::*wired-area-bump*)
+    (alloc-blocks sys.int::+card-table-base+
+                  (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
+                  :sparse t))
   ;; I bet this could be partially done with CoW. Evil.
   ;; Copy without interrupts to avoid smearing.
   (without-interrupts
@@ -90,14 +99,23 @@
              (loop
                 for wired-page from start below end by #x1000
                 for pte = (or (get-pte-for-address wired-page nil)
-                              (panic "No page table entry for " wired-page))
-                for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
-                for other-frame = (physical-page-frame-next page-frame)
+                              (if sparse
+                                  nil
+                                  (panic "No page table entry for " wired-page)))
+                for page-frame = (and pte
+                                      (page-present-p pte)
+                                      (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))
+                for other-frame = (and page-frame
+                                       (physical-page-frame-next page-frame))
                 do
-                  (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
-                                   wired-page)
-                  (snapshot-add-to-writeback-list other-frame))))
-      (copy-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*))))
+                  (when page-frame
+                    (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
+                                     wired-page)
+                    (snapshot-add-to-writeback-list other-frame)))))
+      (copy-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
+      (copy-pages sys.int::+card-table-base+
+                  (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
+                  :sparse t))))
 
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
