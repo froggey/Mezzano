@@ -21,8 +21,8 @@
 (require :nibbles)
 (require :cl-ppcre)
 
-(cal "tools/build-unicode.lisp")
-(cal "tools/build-pci-ids.lisp")
-(cal "tools/cold-generator.lisp")
-(cal "tools/cold-generator-x86-64.lisp")
-(cal "tools/cold-generator-arm64.lisp")
+(cal "tools/cold-generator/build-unicode.lisp")
+(cal "tools/cold-generator/build-pci-ids.lisp")
+(cal "tools/cold-generator/cold-generator.lisp")
+(cal "tools/cold-generator/cold-generator-x86-64.lisp")
+(cal "tools/cold-generator/cold-generator-arm64.lisp")

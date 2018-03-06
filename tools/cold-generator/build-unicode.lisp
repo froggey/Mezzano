@@ -1,11 +1,6 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :build-unicode
-  (:export :decode-glyph :generate-unifont-table
-	   :read-unicode-data :generate-unicode-data-tables)
-  (:use :cl))
-
 (in-package :build-unicode)
 
 (defun decode-glyph (glyph)
