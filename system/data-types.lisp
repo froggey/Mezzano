@@ -208,6 +208,7 @@
 
 (defconstant +address-tag-shift+ 45)
 (defconstant +address-tag-size+ 3)
+(defconstant +address-tag+ (byte +address-tag-size+ +address-tag-shift+))
 
 (defconstant +address-newspace/oldspace-bit+ 44)
 
@@ -238,6 +239,8 @@ should continue looking backwards.")
 ;; entries associated with an allocation cover an exact number of pages.
 ;; This allows the pager to map/unmap regions in the card table without worrying
 ;; about partial page coverage.
+;; NOTE: Stacks don't have card table entries and aren't subject to this
+;; alignment constraint. They must still be page-aligned.
 (defconstant +allocation-minimum-alignment+ (* (/ #x1000 +card-table-entry-size+)
                                                +card-size+))
 

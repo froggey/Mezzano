@@ -26,7 +26,8 @@
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
 
-(defconstant +minimum-expansion-granularity+ (* 4 1024 1024))
+(defconstant +minimum-expansion-granularity+
+  (* sys.int::+allocation-minimum-alignment+ 2))
 
 (sys.int::defglobal *general-fast-path-hits*)
 (sys.int::defglobal *general-allocation-count*)
@@ -77,8 +78,6 @@
   (setf sys.int::*gc-in-progress* nil
         sys.int::*pinned-mark-bit* 0
         sys.int::*dynamic-mark-bit* 0
-        sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
-        sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         *enable-allocation-profiling* nil
         *general-area-expansion-granularity* (* 128 1024 1024)
         *cons-area-expansion-granularity* (* 128 1024 1024)
@@ -182,8 +181,8 @@
        (when (not (eql i 0))
          ;; The GC has been run at least once, try enlarging the pinned area.
          (let ((grow-by (* words 8)))
-           (incf grow-by (1- (* 2 1024 1024)))
-           (setf grow-by (logand (lognot (1- (* 2 1024 1024)))
+           (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
+           (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
                                  grow-by))
            (mezzano.supervisor:without-footholds
              (mezzano.supervisor:with-mutex (*allocator-lock*)

@@ -74,6 +74,9 @@
 (defun page-aligned-p (value)
   (zerop (logand value #xFFF)))
 
+(defun stack-area-p (address)
+  (eql (ldb sys.int::+address-tag+ address) sys.int::+address-tag-stack+))
+
 (defun allocate-page (&optional mandatory)
   (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
     (when frame
@@ -333,10 +336,16 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (thread-pager-argument-1 (current-thread))))
 
 (defun allocate-memory-range (base length flags)
-  (assert (and (page-aligned-p base)
-               (page-aligned-p length))
-          (base length)
-          "Range not page aligned.")
+  (cond ((stack-area-p base)
+         (assert (and (page-aligned-p base)
+                      (page-aligned-p length))
+                 (base length)
+                 "Range not aligned."))
+        (t
+         (assert (and (zerop (rem base sys.int::+allocation-minimum-alignment+))
+                      (zerop (rem length sys.int::+allocation-minimum-alignment+)))
+                 (base length)
+                 "Range not aligned.")))
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
 (defun map-new-wired-page (address)
@@ -398,10 +407,16 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   t)
 
 (defun release-memory-range (base length)
-  (assert (and (page-aligned-p base)
-               (page-aligned-p length))
-          (base length)
-          "Range not page aligned.")
+  (cond ((stack-area-p base)
+         (assert (and (page-aligned-p base)
+                      (page-aligned-p length))
+                 (base length)
+                 "Range not aligned."))
+        (t
+         (assert (and (zerop (rem base sys.int::+allocation-minimum-alignment+))
+                      (zerop (rem length sys.int::+allocation-minimum-alignment+)))
+                 (base length)
+                 "Range not aligned.")))
   (pager-rpc 'release-memory-range-in-pager base length))
 
 (defun release-memory-range-in-pager (base length ignore3)

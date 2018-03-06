@@ -53,6 +53,7 @@
     "runtime/runtime.lisp"
     ("runtime/runtime-x86-64.lisp" :x86-64)
     ("runtime/runtime-arm64.lisp" :arm64)
+    "system/data-types.lisp"
     "runtime/allocate.lisp"
     "runtime/cons.lisp"
     "runtime/numbers.lisp"
@@ -67,7 +68,6 @@
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
-    "system/data-types.lisp"
     "system/defstruct.lisp"
     "system/cons.lisp"
     "system/sequence.lisp"
@@ -1474,19 +1474,23 @@
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
-    (finalize-areas)
-    ;; Initialize GC twiddly bits and stuff.
-    (flet ((set-value (symbol value)
-             (format t "~A is ~X~%" symbol value)
-             (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value 'sys.int::*wired-area-base* +wired-area-base+)
-      (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
-      (set-value 'sys.int::*pinned-area-base* +pinned-area-base+)
-      (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
-      (set-value 'sys.int::*general-area-bump* *general-area-bump*)
-      (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)
-      (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
-      (set-value 'sys.int::*stack-area-bump* +stack-area-base+))
+    (let ((actual-general-area-bump *general-area-bump*)
+          (actual-cons-area-bump *cons-area-bump*))
+      (finalize-areas)
+      ;; Initialize GC twiddly bits and stuff.
+      (flet ((set-value (symbol value)
+               (format t "~A is ~X~%" symbol value)
+               (setf (cold-symbol-value symbol) (make-fixnum value))))
+        (set-value 'sys.int::*wired-area-base* +wired-area-base+)
+        (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
+        (set-value 'sys.int::*pinned-area-base* +pinned-area-base+)
+        (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
+        (set-value 'sys.int::*general-area-bump* actual-general-area-bump)
+        (set-value 'sys.int::*general-area-limit* *general-area-bump*)
+        (set-value 'sys.int::*cons-area-bump* actual-cons-area-bump)
+        (set-value 'sys.int::*cons-area-limit* *cons-area-bump*)
+        (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
+        (set-value 'sys.int::*stack-area-bump* +stack-area-base+)))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)

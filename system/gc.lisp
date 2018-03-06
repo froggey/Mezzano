@@ -1431,7 +1431,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
   (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
   ;; Trim the dynamic areas.
-  (let ((new-limit (align-up *general-area-bump* #x200000)))
+  (let ((new-limit (align-up *general-area-bump* +allocation-minimum-alignment+)))
     (mezzano.supervisor:release-memory-range (logior new-limit
                                                      (ash +address-tag-general+ +address-tag-shift+))
                                              (- *general-area-limit* new-limit))
@@ -1440,7 +1440,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                      (ash +address-tag-general+ +address-tag-shift+))
                                              (- *general-area-limit* new-limit))
     (setf *general-area-limit* new-limit))
-  (let ((new-limit (align-up *cons-area-bump* #x200000)))
+  (let ((new-limit (align-up *cons-area-bump* +allocation-minimum-alignment+)))
     (mezzano.supervisor:release-memory-range (logior new-limit
                                                      (ash +address-tag-cons+ +address-tag-shift+))
                                              (- *cons-area-limit* new-limit))
