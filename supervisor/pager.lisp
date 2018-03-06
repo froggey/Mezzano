@@ -250,8 +250,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
            nil)
           (t (sys.int::memref-unsigned-byte-64 bme)))))
 
-(defun allocate-new-block-for-virtual-address (address flags)
-  (let ((new-block (if *pager-lazy-block-allocation-enabled*
+(defun allocate-new-block-for-virtual-address (address flags &key eager)
+  (let ((new-block (if (and (not eager)
+                            *pager-lazy-block-allocation-enabled*)
                        sys.int::+block-map-id-lazy+
                        (or (store-alloc 1)
                            (panic "Unable to allocate new block!"))))
@@ -310,6 +311,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (:wired
      (when (not allow-wired)
        (panic "Releasing page wired " frame))
+     ;; Release the backing frame, if any.
+     (when (physical-page-frame-next frame)
+       (release-physical-pages (physical-page-frame-next frame) 1))
      (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
@@ -348,7 +352,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  "Range not aligned.")))
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
-(defun map-new-wired-page (address)
+(defun map-new-wired-page (address &key backing-frame)
   (let ((pte (get-pte-for-address address))
         (block-info (block-info-for-virtual-address address)))
     ;;(debug-print-line "MNWP " address " block " block-info)
@@ -364,6 +368,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
            (addr (convert-to-pmap-address (ash frame 12))))
       (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
             (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
+      (cond (backing-frame
+             ;; Include a backing frame.
+             (let ((new-backing-frame (pager-allocate-page :wired-backing)))
+               (setf (physical-page-frame-next frame) new-backing-frame)
+               (setf (physical-page-virtual-address new-backing-frame) address)))
+            (t
+             (setf (physical-page-frame-next frame) nil)))
       ;; Block is zero-filled.
       (zeroize-page addr)
       ;; Clear the zero-fill flag.
@@ -377,10 +388,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun allocate-memory-range-in-pager (base length flags)
   (pager-log "Allocate range " base "-" (+ base length) "  " flags)
-  (when (< base #x80000000)
-    ;; This will require allocating new wired backing frames as well.
-    (debug-print-line "TODO: Allocate pages in the wired area.")
-    (return-from allocate-memory-range-in-pager nil))
   (when (logtest flags sys.int::+block-map-wired+)
     (ensure (or (< base #x80000000) ; wired area
                 (and (<= #x200000000000 base) ; wired stack area.
@@ -394,14 +401,36 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (dotimes (i (truncate length #x1000))
       (allocate-new-block-for-virtual-address
        (+ base (* i #x1000))
-       flags))
-    (when (and (<= #x200000000000 base) ; wired stack area.
-               (< base #x208000000000))
+       flags
+       :eager (logtest flags sys.int::+block-map-wired+)))
+    (when (not (stack-area-p base))
+      ;; Allocate new card table pages.
+      (let ((card-base (+ sys.int::+card-table-base+
+                          (* (/ base sys.int::+card-size+)
+                             sys.int::+card-table-entry-size+)))
+            (card-length (* (/ length sys.int::+card-size+)
+                            sys.int::+card-table-entry-size+)))
+        (begin-tlb-shootdown)
+        (dotimes (i (truncate card-length #x1000))
+          (allocate-new-block-for-virtual-address
+           (+ card-base (* i #x1000))
+           (logior sys.int::+block-map-present+
+                   sys.int::+block-map-writable+
+                   sys.int::+block-map-zero-fill+
+                   sys.int::+block-map-wired+)
+           :eager t)
+          (map-new-wired-page (+ card-base (* i #x1000)) :backing-frame t))
+        (tlb-shootdown-range card-base card-length)
+        (finish-tlb-shootdown)))
+    (when (or (< base #x80000000)
+              (and (<= #x200000000000 base) ; wired stack area.
+                   (< base #x208000000000)))
       (ensure (logtest flags sys.int::+block-map-wired+))
       ;; Pages in the wired stack area don't require backing frames.
       (begin-tlb-shootdown)
       (dotimes (i (truncate length #x1000))
-        (map-new-wired-page (+ base (* i #x1000))))
+        (map-new-wired-page (+ base (* i #x1000))
+                            :backing-frame (stack-area-p base)))
       (tlb-shootdown-range base length)
       (finish-tlb-shootdown)))
   t)
@@ -424,10 +453,24 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (pager-log "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
-    (let ((stackp (eql (ldb (byte sys.int::+address-tag-size+
-                                  sys.int::+address-tag-shift+)
-                            base)
-                       sys.int::+address-tag-stack+)))
+    (let ((stackp (stack-area-p base)))
+      (when (not stackp)
+        ;; Release card table pages.
+        (let ((card-base (+ sys.int::+card-table-base+
+                            (* (/ base sys.int::+card-size+)
+                               sys.int::+card-table-entry-size+)))
+              (card-length (* (/ length sys.int::+card-size+)
+                              sys.int::+card-table-entry-size+)))
+          (dotimes (i (truncate card-length #x1000))
+            ;; Update block map.
+            (release-block-at-virtual-address (+ card-base (* i #x1000)))
+            ;; Update page tables and release pages if possible.
+            (let ((pte (get-pte-for-address (+ card-base (* i #x1000)) nil)))
+              (when (and pte (page-present-p pte 0))
+                (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
+                                 t)
+                (setf (page-table-entry pte 0) 0))))
+          (tlb-shootdown-range card-base card-length)))
       (dotimes (i (truncate length #x1000))
         ;; Update block map.
         (release-block-at-virtual-address (+ base (* i #x1000)))

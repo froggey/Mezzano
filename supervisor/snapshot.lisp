@@ -209,7 +209,11 @@ Returns 4 values:
                  address))
         (:wired-backing
          ;; Page is a wired backing page.
-         (values frame
+         ;; Copy to the bounce buffer.
+         ;; Page may be freed during writeback if VM is modified.
+         (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
+                          (convert-to-pmap-address (ash frame 12)))
+         (values *snapshot-bounce-buffer-page*
                  nil
                  block-id
                  address))
