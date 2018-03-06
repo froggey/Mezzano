@@ -696,7 +696,7 @@
       (read-sequence data s)
       data)))
 
-(defun write-card-table (stream bml4 start size &key semispace)
+(defun write-card-table (stream image-offset bml4 start size &key semispace)
   (assert (zerop (rem start sys.int::+allocation-minimum-alignment+)))
   (assert (zerop (rem size sys.int::+allocation-minimum-alignment+)))
   (let ((table (make-array (* (/ size sys.int::+card-size+) sys.int::+card-table-entry-size+)
@@ -717,13 +717,14 @@
                                     (/ (- offset) 16))
                                sys.int::+card-table-entry-offset+
                                0))))
+    (file-position stream (+ image-offset store-base))
     (write-sequence table stream)
     (incf *store-bump* (length table))
     (add-region-to-block-map bml4
                              (/ store-base #x1000)
                              (+ sys.int::+card-table-base+
-                                (/ start sys.int::+card-size+))
-                             (/ size #x1000)
+                                (* (/ start sys.int::+card-size+) sys.int::+card-table-entry-size+))
+                             (/ (* (/ size sys.int::+card-size+) sys.int::+card-table-entry-size+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+
                                      sys.int::+block-map-wired+))))
@@ -810,15 +811,15 @@
     (file-position s (+ image-offset *cons-area-store*))
     (write-sequence *cons-area-data* s)
     ;; Write initial card table. Includes adding it to the block map.
-    (write-card-table s bml4 +wired-area-base+ (- *wired-area-bump* +wired-area-base+))
-    (write-card-table s bml4 +pinned-area-base+ (- *pinned-area-bump* +pinned-area-base+))
-    (write-card-table s bml4 (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+) *general-area-bump*)
-    (write-card-table s bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+    (write-card-table s image-offset bml4 +wired-area-base+ (- *wired-area-bump* +wired-area-base+))
+    (write-card-table s image-offset bml4 +pinned-area-base+ (- *pinned-area-bump* +pinned-area-base+))
+    (write-card-table s image-offset bml4 (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+) *general-area-bump*)
+    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                                  (ash 1 sys.int::+address-newspace/oldspace-bit+))
                       *general-area-bump* :semispace t)
-    (write-card-table s bml4 (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+) *cons-area-bump*)
-    (write-card-table s bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+    (write-card-table s image-offset bml4 (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+) *cons-area-bump*)
+    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                                  (ash 1 sys.int::+address-newspace/oldspace-bit+))
                       *cons-area-bump* :semispace t)
     ;; Generate the block map.
     (add-region-to-block-map bml4
