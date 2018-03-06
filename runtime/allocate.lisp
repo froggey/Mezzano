@@ -152,7 +152,16 @@
                                                                          (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                                                          (ash (- size words) sys.int::+object-data-shift+))
                        (sys.int::memref-t next 1) (svref bins new-bin))
-                 (setf (svref bins new-bin) next)))
+                 (setf (svref bins new-bin) next)
+                 ;; Update the card table starts for any pages
+                 ;; that this new freelist entry crosses.
+                 (loop
+                    for card from (mezzano.supervisor::align-up next sys.int::+card-size+) below (+ next (* new-size 8)) by sys.int::+card-size+
+                    for delta = (- next card)
+                    do (setf (sys.int::card-table-offset card)
+                             (if (<= delta (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)))
+                                 nil
+                                 delta)))))
              ;; Write object header.
              (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
              ;; Clear data.
@@ -650,3 +659,34 @@
     (setf (sys.int::%object-ref-t value sys.int::+ratio-numerator+) numerator
           (sys.int::%object-ref-t value sys.int::+ratio-denominator+) denominator)
     value))
+
+;;; Card table.
+;;; This would be in gc.lisp, but it needs to be wired.
+
+(in-package :sys.int)
+
+(defun card-table-offset (address)
+  ;; 16-bit accesses are used here to avoid interfering with
+  ;; accesses to the the high half containing the flag bits.
+  (let* ((cte (memref-unsigned-byte-16 +card-table-base+
+                                       ;; Multiply by 2 because this is a 16 bit access.
+                                       (* (truncate address +card-size+) 2)))
+         (offset (ldb +card-table-entry-offset+ cte)))
+    (cond ((eql offset (1- (ash 1 (byte-size +card-table-entry-offset+))))
+           nil)
+          (t
+           (- (* offset 16))))))
+
+(defun (setf card-table-offset) (value address)
+  (cond (value
+         (assert (not (plusp value)))
+         (assert (not (logtest value 15)))
+         (assert (< (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)) value))
+         (setf (memref-unsigned-byte-16 +card-table-base+
+                                        (* (truncate address +card-size+) 2))
+               (truncate (- value) 16)))
+        (t
+         (setf (memref-unsigned-byte-16 +card-table-base+
+                                        (* (truncate address +card-size+) 2))
+               (1- (ash 1 (byte-size +card-table-entry-offset+))))))
+  value)
