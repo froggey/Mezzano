@@ -210,7 +210,11 @@
 (defconstant +address-tag-size+ 3)
 (defconstant +address-tag+ (byte +address-tag-size+ +address-tag-shift+))
 
-(defconstant +address-newspace/oldspace-bit+ 44)
+(defconstant +address-generation+ (byte 2 43))
+(defconstant +address-generation-0+ 0)
+(defconstant +address-generation-1+ 1)
+(defconstant +address-generation-2-a+ 2)
+(defconstant +address-generation-2-b+ 3)
 
 ;; Pinned must be zero, a number of critical objects are pinned & wired and stored
 ;; below 2GB to permit fast access to them.

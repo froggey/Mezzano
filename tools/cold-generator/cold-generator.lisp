@@ -294,11 +294,12 @@
   (incf value (1- boundary))
   (- value (rem value boundary)))
 
-(defun allocate-1 (size bump-symbol data-symbol data-offset limit tag name)
+(defun allocate-1 (size bump-symbol data-symbol data-offset limit tag name generation)
   (when (>= (+ (symbol-value bump-symbol) size) limit)
     (error "~A area exceeded limit." name))
   (let ((address (logior (symbol-value bump-symbol)
-                         (ash tag sys.int::+address-tag-shift+))))
+                         (ash tag sys.int::+address-tag-shift+)
+                         (cross-cl:dpb generation sys.int::+address-generation+ 0))))
     (incf (symbol-value bump-symbol) size)
     ;; Keep data vector page aligned, but don't expand it too often.
     ;; Keeping it 2MB aligned is important - WRITE-IMAGE relies on this to
@@ -321,13 +322,13 @@
   (let ((size (* word-count 8)))
     (ecase (or area *default-general-allocation-area*)
       (:wired
-       (allocate-1 size '*wired-area-bump* '*wired-area-data* +wired-area-base+ +wired-area-limit+ sys.int::+address-tag-pinned+ "wired"))
+       (allocate-1 size '*wired-area-bump* '*wired-area-data* +wired-area-base+ +wired-area-limit+ sys.int::+address-tag-pinned+ "wired" 0))
       (:pinned
-       (allocate-1 size '*pinned-area-bump* '*pinned-area-data* +pinned-area-base+ +area-limit+ sys.int::+address-tag-pinned+ "pinned"))
+       (allocate-1 size '*pinned-area-bump* '*pinned-area-data* +pinned-area-base+ +area-limit+ sys.int::+address-tag-pinned+ "pinned" 0))
       (:general
-       (allocate-1 size '*general-area-bump* '*general-area-data* 0 +area-limit+ sys.int::+address-tag-general+ "general"))
+       (allocate-1 size '*general-area-bump* '*general-area-data* 0 +area-limit+ sys.int::+address-tag-general+ "general" sys.int::+address-generation-2-a+))
       (:cons
-       (allocate-1 size '*cons-area-bump* '*cons-area-data* 0 +area-limit+ sys.int::+address-tag-cons+ "cons")))))
+       (allocate-1 size '*cons-area-bump* '*cons-area-data* 0 +area-limit+ sys.int::+address-tag-cons+ "cons" sys.int::+address-generation-2-a+)))))
 
 (defun area-for-address (address)
   (let ((byte-address (* address 8)))
@@ -813,13 +814,17 @@
     ;; Write initial card table. Includes adding it to the block map.
     (write-card-table s image-offset bml4 +wired-area-base+ (- *wired-area-bump* +wired-area-base+))
     (write-card-table s image-offset bml4 +pinned-area-base+ (- *pinned-area-bump* +pinned-area-base+))
-    (write-card-table s image-offset bml4 (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+) *general-area-bump*)
     (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                                  (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                                                  (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
+                      *general-area-bump*)
+    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                                  (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
                       *general-area-bump* :semispace t)
-    (write-card-table s image-offset bml4 (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+) *cons-area-bump*)
     (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                                  (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                                                  (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
+                      *cons-area-bump*)
+    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                                  (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
                       *cons-area-bump* :semispace t)
     ;; Generate the block map.
     (add-region-to-block-map bml4
@@ -837,26 +842,28 @@
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
                              (/ *general-area-store* #x1000)
-                             (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                             (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                     (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                              (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
                              (/ (+ *general-area-store* (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
                              (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                                     (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
                              (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-zero-fill+))
     (add-region-to-block-map bml4
                              (/ *cons-area-store* #x1000)
-                             (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                             (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                     (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                              (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
                              (/ (+ *cons-area-store* (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
                              (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                                     (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
                              (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-zero-fill+))
     (dolist (stack *stack-list*)

@@ -77,7 +77,9 @@
 (defun first-run-initialize-allocator ()
   (setf sys.int::*gc-in-progress* nil
         sys.int::*pinned-mark-bit* 0
-        sys.int::*dynamic-mark-bit* 0
+        sys.int::*dynamic-mark-bit* (dpb sys.int::+address-generation-2-a+
+                                         sys.int::+address-generation+
+                                         0)
         *enable-allocation-profiling* nil
         *general-area-expansion-granularity* (* 128 1024 1024)
         *cons-area-expansion-granularity* (* 128 1024 1024)
@@ -318,10 +320,8 @@
         (mezzano.supervisor:debug-print-line "A-M-R newspace failed."))
       (return-from expand-allocation-area-1 nil))
     (when (not (mezzano.supervisor:allocate-memory-range
-                (logior (logxor sys.int::*dynamic-mark-bit*
-                                (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                        (ash address-tag
-                             sys.int::+address-tag-shift+)
+                (logior (sys.int::other-gen2-area-from-mark-bit sys.int::*dynamic-mark-bit*)
+                        (ash address-tag sys.int::+address-tag-shift+)
                         current-limit)
                 expansion
                 sys.int::+block-map-zero-fill+))
