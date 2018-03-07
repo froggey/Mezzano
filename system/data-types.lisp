@@ -250,6 +250,7 @@ should continue looking backwards.")
 
 (defconstant +block-map-present+ #x01
   "Entry is present. This entry may still have a block associated with it, even if it is not present.")
+;; FIXME: This isn't really respected properly.
 (defconstant +block-map-writable+ #x02
   "Entry is writable.")
 (defconstant +block-map-zero-fill+ #x04
@@ -259,6 +260,9 @@ should continue looking backwards.")
 Internal to the pager, should not be used by other code.")
 (defconstant +block-map-wired+ #x10
   "Entry should be wired in memory.")
+(defconstant +block-map-track-dirty+ #x20
+  "Dirty bit tracking is enabled for this entry.
+When the page is written to, the corresponding dirty bit in the card table will be set and this flag will be cleared.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 54) ; keep it a few bits smaller than 56 to avoid bignums.

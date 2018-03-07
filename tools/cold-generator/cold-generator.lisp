@@ -353,6 +353,7 @@
       (t (error "Unknown address #x~X" address)))))
 
 (defun create-stack (size)
+  ;; FIXME: Stack accounting ends up including the guard regions here.
   ;; Lower guard region.
   (incf *stack-area-bump* #x200000)
   (setf size (align-up size #x1000))
@@ -771,7 +772,7 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 23)
+      (setf (ub16ref/le header 34) 24)
       ;; Entry fref.
       (setf (ub64ref/le header 40) entry-fref)
       ;; Initial thread.
@@ -838,14 +839,16 @@
                                      (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                              (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
-                                     sys.int::+block-map-writable+))
+                                     sys.int::+block-map-writable+
+                                     sys.int::+block-map-track-dirty+))
     (add-region-to-block-map bml4
                              (/ *cons-area-store* #x1000)
                              (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                      (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                              (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
-                                     sys.int::+block-map-writable+))
+                                     sys.int::+block-map-writable+
+                                     sys.int::+block-map-track-dirty+))
     (dolist (stack *stack-list*)
       (add-region-to-block-map bml4
                                (/ (stack-store stack) #x1000)

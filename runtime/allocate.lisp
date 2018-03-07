@@ -683,10 +683,9 @@
 (defun card-table-offset (address)
   ;; 16-bit accesses are used here to avoid interfering with
   ;; accesses to the the high half containing the flag bits.
-  (let* ((cte (memref-unsigned-byte-16 +card-table-base+
-                                       ;; Multiply by 2 because this is a 16 bit access.
-                                       (* (truncate address +card-size+) 2)))
-         (offset (ldb +card-table-entry-offset+ cte)))
+  (let* ((offset (memref-unsigned-byte-16 +card-table-base+
+                                          ;; Multiply by 2 because this is a 16 bit access.
+                                          (* (truncate address +card-size+) 2))))
     (cond ((eql offset (1- (ash 1 (byte-size +card-table-entry-offset+))))
            nil)
           (t
@@ -704,4 +703,23 @@
          (setf (memref-unsigned-byte-16 +card-table-base+
                                         (* (truncate address +card-size+) 2))
                (1- (ash 1 (byte-size +card-table-entry-offset+))))))
+  value)
+
+(defun card-table-dirty-p (address)
+  (let ((cte (memref-unsigned-byte-32 +card-table-base+ (truncate address +card-size+))))
+    (logbitp +cart-table-entry-dirty+ cte)))
+
+(defun (setf card-table-dirty-p) (value address)
+  (let ((index (truncate address +card-size+)))
+    (loop
+       ;; TODO: Atomic or/and, instead of this cas loop.
+       (let* ((original-cte (memref-unsigned-byte-32 +card-table-base+ index))
+              (new-cte (if value
+                           (logior original-cte (ash 1 +cart-table-entry-dirty+))
+                           (logand original-cte (lognot (ash 1 +cart-table-entry-dirty+))))))
+         (when (eq (cas (memref-unsigned-byte-32 +card-table-base+ index)
+                        original-cte
+                        new-cte)
+                    original-cte)
+           (return)))))
   value)

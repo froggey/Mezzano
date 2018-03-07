@@ -204,18 +204,15 @@ If clear, the fault occured in supervisor mode.")
            ;; Pages below 512G are wired and should never be unmapped or protected.
            ;; Same for pages in the wired stack area.
            (fatal-page-fault interrupt-frame info "Page fault in wired area" fault-addr))
-          ((and (logbitp +page-fault-error-present+ info)
-                (logbitp +page-fault-error-write+ info))
-           ;; Copy on write page, might not return.
-           (snapshot-clone-cow-page-via-page-fault interrupt-frame fault-addr))
           ;; All impossible.
-          ((or (logbitp +page-fault-error-present+ info)
-               (logbitp +page-fault-error-user+ info)
+          ((or (logbitp +page-fault-error-user+ info)
                (logbitp +page-fault-error-reserved-violation+ info))
            (fatal-page-fault interrupt-frame info "Page fault" fault-addr))
-          (t ;; Non-present page. Try to load it from the store.
+          (t ;; Defer to the pager.
            ;; Might not return.
-           (wait-for-page-via-interrupt interrupt-frame fault-addr)))))
+           (wait-for-page-via-interrupt interrupt-frame
+                                        fault-addr
+                                        (logbitp +page-fault-error-write+ info))))))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "math fault"))

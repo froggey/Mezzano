@@ -58,6 +58,10 @@
 (defun block-info-writable-p (block-info)
   (logtest sys.int::+block-map-writable+ block-info))
 
+(declaim (inline block-info-track-dirty-p))
+(defun block-info-track-dirty-p (block-info)
+  (logtest sys.int::+block-map-track-dirty+ block-info))
+
 (declaim (inline block-info-committed-p))
 (defun block-info-committed-p (block-info)
   (logtest sys.int::+block-map-committed+ block-info))
@@ -382,7 +386,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                          sys.int::+block-map-flag-mask+
                                          (lognot sys.int::+block-map-zero-fill+)))
       (setf (page-table-entry pte 0) (make-pte frame
-                                               :writable (block-info-writable-p block-info)))
+                                               :writable (and (block-info-writable-p block-info)
+                                                              (not (block-info-track-dirty-p block-info)))))
       ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
       (flush-tlb-single address))))
 
@@ -491,7 +496,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           (base length)
           "Range not page aligned.")
   (assert (>= (+ base length) (* 512 1024 1024 1024)) () "Wired area can't be protected.")
-  ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
+  ;; Implementing this is a little complicated. It'll need to keep dirty pages in memory.
   ;; Actual possible implementation strategy: Commit if uncommitted, then back write to disk.
   (assert (or (block-info-present-p flags)
               (block-info-zero-fill-p flags))
@@ -514,7 +519,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
                  (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
                  (setf (page-table-entry pte 0) 0))
-                ((block-info-writable-p flags)
+                ((and (block-info-writable-p flags)
+                      (not (block-info-track-dirty-p flags)))
                  ;; Mark writable.
                  (setf (page-table-entry pte 0) (logior (page-table-entry pte 0)
                                                         +page-table-write+)))
@@ -627,9 +633,28 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (page-present-p pte)
+        (when (and block-info
+                   (block-info-track-dirty-p block-info))
+          ;; Probably a write fault. Set the dirty flag in the card table.
+          ;; Leave the page read-only and the track bit set until after
+          ;; clone-cow has finished.
+          (setf (sys.int::card-table-dirty-p address) t))
         (when (page-copy-on-write-p pte)
           (pager-log "Copying page " address " in WFP.")
           (snapshot-clone-cow-page (pager-allocate-page) address))
+        (when (and block-info
+                   (block-info-track-dirty-p block-info))
+          ;; Wipe the track flag.
+          (set-address-flags address (logand block-info
+                                             sys.int::+block-map-flag-mask+
+                                             (lognot sys.int::+block-map-track-dirty+)))
+          ;; Remap page read/write.
+          (begin-tlb-shootdown)
+          (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
+                                                 :writable (block-info-writable-p block-info)))
+          (flush-tlb-single address)
+          (tlb-shootdown-single address)
+          (finish-tlb-shootdown))
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make
@@ -671,7 +696,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  (panic "Unable to read page from disk"))))
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte frame
-                                               :writable (block-info-writable-p block-info)))
+                                               :writable (and (block-info-writable-p block-info)
+                                                              (not (block-info-track-dirty-p block-info)))))
         (flush-tlb-single address)
         (tlb-shootdown-single address)
         (finish-tlb-shootdown)
@@ -694,7 +720,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; Blocking is not permitted during a page-fault, which is why
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
-(defun wait-for-page-fast-path (fault-address)
+(defun wait-for-page-fast-path (fault-address writep)
   (with-mutex (*vm-lock* nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
@@ -730,15 +756,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (flush-tlb-single fault-address))
             t))))))
 
-(defun wait-for-page-via-interrupt (interrupt-frame address)
-  "Called by the page fault handler when a non-present page is accessed.
+(defun wait-for-page-via-interrupt (interrupt-frame address writep)
+  "Called by the page fault handler when a page fault occurs.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread))
         (pager (sys.int::symbol-global-value 'sys.int::*pager-thread*)))
     (when (eql self pager)
       (panic "Page fault in pager!"))
     (when (and *pager-fast-path-enabled*
-               (wait-for-page-fast-path address))
+               (wait-for-page-fast-path address writep))
       (incf *pager-fast-path-hits*)
       (return-from wait-for-page-via-interrupt))
     (incf *pager-fast-path-misses*)
@@ -773,7 +799,7 @@ It will put the thread to sleep, while it waits for the page."
           *pager-waiting-threads* '()
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)
-          *pager-fast-path-enabled* t
+          *pager-fast-path-enabled* nil
           *pager-lazy-block-allocation-enabled* t))
   (setf *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
