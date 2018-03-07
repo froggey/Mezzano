@@ -697,27 +697,25 @@
       (read-sequence data s)
       data)))
 
-(defun write-card-table (stream image-offset bml4 start size &key semispace)
+(defun write-card-table (stream image-offset bml4 start size)
   (assert (zerop (rem start sys.int::+allocation-minimum-alignment+)))
   (assert (zerop (rem size sys.int::+allocation-minimum-alignment+)))
   (let ((table (make-array (* (/ size sys.int::+card-size+) sys.int::+card-table-entry-size+)
                            :element-type '(unsigned-byte 8)
                            :initial-element 0))
         (store-base *store-bump*))
-    ;; Semispaces are empty.
-    (when (not semispace)
-      (loop
-         for i below size by sys.int::+card-size+
-         for offset = (car (or (gethash (+ start i) *card-offsets*)
-                               (error "Missing card offset for address ~X" (+ start i))))
-         do
-           (assert (not (plusp offset)))
-           (assert (not (logtest offset 15)))
-           (setf (nibbles:ub32ref/le table (* (/ i sys.int::+card-size+) sys.int::+card-table-entry-size+))
-                 (cross-cl:dpb (min (1- (expt 2 (cross-cl:byte-size sys.int::+card-table-entry-offset+)))
-                                    (/ (- offset) 16))
-                               sys.int::+card-table-entry-offset+
-                               0))))
+    (loop
+       for i below size by sys.int::+card-size+
+       for offset = (car (or (gethash (+ start i) *card-offsets*)
+                             (error "Missing card offset for address ~X" (+ start i))))
+       do
+         (assert (not (plusp offset)))
+         (assert (not (logtest offset 15)))
+         (setf (nibbles:ub32ref/le table (* (/ i sys.int::+card-size+) sys.int::+card-table-entry-size+))
+               (cross-cl:dpb (min (1- (expt 2 (cross-cl:byte-size sys.int::+card-table-entry-offset+)))
+                                  (/ (- offset) 16))
+                             sys.int::+card-table-entry-offset+
+                             0)))
     (file-position stream (+ image-offset store-base))
     (write-sequence table stream)
     (incf *store-bump* (length table))
@@ -817,15 +815,9 @@
     (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
                                                   (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                       *general-area-bump*)
-    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                                  (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
-                      *general-area-bump* :semispace t)
     (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                                   (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                       *cons-area-bump*)
-    (write-card-table s image-offset bml4 (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                                  (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
-                      *cons-area-bump* :semispace t)
     ;; Generate the block map.
     (add-region-to-block-map bml4
                              (/ *wired-area-store* #x1000)
@@ -848,24 +840,12 @@
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
     (add-region-to-block-map bml4
-                             (/ (+ *general-area-store* (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
-                             (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                     (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
-                             (/ (align-up *general-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
-                             (logior sys.int::+block-map-zero-fill+))
-    (add-region-to-block-map bml4
                              (/ *cons-area-store* #x1000)
                              (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                      (cross-cl:dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0))
                              (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
                              (logior sys.int::+block-map-present+
                                      sys.int::+block-map-writable+))
-    (add-region-to-block-map bml4
-                             (/ (+ *cons-area-store* (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+)) #x1000)
-                             (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                     (cross-cl:dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0))
-                             (/ (align-up *cons-area-bump* sys.int::+allocation-minimum-alignment+) #x1000)
-                             (logior sys.int::+block-map-zero-fill+))
     (dolist (stack *stack-list*)
       (add-region-to-block-map bml4
                                (/ (stack-store stack) #x1000)

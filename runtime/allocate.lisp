@@ -22,6 +22,8 @@
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
 
+(sys.int::defglobal *allocation-fudge*)
+
 (sys.int::defglobal *allocator-lock*)
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
@@ -81,14 +83,15 @@
                                          sys.int::+address-generation+
                                          0)
         *enable-allocation-profiling* nil
-        *general-area-expansion-granularity* (* 128 1024 1024)
-        *cons-area-expansion-granularity* (* 128 1024 1024)
+        *general-area-expansion-granularity* (* 32 1024 1024)
+        *cons-area-expansion-granularity* (* 32 1024 1024)
         *general-fast-path-hits* 0
         *general-allocation-count* 0
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
+        *allocation-fudge* (* 8 1024 1024)
         sys.int::*bytes-allocated-to-stacks* sys.int::*wired-stack-area-bump*))
 
 (defun verify-freelist (start base end)
@@ -204,7 +207,7 @@
                           (logior sys.int::+block-map-present+
                                   sys.int::+block-map-writable+
                                   sys.int::+block-map-zero-fill+))
-                     (when mezzano.supervisor::*pager-noisy*
+                     (when sys.int::*gc-enable-logging*
                        (mezzano.supervisor:debug-print-line "Expanded pinned area by " grow-by))
                      ;; Success. Advance the pinned area limit and slap down a freelist header.
                      ;; Drop into the GC to rebuild the freelist properly.
@@ -300,43 +303,50 @@
            (set-allocated-object-header addr tag data 0)
            (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
 
+(defun bytes-remaining-before-full-gc ()
+  (let* ((dynamic-area-size (+ sys.int::*general-area-limit*
+                               sys.int::*cons-area-limit*))
+         ;; Memory already committed to the dynamic areas will be counted
+         ;; in store-free-bytes. Only count the additional memory required
+         ;; for GC here.
+         (required-for-gc (+ dynamic-area-size
+                             *allocation-fudge*))
+         (store-free-bytes (* (- (mezzano.supervisor:store-statistics)
+                                 mezzano.supervisor::*store-fudge-factor*)
+                              #x1000)))
+    (mezzano.supervisor:debug-print-line "g0 " sys.int::*general-area-limit*)
+    (mezzano.supervisor:debug-print-line "c0 " sys.int::*cons-area-limit*)
+    (mezzano.supervisor:debug-print-line "af " *allocation-fudge*)
+    (mezzano.supervisor:debug-print-line "fb " store-free-bytes)
+    (- store-free-bytes required-for-gc)))
+
 (defun expand-allocation-area-1 (name granularity limit-symbol address-tag)
   (let ((current-limit (sys.int::symbol-global-value limit-symbol))
-        ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
-        (expansion (logand (truncate granularity 2) (lognot #xFFF))))
-    (when mezzano.supervisor::*pager-noisy*
-      (mezzano.supervisor:debug-print-line "Expanding " name " area by " expansion))
-    ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
+        (expansion granularity)
+        (remaining (bytes-remaining-before-full-gc)))
+    (when sys.int::*gc-enable-logging*
+      (mezzano.supervisor:debug-print-line "Expanding " name " area by " expansion " [remaining " remaining "]"))
+    ;; These are semispace areas, safely collecting them require twice
+    ;; as much memory.
+    (when (< remaining (* expansion 2))
+      (when sys.int::*gc-enable-logging*
+        (mezzano.supervisor:debug-print-line "Expansion exceeds bytes remaining"))
+      (return-from expand-allocation-area-1 nil))
     (when (not (mezzano.supervisor:allocate-memory-range
                 (logior sys.int::*dynamic-mark-bit*
-                        (ash address-tag
-                             sys.int::+address-tag-shift+)
+                        (ash address-tag sys.int::+address-tag-shift+)
                         current-limit)
                 expansion
                 (logior sys.int::+block-map-present+
                         sys.int::+block-map-writable+
                         sys.int::+block-map-zero-fill+)))
-      (when mezzano.supervisor::*pager-noisy*
+      (when sys.int::*gc-enable-logging*
         (mezzano.supervisor:debug-print-line "A-M-R newspace failed."))
       (return-from expand-allocation-area-1 nil))
-    (when (not (mezzano.supervisor:allocate-memory-range
-                (logior (sys.int::other-gen2-area-from-mark-bit sys.int::*dynamic-mark-bit*)
-                        (ash address-tag sys.int::+address-tag-shift+)
-                        current-limit)
-                expansion
-                sys.int::+block-map-zero-fill+))
-      ;; Roll back newspace allocation.
-      (mezzano.supervisor:release-memory-range
-       (logior sys.int::*dynamic-mark-bit*
-               (ash address-tag
-                    sys.int::+address-tag-shift+)
-               current-limit)
-       expansion)
-      (when mezzano.supervisor::*pager-noisy*
-        (mezzano.supervisor:debug-print-line "A-M-R oldspace failed."))
-      (return-from expand-allocation-area-1 nil))
     ;; Atomically store the new limit, other CPUs may be reading the value.
-    (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion))
+    (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion)
+    (when sys.int::*gc-enable-logging*
+      (mezzano.supervisor:debug-print-line "new remaining: " (bytes-remaining-before-full-gc))))
   t)
 
 (defun expand-allocation-area (name granularity-symbol limit-symbol address-tag)
@@ -378,7 +388,7 @@
                       (t
                        ;; No memory do expand, bail out and run the GC.
                        ;; This cannot be done when pseudo-atomic.
-                       (when mezzano.supervisor::*pager-noisy*
+                       (when sys.int::*gc-enable-logging*
                          (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
                        (go DO-GC)))))))
      DO-GC
@@ -467,7 +477,7 @@
                       (t
                        ;; No memory do expand, bail out and run the GC.
                        ;; This cannot be done when pseudo-atomic.
-                       (when mezzano.supervisor::*pager-noisy*
+                       (when sys.int::*gc-enable-logging*
                          (mezzano.supervisor:debug-print-line "Cons area expansion failed, performing GC."))
                        (go DO-GC)))))))
      DO-GC

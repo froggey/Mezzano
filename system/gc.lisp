@@ -1408,27 +1408,41 @@ Additionally update the card table offset fields."
   (incf *gc-cycles*)
   ;; Reset the weak pointer worklist.
   (setf *weak-pointer-worklist* '())
-  ;; Flip.
-  (let ((prev-dynamic-mark-bit *dynamic-mark-bit*))
+  (let ((prev-dynamic-mark-bit *dynamic-mark-bit*)
+        ;; Limits may be increased during transport as objects age.
+        (prev-general-limit *general-area-limit*)
+        (prev-cons-limit *cons-area-limit*))
+    ;; Flip.
     (psetf *dynamic-mark-bit* (other-gen2-area-from-mark-bit *dynamic-mark-bit*)
            *pinned-mark-bit* (logxor *pinned-mark-bit* +pinned-object-mark-bit+))
+    (gc-log "Newspace " (logior *dynamic-mark-bit* (ash +address-tag-general+ +address-tag-shift+))
+            "-" (+ (logior *dynamic-mark-bit* (ash +address-tag-general+ +address-tag-shift+)) *general-area-limit*))
+    (gc-log "Newspace " (logior *dynamic-mark-bit* (ash +address-tag-cons+ +address-tag-shift+))
+            "-" (+ (logior *dynamic-mark-bit* (ash +address-tag-cons+ +address-tag-shift+)) *cons-area-limit*))
+    (gc-log "Oldspace " (logior prev-dynamic-mark-bit (ash +address-tag-general+ +address-tag-shift+))
+            "-" (+ (logior *dynamic-mark-bit* (ash +address-tag-general+ +address-tag-shift+)) *general-area-limit*))
+    (gc-log "Oldspace " (logior prev-dynamic-mark-bit (ash +address-tag-cons+ +address-tag-shift+))
+            "-" (+ (logior *dynamic-mark-bit* (ash +address-tag-cons+ +address-tag-shift+)) *cons-area-limit*))
+    ;; Allocate newspace.
+    ;; This is overly generous to minimise calls back into the pager during transport.
+    (when (not (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
+                                                                 (ash +address-tag-general+ +address-tag-shift+))
+                                                         *general-area-limit*
+                                                         (logior +block-map-present+
+                                                                 +block-map-writable+
+                                                                 +block-map-zero-fill+)))
+      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+    (when (not (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
+                                                                 (ash +address-tag-cons+ +address-tag-shift+))
+                                                         *cons-area-limit*
+                                                         (logior +block-map-present+
+                                                                 +block-map-writable+
+                                                                 +block-map-zero-fill+)))
+      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
     (setf *general-area-bump* 0
           *cons-area-bump* 0
           *scavenge-general-finger* 0
           *scavenge-cons-finger* 0)
-    ;; Unprotect newspace.
-    (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
-                                                     (ash +address-tag-general+ +address-tag-shift+))
-                                             *general-area-limit*
-                                             (logior +block-map-present+
-                                                     +block-map-writable+
-                                                     +block-map-zero-fill+))
-    (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
-                                                     (ash +address-tag-cons+ +address-tag-shift+))
-                                             *cons-area-limit*
-                                             (logior +block-map-present+
-                                                     +block-map-writable+
-                                                     +block-map-zero-fill+))
     (gc-log "Scav roots")
     ;; Scavenge NIL to start things off.
     (scavenge-object 'nil)
@@ -1444,39 +1458,29 @@ Additionally update the card table offset fields."
     ;; Weak pointers.
     (update-weak-pointers)
     (finalizer-processing)
-    ;; Inhibit access to oldspace.
-    (mezzano.supervisor:protect-memory-range (logior prev-dynamic-mark-bit
+    ;; Flush oldspace.
+    (mezzano.supervisor:release-memory-range (logior prev-dynamic-mark-bit
                                                      (ash +address-tag-general+ +address-tag-shift+))
-                                             *general-area-limit*
-                                             +block-map-zero-fill+)
-    (mezzano.supervisor:protect-memory-range (logior prev-dynamic-mark-bit
+                                             prev-general-limit)
+    (mezzano.supervisor:release-memory-range (logior prev-dynamic-mark-bit
                                                      (ash +address-tag-cons+ +address-tag-shift+))
-                                             *cons-area-limit*
-                                             +block-map-zero-fill+)
-    ;; Rebuild freelists.
-    (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
-    (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
-    ;; Trim the dynamic areas.
+                                             prev-cons-limit)
+    ;; Trim newspace down.
     (let ((new-limit (align-up *general-area-bump* +allocation-minimum-alignment+)))
-      (mezzano.supervisor:release-memory-range (logior (dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0)
-                                                       new-limit
-                                                       (ash +address-tag-general+ +address-tag-shift+))
-                                               (- *general-area-limit* new-limit))
-      (mezzano.supervisor:release-memory-range (logior (dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0)
+      (mezzano.supervisor:release-memory-range (logior *dynamic-mark-bit*
                                                        new-limit
                                                        (ash +address-tag-general+ +address-tag-shift+))
                                                (- *general-area-limit* new-limit))
       (setf *general-area-limit* new-limit))
     (let ((new-limit (align-up *cons-area-bump* +allocation-minimum-alignment+)))
-      (mezzano.supervisor:release-memory-range (logior (dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0)
-                                                       new-limit
-                                                       (ash +address-tag-cons+ +address-tag-shift+))
-                                               (- *cons-area-limit* new-limit))
-      (mezzano.supervisor:release-memory-range (logior (dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0)
+      (mezzano.supervisor:release-memory-range (logior *dynamic-mark-bit*
                                                        new-limit
                                                        (ash +address-tag-cons+ +address-tag-shift+))
                                                (- *cons-area-limit* new-limit))
       (setf *cons-area-limit* new-limit))
+    ;; Rebuild freelists.
+    (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
+    (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
     (setf *gc-last-general-address* (logior (ash +address-tag-general+ +address-tag-shift+)
                                             *general-area-bump*
                                             *dynamic-mark-bit*)
