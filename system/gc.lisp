@@ -1297,6 +1297,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun align-up (value boundary)
   (logand (+ value (1- boundary)) (lognot (1- boundary))))
 
+(defun align-down (value boundary)
+  (logand value (lognot (1- boundary))))
+
 (defun find-next-free-object (start limit)
   (loop
      (when (>= start limit)
@@ -1479,22 +1482,26 @@ Additionally update the card table offset fields."
   "Find the base address of the object pointed to be ADDRESS.
 Address should be an internal pointer to a live object in static space.
 No type information will be provided."
-  (flet ((search (start limit)
-           (let ((offset start))
-             (loop
-                (when (>= offset limit)
-                  (return))
-                (let* ((type (ash (memref-unsigned-byte-8 offset 0) (- +object-type-shift+)))
-                       (size (size-of-pinned-area-allocation offset)))
-                  (when (and (not (eql type +object-tag-freelist-entry+))
-                             (<= offset address (+ offset (* size 8) -1)))
-                    (return-from base-address-of-internal-pointer
-                      offset))
-                  (incf offset (* (align-up size 2) 8)))))))
-    ;; Search wired area.
-    (search *wired-area-bump* *wired-area-bump*)
-    ;; Search pinned area.
-    (search *pinned-area-bump* *pinned-area-bump*)))
+  (let ((current-address address))
+    (loop
+         (let ((card (align-down current-address +card-size+))
+               (entry (card-table-offset current-address)))
+           (when entry
+             ;; Found the start of an object near the target.
+             ;; Walk forward to find the actual object.
+             (let ((offset (+ card entry)))
+               (loop
+                  (when (eql offset address)
+                    (return))
+                  (when (> offset address)
+                    (error "Failed to find object containing ~X" address))
+                  (let ((size (size-of-pinned-area-allocation offset)))
+                    (when (<= offset address (+ offset (* size 8) -1))
+                      (return))
+                    (incf offset (* (align-up size 2) 8))))
+               (return offset))))
+       ;; Entry not found. Go back a card (TODO: should go back a whole bunch of cards.)
+       (decf current-address +card-size+))))
 
 (deftype weak-pointer ()
   '(satisfies weak-pointer-p))
