@@ -26,6 +26,10 @@
   (logtest +x86-64-pte-present+
            (page-table-entry page-table index)))
 
+(defun page-writable-p (page-table &optional (index 0))
+  (logtest +x86-64-pte-write+
+           (page-table-entry page-table index)))
+
 (defun page-copy-on-write-p (page-table &optional (index 0))
   (logtest +x86-64-pte-copy-on-write+
            (page-table-entry page-table index)))
@@ -63,6 +67,12 @@
 
 (defun pte-physical-address (pte)
   (logand pte +x86-64-pte-address-mask+))
+
+(defun update-pte (pte &key (writable nil writablep))
+  (when writablep
+    (if writable
+        (setf (page-table-entry pte) (logior (page-table-entry pte) +x86-64-pte-write+))
+        (setf (page-table-entry pte) (logand (page-table-entry pte) (lognot +x86-64-pte-write+))))))
 
 (defun make-pte (frame &key writable (present t) wired dirty copy-on-write (cache-mode :normal))
   (declare (ignore wired cache-mode))

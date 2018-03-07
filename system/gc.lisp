@@ -1478,6 +1478,19 @@ Additionally update the card table offset fields."
                                                        (ash +address-tag-cons+ +address-tag-shift+))
                                                (- *cons-area-limit* new-limit))
       (setf *cons-area-limit* new-limit))
+    ;; Mark newspace as trackable.
+    (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             *general-area-limit*
+                                             (logior +block-map-present+
+                                                     +block-map-writable+
+                                                     +block-map-track-dirty+))
+    (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             *cons-area-limit*
+                                             (logior +block-map-present+
+                                                     +block-map-writable+
+                                                     +block-map-track-dirty+))
     ;; Rebuild freelists.
     (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
     (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)

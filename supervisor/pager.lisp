@@ -496,11 +496,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           (base length)
           "Range not page aligned.")
   (assert (>= (+ base length) (* 512 1024 1024 1024)) () "Wired area can't be protected.")
-  ;; Implementing this is a little complicated. It'll need to keep dirty pages in memory.
-  ;; Actual possible implementation strategy: Commit if uncommitted, then back write to disk.
-  (assert (or (block-info-present-p flags)
-              (block-info-zero-fill-p flags))
-          () "TODO: Cannot mark block not-present without zero-fill")
+  ;; P-M-R only modifies the protection flags (present, writable and track-dirty).
+  (assert (not (logtest flags (lognot (logior sys.int::+block-map-present+
+                                              sys.int::+block-map-writable+
+                                              sys.int::+block-map-track-dirty+)))))
   (pager-rpc 'protect-memory-range-in-pager base length flags))
 
 (defun protect-memory-range-in-pager (base length flags)
@@ -508,26 +507,30 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
-      ;; Update block map.
-      (set-address-flags (+ base (* i #x1000)) flags)
-      ;; Update page tables and release pages if possible.
-      (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (page-present-p pte 0))
-          (cond ((or (not (block-info-present-p flags))
-                     (block-info-zero-fill-p flags))
-                 ;; Page going away, but it's ok. It'll be back, zero-filled.
-                 #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
-                 (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
-                 (setf (page-table-entry pte 0) 0))
-                ((and (block-info-writable-p flags)
-                      (not (block-info-track-dirty-p flags)))
-                 ;; Mark writable.
-                 (setf (page-table-entry pte 0) (logior (page-table-entry pte 0)
-                                                        +page-table-write+)))
-                (t
-                 ;; Mark read-only.
-                 (setf (page-table-entry pte 0) (logand (page-table-entry pte 0)
-                                                        (lognot +page-table-write+))))))))
+      (let* ((address (+ base (* i #x1000)))
+             (page-flags (logior (logand (block-info-for-virtual-address address)
+                                         ;; Clear bits.
+                                         (lognot (logior sys.int::+block-map-present+
+                                                         sys.int::+block-map-writable+
+                                                         sys.int::+block-map-track-dirty+)))
+                                 flags)))
+        (set-address-flags address page-flags)
+        ;; Update page tables and release pages if possible.
+        (let ((pte (get-pte-for-address address nil)))
+          (when (and pte (page-present-p pte 0))
+            (cond ((or (not (block-info-present-p page-flags))
+                       (block-info-zero-fill-p page-flags))
+                   ;; Page going away, but it's ok. It'll be back, zero-filled.
+                   #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
+                   (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
+                   (setf (page-table-entry pte 0) 0))
+                  ((and (block-info-writable-p page-flags)
+                        (not (block-info-track-dirty-p page-flags)))
+                   ;; Mark writable.
+                   (update-pte pte :writable t))
+                  (t
+                   ;; Mark read-only.
+                   (update-pte pte :writable nil)))))))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
@@ -697,15 +700,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte frame
                                                :writable (and (block-info-writable-p block-info)
-                                                              (not (block-info-track-dirty-p block-info)))))
+                                                              (not (block-info-track-dirty-p block-info)))
+                                               ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
+                                               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                                               :dirty is-zero-page))
         (flush-tlb-single address)
         (tlb-shootdown-single address)
         (finish-tlb-shootdown)
-        (when is-zero-page
-          ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
-          ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-          ;; This sets the dirty bits in the page tables properly.
-          (setf (sys.int::memref-unsigned-byte-8 address 0) 0))
         #+(or)
         (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
@@ -725,7 +726,19 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
-                 (not (page-present-p pte 0))
+                 (page-present-p pte)
+                 (not (page-writable-p pte))
+                 (not (page-copy-on-write-p pte))
+                 block-info
+                 (block-info-writable-p block-info)
+                 (block-info-track-dirty-p block-info))
+        ;; Tracking dirty bits for the GC.
+        (setf (sys.int::card-table-dirty-p fault-address) t)
+        (update-pte pte :writable t)
+        (flush-tlb-single fault-address)
+        (return-from wait-for-page-fast-path t))
+      (when (and pte
+                 (not (page-present-p pte))
                  block-info
                  (block-info-present-p block-info)
                  (block-info-zero-fill-p block-info))
@@ -746,7 +759,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
               ;; This sets the dirty bits in the page tables properly.
               (setf (page-table-entry pte 0) (make-pte frame
-                                                       :writable (block-info-writable-p block-info)
+                                                       :writable (and (block-info-writable-p block-info)
+                                                                      (not (block-info-track-dirty-p block-info)))
                                                        :dirty t))
               ;; Play a little fast & loose with TLB shootdown here.
               ;; The fast path runs on the exception stack with interrupts
@@ -799,7 +813,7 @@ It will put the thread to sleep, while it waits for the page."
           *pager-waiting-threads* '()
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)
-          *pager-fast-path-enabled* nil
+          *pager-fast-path-enabled* t
           *pager-lazy-block-allocation-enabled* t))
   (setf *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
