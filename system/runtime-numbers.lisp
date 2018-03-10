@@ -105,7 +105,8 @@
             (expt base (truncate power)))
            (t
             ;; Slower...
-            (exp (* power (log base))))))))
+            (exp (* power (log base))))))
+    (ratio (exp (* power (log base))))))
 
 (defstruct (large-byte (:constructor make-large-byte (size position)))
   (size 0 :type (integer 0) :read-only t)
