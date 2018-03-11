@@ -411,9 +411,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (when (not (stack-area-p base))
       ;; Allocate new card table pages.
       (let ((card-base (+ sys.int::+card-table-base+
-                          (* (/ base sys.int::+card-size+)
+                          (* (truncate base sys.int::+card-size+)
                              sys.int::+card-table-entry-size+)))
-            (card-length (* (/ length sys.int::+card-size+)
+            (card-length (* (truncate length sys.int::+card-size+)
                             sys.int::+card-table-entry-size+)))
         (begin-tlb-shootdown)
         (dotimes (i (truncate card-length #x1000))
@@ -462,9 +462,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (when (not stackp)
         ;; Release card table pages.
         (let ((card-base (+ sys.int::+card-table-base+
-                            (* (/ base sys.int::+card-size+)
+                            (* (truncate base sys.int::+card-size+)
                                sys.int::+card-table-entry-size+)))
-              (card-length (* (/ length sys.int::+card-size+)
+              (card-length (* (truncate length sys.int::+card-size+)
                               sys.int::+card-table-entry-size+)))
           (dotimes (i (truncate card-length #x1000))
             ;; Update block map.
