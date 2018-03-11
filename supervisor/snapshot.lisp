@@ -119,7 +119,9 @@
 
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
-                  (panic "No PTE for CoW address?")))
+                  (panic "No PTE for CoW address?" fault-addr)))
+         (block-info (or (block-info-for-virtual-address fault-addr)
+                         (panic "No block info for CoW address?" fault-addr)))
          (old-frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
     (ensure (page-copy-on-write-p pte)
             "Copying non-CoW page?")
@@ -134,7 +136,8 @@
     (begin-tlb-shootdown)
     (setf (sys.int::memref-unsigned-byte-64 pte 0)
           (make-pte new-frame
-                    :writable t))
+                    :writable (and (block-info-writable-p block-info)
+                                   (not (block-info-track-dirty-p block-info)))))
     (flush-tlb-single fault-addr)
     (tlb-shootdown-single fault-addr)
     (finish-tlb-shootdown)
