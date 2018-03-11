@@ -302,7 +302,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (room)
   (mezzano.supervisor:snapshot)
   (setf *cold-start-end-time* (get-internal-real-time))
-  (format t "Hello, world.~%Cold start took ~:D seconds.~%"
+  (format t "Hello, world.~%Cold start took ~:D seconds (~:D seconds of GC time).~%"
           (float (/ (- *cold-start-end-time*
                        *cold-start-start-time*)
-                    internal-time-units-per-second))))
+                    internal-time-units-per-second))
+          *gc-time*))
