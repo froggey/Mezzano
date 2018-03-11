@@ -1138,6 +1138,16 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (incf (svref *gc-transport-cycles* bin) cycles)
       (when (< address (if (consp object) *gc-last-cons-address* *gc-last-general-address*))
         (incf (svref *gc-transport-old-counts* bin))))
+    ;; Update object starts.
+    ;; Conses are exempt as the cons area has a uniform layout.
+    (when (not (consp object))
+      (loop
+         for card from (align-up new-address +card-size+) below (+ new-address (* length 8)) by +card-size+
+         for delta = (- new-address card)
+         do (setf (card-table-offset card)
+                  (if (<= delta (- (* (1- (ash 1 (byte-size +card-table-entry-offset+))) 16)))
+                      nil
+                      delta))))
     ;; Complete! Return the new object
     (%%assemble-value new-address (%tag-field object))))
 
