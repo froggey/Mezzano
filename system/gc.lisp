@@ -37,6 +37,8 @@
 ;; State of the object header mark bit, used for pinned objects.
 (defglobal *pinned-mark-bit* 0)
 
+(defglobal *gc-force-major-cycle* nil)
+
 ;; List of weak pointers that need to be updated.
 (defglobal *weak-pointer-worklist* nil)
 ;; List of finalizers that don't be need to be run yet.
@@ -100,11 +102,13 @@
 (defvar *gc-requested* nil)
 (defvar *gc-thread* (mezzano.supervisor:make-thread #'gc-worker :name "Garbage Collector" :stack-size (* 2 1024 1024)))
 
-(defun gc ()
+(defun gc (&key full)
   "Run a garbage-collection cycle."
   (mezzano.supervisor:with-mutex (*gc-lock*)
     (let ((epoch *gc-epoch*))
       (setf *gc-requested* t)
+      (when full
+        (setf *gc-force-major-cycle* t))
       (mezzano.supervisor:condition-notify *gc-cvar* t)
       (loop
          (when (not (eql epoch *gc-epoch*))
@@ -113,33 +117,36 @@
 
 (defun gc-worker ()
   (loop
-     (mezzano.supervisor:with-mutex (*gc-lock*)
-       ;; Notify any waiting threads that the GC epoch has changed.
-       (mezzano.supervisor:condition-notify *gc-cvar* t)
-       ;; Wait for a GC request.
-       (loop
-          (when *gc-requested*
-            (setf *gc-requested* nil)
-            (return))
-          (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))
-     (when *gc-in-progress*
-       (mezzano.supervisor:panic "Nested GC?!"))
-     (mezzano.supervisor:with-world-stopped ()
-       ;; Set *GC-IN-PROGRESS* globally, not with a binding.
-       ;; This ensures that it is visible across all threads, especially
-       ;; threads not stopped by with-world-stopped.
-       (unwind-protect
-            (let ((gc-start (get-internal-run-time)))
-              (setf *gc-in-progress* t)
-              (gc-cycle)
-              (let* ((gc-end (get-internal-run-time))
-                     (total-time (- gc-end gc-start))
-                     (total-seconds (/ total-time (float internal-time-units-per-second))))
-                (gc-log "GC took " (truncate (* total-seconds 1000)) "ms")
-                (incf *gc-time* total-seconds)))
-         (setf *gc-in-progress* nil)))
-     ;; TODO: catch & report errors.
-     (run-finalizers)))
+     (let ((force-major nil))
+       (mezzano.supervisor:with-mutex (*gc-lock*)
+         ;; Notify any waiting threads that the GC epoch has changed.
+         (mezzano.supervisor:condition-notify *gc-cvar* t)
+         ;; Wait for a GC request.
+         (loop
+            (when *gc-requested*
+              (setf force-major *gc-force-major-cycle*
+                    *gc-force-major-cycle* nil)
+              (setf *gc-requested* nil)
+              (return))
+            (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))
+       (when *gc-in-progress*
+         (mezzano.supervisor:panic "Nested GC?!"))
+       (mezzano.supervisor:with-world-stopped ()
+         ;; Set *GC-IN-PROGRESS* globally, not with a binding.
+         ;; This ensures that it is visible across all threads, especially
+         ;; threads not stopped by with-world-stopped.
+         (unwind-protect
+              (let ((gc-start (get-internal-run-time)))
+                (setf *gc-in-progress* t)
+                (gc-cycle force-major)
+                (let* ((gc-end (get-internal-run-time))
+                       (total-time (- gc-end gc-start))
+                       (total-seconds (/ total-time (float internal-time-units-per-second))))
+                  (gc-log "GC took " (truncate (* total-seconds 1000)) "ms")
+                  (incf *gc-time* total-seconds)))
+           (setf *gc-in-progress* nil)))
+       ;; TODO: catch & report errors.
+       (run-finalizers))))
 
 (declaim (inline immediatep))
 (defun immediatep (object)
@@ -149,7 +156,7 @@
       (%value-has-tag-p object +tag-single-float+)
       (%value-has-tag-p object +tag-byte-specifier+)))
 
-(defmacro scavengef (place &environment env)
+(defmacro scavengef (place cycle-kind &environment env)
   "Scavenge PLACE. Only update PLACE if the scavenged value is different.
 This is required to make the GC interrupt safe."
   (multiple-value-bind (vars vals stores setter getter)
@@ -157,13 +164,13 @@ This is required to make the GC interrupt safe."
     (let ((orig (gensym "ORIG")))
       `(let* (,@(mapcar #'list vars vals)
               (,orig ,getter)
-              (,(car stores) (scavenge-object ,orig)))
+              (,(car stores) (scavenge-object ,orig ,cycle-kind)))
            (when (not (eq ,orig ,(car stores)))
              ,setter)))))
 
-(defun scavenge-many (address n)
+(defun scavenge-many (address n cycle-kind)
   (dotimes (i n)
-    (scavengef (memref-t address i))))
+    (scavengef (memref-t address i) cycle-kind)))
 
 ;;; This only scavenges the stack/registers. Scavenging the actual
 ;;; thread object is done by scan-thread.
@@ -172,13 +179,14 @@ This is required to make the GC interrupt safe."
   (let* ((frame-pointer (read-frame-pointer))
          (return-address (memref-unsigned-byte-64 frame-pointer 1))
          (stack-pointer (+ frame-pointer 16)))
-    (scan-thread (mezzano.supervisor:current-thread))
+    (scan-thread (mezzano.supervisor:current-thread) :major)
     (gc-log "Scav GC stack")
     (scavenge-stack stack-pointer
                     (memref-unsigned-byte-64 frame-pointer 0)
-                    return-address)))
+                    return-address
+                    :major)))
 
-(defun scavenge-object (object)
+(defun scavenge-object (object cycle-kind)
   "Scavenge one object, returning an updated pointer."
   (when (immediatep object)
     ;; Don't care about immediate objects, return them unchanged.
@@ -187,11 +195,20 @@ This is required to make the GC interrupt safe."
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
       ((#.+address-tag-general+
         #.+address-tag-cons+)
-       (when (eql (mask-field +address-generation+ address) *dynamic-mark-bit*)
-         (return-from scavenge-object object))
-       (transport-object object))
+       (ecase cycle-kind
+         (:major
+          ;; Major GC: All general allocations are transported to newspace.
+          (when (eql (mask-field +address-generation+ address) *dynamic-mark-bit*)
+            (return-from scavenge-object object))
+          (transport-object object cycle-kind))
+         (:minor
+          ;; Minor GC: General generation 0 allocations are transported to generation 1.
+          (when (not (eql (ldb +address-generation+ address) +address-generation-0+))
+            (return-from scavenge-object object))
+          (transport-object object cycle-kind))))
       (#.+address-tag-pinned+
-       (mark-pinned-object object)
+       (when (eql cycle-kind :major)
+         (mark-pinned-object object))
        object)
       (#.+address-tag-stack+
        ;; Don't scavenge DX objects, handled by scavenge-regular-stack-frame.
@@ -200,12 +217,12 @@ This is required to make the GC interrupt safe."
 (defun scan-error (object)
   (mezzano.supervisor:panic "Unscannable object " object))
 
-(defun scan-generic (object size)
+(defun scan-generic (object size cycle-kind)
   "Scavenge SIZE words pointed to by OBJECT."
-  (scavenge-many (ash (%pointer-field object) 4) size))
+  (scavenge-many (ash (%pointer-field object) 4) size cycle-kind))
 
 (defun scavenge-stack-n-incoming-arguments (frame-pointer stack-pointer framep
-                                            layout-length n-args)
+                                            layout-length n-args cycle-kind)
   (let ((n-values (max 0 (- n-args 5))))
     (when *gc-debug-scavenge-stack*
       (gc-log
@@ -217,14 +234,16 @@ This is required to make the GC interrupt safe."
     ;; There are N-VALUES values above the return address.
     (if framep
         ;; Skip saved fp and return address.
-        (scavenge-many (+ frame-pointer 16) n-values)
+        (scavenge-many (+ frame-pointer 16) n-values cycle-kind)
         ;; Skip any layout values.
         (scavenge-many (+ stack-pointer (* layout-length 8))
-                       n-values))))
+                       n-values
+                       cycle-kind))))
 
 (defun scavenge-regular-stack-frame (frame-pointer stack-pointer framep
                                      layout-address layout-length
-                                     incoming-arguments pushed-values)
+                                     incoming-arguments pushed-values
+                                     cycle-kind)
   (when (and framep
              (zerop frame-pointer))
     (mezzano.supervisor:panic "Zero frame-pointer in framed function."))
@@ -253,9 +272,10 @@ This is required to make the GC interrupt safe."
                             (gc-log
                              "Scav DX root " (lisp-object-address value))
                             (scan-object (%%assemble-value (ash (%pointer-field value) 4)
-                                                           +tag-object+))))
+                                                           +tag-object+)
+                                         cycle-kind)))
                          ;; Normal object. Don't do anything interesting.
-                         (t (scavengef (memref-t base offset)))))))
+                         (t (scavengef (memref-t base offset) cycle-kind))))))
           (cond (framep
                  (scav-one frame-pointer (- -1 slot)))
                 (t
@@ -263,7 +283,7 @@ This is required to make the GC interrupt safe."
   (dotimes (slot pushed-values)
     (when *gc-debug-scavenge-stack*
       (gc-log "Scav pv " slot))
-    (scavengef (memref-t stack-pointer slot)))
+    (scavengef (memref-t stack-pointer slot) cycle-kind))
   ;; Scan incoming arguments.
   (when incoming-arguments
     ;; Stored as fixnum on the stack.
@@ -274,7 +294,8 @@ This is required to make the GC interrupt safe."
      layout-length
      (if framep
          (memref-t frame-pointer (- -1 incoming-arguments))
-         (memref-t stack-pointer incoming-arguments)))))
+         (memref-t stack-pointer incoming-arguments))
+     cycle-kind)))
 
 (defun debug-stack-frame (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
@@ -309,7 +330,7 @@ This is required to make the GC interrupt safe."
         (gc-log "restart")
         (gc-log "no-restart"))))
 
-(defun scavenge-interrupt-stack-frame (interrupt-frame-pointer)
+(defun scavenge-interrupt-stack-frame (interrupt-frame-pointer cycle-kind)
   ;; Thread has stopped due to an interrupt.
   ;; Examine it, then perform normal stack scavenging.
   (when *gc-debug-scavenge-stack* (gc-log "Scav interrupted frame... " interrupt-frame-pointer))
@@ -411,25 +432,25 @@ This is required to make the GC interrupt safe."
         (return-from scavenge-interrupt-stack-frame
           (scavenge-interrupt-stack-frame interrupt-stack-pointer)))
       ;; Unconditionally scavenge the saved data registers.
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 7)) ; r8
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6)) ; r9
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 5)) ; r10
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 4)) ; r11
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 3)) ; r12
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2)) ; r13
-      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 10)) ; rbx
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 7) cycle-kind) ; r8
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6) cycle-kind) ; r9
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 5) cycle-kind) ; r10
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 4) cycle-kind) ; r11
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 3) cycle-kind) ; r12
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2) cycle-kind) ; r13
+      (scavengef (memref-signed-byte-64 interrupt-stack-pointer 10) cycle-kind) ; rbx
       #+x86-64
       (ecase extra-registers
         ((nil))
         ((:rax)
-         (scavengef (memref-t interrupt-stack-pointer 13))) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 13) cycle-kind)) ; rax
         ((:rax-rcx)
-         (scavengef (memref-t interrupt-stack-pointer 13)) ; rax
-         (scavengef (memref-t interrupt-stack-pointer 12))) ; rcx
+         (scavengef (memref-t interrupt-stack-pointer 13) cycle-kind) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 12) cycle-kind)) ; rcx
         ((:rax-rcx-rdx)
-         (scavengef (memref-t interrupt-stack-pointer 13)) ; rax
-         (scavengef (memref-t interrupt-stack-pointer 12)) ; rcx
-         (scavengef (memref-t interrupt-stack-pointer 11)))) ; rdx
+         (scavengef (memref-t interrupt-stack-pointer 13) cycle-kind) ; rax
+         (scavengef (memref-t interrupt-stack-pointer 12) cycle-kind) ; rcx
+         (scavengef (memref-t interrupt-stack-pointer 11) cycle-kind))) ; rdx
       #+arm64
       (ecase extra-registers
         ((nil))
@@ -437,7 +458,7 @@ This is required to make the GC interrupt safe."
          ;; x9 (rax) contains an interior pointer into :x1 (r9)
          (let ((offset (- (memref-signed-byte-64 interrupt-stack-pointer 13) ; x9
                           (memref-signed-byte-64 interrupt-stack-pointer 6)))) ; x1
-           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6))
+           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6) cycle-kind)
            (setf (memref-signed-byte-64 interrupt-stack-pointer 13)
                  (+ (memref-signed-byte-64 interrupt-stack-pointer 6)
                     offset))))
@@ -445,7 +466,7 @@ This is required to make the GC interrupt safe."
          ;; x9 (rax) contains an interior pointer into :x7 (r13)
          (let ((offset (- (memref-signed-byte-64 interrupt-stack-pointer 13) ; x9
                           (memref-signed-byte-64 interrupt-stack-pointer 2)))) ; x7
-           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2))
+           (scavengef (memref-signed-byte-64 interrupt-stack-pointer 2) cycle-kind)
            (setf (memref-signed-byte-64 interrupt-stack-pointer 13)
                  (+ (memref-signed-byte-64 interrupt-stack-pointer 2)
                     offset)))))
@@ -462,7 +483,8 @@ This is required to make the GC interrupt safe."
           (scavenge-many (+ interrupt-stack-pointer
                             (* 20 8)
                             512)
-                         n-mv-area-values)))
+                         n-mv-area-values
+                         cycle-kind)))
       (when (eql incoming-arguments :rcx)
         ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
         (setf incoming-arguments nil)
@@ -471,7 +493,8 @@ This is required to make the GC interrupt safe."
         (scavenge-stack-n-incoming-arguments
          frame-pointer stack-pointer framep
          layout-length
-         (memref-t interrupt-stack-pointer 12)))
+         (memref-t interrupt-stack-pointer 12)
+         cycle-kind))
       (when restart
         ;; rip
         (setf (memref-t interrupt-stack-pointer 15) (+ fn-address entry-offset)))
@@ -481,7 +504,8 @@ This is required to make the GC interrupt safe."
                                     (+ pushed-values
                                        (if pushed-values-register
                                            (memref-t interrupt-stack-pointer 12)
-                                           0)))
+                                           0))
+                                    cycle-kind)
       (cond #+arm64
             ((and (not framep)
                   (eql layout-length 0))
@@ -493,7 +517,8 @@ This is required to make the GC interrupt safe."
               ;; Frame pointer should be unchanged.
               frame-pointer
               ;; Return address in x30.
-              (memref-t interrupt-frame-pointer 16)))
+              (memref-t interrupt-frame-pointer 16)
+              cycle-kind))
             ((not framep)
              ;; No frame, carefully pick out the new values.
              (scavenge-stack
@@ -503,15 +528,17 @@ This is required to make the GC interrupt safe."
               ;; Frame pointer should be unchanged.
               frame-pointer
               ;; Return address should be above the layout variables.
-              (memref-unsigned-byte-64 stack-pointer (1- layout-length))))
+              (memref-unsigned-byte-64 stack-pointer (1- layout-length))
+              cycle-kind))
             ((not (zerop frame-pointer))
              (scavenge-stack (+ frame-pointer 16) ; sp
                              (memref-unsigned-byte-64 frame-pointer 0) ; fp
-                             (memref-unsigned-byte-64 frame-pointer 1))) ; ra
+                             (memref-unsigned-byte-64 frame-pointer 1) ; ra
+                             cycle-kind))
             (t (when *gc-debug-scavenge-stack*
                  (gc-log "Done scav stack.")))))))
 
-(defun scavenge-stack (stack-pointer frame-pointer return-address)
+(defun scavenge-stack (stack-pointer frame-pointer return-address cycle-kind)
   (when *gc-debug-scavenge-stack* (gc-log "Scav stack..."))
   (loop
      (when *gc-debug-scavenge-stack*
@@ -527,7 +554,7 @@ This is required to make the GC interrupt safe."
        (when *gc-debug-scavenge-stack*
          (gc-log "fn: " fn-address)
          (gc-log "fnoffs: " fn-offset))
-       (scavenge-object fn)
+       (scavenge-object fn cycle-kind)
        (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                     layout-address layout-length
                                     multiple-values incoming-arguments
@@ -596,12 +623,13 @@ This is required to make the GC interrupt safe."
                                (eql layout-length 0))
                       (bad-metadata "Tried to unwind through function with no available return address"))))))
          (cond (interruptp
-                (scavenge-interrupt-stack-frame frame-pointer)
+                (scavenge-interrupt-stack-frame frame-pointer cycle-kind)
                 (return))
                (t
                 (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                               layout-address layout-length
-                                              incoming-arguments pushed-values)
+                                              incoming-arguments pushed-values
+                                              cycle-kind)
                 (cond (framep
                        (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                               stack-pointer (+ frame-pointer 16)
@@ -616,16 +644,16 @@ This is required to make the GC interrupt safe."
                        ;; and any layout variables.
                        (setf stack-pointer (+ stack-pointer (* layout-length 8)))))))))))
 
-(defun scavenge-thread-data-registers (thread)
-  (scavengef (mezzano.supervisor:thread-state-r8-value thread))
-  (scavengef (mezzano.supervisor:thread-state-r9-value thread))
-  (scavengef (mezzano.supervisor:thread-state-r10-value thread))
-  (scavengef (mezzano.supervisor:thread-state-r11-value thread))
-  (scavengef (mezzano.supervisor:thread-state-r12-value thread))
-  (scavengef (mezzano.supervisor:thread-state-r13-value thread))
-  (scavengef (mezzano.supervisor:thread-state-rbx-value thread)))
+(defun scavenge-thread-data-registers (thread cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r8-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r9-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r10-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r11-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r12-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-r13-value thread) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state-rbx-value thread) cycle-kind))
 
-(defun scavenge-full-save-thread (thread)
+(defun scavenge-full-save-thread (thread cycle-kind)
   ;; Thread has stopped due to an interrupt.
   ;; Examine it, then perform normal stack scavenging.
   (when *gc-debug-scavenge-stack* (gc-log "Scav full-save thread..." thread))
@@ -722,21 +750,21 @@ This is required to make the GC interrupt safe."
                                      stack-pointer
                                      5)))
         (return-from scavenge-full-save-thread
-          (scavenge-full-save-thread thread)))
+          (scavenge-full-save-thread thread cycle-kind)))
       ;; Unconditionally scavenge the saved data registers.
-      (scavenge-thread-data-registers thread)
+      (scavenge-thread-data-registers thread cycle-kind)
       #+x86-64
       (ecase extra-registers
         ((nil))
         ((:rax)
-         (scavengef (mezzano.supervisor:thread-state-rax-value thread)))
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread) cycle-kind))
         ((:rax-rcx)
-         (scavengef (mezzano.supervisor:thread-state-rax-value thread))
-         (scavengef (mezzano.supervisor:thread-state-rcx-value thread)))
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread) cycle-kind)
+         (scavengef (mezzano.supervisor:thread-state-rcx-value thread) cycle-kind))
         ((:rax-rcx-rdx)
-         (scavengef (mezzano.supervisor:thread-state-rax-value thread))
-         (scavengef (mezzano.supervisor:thread-state-rcx-value thread))
-         (scavengef (mezzano.supervisor:thread-state-rdx-value thread))))
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread) cycle-kind)
+         (scavengef (mezzano.supervisor:thread-state-rcx-value thread) cycle-kind)
+         (scavengef (mezzano.supervisor:thread-state-rdx-value thread) cycle-kind)))
       #+arm64
       (ecase extra-registers
         ((nil))
@@ -744,7 +772,7 @@ This is required to make the GC interrupt safe."
          ;; x9 (rax) contains an interior pointer into :x1 (r9)
          (let ((offset (- (mezzano.supervisor:thread-state-rax thread)
                           (mezzano.supervisor:thread-state-r9 thread))))
-           (scavengef (mezzano.supervisor:thread-state-r9 thread))
+           (scavengef (mezzano.supervisor:thread-state-r9 thread) cycle-kind)
            (setf (mezzano.supervisor:thread-state-rax thread)
                  (+ (mezzano.supervisor:thread-state-r9 thread)
                     offset))))
@@ -752,7 +780,7 @@ This is required to make the GC interrupt safe."
          ;; x9 (rax) contains an interior pointer into :x7 (r13)
          (let ((offset (- (mezzano.supervisor:thread-state-rax thread)
                           (mezzano.supervisor:thread-state-r13 thread))))
-           (scavengef (mezzano.supervisor:thread-state-r13 thread))
+           (scavengef (mezzano.supervisor:thread-state-r13 thread) cycle-kind)
            (setf (mezzano.supervisor:thread-state-rax thread)
                  (+ (mezzano.supervisor:thread-state-r13 thread)
                     offset)))))
@@ -769,7 +797,8 @@ This is required to make the GC interrupt safe."
           (scavenge-many (+ (ash (%pointer-field thread) 4)
                             8
                             (* mezzano.supervisor::+thread-mv-slots-start+ 8))
-                         n-mv-area-values)))
+                         n-mv-area-values
+                         cycle-kind)))
       (when (eql incoming-arguments :rcx)
         ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
         (setf incoming-arguments nil)
@@ -778,7 +807,8 @@ This is required to make the GC interrupt safe."
         (scavenge-stack-n-incoming-arguments
          frame-pointer stack-pointer framep
          layout-length
-         (mezzano.supervisor::thread-state-rcx-value thread)))
+         (mezzano.supervisor::thread-state-rcx-value thread)
+         cycle-kind))
       (when restart
         (setf (mezzano.supervisor:thread-state-rip thread) (+ fn-address entry-offset)))
       (scavenge-regular-stack-frame frame-pointer stack-pointer framep
@@ -787,7 +817,8 @@ This is required to make the GC interrupt safe."
                                     (+ pushed-values
                                        (if pushed-values-register
                                            (mezzano.supervisor:thread-state-rcx-value thread)
-                                           0)))
+                                           0))
+                                    cycle-kind)
       (cond #+arm64
             ((and (not framep)
                   (eql layout-length 0))
@@ -799,7 +830,8 @@ This is required to make the GC interrupt safe."
               ;; Frame pointer should be unchanged.
               frame-pointer
               ;; Return address in x30.
-              (mezzano.supervisor:thread-state-cs thread)))
+              (mezzano.supervisor:thread-state-cs thread)
+              cycle-kind))
             ((not framep)
              ;; No frame, carefully pick out the new values.
              (scavenge-stack
@@ -809,11 +841,13 @@ This is required to make the GC interrupt safe."
               ;; Frame pointer should be unchanged.
               frame-pointer
               ;; Return address should be above the layout variables.
-              (memref-unsigned-byte-64 stack-pointer (1- layout-length))))
+              (memref-unsigned-byte-64 stack-pointer (1- layout-length))
+              cycle-kind))
             ((not (zerop frame-pointer))
              (scavenge-stack (+ frame-pointer 16) ; sp
                              (memref-unsigned-byte-64 frame-pointer 0) ; fp
-                             (memref-unsigned-byte-64 frame-pointer 1))) ; ra
+                             (memref-unsigned-byte-64 frame-pointer 1) ; ra
+                             cycle-kind))
             (t (when *gc-debug-scavenge-stack*
                  (gc-log "Done scav stack.")))))))
 
@@ -828,32 +862,32 @@ This is required to make the GC interrupt safe."
            (eql (mezzano.supervisor:thread-priority object) :supervisor)
            (eql (mezzano.supervisor:thread-priority object) :idle))))
 
-(defun scan-thread (object)
+(defun scan-thread (object cycle-kind)
   (when *gc-debug-scavenge-stack* (gc-log "Scav thread " object))
   ;; Scavenge various parts of the thread.
-  (scavengef (mezzano.supervisor:thread-name object))
-  (scavengef (mezzano.supervisor:thread-state object))
+  (scavengef (mezzano.supervisor:thread-name object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-state object) cycle-kind)
   ;; FIXME: Mark stack.
-  (scavengef (mezzano.supervisor:thread-stack object))
-  (scavengef (mezzano.supervisor:thread-special-stack-pointer object))
-  (scavengef (mezzano.supervisor:thread-wait-item object))
-  (scavengef (mezzano.supervisor:thread-%next object))
-  (scavengef (mezzano.supervisor:thread-%prev object))
-  (scavengef (mezzano.supervisor:thread-pending-footholds object))
-  (scavengef (mezzano.supervisor:thread-mutex-stack object))
-  (scavengef (mezzano.supervisor:thread-global-next object))
-  (scavengef (mezzano.supervisor:thread-global-prev object))
-  (scavengef (mezzano.supervisor:thread-priority object))
-  (scavengef (mezzano.supervisor:thread-pager-argument-1 object))
-  (scavengef (mezzano.supervisor:thread-pager-argument-2 object))
-  (scavengef (mezzano.supervisor:thread-pager-argument-3 object))
-  (scavengef (mezzano.supervisor:thread-unsleep-helper object))
-  (scavengef (mezzano.supervisor:thread-unsleep-helper-argument object))
+  (scavengef (mezzano.supervisor:thread-stack object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-special-stack-pointer object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-wait-item object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-%next object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-%prev object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-pending-footholds object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-mutex-stack object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-global-next object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-global-prev object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-priority object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-pager-argument-1 object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-pager-argument-2 object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-pager-argument-3 object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-unsleep-helper object) cycle-kind)
+  (scavengef (mezzano.supervisor:thread-unsleep-helper-argument object) cycle-kind)
   ;; Scavenge the binding cache to prevent stale symbol value cells from
   ;; being reused.
   (loop
      for i from mezzano.supervisor::+thread-symbol-cache-start+ below mezzano.supervisor::+thread-symbol-cache-end+
-     do (scavengef (%object-ref-t object i)))
+     do (scavengef (%object-ref-t object i) cycle-kind))
   ;; Only scan the thread's stack and MV area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.
@@ -861,17 +895,17 @@ This is required to make the GC interrupt safe."
      ;; This is a partially-initialized thread.
      ;; It has nothing on the stack that needs to be scanned, but its
      ;; data registers may contain live references.
-     (scavenge-thread-data-registers object))
+     (scavenge-thread-data-registers object cycle-kind))
     (t
      (when (scavengable-thread-p object)
        (cond ((mezzano.supervisor:thread-full-save-p object)
-              (scavenge-full-save-thread object))
+              (scavenge-full-save-thread object cycle-kind))
              (t (let* ((stack-pointer (mezzano.supervisor:thread-stack-pointer object))
                        (frame-pointer (mezzano.supervisor:thread-frame-pointer object))
                        (return-address (memref-unsigned-byte-64 stack-pointer
                                                                 #-arm64 0
                                                                 #+arm64 1)))
-                  (scavenge-stack stack-pointer frame-pointer return-address))))))))
+                  (scavenge-stack stack-pointer frame-pointer return-address cycle-kind))))))))
 
 (defun gc-info-for-function-offset (function offset)
   ;; Defaults.
@@ -924,7 +958,7 @@ This is required to make the GC interrupt safe."
             incoming-arguments block-or-tagbody-thunk
             extra-registers this-offset restart)))
 
-(defun scan-object-1 (object)
+(defun scan-object-1 (object cycle-kind)
   ;; Dispatch again based on the type.
   (case (%object-tag object)
     ((#.+object-tag-array-t+
@@ -932,26 +966,26 @@ This is required to make the GC interrupt safe."
       #.+object-tag-funcallable-instance+)
      ;; simple-vector
      ;; 1+ to account for the header word.
-     (scan-generic object (1+ (%object-header-data object))))
+     (scan-generic object (1+ (%object-header-data object)) cycle-kind))
     ((#.+object-tag-simple-string+
       #.+object-tag-string+
       #.+object-tag-simple-array+
       #.+object-tag-array+)
      ;; Dimensions don't need to be scanned
-     (scan-generic object 4))
+     (scan-generic object 4 cycle-kind))
     ((#.+object-tag-complex-rational+
       #.+object-tag-ratio+)
-     (scan-generic object 3))
+     (scan-generic object 3 cycle-kind))
     (#.+object-tag-symbol+
-     (scan-generic object 8))
+     (scan-generic object 8 cycle-kind))
     (#.+object-tag-structure-object+
-     (scan-generic object (1+ (%object-header-data object))))
+     (scan-generic object (1+ (%object-header-data object)) cycle-kind))
     (#.+object-tag-std-instance+
-     (scan-generic object 4))
+     (scan-generic object 4 cycle-kind))
     (#.+object-tag-function-reference+
-     (scan-generic object 4))
+     (scan-generic object 4 cycle-kind))
     (#.+object-tag-function+
-     (scan-function object))
+     (scan-function object cycle-kind))
     ;; Things that don't need to be scanned.
     ((#.+object-tag-array-fixnum+
       #.+object-tag-array-bit+
@@ -989,37 +1023,45 @@ This is required to make the GC interrupt safe."
       #.+object-tag-sse-vector+
       #.+object-tag-unbound-value+))
     (#.+object-tag-thread+
-     (scan-thread object))
+     (scan-thread object cycle-kind))
     (#.+object-tag-weak-pointer+
-     ;; Add to the worklist, only when previously live.
-     (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
-       (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
-             *weak-pointer-worklist* object))
-     (scavengef (%object-ref-t object +weak-pointer-finalizer-link+))
-     (scavengef (%object-ref-t object +weak-pointer-finalizer+)))
+     (ecase cycle-kind
+       (:major
+        ;; Add to the worklist, only when previously live.
+        (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+          (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
+                *weak-pointer-worklist* object)))
+       (:minor
+        ;; Weak pointer processing doesn't occur during a minor cycle.
+        ;; If the key was previously live, assume it is still alive.
+        (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+          (scavengef (%object-ref-t object +weak-pointer-key+) cycle-kind)
+          (scavengef (%object-ref-t object +weak-pointer-value+) cycle-kind))))
+     (scavengef (%object-ref-t object +weak-pointer-finalizer-link+) cycle-kind)
+     (scavengef (%object-ref-t object +weak-pointer-finalizer+) cycle-kind))
     (t (scan-error object))))
 
-(defun scan-function (object)
+(defun scan-function (object cycle-kind)
   ;; Scan the constant pool.
   (let* ((address (ash (%pointer-field object) 4))
          (header (%object-header-data object))
          (mc-size (* (ldb +function-header-code-size+ header) 16))
          (pool-size (ldb +function-header-pool-size+ header)))
-    (scavenge-many (+ address mc-size) pool-size)))
+    (scavenge-many (+ address mc-size) pool-size cycle-kind)))
 
-(defun scan-object (object)
+(defun scan-object (object cycle-kind)
   "Scan one object, updating pointer fields."
   (cond
     ((%value-has-tag-p object +tag-cons+)
-     (scan-generic object 2))
+     (scan-generic object 2 cycle-kind))
     ((%value-has-tag-p object +tag-object+)
-     (scan-object-1 object))
+     (scan-object-1 object cycle-kind))
     (t (scan-error object))))
 
 (defun transport-error (object)
   (mezzano.supervisor:panic "Untransportable object " object))
 
-(defun transport-object (object)
+(defun transport-object (object cycle-kind)
   "Transport LENGTH words from oldspace to newspace, returning
 a pointer to the new object. Leaves a forwarding pointer in place."
   (let* ((address (ash (%pointer-field object) 4))
@@ -1031,9 +1073,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (return-from transport-object
         (%%assemble-value (ash (%pointer-field first-word) 4)
                           (%tag-field object))))
-    (really-transport-object object)))
+    (really-transport-object object cycle-kind)))
 
-(defun really-transport-object (object)
+(defun really-transport-object (object cycle-kind)
   (let* ((address (ash (%pointer-field object) 4))
          (first-word (memref-t address 0))
          (start-time (tsc))
@@ -1046,23 +1088,45 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (incf *objects-copied*)
     (incf *words-copied* length)
     ;; Find a new location.
-    (cond ((consp object)
-           (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
-                                     *cons-area-bump*
-                                     *dynamic-mark-bit*))
-           (incf *cons-area-bump* (* length 8))
-           (when (< address *gc-last-cons-address*)
-             (incf *old-objects-copied*)))
-          (t
-           (setf new-address (logior (ash +address-tag-general+ +address-tag-shift+)
-                                     *general-area-bump*
-                                     *dynamic-mark-bit*))
-           (incf *general-area-bump* (* length 8))
-           (when (oddp length)
-             (setf (memref-t new-address length) 0)
-             (incf *general-area-bump* 8))
-           (when (< address *gc-last-general-address*)
-             (incf *old-objects-copied*))))
+    (ecase cycle-kind
+      (:major
+       ;; Objects going to newspace.
+       (cond ((consp object)
+              (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                        *cons-area-bump*
+                                        *dynamic-mark-bit*))
+              (incf *cons-area-bump* (* length 8))
+              (when (< address *gc-last-cons-address*)
+                (incf *old-objects-copied*)))
+             (t
+              (setf new-address (logior (ash +address-tag-general+ +address-tag-shift+)
+                                        *general-area-bump*
+                                        *dynamic-mark-bit*))
+              (incf *general-area-bump* (* length 8))
+              (when (oddp length)
+                (setf (memref-t new-address length) 0)
+                (incf *general-area-bump* 8))
+              (when (< address *gc-last-general-address*)
+                (incf *old-objects-copied*)))))
+      (:minor
+       ;; Objects going to gen1
+       (cond ((consp object)
+              (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                        (dpb +address-generation-1+ +address-generation+ 0)
+                                        *cons-area-gen1-bump*))
+              (incf *cons-area-gen1-bump* (* length 8))
+              (when (< address *gc-last-cons-address*)
+                (incf *old-objects-copied*)))
+             (t
+              (setf new-address (logior (ash +address-tag-general+ +address-tag-shift+)
+                                        (dpb +address-generation-1+ +address-generation+ 0)
+                                        *general-area-gen1-bump*))
+              (incf *general-area-gen1-bump* (* length 8))
+              (when (oddp length)
+                (setf (memref-t new-address length) 0)
+                (incf *general-area-gen1-bump* 8))
+              (when (< address *gc-last-general-address*)
+                (incf *old-objects-copied*))))))
     ;; Energize!
     (%copy-words new-address address length)
     ;; Leave a forwarding pointer.
@@ -1194,7 +1258,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                                         (lognot +pinned-object-mark-bit+))
                                                                 *pinned-mark-bit*))
              ;; And scan.
-             (scan-object object)))
+             (scan-object object :major)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
                (mezzano.supervisor:panic "Marking freelist entry " object))
              (when (not (eql (logand (memref-unsigned-byte-8 address 0) ; Read carefully, no bignums.
@@ -1205,7 +1269,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                                         (lognot +pinned-object-mark-bit+))
                                                                 *pinned-mark-bit*))
                ;; And scan.
-               (scan-object object))))))
+               (scan-object object :major))))))
 
 (defvar *scavenge-general-finger*)
 (defvar *scavenge-cons-finger*)
@@ -1236,7 +1300,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (size (object-size object)))
           (when (oddp size)
             (incf size))
-          (scan-object object)
+          (scan-object object :major)
           (incf *scavenge-general-finger* (* size 8))))
      ;; Scavenge cons area.
      (loop
@@ -1246,8 +1310,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
         (let ((addr (logior *scavenge-cons-finger*
                             (ash +address-tag-cons+ +address-tag-shift+)
                             *dynamic-mark-bit*)))
-          (scavengef (memref-t addr 0))
-          (scavengef (memref-t addr 1)))
+          (scavengef (memref-t addr 0) :major)
+          (scavengef (memref-t addr 1) :major))
         (incf *scavenge-cons-finger* 16))))
 
 (defun size-of-pinned-area-allocation (address)
@@ -1368,10 +1432,166 @@ Additionally update the card table offset fields."
       (dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0)
       (dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0)))
 
-(defun gc-cycle ()
-  (mezzano.supervisor::set-gc-light t)
-  (gc-log "GC in progress...")
-  (incf *gc-cycles*)
+(defun minor-scan-thread (thread)
+  (scan-thread thread :minor))
+
+(defun minor-scan-range (start size)
+  (loop
+     with end = (+ start size)
+     with current = start
+     until (>= current end)
+     do
+       (let ((type (ash (memref-unsigned-byte-8 current 0) (- +object-type-shift+))))
+         (case type
+           (#.+object-tag-cons+
+            ;; Scanning a cons represented as a headered object.
+            (scavengef (memref-t current 2) :minor)
+            (scavengef (memref-t current 3) :minor)
+            (incf current 32))
+           (#.+object-tag-freelist-entry+
+            ;; Skip freelist entries.
+            (incf current (* (ash (memref-unsigned-byte-64 current 0)
+                                  (- +object-data-shift+))
+                             8)))
+           (t
+            (let ((object (%%assemble-value current +tag-object+)))
+              (scan-object object :minor)
+              (incf current (* (align-up (object-size object) 2) 8))))))))
+
+(defun minor-scan-cons-range (start size)
+  (loop
+     for current from start below (+ start size) by 8
+     do
+       (scavengef (memref-t current 0) :minor)))
+
+(defun gc-minor-cycle ()
+  "Collect gen0 into gen1."
+  (gc-log "Minor GC.")
+  ;; Gen1 bump pointers will be changed by the scanning.
+  (let ((general-gen1-bump *general-area-gen1-bump*)
+        (cons-gen1-bump *cons-area-gen1-bump*))
+    ;; Allocate newspace in generation 1.
+    ;; This allocates the maximum space required up front to avoid complicating transport.
+    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                                    (ash +address-tag-general+ +address-tag-shift+))
+                                                            *general-area-gen1-limit*)
+                                                         *general-area-gen0-limit*
+                                                         (logior +block-map-present+
+                                                                 +block-map-writable+
+                                                                 +block-map-zero-fill+)))
+      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                                    (ash +address-tag-cons+ +address-tag-shift+))
+                                                            *cons-area-gen1-limit*)
+                                                         *cons-area-gen0-limit*
+                                                         (logior +block-map-present+
+                                                                 +block-map-writable+
+                                                                 +block-map-zero-fill+)))
+      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+    ;; TODO: maybe disable dirty bit tracking on gen1 to avoid false positives caused by transport.
+    ;; Scan roots.
+    ;; All thread stacks.
+    (loop
+       for thread = mezzano.supervisor::*all-threads* then (mezzano.supervisor::thread-global-next thread)
+       until (null thread)
+       do (minor-scan-thread thread))
+    ;; The remembered set (currently everything but gen0. oops).
+    (minor-scan-range *wired-area-base* (- *wired-area-bump* *wired-area-base*))
+    (minor-scan-range *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
+    (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                              *dynamic-mark-bit*)
+                      *general-area-bump*)
+    (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                              (dpb +address-generation-1+ +address-generation+ 0))
+                      general-gen1-bump)
+    (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                   *dynamic-mark-bit*)
+                           *cons-area-bump*)
+    (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                   (dpb +address-generation-1+ +address-generation+ 0))
+                           cons-gen1-bump)
+    ;; Now scan all copied objects. They'll have been copied into gen1 and extend from
+    ;; the original bump pointer up to the current bump pointer.
+    (setf *scavenge-general-finger* general-gen1-bump
+          *scavenge-cons-finger* cons-gen1-bump)
+    (loop
+       (gc-log
+        "Gen1 General. Limit: " *general-area-gen1-limit*
+        "  Bump: " *general-area-gen1-bump*
+        "  Curr: " *scavenge-general-finger*)
+       (gc-log
+        "Gen1 Cons.    Limit: " *cons-area-gen1-limit*
+        "  Bump: " *cons-area-gen1-bump*
+        "  Curr: " *scavenge-cons-finger*)
+       ;; Stop when both area sets have been fully scavenged.
+       (when (and (eql *scavenge-general-finger* *general-area-gen1-bump*)
+                  (eql *scavenge-cons-finger* *cons-area-gen1-bump*))
+         (return))
+       (gc-log "Scav minor seq")
+       ;; Scavenge general area.
+       (loop
+          (when (eql *scavenge-general-finger* *general-area-gen1-bump*)
+            (return))
+          (let* ((object (%%assemble-value (logior *scavenge-general-finger*
+                                                   (ash +address-tag-general+ +address-tag-shift+)
+                                                   (dpb +address-generation-1+ +address-generation+ 0))
+                                           +tag-object+))
+                 (size (object-size object)))
+            (when (oddp size)
+              (incf size))
+            (scan-object object :minor)
+            (incf *scavenge-general-finger* (* size 8))))
+       ;; Scavenge cons area.
+       (loop
+          (when (eql *scavenge-cons-finger* *cons-area-gen1-bump*)
+            (return))
+          (let ((object (%%assemble-value (logior *scavenge-cons-finger*
+                                                  (ash +address-tag-cons+ +address-tag-shift+)
+                                                  (dpb +address-generation-1+ +address-generation+ 0))
+                                          +tag-cons+)))
+            (scan-object object :minor)
+            (incf *scavenge-cons-finger* 16))))
+    ;; Collection complete.
+    ;; Trim gen1 down to the bump pointer and tag it for dirty tracking.
+    (let ((new-limit (align-up *general-area-gen1-bump* +allocation-minimum-alignment+)))
+      (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       (ash +address-tag-general+ +address-tag-shift+))
+                                               new-limit
+                                               (logior +block-map-present+
+                                                       +block-map-writable+
+                                                       +block-map-track-dirty+))
+      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       new-limit
+                                                       (ash +address-tag-general+ +address-tag-shift+))
+                                               (- (+ *general-area-gen0-limit* *general-area-gen1-limit*) new-limit))
+      (setf *general-area-gen1-limit* new-limit))
+    (let ((new-limit (align-up *cons-area-gen1-bump* +allocation-minimum-alignment+)))
+      (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       (ash +address-tag-cons+ +address-tag-shift+))
+                                               new-limit
+                                               (logior +block-map-present+
+                                                       +block-map-writable+
+                                                       +block-map-track-dirty+))
+      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       new-limit
+                                                       (ash +address-tag-cons+ +address-tag-shift+))
+                                               (- (+ *cons-area-gen0-limit* *cons-area-gen1-limit*) new-limit))
+      (setf *cons-area-gen1-limit* new-limit))
+    ;; Free gen0.
+    (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-0+ +address-generation+ 0)
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             *general-area-gen0-limit*)
+    (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-0+ +address-generation+ 0)
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             *cons-area-gen0-limit*)
+    (setf *general-area-gen0-bump* 0
+          *general-area-gen0-limit* 0
+          *cons-area-gen0-bump* 0
+          *cons-area-gen0-limit* 0)))
+
+(defun gc-major-cycle ()
+  "Collect all generations, promoting all live data to gen2."
+    (gc-log "Major GC.")
   ;; Reset the weak pointer worklist.
   (setf *weak-pointer-worklist* '())
   (let ((prev-dynamic-mark-bit *dynamic-mark-bit*)
@@ -1419,12 +1639,12 @@ Additionally update the card table offset fields."
           *scavenge-cons-finger* 0)
     (gc-log "Scav roots")
     ;; Scavenge NIL to start things off.
-    (scavenge-object 'nil)
+    (scavenge-object 'nil :major)
     ;; And various important other roots.
-    (scavenge-object (%unbound-value))
-    (scavenge-object (%undefined-function))
-    (scavenge-object (%closure-trampoline))
-    (scavenge-object (%funcallable-instance-trampoline))
+    (scavenge-object (%unbound-value) :major)
+    (scavenge-object (%undefined-function) :major)
+    (scavenge-object (%closure-trampoline) :major)
+    (scavenge-object (%funcallable-instance-trampoline) :major)
     ;; Scavenge the current thread's stack.
     (scavenge-current-thread)
     ;; Now do the bulk of the work by scavenging the dynamic areas.
@@ -1493,10 +1713,21 @@ Additionally update the card table offset fields."
                                             *dynamic-mark-bit*)
           *gc-last-cons-address* (logior (ash +address-tag-cons+ +address-tag-shift+)
                                          *cons-area-bump*
-                                         *dynamic-mark-bit*))
-    (incf *gc-epoch*)
-    (gc-log "GC complete")
-    (mezzano.supervisor::set-gc-light nil)))
+                                         *dynamic-mark-bit*))))
+
+(defun gc-cycle (force-major)
+  (mezzano.supervisor::set-gc-light t)
+  (gc-log "GC in progress...")
+  (incf *gc-cycles*)
+  (cond ((and (not force-major)
+              (< *general-area-gen1-bump* *general-area-gen1-max-limit*)
+              (< *cons-area-gen1-bump* *cons-area-gen1-max-limit*))
+         (gc-minor-cycle))
+        (t
+         (gc-major-cycle)))
+  (incf *gc-epoch*)
+  (gc-log "GC complete")
+  (mezzano.supervisor::set-gc-light nil))
 
 (defun base-address-of-internal-pointer (address)
   "Find the base address of the object pointed to be ADDRESS.
@@ -1611,7 +1842,7 @@ No type information will be provided."
                     (setf did-something t)
                     (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key)
                     ;; Keep the value live.
-                    (scavengef (%object-ref-t weak-pointer +weak-pointer-value+)))
+                    (scavengef (%object-ref-t weak-pointer +weak-pointer-value+) :major))
                    (t ;; Key is either dead or not scanned yet. Add to the new worklist.
                     (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
                           new-worklist weak-pointer))))))

@@ -242,7 +242,7 @@
                      (incf sys.int::*pinned-area-bump* grow-by)))))))
        (when (> i *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
-       (sys.int::gc)))
+       (sys.int::gc :full t)))
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (when *paranoid-allocation*
@@ -271,7 +271,7 @@
            (return result)))
        (when (> i *maximum-allocation-attempts*)
          (error 'storage-condition))
-       (sys.int::gc)))
+       (sys.int::gc :full t)))
 
 (defun with-live-objects-helper (&rest objects)
   (declare (ignore objects)))
