@@ -15,6 +15,7 @@
 (defglobal *gc-debug-scavenge-stack* nil)
 (defglobal *gc-debug-freelist-rebuild* nil)
 (defglobal *gc-debug-metadata* t)
+(defglobal *gc-debug-validate-intergenerational-pointers* nil)
 
 (defglobal *gc-enable-logging*)
 
@@ -1736,29 +1737,30 @@ Additionally update the card table offset fields."
             (scan-object object :minor)
             (incf *scavenge-cons-finger* 16))))
     ;; Collection complete.
-    ;; Make sure wired, pinned, gen1, gen2 don't contain gen0 pointers.
-    (verify-range *wired-area-base*
-                  (- *wired-area-bump* *wired-area-base*)
-                  +address-generation-0+)
-    (verify-range *pinned-area-base*
-                  (- *pinned-area-bump* *pinned-area-base*)
-                  +address-generation-0+)
-    (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                          *dynamic-mark-bit*)
-                  *general-area-bump*
-                  +address-generation-0+)
-    (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                          (dpb +address-generation-1+ +address-generation+ 0))
-                  *general-area-gen1-bump*
-                  +address-generation-0+)
-    (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                               *dynamic-mark-bit*)
-                       *cons-area-bump*
-                       +address-generation-0+)
-    (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                               (dpb +address-generation-1+ +address-generation+ 0))
-                       *cons-area-gen1-bump*
-                       +address-generation-0+)
+    (when *gc-debug-validate-intergenerational-pointers*
+      ;; Make sure wired, pinned, gen1, gen2 don't contain gen0 pointers.
+      (verify-range *wired-area-base*
+                    (- *wired-area-bump* *wired-area-base*)
+                    +address-generation-0+)
+      (verify-range *pinned-area-base*
+                    (- *pinned-area-bump* *pinned-area-base*)
+                    +address-generation-0+)
+      (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                            *dynamic-mark-bit*)
+                    *general-area-bump*
+                    +address-generation-0+)
+      (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                            (dpb +address-generation-1+ +address-generation+ 0))
+                    *general-area-gen1-bump*
+                    +address-generation-0+)
+      (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                 *dynamic-mark-bit*)
+                         *cons-area-bump*
+                         +address-generation-0+)
+      (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                 (dpb +address-generation-1+ +address-generation+ 0))
+                         *cons-area-gen1-bump*
+                         +address-generation-0+))
     ;; Clear gen1 dirty bits, there are no objects in gen0.
     (loop
        for i from (logior (ash +address-tag-general+ +address-tag-shift+)
@@ -1952,20 +1954,21 @@ Additionally update the card table offset fields."
     (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
     (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
     ;; Make sure wired, pinned, gen1, gen2 don't contain gen0 pointers.
-    (verify-range *wired-area-base*
-                  (- *wired-area-bump* *wired-area-base*)
-                  +address-generation-1+)
-    (verify-range *pinned-area-base*
-                  (- *pinned-area-bump* *pinned-area-base*)
-                  +address-generation-1+)
-    (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                          *dynamic-mark-bit*)
-                  *general-area-bump*
-                  +address-generation-1+)
-    (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                               *dynamic-mark-bit*)
-                       *cons-area-bump*
-                       +address-generation-1+)
+    (when *gc-debug-validate-intergenerational-pointers*
+      (verify-range *wired-area-base*
+                    (- *wired-area-bump* *wired-area-base*)
+                    +address-generation-1+)
+      (verify-range *pinned-area-base*
+                    (- *pinned-area-bump* *pinned-area-base*)
+                    +address-generation-1+)
+      (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                            *dynamic-mark-bit*)
+                    *general-area-bump*
+                    +address-generation-1+)
+      (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                 *dynamic-mark-bit*)
+                         *cons-area-bump*
+                         +address-generation-1+))
     ;; Reset the pinned area's dirty bits
     (loop
        for i from *pinned-area-base* below *pinned-area-bump* by +card-size+
