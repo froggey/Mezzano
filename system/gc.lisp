@@ -1638,6 +1638,27 @@ Additionally update the card table offset fields."
        (verify-one current (+ current 0) gen)
        (verify-one current (+ current 8) gen)))
 
+(defun gc-dump-area-state ()
+  (mezzano.supervisor:debug-print-line "Wired: " *wired-area-base* " " (- *wired-area-bump* *wired-area-base*))
+  (mezzano.supervisor:debug-print-line "Pinned: " *pinned-area-base* " " (- *pinned-area-bump* *pinned-area-base*))
+  (mezzano.supervisor:debug-print-line "General gen0: " *general-area-gen0-bump* " " *general-area-gen0-limit* " " *general-area-gen0-max-limit*)
+  (mezzano.supervisor:debug-print-line "General gen1: " *general-area-gen1-bump* " " *general-area-gen1-limit* " " *general-area-gen1-max-limit*)
+  (mezzano.supervisor:debug-print-line "General gen2: " *general-area-bump* " " *general-area-limit*)
+  (mezzano.supervisor:debug-print-line "General expansion: " mezzano.runtime::*general-area-expansion-granularity*)
+  (mezzano.supervisor:debug-print-line "Cons gen0: " *cons-area-gen0-bump* " " *cons-area-gen0-limit* " " *cons-area-gen0-max-limit*)
+  (mezzano.supervisor:debug-print-line "Cons gen1: " *cons-area-gen1-bump* " " *cons-area-gen1-limit* " " *cons-area-gen1-max-limit*)
+  (mezzano.supervisor:debug-print-line "Cons gen2: " *cons-area-bump* " " *cons-area-limit*)
+  (mezzano.supervisor:debug-print-line "Cons expansion: " mezzano.runtime::*cons-area-expansion-granularity*)
+  (mezzano.supervisor:debug-print-line "Dynamic mark bit: " *dynamic-mark-bit*)
+  (mezzano.supervisor:debug-print-line "Wired stack bump: " *wired-stack-area-bump* " stack bump: " *stack-area-bump* " total: " *bytes-allocated-to-stacks*)
+  (mezzano.supervisor:debug-print-line "Allocation fudge: " mezzano.runtime::*allocation-fudge* " store fudge: " mezzano.supervisor::*store-fudge-factor*)
+  (mezzano.supervisor:debug-print-line "Remaining: " (mezzano.runtime::bytes-remaining-before-full-gc)))
+
+(defun gc-insufficient-space ()
+  (mezzano.supervisor:debug-print-line "Insufficient space for garbage collection!")
+  (gc-dump-area-state)
+  (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+
 (defun gc-minor-cycle ()
   "Collect gen0 into gen1."
   (gc-log "Minor GC.")
@@ -1653,7 +1674,7 @@ Additionally update the card table offset fields."
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
-      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+      (gc-insufficient-space))
     (when (not (mezzano.supervisor:allocate-memory-range (+ (logior (dpb +address-generation-1+ +address-generation+ 0)
                                                                     (ash +address-tag-cons+ +address-tag-shift+))
                                                             *cons-area-gen1-limit*)
@@ -1661,7 +1682,7 @@ Additionally update the card table offset fields."
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
-      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+      (gc-insufficient-space))
     ;; Disable dirty bit tracking on gen1.
     (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
                                                      (ash +address-tag-general+ +address-tag-shift+))
@@ -1870,14 +1891,14 @@ Additionally update the card table offset fields."
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
-      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+      (gc-insufficient-space))
     (when (not (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
                                                                  (ash +address-tag-cons+ +address-tag-shift+))
                                                          maximum-cons-limit
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
-      (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
+      (gc-insufficient-space))
     (setf *general-area-bump* 0
           *cons-area-bump* 0
           *scavenge-general-finger* 0
@@ -1995,6 +2016,8 @@ Additionally update the card table offset fields."
          (gc-minor-cycle))
         (t
          (gc-major-cycle)))
+  (when *gc-enable-logging*
+    (gc-dump-area-state))
   (incf *gc-epoch*)
   (gc-log "GC complete")
   (mezzano.supervisor::set-gc-light nil))
