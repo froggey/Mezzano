@@ -286,7 +286,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*initial-structure-obarray*)
   (write-line "First GC.")
   (room)
-  (gc)
+  (gc :full t)
   (room)
   (write-line "Cold load complete.")
   (mezzano.supervisor:snapshot)
