@@ -503,7 +503,6 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:xor32 :edx :edx)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
-
 ;; This relies on memory being initialized to zero, so it looks like
 ;; many simple vectors of length 0.
 (sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
@@ -512,13 +511,11 @@ the GC must be deferred during FILL-WORDS."
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; R8 = tag; R9 = data; R10 = words.
   ;; Fetch symbol value cells.
-  (sys.lap-x86:mov64 :r13 (:constant sys.int::*general-area-bump*))
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::*general-area-gen0-bump*))
   (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r11 (:constant sys.int::*general-area-limit*))
+  (sys.lap-x86:mov64 :r11 (:constant sys.int::*general-area-gen0-limit*))
   (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r12 (:constant sys.int::*dynamic-mark-bit*))
-  (sys.lap-x86:mov64 :r12 (:object :r12 #.sys.int::+symbol-value+))
-    ;; R13 = bump. R11 = limit. R12 = mark.
+    ;; R13 = bump. R11 = limit.
   ;; Assemble the final header value in RDI.
   (sys.lap-x86:mov64 :rdi :r9)
   (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
@@ -541,10 +538,8 @@ the GC must be deferred during FILL-WORDS."
   ;; Set address bits and the tag bits.
   ;; Set address bits, tag bits, and the mark bit.
   (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                    (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
                                     sys.int::+tag-object+))
-  (sys.lap-x86:mov64 :rdx (:object :r12 #.sys.int::+symbol-value-cell-value+))
-  (sys.lap-x86:shr64 :rdx #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:or64 :rax :rdx)
   (sys.lap-x86:or64 :rbx :rax)
   ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
   ;; The gc metadata at this point has :restart t, so if a GC occurs before
@@ -585,11 +580,6 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
-  ;; Check *GC-IN-PROGRESS*.
-  (sys.lap-x86:mov64 :rbx (:constant sys.int::*gc-in-progress*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
-  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
-  (sys.lap-x86:jne SLOW-PATH)
   ;; Try the real fast allocator.
   (sys.lap-x86:mov64 :r13 (:function %do-allocate-from-general-area))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
@@ -616,13 +606,11 @@ the GC must be deferred during FILL-WORDS."
   ;; Returns (values car cdr t) on failure, just the cons on success.
   ;; R8 = car; R9 = cdr
   ;; Fetch symbol value cells.
-  (sys.lap-x86:mov64 :r13 (:constant sys.int::*cons-area-bump*))
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::*cons-area-gen0-bump*))
   (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r11 (:constant sys.int::*cons-area-limit*))
+  (sys.lap-x86:mov64 :r11 (:constant sys.int::*cons-area-gen0-limit*))
   (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r12 (:constant sys.int::*dynamic-mark-bit*))
-  (sys.lap-x86:mov64 :r12 (:object :r12 #.sys.int::+symbol-value+))
-  ;; R13 = bump. R11 = limit. R12 = mark.
+  ;; R13 = bump. R11 = limit.
   (:gc :no-frame :layout #*0 :restart t)
   ;; Fetch and increment the current bump pointer.
   (sys.lap-x86:mov64 :rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
@@ -639,10 +627,8 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
   ;; Set address bits, tag bits, and the mark bit.
   (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                    (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
                                     sys.int::+tag-cons+))
-  (sys.lap-x86:mov64 :rdx (:object :r12 #.sys.int::+symbol-value-cell-value+))
-  (sys.lap-x86:shr64 :rdx #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:or64 :rax :rdx)
   (sys.lap-x86:or64 :rbx :rax)
   ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
   ;; It is safe to leave the restart region.

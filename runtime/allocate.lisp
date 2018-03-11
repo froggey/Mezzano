@@ -11,14 +11,27 @@
 (sys.int::defglobal sys.int::*pinned-area-base*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)
 (sys.int::defglobal sys.int::*pinned-area-free-bins*)
-(sys.int::defglobal sys.int::*general-area-bump*)
-(sys.int::defglobal sys.int::*general-area-limit*)
-(sys.int::defglobal sys.int::*cons-area-bump*)
-(sys.int::defglobal sys.int::*cons-area-limit*)
 
 (sys.int::defglobal sys.int::*bytes-allocated-to-stacks*)
 (sys.int::defglobal sys.int::*wired-stack-area-bump*)
 (sys.int::defglobal sys.int::*stack-area-bump*)
+
+(sys.int::defglobal sys.int::*general-area-gen0-bump*)
+(sys.int::defglobal sys.int::*general-area-gen0-limit*)
+(sys.int::defglobal sys.int::*general-area-gen0-max-limit*)
+(sys.int::defglobal sys.int::*general-area-gen1-bump*)
+(sys.int::defglobal sys.int::*general-area-gen1-limit*)
+(sys.int::defglobal sys.int::*general-area-gen1-max-limit*)
+(sys.int::defglobal sys.int::*general-area-bump*)
+(sys.int::defglobal sys.int::*general-area-limit*)
+(sys.int::defglobal sys.int::*cons-area-gen0-bump*)
+(sys.int::defglobal sys.int::*cons-area-gen0-limit*)
+(sys.int::defglobal sys.int::*cons-area-gen0-max-limit*)
+(sys.int::defglobal sys.int::*cons-area-gen1-bump*)
+(sys.int::defglobal sys.int::*cons-area-gen1-limit*)
+(sys.int::defglobal sys.int::*cons-area-gen1-max-limit*)
+(sys.int::defglobal sys.int::*cons-area-bump*)
+(sys.int::defglobal sys.int::*cons-area-limit*)
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
 
@@ -78,10 +91,23 @@
 
 (defun first-run-initialize-allocator ()
   (setf sys.int::*gc-in-progress* nil
+        sys.int::*gc-enable-logging* nil
         sys.int::*pinned-mark-bit* 0
         sys.int::*dynamic-mark-bit* (dpb sys.int::+address-generation-2-a+
                                          sys.int::+address-generation+
                                          0)
+        sys.int::*general-area-gen0-bump* 0
+        sys.int::*general-area-gen0-limit* 0
+        sys.int::*general-area-gen0-max-limit* (* 32 1024 1024)
+        sys.int::*general-area-gen1-bump* 0
+        sys.int::*general-area-gen1-limit* 0
+        sys.int::*general-area-gen1-max-limit* (* 128 1024 1024)
+        sys.int::*cons-area-gen0-bump* 0
+        sys.int::*cons-area-gen0-limit* 0
+        sys.int::*cons-area-gen0-max-limit* (* 32 1024 1024)
+        sys.int::*cons-area-gen1-bump* 0
+        sys.int::*cons-area-gen1-limit* 0
+        sys.int::*cons-area-gen1-max-limit* (* 128 1024 1024)
         *enable-allocation-profiling* nil
         *general-area-expansion-granularity* (* 32 1024 1024)
         *cons-area-expansion-granularity* (* 32 1024 1024)
@@ -291,21 +317,25 @@
 
 #-(or x86-64 arm64)
 (defun %do-allocate-from-general-area (tag data words)
-  (cond ((> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
+  (cond ((> (+ sys.int::*general-area-gen0-bump* (* words 8)) sys.int::*general-area-gen0-limit*)
          (values tag data words t))
         (t
          ;; Enough size, allocate here.
          (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                             sys.int::*general-area-bump*
-                             sys.int::*dynamic-mark-bit*)))
-           (incf sys.int::*general-area-bump* (* words 8))
+                             (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
+                             sys.int::*general-area-gen0-bump*)))
+           (incf sys.int::*general-area-gen0-bump* (* words 8))
            ;; Write object header.
            (set-allocated-object-header addr tag data 0)
            (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
 
 (defun bytes-remaining-before-full-gc ()
   (let* ((dynamic-area-size (+ sys.int::*general-area-limit*
-                               sys.int::*cons-area-limit*))
+                               sys.int::*general-area-gen0-limit*
+                               sys.int::*general-area-gen1-limit*
+                               sys.int::*cons-area-limit*
+                               sys.int::*cons-area-gen0-limit*
+                               sys.int::*cons-area-gen1-limit*))
          ;; Memory already committed to the dynamic areas will be counted
          ;; in store-free-bytes. Only count the additional memory required
          ;; for GC here.
@@ -314,8 +344,12 @@
          (store-free-bytes (* (- (mezzano.supervisor:store-statistics)
                                  mezzano.supervisor::*store-fudge-factor*)
                               #x1000)))
-    (mezzano.supervisor:debug-print-line "g0 " sys.int::*general-area-limit*)
-    (mezzano.supervisor:debug-print-line "c0 " sys.int::*cons-area-limit*)
+    (mezzano.supervisor:debug-print-line "g0 " sys.int::*general-area-gen0-limit*)
+    (mezzano.supervisor:debug-print-line "g1 " sys.int::*general-area-gen1-limit*)
+    (mezzano.supervisor:debug-print-line "g2 " sys.int::*general-area-limit*)
+    (mezzano.supervisor:debug-print-line "c0 " sys.int::*cons-area-gen0-limit*)
+    (mezzano.supervisor:debug-print-line "c1 " sys.int::*cons-area-gen1-limit*)
+    (mezzano.supervisor:debug-print-line "c2 " sys.int::*cons-area-limit*)
     (mezzano.supervisor:debug-print-line "af " *allocation-fudge*)
     (mezzano.supervisor:debug-print-line "fb " store-free-bytes)
     (- store-free-bytes required-for-gc)))
@@ -333,7 +367,7 @@
         (mezzano.supervisor:debug-print-line "Expansion exceeds bytes remaining"))
       (return-from expand-allocation-area-1 nil))
     (when (not (mezzano.supervisor:allocate-memory-range
-                (logior sys.int::*dynamic-mark-bit*
+                (logior (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
                         (ash address-tag sys.int::+address-tag-shift+)
                         current-limit)
                 expansion
@@ -349,15 +383,23 @@
       (mezzano.supervisor:debug-print-line "new remaining: " (bytes-remaining-before-full-gc))))
   t)
 
-(defun expand-allocation-area (name granularity-symbol limit-symbol address-tag)
+(defun expand-allocation-area (name required-minimum-expansion granularity-symbol limit-symbol soft-max-symbol address-tag)
+  (setf required-minimum-expansion (sys.int::align-up required-minimum-expansion #x200000))
   (let ((granularity (sys.int::symbol-global-value granularity-symbol)))
-    (cond ((expand-allocation-area-1 name granularity limit-symbol address-tag)
+    (cond ((>= (sys.int::symbol-global-value limit-symbol)
+               (sys.int::symbol-global-value soft-max-symbol))
+           nil)
+          ((expand-allocation-area-1 name
+                                     (max (sys.int::symbol-global-value granularity-symbol)
+                                          required-minimum-expansion)
+                                     limit-symbol
+                                     address-tag)
            (setf (sys.int::symbol-global-value granularity-symbol) (* granularity 2))
            t)
           ((not (eql granularity +minimum-expansion-granularity+))
            ;; Retry expanding with a minimal granularity.
            (setf (sys.int::symbol-global-value granularity-symbol) +minimum-expansion-granularity+)
-           (expand-allocation-area-1 name +minimum-expansion-granularity+ limit-symbol address-tag))
+           (expand-allocation-area-1 name (max required-minimum-expansion +minimum-expansion-granularity+) limit-symbol address-tag))
           (t
            nil))))
 
@@ -379,9 +421,11 @@
                       result)))
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
                 ;; Running the GC cannot be done when pseudo-atomic.
-                (cond ((expand-allocation-area "general"
+                (cond ((expand-allocation-area :general
+                                               (* words 8)
                                                '*general-area-expansion-granularity*
-                                               'sys.int::*general-area-limit*
+                                               'sys.int::*general-area-gen0-limit*
+                                               'sys.int::*general-area-gen0-max-limit*
                                                sys.int::+address-tag-general+)
                        ;; Successfully expanded the area. Retry the allocation.
                        (go INNER-LOOP))
@@ -435,15 +479,15 @@
 
 #-(or x86-64 arm64)
 (defun do-cons (car cdr)
-  (cond ((> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
+  (cond ((> (+ sys.int::*cons-area-gen0-bump* 16) sys.int::*cons-area-gen0-limit*)
          (values car cdr t))
         (t
          ;; Enough size, allocate here.
          (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                              sys.int::*cons-area-bump*
-                              sys.int::*dynamic-mark-bit*))
+                              (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
+                              sys.int::*cons-area-gen0-bump*))
                 (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
-           (incf sys.int::*cons-area-bump* 16)
+           (incf sys.int::*cons-area-gen0-bump* 16)
            (setf (car val) car
                  (cdr val) cdr)
            val))))
@@ -468,9 +512,11 @@
                     (return-from slow-cons result)))
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
                 ;; Running the GC cannot be done when pseudo-atomic.
-                (cond ((expand-allocation-area "cons"
+                (cond ((expand-allocation-area :cons
+                                               16
                                                '*cons-area-expansion-granularity*
-                                               'sys.int::*cons-area-limit*
+                                               'sys.int::*cons-area-gen0-limit*
+                                               'sys.int::*cons-area-gen0-max-limit*
                                                sys.int::+address-tag-cons+)
                        ;; Successfully expanded the area Retry the allocation.
                        (go INNER-LOOP))
