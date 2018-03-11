@@ -352,7 +352,7 @@
     (mezzano.supervisor:debug-print-line "c2 " sys.int::*cons-area-limit*)
     (mezzano.supervisor:debug-print-line "af " *allocation-fudge*)
     (mezzano.supervisor:debug-print-line "fb " store-free-bytes)
-    (- store-free-bytes required-for-gc)))
+    (- store-free-bytes (* required-for-gc 2))))
 
 (defun expand-allocation-area-1 (name granularity limit-symbol address-tag)
   (let ((current-limit (sys.int::symbol-global-value limit-symbol))
