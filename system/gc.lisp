@@ -1460,9 +1460,14 @@ Additionally update the card table offset fields."
 
 (defun minor-scan-cons-range (start size)
   (loop
-     for current from start below (+ start size) by 8
+     for current from start below (+ start size) by +card-size+
      do
-       (scavengef (memref-t current 0) :minor)))
+       (cond ((card-table-dirty-p current)
+              (gc-log "Hit minor cons card " current)
+              (dotimes (i (/ +card-size+ 8))
+                (scavengef (memref-t current i) :minor)))
+             (t
+              (gc-log "Skip minor cons card " current)))))
 
 (defun gc-minor-cycle ()
   "Collect gen0 into gen1."
