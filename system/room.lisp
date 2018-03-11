@@ -168,14 +168,12 @@ Should be kept in sync with data-types.")
                   size)
          (incf address (* size 8))))))
 
-(defun %walk-general-area (fn)
+(defun %walk-general-area-1 (fn base length)
   (let ((finger 0))
     (loop
-       (when (eql finger *general-area-bump*)
+       (when (eql finger length)
          (return))
-       (let* ((address (logior finger
-                               (ash +address-tag-general+ +address-tag-shift+)
-                               *dynamic-mark-bit*))
+       (let* ((address (logior base finger))
               (object (%%assemble-value address +tag-object+))
               (size (object-size object)))
          (funcall fn object address size)
@@ -183,17 +181,41 @@ Should be kept in sync with data-types.")
            (incf size))
          (incf finger (* size 8))))))
 
-(defun %walk-cons-area (fn)
+(defun %walk-general-area (fn)
+  (%walk-general-area-1 fn
+                        (logior (ash +address-tag-general+ +address-tag-shift+)
+                                (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0))
+                        *general-area-gen0-bump*)
+  (%walk-general-area-1 fn
+                        (logior (ash +address-tag-general+ +address-tag-shift+)
+                                (dpb sys.int::+address-generation-1+ sys.int::+address-generation+ 0))
+                        *general-area-gen1-bump*)
+  (%walk-general-area-1 fn
+                        (logior (ash +address-tag-general+ +address-tag-shift+) *dynamic-mark-bit*)
+                        *general-area-bump*))
+
+(defun %walk-cons-area-1 (fn base length)
   (let ((finger 0))
     (loop
-       (when (eql finger *cons-area-bump*)
+       (when (eql finger length)
          (return))
-       (let* ((address (logior finger
-                               (ash +address-tag-cons+ +address-tag-shift+)
-                               *dynamic-mark-bit*))
+       (let* ((address (logior base finger))
               (object (%%assemble-value address +tag-cons+)))
          (funcall fn object address 2)
          (incf finger 16)))))
+
+(defun %walk-cons-area (fn)
+  (%walk-cons-area-1 fn
+                     (logior (ash +address-tag-cons+ +address-tag-shift+)
+                             (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0))
+                     *cons-area-gen0-bump*)
+  (%walk-cons-area-1 fn
+                     (logior (ash +address-tag-cons+ +address-tag-shift+)
+                             (dpb sys.int::+address-generation-1+ sys.int::+address-generation+ 0))
+                     *cons-area-gen1-bump*)
+  (%walk-cons-area-1 fn
+                     (logior (ash +address-tag-cons+ +address-tag-shift+) *dynamic-mark-bit*)
+                     *cons-area-bump*))
 
 (defun walk-area (area fn)
   "Call FN with the value, address and size of every object in AREA.
