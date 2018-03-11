@@ -508,7 +508,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
       (let* ((address (+ base (* i #x1000)))
-             (page-flags (logior (logand (block-info-for-virtual-address address)
+             (block-info (or (block-info-for-virtual-address address)
+                             (panic "Virtual address " address " not mapped??")))
+             (page-flags (logior (logand block-info
                                          ;; Clear bits.
                                          (lognot (logior sys.int::+block-map-present+
                                                          sys.int::+block-map-writable+
