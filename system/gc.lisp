@@ -105,11 +105,14 @@
 
 (defun gc (&key full)
   "Run a garbage-collection cycle."
+  (check-type full (or boolean (member 0 1)))
   (mezzano.supervisor:with-mutex (*gc-lock*)
     (let ((epoch *gc-epoch*))
       (setf *gc-requested* t)
       (when full
-        (setf *gc-force-major-cycle* t))
+        ;; TODO: Merge full and the current force cycle.
+        ;; 0+1 -> 1, 0+:major -> :major, 1+:major -> :major
+        (setf *gc-force-major-cycle* full))
       (mezzano.supervisor:condition-notify *gc-cvar* t)
       (loop
          (when (not (eql epoch *gc-epoch*))
@@ -139,7 +142,9 @@
          (unwind-protect
               (let ((gc-start (get-internal-run-time)))
                 (setf *gc-in-progress* t)
-                (gc-cycle force-major)
+                (if (integerp force-major)
+                    (gc-cycle nil force-major)
+                    (gc-cycle force-major nil))
                 (let* ((gc-end (get-internal-run-time))
                        (total-time (- gc-end gc-start))
                        (total-seconds (/ total-time (float internal-time-units-per-second))))
@@ -197,13 +202,13 @@ This is required to make the GC interrupt safe."
       ((#.+address-tag-general+
         #.+address-tag-cons+)
        (ecase cycle-kind
-         (:major
-          ;; Major GC: All general allocations are transported to newspace.
+         ((:major 1)
+          ;; Major GC: All dynamic allocations are transported to newspace.
           (when (eql (mask-field +address-generation+ address) *dynamic-mark-bit*)
             (return-from scavenge-object object))
           (transport-object object cycle-kind))
-         (:minor
-          ;; Minor GC: General generation 0 allocations are transported to generation 1.
+         (0
+          ;; Minor GC: Dynamic generation 0 allocations are transported to generation 1.
           (when (not (eql (ldb +address-generation+ address) +address-generation-0+))
             (return-from scavenge-object object))
           (transport-object object cycle-kind))))
@@ -1026,21 +1031,24 @@ This is required to make the GC interrupt safe."
     (#.+object-tag-thread+
      (scan-thread object cycle-kind))
     (#.+object-tag-weak-pointer+
-     (ecase cycle-kind
-       (:major
-        ;; Add to the worklist, only when previously live.
-        (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
-          (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
-                *weak-pointer-worklist* object)))
-       (:minor
-        ;; Weak pointer processing doesn't occur during a minor cycle.
-        ;; If the key was previously live, assume it is still alive.
-        (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
-          (scavengef (%object-ref-t object +weak-pointer-key+) cycle-kind)
-          (scavengef (%object-ref-t object +weak-pointer-value+) cycle-kind))))
-     (scavengef (%object-ref-t object +weak-pointer-finalizer-link+) cycle-kind)
-     (scavengef (%object-ref-t object +weak-pointer-finalizer+) cycle-kind))
+     (scan-weak-pointer object cycle-kind))
     (t (scan-error object))))
+
+(defun scan-weak-pointer (object cycle-kind)
+  (ecase cycle-kind
+    (:major
+     ;; Add to the worklist, only when previously live.
+     (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+       (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
+             *weak-pointer-worklist* object)))
+    ((0 1)
+     ;; Weak pointer processing doesn't occur during a minor cycle.
+     ;; If the key was previously live, assume it is still alive.
+     (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+       (scavengef (%object-ref-t object +weak-pointer-key+) cycle-kind)
+       (scavengef (%object-ref-t object +weak-pointer-value+) cycle-kind))))
+  (scavengef (%object-ref-t object +weak-pointer-finalizer-link+) cycle-kind)
+  (scavengef (%object-ref-t object +weak-pointer-finalizer+) cycle-kind))
 
 (defun scan-function (object cycle-kind)
   ;; Scan the constant pool.
@@ -1090,7 +1098,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (incf *words-copied* length)
     ;; Find a new location.
     (ecase cycle-kind
-      (:major
+      ((:major 1)
        ;; Objects going to newspace.
        (cond ((consp object)
               (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
@@ -1109,7 +1117,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (incf *general-area-bump* 8))
               (when (< address *gc-last-general-address*)
                 (incf *old-objects-copied*)))))
-      (:minor
+      (0
        ;; Objects going to gen1
        (cond ((consp object)
               (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
@@ -1443,16 +1451,16 @@ Additionally update the card table offset fields."
       (dpb sys.int::+address-generation-2-b+ sys.int::+address-generation+ 0)
       (dpb sys.int::+address-generation-2-a+ sys.int::+address-generation+ 0)))
 
-(defun minor-scan-thread (thread)
-  (scan-thread thread :minor))
+(defun minor-scan-thread (thread gen)
+  (scan-thread thread gen))
 
-(defun minor-scan-at (address)
+(defun minor-scan-at (address gen)
   (let ((type (ash (memref-unsigned-byte-8 address 0) (- +object-type-shift+))))
     (case type
       (#.+object-tag-cons+
        ;; Scanning a cons represented as a headered object.
-       (scavengef (memref-t address 2) :minor)
-       (scavengef (memref-t address 3) :minor)
+       (scavengef (memref-t address 2) gen)
+       (scavengef (memref-t address 3) gen)
        32)
       (#.+object-tag-freelist-entry+
        ;; Skip freelist entries.
@@ -1461,20 +1469,20 @@ Additionally update the card table offset fields."
           8))
       (t
        (let ((object (%%assemble-value address +tag-object+)))
-         (scan-object object :minor)
+         (scan-object object gen)
          (* (align-up (object-size object) 2) 8))))))
 
-(defun minor-scan-wired-range (start size)
-  (gc-log "minor wired scan " start "-" (+ start size))
+(defun minor-scan-wired-range (start size gen)
+  (gc-log "minor wired scan " start "-" (+ start size) " " gen)
   (loop
      with end = (+ start size)
      with current = start
      until (>= current end)
      do
-       (incf current (minor-scan-at current))))
+       (incf current (minor-scan-at current gen))))
 
-(defun minor-scan-range (start size)
-  (gc-log "minor scan " start "-" (+ start size))
+(defun minor-scan-range (start size gen)
+  (gc-log "minor scan " start "-" (+ start size) " " gen)
   (let ((end (+ start size))
         (current start))
     (loop
@@ -1485,7 +1493,7 @@ Additionally update the card table offset fields."
           (when (card-table-dirty-p current)
             (gc-log "Hit minor card " current)
             (return))
-          (gc-log "Skip minor card " current)
+          #++(gc-log "Skip minor card " current)
           (incf current +card-size+))
        ;; State two. Found a dirty card. CURRENT is somewhere in the card.
        ;; Find the start of that object. This may be behind current.
@@ -1493,23 +1501,23 @@ Additionally update the card table offset fields."
        (gc-log "Base is " current)
        ;; Scan this object and all objects until current points to a non-dirty card.
        (loop
-          (incf current (minor-scan-at current))
+          (incf current (minor-scan-at current gen))
           (when (>= current end)
             (return-from minor-scan-range))
           (when (not (card-table-dirty-p current))
             (return))))))
 
-(defun minor-scan-cons-range (start size)
-  (gc-log "minor cons scan " start "-" (+ start size))
+(defun minor-scan-cons-range (start size gen)
+  (gc-log "minor cons scan " start "-" (+ start size) " " gen)
   (loop
      for current from start below (+ start size) by +card-size+
      do
        (cond ((card-table-dirty-p current)
               (gc-log "Hit minor cons card " current)
               (dotimes (i (/ +card-size+ 8))
-                (scavengef (memref-t current i) :minor)))
+                (scavengef (memref-t current i) gen)))
              (t
-              (gc-log "Skip minor cons card " current)))))
+              #++(gc-log "Skip minor cons card " current)))))
 
 (defun verify-one (address field-address gen)
   (let ((object (memref-t field-address)))
@@ -1659,39 +1667,58 @@ Additionally update the card table offset fields."
   (gc-dump-area-state)
   (mezzano.supervisor:panic "Insufficient space for garbage collection!"))
 
-(defun gc-minor-cycle ()
-  "Collect gen0 into gen1."
-  (gc-log "Minor GC.")
+(defun gc-minor-cycle (gen)
+  "Collect all generations <= gen into gen+1."
+  (gc-log "Minor GC. Gen " gen)
   ;; Gen1 bump pointers will be changed by the scanning.
-  (let ((general-gen1-bump *general-area-gen1-bump*)
-        (cons-gen1-bump *cons-area-gen1-bump*))
-    ;; Allocate newspace in generation 1.
+  (let ((general-bump (ecase gen
+                        (0 *general-area-gen1-bump*)
+                        (1 *general-area-bump*)))
+        (cons-bump (ecase gen
+                     (0 *cons-area-gen1-bump*)
+                     (1 *cons-area-bump*)))
+        (general-limit (ecase gen
+                        (0 *general-area-gen1-limit*)
+                        (1 *general-area-limit*)))
+        (cons-limit (ecase gen
+                     (0 *cons-area-gen1-limit*)
+                     (1 *cons-area-limit*)))
+        (target-generation (ecase gen
+                             (0 (dpb +address-generation-1+ +address-generation+ 0))
+                             (1 *dynamic-mark-bit*)))
+        (general-total (ecase gen
+                         (0 *general-area-gen0-limit*)
+                         (1 (+ *general-area-gen0-limit* *general-area-gen1-limit*))))
+        (cons-total (ecase gen
+                         (0 *cons-area-gen0-limit*)
+                         (1 (+ *cons-area-gen0-limit* *cons-area-gen1-limit*)))))
+    ;; Allocate newspace in the target generation.
     ;; This allocates the maximum space required up front to avoid complicating transport.
-    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior (dpb +address-generation-1+ +address-generation+ 0)
+    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
                                                                     (ash +address-tag-general+ +address-tag-shift+))
-                                                            *general-area-gen1-limit*)
-                                                         *general-area-gen0-limit*
+                                                            general-limit)
+                                                         general-total
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
       (gc-insufficient-space))
-    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior (dpb +address-generation-1+ +address-generation+ 0)
+    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
                                                                     (ash +address-tag-cons+ +address-tag-shift+))
-                                                            *cons-area-gen1-limit*)
-                                                         *cons-area-gen0-limit*
+                                                            cons-limit)
+                                                         cons-total
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
                                                                  +block-map-zero-fill+)))
       (gc-insufficient-space))
-    ;; Disable dirty bit tracking on gen1.
-    (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+    ;; Disable dirty bit tracking on the target generation.
+    (mezzano.supervisor:protect-memory-range (logior target-generation
                                                      (ash +address-tag-general+ +address-tag-shift+))
-                                             *general-area-gen1-limit*
+                                             general-limit
                                              (logior +block-map-present+
                                                      +block-map-writable+))
-    (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+    (mezzano.supervisor:protect-memory-range (logior target-generation
                                                      (ash +address-tag-cons+ +address-tag-shift+))
-                                             *cons-area-gen1-limit*
+                                             cons-limit
                                              (logior +block-map-present+
                                                      +block-map-writable+))
     ;; Scan roots.
@@ -1699,64 +1726,83 @@ Additionally update the card table offset fields."
     (loop
        for thread = mezzano.supervisor::*all-threads* then (mezzano.supervisor::thread-global-next thread)
        until (null thread)
-       do (minor-scan-thread thread))
+       do (minor-scan-thread thread gen))
     ;; The remembered set.
     ;; Wired area is scanned unconditionally, dirty bit tracking is not supported.
-    (minor-scan-wired-range *wired-area-base* (- *wired-area-bump* *wired-area-base*))
-    (minor-scan-range *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
-    (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                              *dynamic-mark-bit*)
-                      *general-area-bump*)
-    (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                              (dpb +address-generation-1+ +address-generation+ 0))
-                      general-gen1-bump)
-    (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                                   *dynamic-mark-bit*)
-                           *cons-area-bump*)
-    (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                                   (dpb +address-generation-1+ +address-generation+ 0))
-                           cons-gen1-bump)
+    (minor-scan-wired-range *wired-area-base* (- *wired-area-bump* *wired-area-base*) gen)
+    (minor-scan-range *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*) gen)
+    (ecase gen
+      (0
+       (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                                 *dynamic-mark-bit*)
+                         *general-area-bump*
+                         gen)
+       (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                                 (dpb +address-generation-1+ +address-generation+ 0))
+                         general-bump
+                         gen)
+       (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                      *dynamic-mark-bit*)
+                              *cons-area-bump*
+                              gen)
+       (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                      (dpb +address-generation-1+ +address-generation+ 0))
+                              cons-bump
+                              gen))
+      (1
+       (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                                 *dynamic-mark-bit*)
+                         general-bump
+                         gen)
+       (minor-scan-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                      *dynamic-mark-bit*)
+                              cons-bump
+                              gen)))
     ;; Now scan all copied objects. They'll have been copied into gen1 and extend from
     ;; the original bump pointer up to the current bump pointer.
-    (setf *scavenge-general-finger* general-gen1-bump
-          *scavenge-cons-finger* cons-gen1-bump)
-    (loop
-       (gc-log
-        "Gen1 General. Limit: " *general-area-gen1-limit*
-        "  Bump: " *general-area-gen1-bump*
-        "  Curr: " *scavenge-general-finger*)
-       (gc-log
-        "Gen1 Cons.    Limit: " *cons-area-gen1-limit*
-        "  Bump: " *cons-area-gen1-bump*
-        "  Curr: " *scavenge-cons-finger*)
-       ;; Stop when both area sets have been fully scavenged.
-       (when (and (eql *scavenge-general-finger* *general-area-gen1-bump*)
-                  (eql *scavenge-cons-finger* *cons-area-gen1-bump*))
-         (return))
-       (gc-log "Scav minor seq")
-       ;; Scavenge general area.
-       (loop
-          (when (eql *scavenge-general-finger* *general-area-gen1-bump*)
-            (return))
-          (let* ((object (%%assemble-value (logior *scavenge-general-finger*
-                                                   (ash +address-tag-general+ +address-tag-shift+)
-                                                   (dpb +address-generation-1+ +address-generation+ 0))
-                                           +tag-object+))
-                 (size (object-size object)))
-            (when (oddp size)
-              (incf size))
-            (scan-object object :minor)
-            (incf *scavenge-general-finger* (* size 8))))
-       ;; Scavenge cons area.
-       (loop
-          (when (eql *scavenge-cons-finger* *cons-area-gen1-bump*)
-            (return))
-          (let ((object (%%assemble-value (logior *scavenge-cons-finger*
-                                                  (ash +address-tag-cons+ +address-tag-shift+)
-                                                  (dpb +address-generation-1+ +address-generation+ 0))
-                                          +tag-cons+)))
-            (scan-object object :minor)
-            (incf *scavenge-cons-finger* 16))))
+    (setf *scavenge-general-finger* general-bump
+          *scavenge-cons-finger* cons-bump)
+    (multiple-value-bind (target-general-bump target-general-limit target-cons-bump target-cons-limit)
+        (ecase gen
+          (0 (values '*general-area-gen1-bump* '*general-area-gen1-limit* '*cons-area-gen1-bump* '*cons-area-gen1-limit*))
+          (1 (values '*general-area-bump* '*general-area-limit* '*cons-area-bump* '*cons-area-limit*)))
+      (loop
+         (gc-log
+          "Minor General. Limit: " (symbol-value target-general-limit)
+          "  Bump: " (symbol-value target-general-bump)
+          "  Curr: " *scavenge-general-finger*)
+         (gc-log
+          "Minor Cons.    Limit: " (symbol-value target-cons-limit)
+          "  Bump: " (symbol-value target-cons-bump)
+          "  Curr: " *scavenge-cons-finger*)
+         ;; Stop when both area sets have been fully scavenged.
+         (when (and (eql *scavenge-general-finger* (symbol-value target-general-bump))
+                    (eql *scavenge-cons-finger* (symbol-value target-cons-bump)))
+           (return))
+         (gc-log "Scav minor seq")
+         ;; Scavenge general area.
+         (loop
+            (when (eql *scavenge-general-finger* (symbol-value target-general-bump))
+              (return))
+            (let* ((object (%%assemble-value (logior *scavenge-general-finger*
+                                                     (ash +address-tag-general+ +address-tag-shift+)
+                                                     target-generation)
+                                             +tag-object+))
+                   (size (object-size object)))
+              (when (oddp size)
+                (incf size))
+              (scan-object object gen)
+              (incf *scavenge-general-finger* (* size 8))))
+         ;; Scavenge cons area.
+         (loop
+            (when (eql *scavenge-cons-finger* (symbol-value target-cons-bump))
+              (return))
+            (let ((object (%%assemble-value (logior *scavenge-cons-finger*
+                                                    (ash +address-tag-cons+ +address-tag-shift+)
+                                                    target-generation)
+                                            +tag-cons+)))
+              (scan-object object gen)
+              (incf *scavenge-cons-finger* 16)))))
     ;; Collection complete.
     (when *gc-debug-validate-intergenerational-pointers*
       ;; Make sure wired, pinned, gen1, gen2 don't contain gen0 pointers.
@@ -1770,55 +1816,72 @@ Additionally update the card table offset fields."
                             *dynamic-mark-bit*)
                     *general-area-bump*
                     +address-generation-0+)
-      (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
-                            (dpb +address-generation-1+ +address-generation+ 0))
-                    *general-area-gen1-bump*
-                    +address-generation-0+)
       (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
                                  *dynamic-mark-bit*)
                          *cons-area-bump*
                          +address-generation-0+)
-      (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
-                                 (dpb +address-generation-1+ +address-generation+ 0))
-                         *cons-area-gen1-bump*
-                         +address-generation-0+))
-    ;; Clear gen1 dirty bits, there are no objects in gen0.
+      (when (eql gen 0)
+        (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                              (dpb +address-generation-1+ +address-generation+ 0))
+                      *general-area-gen1-bump*
+                      +address-generation-0+)
+        (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                   (dpb +address-generation-1+ +address-generation+ 0))
+                           *cons-area-gen1-bump*
+                           +address-generation-0+)))
+    ;; Clear target generation dirty bits, there are no objects in younger generations.
     (loop
        for i from (logior (ash +address-tag-general+ +address-tag-shift+)
-                          (dpb +address-generation-1+ +address-generation+ 0))
-       below general-gen1-bump by +card-size+
+                          target-generation)
+       below general-bump by +card-size+
        do (setf (card-table-dirty-p i) nil))
     (loop
        for i from (logior (ash +address-tag-cons+ +address-tag-shift+)
-                          (dpb +address-generation-1+ +address-generation+ 0))
-       below cons-gen1-bump by +card-size+
+                          target-generation)
+       below cons-bump by +card-size+
        do (setf (card-table-dirty-p i) nil))
-    ;; Trim gen1 down to the bump pointer and tag it for dirty tracking.
-    (let ((new-limit (align-up *general-area-gen1-bump* +allocation-minimum-alignment+)))
-      (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+    ;; Trim target down to the bump pointer and tag it for dirty tracking.
+    (let ((new-limit (align-up (ecase gen
+                                 (0 *general-area-gen1-bump*)
+                                 (1 *general-area-bump*))
+                               +allocation-minimum-alignment+))
+          (current-limit (ecase gen
+                           (0 (+ *general-area-gen0-limit* *general-area-gen1-limit*))
+                           (1 (+ *general-area-gen0-limit* *general-area-gen1-limit* *general-area-limit*)))))
+      (mezzano.supervisor:protect-memory-range (logior target-generation
                                                        (ash +address-tag-general+ +address-tag-shift+))
                                                new-limit
                                                (logior +block-map-present+
                                                        +block-map-writable+
                                                        +block-map-track-dirty+))
-      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+      (mezzano.supervisor:release-memory-range (logior target-generation
                                                        new-limit
                                                        (ash +address-tag-general+ +address-tag-shift+))
-                                               (- (+ *general-area-gen0-limit* *general-area-gen1-limit*) new-limit))
-      (setf *general-area-gen1-limit* new-limit))
-    (let ((new-limit (align-up *cons-area-gen1-bump* +allocation-minimum-alignment+)))
-      (mezzano.supervisor:protect-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                               (- current-limit new-limit))
+      (ecase gen
+        (0 (setf *general-area-gen1-limit* new-limit))
+        (1 (setf *general-area-limit* new-limit))))
+    (let ((new-limit (align-up (ecase gen
+                                 (0 *cons-area-gen1-bump*)
+                                 (1 *cons-area-bump*))
+                               +allocation-minimum-alignment+))
+          (current-limit (ecase gen
+                           (0 (+ *cons-area-gen0-limit* *cons-area-gen1-limit*))
+                           (1 (+ *cons-area-gen0-limit* *cons-area-gen1-limit* *cons-area-limit*)))))
+      (mezzano.supervisor:protect-memory-range (logior target-generation
                                                        (ash +address-tag-cons+ +address-tag-shift+))
                                                new-limit
                                                (logior +block-map-present+
                                                        +block-map-writable+
                                                        +block-map-track-dirty+))
-      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+      (mezzano.supervisor:release-memory-range (logior target-generation
                                                        new-limit
                                                        (ash +address-tag-cons+ +address-tag-shift+))
-                                               (- (+ *cons-area-gen0-limit* *cons-area-gen1-limit*) new-limit))
-      (setf *cons-area-gen1-limit* new-limit))
-    ;; Free gen0.
+                                               (- current-limit new-limit))
+      (ecase gen
+        (0 (setf *cons-area-gen1-limit* new-limit))
+        (1 (setf *cons-area-limit* new-limit))))
+    ;; Free younger generations.
     (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-0+ +address-generation+ 0)
                                                      (ash +address-tag-general+ +address-tag-shift+))
                                              *general-area-gen0-limit*)
@@ -1828,7 +1891,18 @@ Additionally update the card table offset fields."
     (setf *general-area-gen0-bump* 0
           *general-area-gen0-limit* 0
           *cons-area-gen0-bump* 0
-          *cons-area-gen0-limit* 0)))
+          *cons-area-gen0-limit* 0)
+    (when (<= 1 gen)
+      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       (ash +address-tag-general+ +address-tag-shift+))
+                                               *general-area-gen1-limit*)
+      (mezzano.supervisor:release-memory-range (logior (dpb +address-generation-1+ +address-generation+ 0)
+                                                       (ash +address-tag-cons+ +address-tag-shift+))
+                                               *cons-area-gen1-limit*)
+      (setf *general-area-gen1-bump* 0
+            *general-area-gen1-limit* 0
+            *cons-area-gen1-bump* 0
+            *cons-area-gen1-limit* 0))))
 
 (defun gc-major-cycle ()
   "Collect all generations, promoting all live data to gen2."
@@ -2006,16 +2080,24 @@ Additionally update the card table offset fields."
                                          *cons-area-bump*
                                          *dynamic-mark-bit*))))
 
-(defun gc-cycle (force-major)
+(defun gc-cycle (force-major target-generation)
   (mezzano.supervisor::set-gc-light t)
-  (gc-log "GC in progress...")
+  (gc-log "GC in progress... " force-major " " target-generation)
   (incf *gc-cycles*)
-  (cond ((and (not force-major)
-              (< *general-area-gen1-bump* *general-area-gen1-max-limit*)
-              (< *cons-area-gen1-bump* *cons-area-gen1-max-limit*))
-         (gc-minor-cycle))
+  (when (not target-generation)
+    (setf target-generation 0))
+  (when (not (or (< *general-area-gen1-bump* *general-area-gen1-max-limit*)
+                 (< *cons-area-gen1-bump* *cons-area-gen1-max-limit*)))
+    (setf target-generation 1))
+  (when (<= (mezzano.runtime::bytes-remaining-before-full-gc)
+            +allocation-minimum-alignment+)
+    (setf force-major t))
+  (when *gc-enable-logging*
+    (gc-dump-area-state))
+  (cond (force-major
+         (gc-major-cycle))
         (t
-         (gc-major-cycle)))
+         (gc-minor-cycle target-generation)))
   (when *gc-enable-logging*
     (gc-dump-area-state))
   (incf *gc-epoch*)

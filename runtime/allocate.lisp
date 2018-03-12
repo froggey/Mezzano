@@ -343,7 +343,8 @@
                              *allocation-fudge*))
          (store-free-bytes (* (- (mezzano.supervisor:store-statistics)
                                  mezzano.supervisor::*store-fudge-factor*)
-                              #x1000)))
+                              #x1000))
+         (remaining (- store-free-bytes (* required-for-gc 2))))
     (when sys.int::*gc-enable-logging*
       (mezzano.supervisor:debug-print-line "g0 " sys.int::*general-area-gen0-limit*)
       (mezzano.supervisor:debug-print-line "g1 " sys.int::*general-area-gen1-limit*)
@@ -352,8 +353,9 @@
       (mezzano.supervisor:debug-print-line "c1 " sys.int::*cons-area-gen1-limit*)
       (mezzano.supervisor:debug-print-line "c2 " sys.int::*cons-area-limit*)
       (mezzano.supervisor:debug-print-line "af " *allocation-fudge*)
-      (mezzano.supervisor:debug-print-line "fb " store-free-bytes))
-    (- store-free-bytes (* required-for-gc 2))))
+      (mezzano.supervisor:debug-print-line "fb " store-free-bytes)
+      (mezzano.supervisor:debug-print-line "r " remaining))
+    remaining))
 
 (defun expand-allocation-area-1 (name granularity limit-symbol address-tag)
   (let ((current-limit (sys.int::symbol-global-value limit-symbol))
