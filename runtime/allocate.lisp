@@ -211,9 +211,59 @@
           (when address
             (sys.int::%%assemble-value address sys.int::+tag-object+)))))))
 
+(defun finish-expand-pinned-area (grow-by)
+  (let ((len (truncate grow-by 8))
+        (final-entry (sys.int::base-address-of-internal-pointer
+                      (1- sys.int::*pinned-area-bump*)))
+        (new-address sys.int::*pinned-area-bump*))
+    (cond ((eql (ash (sys.int::memref-unsigned-byte-8 final-entry) (- sys.int::+object-type-shift+))
+                sys.int::+object-tag-freelist-entry+)
+           ;; Final entry in the area is a freelist entry, extend it by the new amount.
+           (let* ((existing-len (ash (sys.int::memref-unsigned-byte-64 final-entry 0) (- sys.int::+object-data-shift+)))
+                  (existing-bin (integer-length existing-len))
+                  (new-len (+ len existing-len))
+                  (new-bin (integer-length new-len)))
+             (when (not (eql new-bin existing-bin))
+               ;; Bin changed, need to remove from the old bin and reinsert into the new.
+               (loop
+                  with prev = nil
+                  with curr = (svref sys.int::*pinned-area-free-bins* existing-bin)
+                  do
+                    (when (not curr)
+                      (mezzano.supervisor:panic "Can't find freelist entry " final-entry " in bin " existing-bin))
+                    (when (eql curr final-entry)
+                      (cond (prev
+                             (setf (sys.int::memref-t prev 1) (sys.int::memref-t final-entry 1)))
+                            (t
+                             (setf (svref sys.int::*pinned-area-free-bins* existing-bin) (sys.int::memref-t final-entry 1))))
+                      (return))
+                    (setf prev curr
+                          curr (sys.int::memref-t curr 1)))
+               (setf (sys.int::memref-t final-entry 1) (svref sys.int::*pinned-area-free-bins* new-bin)
+                     (svref sys.int::*pinned-area-free-bins* new-bin) final-entry))
+             ;; Update header with the new length.
+             (setf (sys.int::memref-unsigned-byte-64 final-entry 0) (sys.int::make-freelist-header new-len)))
+           (setf new-address final-entry))
+          (t
+           ;; Create a new freelist entry at the end.
+           (let ((bin (integer-length len)))
+             (setf (sys.int::memref-unsigned-byte-64 sys.int::*pinned-area-bump* 0) (sys.int::make-freelist-header len)
+                   (sys.int::memref-t sys.int::*pinned-area-bump* 1) (svref sys.int::*pinned-area-free-bins* bin))
+             (setf (svref sys.int::*pinned-area-free-bins* bin) sys.int::*pinned-area-bump*))))
+    ;; Update card table pointers for the new free cards
+    (loop
+       for card from (sys.int::align-up new-address sys.int::+card-size+) below (+ new-address grow-by) by sys.int::+card-size+
+       for delta = (- new-address card)
+       do (setf (sys.int::card-table-offset card)
+                (if (<= delta (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)))
+                    nil
+                    delta)))
+    (incf sys.int::*pinned-area-bump* grow-by)))
+
 (defun %allocate-from-pinned-area (tag data words)
   (log-allocation-profile-entry)
   (loop
+     with inhibit-gc = nil
      for i from 0 do
        (let ((result (%allocate-from-pinned-area-1 tag data words)))
          (when result
@@ -232,17 +282,19 @@
                           grow-by
                           (logior sys.int::+block-map-present+
                                   sys.int::+block-map-writable+
-                                  sys.int::+block-map-zero-fill+))
+                                  sys.int::+block-map-zero-fill+
+                                  sys.int::+block-map-track-dirty+))
                      (when sys.int::*gc-enable-logging*
                        (mezzano.supervisor:debug-print-line "Expanded pinned area by " grow-by))
-                     ;; Success. Advance the pinned area limit and slap down a freelist header.
-                     ;; Drop into the GC to rebuild the freelist properly.
-                     (setf (sys.int::memref-unsigned-byte-64 sys.int::*pinned-area-bump* 0) (sys.int::make-freelist-header (truncate grow-by 8))
-                           (sys.int::memref-t sys.int::*pinned-area-bump* 1) nil)
-                     (incf sys.int::*pinned-area-bump* grow-by)))))))
+                     ;; Success.
+                     (finish-expand-pinned-area grow-by)
+                     (setf inhibit-gc t)))))))
        (when (> i *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
-       (sys.int::gc :full t)))
+       (cond (inhibit-gc
+              (setf inhibit-gc nil))
+             (t
+              (sys.int::gc :full t)))))
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (when *paranoid-allocation*
