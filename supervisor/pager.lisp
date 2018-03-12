@@ -30,6 +30,11 @@
 
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
+  (when (eql *pager-noisy* t)
+    (debug-print-line-1 things)))
+
+(defun pager-log-op (&rest things)
+  (declare (dynamic-extent things))
   (when *pager-noisy*
     (debug-print-line-1 things)))
 
@@ -392,7 +397,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (flush-tlb-single address))))
 
 (defun allocate-memory-range-in-pager (base length flags)
-  (pager-log "Allocate range " base "-" (+ base length) "  " flags)
+  (pager-log-op "Allocate range " base "-" (+ base length) "  " flags)
   (when (logtest flags sys.int::+block-map-wired+)
     (ensure (or (< base #x80000000) ; wired area
                 (and (<= #x200000000000 base) ; wired stack area.
@@ -455,7 +460,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun release-memory-range-in-pager (base length ignore3)
   (declare (ignore ignore3))
-  (pager-log "Release range " base "-" (+ base length))
+  (pager-log-op "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
     (let ((stackp (stack-area-p base)))
@@ -503,7 +508,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (pager-rpc 'protect-memory-range-in-pager base length flags))
 
 (defun protect-memory-range-in-pager (base length flags)
-  (pager-log "Protect range " base "-" (+ base length) "  " flags)
+  (pager-log-op "Protect range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
