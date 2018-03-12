@@ -308,11 +308,33 @@
                                              :key translated
                                              :modifier-state (copy-list *keyboard-modifier-state*)))))))))))
 
+;;
+;; Temporary hack
+;;
+;; Direct key and mouse events to mcclim if they are on the right hand
+;; side of the display
+;;
+
+(defvar *mcclim-last-mouse-x* 0)
+
 (defun submit-key (scancode releasep)
   "Submit a key event into the input system."
-  (submit-compositor-event (make-instance 'key-event
-                                          :scancode scancode
-                                          :releasep releasep)))
+  (ecase mezzano.supervisor::*mcclim-mode*
+    (:mezzano
+     (submit-compositor-event (make-instance 'key-event
+                                             :scancode scancode
+                                             :releasep releasep)))
+    (:mcclim
+     (clim-submit-key scancode releasep))
+    (:both
+     (let ((middle (/ (mezzano.supervisor::framebuffer-width
+                       mezzano.supervisor::*current-framebuffer*)
+                      2)))
+       (if (< *mcclim-last-mouse-x* middle)
+           (submit-compositor-event (make-instance 'key-event
+                                                   :scancode scancode
+                                                   :releasep releasep))
+           (clim-submit-key scancode releasep))))))
 
 ;;;; Mouse events
 
@@ -504,16 +526,45 @@ A passive drag sends no drag events to the window.")
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
-  (submit-compositor-event (make-instance 'mouse-event
-                                          :button-state buttons
-                                          :x-motion x-motion
-                                          :y-motion y-motion)))
+  (let* ((width (mezzano.supervisor::framebuffer-width
+                 mezzano.supervisor::*current-framebuffer*)))
+    (setf *mcclim-last-mouse-x*
+          (max 0 (min (+ *mcclim-last-mouse-x* x-motion) width)))
+    (ecase mezzano.supervisor::*mcclim-mode*
+      (:mezzano
+       (submit-compositor-event (make-instance 'mouse-event
+                                               :button-state buttons
+                                               :x-motion x-motion
+                                               :y-motion y-motion)))
+      (:mcclim
+       (clim-submit-mouse buttons x-motion y-motion))
+      (:both
+       (if (< *mcclim-last-mouse-x* (/ width 2))
+           (submit-compositor-event (make-instance 'mouse-event
+                                                   :button-state buttons
+                                                   :x-motion x-motion
+                                                   :y-motion y-motion))
+           (clim-submit-mouse buttons x-motion y-motion))))))
 
 (defun submit-mouse-absolute (x-position y-position)
   "Submit a mouse event into the input system."
-  (submit-compositor-event (make-instance 'mouse-event
-                                          :x-position x-position
-                                          :y-position y-position)))
+  (let* ((width (mezzano.supervisor::framebuffer-width
+                 mezzano.supervisor::*current-framebuffer*)))
+    (setf *mcclim-last-mouse-x* (max 0 (min x-position width)))
+    (ecase mezzano.supervisor::*mcclim-mode*
+      (:mezzano
+       (submit-compositor-event (make-instance 'mouse-event
+                                               :x-position x-position
+                                               :y-position y-position)))
+      (:mcclim
+       (clim-submit-mouse-absolute x-position y-position))
+      (:both
+       (let ((middle (/ width 2)))
+         (if (< *mcclim-last-mouse-x* middle )
+             (submit-compositor-event (make-instance 'mouse-event
+                                                     :x-position x-position
+                                                     :y-position y-position))
+             (clim-submit-mouse-absolute (- x-position middle) y-position)))))))
 
 (defun global-mouse-state ()
   "Fetch the current mouse state."
