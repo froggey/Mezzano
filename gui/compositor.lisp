@@ -542,8 +542,8 @@ A passive drag sends no drag events to the window.")
 
 (defmethod process-event ((event window-create-event))
   (let ((win (window event)))
-    (format t "Registered new ~Dx~D window ~S, attached to FIFO ~S.~%"
-            (width win) (height win) win (fifo win))
+    (format t "Registered new ~Dx~D window ~S.~%"
+            (width win) (height win) win)
     (setf (window-x win) 0
           (window-y win) 0)
     (case (layer win)
