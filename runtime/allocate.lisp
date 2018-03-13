@@ -214,7 +214,7 @@
 (defun finish-expand-pinned-area (grow-by)
   (let ((len (truncate grow-by 8))
         (final-entry (sys.int::base-address-of-internal-pointer
-                      (1- sys.int::*pinned-area-bump*)))
+                      (- sys.int::*pinned-area-bump* 16)))
         (new-address sys.int::*pinned-area-bump*))
     (cond ((eql (ash (sys.int::memref-unsigned-byte-8 final-entry) (- sys.int::+object-type-shift+))
                 sys.int::+object-tag-freelist-entry+)
