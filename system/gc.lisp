@@ -1474,12 +1474,30 @@ Additionally update the card table offset fields."
 
 (defun minor-scan-wired-range (start size gen)
   (gc-log "minor wired scan " start "-" (+ start size) " " gen)
-  (loop
-     with end = (+ start size)
-     with current = start
-     until (>= current end)
-     do
-       (incf current (minor-scan-at current gen))))
+  (let ((end (+ start size))
+        (current start))
+    (loop
+       ;; State one. Looking for a dirty card.
+       (loop
+          (when (>= current end)
+            (return-from minor-scan-wired-range))
+          (when (mezzano.supervisor::wired-page-dirty-p current)
+            (gc-log "Hit minor card " current)
+            (return))
+          #++
+          (gc-log "Skip minor card " current)
+          (incf current +card-size+))
+       ;; State two. Found a dirty card. CURRENT is somewhere in the card.
+       ;; Find the start of that object. This may be behind current.
+       (setf current (base-address-of-internal-pointer (logand current (lognot (1- +card-size+)))))
+       (gc-log "Base is " current)
+       ;; Scan this object and all objects until current points to a non-dirty card.
+       (loop
+          (incf current (minor-scan-at current gen))
+          (when (>= current end)
+            (return-from minor-scan-wired-range))
+          (when (not (mezzano.supervisor::wired-page-dirty-p current))
+            (return))))))
 
 (defun minor-scan-range (start size gen)
   (gc-log "minor scan " start "-" (+ start size) " " gen)
@@ -2073,6 +2091,7 @@ Additionally update the card table offset fields."
                                              (logior +block-map-present+
                                                      +block-map-writable+
                                                      +block-map-track-dirty+))
+    (mezzano.supervisor::clear-wired-dirty-bits)
     (setf *gc-last-general-address* (logior (ash +address-tag-general+ +address-tag-shift+)
                                             *general-area-bump*
                                             *dynamic-mark-bit*)

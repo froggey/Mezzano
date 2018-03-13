@@ -392,7 +392,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                          (lognot sys.int::+block-map-zero-fill+)))
       (setf (page-table-entry pte 0) (make-pte frame
                                                :writable (and (block-info-writable-p block-info)
-                                                              (not (block-info-track-dirty-p block-info)))))
+                                                              (not (block-info-track-dirty-p block-info)))
+                                               :dirty t))
       ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
       (flush-tlb-single address))))
 
@@ -538,6 +539,33 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                   (t
                    ;; Mark read-only.
                    (update-pte pte :writable nil)))))))
+    (flush-tlb)
+    (tlb-shootdown-all)
+    (finish-tlb-shootdown)))
+
+(defun wired-page-dirty-p (address)
+  "Check the dirty state for the given wired address.
+This may return false-positives, but never false-negatives."
+  ;; Called from the GC and should be fast.
+  (safe-without-interrupts (address)
+    (let ((pte (get-pte-for-address address nil)))
+      (and pte
+           (page-present-p pte)
+           (page-dirty-p pte)))))
+
+(defun clear-wired-dirty-bits ()
+  (pager-rpc 'clear-wired-dirty-bits-in-pager))
+
+(defun clear-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
+  (declare (ignore ignore1 ignore2 ignore3))
+  (with-mutex (*vm-lock*)
+    (begin-tlb-shootdown)
+    (loop
+       for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
+       do
+         (update-pte (or (get-pte-for-address wired-page nil)
+                         (panic "Missing pte for wired page " wired-page))
+                     :dirty nil))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
@@ -836,7 +864,15 @@ It will put the thread to sleep, while it waits for the page."
   ;; the ephemeral pager and snapshot threads.
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
   ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
-  (setf *vm-lock* (make-mutex "Global VM Lock")))
+  (setf *vm-lock* (make-mutex "Global VM Lock"))
+  ;; Set all the dirty bits for wired pages. They were not saved over snapshot.
+  (loop
+     for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
+     do
+       (update-pte (or (get-pte-for-address wired-page nil)
+                       (panic "Missing pte for wired page " wired-page))
+                   :dirty t))
+  (flush-tlb))
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
 ;;; When false, the system will continue on and leave the thread in limbo.

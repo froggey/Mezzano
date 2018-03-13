@@ -68,11 +68,17 @@
 (defun pte-physical-address (pte)
   (logand pte +x86-64-pte-address-mask+))
 
-(defun update-pte (pte &key (writable nil writablep))
-  (when writablep
-    (if writable
-        (setf (page-table-entry pte) (logior (page-table-entry pte) +x86-64-pte-write+))
-        (setf (page-table-entry pte) (logand (page-table-entry pte) (lognot +x86-64-pte-write+))))))
+(defun update-pte (pte &key (writable nil writablep) (dirty nil dirtyp))
+  (let ((current-entry (page-table-entry pte)))
+    (when writablep
+      (if writable
+          (setf current-entry (logior current-entry +x86-64-pte-write+))
+          (setf current-entry (logand current-entry (lognot +x86-64-pte-write+)))))
+    (when dirtyp
+      (if dirty
+          (setf current-entry (logior current-entry +x86-64-pte-dirty+))
+          (setf current-entry (logand current-entry (lognot +x86-64-pte-dirty+)))))
+    (setf (page-table-entry pte) current-entry)))
 
 (defun make-pte (frame &key writable (present t) wired dirty copy-on-write (cache-mode :normal))
   (declare (ignore wired cache-mode))
