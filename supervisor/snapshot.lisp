@@ -174,6 +174,8 @@ Returns 4 values:
   (without-interrupts
     (let* ((frame *snapshot-pending-writeback-pages*)
            (address (physical-page-virtual-address frame))
+           (block-info (or (block-info-for-virtual-address address)
+                           (panic "No block info for CoW address?" address)))
            (block-id (physical-page-frame-block-id frame)))
       ;; Remove frame from list.
       (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
@@ -193,7 +195,8 @@ Returns 4 values:
            ;; Update PTE bits. Clear CoW bit, make writable.
            (setf (sys.int::memref-unsigned-byte-64 pte 0)
                  (make-pte frame
-                           :writable t
+                           :writable (and (block-info-writable-p block-info)
+                                          (not (block-info-track-dirty-p block-info)))
                            :dirty (page-dirty-p pte)))
            (flush-tlb-single address))
          ;; Return page to normal use.
