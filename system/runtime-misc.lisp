@@ -142,7 +142,7 @@
 To be run this in the basic repl after ipl completes."
   (mezzano.supervisor:make-thread (lambda ()
                                     (sleep 3)
-                                    (sys.int::gc)
+                                    (sys.int::gc :full t)
                                     (mezzano.supervisor:snapshot)))
   (throw 'mezzano.supervisor::terminate-thread nil))
 

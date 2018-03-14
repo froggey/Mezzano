@@ -436,7 +436,7 @@ Returns 4 values:
 
 (defun snapshot ()
   ;; Run a GC before snapshotting to reduce the amount of space required.
-  (sys.int::gc)
+  (sys.int::gc :full t)
   ;; Attempt to wake the snapshot thread, only waking it if
   ;; there is not snapshot currently in progress.
   (let ((did-wake (safe-without-interrupts ()
