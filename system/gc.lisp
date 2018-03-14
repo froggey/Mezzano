@@ -436,7 +436,7 @@ This is required to make the GC interrupt safe."
                                      stack-pointer
                                      5))
         (return-from scavenge-interrupt-stack-frame
-          (scavenge-interrupt-stack-frame interrupt-stack-pointer)))
+          (scavenge-interrupt-stack-frame interrupt-stack-pointer cycle-kind)))
       ;; Unconditionally scavenge the saved data registers.
       (scavengef (memref-signed-byte-64 interrupt-stack-pointer 7) cycle-kind) ; r8
       (scavengef (memref-signed-byte-64 interrupt-stack-pointer 6) cycle-kind) ; r9
