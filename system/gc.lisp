@@ -1489,7 +1489,7 @@ Additionally update the card table offset fields."
           (incf current +card-size+))
        ;; State two. Found a dirty card. CURRENT is somewhere in the card.
        ;; Find the start of that object. This may be behind current.
-       (setf current (base-address-of-internal-pointer (logand current (lognot (1- +card-size+)))))
+       (setf current (base-address-of-internal-pointer current))
        (gc-log "Base is " current)
        ;; Scan this object and all objects until current points to a non-dirty card.
        (loop
@@ -1497,7 +1497,8 @@ Additionally update the card table offset fields."
           (when (>= current end)
             (return-from minor-scan-wired-range))
           (when (not (mezzano.supervisor::wired-page-dirty-p current))
-            (return))))))
+            (return)))
+       (setf current (logand current (lognot (1- +card-size+)))))))
 
 (defun minor-scan-range (start size gen)
   (gc-log "minor scan " start "-" (+ start size) " " gen)
@@ -1515,7 +1516,7 @@ Additionally update the card table offset fields."
           (incf current +card-size+))
        ;; State two. Found a dirty card. CURRENT is somewhere in the card.
        ;; Find the start of that object. This may be behind current.
-       (setf current (base-address-of-internal-pointer (logand current (lognot (1- +card-size+)))))
+       (setf current (base-address-of-internal-pointer current))
        (gc-log "Base is " current)
        ;; Scan this object and all objects until current points to a non-dirty card.
        (loop
@@ -1523,7 +1524,8 @@ Additionally update the card table offset fields."
           (when (>= current end)
             (return-from minor-scan-range))
           (when (not (card-table-dirty-p current))
-            (return))))))
+            (return)))
+       (setf current (logand current (lognot (1- +card-size+)))))))
 
 (defun minor-scan-cons-range (start size gen)
   (gc-log "minor cons scan " start "-" (+ start size) " " gen)
