@@ -283,6 +283,7 @@
 
 (defvar *stack-list*)
 (defvar *stack-area-bump*)
+(defvar *stack-area-bytes*)
 
 (defvar *store-bump*)
 
@@ -353,13 +354,13 @@
       (t (error "Unknown address #x~X" address)))))
 
 (defun create-stack (size)
-  ;; FIXME: Stack accounting ends up including the guard regions here.
   ;; Lower guard region.
   (incf *stack-area-bump* #x200000)
   (setf size (align-up size #x1000))
   (let* ((address (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                           *stack-area-bump*))
          (info (make-stack :base address :size size)))
+    (incf *stack-area-bytes* size)
     (incf *stack-area-bump* (align-up size #x200000))
     (push info *stack-list*)
     info))
@@ -1306,6 +1307,7 @@
          (*cons-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*cons-area-store* nil)
          (*stack-area-bump* 0)
+         (*stack-area-bytes* 0)
          (*stack-list* '())
          (*store-bump* #x1000) ; header is 4k
          (*word-locks* (make-hash-table))
@@ -1418,6 +1420,7 @@
             sys.int::*structure-slot-type*
             sys.int::*wired-area-free-bins*
             sys.int::*pinned-area-free-bins*
+            sys.int::*bytes-allocated-to-stacks*
             ))
     (loop
        for (what address byte-offset type debug-info) in *pending-fixups*
@@ -1480,7 +1483,8 @@
         (set-value 'sys.int::*cons-area-bump* actual-cons-area-bump)
         (set-value 'sys.int::*cons-area-limit* *cons-area-bump*)
         (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
-        (set-value 'sys.int::*stack-area-bump* +stack-area-base+)))
+        (set-value 'sys.int::*stack-area-bump* +stack-area-base+)
+        (set-value 'sys.int::*bytes-allocated-to-stacks* *stack-area-bytes*)))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)

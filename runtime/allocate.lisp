@@ -117,8 +117,7 @@
         *cons-allocation-count* 0
         *bytes-consed* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
-        *allocation-fudge* (* 8 1024 1024)
-        sys.int::*bytes-allocated-to-stacks* sys.int::*wired-stack-area-bump*))
+        *allocation-fudge* (* 8 1024 1024)))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
