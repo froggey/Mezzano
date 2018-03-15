@@ -564,7 +564,9 @@ Returns NIL if the function captures no variables."
                  (if *suppress-trace*
                      (apply old-definition args)
                      (let ((*suppress-trace* t))
-                       (let ((*print-readably* nil))
+                       (let ((*print-readably* nil)
+                             (*print-length* nil)
+                             (*print-level* nil))
                          (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args))
                        (let ((result :error))
                          (unwind-protect
@@ -572,7 +574,9 @@ Returns NIL if the function captures no variables."
                                 (setf result (multiple-value-list (let ((*trace-depth* (1+ *trace-depth*))
                                                                         (*suppress-trace* nil))
                                                                     (apply old-definition args)))))
-                           (let ((*print-readably* nil))
+                           (let ((*print-readably* nil)
+                                 (*print-length* nil)
+                                 (*print-level* nil))
                              (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result)))
                          (values-list result)))))))
             (setf (function-reference-function fref) wrapper))))))
