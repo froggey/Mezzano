@@ -18,20 +18,17 @@
 
 (sys.int::defglobal sys.int::*general-area-gen0-bump*)
 (sys.int::defglobal sys.int::*general-area-gen0-limit*)
-(sys.int::defglobal sys.int::*general-area-gen0-max-limit*)
 (sys.int::defglobal sys.int::*general-area-gen1-bump*)
 (sys.int::defglobal sys.int::*general-area-gen1-limit*)
-(sys.int::defglobal sys.int::*general-area-gen1-max-limit*)
 (sys.int::defglobal sys.int::*general-area-bump*)
 (sys.int::defglobal sys.int::*general-area-limit*)
 (sys.int::defglobal sys.int::*cons-area-gen0-bump*)
 (sys.int::defglobal sys.int::*cons-area-gen0-limit*)
-(sys.int::defglobal sys.int::*cons-area-gen0-max-limit*)
 (sys.int::defglobal sys.int::*cons-area-gen1-bump*)
 (sys.int::defglobal sys.int::*cons-area-gen1-limit*)
-(sys.int::defglobal sys.int::*cons-area-gen1-max-limit*)
 (sys.int::defglobal sys.int::*cons-area-bump*)
 (sys.int::defglobal sys.int::*cons-area-limit*)
+(sys.int::defglobal sys.int::*generation-size-ratio*)
 
 (sys.int::defglobal sys.int::*dynamic-mark-bit*)
 
@@ -40,9 +37,6 @@
 (sys.int::defglobal *allocator-lock*)
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
-
-(defconstant +minimum-expansion-granularity+
-  (* sys.int::+allocation-minimum-alignment+ 2))
 
 (sys.int::defglobal *general-fast-path-hits*)
 (sys.int::defglobal *general-allocation-count*)
@@ -98,26 +92,23 @@
                                          0)
         sys.int::*general-area-gen0-bump* 0
         sys.int::*general-area-gen0-limit* 0
-        sys.int::*general-area-gen0-max-limit* (* 32 1024 1024)
         sys.int::*general-area-gen1-bump* 0
         sys.int::*general-area-gen1-limit* 0
-        sys.int::*general-area-gen1-max-limit* (* 128 1024 1024)
         sys.int::*cons-area-gen0-bump* 0
         sys.int::*cons-area-gen0-limit* 0
-        sys.int::*cons-area-gen0-max-limit* (* 32 1024 1024)
         sys.int::*cons-area-gen1-bump* 0
         sys.int::*cons-area-gen1-limit* 0
-        sys.int::*cons-area-gen1-max-limit* (* 128 1024 1024)
         *enable-allocation-profiling* nil
-        *general-area-expansion-granularity* (* 32 1024 1024)
-        *cons-area-expansion-granularity* (* 32 1024 1024)
+        *general-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
+        *cons-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
         *general-fast-path-hits* 0
         *general-allocation-count* 0
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
-        *allocation-fudge* (* 8 1024 1024)))
+        *allocation-fudge* (* 8 1024 1024)
+        sys.int::*generation-size-ratio* 2))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
@@ -380,81 +371,89 @@
            (set-allocated-object-header addr tag data 0)
            (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
 
-(defun bytes-remaining-before-full-gc ()
-  (let* ((dynamic-area-size (+ sys.int::*general-area-limit*
-                               sys.int::*general-area-gen0-limit*
-                               sys.int::*general-area-gen1-limit*
-                               sys.int::*cons-area-limit*
-                               sys.int::*cons-area-gen0-limit*
-                               sys.int::*cons-area-gen1-limit*))
-         ;; Memory already committed to the dynamic areas will be counted
-         ;; in store-free-bytes. Only count the additional memory required
-         ;; for GC here.
-         (required-for-gc (+ dynamic-area-size
-                             *allocation-fudge*))
-         (store-free-bytes (* (- (mezzano.supervisor:store-statistics)
-                                 mezzano.supervisor::*store-fudge-factor*)
-                              #x1000))
-         (remaining (- store-free-bytes (* required-for-gc 2))))
-    (when sys.int::*gc-enable-logging*
-      (mezzano.supervisor:debug-print-line "g0 " sys.int::*general-area-gen0-limit*)
-      (mezzano.supervisor:debug-print-line "g1 " sys.int::*general-area-gen1-limit*)
-      (mezzano.supervisor:debug-print-line "g2 " sys.int::*general-area-limit*)
-      (mezzano.supervisor:debug-print-line "c0 " sys.int::*cons-area-gen0-limit*)
-      (mezzano.supervisor:debug-print-line "c1 " sys.int::*cons-area-gen1-limit*)
-      (mezzano.supervisor:debug-print-line "c2 " sys.int::*cons-area-limit*)
-      (mezzano.supervisor:debug-print-line "af " *allocation-fudge*)
-      (mezzano.supervisor:debug-print-line "fb " store-free-bytes)
-      (mezzano.supervisor:debug-print-line "r " remaining))
-    remaining))
+(defun dynamic-area-size ()
+  (+ sys.int::*general-area-gen0-limit*
+     sys.int::*general-area-gen1-limit*
+     sys.int::*general-area-limit*
+     sys.int::*cons-area-gen0-limit*
+     sys.int::*cons-area-gen1-limit*
+     sys.int::*cons-area-limit*))
 
-(defun expand-allocation-area-1 (name granularity limit-symbol address-tag)
-  (let ((current-limit (sys.int::symbol-global-value limit-symbol))
-        (expansion granularity)
-        (remaining (bytes-remaining-before-full-gc)))
+(defun static-area-size ()
+  (+ (- sys.int::*wired-area-bump* sys.int::*wired-area-base*)
+     (- sys.int::*pinned-area-bump* sys.int::*pinned-area-base*)))
+
+(defun card-table-size ()
+  (* (truncate (+ (dynamic-area-size)
+                  (static-area-size))
+               sys.int::+card-size+)
+     sys.int::+card-table-entry-size+))
+
+(defun total-normal-usage ()
+  (+ (dynamic-area-size)
+     (static-area-size)
+     sys.int::*bytes-allocated-to-stacks*
+     (card-table-size)))
+
+(defun additional-memory-required-for-gc ()
+  ;; A worst-case GC cycle will not free any memory and will
+  ;; copy DYNAMIC-AREA-SIZE bytes up a generation. The collection itself
+  ;; requires this many bytes during the GC cycle.
+  (+ (dynamic-area-size)
+     ;; Plus card table mappings for it.
+     (* (truncate (dynamic-area-size) sys.int::+card-size+)
+        sys.int::+card-table-entry-size+)
+     ;; And some extra, just in case.
+     *allocation-fudge*))
+
+(defun store-free-bytes ()
+  ;; Actual number of bytes free in the store, available for allocation.
+  (* (- (mezzano.supervisor:store-statistics)
+        mezzano.supervisor::*store-fudge-factor*)
+     #x1000))
+
+(defun bytes-remaining ()
+  ;; Memory already committed to the dynamic areas will be counted
+  ;; in store-free-bytes. Only count the additional memory required
+  ;; for GC here.
+  ;; If it wasn't then dynamic-area-size would need to be multiplied by 2.
+  (- (store-free-bytes) (additional-memory-required-for-gc)))
+
+(defun expand-allocation-area (name required-minimum-expansion granularity-symbol limit-symbol address-tag)
+  (setf required-minimum-expansion (sys.int::align-up required-minimum-expansion sys.int::+allocation-minimum-alignment+))
+  ;;(setf (sys.int::symbol-global-value granularity-symbol) +minimum-expansion-granularity+)
+  (let* ((current-limit (sys.int::symbol-global-value limit-symbol))
+         (remaining (sys.int::align-down (bytes-remaining) sys.int::+allocation-minimum-alignment+))
+         (expansion (max required-minimum-expansion
+                         (sys.int::symbol-global-value granularity-symbol)))
+         ;; Dynamic areas need twice the space for collection.
+         (effective-expansion (* expansion 2)))
+    (when (< remaining effective-expansion)
+      ;; Expansion exceeds remaining, reset it.
+      (setf expansion (max required-minimum-expansion sys.int::+allocation-minimum-alignment+)
+            effective-expansion (* expansion 2)))
     (when sys.int::*gc-enable-logging*
       (mezzano.supervisor:debug-print-line "Expanding " name " area by " expansion " [remaining " remaining "]"))
-    ;; These are semispace areas, safely collecting them require twice
-    ;; as much memory.
-    (when (< remaining (* expansion 2))
-      (when sys.int::*gc-enable-logging*
-        (mezzano.supervisor:debug-print-line "Expansion exceeds bytes remaining"))
-      (return-from expand-allocation-area-1 nil))
-    (when (not (mezzano.supervisor:allocate-memory-range
-                (logior (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
-                        (ash address-tag sys.int::+address-tag-shift+)
-                        current-limit)
-                expansion
-                (logior sys.int::+block-map-present+
-                        sys.int::+block-map-writable+
-                        sys.int::+block-map-zero-fill+)))
-      (when sys.int::*gc-enable-logging*
-        (mezzano.supervisor:debug-print-line "A-M-R newspace failed."))
-      (return-from expand-allocation-area-1 nil))
-    ;; Atomically store the new limit, other CPUs may be reading the value.
-    (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion)
-    (when sys.int::*gc-enable-logging*
-      (mezzano.supervisor:debug-print-line "new remaining: " (bytes-remaining-before-full-gc))))
-  t)
-
-(defun expand-allocation-area (name required-minimum-expansion granularity-symbol limit-symbol soft-max-symbol address-tag)
-  (setf required-minimum-expansion (sys.int::align-up required-minimum-expansion #x200000))
-  (let ((granularity (sys.int::symbol-global-value granularity-symbol)))
-    (cond ((>= (sys.int::symbol-global-value limit-symbol)
-               (sys.int::symbol-global-value soft-max-symbol))
-           nil)
-          ((expand-allocation-area-1 name
-                                     (max (sys.int::symbol-global-value granularity-symbol)
-                                          required-minimum-expansion)
-                                     limit-symbol
-                                     address-tag)
-           (setf (sys.int::symbol-global-value granularity-symbol) (* granularity 2))
+    (cond ((and (>= remaining effective-expansion)
+                (mezzano.supervisor:allocate-memory-range
+                 (logior (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
+                         (ash address-tag sys.int::+address-tag-shift+)
+                         current-limit)
+                 expansion
+                 (logior sys.int::+block-map-present+
+                         sys.int::+block-map-writable+
+                         sys.int::+block-map-zero-fill+)))
+           ;; Double expansion granularity for next time.
+           (setf (sys.int::symbol-global-value granularity-symbol) (* expansion 2))
+           ;; Atomically store the new limit, other CPUs may be reading the value.
+           (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion)
+           (when sys.int::*gc-enable-logging*
+             (mezzano.supervisor:debug-print-line "new remaining: " (bytes-remaining)))
            t)
-          ((not (eql granularity +minimum-expansion-granularity+))
-           ;; Retry expanding with a minimal granularity.
-           (setf (sys.int::symbol-global-value granularity-symbol) +minimum-expansion-granularity+)
-           (expand-allocation-area-1 name (max required-minimum-expansion +minimum-expansion-granularity+) limit-symbol address-tag))
           (t
+           ;; Expansion failed, either not enough space or rejected by the pager.
+           (when sys.int::*gc-enable-logging*
+             (mezzano.supervisor:debug-print-line "A-M-R failed."))
            nil))))
 
 (defun %slow-allocate-from-general-area (tag data words)
@@ -479,7 +478,6 @@
                                                (* words 8)
                                                '*general-area-expansion-granularity*
                                                'sys.int::*general-area-gen0-limit*
-                                               'sys.int::*general-area-gen0-max-limit*
                                                sys.int::+address-tag-general+)
                        ;; Successfully expanded the area. Retry the allocation.
                        (go INNER-LOOP))
@@ -494,7 +492,7 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
-       (sys.int::gc)
+       (sys.int::gc :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
 (defun %allocate-object (tag data size area)
@@ -570,7 +568,6 @@
                                                16
                                                '*cons-area-expansion-granularity*
                                                'sys.int::*cons-area-gen0-limit*
-                                               'sys.int::*cons-area-gen0-max-limit*
                                                sys.int::+address-tag-cons+)
                        ;; Successfully expanded the area Retry the allocation.
                        (go INNER-LOOP))
@@ -585,7 +582,7 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
-       (sys.int::gc)
+       (sys.int::gc :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
 (defun sys.int::make-simple-vector (size &optional area)

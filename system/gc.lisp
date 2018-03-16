@@ -40,6 +40,10 @@
 
 (defglobal *gc-force-major-cycle* nil)
 
+(defglobal *gc-gen0-cycles* 0)
+(defglobal *gc-gen1-cycles* 0)
+(defglobal *gc-major-cycles* 0)
+
 ;; List of weak pointers that need to be updated.
 (defglobal *weak-pointer-worklist* nil)
 ;; List of finalizers that don't be need to be run yet.
@@ -1669,18 +1673,18 @@ Additionally update the card table offset fields."
 (defun gc-dump-area-state ()
   (mezzano.supervisor:debug-print-line "Wired: " *wired-area-base* " " (- *wired-area-bump* *wired-area-base*))
   (mezzano.supervisor:debug-print-line "Pinned: " *pinned-area-base* " " (- *pinned-area-bump* *pinned-area-base*))
-  (mezzano.supervisor:debug-print-line "General gen0: " *general-area-gen0-bump* " " *general-area-gen0-limit* " " *general-area-gen0-max-limit*)
-  (mezzano.supervisor:debug-print-line "General gen1: " *general-area-gen1-bump* " " *general-area-gen1-limit* " " *general-area-gen1-max-limit*)
+  (mezzano.supervisor:debug-print-line "General gen0: " *general-area-gen0-bump* " " *general-area-gen0-limit*)
+  (mezzano.supervisor:debug-print-line "General gen1: " *general-area-gen1-bump* " " *general-area-gen1-limit*)
   (mezzano.supervisor:debug-print-line "General gen2: " *general-area-bump* " " *general-area-limit*)
   (mezzano.supervisor:debug-print-line "General expansion: " mezzano.runtime::*general-area-expansion-granularity*)
-  (mezzano.supervisor:debug-print-line "Cons gen0: " *cons-area-gen0-bump* " " *cons-area-gen0-limit* " " *cons-area-gen0-max-limit*)
-  (mezzano.supervisor:debug-print-line "Cons gen1: " *cons-area-gen1-bump* " " *cons-area-gen1-limit* " " *cons-area-gen1-max-limit*)
+  (mezzano.supervisor:debug-print-line "Cons gen0: " *cons-area-gen0-bump* " " *cons-area-gen0-limit*)
+  (mezzano.supervisor:debug-print-line "Cons gen1: " *cons-area-gen1-bump* " " *cons-area-gen1-limit*)
   (mezzano.supervisor:debug-print-line "Cons gen2: " *cons-area-bump* " " *cons-area-limit*)
   (mezzano.supervisor:debug-print-line "Cons expansion: " mezzano.runtime::*cons-area-expansion-granularity*)
   (mezzano.supervisor:debug-print-line "Dynamic mark bit: " *dynamic-mark-bit*)
   (mezzano.supervisor:debug-print-line "Wired stack bump: " *wired-stack-area-bump* " stack bump: " *stack-area-bump* " total: " *bytes-allocated-to-stacks*)
   (mezzano.supervisor:debug-print-line "Allocation fudge: " mezzano.runtime::*allocation-fudge* " store fudge: " mezzano.supervisor::*store-fudge-factor*)
-  (mezzano.supervisor:debug-print-line "Remaining: " (mezzano.runtime::bytes-remaining-before-full-gc)))
+  (mezzano.supervisor:debug-print-line "Remaining: " (mezzano.runtime::bytes-remaining)))
 
 (defun gc-insufficient-space ()
   (mezzano.supervisor:debug-print-line "Insufficient space for garbage collection!")
@@ -2105,20 +2109,32 @@ Additionally update the card table offset fields."
   (mezzano.supervisor::set-gc-light t)
   (gc-log "GC in progress... " force-major " " target-generation)
   (incf *gc-cycles*)
-  (when (not target-generation)
-    (setf target-generation 0))
-  (when (not (or (< *general-area-gen1-bump* *general-area-gen1-max-limit*)
-                 (< *cons-area-gen1-bump* *cons-area-gen1-max-limit*)))
-    (setf target-generation 1))
-  (when (<= (mezzano.runtime::bytes-remaining-before-full-gc)
-            +allocation-minimum-alignment+)
-    (setf force-major t))
+  (when (not (or force-major target-generation))
+    ;; Figure out exactly what kind of collection to do.
+    (let ((gen0-size (+ *general-area-gen0-limit* *cons-area-gen0-limit*))
+          (gen1-size (+ *general-area-gen1-limit* *cons-area-gen1-limit*))
+          (gen2-size (+ *general-area-limit* *cons-area-limit*))
+          (remaining (mezzano.runtime::bytes-remaining)))
+      (cond ((>= (mezzano.runtime::bytes-remaining) (* 32 1024 1024))
+             (setf target-generation 0))
+            ((< (+ gen0-size gen1-size) (* gen2-size *generation-size-ratio*)) ; kinda arbitrary
+             (setf force-major t))
+            ((< gen0-size (* gen1-size *generation-size-ratio*))
+             (setf target-generation 1))
+            (t
+             (setf target-generation 0)))))
   (when *gc-enable-logging*
     (gc-dump-area-state))
   (cond (force-major
+         (incf *gc-major-cycles*)
          (gc-major-cycle))
         (t
+         (ecase target-generation
+           (0 (incf *gc-gen0-cycles*))
+           (1 (incf *gc-gen1-cycles*)))
          (gc-minor-cycle target-generation)))
+  (setf mezzano.runtime::*general-area-expansion-granularity* +allocation-minimum-alignment+
+        mezzano.runtime::*cons-area-expansion-granularity* +allocation-minimum-alignment+)
   (when *gc-enable-logging*
     (gc-dump-area-state))
   (incf *gc-epoch*)
