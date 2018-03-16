@@ -1504,6 +1504,11 @@ Additionally update the card table offset fields."
             (return)))
        (setf current (logand current (lognot (1- +card-size+)))))))
 
+(defun card-table-dirty-p (address gen)
+  (let ((dirty-gen (card-table-dirty-gen address)))
+    (and dirty-gen
+         (<= dirty-gen gen))))
+
 (defun minor-scan-range (start size gen)
   (gc-log "minor scan " start "-" (+ start size) " " gen)
   (let ((end (+ start size))
@@ -1513,7 +1518,7 @@ Additionally update the card table offset fields."
        (loop
           (when (>= current end)
             (return-from minor-scan-range))
-          (when (card-table-dirty-p current)
+          (when (card-table-dirty-p current gen)
             (gc-log "Hit minor card " current)
             (return))
           #++(gc-log "Skip minor card " current)
@@ -1527,7 +1532,7 @@ Additionally update the card table offset fields."
           (incf current (minor-scan-at current gen))
           (when (>= current end)
             (return-from minor-scan-range))
-          (when (not (card-table-dirty-p current))
+          (when (not (card-table-dirty-p current gen))
             (return)))
        (setf current (logand current (lognot (1- +card-size+)))))))
 
@@ -1536,7 +1541,7 @@ Additionally update the card table offset fields."
   (loop
      for current from start below (+ start size) by +card-size+
      do
-       (cond ((card-table-dirty-p current)
+       (cond ((card-table-dirty-p current gen)
               (gc-log "Hit minor cons card " current)
               (dotimes (i (/ +card-size+ 8))
                 (scavengef (memref-t current i) gen)))
@@ -1856,14 +1861,25 @@ Additionally update the card table offset fields."
     ;; Clear target generation dirty bits, there are no objects in younger generations.
     (loop
        for i from (logior (ash +address-tag-general+ +address-tag-shift+)
-                          target-generation)
+                          *dynamic-mark-bit*)
        below general-bump by +card-size+
-       do (setf (card-table-dirty-p i) nil))
+       do (setf (card-table-dirty-gen i) (1+ gen)))
     (loop
        for i from (logior (ash +address-tag-cons+ +address-tag-shift+)
-                          target-generation)
+                          *dynamic-mark-bit*)
        below cons-bump by +card-size+
-       do (setf (card-table-dirty-p i) nil))
+       do (setf (card-table-dirty-gen i) (1+ gen)))
+    (when (eql gen 0)
+      (loop
+         for i from (logior (ash +address-tag-general+ +address-tag-shift+)
+                            (dpb +address-generation-1+ +address-generation+ 0))
+         below general-bump by +card-size+
+         do (setf (card-table-dirty-gen i) nil))
+      (loop
+         for i from (logior (ash +address-tag-cons+ +address-tag-shift+)
+                            (dpb +address-generation-1+ +address-generation+ 0))
+         below cons-bump by +card-size+
+         do (setf (card-table-dirty-gen i) nil)))
     ;; Trim target down to the bump pointer and tag it for dirty tracking.
     (let ((new-limit (align-up (ecase gen
                                  (0 *general-area-gen1-bump*)
@@ -2088,10 +2104,11 @@ Additionally update the card table offset fields."
                                  *dynamic-mark-bit*)
                          *cons-area-bump*
                          +address-generation-1+))
-    ;; Reset the pinned area's dirty bits
+    ;; Reset the pinned area's dirty bits.
+    ;; Newspace's dirty bits have been cleared by the allocate & reprotect.
     (loop
        for i from *pinned-area-base* below *pinned-area-bump* by +card-size+
-       do (setf (card-table-dirty-p i) nil))
+       do (setf (card-table-dirty-gen i) nil))
     (mezzano.supervisor:protect-memory-range *pinned-area-base*
                                              (- *pinned-area-bump* *pinned-area-base*)
                                              (logior +block-map-present+
@@ -2111,6 +2128,7 @@ Additionally update the card table offset fields."
   (incf *gc-cycles*)
   (when (not (or force-major target-generation))
     ;; Figure out exactly what kind of collection to do.
+    ;; FIXME: This is probably pretty lame. It doesn't seem to do any gen1 collections...
     (let ((gen0-size (+ *general-area-gen0-limit* *cons-area-gen0-limit*))
           (gen1-size (+ *general-area-gen1-limit* *cons-area-gen1-limit*))
           (gen2-size (+ *general-area-limit* *cons-area-limit*))

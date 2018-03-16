@@ -802,18 +802,23 @@
                (1- (ash 1 (byte-size +card-table-entry-offset+))))))
   value)
 
-(defun card-table-dirty-p (address)
-  (let ((cte (memref-unsigned-byte-32 +card-table-base+ (truncate address +card-size+))))
-    (logbitp +cart-table-entry-dirty+ cte)))
+(defun card-table-dirty-gen (address)
+  (let* ((cte (memref-unsigned-byte-32 +card-table-base+ (truncate address +card-size+)))
+         (gen (ldb +cart-table-entry-dirty-gen+ cte)))
+    (if (eql gen 0)
+        nil
+        (1- gen))))
 
-(defun (setf card-table-dirty-p) (value address)
-  (let ((index (truncate address +card-size+)))
+(defun (setf card-table-dirty-gen) (value address)
+  (assert (member value '(nil 0 1 2)))
+  (let ((index (truncate address +card-size+))
+        (entry (if value
+                   (1+ value)
+                   0)))
     (loop
        ;; TODO: Atomic or/and, instead of this cas loop.
        (let* ((original-cte (memref-unsigned-byte-32 +card-table-base+ index))
-              (new-cte (if value
-                           (logior original-cte (ash 1 +cart-table-entry-dirty+))
-                           (logand original-cte (lognot (ash 1 +cart-table-entry-dirty+))))))
+              (new-cte (dpb entry +cart-table-entry-dirty-gen+ original-cte)))
          (when (eq (cas (memref-unsigned-byte-32 +card-table-base+ index)
                         original-cte
                         new-cte)

@@ -676,7 +676,7 @@ This may return false-positives, but never false-negatives."
           ;; Probably a write fault. Set the dirty flag in the card table.
           ;; Leave the page read-only and the track bit set until after
           ;; clone-cow has finished.
-          (setf (sys.int::card-table-dirty-p address) t))
+          (setf (sys.int::card-table-dirty-gen address) 0))
         (when (page-copy-on-write-p pte)
           (pager-log "Copying page " address " in WFP.")
           (snapshot-clone-cow-page (pager-allocate-page) address))
@@ -768,7 +768,7 @@ This may return false-positives, but never false-negatives."
                  (block-info-writable-p block-info)
                  (block-info-track-dirty-p block-info))
         ;; Tracking dirty bits for the GC.
-        (setf (sys.int::card-table-dirty-p fault-address) t)
+        (setf (sys.int::card-table-dirty-gen fault-address) 0)
         (update-pte pte :writable t)
         (flush-tlb-single fault-address)
         (return-from wait-for-page-fast-path t))

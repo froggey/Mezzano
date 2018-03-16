@@ -232,8 +232,8 @@ of the first object in the card. Measured in 16-byte units.
 An offset of all ones (1- (expt 2 16)) indicates that the start of the
 object is further away than what can be encoded and the the system
 should continue looking backwards.")
-(defconstant +cart-table-entry-dirty+ 16)
-;; Bits 31-17 available.
+(defconstant +cart-table-entry-dirty-gen+ (byte 2 16))
+;; Bits 31-18 available.
 
 ;; Cover the whole address space.
 (defconstant +card-table-size+ (* (/ (expt 2 47) +card-size+)
