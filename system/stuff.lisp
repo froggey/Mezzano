@@ -328,10 +328,10 @@
       ;; using floating point intermediaries
       (integer (values (truncate (* limit rd))))
       ;; 32-bits is too big for single precision so try again if rd
-      ;; rounds up to 1.0s0
+      ;; rounds up to 1.0f0
       (single-float
-       (let ((rs (float rd 1.0s0)))
-         (if (= rs 1.0s0)
+       (let ((rs (float rd 1.0f0)))
+         (if (= rs 1.0f0)
              (random limit random-state)
              (* limit rs))))
       (double-float (* limit rd)))))
