@@ -419,9 +419,10 @@
   ;; If it wasn't then dynamic-area-size would need to be multiplied by 2.
   (- (store-free-bytes) (additional-memory-required-for-gc)))
 
+;; TODO: Might be worth collecting more frequently to reduce the amount of work
+;; each gc needs to do. Shorter pauses, but more overall gc time.
 (defun expand-allocation-area (name required-minimum-expansion granularity-symbol limit-symbol address-tag)
   (setf required-minimum-expansion (sys.int::align-up required-minimum-expansion sys.int::+allocation-minimum-alignment+))
-  ;;(setf (sys.int::symbol-global-value granularity-symbol) +minimum-expansion-granularity+)
   (let* ((current-limit (sys.int::symbol-global-value limit-symbol))
          (remaining (sys.int::align-down (bytes-remaining) sys.int::+allocation-minimum-alignment+))
          (expansion (max required-minimum-expansion

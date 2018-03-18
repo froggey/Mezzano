@@ -387,6 +387,7 @@
            #:allocate-memory-range
            #:protect-memory-range
            #:release-memory-range
+           #:update-wired-dirty-bits
            #:debug-print-line
            #:panic
            #:fifo

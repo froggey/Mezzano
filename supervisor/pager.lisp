@@ -543,29 +543,21 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
-(defun wired-page-dirty-p (address)
-  "Check the dirty state for the given wired address.
-This may return false-positives, but never false-negatives."
-  ;; Called from the GC and should be fast.
-  (safe-without-interrupts (address)
-    (let ((pte (get-pte-for-address address nil)))
-      (and pte
-           (page-present-p pte)
-           (page-dirty-p pte)))))
+(defun update-wired-dirty-bits ()
+  (pager-rpc 'update-wired-dirty-bits-in-pager))
 
-(defun clear-wired-dirty-bits ()
-  (pager-rpc 'clear-wired-dirty-bits-in-pager))
-
-(defun clear-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
+(defun update-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
   (declare (ignore ignore1 ignore2 ignore3))
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
     (loop
        for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
+       for pte = (or (get-pte-for-address wired-page nil)
+                     (panic "Missing pte for wired page " wired-page))
        do
-         (update-pte (or (get-pte-for-address wired-page nil)
-                         (panic "Missing pte for wired page " wired-page))
-                     :dirty nil))
+         (when (page-dirty-p pte)
+           (setf (sys.int::card-table-dirty-gen wired-page) 0)
+           (update-pte pte :dirty nil)))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
