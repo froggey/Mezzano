@@ -203,7 +203,7 @@ Virtual registers must be defined exactly once."
             full-transforms
             rejected-transforms)))
 
-(defun ssa-convert-simple-locals (backend-function candidates)
+(defun ssa-convert-simple-locals (backend-function candidates debugp)
   "Each candidate has one definition. All loads are replaced with the bound value."
   (let ((remove-me '())
         (n-simple-loads-converted 0))
@@ -223,16 +223,18 @@ Virtual registers must be defined exactly once."
                (incf n-simple-loads-converted))
               ((and (typep inst 'bind-local-instruction)
                     (member inst candidates))
-               (insert-before backend-function inst
-                              (make-instance 'debug-bind-variable-instruction
-                                             :variable (bind-local-ast inst)
-                                             :value (bind-local-value inst)))
+               (when debugp
+                 (insert-before backend-function inst
+                                (make-instance 'debug-bind-variable-instruction
+                                               :variable (bind-local-ast inst)
+                                               :value (bind-local-value inst))))
                (push inst remove-me))
               ((and (typep inst 'unbind-local-instruction)
                     (member (unbind-local-local inst) candidates))
-               (insert-before backend-function inst
-                              (make-instance 'debug-unbind-variable-instruction
-                                             :variable (bind-local-ast (unbind-local-local inst))))
+               (when debugp
+                 (insert-before backend-function inst
+                                (make-instance 'debug-unbind-variable-instruction
+                                               :variable (bind-local-ast (unbind-local-local inst)))))
                (push inst remove-me)))))
     (dolist (inst remove-me)
       (remove-instruction backend-function inst))
@@ -240,7 +242,7 @@ Virtual registers must be defined exactly once."
       (format t "Converted ~D simple loads.~%" n-simple-loads-converted))
     n-simple-loads-converted))
 
-(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour)
+(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour debugp)
   (declare (ignore basic-blocks bb-succs))
   (let ((visited (make-hash-table :test 'eq :synchronized nil))
         (phi-sites '())
@@ -313,11 +315,12 @@ Virtual registers must be defined exactly once."
                       (make-instance 'store-local-instruction
                                      :local candidate
                                      :value phi))
-        ;; Debug updates too.
-        (insert-after backend-function bb
-                      (make-instance 'debug-update-variable-instruction
-                                     :variable (bind-local-ast candidate)
-                                     :value phi))))
+        (when debugp
+          ;; Debug updates too.
+          (insert-after backend-function bb
+                        (make-instance 'debug-update-variable-instruction
+                                       :variable (bind-local-ast candidate)
+                                       :value phi)))))
     ;; Now walk the dominator tree to rename values, starting at the binding's basic block.
     (let ((uses (build-use/def-maps backend-function))
           (remove-me '()))
@@ -339,17 +342,19 @@ Virtual registers must be defined exactly once."
                              (push inst remove-me))))
                         (store-local-instruction
                          (when (eql (store-local-local inst) candidate)
-                           (insert-after backend-function inst
-                                         (make-instance 'debug-update-variable-instruction
-                                                        :variable (bind-local-ast candidate)
-                                                        :value (store-local-value inst)))
+                           (when debugp
+                             (insert-after backend-function inst
+                                           (make-instance 'debug-update-variable-instruction
+                                                          :variable (bind-local-ast candidate)
+                                                          :value (store-local-value inst))))
                            (push inst remove-me)
                            (push (store-local-value inst) stack)))
                         (unbind-local-instruction
                          (when (eql (unbind-local-local inst) candidate)
-                           (insert-after backend-function inst
-                                         (make-instance 'debug-unbind-variable-instruction
-                                                        :variable (bind-local-ast candidate)))
+                           (when debugp
+                             (insert-after backend-function inst
+                                           (make-instance 'debug-unbind-variable-instruction
+                                                          :variable (bind-local-ast candidate))))
                            (push inst remove-me)
                            ;; Stop renaming this branch of the dom tree
                            ;; when the variable is unbound.
@@ -359,10 +364,11 @@ Virtual registers must be defined exactly once."
                       (setf inst (next-instruction backend-function inst))))
                  (dolist (child (mezzano.compiler.backend.dominance:dominator-tree-children dom bb))
                    (rename child stack))))
-        (insert-after backend-function candidate
-                      (make-instance 'debug-bind-variable-instruction
-                                     :variable (bind-local-ast candidate)
-                                     :value (bind-local-value candidate)))
+        (when debugp
+          (insert-after backend-function candidate
+                        (make-instance 'debug-bind-variable-instruction
+                                       :variable (bind-local-ast candidate)
+                                       :value (bind-local-value candidate))))
         (push candidate remove-me)
         (rename binding-bb
                 ;; Initial value is whatever value it was bound with.
@@ -371,7 +377,7 @@ Virtual registers must be defined exactly once."
           (remove-instruction backend-function inst))))
     t))
 
-(defun ssa-convert-locals (backend-function candidates)
+(defun ssa-convert-locals (backend-function candidates debugp)
   (multiple-value-bind (basic-blocks bb-preds bb-succs)
       (build-cfg backend-function)
     (let ((dom (mezzano.compiler.backend.dominance:compute-dominance backend-function))
@@ -379,7 +385,7 @@ Virtual registers must be defined exactly once."
           (converted '())
           (dynamic-contour (dynamic-contours backend-function)))
       (dolist (candidate candidates)
-        (when (ssa-convert-one-local backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour)
+        (when (ssa-convert-one-local backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour debugp)
           (push candidate converted)
           (incf n-converted)))
       ;; Walk through and remove any load instructions associated with
@@ -402,7 +408,8 @@ Virtual registers must be defined exactly once."
         (format t "Directly converting ~:S~%" simple-transforms)
         (format t "Fully converting ~:S~%" full-transforms)
         (format t "Rejected converting ~:S~%" rejected-transforms))
-      (when (not (endp simple-transforms))
-        (ssa-convert-simple-locals backend-function simple-transforms))
-      (when (not (endp full-transforms))
-        (ssa-convert-locals backend-function full-transforms)))))
+      (let ((debugp (/= (sys.c::optimize-quality (ast backend-function) 'debug) 0)))
+        (when (not (endp simple-transforms))
+          (ssa-convert-simple-locals backend-function simple-transforms debugp))
+        (when (not (endp full-transforms))
+          (ssa-convert-locals backend-function full-transforms debugp))))))
