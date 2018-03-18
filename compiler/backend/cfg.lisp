@@ -81,13 +81,15 @@ does not visit unreachable blocks."
                 (false-next (next-instruction backend-function false-target)))
            (when (and (typep true-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values true-next)))
+                      (endp (jump-values true-next))
+                      (not (eql (jump-target true-next) true-target)))
              (setf true-target (jump-target true-next)
                    (branch-true-target inst) true-target)
              (incf total))
            (when (and (typep false-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values false-next)))
+                      (endp (jump-values false-next))
+                      (not (eql (jump-target false-next) false-target)))
              (setf false-target (jump-target false-next)
                    (branch-false-target inst) false-target)
              (incf total))
@@ -104,12 +106,14 @@ does not visit unreachable blocks."
                 (false-next (next-instruction backend-function false-target)))
            (when (and (typep true-next 'jump-instruction)
                       ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values true-next)))
+                      (endp (jump-values true-next))
+                      (not (eql (jump-target true-next) true-target)))
              (setf (mezzano.compiler.backend.x86-64::x86-branch-true-target inst) (jump-target true-next))
              (incf total))
            (when (and (typep false-next 'jump-instruction)
                        ;; Don't snap if there are phi nodes at the target.
-                      (endp (jump-values false-next)))
+                      (endp (jump-values false-next))
+                      (not (eql (jump-target false-next) false-target)))
              (setf (mezzano.compiler.backend.x86-64::x86-branch-false-target inst) (jump-target false-next))
              (incf total))))
         (jump-instruction
