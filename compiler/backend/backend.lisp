@@ -184,6 +184,7 @@
   (simplify-cfg backend-function)
   (break-critical-edges backend-function)
   (construct-ssa backend-function)
+  (localize-constants backend-function)
   (convert-rest-arg-to-dx backend-function)
   (perform-target-lowering backend-function target)
   (loop
