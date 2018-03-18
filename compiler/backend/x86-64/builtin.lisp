@@ -126,7 +126,7 @@
                             backend-function inst
                             defs
                             (ir:call-arguments inst)))
-            (return-from lower-predicate-builtin nil))
+            (return-from lower-predicate-builtin (values nil nil)))
           (let ((pred (first (builtin-result-list builtin))))
             (ir:insert-before
              backend-function inst
@@ -139,7 +139,7 @@
             (let ((advance (ir:next-instruction backend-function next-inst)))
               (ir:remove-instruction backend-function inst)
               (ir:remove-instruction backend-function next-inst)
-              advance)))))))
+              (values advance t))))))))
 
 (defun lower-builtin (backend-function inst defs)
   (let ((builtin (and (typep inst '(or
@@ -205,7 +205,11 @@
     (do* ((inst (ir:first-instruction backend-function) next-inst)
           (next-inst (ir:next-instruction backend-function inst) (if inst (ir:next-instruction backend-function inst))))
          ((null inst))
-      (let ((next (or (lower-predicate-builtin backend-function inst uses defs)
-                      (lower-builtin backend-function inst defs))))
-        (when next
-          (setf next-inst next))))))
+      (multiple-value-bind (next did-something)
+          (lower-predicate-builtin backend-function inst uses defs)
+        (cond (did-something
+               (setf next-inst next))
+              (t
+               (let ((next (lower-builtin backend-function inst defs)))
+                 (when next
+                   (setf next-inst next)))))))))
