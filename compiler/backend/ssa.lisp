@@ -413,3 +413,74 @@ Virtual registers must be defined exactly once."
           (ssa-convert-simple-locals backend-function simple-transforms debugp))
         (when (not (endp full-transforms))
           (ssa-convert-locals backend-function full-transforms debugp))))))
+
+(defun remove-unused-phis (backend-function)
+  (multiple-value-bind (uses defs)
+      (build-use/def-maps backend-function)
+    (declare (ignore defs))
+    (multiple-value-bind (basic-blocks bb-preds bb-succs)
+        (build-cfg backend-function)
+      (declare (ignore basic-blocks bb-succs))
+      (let ((n-removed 0))
+        (do-instructions (inst backend-function)
+          (when (typep inst 'label)
+            ;; Loop until there are no more unused phis to be removed.
+            (let ((did-something nil))
+              (loop
+                 (loop
+                    for index from 0
+                    for phi in (label-phis inst)
+                    when (endp (gethash phi uses))
+                    do
+                     ;; Remove this one and start over.
+                      (dolist (pred (gethash inst bb-preds))
+                        (let ((term (basic-block-terminator backend-function pred)))
+                          (cond ((zerop index)
+                                 (setf (jump-values term) (rest (jump-values term))))
+                                (t
+                                 (let ((here (nthcdr (1- index) (jump-values term))))
+                                   (setf (cdr here) (cddr here)))))))
+                      (cond ((zerop index)
+                             (setf (label-phis inst) (rest (label-phis inst))))
+                            (t
+                             (let ((here (nthcdr (1- index) (label-phis inst))))
+                               (setf (cdr here) (cddr here)))))
+                      (incf n-removed)
+                      (setf did-something t)
+                      (return))
+                 (cond (did-something
+                        (setf did-something nil))
+                       (t
+                        (return)))))))
+        n-removed))))
+
+(defun compute-phi-webs (backend-function)
+  (let ((phi-values (make-hash-table))
+        (results (make-hash-table))
+        (defs (nth-value 1 (build-use/def-maps backend-function))))
+    (do-instructions (inst backend-function)
+      (when (typep inst 'jump-instruction)
+        (loop
+           for value in (jump-values inst)
+           for phi in (label-phis (jump-target inst))
+           do
+             (pushnew value (gethash phi phi-values)))))
+    (loop
+       for phi being the hash-keys of phi-values
+       do
+         (let ((visited '())
+               (worklist (list phi)))
+           (setf (gethash phi results) '())
+           (loop
+              (when (endp worklist)
+                (return))
+              (let ((other-phi (pop worklist)))
+                (when (not (member other-phi visited))
+                  (push other-phi visited)
+                  (dolist (value (gethash other-phi phi-values))
+                    (cond ((typep (first (gethash value defs)) 'label)
+                           ;; Another phi.
+                           (push value worklist))
+                          (t
+                           (pushnew value (gethash phi results))))))))))
+    results))

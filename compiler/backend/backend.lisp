@@ -193,6 +193,7 @@
        (incf total (unbox-debug-values backend-function))
        (incf total (eliminate-redundant-boxing backend-function))
        (incf total (remove-unused-instructions backend-function))
+       (incf total (remove-unused-phis backend-function))
        (when (zerop total)
          (return))))
   (remove-extraneous-multiple-value-saves backend-function)
