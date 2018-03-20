@@ -206,6 +206,7 @@
 
 (defclass live-range ()
   ((%vreg :initarg :vreg :reader live-range-vreg)
+   (%vreg-id :initarg :vreg-id :reader live-range-vreg-id)
    ;; Start & end (inclusive) of this range, in allocator order.
    (%start :initarg :start :reader live-range-start)
    (%end :initarg :end :reader live-range-end)
@@ -274,7 +275,9 @@
     result))
 
 (defclass linear-allocator ()
-  ((%function :initarg :function :reader allocator-backend-function)
+  ((%vreg-to-id-table :initarg :vreg-to-id :reader allocator-vreg-to-id-table)
+   (%id-vreg-table :initarg :id-to-vreg :reader allocator-id-to-vreg-table)
+   (%function :initarg :function :reader allocator-backend-function)
    (%ordering :initarg :ordering :reader allocator-instruction-ordering)
    (%architecture :initarg :architecture :reader allocator-architecture)
    (%live-in :initarg :live-in :reader allocator-live-in)
@@ -301,6 +304,18 @@
       (push inst order))
     (nreverse order)))
 
+(defun number-virtual-registers (backend-function)
+  (let ((vreg-to-id (make-hash-table :synchronized nil :test 'eq))
+        (id-to-vreg (make-array 0 :adjustable t :fill-pointer 0)))
+    (flet ((add (reg)
+             (when (and (typep reg 'ir:virtual-register)
+                        (not (gethash reg vreg-to-id nil)))
+               (setf (gethash reg vreg-to-id) (vector-push-extend reg id-to-vreg)))))
+      (ir:do-instructions (inst backend-function)
+        (mapcar #'add (ir:instruction-inputs inst))
+        (mapcar #'add (ir:instruction-outputs inst))))
+    (values vreg-to-id id-to-vreg)))
+
 (defun make-linear-allocator (backend-function architecture &key ordering)
   (multiple-value-bind (basic-blocks bb-preds bb-succs)
       (ir::build-cfg backend-function)
@@ -318,17 +333,21 @@
               (clobbers (make-hash-table :test 'eq :synchronized nil)))
           (dolist (inst order)
             (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
-          (make-instance 'linear-allocator
-                         :function backend-function
-                         :ordering order
-                         :architecture architecture
-                         :live-in live-in
-                         :live-out live-out
-                         :mv-flow mv-flow
-                         :cfg-preds bb-preds
-                         :instruction-clobbers clobbers
-                         :debug-variable-value-map debug-map
-                         :max-debug-p (= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 3)))))))
+          (multiple-value-bind (vreg-to-id id-to-vreg)
+              (number-virtual-registers backend-function)
+            (make-instance 'linear-allocator
+                           :function backend-function
+                           :ordering order
+                           :architecture architecture
+                           :live-in live-in
+                           :live-out live-out
+                           :mv-flow mv-flow
+                           :cfg-preds bb-preds
+                           :instruction-clobbers clobbers
+                           :debug-variable-value-map debug-map
+                           :max-debug-p (= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 3)
+                           :vreg-to-id vreg-to-id
+                           :id-to-vreg id-to-vreg)))))))
 
 (defun virtual-registers-used-by-debug-info (allocator inst)
   (if (max-debug-p allocator)
@@ -336,7 +355,8 @@
       '()))
 
 (defun build-live-ranges (allocator)
-  (let* ((ranges (make-array 128 :adjustable t :fill-pointer 0))
+  (let* ((vreg-to-id (allocator-vreg-to-id-table allocator))
+         (ranges (make-array 128 :adjustable t :fill-pointer 0))
          (vreg-ranges (make-hash-table :test 'eq :synchronized nil))
          (ordering (allocator-instruction-ordering allocator))
          (live-in (allocator-live-in allocator))
@@ -360,6 +380,7 @@
              (let* ((start (gethash vreg vreg-liveness-start))
                     (range (make-instance 'live-range
                                           :vreg vreg
+                                          :vreg-id (gethash vreg vreg-to-id)
                                           :start start
                                           :end end
                                           :conflicts (if zombiep '() (gethash vreg vreg-conflicts))
@@ -1040,14 +1061,59 @@
          do (vector-push-extend range result)))
     result))
 
+(defun make-vreg-set ()
+  (make-array 4 :adjustable t :fill-pointer 0))
+
+(defun insert-into-vreg-set (set vreg)
+  ;; Search for the position to insert into.
+  ;; IMIN/IMAX are inclusive indicies.
+  (do* ((imin 0)
+        (imax (1- (length set))))
+       ((< imax imin)
+        (vector-push-extend 0 set)
+        (replace set set
+                 :start1 (1+ imin)
+                 :start2 imin)
+        (setf (aref set imin) vreg)
+        nil)
+    (declare (type (vector t) set))
+    (let* ((imid (ash (+ imin imax) -1))
+           (entry (aref set imid)))
+      (cond ((eql entry vreg)
+             ;; Already in the array, return.
+             (return t))
+            ((< entry vreg)
+             (setf imin (1+ imid)))
+            (t
+             (setf imax (1- imid)))))))
+
+(defun vreg-set-contains (set vreg)
+  (when (null set)
+    (return-from vreg-set-contains nil))
+  (do* ((imin 0)
+        (imax (1- (length set))))
+       ((< imax imin)
+        nil)
+    (declare (type (vector t) set))
+    (let* ((imid (ash (+ imin imax) -1))
+           (entry (aref set imid)))
+      (cond ((eql entry vreg)
+             (return t))
+            ((< entry vreg)
+             (setf imin (1+ imid)))
+            (t
+             (setf imax (1- imid)))))))
+
 (defun build-interference-graph (allocator)
-  "Construct the interference graph for spilled variables."
+  "Construct the interference graph for spilled virtual registers.
+Returns the interference graph and the set of spilled virtual registers."
   (when (not ir::*shut-up*)
     (loop
        for i from 0
        for inst in (allocator-instruction-ordering allocator)
        do (format t "~D: " i) (ir::print-instruction inst)))
-  (let ((result (make-hash-table :synchronized nil :test 'eq))
+  (let ((result (make-array (length (allocator-id-to-vreg-table allocator)) :initial-element nil))
+        (spilled-vregs (make-vreg-set))
         (spilled-ranges (sort (all-spilled-ranges allocator)
                               #'<
                               :key #'live-range-start))
@@ -1059,50 +1125,56 @@
              (dolist (r live)
                (format t "   ~S~%" r))))
          (let ((current-range-start (live-range-start range))
-               (current-vreg (live-range-vreg range)))
+               (current-vreg (live-range-vreg-id range)))
+           (insert-into-vreg-set spilled-vregs current-vreg)
            ;; Expire old ranges.
            (setf live (remove-if (lambda (x)
                                    (< (live-range-end x) current-range-start))
                                  live))
-           ;; Make sure this vreg exists in the result
-           (when (not (nth-value 1 (gethash current-vreg result)))
-             (setf (gethash current-vreg result) '()))
            ;; Add new interference edges.
            (dolist (range live)
-             (let ((other-vreg (live-range-vreg range)))
-               (when (and (not (eq other-vreg current-vreg))
-                          (not (member current-vreg (gethash other-vreg result) :test 'eq)))
-                 (push current-vreg (gethash other-vreg result))
-                 (push other-vreg (gethash current-vreg result)))))
+             (flet ((insert (vreg other)
+                      (let ((interference (aref result vreg)))
+                        (when (not interference)
+                          (setf interference (make-vreg-set)
+                                (aref result vreg) interference))
+                        (insert-into-vreg-set interference other))))
+               (let ((other-vreg (live-range-vreg-id range)))
+                 (when (and (not (eql other-vreg current-vreg))
+                            (not (vreg-set-contains (aref result other-vreg) current-vreg)))
+                   (insert current-vreg other-vreg)
+                   (insert other-vreg current-vreg)))))
            (push range live)))
-    result))
+    (values result spilled-vregs)))
 
-(defun assign-stack-slots (interference-graph)
+(defun assign-stack-slots (allocator interference-graph spilled-vregs)
   (let ((slots (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
         (slot-classes (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
-        (locations (make-hash-table)))
+        (locations (make-hash-table))
+        (id-to-vreg-table (allocator-id-to-vreg-table allocator)))
     (loop
-       for vreg being the hash-keys of interference-graph
+       for vreg-id across spilled-vregs
+       for vreg = (aref id-to-vreg-table vreg-id)
        do
          (dotimes (i (length slots)
                    (progn
                      ;; SSE slots are 2 wide.
                      ;; TODO: Force 16-byte alignment.
                      (when (eql (ir:virtual-register-kind vreg) :sse)
-                       (vector-push-extend (list vreg) slots)
+                       (vector-push-extend (list vreg-id) slots)
                        (vector-push-extend :pad slot-classes))
                      (setf (gethash vreg locations) (length slots))
-                     (vector-push-extend (list vreg) slots)
+                     (vector-push-extend (list vreg-id) slots)
                      (vector-push-extend (ir:virtual-register-kind vreg) slot-classes)))
            (when (and (eql (aref slot-classes i) (ir:virtual-register-kind vreg))
                       (not (dolist (entry (aref slots i) nil)
-                             (when (member vreg (gethash entry interference-graph))
+                             (when (vreg-set-contains (aref interference-graph entry) vreg-id)
                                (return t)))))
              ;; Does not interfere with any register in this slot.
-             (push vreg (aref slots i))
+             (push vreg-id (aref slots i))
              (setf (gethash vreg locations) i)
              (return))))
-    (values locations slot-classes slots)))
+    (values locations slot-classes)))
 
 (defun allocate-registers (backend-function arch &key ordering)
   (sys.c:with-metering (:backend-register-allocation)
@@ -1110,7 +1182,9 @@
       (build-live-ranges allocator)
       (linear-scan-allocate allocator)
       (multiple-value-bind (spill-locations stack-layout)
-          (assign-stack-slots (build-interference-graph allocator))
+          (multiple-value-bind (interference-graph spilled-vregs)
+              (build-interference-graph allocator)
+            (assign-stack-slots allocator interference-graph spilled-vregs))
         (rewrite-after-allocation allocator)
         (rebuild-debug-map allocator)
         ;; Return the updated debug map and the stack layout.
