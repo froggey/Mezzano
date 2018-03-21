@@ -279,6 +279,7 @@
    (%id-vreg-table :initarg :id-to-vreg :reader allocator-id-to-vreg-table)
    (%function :initarg :function :reader allocator-backend-function)
    (%ordering :initarg :ordering :reader allocator-instruction-ordering)
+   (%instruction-to-index-table :initarg :instruction-to-index-table :reader allocator-instruction-to-index-table)
    (%architecture :initarg :architecture :reader allocator-architecture)
    (%live-in :initarg :live-in :reader allocator-live-in)
    (%live-out :initarg :live-out :reader allocator-live-out)
@@ -326,18 +327,24 @@
       ;; so that live ranges extend to the debug instructions (and the beginning of their zombie ranges).
       (let ((debug-map (ir::build-debug-variable-value-map backend-function)))
         (ir::remove-debug-variable-instructions backend-function)
-        (let ((order (if ordering
-                         (funcall ordering backend-function)
-                         (instructions-reverse-postorder backend-function)))
-              (mv-flow (ir::multiple-value-flow backend-function architecture))
-              (clobbers (make-hash-table :test 'eq :synchronized nil)))
-          (dolist (inst order)
-            (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out)))
+        (let* ((order (if ordering
+                          (funcall ordering backend-function)
+                          (instructions-reverse-postorder backend-function)))
+               (instruction-to-index-table (make-hash-table :test 'eq :synchronized nil))
+               (mv-flow (ir::multiple-value-flow backend-function architecture))
+               (clobbers (make-hash-table :test 'eq :synchronized nil)))
+          (loop
+             for i from 0
+             for inst in order
+             do
+               (setf (gethash inst clobbers) (instruction-all-clobbers inst architecture mv-flow live-in live-out))
+               (setf (gethash inst instruction-to-index-table) i))
           (multiple-value-bind (vreg-to-id id-to-vreg)
               (number-virtual-registers backend-function)
             (make-instance 'linear-allocator
                            :function backend-function
                            :ordering order
+                           :instruction-to-index-table instruction-to-index-table
                            :architecture architecture
                            :live-in live-in
                            :live-out live-out
@@ -706,7 +713,7 @@
       (error "Missing instantaneous allocation for ~S at ~S" vreg index)))
 
 (defun fix-locations-after-control-flow (allocator inst instruction-index target insert-point)
-  (let* ((target-index (position target (allocator-instruction-ordering allocator)))
+  (let* ((target-index (gethash target (allocator-instruction-to-index-table allocator)))
          (active-vregs (union (remove-if-not (lambda (reg) (typep reg 'ir:virtual-register))
                                              (gethash target (allocator-live-in allocator)))
                               (virtual-registers-used-by-debug-info allocator inst)))
@@ -726,9 +733,24 @@
                                          (or (gethash interval (allocator-range-allocations allocator))
                                              (error "Missing allocation for ~S" interval))))
                                    output-intervals))
-         (pairs (remove-if (lambda (x) (eql (car x) (cdr x)))
-                           (mapcar 'cons input-registers output-registers)))
-         (fills '()))
+         (spill-pairs '())
+         (fill-pairs '())
+         (pairs '()))
+    (loop
+       for in in input-registers
+       for out in output-registers
+       do
+         (cond ((eql in out)) ; nothing.
+               ((and (typep in 'ir:virtual-register)
+                     (typep out 'ir:virtual-register))
+                ;; Impossible.
+                (error "Tried to fix spill -> spill ~S ~S?" in out))
+               ((typep in 'ir:virtual-register)
+                (push (cons in out) fill-pairs))
+               ((typep out 'ir:virtual-register)
+                (push (cons in out) spill-pairs))
+               (t
+                (push (cons in out) pairs))))
     (flet ((insert (new-inst)
              (ir:insert-after (allocator-backend-function allocator)
                               insert-point
@@ -744,31 +766,15 @@
         (format t "  output intervals: ~:S~%" output-intervals)
         (format t "   Input registers: ~:S~%" input-registers)
         (format t "  output registers: ~:S~%" output-registers)
-        (format t "  pairs: ~:S~%" pairs))
-      ;; There should be no spill -> spill moves.
-      (loop
-         for (in . out) in pairs
-         do (assert (not (and (typep in 'ir:virtual-register)
-                              (typep out 'ir:virtual-register)))))
+        (format t "  spills: ~:S~%" spill-pairs)
+        (format t "   fills: ~:S~%" fill-pairs)
+        (format t "   pairs: ~:S~%" pairs))
       ;; Process spills.
       (loop
-         for (in . out) in pairs
-         when (typep out 'ir:virtual-register)
+         for (in . out) in spill-pairs
          do (insert (make-instance 'ir:spill-instruction
                                    :source in
                                    :destination out)))
-      (setf pairs (remove-if (lambda (x) (typep (cdr x) 'ir:virtual-register))
-                             pairs))
-      ;; Remove fills.
-      (loop
-         for (in . out) in pairs
-         when (typep in 'ir:virtual-register)
-         do (push (make-instance 'ir:fill-instruction
-                                 :source in
-                                 :destination out)
-                  fills))
-      (setf pairs (remove-if (lambda (x) (typep (car x) 'ir:virtual-register))
-                             pairs))
       ;; This leaves pairs filled with register -> register assignments.
       (loop until (endp pairs) do
          ;; Peel off any simple moves.
@@ -798,9 +804,12 @@
                         (setf (car pair) r2))
                        ((eql (car pair) r2)
                         (setf (car pair) r1)))))))
-      ;; Finally do fills.
-      (dolist (fill fills)
-        (insert fill)))))
+      ;; Process fills.
+      (loop
+         for (in . out) in fill-pairs
+         do (insert (make-instance 'ir:fill-instruction
+                                   :source in
+                                   :destination out))))))
 
 (defun break-critical-edge (backend-function terminator target)
   "Break the first edge from terminator to target."
