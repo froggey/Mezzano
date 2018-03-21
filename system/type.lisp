@@ -237,6 +237,10 @@
          `(typep ,object ',type))
         (t (destructuring-bind (base &optional (min '*) (max '*))
                type
+             (when (and (eql base 'integer)
+                        (eql min most-negative-fixnum)
+                        (eql max most-positive-fixnum))
+               (return-from compile-rational-type `(sys.int::fixnump ,object)))
              `(and (typep ,object ',base)
                    ,(cond ((eql min '*) 't)
                           ((consp min)
