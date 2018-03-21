@@ -376,29 +376,42 @@
          (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
          (vreg-move-hint (make-hash-table :test 'eq :synchronized nil))
          (arch (allocator-architecture allocator))
+         (arch-phys-regs (architectural-physical-registers arch))
          (arg-regs (target-argument-registers arch))
          (funcall-reg (target-funcall-register arch))
          (fref-reg (target-fref-register arch))
-         (starts (make-hash-table)))
-    (flet ((add-range (vreg end zombiep)
-             (when (not zombiep)
-               (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
-                                                          (set-difference (architectural-physical-registers (allocator-architecture allocator))
-                                                                          (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
-                                                                                                             (allocator-architecture allocator))))))
-             (let* ((start (gethash vreg vreg-liveness-start))
-                    (range (make-instance 'live-range
-                                          :vreg vreg
-                                          :vreg-id (gethash vreg vreg-to-id)
-                                          :start start
-                                          :end end
-                                          :conflicts (if zombiep '() (gethash vreg vreg-conflicts))
-                                          :zombie zombiep)))
-               (when (not ir::*shut-up*)
-                 (format t " Add range ~S~%" range))
-               (push range (gethash start starts '()))
-               (vector-push-extend range ranges)
-               (push range (gethash vreg vreg-ranges)))))
+         (starts (make-hash-table))
+         (valid-pregs-cache-kind nil)
+         (valid-pregs-cache-regs nil))
+    (labels ((valid-pregs (vreg)
+               ;; V-P-R-F-K uses multiple dispatch with EQL specializers, slow.
+               ;; Use a simple cache to mitigate this.
+               (let ((kind (ir:virtual-register-kind vreg)))
+                 (cond ((eql kind valid-pregs-cache-kind)
+                        valid-pregs-cache-regs)
+                       (t
+                        (let ((regs (valid-physical-registers-for-kind kind arch)))
+                          (setf valid-pregs-cache-kind kind
+                                valid-pregs-cache-regs regs)
+                          regs)))))
+             (add-range (vreg end zombiep)
+               (when (not zombiep)
+                 (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
+                                                            (set-difference arch-phys-regs
+                                                                            (valid-pregs vreg)))))
+               (let* ((start (gethash vreg vreg-liveness-start))
+                      (range (make-instance 'live-range
+                                            :vreg vreg
+                                            :vreg-id (gethash vreg vreg-to-id)
+                                            :start start
+                                            :end end
+                                            :conflicts (if zombiep '() (gethash vreg vreg-conflicts))
+                                            :zombie zombiep)))
+                 (when (not ir::*shut-up*)
+                   (format t " Add range ~S~%" range))
+                 (push range (gethash start starts '()))
+                 (vector-push-extend range ranges)
+                 (push range (gethash vreg vreg-ranges)))))
       (loop
          for range-start from 0
          for inst in ordering
