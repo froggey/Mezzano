@@ -228,11 +228,21 @@
            form))))
 
 (defmethod cp-form ((form ast-tagbody))
-  (flush-mutable-variables)
-  (setf (statements form)
-        (loop
-           for (go-tag statement) in (statements form)
-           collect (list go-tag (cp-form statement))))
+  ;; If the entry statement has one use, then we can descend into it.
+  (cond ((eql (go-tag-use-count (first (first (statements form)))) 1)
+         (setf (second (first (statements form)))
+               (cp-form (second (first (statements form)))))
+         (flush-mutable-variables)
+         (setf (rest (statements form))
+               (loop
+                  for (go-tag statement) in (rest (statements form))
+                  collect (list go-tag (cp-form statement)))))
+        (t
+         (flush-mutable-variables)
+         (setf (statements form)
+               (loop
+                  for (go-tag statement) in (statements form)
+                  collect (list go-tag (cp-form statement))))))
   form)
 
 (defmethod cp-form ((form ast-the))
