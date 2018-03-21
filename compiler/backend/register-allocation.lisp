@@ -317,6 +317,8 @@
         (mapcar #'add (ir:instruction-outputs inst))))
     (values vreg-to-id id-to-vreg)))
 
+(deftype vreg-id () 'fixnum)
+
 (defun make-linear-allocator (backend-function architecture &key ordering)
   (multiple-value-bind (basic-blocks bb-preds bb-succs)
       (ir::build-cfg backend-function)
@@ -1071,41 +1073,55 @@
     result))
 
 (defun make-vreg-set ()
-  (make-array 4 :adjustable t :fill-pointer 0))
+  (make-array 0))
 
 (defun insert-into-vreg-set (set vreg)
   ;; Search for the position to insert into.
-  ;; IMIN/IMAX are inclusive indicies.
-  (do* ((imin 0)
-        (imax (1- (length set))))
-       ((< imax imin)
-        (vector-push-extend 0 set)
-        (replace set set
-                 :start1 (1+ imin)
-                 :start2 imin)
-        (setf (aref set imin) vreg)
-        nil)
-    (declare (type (vector t) set))
-    (let* ((imid (ash (+ imin imax) -1))
-           (entry (aref set imid)))
-      (cond ((eql entry vreg)
-             ;; Already in the array, return.
-             (return t))
-            ((< entry vreg)
-             (setf imin (1+ imid)))
-            (t
-             (setf imax (1- imid)))))))
+  (cond ((or (null set)
+             (eql set vreg))
+         vreg)
+        ((typep set 'vreg-id)
+         (let ((vec (make-array 2)))
+           (if (< set vreg)
+               (setf (svref vec 0) set
+                     (svref vec 1) vreg)
+               (setf (svref vec 0) vreg
+                     (svref vec 1) set))
+           vec))
+        (t
+         ;; IMIN/IMAX are inclusive indicies.
+         (do* ((imin 0)
+               (imax (1- (length set))))
+              ((< imax imin)
+               ;; Inserting at IMIN.
+               (let ((new (make-array (1+ (length set)))))
+                 (replace new set :end2 imin)
+                 (replace new set :start1 (1+ imin) :start2 imin)
+                 (setf (svref new imin) vreg)
+                 new))
+           (declare (type simple-vector set))
+           (let* ((imid (ash (+ imin imax) -1))
+                  (entry (svref set imid)))
+             (cond ((eql entry vreg)
+                    ;; Already in the array, return.
+                    (return set))
+                   ((< entry vreg)
+                    (setf imin (1+ imid)))
+                   (t
+                    (setf imax (1- imid)))))))))
 
 (defun vreg-set-contains (set vreg)
   (when (null set)
     (return-from vreg-set-contains nil))
+  (when (typep set 'vreg-id)
+    (return-from vreg-set-contains (eql set vreg)))
   (do* ((imin 0)
         (imax (1- (length set))))
        ((< imax imin)
         nil)
     (declare (type (vector t) set))
     (let* ((imid (ash (+ imin imax) -1))
-           (entry (aref set imid)))
+           (entry (svref set imid)))
       (cond ((eql entry vreg)
              (return t))
             ((< entry vreg)
@@ -1135,7 +1151,7 @@ Returns the interference graph and the set of spilled virtual registers."
                (format t "   ~S~%" r))))
          (let ((current-range-start (live-range-start range))
                (current-vreg (live-range-vreg-id range)))
-           (insert-into-vreg-set spilled-vregs current-vreg)
+           (setf spilled-vregs (insert-into-vreg-set spilled-vregs current-vreg))
            ;; Expire old ranges.
            (setf live (remove-if (lambda (x)
                                    (< (live-range-end x) current-range-start))
@@ -1143,14 +1159,10 @@ Returns the interference graph and the set of spilled virtual registers."
            ;; Add new interference edges.
            (dolist (range live)
              (flet ((insert (vreg other)
-                      (let ((interference (aref result vreg)))
-                        (when (not interference)
-                          (setf interference (make-vreg-set)
-                                (aref result vreg) interference))
-                        (insert-into-vreg-set interference other))))
+                      (setf (svref result vreg) (insert-into-vreg-set (svref result vreg) other))))
                (let ((other-vreg (live-range-vreg-id range)))
                  (when (and (not (eql other-vreg current-vreg))
-                            (not (vreg-set-contains (aref result other-vreg) current-vreg)))
+                            (not (vreg-set-contains (svref result other-vreg) current-vreg)))
                    (insert current-vreg other-vreg)
                    (insert other-vreg current-vreg)))))
            (push range live)))
@@ -1177,7 +1189,7 @@ Returns the interference graph and the set of spilled virtual registers."
                      (vector-push-extend (ir:virtual-register-kind vreg) slot-classes)))
            (when (and (eql (aref slot-classes i) (ir:virtual-register-kind vreg))
                       (not (dolist (entry (aref slots i) nil)
-                             (when (vreg-set-contains (aref interference-graph entry) vreg-id)
+                             (when (vreg-set-contains (svref interference-graph entry) vreg-id)
                                (return t)))))
              ;; Does not interfere with any register in this slot.
              (push vreg-id (aref slots i))
