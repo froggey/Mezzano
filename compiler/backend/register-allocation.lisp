@@ -380,7 +380,7 @@
          (arg-regs (target-argument-registers arch))
          (funcall-reg (target-funcall-register arch))
          (fref-reg (target-fref-register arch))
-         (starts (make-hash-table))
+         (starts (make-hash-table :synchronized nil))
          (valid-pregs-cache-kind nil)
          (valid-pregs-cache-regs nil))
     (labels ((valid-pregs (vreg)
@@ -1023,7 +1023,7 @@
             (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))))))
 
 (defun rebuild-debug-map (allocator)
-  (let ((result (make-hash-table))
+  (let ((result (make-hash-table :synchronized nil))
         (original-debug-map (allocator-debug-variable-value-map allocator)))
     ;; Walk ranges & known instructions to produce a partial debug map.
     ;; Only valid for instructions originally in the function.
@@ -1184,7 +1184,7 @@ Returns the interference graph and the set of spilled virtual registers."
 (defun assign-stack-slots (allocator interference-graph spilled-vregs)
   (let ((slots (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
         (slot-classes (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
-        (locations (make-hash-table))
+        (locations (make-hash-table :synchronized nil))
         (id-to-vreg-table (allocator-id-to-vreg-table allocator)))
     (loop
        for vreg-id across spilled-vregs

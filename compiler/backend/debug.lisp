@@ -6,7 +6,7 @@
 (in-package :mezzano.compiler.backend)
 
 (defun build-debug-variable-value-map (backend-function)
-  (let ((result (make-hash-table))
+  (let ((result (make-hash-table :synchronized nil))
         (worklist (list (list (first-instruction backend-function) '()))))
     (loop
        (when (endp worklist)
