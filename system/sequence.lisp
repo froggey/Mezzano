@@ -180,50 +180,42 @@
     (if (= end 0)
         (setf end nil)
         (setf end (- (length sequence) end))))
-  (check-type count (or null integer))
+  (when count
+    (check-type count (or null integer)))
   (etypecase sequence
     (list
-     (let* ((list (cons nil nil))
-            (tail list)
-            (idx 0))
-       (dolist (e sequence)
-         (cond ((< idx start)
-                (setf (cdr tail) (cons e nil)
-                      tail (cdr tail)))
-               ((and (numberp end)
-                     (<= end idx))
-                (setf (cdr tail) (cons e nil)
-                      tail (cdr tail)))
-               (t
-                (when (not (and (funcall test (funcall key e))
-                                (or (null count)
-                                    (>= (decf count) 0))))
-                  (setf (cdr tail) (cons e nil)
-                        tail (cdr tail)))))
-         (incf idx))
-       (if from-end
-           (reverse (cdr list))
-           (cdr list))))
+     (loop
+        with remaining = count
+        for idx from 0
+        for e in sequence
+        when (or (< idx start)
+                 (and (numberp end)
+                      (<= end idx))
+                 (not (and (funcall test (funcall key e))
+                           (or (null count)
+                               (>= (decf remaining) 0)))))
+        collect e into result
+        finally (return (if from-end
+                            (nreverse result)
+                            result))))
     (vector
-     (do ((result (make-array (length sequence)
-                              :element-type (array-element-type sequence)
-                              :fill-pointer 0))
-          (idx 0 (1+ idx)))
-         ((= idx (length sequence))
-          (if from-end
-              (reverse result)
-              result))
-       (let ((e (aref sequence idx)))
-         (cond ((< idx start)
-                (vector-push e result))
-               ((and (numberp end)
-                     (<= end idx))
-                (vector-push e result))
-               (t
-                (when (not (and (funcall test (funcall key e))
-                                (or (null count)
-                                    (>= (decf count) 0))))
-                  (vector-push e result)))))))))
+     (loop
+        with remaining = count
+        with result = (make-array (length sequence)
+                                  :element-type (array-element-type sequence)
+                                  :fill-pointer 0)
+        for idx from 0
+        for e across sequence
+        when (or (< idx start)
+                 (and (numberp end)
+                      (<= end idx))
+                 (not (and (funcall test (funcall key e))
+                           (or (null count)
+                               (>= (decf remaining) 0)))))
+        do (vector-push e result)
+        finally (return (if from-end
+                            (nreverse result)
+                            result))))))
 
 (defun remove (item sequence &key from-end test test-not (start 0) end count key)
   (check-test-test-not test test-not)
