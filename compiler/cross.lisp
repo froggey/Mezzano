@@ -544,7 +544,10 @@
            #:*current-address*
            #:note-fixup
            #:note-variably-sized-instruction
-           #:*function-reference-resolver*))
+           #:*function-reference-resolver*
+           #:label
+           #:make-label
+           #:label-name))
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")

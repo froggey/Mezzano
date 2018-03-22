@@ -32,6 +32,19 @@
 
 (defvar *instruction-is-variably-sized*)
 
+(defclass label ()
+  ((%name :initarg :name :reader label-name))
+  (:default-initargs :name nil))
+
+(defun make-label (&optional name)
+  (make-instance 'label :name name))
+
+(defmethod print-object ((instance label) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (if (label-name instance)
+        (format stream "~S" (label-name instance))
+        (format stream "<anonymous>"))))
+
 (defclass chunk ()
   ((%code :initarg :code :accessor chunk-code)))
 
@@ -231,7 +244,7 @@
     (dolist (i code-list)
       (let ((*instruction-is-variably-sized* nil))
         (etypecase i
-          (symbol
+          ((or symbol label)
            (when (gethash i *symbol-table*)
              (error "Duplicate symbol ~S." i))
            ;; Don't bake symbol addresses into fixed-size chunks.
@@ -374,7 +387,7 @@ a vector of constants and an alist of symbols & addresses."
                                      :fill-pointer t
                                      :adjustable t
                                      :initial-contents info))
-        (*symbol-table* (make-hash-table))
+        (*symbol-table* (make-hash-table :synchronized nil))
         (*missing-symbols* '())
         (*mc-end* nil))
     (dolist (x initial-symbols)
@@ -541,31 +554,32 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun immediatep (thing)
   "Test if THING is an immediate value."
-  (or (symbolp thing)
-      (integerp thing)))
+  (typep thing '(or symbol label integer)))
 
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
   (etypecase value
-    (cons (cond ((keywordp (first value))
-                 (ecase (first value)
-                   (:constant-address
-                    (if *mc-end*
-                        (+ (* (ceiling *mc-end* 16) 16)
-                           (* (or (position (second value) *constant-pool*)
-                                  (vector-push-extend (second value) *constant-pool*)) 8))
-                        nil))))
-                (t (let ((args (mapcar #'resolve-immediate (rest value))))
-                     (if (member nil args)
-                         nil
-                         (apply (first value) args))))))
-    (symbol (let ((val (gethash value *symbol-table*)))
-              (cond ((eql val 't) nil)
-                    (val)
-                    (t
-                     (when (not *in-pass1*)
-                       (pushnew value *missing-symbols*))
-                     nil))))
+    (cons
+     (cond ((keywordp (first value))
+            (ecase (first value)
+              (:constant-address
+               (if *mc-end*
+                   (+ (* (ceiling *mc-end* 16) 16)
+                      (* (or (position (second value) *constant-pool*)
+                             (vector-push-extend (second value) *constant-pool*)) 8))
+                   nil))))
+           (t (let ((args (mapcar #'resolve-immediate (rest value))))
+                (if (member nil args)
+                    nil
+                    (apply (first value) args))))))
+    ((or symbol label)
+     (let ((val (gethash value *symbol-table*)))
+       (cond ((eql val 't) nil)
+             (val)
+             (t
+              (when (not *in-pass1*)
+                (pushnew value *missing-symbols*))
+              nil))))
     (integer value)))
 
 (defun note-fixup (name)
