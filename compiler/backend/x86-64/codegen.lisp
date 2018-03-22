@@ -121,7 +121,7 @@
             (*labels* (make-hash-table :test 'eq :synchronized nil)))
         (ir:do-instructions (inst-or-label backend-function)
           (cond ((typep inst-or-label 'ir:label)
-                 (setf (gethash inst-or-label *labels*) (gensym)))
+                 (setf (gethash inst-or-label *labels*) (sys.lap:make-label)))
                 (t
                  (lap-prepass backend-function inst-or-label uses defs))))
         (let ((*emitted-lap* '())
@@ -180,7 +180,7 @@
 
 (defmethod emit-lap (backend-function (instruction ir:argument-setup-instruction) uses defs)
   ;; Check the argument count.
-  (let ((args-ok (gensym)))
+  (let ((args-ok (sys.lap:make-label :args-ok)))
     (flet ((emit-arg-error ()
              ;; If this is a closure, then it must have been invoked using
              ;; the closure calling convention and the closure object will
@@ -277,10 +277,10 @@
 (defun emit-dx-rest-list (argument-setup)
   (let* ((regular-argument-count (+ (length (ir:argument-setup-required argument-setup))
                                     (length (ir:argument-setup-optional argument-setup))))
-         (rest-clear-loop-head (gensym "REST-CLEAR-LOOP-HEAD"))
-         (rest-loop-head (gensym "REST-LOOP-HEAD"))
-         (rest-loop-end (gensym "REST-LOOP-END"))
-         (rest-list-done (gensym "REST-LIST-DONE"))
+         (rest-clear-loop-head (sys.lap:make-label :rest-clear-loop-head))
+         (rest-loop-head (sys.lap:make-label :rest-loop-head))
+         (rest-loop-end (sys.lap:make-label :rest-loop-end))
+         (rest-list-done (sys.lap:make-label :rest-list-done))
          ;; Number of arguments processed and total number of arguments.
          (saved-argument-count 0)
          (rest-dx-root (gethash argument-setup *prepass-data*)))
@@ -535,7 +535,7 @@
     (emit `(lap:jmp ,(resolve-label (ir:jump-target instruction))))))
 
 (defmethod emit-lap (backend-function (instruction ir:switch-instruction) uses defs)
-  (let ((jump-table (gensym)))
+  (let ((jump-table (sys.lap:make-label)))
     (emit `(lap:lea64 :rax (:rip ,jump-table))
           `(lap:add64 :rax (:rax (,(ir:switch-value instruction) ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
           `(lap:jmp :rax))
@@ -652,9 +652,9 @@
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
-    (let ((loop-head (gensym))
-          (loop-exit (gensym))
-          (clear-loop-head (gensym)))
+    (let ((loop-head (sys.lap:make-label))
+          (loop-exit (sys.lap:make-label))
+          (clear-loop-head (sys.lap:make-label)))
       ;; RAX = n values to copy (count * 8).
       (emit `(lap:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
             `(lap:cmp64 :rax 0)
@@ -699,9 +699,9 @@
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
-    (let ((loop-head (gensym))
-          (loop-exit (gensym))
-          (clear-loop-head (gensym)))
+    (let ((loop-head (sys.lap:make-label))
+          (loop-exit (sys.lap:make-label))
+          (clear-loop-head (sys.lap:make-label)))
       ;; RAX = n values to copy (count * 8).
       (emit `(lap:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
             `(lap:cmp64 :rax 0)
@@ -744,8 +744,8 @@
 
 (defmethod emit-lap (backend-function (instruction ir:begin-nlx-instruction) uses defs)
   (let ((control-info (gethash instruction *prepass-data*))
-        (jump-table (gensym))
-        (over (gensym)))
+        (jump-table (sys.lap:make-label))
+        (over (sys.lap:make-label)))
     (emit `(lap:lea64 :rax (:rip ,jump-table))
           `(lap:mov64 (:stack ,(+ control-info 3)) :rax)
           `(lap:gs)
@@ -808,8 +808,8 @@
   (let* ((save-data (gethash instruction *saved-multiple-values*))
          (sv-save-area (car save-data))
          (saved-stack-pointer (cdr save-data))
-         (save-done (gensym "VALUES-SAVE-DONE"))
-         (save-loop-head (gensym "VALUES-SAVE-LOOP")))
+         (save-done (sys.lap:make-label :values-save-done))
+         (save-loop-head (sys.lap:make-label :values-save-loop)))
     ;; Allocate an appropriately sized DX simple vector.
     ;; Add one for the header, then round the count up to an even number.
     (emit `(lap:lea64 :rax (:rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 2))))
@@ -824,8 +824,8 @@
     (emit `(lap:shl64 :rax ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(lap:mov64 (:rsp) :rax))
     ;; Clear the SV body. Don't modify RCX, needed for MV GC info.
-    (let ((clear-loop-head (gensym "MVP1-CLEAR-LOOP"))
-          (clear-loop-end (gensym "MVP1-CLEAR-LOOP-END")))
+    (let ((clear-loop-head (sys.lap:make-label :mvp1-clear-loop))
+          (clear-loop-end (sys.lap:make-label :mvp1-clear-loop-end)))
       (emit `(lap:mov64 :rdx :rcx))
       (emit `(lap:test64 :rdx :rdx))
       (emit `(lap:jz ,clear-loop-end))
@@ -985,7 +985,7 @@
         `(sys.lap-x86:shr32 :eax 4)
         `(sys.lap-x86:and32 :eax ,(1- 128)))
   ;; Flush the binding cell cache for this entry.
-  (let ((after-flush (gensym)))
+  (let ((after-flush (sys.lap:make-label)))
     (emit `(sys.lap-x86:gs)
           `(sys.lap-x86:cmp64 (:object nil 128 :rax) :rbx))
     (emit `(sys.lap-x86:jne ,after-flush))
@@ -1061,8 +1061,8 @@
         `(lap:sar64 ,(ir:unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-unsigned-byte-64-instruction) uses defs)
-  (let ((bignum-path (gensym))
-        (out (gensym)))
+  (let ((bignum-path (sys.lap:make-label))
+        (out (sys.lap:make-label)))
     (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
           `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
@@ -1073,8 +1073,8 @@
           out)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-signed-byte-64-instruction) uses defs)
-  (let ((bignum-path (gensym))
-        (out (gensym)))
+  (let ((bignum-path (sys.lap:make-label))
+        (out (sys.lap:make-label)))
     (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
           `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
