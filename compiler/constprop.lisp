@@ -53,7 +53,6 @@
     (setf (car i) (cp-form (car i)))))
 
 (defmethod cp-form ((form ast-block))
-  (flush-mutable-variables)
   (setf (body form) (cp-form (body form)))
   form)
 
