@@ -271,7 +271,8 @@
    (dependents :initform '())
    (hash :initform (next-class-hash-value))
    (finalized-p :initform nil)
-   (prototype))
+   (prototype)
+   (default-initargs)) ; :accessor class-default-initargs
   (:default-initargs :name nil))
 
 (defclass built-in-class (clos-class) ())
@@ -486,6 +487,15 @@
              (setf (primordial-slot-value slot 'location) nil))))
     effective-slots))
 
+(defun primordial-compute-default-initargs (class)
+  (let ((default-initargs '()))
+    (dolist (c (primordial-slot-value class 'class-precedence-list))
+      (loop
+         for (initarg form fn) in (primordial-slot-value class 'direct-default-initargs)
+         do (when (not (member initarg default-initargs :key #'first))
+              (push (list initarg form fn) default-initargs))))
+    (nreverse default-initargs)))
+
 (defun finalize-primordial-class (class)
   (when (not (primordial-slot-value class 'finalized-p))
     (dolist (super (primordial-slot-value class 'direct-superclasses))
@@ -498,6 +508,8 @@
     (setf (primordial-slot-value class 'effective-slots)
           (primordial-compute-slots class))
     ;;(format t "  Slots: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'effective-slots)))
+    (setf (primordial-slot-value class 'default-initargs)
+          (primordial-compute-default-initargs class))
     ;; Check that the early layout and computed layout match up.
     (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x 'allocation) :instance))
                                          (primordial-slot-value class 'effective-slots)))
@@ -584,4 +596,5 @@
         *standard-class-hash-position* (position 'hash s-c-layout)
         *standard-class-finalized-p-position* (position 'finalized-p s-c-layout)
         *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
-        *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)))
+        *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)
+        *standard-class-default-initargs-position* (position 'default-initargs s-c-layout)))

@@ -47,6 +47,7 @@
            #:class-direct-methods
            #:class-finalized-p
            #:class-prototype
+           #:class-default-initargs #:class-direct-default-initargs
            #:generic-function-name #:generic-function-lambda-list
            #:generic-function-methods #:generic-function-discriminating-function
            #:generic-function-method-class
@@ -68,6 +69,7 @@
            #:finalize-inheritance #:allocate-instance
            #:slot-value-using-class #:slot-boundp-using-class
            #:slot-exists-p-using-class #:slot-makunbound-using-class
+           #:compute-default-initargs
            ;;
            ;; Generic function related metaobject protocol
            ;;

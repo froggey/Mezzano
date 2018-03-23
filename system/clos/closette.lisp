@@ -92,6 +92,7 @@
 (sys.int::defglobal *standard-class-finalized-p-position*)
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
+(sys.int::defglobal *standard-class-default-initargs-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -549,6 +550,16 @@
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'finalized-p) new-value))
 
+(defun class-default-initargs (class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (let ((class-of-class (class-of class)))
+    (cond ((clos-class-p class-of-class)
+           (svref (std-instance-slots class) *standard-class-default-initargs-position*))
+          (t (slot-value class 'default-initargs)))))
+(defun (setf class-default-initargs) (new-value class)
+  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+  (setf (slot-value class 'default-initargs) new-value))
+
 ;;; Ensure class
 
 (defun find-class-forward-ref (name)
@@ -731,6 +742,7 @@ Other arguments are included directly."
     (ensure-class-finalized super))
   (setf (class-precedence-list class) (compute-class-precedence-list class))
   (setf (class-slots class) (compute-slots class))
+  (setf (class-default-initargs class) (compute-default-initargs class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
                                         (class-slots class)))
          (layout (make-array (length instance-slots))))
@@ -1878,16 +1890,33 @@ has only has class specializer."
   (declare (ignore initargs))
   (fc-std-allocate-instance class))
 
-(defun std-compute-initargs (class initargs)
+(defgeneric compute-default-initargs (class))
+(defmethod compute-default-initargs ((class std-class))
+  (std-compute-default-initargs class))
+
+(defun std-compute-default-initargs (class)
   (let ((default-initargs '()))
     (dolist (c (class-precedence-list class))
       (loop
          for (initarg form fn) in (class-direct-default-initargs c)
-         do (when (and (not (member initarg initargs))
-                       (not (member initarg default-initargs)))
-              (push initarg default-initargs)
-              (push (funcall fn) default-initargs))))
-    (append initargs (nreverse default-initargs))))
+         do (when (not (member initarg default-initargs :key #'first))
+              (push (list initarg form fn) default-initargs))))
+    (nreverse default-initargs)))
+
+(defun std-compute-initargs (class initargs)
+  (let ((default-initargs
+         (loop
+            for (initarg form fn) in (class-default-initargs class)
+            when (loop
+                    for (key value) on initargs by #'cddr
+                    when (eql key initarg)
+                    do (return nil)
+                    finally (return t))
+            collect initarg
+            and collect (funcall fn))))
+    (if default-initargs
+        (append initargs default-initargs)
+        initargs)))
 
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
@@ -2228,6 +2257,9 @@ has only has class specializer."
 
 (defmethod compute-effective-slot-definition ((class structure-class) name direct-slots)
   (std-compute-effective-slot-definition class name direct-slots))
+
+(defmethod compute-default-initargs ((class structure-class))
+  (std-compute-default-initargs class))
 
 (defclass structure-object (t)
   ()
