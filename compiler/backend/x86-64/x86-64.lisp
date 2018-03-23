@@ -82,6 +82,48 @@
                                     ,@(when (x86-fake-three-operand-imm instruction)
                                         (list (x86-fake-three-operand-imm instruction))))))
 
+;;; Like x86-fake-three-operand-instruction, but for atomic ops.
+(defclass x86-atomic-instruction (ir:backend-instruction)
+  ((%opcode :initarg :opcode :reader x86-instruction-opcode)
+   (%result :initarg :result :accessor x86-atomic-result)
+   (%object :initarg :object :accessor x86-atomic-object)
+   (%index :initarg :index :accessor x86-atomic-index)
+   (%rhs :initarg :rhs :accessor x86-atomic-rhs)
+   (%prefix :initarg :prefix :accessor x86-instruction-prefix))
+  (:default-initargs :prefix nil))
+
+(defmethod ra:instruction-clobbers ((instruction x86-atomic-instruction) (architecture sys.c:x86-64-target))
+  '())
+
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-atomic-instruction) (architecture sys.c:x86-64-target))
+  t)
+
+(defmethod ir:instruction-inputs ((instruction x86-atomic-instruction))
+  (if (integerp (x86-atomic-index instruction))
+      (list (x86-atomic-object instruction)
+            (x86-atomic-rhs instruction))
+      (list (x86-atomic-object instruction)
+            (x86-atomic-index instruction)
+            (x86-atomic-rhs instruction))))
+
+(defmethod ir:instruction-outputs ((instruction x86-atomic-instruction))
+  (list (x86-atomic-result instruction)))
+
+(defmethod ir:replace-all-registers ((instruction x86-atomic-instruction) substitution-function)
+  (setf (x86-atomic-result instruction) (funcall substitution-function (x86-atomic-result instruction)))
+  (setf (x86-atomic-object instruction) (funcall substitution-function (x86-atomic-object instruction)))
+  (setf (x86-atomic-index instruction) (funcall substitution-function (x86-atomic-index instruction)))
+  (setf (x86-atomic-rhs instruction) (funcall substitution-function (x86-atomic-rhs instruction))))
+
+(defmethod ir:print-instruction ((instruction x86-atomic-instruction))
+  (format t "   ~S~%"
+          `(:x86-atomic ,(x86-atomic-prefix instruction)
+                        ,(x86-instruction-opcode instruction)
+                        ,(x86-atomic-result instruction)
+                        ,(x86-atomic-object instruction)
+                        ,(x86-atomic-index instruction)
+                        ,(x86-atomic-rhs instruction))))
+
 ;;; Wrapper around x86 branch instructions.
 (defclass x86-branch-instruction (ir:terminator-instruction)
   ((%opcode :initarg :opcode :accessor x86-instruction-opcode)
@@ -220,7 +262,23 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                                   (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst)))
                     :inputs (list (x86-fake-three-operand-result inst) (x86-fake-three-operand-rhs inst))
                     :outputs (list (x86-fake-three-operand-result inst))
-                    :prefix nil))))
+                    :prefix nil))
+    (when (typep inst 'x86-atomic-instruction)
+      (ir:insert-before backend-function inst
+                        (make-instance 'ir:move-instruction
+                                       :destination (x86-atomic-result inst)
+                                       :source (x86-atomic-rhs inst)))
+      (change-class inst 'x86-instruction
+                    :operands (if (integerp (x86-atomic-index inst))
+                                  (list `(:object ,(x86-atomic-object inst) ,(x86-atomic-index inst)) (x86-atomic-result inst))
+                                  (list `(:object ,(x86-atomic-object inst) 0 ,(x86-atomic-index inst)) (x86-atomic-result inst)))
+                    :inputs (if (integerp (x86-atomic-index inst))
+                                (list (x86-atomic-object inst) (x86-atomic-result inst))
+                                (list (x86-atomic-object inst) (x86-atomic-index inst) (x86-atomic-result inst)))
+                    :outputs (list (x86-atomic-result inst))
+                    :prefix (x86-instruction-prefix inst)
+                    :clobbers '()
+                    :early-clobber nil))))
 
 (defmethod ir:perform-target-lowering (backend-function (target sys.c:x86-64-target))
   (lower-builtins backend-function))

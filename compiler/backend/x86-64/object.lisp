@@ -368,3 +368,38 @@
     (emit (make-instance 'ir:move-instruction
                          :source value
                          :destination result))))
+
+;;; Atomic operations.
+;;; These functions index into the object like %OBJECT-REF-T.
+;;; There are no atomic functions that access memory like MEMREF.
+
+;; Add DELTA to the slot at SLOT in OBJECT.
+;; Returns the old value of the slot.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-add (object slot delta)
+;;   (prog1 (%object-ref-t object slot)
+;;     (incf (%object-ref-t object slot) delta)))
+(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta) result)
+  (emit (make-instance 'x86-atomic-instruction
+                       :opcode 'lap:xadd64
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :rhs delta
+                       :result result
+                       :prefix '(lap:lock))))
+
+;; Set the value in SLOT to NEW, and return the old value.
+;; (defun xchg (object slot new)
+;;   (prog1 (%object-ref-t object slot)
+;;     (setf (%object-ref-t object slot) new)))
+(define-builtin sys.int::%xchg-object ((object offset new) result)
+  (emit (make-instance 'x86-atomic-instruction
+                       :opcode 'lap:xchg64
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :rhs new
+                       :result result)))

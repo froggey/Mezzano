@@ -211,6 +211,7 @@
           ((:global) sys.int::+symbol-mode-global+)))
   value)
 
+(declaim (inline sys.int::%atomic-fixnum-add-symbol))
 (defun sys.int::%atomic-fixnum-add-symbol (symbol value)
   (sys.int::%atomic-fixnum-add-object (symbol-value-cell symbol)
                                       sys.int::+symbol-value-cell-value+
