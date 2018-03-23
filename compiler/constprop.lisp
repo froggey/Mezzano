@@ -61,6 +61,7 @@
 
 (defmethod cp-form ((form ast-go))
   (setf (info form) (cp-form (info form)))
+  (flush-mutable-variables)
   form)
 
 (defmethod cp-form ((form ast-if))
@@ -193,6 +194,7 @@
 (defmethod cp-form ((form ast-return-from))
   (setf (value form) (cp-form (value form))
         (info form) (cp-form (info form)))
+  (flush-mutable-variables)
   form)
 
 (defmethod cp-form ((form ast-setq))
@@ -231,17 +233,18 @@
   (cond ((eql (go-tag-use-count (first (first (statements form)))) 1)
          (setf (second (first (statements form)))
                (cp-form (second (first (statements form)))))
-         (flush-mutable-variables)
          (setf (rest (statements form))
                (loop
                   for (go-tag statement) in (rest (statements form))
+                  do (flush-mutable-variables)
                   collect (list go-tag (cp-form statement)))))
         (t
-         (flush-mutable-variables)
          (setf (statements form)
                (loop
                   for (go-tag statement) in (statements form)
+                  do (flush-mutable-variables)
                   collect (list go-tag (cp-form statement))))))
+  (flush-mutable-variables)
   form)
 
 (defmethod cp-form ((form ast-the))
