@@ -358,7 +358,7 @@ This is required to make the GC interrupt safe."
       (gc-log "SP: " stack-pointer)
       (gc-log "FNa: " fn-address)
       (gc-log "FNo: " fn-offset))
-    (scavenge-object fn)
+    (scavenge-object fn cycle-kind)
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
