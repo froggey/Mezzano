@@ -298,7 +298,7 @@ Returns 4 values:
 (defun snapshot-block-map-outer-level (bml next-fn address-part)
   (let ((bml-disk (or (store-alloc 1)
                       (panic "Unable to allocate disk space for new block map.")))
-        (bml-memory (convert-to-pmap-address (* (pager-allocate-page :other) +4k-page-size+)))
+        (bml-memory (convert-to-pmap-address (* (pager-allocate-page :new-type :other) +4k-page-size+)))
         (bml-count 0)
         (next-address-part (ash address-part 9)))
     (dotimes (i 512)
@@ -364,7 +364,7 @@ Returns 4 values:
     ;; Update the block map & freelist entries in the header.
     (debug-print-line "Updating disk header.")
     (let ((header (convert-to-pmap-address (* (with-mutex (*vm-lock*)
-                                              (pager-allocate-page :other))
+                                              (pager-allocate-page :new-type :other))
                                             +4k-page-size+))))
       (disk-submit-request *snapshot-disk-request*
                            *paging-disk*

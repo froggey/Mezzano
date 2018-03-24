@@ -238,7 +238,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                     info)
                    ((not allocate)
                     (return-from block-info-for-virtual-address-1 nil))
-                   (t (let* ((frame (pager-allocate-page :other))
+                   (t (let* ((frame (pager-allocate-page :new-type :other))
                              (new-level (convert-to-pmap-address (* frame +4k-page-size+))))
                         (zeroize-page new-level)
                         (setf (sys.int::memref-signed-byte-64 map entry) new-level)
@@ -361,8 +361,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  "Range not aligned.")))
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
+;; Note: Must be called with a TLB shootdown in progress.
 (defun map-new-wired-page (address &key backing-frame)
-  (let ((pte (get-pte-for-address address))
+  (let ((pte (get-pte-for-address address t t))
         (block-info (block-info-for-virtual-address address)))
     ;;(debug-print-line "MNWP " address " block " block-info)
     (when (page-present-p pte 0)
@@ -373,13 +374,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (when (not (block-info-zero-fill-p block-info))
       (panic "Not implemented! Mapping new wired page at " address " but not zero!"))
     ;; No page allocated. Allocate a page and read the data.
-    (let* ((frame (pager-allocate-page :wired))
+    (let* ((frame (pager-allocate-page :new-type :wired :shootdown-in-progress t))
            (addr (convert-to-pmap-address (ash frame 12))))
       (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
             (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
       (cond (backing-frame
              ;; Include a backing frame.
-             (let ((new-backing-frame (pager-allocate-page :wired-backing)))
+             (let ((new-backing-frame (pager-allocate-page :new-type :wired-backing :shootdown-in-progress t)))
                (setf (physical-page-frame-next frame) new-backing-frame)
                (setf (physical-page-virtual-address new-backing-frame) address)))
             (t
@@ -562,7 +563,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
-(defun pager-allocate-page (&optional (new-type :active))
+(defun pager-allocate-page (&key (new-type :active) shootdown-in-progress)
   (let ((frame (allocate-physical-pages 1 :type new-type)))
     (when (not frame)
       ;; TODO: Purge empty page table levels.
@@ -586,11 +587,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                           "  bme " bme)
         ;; Remove this page from the VM, but do not free it just yet.
         (remove-from-page-replacement-list candidate)
-        (begin-tlb-shootdown)
+        (when (not shootdown-in-progress)
+          (begin-tlb-shootdown))
         (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
         (flush-tlb-single candidate-virtual)
         (tlb-shootdown-single candidate-virtual)
-        (finish-tlb-shootdown)
+        (when (not shootdown-in-progress)
+          (finish-tlb-shootdown))
         ;; Maybe write it back to disk.
         (when dirty-p
           (when (not (block-info-committed-p bme))
