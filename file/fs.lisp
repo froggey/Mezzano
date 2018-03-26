@@ -110,7 +110,11 @@
   (make-instance (host-pathname-class (if host (find-host host) (pathname-host defaults)))
                  :host (if host (find-host host) (pathname-host defaults))
                  :device (if devicep device (pathname-device defaults))
-                 :directory (if directoryp directory (pathname-directory defaults))
+                 :directory (if directoryp
+                                (if (eq directory :wild)
+                                    '(:absolute :wild-inferiors)
+                                    directory)
+                                (pathname-directory defaults))
                  :name (if namep name (pathname-name defaults))
                  :type (if typep type (pathname-type defaults))
                  :version (if versionp version (pathname-version defaults))))
@@ -154,15 +158,8 @@
         (w-dir (pathname-directory w)))
     (labels ((match (p w)
                (cond
-                 ((eql (first w) :wild-inferiors)
-                  ;; Eat elements until a match is found or the end of the
-                  ;; directory is reached.
-                  (loop
-                     (when (match p (rest w))
-                       (return t))
-                     (when (null p)
-                       (return nil))
-                     (pop p)))
+                 ;; :wild-inferiors matches the remaining directory levels
+                 ((eql (first w) :wild-inferiors) t)
                  ((and (null p) (null w)) t)
                  ((or (null p) (null w)) nil)
                  ((eql (first w) :wild)
@@ -227,10 +224,36 @@
                (unparse-pathname pathname (pathname-host pathname))))
 
 (defun enough-namestring (pathname &optional (defaults *default-pathname-defaults*))
-  (cond ((eql (pathname-host pathname) (pathname-host defaults))
-         (unparse-pathname pathname (pathname-host pathname)))
-        (t
-         (namestring pathname))))
+  (if (eql (pathname-host pathname) (pathname-host defaults))
+      (let ((p-dirs (pathname-directory pathname))
+            (d-dirs (pathname-directory defaults)))
+        (if (and (eq (car p-dirs) :absolute)
+                 (eq (car d-dirs) :absolute))
+            (do ((p-dir (cadr p-dirs) (cadr p-rest))
+                 (d-dir (cadr d-dirs) (cadr d-rest))
+                 (p-rest (cdr p-dirs) (cdr p-rest))
+                 (d-rest (cdr d-dirs) (cdr d-rest)))
+                ((or (null p-dir) (null d-dir) (not (equal p-dir d-dir)))
+                 (cond ((null p-dir)
+                        (if (null d-dir)
+                            ;; directories match exactly
+                            (file-namestring pathname)
+                            ;; default directory has more entries than pathname
+                            (namestring pathname)))
+                       ((null d-dir)
+                        (unparse-pathname (make-pathname
+                                           :host (pathname-host pathname)
+                                           :directory (cons :relative p-rest)
+                                           :name (pathname-name pathname)
+                                           :type (pathname-type pathname)
+                                           :version (pathname-version pathname))
+                                          (pathname-host pathname)))
+                       ;; directory names differ
+                       (t (namestring pathname)))))
+            ;; pathnames are not absolute but have the same host
+            (unparse-pathname pathname (pathname-host pathname))))
+      ;; hosts don't match
+      (namestring pathname)))
 
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
@@ -304,7 +327,14 @@
     (cond ((and (pathname-directory default-pathname)
                 (eql (first directory) :relative))
            (setf directory (append (pathname-directory default-pathname)
-                                   (rest directory))))
+                                   (rest directory)))
+           ;; remove :backs
+           (let ((dirs))
+             (dolist (d directory)
+               (if (eq d :back)
+                   (pop dirs)
+                   (push d dirs)))
+             (setf directory (nreverse dirs))))
           ((null directory)
            (setf directory (pathname-directory default-pathname))))
     (make-pathname :host host
