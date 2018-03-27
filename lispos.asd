@@ -68,6 +68,7 @@
                (:file "compiler/backend/passes")
                (:file "compiler/backend/debug")
                (:file "compiler/backend/register-allocation")
+               (:file "compiler/backend/canon")
                (:file "compiler/backend/x86-64/x86-64")
                (:file "compiler/backend/x86-64/target")
                (:file "compiler/backend/x86-64/codegen")

@@ -174,6 +174,7 @@
     "compiler/backend/passes.lisp"
     "compiler/backend/debug.lisp"
     "compiler/backend/register-allocation.lisp"
+    "compiler/backend/canon.lisp"
     "compiler/backend/x86-64/x86-64.lisp"
     "compiler/backend/x86-64/target.lisp"
     "compiler/backend/x86-64/codegen.lisp"
