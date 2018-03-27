@@ -574,12 +574,6 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
-  ;; Check *ENABLE-ALLOCATION-PROFILING*
-  ;; FIXME: This only tests the global value.
-  (sys.lap-x86:mov64 :rbx (:constant *enable-allocation-profiling*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
-  (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
-  (sys.lap-x86:jne SLOW-PATH)
   ;; Try the real fast allocator.
   (sys.lap-x86:mov64 :r13 (:function %do-allocate-from-general-area))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
@@ -663,13 +657,10 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 16 sys.int::+n-fixnum-bits+))
   ;; Check *ENABLE-ALLOCATION-PROFILING*
-  ;; FIXME: This only tests the global value.
-  #| Logging every cons tends to explode the profile buffer & exhaust memory.
   (sys.lap-x86:mov64 :rbx (:constant *enable-allocation-profiling*))
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
-  |#
   ;; Check *GC-IN-PROGRESS*.
   (sys.lap-x86:mov64 :rbx (:constant sys.int::*gc-in-progress*))
   (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))

@@ -48,31 +48,15 @@
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
 
-(defvar *enable-allocation-profiling* nil)
-(defvar *allocation-profile*)
+(sys.int::defglobal *enable-allocation-profiling*)
+(defvar *allocation-profile-hook* nil)
 
-;; Use a seperate function here, as the compiler seems to want to
-;; hoist allocation outside the *ENABLE-ALLOCATION-PROFILING* test.
-;; This generates data in the same format as the statistical profiler.
-(defun log-allocation-profile-entry-1 ()
-  (let ((*enable-allocation-profiling* nil))
-    (vector-push-extend :start *allocation-profile*)
-    (vector-push-extend (get-internal-real-time) *allocation-profile*)
-    (vector-push-extend (mezzano.supervisor:current-thread) *allocation-profile*)
-    (vector-push-extend :active *allocation-profile*)
-    (vector-push-extend :allocation *allocation-profile*)
-    (sys.int::map-backtrace
-     (lambda (i fp)
-       (let* ((return-address (sys.int::memref-signed-byte-64 fp 1))
-              (fn (sys.int::return-address-to-function return-address))
-              (fn-address (logand (sys.int::lisp-object-address fn) -16))
-              (offset (- return-address fn-address)))
-         (vector-push-extend fn *allocation-profile*)
-         (vector-push-extend offset *allocation-profile*))))))
-
-(defun log-allocation-profile-entry ()
-  (when *enable-allocation-profiling*
-    (log-allocation-profile-entry-1)))
+(defun log-allocation-profile-entry (words)
+  (when (and *enable-allocation-profiling*
+             *allocation-profile-hook*)
+    (let ((hook *allocation-profile-hook*)
+          (*allocation-profile-hook* nil))
+      (funcall hook words))))
 
 (defun freelist-entry-next (entry)
   (sys.int::memref-t entry 1))
@@ -176,6 +160,7 @@
                  (setf (svref bins new-bin) next)
                  ;; Update the card table starts for any pages
                  ;; that this new freelist entry crosses.
+                 ;; TODO: Make this more efficient.
                  (loop
                     for card from (mezzano.supervisor::align-up next sys.int::+card-size+) below (+ next (* new-size 8)) by sys.int::+card-size+
                     for delta = (- next card)
@@ -251,7 +236,6 @@
     (incf sys.int::*pinned-area-bump* grow-by)))
 
 (defun %allocate-from-pinned-area (tag data words)
-  (log-allocation-profile-entry)
   (loop
      with inhibit-gc = nil
      for i from 0 do
@@ -305,7 +289,6 @@
         (%allocate-from-wired-area-unlocked tag data words)))))
 
 (defun %allocate-from-wired-area (tag data words)
-  (log-allocation-profile-entry)
   (loop
      for i from 0 do
        (let ((result (%allocate-from-wired-area-1 tag data words)))
@@ -458,7 +441,6 @@
            nil))))
 
 (defun %slow-allocate-from-general-area (tag data words)
-  (log-allocation-profile-entry)
   (let ((gc-count 0))
     (tagbody
      OUTER-LOOP
@@ -499,6 +481,7 @@
 (defun %allocate-object (tag data size area)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
+  (log-allocation-profile-entry size)
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
@@ -518,9 +501,11 @@
     ((nil)
      (cons car cdr))
     (:pinned
+     (log-allocation-profile-entry 2)
      (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-pinned-area car cdr))
     (:wired
+     (log-allocation-profile-entry 2)
      (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-wired-area car cdr))))
 
@@ -548,7 +533,7 @@
 (defun slow-cons (car cdr)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
-  (log-allocation-profile-entry)
+  (log-allocation-profile-entry 2)
   (let ((gc-count 0))
     (tagbody
      OUTER-LOOP

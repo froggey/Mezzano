@@ -258,27 +258,83 @@ thread states & call-stacks."
            (vector-push-extend sample profile-entries))))
     profile-entries))
 
-(defmacro with-allocation-profiling ((&whole options &key path verbosity prune ignore-functions) &body body)
-  "Profile BODY.
-:THREAD - Thread to sample.
-          If NIL, then sample all threads.
-          If T, then sample the current thread.
-          Can be a specific thread to sample.
-:BUFFER-SIZE - Size of the profiler's sample buffer.
-:PATH - Path to write th profiler report to, if NIL then the samples will be returned.
-:PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call."
+(defmacro with-allocation-profiling ((&whole options &key repeat) &body body)
+  "Profile BODY."
   `(call-with-allocation-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-allocation-profiling (function &key path (verbosity :report) (prune t) (ignore-functions *ignorable-function-names*))
-  (let* ((raw-buffer (make-array 0 :adjustable t :fill-pointer 0))
-         (results (let* ((mezzano.runtime::*allocation-profile* raw-buffer)
-                         (mezzano.runtime::*enable-allocation-profiling* t))
-                    (multiple-value-list (funcall function))))
-         (profile-buffer (decode-profile-buffer raw-buffer (if prune #'call-with-allocation-profiling nil) ignore-functions)))
-    (cond (path
-           (save-profile path profile-buffer :verbosity verbosity)
-           (values-list results))
-          (t profile-buffer))))
+(defun log-allocation-profile-entry (buffer words)
+  (let ((first nil)
+        (tree '()))
+    (block nil
+      (sys.int::map-backtrace
+       (lambda (i fp)
+         (let* ((fn (sys.int::function-from-frame (list nil fp nil))))
+           (when (eql i 3)
+             (setf first fn))
+           (when (eql fn #'call-with-allocation-profiling)
+             (return))
+           (when (> i 3)
+             (push fn tree))))))
+    (dolist (fn tree)
+      (let ((p (position fn buffer)))
+        (cond (p
+               (setf buffer (aref buffer (+ p 2))))
+              (t
+               (let ((new (make-array 3 :adjustable t :fill-pointer 0)))
+                 (vector-push-extend fn buffer)
+                 (vector-push-extend 0 buffer)
+                 (vector-push-extend new buffer)
+                 (setf buffer new))))))
+    (let ((p (position first buffer)))
+      (cond (p
+             (incf (aref buffer (+ p 1)) words))
+            (t
+             (let ((new (make-array 3 :adjustable t :fill-pointer 0)))
+               (vector-push-extend first buffer)
+               (vector-push-extend words buffer)
+               (vector-push-extend new buffer)))))))
+
+(defun name-for-flame-graph (fn)
+  (let ((*print-pretty* nil))
+    (substitute #\_ #\Space
+                (substitute #\L #\<
+                            (substitute #\G #\>
+                                        (format nil "~(~S~)" (sys.int::function-name fn)))))))
+
+(defun generate-allocation-flame-graph (profile stream threshold)
+  (labels ((frob (level stack)
+             (loop
+                for i from 0 below (length level) by 3
+                for fn = (aref level i)
+                for count = (aref level (+ i 1))
+                for next = (aref level (+ i 2))
+                for name = (name-for-flame-graph fn)
+                for stack2 = (list* name stack)
+                for first = t
+                do
+                  (when (>= count threshold)
+                    (dolist (entry (nreverse stack2))
+                      (cond (first (setf first nil))
+                            (t (write-char #\; stream)))
+                      (write-string entry stream))
+                    (write-char #\Space stream)
+                    (write count :stream stream)
+                    (terpri stream))
+                  (frob next stack2))))
+    (frob profile '()))
+  profile)
+
+(defun call-with-allocation-profiling (function &key repeat)
+  (let ((raw-buffer (make-array 3 :adjustable t :fill-pointer 0)))
+    (unwind-protect
+         (let ((mezzano.runtime::*allocation-profile-hook*
+                (lambda (words) (log-allocation-profile-entry raw-buffer words))))
+           (setf mezzano.runtime::*enable-allocation-profiling* t)
+           (dotimes (i (or repeat 1))
+             (funcall function)))
+      (setf mezzano.runtime::*enable-allocation-profiling* nil))
+    ;; TODO: Unify format with normal profiling.
+    raw-buffer))
 
 (defun save-profile (path profile &key (verbosity :report) order-by)
   "Convert a profile into an almost human-readable format."
@@ -469,7 +525,7 @@ thread states & call-stacks."
                 (cond (first (setf first nil))
                       (t (write-char #\; stream)))
                 (let ((*print-pretty* nil))
-                  (write-string (substitute #\_ #\Space (substitute #\L #\< (substitute #\G #\> (format nil "~(~S~)" (sys.int::function-name fn))))) stream))))
+                  (write-string (name-for-flame-graph fn) stream))))
          (write-char #\Space stream)
          (write 1 :stream stream)
          (terpri stream)))
