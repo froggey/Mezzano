@@ -24,7 +24,8 @@
            #:reset
            #:cursor-visible
            #:in-frame-header-p
-           #:in-frame-border-p))
+           #:in-frame-border-p
+           #:set-cursor-function))
 
 (in-package :mezzano.gui.widgets)
 
