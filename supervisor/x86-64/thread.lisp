@@ -197,7 +197,7 @@
                                    function
                                    sys.int::+function-entry-point+)
         (thread-state-rcx-value thread) (if argumentp 1 0)
-        (thread-state-rbx-value thread) nil
+        (thread-state-rbx-value thread) function
         (thread-state-r8-value thread) argument
         (thread-state-r9-value thread) nil
         (thread-state-r10-value thread) nil
