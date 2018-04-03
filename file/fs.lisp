@@ -25,7 +25,8 @@
            #:simple-file-error
            #:stream-truename
            #:truename-using-host
-           #:no-namestring-error))
+           #:no-namestring-error
+           #:tmpdir-pathname))
 
 (in-package :mezzano.file-system)
 
@@ -609,6 +610,16 @@ NAMESTRING as the second."
   (if (not (member host '(nil :unspecific)))
       nil
       *home-directory*))
+
+(defun tmpdir-pathname ()
+  (let ((home (user-homedir-pathname)))
+    ;; Construct a pathname with the same host as the homedir
+    ;; then merge together to produce the full path on the right host.
+    ;; Without this, the resulting pathname will take on the host
+    ;; of *default-pathname-defaults*, which may differ from homedir's host.
+    (merge-pathnames (make-pathname :host (pathname-host home)
+                                    :directory '(:relative "tmp"))
+                     home)))
 
 ;;; Logical pathnames.
 
