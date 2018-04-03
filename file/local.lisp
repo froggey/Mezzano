@@ -343,6 +343,31 @@
                      :direction direction
                      :superseded-file superseded-file))))
 
+(defmethod probe-using-host ((host local-file-host) pathname)
+  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Non-absolute pathname."))
+  (with-host-locked (host)
+    (do ((element (rest (pathname-directory pathname)) (cdr element))
+         (dir (local-host-root host)))
+        ((endp element)
+         (when  (or (null (pathname-name pathname))
+                    (and (null (pathname-type pathname))
+                         (read-directory-entry
+                          dir (pathname-name pathname) "directory"))
+                    (read-directory-entry
+                     dir
+                     (pathname-name pathname)
+                     (pathname-type pathname)
+                     (pathname-version pathname)))
+           pathname))
+      (let ((next (read-directory-entry dir (car element) "directory")))
+        (when (not next)
+          ;; directory doesn't exist, return nil
+          (return-from probe-using-host nil))
+        (setf dir next)))))
+
 (defmethod file-write-date-using-host ((host local-file-host) pathname)
   (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
     (error 'simple-file-error

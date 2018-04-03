@@ -15,6 +15,7 @@
            #:unparse-pathname-file
            #:unparse-pathname-directory
            #:open-using-host
+           #:probe-using-host
            #:directory-using-host
            #:ensure-directories-exist-using-host
            #:rename-file-using-host
@@ -461,11 +462,16 @@ NAMESTRING as the second."
                      :if-does-not-exist if-does-not-exist
                      :external-format external-format)))
 
+(defgeneric probe-using-host (host pathname))
+
 (defun probe-file (pathspec)
-  (let ((stream (open pathspec :direction :probe)))
-    (when stream
-      (close stream)
-      (stream-truename stream))))
+  (let* ((path (translate-logical-pathname (merge-pathnames pathspec)))
+         (host (pathname-host path)))
+    (when (wild-pathname-p path)
+      (error 'simple-file-error
+             :pathname pathspec
+             :format-control "Wild pathname specified."))
+    (probe-using-host host path)))
 
 (defgeneric directory-using-host (host path &key))
 
