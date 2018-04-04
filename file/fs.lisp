@@ -331,12 +331,13 @@
            (setf directory (append (pathname-directory default-pathname)
                                    (rest directory)))
            ;; remove :backs
-           (let ((dirs))
-             (dolist (d directory)
+           (let ((dir-type (car directory))
+                 (dirs))
+             (dolist (d (cdr directory))
                (if (eq d :back)
                    (pop dirs)
                    (push d dirs)))
-             (setf directory (nreverse dirs))))
+             (setf directory (cons dir-type (nreverse dirs)))))
           ((null directory)
            (setf directory (pathname-directory default-pathname))))
     (make-pathname :host host
