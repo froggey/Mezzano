@@ -465,7 +465,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defun create-file (host file cluster-sector pathname-name pathname-type attributes)
   "Create file/directory"
   (let* ((name (concatenate 'string pathname-name "." pathname-type))
-         (short-name "           ")
+         (short-name (make-string 11 :initial-element #\Space))
          (checksum 0)
          (length (length name))
          (i (next-n-spaces file
