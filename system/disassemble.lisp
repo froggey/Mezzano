@@ -59,6 +59,11 @@
         (offset 16)
         (context (make-disassembler-context function architecture))
         (gc-md (sys.int::decode-function-gc-info function))
+        (debug-md (sys.int::decompress-precise-debug-info
+                   (sys.int::decode-precise-debug-info
+                    function
+                    (sys.int::debug-info-precise-variable-data
+                     (sys.int::function-debug-info function)))))
         (true-end (sys.int::function-code-size function)))
     (loop
        for decoded across (context-instructions context)
@@ -68,6 +73,11 @@
            (when *print-gc-metadata*
              (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:gc ,@(rest (first gc-md)))))
            (pop gc-md))
+         (when (and debug-md
+                    (>= offset (first (first debug-md))))
+           (when *print-debug-metadata*
+             (format t "~7T~8,'0X:~50T~S~%" (+ base-address offset) `(:debug ,@(rest (first debug-md)))))
+           (pop debug-md))
          (let ((label (label context offset)))
            (when label
              (format t " L~D" label)))
@@ -167,6 +177,11 @@
                                        ;; The function itself, used for invalid args handling.
                                        (push (format nil "'~S" (context-function context)) annotations)))
                                 (format t "(:RIP #x~X)" (+ address target))))))
+                          ((and (eql (ea-base operand) :rbp)
+                                (eql (logand (ea-disp operand) 7) 0)
+                                (< (ea-disp operand) 0)
+                                (not (ea-index operand)))
+                           (format t "(:STACK ~D)" (1- (/ (- (ea-disp operand)) 8))))
                           (t
                            (when (eql (logand (ea-disp operand) 7) 7)
                              (if (ea-index operand)
