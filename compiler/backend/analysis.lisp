@@ -81,7 +81,7 @@
         ;; a reverse post-order traversal of the CFG.
         (setf basic-blocks (reverse basic-blocks))
         ;; Iteratively solve for liveness over basic blocks.
-        ;; in[n] = out[n] U (out[n] - def[n])
+        ;; in[n] = use[n] U (out[n] - def[n])
         ;; out[n] = union in[s] forall s in successors[n]
         (loop
            (dolist (inst basic-blocks)
