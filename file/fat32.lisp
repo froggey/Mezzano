@@ -369,10 +369,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (unless (= #x0F (aref directory (+ 11 i)))
           (return i))))))
 
-(defmacro do-files ((var) directory &body body)
+(defmacro do-files ((var) directory finally &body body)
   `(do ((,var (next-file ,directory 0) (next-file ,directory (+ 32 ,var))))
        ((null ,var)
-        t)
+        ,finally)
      ,@body))
 
 (defun read-name (directory offset)
@@ -490,7 +490,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             :do (setf (aref short-name i)
                       char)))
     ;; Check for short name collision
-    (do-files (offset) file
+    (do-files (offset) file t
       (when (string= short-name (read-name file offset))
         (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))
     (setf checksum
@@ -744,6 +744,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                          (fat host))
         :for directory :in (rest (pathname-directory pathname))
         :do (do-files (start) cluster-data
+                      (error 'simple-file-error
+                             :pathname pathname
+                             :format-control "Directory ~A not found. ~S"
+                             :format-arguments (list directory pathname))
               (when (string= directory (read-file-name cluster-data start))
                 (setf cluster-sector (first-sector-of-cluster fat32 (read-first-cluster cluster-data start))
                       cluster-data (read-file fat32
@@ -753,6 +757,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         :finally (if (null file-name)
                      (return-from find-file (values cluster-data cluster-sector))
                      (do-files (start) cluster-data
+                               (values cluster-data cluster-sector)
                        (when (string= file-name (read-file-name cluster-data start))
                          (return-from find-file (values cluster-data cluster-sector start)))))))
 
@@ -873,8 +878,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (let ((cluster-data (find-file host pathname)))
     (let ((stack '())
           (path (unparse-pathname-directory pathname host)))
-      (do-files
-          (file) cluster-data
+      (do-files (file) cluster-data
+                t
         (push
          (parse-simple-file-path host
                                  (format nil
@@ -897,6 +902,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod file-write-date-using-host ((host fat32-host) path)
   (multiple-value-bind (file cluster-sector metadata-offset) (find-file host path)
     (declare (ignore cluster-sector))
+    (assert metadata-offset (metadata-offset) "File not found. ~s" path)
     (let ((time (sys.int::ub16ref/le file (+ metadata-offset 22)))
           (date (sys.int::ub16ref/le file (+ metadata-offset 24))))
       (encode-universal-time (ash (ldb (byte 5 0) time) 1)
@@ -911,6 +917,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
          (fat32 (fat32-structure host))
          (fat (fat host)))
     (multiple-value-bind (directory cluster-sector start) (find-file host path)
+      (assert start (start) "File/directory not found. ~s" path)
       (remove-file directory start disk cluster-sector fat32 fat))))
 
 (defmethod expunge-directory-using-host ((host fat32-host) path &key)
