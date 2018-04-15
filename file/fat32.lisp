@@ -430,12 +430,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                     :do (write-char (aref file-name i) name)))))
         long-name)))
 
-;; TODO Modify FAT accordingly
-(defun remove-file (directory start disk sector fat32)
+(defun remove-file (directory start disk sector fat32 fat)
   (do-file (i start) directory
            (progn
              ;; Remove first part of file.
              (setf (aref directory start) #xE5)
+             ;; Update FAT
+             (do ((i (read-first-cluster directory start)))
+                 ((>= i #x0FFFFFF8) t)
+               (let ((next (sys.int::ub32ref/le fat (* i 4))))
+                 (setf (sys.int::ub32ref/le fat (* i 4)) 0
+                       i next)))
+             ;; Write to disk
+             (write-fat disk fat32 fat)
              (write-cluster disk
                             sector
                             fat32
@@ -901,9 +908,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defmethod delete-file-using-host ((host fat32-host) path &key)
   (let* ((disk (partition host))
-         (fat32 (fat32-structure host)))
+         (fat32 (fat32-structure host))
+         (fat (fat host)))
     (multiple-value-bind (directory cluster-sector start) (find-file host path)
-      (remove-file directory start disk cluster-sector fat32))))
+      (remove-file directory start disk cluster-sector fat32 fat))))
 
 (defmethod expunge-directory-using-host ((host fat32-host) path &key)
   (declare (ignore host path))
