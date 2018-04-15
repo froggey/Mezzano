@@ -322,17 +322,31 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
           (aref directory (+ 11 offset)))
      1))
 
-;; WIP
-(defun read-file (fat32 disk file-cluster fat)
-  (let ((file-buffer #()))
-    (do ((i file-cluster
-            (sys.int::ub32ref/le fat (* i 4))))
-        ((>= i #x0FFFFFF8) file-buffer)
-      (setf file-buffer
-            (concatenate 'vector
-                         file-buffer
-                         (read-cluster fat32 disk
-                                       (first-sector-of-cluster fat32 i)))))))
+(defun read-file (fat32 disk start-cluster fat)
+  (let* ((spc (fat32-sectors-per-cluster fat32))
+         (n-clusters (do ((cluster-n start-cluster
+                                     (sys.int::ub32ref/le fat (* cluster-n 4)))
+                          (cluster-count 0 (1+ cluster-count)))
+                         ((>= cluster-n #x0FFFFFF8) cluster-count)))
+         (sector-size (mezzano.supervisor:disk-sector-size disk))
+         (result (make-array (* sector-size spc n-clusters) :element-type '(unsigned-byte 8)))
+         (temp-buf (make-array (* spc sector-size) :element-type '(unsigned-byte 8) :area :wired)))
+    (do ((cluster-n start-cluster (sys.int::ub32ref/le fat (* cluster-n 4)))
+         (n-cluster 0 (1+ n-cluster)))
+        ((>= cluster-n #x0FFFFFF8) result)
+      (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+      (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
+
+;; TODO Add posibility to resize file
+(defun write-file (fat32 disk start-cluster fat array)
+  (let* ((spc (fat32-sectors-per-cluster fat32))
+         (sector-size (mezzano.supervisor:disk-sector-size disk))
+         (temp-buf (make-array (* spc sector-size) :element-type '(unsigned-byte 8) :area :wired)))
+    (do ((cluster-n start-cluster (sys.int::ub32ref/le fat (* cluster-n 4)))
+         (n-cluster 0 (1+ n-cluster)))
+        ((>= cluster-n #x0FFFFFF8) t)
+      (replace temp-buf array :start2 (* n-cluster spc sector-size))
+      (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf))))
 
 (defun read-first-cluster (directory offset)
   (logior (ash (sys.int::ub16ref/le directory (+ 20 offset)) 16)
@@ -787,8 +801,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                     (partition host)
                                     (read-first-cluster cluster-data start)
                                     (fat host))
-                  read-buffer-position (first-sector-of-cluster (fat32-structure host)
-                                                                (read-first-cluster cluster-data start))
+                  read-buffer-position (read-first-cluster cluster-data start)
                   read-buffer-size (read-size cluster-data start))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
@@ -820,8 +833,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                (setf buffer (make-array (* (fat32-sectors-per-cluster (fat32-structure host))
                                                            (fat32-bytes-per-sector (fat32-structure host)))
                                                         :initial-element 0)
-                                     read-buffer-position (first-sector-of-cluster (fat32-structure host)
-                                                                                   cluster-number)
+                                     read-buffer-position cluster-number
                                      read-buffer-size 0)))))))))
       (when (and (not created-file) (member direction '(:output :io)))
         (ecase if-exists
@@ -1022,10 +1034,11 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (when (member (direction stream) '(:output :io))
-           (write-cluster (partition (host stream))
-                          (read-buffer-position stream)
-                          (fat32-structure (host stream))
-                          (read-buffer stream))
+           (write-file (fat32-structure (host stream))
+                       (partition (host stream))
+                       (read-buffer-position stream)
+                       (fat (host stream))
+                       (read-buffer stream))
            (write-file-size stream)))
         (t (error "Aborted close not suported")))
   t)
