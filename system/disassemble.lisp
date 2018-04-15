@@ -27,6 +27,7 @@
   (setf architecture (sys.c::canonicalize-target architecture))
   (let ((*print-gc-metadata* gc-metadata)
         (*print-debug-metadata* debug-metadata)
+        (*print-pretty* nil)
         (fundamental-fn (peel-function fn)))
     (cond ((eql fundamental-fn fn)
            (format t "~S:~%" fn))
