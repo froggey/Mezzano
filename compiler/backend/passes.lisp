@@ -300,3 +300,27 @@ Must be performed after SSA conversion."
             (incf total n)
             (when (zerop n)
               (return total))))))
+
+(defun localize-constants (backend-function)
+  "Copy constants to their point of use."
+  (let ((uses (build-use/def-maps backend-function))
+        (constants '()))
+    (do-instructions (inst backend-function)
+      (when (and (typep inst 'constant-instruction)
+                 (not (typep (constant-value inst) 'backend-function)))
+        (push inst constants)))
+    (dolist (inst constants)
+      (let ((old-constant (constant-destination inst)))
+        (dolist (use (gethash old-constant uses))
+          (let ((new-constant (make-instance 'virtual-register)))
+            (insert-before backend-function
+                           use
+                           (make-instance 'constant-instruction
+                                          :value (constant-value inst)
+                                          :destination new-constant))
+            (replace-all-registers use
+                                   (lambda (reg)
+                                     (cond ((eql reg old-constant)
+                                            new-constant)
+                                           (t reg)))))))
+      (remove-instruction backend-function inst))))

@@ -131,10 +131,9 @@
              (make-instance 'arm64-branch-instruction
                             :opcode (mezzano.compiler.codegen.arm64::predicate-instruction-jump-instruction
                                      (mezzano.compiler.codegen.arm64::predicate-info
-                                      (if (typep next-inst 'ir:branch-true-instruction)
-                                          pred
-                                          (mezzano.compiler.codegen.arm64::invert-predicate pred))))
-                            :target (ir:branch-target next-inst)))
+                                      pred))
+                            :true-target (ir:branch-true-target next-inst)
+                            :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))
               (ir:remove-instruction backend-function inst)
               (ir:remove-instruction backend-function next-inst)

@@ -64,7 +64,8 @@
     x))
 
 (defun sys.int::structure-definition-p (object)
-  (eq (sys.int::%struct-slot object 0) sys.int::*structure-type-type*))
+  (and (sys.int::structure-object-p object)
+       (eq (sys.int::%struct-slot object 0) sys.int::*structure-type-type*)))
 
 (macrolet ((def (name field)
              `(defun ,name (object)
@@ -95,7 +96,8 @@
     x))
 
 (defun sys.int::structure-slot-definition-p (object)
-  (eq (sys.int::%struct-slot object 0) sys.int::*structure-slot-type*))
+  (and (sys.int::structure-object-p object)
+       (eq (sys.int::%struct-slot object 0) sys.int::*structure-slot-type*)))
 
 (macrolet ((def (name field)
              `(defun ,name (object)

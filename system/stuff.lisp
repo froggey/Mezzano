@@ -276,21 +276,68 @@
         (aref vector (+ index 7)) (ldb (byte 8 56) value))
   value)
 
-;;; Random.
-
-;; TODO: Implement this properly.
+;;;
+;;; PRNG WELL512 based on the public domain algorithm by Chris Lomont
+;;; as published in
+;;; http://lomont.org/Math/Papers/2008/Lomont_PRNG_2008.pdf
+;;;
 
 (defstruct (random-state
-             (:constructor %make-random-state (bits)))
+             (:constructor %make-random-state (index bits)))
+  index
   bits)
 
-(defvar *random-state* (%make-random-state 0))
+(defvar *random-state*
+  (%make-random-state 0 (make-array
+                         16
+                         :element-type '(unsigned-byte 32)
+                         :initial-element #x12345678)))
 
 (defun make-random-state (&optional state)
   (case state
-    ((t) (%make-random-state 0))
+    ((t) (%make-random-state 0 (make-array 16
+                                         :element-type '(unsigned-byte 32)
+                                         :initial-element 0)))
     ((nil) (copy-random-state *random-state*))
     (otherwise (copy-random-state state))))
 
+;;; Generate 32-bit random number
+(defun %random (random-state)
+  (let* ((idx (random-state-index random-state))
+         (bits (random-state-bits random-state))
+         (a (aref bits idx))
+         (c (aref bits (ldb (byte 4 0) (+ idx 13))))
+         (b (logxor a c (dpb a (byte 16 16) 0) (dpb c (byte 17 15) 0)))
+         (d))
+    (setf c (logxor c (ash c -11)))
+    (setf a (setf (aref bits idx) (logxor b c)))
+    (setf d  (logxor a (logand (dpb a (byte 27 5) 0) #xDA442D24)))
+    (setf idx (ldb (byte 4 0) (+ idx 15)))
+    (setf (random-state-index random-state) idx)
+    (setf a (aref bits idx))
+    (setf (aref bits idx) (logxor a b d
+                                  (dpb a (byte 30 2) 0)
+                                  (dpb b (byte 14 18) 0)
+                                  (dpb c (byte 4 28) 0)))))
+
 (defun random (limit &optional (random-state *random-state*))
-  (rem (incf (random-state-bits random-state)) limit))
+  (let* ((r (%random random-state))
+         (rd (/ (float r 1.0d0) (+ 1.0d0 (float #xFFFFFFFF 1.0d0)))))
+    (etypecase limit
+      ;; Using high bits of %random even though it takes more work
+      ;; using floating point intermediaries
+      (integer (values (truncate (* limit rd))))
+      ;; 32-bits is too big for single precision so try again if rd
+      ;; rounds up to 1.0f0
+      (single-float
+       (let ((rs (float rd 1.0f0)))
+         (if (= rs 1.0f0)
+             (random limit random-state)
+             (* limit rs))))
+      (double-float (* limit rd)))))
+
+;;; Discard first few random numbers so that *random-state* is less uniform.
+;;; TODO - initialize *random-state* with something better
+
+(dotimes (i 64)
+  (%random *random-state*))

@@ -142,8 +142,13 @@
   form)
 
 (defmethod value-aware-lowering-1 ((form ast-the) mode)
-  (setf (value form) (value-aware-lowering-1 (value form) mode))
-  form)
+  (ecase mode
+    (:effect
+     (change-made)
+     (value-aware-lowering-1 (value form) mode))
+    ((:single :multiple)
+     (setf (value form) (value-aware-lowering-1 (value form) mode))
+     form)))
 
 (defmethod value-aware-lowering-1 ((form ast-unwind-protect) mode)
   (setf (protected-form form) (value-aware-lowering-1 (protected-form form) mode)

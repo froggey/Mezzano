@@ -67,12 +67,27 @@
                                         :frame frame)))
             (multiple-value-bind (left right top bottom)
                 (mezzano.gui.widgets:frame-size frame)
-              (mezzano.gui:bitblt :set
-                                  (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
-                                  image 0 0
-                                  framebuffer
-                                  (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
-                                  (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2))))
+              (ecase (mezzano.gui:surface-format image)
+                (:argb32
+                 (mezzano.gui:bitblt :set
+                                     (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
+                                     image 0 0
+                                     framebuffer
+                                     (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
+                                     (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2)))))
+                ((:a8 :a1)
+                 (mezzano.gui:bitset :set
+                                     (- width left right) (- height top bottom)
+                                     (mezzano.gui:make-colour 0 0 0)
+                                     framebuffer
+                                     left top)
+                 (mezzano.gui:bitset :blend
+                                     (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
+                                     (mezzano.gui:make-colour 1 1 1)
+                                     framebuffer
+                                     (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
+                                     (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2)))
+                                     image 0 0)))
               (mezzano.gui.widgets:draw-frame frame)
               (mezzano.gui.compositor:damage-window window
                                                     0 0

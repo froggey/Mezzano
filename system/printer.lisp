@@ -137,12 +137,6 @@
         (t (terpri stream)
            t)))
 
-(defun write-string (string &optional stream &key (start 0) end)
-  (unless end (setf end (length string)))
-  (dotimes (i (- end start))
-    (write-char (char string (+ start i)) stream))
-  string)
-
 (defun write-line (string &optional stream &key (start 0) end)
   (write-string string stream :start start :end end)
   (terpri stream)
@@ -161,20 +155,22 @@
                               (zerop (length string)))))
        (when need-escaping
          (write-char #\| stream))
-       (dotimes (i (length string))
-         (write-char (char string i) stream))
+       (write-string string stream)
        (when need-escaping
          (write-char #\| stream))))
     (:downcase
-     (dotimes (i (length string))
-       (let ((c (char string i)))
-         (cond ((or (and (upper-case-p c)
-                         (digit-char-p c *print-base*))
-                    (member c '(#\| #\\))
-                    (lower-case-p c))
-                (write-char #\\ stream)
-                (write-char c stream))
-               (t (write-char (char-downcase c) stream))))))))
+     (let ((output-string (make-array (length string) :element-type 'character :adjustable t :fill-pointer 0)))
+       (dotimes (i (length string))
+         (let ((c (char string i)))
+           (cond ((or (and (upper-case-p c)
+                           (digit-char-p c *print-base*))
+                      (member c '(#\| #\\))
+                      (lower-case-p c))
+                  (vector-push-extend #\\ output-string)
+                  (vector-push-extend c output-string))
+                 (t
+                  (vector-push-extend (char-downcase c) output-string)))))
+       (write-string output-string stream)))))
 
 (defun write-symbol (object stream)
   (cond ((or *print-escape* *print-readably*)
@@ -401,16 +397,17 @@
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
 
 (defun %print-unreadable-object (fn object stream &key type identity)
+  (when *print-readably*
+    (cerror "Print anyway" 'print-not-readable :object object))
   (write-char #\# stream)
   (write-char #\< stream)
   (when type
-    (write (type-of object) :stream (make-case-correcting-stream stream :titlecase)))
+    (write (type-of object) :stream (make-case-correcting-stream stream :titlecase))
+    (write-char #\Space stream))
   (when fn
-    (when type
-      (write-char #\Space stream))
     (funcall fn))
   (when identity
-    (when (or type fn)
+    (when (or (not type) fn)
       (write-char #\Space stream))
     (write-integer (sys.int::lisp-object-address object) 16 stream))
   (write-char #\> stream)
@@ -424,11 +421,11 @@
 
 (defun print (object &optional output-stream)
   (terpri output-stream)
-  (write object :stream output-stream :escape nil :readably nil)
+  (write object :stream output-stream :escape t)
   (write-char #\Space output-stream)
   object)
 
 (defun pprint (object &optional output-stream)
   (terpri output-stream)
-  (write object :stream output-stream :escape nil :readably nil :pretty t)
+  (write object :stream output-stream :escape t :pretty t)
   (values))

@@ -55,7 +55,6 @@
                 (setf result (,base result n)))
               result))
           (define-compiler-macro ,name (&rest numbers)
-            (declare (dynamic-extent numbers))
             (cond ((null numbers) ',identity)
                   ((null (rest numbers))
                    `(the number ,(first numbers)))
@@ -91,7 +90,6 @@
         (t (binary-- 0 number))))
 
 (define-compiler-macro - (number &rest more-numbers)
-  (declare (dynamic-extent more-numbers))
   (cond ((null more-numbers) `(binary-- 0 ,number))
         (t (let ((result number))
              (dolist (n more-numbers)
@@ -108,7 +106,6 @@
         (t (binary-/ 1 number))))
 
 (define-compiler-macro / (number &rest more-numbers)
-  (declare (dynamic-extent more-numbers))
   (cond ((null more-numbers) `(binary-/ 1 ,number))
         (t (let ((result number))
              (dolist (n more-numbers)

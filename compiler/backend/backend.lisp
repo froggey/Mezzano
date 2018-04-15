@@ -182,7 +182,9 @@
 
 (defun compile-backend-function-1 (backend-function target)
   (simplify-cfg backend-function)
+  (break-critical-edges backend-function)
   (construct-ssa backend-function)
+  (localize-constants backend-function)
   (convert-rest-arg-to-dx backend-function)
   (perform-target-lowering backend-function target)
   (loop
@@ -191,6 +193,7 @@
        (incf total (unbox-debug-values backend-function))
        (incf total (eliminate-redundant-boxing backend-function))
        (incf total (remove-unused-instructions backend-function))
+       (incf total (remove-unused-phis backend-function))
        (when (zerop total)
          (return))))
   (remove-extraneous-multiple-value-saves backend-function)
@@ -207,6 +210,9 @@
   (check-cfg backend-function))
 
 (defun compile-backend-function-2 (backend-function debug-map spill-locations stack-layout target)
+  ;; Register allocation will break critical edges by inserting empty basic blocks.
+  ;; Undo that.
+  (simplify-cfg backend-function)
   (multiple-value-bind (lap environment-slot)
       (sys.c:with-metering (:backend-lap-generation)
         (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target))

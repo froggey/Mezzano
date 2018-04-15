@@ -176,8 +176,7 @@
 
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
-  (:use :cross-cl)
-  (:export #:assemble))
+  (:use :cross-cl))
 
 (defpackage :mezzano.compiler.codegen.arm64
   (:use :cross-cl :mezzano.compiler)
@@ -388,6 +387,7 @@
            #:allocate-memory-range
            #:protect-memory-range
            #:release-memory-range
+           #:update-wired-dirty-bits
            #:debug-print-line
            #:panic
            #:fifo
@@ -548,8 +548,7 @@
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
-  (:use :cross-cl :sys.lap)
-  (:export #:assemble))
+  (:use :cross-cl :sys.lap))
 
 (defpackage :mezzano.compiler.backend
   (:use :cross-cl :mezzano.compiler)
@@ -645,10 +644,9 @@
            #:jump-target
 
            #:branch-instruction
-           #:branch-true-instruction
-           #:branch-false-instruction
            #:branch-value
-           #:branch-target
+           #:branch-true-target
+           #:branch-false-target
 
            #:switch-instruction
            #:switch-value
@@ -768,7 +766,7 @@
            #:allow-memory-operand-p))
 
 (defpackage :mezzano.compiler.backend.x86-64
-  (:use :cross-cl :mezzano.compiler.backend)
+  (:use :cross-cl)
   (:local-nicknames (:lap :sys.lap-x86)
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)))
@@ -805,6 +803,10 @@
              (:constructor byte (size position)))
   size
   position)
+
+(defmethod make-load-form ((object byte) &optional environment)
+  (declare (ignore environment))
+  `(byte ',(byte-size object) ',(byte-position object)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun loose-constant-equal (x y)

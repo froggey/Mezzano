@@ -208,8 +208,13 @@
 
 (defconstant +address-tag-shift+ 45)
 (defconstant +address-tag-size+ 3)
+(defconstant +address-tag+ (byte +address-tag-size+ +address-tag-shift+))
 
-(defconstant +address-newspace/oldspace-bit+ 44)
+(defconstant +address-generation+ (byte 2 43))
+(defconstant +address-generation-0+ 0)
+(defconstant +address-generation-1+ 1)
+(defconstant +address-generation-2-a+ 2)
+(defconstant +address-generation-2-b+ 3)
 
 ;; Pinned must be zero, a number of critical objects are pinned & wired and stored
 ;; below 2GB to permit fast access to them.
@@ -218,8 +223,34 @@
 (defconstant +address-tag-general+      #b010)
 (defconstant +address-tag-cons+         #b011)
 
+(defconstant +card-size+ #x1000) ; Match page size for now.
+(defconstant +card-table-entry-size+ 4)
+
+(defconstant +card-table-entry-offset+ (byte 16 0)
+  "A negative 16-bit offset from the start of the card to the start
+of the first object in the card. Measured in 16-byte units.
+An offset of all ones (1- (expt 2 16)) indicates that the start of the
+object is further away than what can be encoded and the the system
+should continue looking backwards.")
+(defconstant +cart-table-entry-dirty-gen+ (byte 2 16))
+;; Bits 31-18 available.
+
+;; Cover the whole address space.
+(defconstant +card-table-size+ (* (/ (expt 2 47) +card-size+)
+                                  +card-table-entry-size+))
+(defconstant +card-table-base+ #x4000000000) ; 256GB, mostly arbitrary but in the wired area
+;; VM regions must meet this allocation requirement so that the card table
+;; entries associated with an allocation cover an exact number of pages.
+;; This allows the pager to map/unmap regions in the card table without worrying
+;; about partial page coverage.
+;; NOTE: Stacks don't have card table entries and aren't subject to this
+;; alignment constraint. They must still be page-aligned.
+(defconstant +allocation-minimum-alignment+ (* (/ #x1000 +card-table-entry-size+)
+                                               +card-size+))
+
 (defconstant +block-map-present+ #x01
   "Entry is present. This entry may still have a block associated with it, even if it is not present.")
+;; FIXME: This isn't really respected properly.
 (defconstant +block-map-writable+ #x02
   "Entry is writable.")
 (defconstant +block-map-zero-fill+ #x04
@@ -229,6 +260,9 @@
 Internal to the pager, should not be used by other code.")
 (defconstant +block-map-wired+ #x10
   "Entry should be wired in memory.")
+(defconstant +block-map-track-dirty+ #x20
+  "Dirty bit tracking is enabled for this entry.
+When the page is written to, the corresponding dirty bit in the card table will be set and this flag will be cleared.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 54) ; keep it a few bits smaller than 56 to avoid bignums.
@@ -237,7 +271,7 @@ Internal to the pager, should not be used by other code.")
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 21)
+(defparameter *llf-version* 22)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
@@ -388,3 +422,14 @@ reserved on the disk, but no specific block has been allocated.")
                                            :q8 :q9 :q10 :q11 :q12 :q13 :q14 :q15
                                            :q16 :q17 :q18 :q19 :q20 :q21 :q22 :q23
                                            :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31))
+
+(defconstant +gcmd-flag0-frame+ 0)
+(defconstant +gcmd-flag0-interrupt+ 1)
+(defconstant +gcmd-flag0-block-or-tagbody-thunk+ 2)
+(defconstant +gcmd-flag0-incoming-arguments+ 3)
+(defconstant +gcmd-flag0-pushed-values-register+ 4)
+(defconstant +gcmd-flag0-extra-registers+ (byte 2 5))
+(defconstant +gcmd-flag0-restart+ 7)
+
+(defconstant +gcmd-flag1-multiple-values+ (byte 4 0))
+(defconstant +gcmd-flag1-incoming-arguments-location+ (byte 4 4))

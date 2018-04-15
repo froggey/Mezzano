@@ -808,7 +808,7 @@ Interrupts must be off and the global thread lock must be held."
   (assert (not (eql thread (current-thread))))
   (establish-thread-foothold thread #'stop-current-thread)
   (loop
-     (when (eql (sample-thread-state thread) :stopped)
+     (when (member (sample-thread-state thread) '(:stopped :dead))
        (return))
      (thread-yield))
   (values))

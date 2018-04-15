@@ -932,7 +932,7 @@
           (setf *last-abbreviated-printing*
                 (let ((current-package *package*)
                       (copied-args (copy-list args)))
-                  (lambda (&optional (stream ',stream))
+                  (lambda (&optional (stream stream))
                     (let ((*package* current-package))
                       (apply #'maybe-initiate-xp-printing
                              fn stream copied-args))))))
@@ -1121,8 +1121,8 @@
   (write-char+ char stream)
   char)
 
-(defmethod sys.gray:stream-write-string ((stream xp-structure) string &optional (start 0) (end (length string)))
-  (write-string+ string stream start end)
+(defmethod sys.gray:stream-write-string ((stream xp-structure) string &optional (start 0) end)
+  (write-string+ string stream start (or end (length string)))
   string)
 
 (defmethod sys.gray:stream-terpri ((stream xp-structure))
@@ -1300,24 +1300,21 @@
 
 (defun pprint-newline (kind &optional (stream *standard-output*))
   (setf stream (decode-stream-arg stream))
-  (when (not (member kind '(:linear :miser :fill :mandatory)))
-    (error "Invalid KIND argument ~A to PPRINT-NEWLINE" kind))
+  (check-type kind (member :linear :miser :fill :mandatory))
   (when (xp-structure-p stream)
     (pprint-newline+ kind stream))
   nil)
 
 (defun pprint-indent (relative-to n &optional (stream *standard-output*))
   (setf stream (decode-stream-arg stream))
-  (when (not (member relative-to '(:block :current)))
-    (error "Invalid KIND argument ~A to PPRINT-INDENT" relative-to))
+  (check-type relative-to (member :block :current))
   (when (xp-structure-p stream)
     (pprint-indent+ relative-to n stream))
   nil)
 
 (defun pprint-tab (kind colnum colinc &optional (stream *standard-output*))
   (setf stream (decode-stream-arg stream))
-  (when (not (member kind '(:line :section :line-relative :section-relative)))
-    (error "Invalid KIND argument ~A to PPRINT-TAB" kind))
+  (check-type kind (member :line :section :line-relative :section-relative))
   (when (xp-structure-p stream)
     (pprint-tab+ kind colnum colinc stream))
   nil)

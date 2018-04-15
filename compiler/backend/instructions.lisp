@@ -372,7 +372,8 @@
 
 (defclass branch-instruction (terminator-instruction)
   ((%value :initarg :value :accessor branch-value)
-   (%target :initarg :target :accessor branch-target))
+   (%true-target :initarg :true-target :accessor branch-true-target)
+   (%false-target :initarg :false-target :accessor branch-false-target))
   (:documentation "Conditionally transfer control to the target label."))
 
 (defmethod instruction-inputs ((instruction branch-instruction))
@@ -385,24 +386,12 @@
   (setf (branch-value instruction) (funcall substitution-function (branch-value instruction))))
 
 (defmethod successors (function (instruction branch-instruction))
-  (list (next-instruction function instruction)
-        (branch-target instruction)))
+  (list (branch-true-target instruction)
+        (branch-false-target instruction)))
 
-(defclass branch-true-instruction (branch-instruction)
-  ()
-  (:documentation "Transfer control to the target label if the value is true."))
-
-(defmethod print-instruction ((instruction branch-true-instruction))
+(defmethod print-instruction ((instruction branch-instruction))
   (format t "   ~S~%"
-          `(:branch-true ,(branch-value instruction) ,(branch-target instruction))))
-
-(defclass branch-false-instruction (branch-instruction)
-  ()
-  (:documentation "Transfer control to the target label if the value is false."))
-
-(defmethod print-instruction ((instruction branch-false-instruction))
-  (format t "   ~S~%"
-          `(:branch-false ,(branch-value instruction) ,(branch-target instruction))))
+          `(:branch ,(branch-value instruction) ,(branch-true-target instruction) ,(branch-false-target instruction))))
 
 (defclass switch-instruction (terminator-instruction)
   ((%value :initarg :value :accessor switch-value)

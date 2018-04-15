@@ -25,6 +25,12 @@
 (defun write-char (character &optional stream)
   (cold-write-char character stream))
 
+(defun write-string (string &optional stream &key (start 0) end)
+  (unless end (setf end (length string)))
+  (dotimes (i (- end start))
+    (write-char (char string (+ start i)) stream))
+  string)
+
 (defun start-line-p (stream)
   (cold-start-line-p stream))
 
@@ -280,7 +286,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*initial-structure-obarray*)
   (write-line "First GC.")
   (room)
-  (gc)
+  (gc :full t)
   (room)
   (write-line "Cold load complete.")
   (mezzano.supervisor:snapshot)
@@ -296,7 +302,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (room)
   (mezzano.supervisor:snapshot)
   (setf *cold-start-end-time* (get-internal-real-time))
-  (format t "Hello, world.~%Cold start took ~:D seconds.~%"
+  (format t "Hello, world.~%Cold start took ~:D seconds (~:D seconds of GC time).~%"
           (float (/ (- *cold-start-end-time*
                        *cold-start-start-time*)
-                    internal-time-units-per-second))))
+                    internal-time-units-per-second))
+          *gc-time*))

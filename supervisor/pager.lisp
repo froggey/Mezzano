@@ -30,6 +30,11 @@
 
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
+  (when (eql *pager-noisy* t)
+    (debug-print-line-1 things)))
+
+(defun pager-log-op (&rest things)
+  (declare (dynamic-extent things))
   (when *pager-noisy*
     (debug-print-line-1 things)))
 
@@ -58,6 +63,10 @@
 (defun block-info-writable-p (block-info)
   (logtest sys.int::+block-map-writable+ block-info))
 
+(declaim (inline block-info-track-dirty-p))
+(defun block-info-track-dirty-p (block-info)
+  (logtest sys.int::+block-map-track-dirty+ block-info))
+
 (declaim (inline block-info-committed-p))
 (defun block-info-committed-p (block-info)
   (logtest sys.int::+block-map-committed+ block-info))
@@ -73,6 +82,9 @@
 
 (defun page-aligned-p (value)
   (zerop (logand value #xFFF)))
+
+(defun stack-area-p (address)
+  (eql (ldb sys.int::+address-tag+ address) sys.int::+address-tag-stack+))
 
 (defun allocate-page (&optional mandatory)
   (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
@@ -226,7 +238,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                     info)
                    ((not allocate)
                     (return-from block-info-for-virtual-address-1 nil))
-                   (t (let* ((frame (pager-allocate-page :other))
+                   (t (let* ((frame (pager-allocate-page :new-type :other))
                              (new-level (convert-to-pmap-address (* frame +4k-page-size+))))
                         (zeroize-page new-level)
                         (setf (sys.int::memref-signed-byte-64 map entry) new-level)
@@ -247,8 +259,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
            nil)
           (t (sys.int::memref-unsigned-byte-64 bme)))))
 
-(defun allocate-new-block-for-virtual-address (address flags)
-  (let ((new-block (if *pager-lazy-block-allocation-enabled*
+(defun allocate-new-block-for-virtual-address (address flags &key eager)
+  (let ((new-block (if (and (not eager)
+                            *pager-lazy-block-allocation-enabled*)
                        sys.int::+block-map-id-lazy+
                        (or (store-alloc 1)
                            (panic "Unable to allocate new block!"))))
@@ -307,6 +320,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (:wired
      (when (not allow-wired)
        (panic "Releasing page wired " frame))
+     ;; Release the backing frame, if any.
+     (when (physical-page-frame-next frame)
+       (release-physical-pages (physical-page-frame-next frame) 1))
      (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
@@ -333,14 +349,21 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (thread-pager-argument-1 (current-thread))))
 
 (defun allocate-memory-range (base length flags)
-  (assert (and (page-aligned-p base)
-               (page-aligned-p length))
-          (base length)
-          "Range not page aligned.")
+  (cond ((stack-area-p base)
+         (assert (and (page-aligned-p base)
+                      (page-aligned-p length))
+                 (base length)
+                 "Range not aligned."))
+        (t
+         (assert (and (zerop (rem base sys.int::+allocation-minimum-alignment+))
+                      (zerop (rem length sys.int::+allocation-minimum-alignment+)))
+                 (base length)
+                 "Range not aligned.")))
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
-(defun map-new-wired-page (address)
-  (let ((pte (get-pte-for-address address))
+;; Note: Must be called with a TLB shootdown in progress.
+(defun map-new-wired-page (address &key backing-frame)
+  (let ((pte (get-pte-for-address address t t))
         (block-info (block-info-for-virtual-address address)))
     ;;(debug-print-line "MNWP " address " block " block-info)
     (when (page-present-p pte 0)
@@ -351,10 +374,17 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (when (not (block-info-zero-fill-p block-info))
       (panic "Not implemented! Mapping new wired page at " address " but not zero!"))
     ;; No page allocated. Allocate a page and read the data.
-    (let* ((frame (pager-allocate-page :wired))
+    (let* ((frame (pager-allocate-page :new-type :wired :shootdown-in-progress t))
            (addr (convert-to-pmap-address (ash frame 12))))
       (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
             (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
+      (cond (backing-frame
+             ;; Include a backing frame.
+             (let ((new-backing-frame (pager-allocate-page :new-type :wired-backing :shootdown-in-progress t)))
+               (setf (physical-page-frame-next frame) new-backing-frame)
+               (setf (physical-page-virtual-address new-backing-frame) address)))
+            (t
+             (setf (physical-page-frame-next frame) nil)))
       ;; Block is zero-filled.
       (zeroize-page addr)
       ;; Clear the zero-fill flag.
@@ -362,16 +392,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                          sys.int::+block-map-flag-mask+
                                          (lognot sys.int::+block-map-zero-fill+)))
       (setf (page-table-entry pte 0) (make-pte frame
-                                               :writable (block-info-writable-p block-info)))
+                                               :writable (and (block-info-writable-p block-info)
+                                                              (not (block-info-track-dirty-p block-info)))
+                                               :dirty t))
       ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
       (flush-tlb-single address))))
 
 (defun allocate-memory-range-in-pager (base length flags)
-  (pager-log "Allocate range " base "-" (+ base length) "  " flags)
-  (when (< base #x80000000)
-    ;; This will require allocating new wired backing frames as well.
-    (debug-print-line "TODO: Allocate pages in the wired area.")
-    (return-from allocate-memory-range-in-pager nil))
+  (pager-log-op "Allocate range " base "-" (+ base length) "  " flags)
   (when (logtest flags sys.int::+block-map-wired+)
     (ensure (or (< base #x80000000) ; wired area
                 (and (<= #x200000000000 base) ; wired stack area.
@@ -385,34 +413,76 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (dotimes (i (truncate length #x1000))
       (allocate-new-block-for-virtual-address
        (+ base (* i #x1000))
-       flags))
-    (when (and (<= #x200000000000 base) ; wired stack area.
-               (< base #x208000000000))
+       flags
+       :eager (logtest flags sys.int::+block-map-wired+)))
+    (when (not (stack-area-p base))
+      ;; Allocate new card table pages.
+      (let ((card-base (+ sys.int::+card-table-base+
+                          (* (truncate base sys.int::+card-size+)
+                             sys.int::+card-table-entry-size+)))
+            (card-length (* (truncate length sys.int::+card-size+)
+                            sys.int::+card-table-entry-size+)))
+        (begin-tlb-shootdown)
+        (dotimes (i (truncate card-length #x1000))
+          (allocate-new-block-for-virtual-address
+           (+ card-base (* i #x1000))
+           (logior sys.int::+block-map-present+
+                   sys.int::+block-map-writable+
+                   sys.int::+block-map-zero-fill+
+                   sys.int::+block-map-wired+)
+           :eager t)
+          (map-new-wired-page (+ card-base (* i #x1000)) :backing-frame t))
+        (tlb-shootdown-range card-base card-length)
+        (finish-tlb-shootdown)))
+    (when (or (< base #x80000000)
+              (and (<= #x200000000000 base) ; wired stack area.
+                   (< base #x208000000000)))
       (ensure (logtest flags sys.int::+block-map-wired+))
       ;; Pages in the wired stack area don't require backing frames.
       (begin-tlb-shootdown)
       (dotimes (i (truncate length #x1000))
-        (map-new-wired-page (+ base (* i #x1000))))
+        (map-new-wired-page (+ base (* i #x1000))
+                            :backing-frame (stack-area-p base)))
       (tlb-shootdown-range base length)
       (finish-tlb-shootdown)))
   t)
 
 (defun release-memory-range (base length)
-  (assert (and (page-aligned-p base)
-               (page-aligned-p length))
-          (base length)
-          "Range not page aligned.")
+  (cond ((stack-area-p base)
+         (assert (and (page-aligned-p base)
+                      (page-aligned-p length))
+                 (base length)
+                 "Range not aligned."))
+        (t
+         (assert (and (zerop (rem base sys.int::+allocation-minimum-alignment+))
+                      (zerop (rem length sys.int::+allocation-minimum-alignment+)))
+                 (base length)
+                 "Range not aligned.")))
   (pager-rpc 'release-memory-range-in-pager base length))
 
 (defun release-memory-range-in-pager (base length ignore3)
   (declare (ignore ignore3))
-  (pager-log "Release range " base "-" (+ base length))
+  (pager-log-op "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
-    (let ((stackp (eql (ldb (byte sys.int::+address-tag-size+
-                                  sys.int::+address-tag-shift+)
-                            base)
-                       sys.int::+address-tag-stack+)))
+    (let ((stackp (stack-area-p base)))
+      (when (not stackp)
+        ;; Release card table pages.
+        (let ((card-base (+ sys.int::+card-table-base+
+                            (* (truncate base sys.int::+card-size+)
+                               sys.int::+card-table-entry-size+)))
+              (card-length (* (truncate length sys.int::+card-size+)
+                              sys.int::+card-table-entry-size+)))
+          (dotimes (i (truncate card-length #x1000))
+            ;; Update block map.
+            (release-block-at-virtual-address (+ card-base (* i #x1000)))
+            ;; Update page tables and release pages if possible.
+            (let ((pte (get-pte-for-address (+ card-base (* i #x1000)) nil)))
+              (when (and pte (page-present-p pte 0))
+                (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
+                                 t)
+                (setf (page-table-entry pte 0) 0))))
+          (tlb-shootdown-range card-base card-length)))
       (dotimes (i (truncate length #x1000))
         ;; Update block map.
         (release-block-at-virtual-address (+ base (* i #x1000)))
@@ -432,43 +502,68 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                (page-aligned-p length))
           (base length)
           "Range not page aligned.")
-  (assert (>= (+ base length) (* 2 1024 1024 1024)) () "Wired area can't be protected.")
-  ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
-  ;; Actual possible implementation strategy: Commit if uncommitted, then back write to disk.
-  (assert (or (block-info-present-p flags)
-              (block-info-zero-fill-p flags))
-          () "TODO: Cannot mark block not-present without zero-fill")
+  (assert (>= (+ base length) (* 512 1024 1024 1024)) () "Wired area can't be protected.")
+  ;; P-M-R only modifies the protection flags (present, writable and track-dirty).
+  (assert (not (logtest flags (lognot (logior sys.int::+block-map-present+
+                                              sys.int::+block-map-writable+
+                                              sys.int::+block-map-track-dirty+)))))
   (pager-rpc 'protect-memory-range-in-pager base length flags))
 
 (defun protect-memory-range-in-pager (base length flags)
-  (pager-log "Protect range " base "-" (+ base length) "  " flags)
+  (pager-log-op "Protect range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
-      ;; Update block map.
-      (set-address-flags (+ base (* i #x1000)) flags)
-      ;; Update page tables and release pages if possible.
-      (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (page-present-p pte 0))
-          (cond ((or (not (block-info-present-p flags))
-                     (block-info-zero-fill-p flags))
-                 ;; Page going away, but it's ok. It'll be back, zero-filled.
-                 #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
-                 (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
-                 (setf (page-table-entry pte 0) 0))
-                ((block-info-writable-p flags)
-                 ;; Mark writable.
-                 (setf (page-table-entry pte 0) (logior (page-table-entry pte 0)
-                                                        +page-table-write+)))
-                (t
-                 ;; Mark read-only.
-                 (setf (page-table-entry pte 0) (logand (page-table-entry pte 0)
-                                                        (lognot +page-table-write+))))))))
+      (let* ((address (+ base (* i #x1000)))
+             (block-info (or (block-info-for-virtual-address address)
+                             (panic "Virtual address " address " not mapped??")))
+             (page-flags (logior (logand block-info
+                                         ;; Clear bits.
+                                         (lognot (logior sys.int::+block-map-present+
+                                                         sys.int::+block-map-writable+
+                                                         sys.int::+block-map-track-dirty+)))
+                                 flags)))
+        (set-address-flags address page-flags)
+        ;; Update page tables and release pages if possible.
+        (let ((pte (get-pte-for-address address nil)))
+          (when (and pte (page-present-p pte 0))
+            (cond ((or (not (block-info-present-p page-flags))
+                       (block-info-zero-fill-p page-flags))
+                   ;; Page going away, but it's ok. It'll be back, zero-filled.
+                   #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
+                   (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
+                   (setf (page-table-entry pte 0) 0))
+                  ((and (block-info-writable-p page-flags)
+                        (not (block-info-track-dirty-p page-flags)))
+                   ;; Mark writable.
+                   (update-pte pte :writable t))
+                  (t
+                   ;; Mark read-only.
+                   (update-pte pte :writable nil)))))))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
-(defun pager-allocate-page (&optional (new-type :active))
+(defun update-wired-dirty-bits ()
+  (pager-rpc 'update-wired-dirty-bits-in-pager))
+
+(defun update-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
+  (declare (ignore ignore1 ignore2 ignore3))
+  (with-mutex (*vm-lock*)
+    (begin-tlb-shootdown)
+    (loop
+       for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
+       for pte = (or (get-pte-for-address wired-page nil)
+                     (panic "Missing pte for wired page " wired-page))
+       do
+         (when (page-dirty-p pte)
+           (setf (sys.int::card-table-dirty-gen wired-page) 0)
+           (update-pte pte :dirty nil)))
+    (flush-tlb)
+    (tlb-shootdown-all)
+    (finish-tlb-shootdown)))
+
+(defun pager-allocate-page (&key (new-type :active) shootdown-in-progress)
   (let ((frame (allocate-physical-pages 1 :type new-type)))
     (when (not frame)
       ;; TODO: Purge empty page table levels.
@@ -492,11 +587,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                           "  bme " bme)
         ;; Remove this page from the VM, but do not free it just yet.
         (remove-from-page-replacement-list candidate)
-        (begin-tlb-shootdown)
+        (when (not shootdown-in-progress)
+          (begin-tlb-shootdown))
         (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
         (flush-tlb-single candidate-virtual)
         (tlb-shootdown-single candidate-virtual)
-        (finish-tlb-shootdown)
+        (when (not shootdown-in-progress)
+          (finish-tlb-shootdown))
         ;; Maybe write it back to disk.
         (when dirty-p
           (when (not (block-info-committed-p bme))
@@ -569,9 +666,28 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (page-present-p pte)
+        (when (and block-info
+                   (block-info-track-dirty-p block-info))
+          ;; Probably a write fault. Set the dirty flag in the card table.
+          ;; Leave the page read-only and the track bit set until after
+          ;; clone-cow has finished.
+          (setf (sys.int::card-table-dirty-gen address) 0))
         (when (page-copy-on-write-p pte)
           (pager-log "Copying page " address " in WFP.")
           (snapshot-clone-cow-page (pager-allocate-page) address))
+        (when (and block-info
+                   (block-info-track-dirty-p block-info))
+          ;; Wipe the track flag.
+          (set-address-flags address (logand block-info
+                                             sys.int::+block-map-flag-mask+
+                                             (lognot sys.int::+block-map-track-dirty+)))
+          ;; Remap page read/write.
+          (begin-tlb-shootdown)
+          (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
+                                                 :writable (block-info-writable-p block-info)))
+          (flush-tlb-single address)
+          (tlb-shootdown-single address)
+          (finish-tlb-shootdown))
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make
@@ -613,15 +729,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                  (panic "Unable to read page from disk"))))
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte frame
-                                               :writable (block-info-writable-p block-info)))
+                                               :writable (and (block-info-writable-p block-info)
+                                                              (not (block-info-track-dirty-p block-info)))
+                                               ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
+                                               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                                               :dirty is-zero-page))
         (flush-tlb-single address)
         (tlb-shootdown-single address)
         (finish-tlb-shootdown)
-        (when is-zero-page
-          ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
-          ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-          ;; This sets the dirty bits in the page tables properly.
-          (setf (sys.int::memref-unsigned-byte-8 address 0) 0))
         #+(or)
         (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
@@ -636,12 +751,24 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; Blocking is not permitted during a page-fault, which is why
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
-(defun wait-for-page-fast-path (fault-address)
+(defun wait-for-page-fast-path (fault-address writep)
   (with-mutex (*vm-lock* nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
-                 (not (page-present-p pte 0))
+                 (page-present-p pte)
+                 (not (page-writable-p pte))
+                 (not (page-copy-on-write-p pte))
+                 block-info
+                 (block-info-writable-p block-info)
+                 (block-info-track-dirty-p block-info))
+        ;; Tracking dirty bits for the GC.
+        (setf (sys.int::card-table-dirty-gen fault-address) 0)
+        (update-pte pte :writable t)
+        (flush-tlb-single fault-address)
+        (return-from wait-for-page-fast-path t))
+      (when (and pte
+                 (not (page-present-p pte))
                  block-info
                  (block-info-present-p block-info)
                  (block-info-zero-fill-p block-info))
@@ -662,7 +789,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
               ;; This sets the dirty bits in the page tables properly.
               (setf (page-table-entry pte 0) (make-pte frame
-                                                       :writable (block-info-writable-p block-info)
+                                                       :writable (and (block-info-writable-p block-info)
+                                                                      (not (block-info-track-dirty-p block-info)))
                                                        :dirty t))
               ;; Play a little fast & loose with TLB shootdown here.
               ;; The fast path runs on the exception stack with interrupts
@@ -672,15 +800,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (flush-tlb-single fault-address))
             t))))))
 
-(defun wait-for-page-via-interrupt (interrupt-frame address)
-  "Called by the page fault handler when a non-present page is accessed.
+(defun wait-for-page-via-interrupt (interrupt-frame address writep)
+  "Called by the page fault handler when a page fault occurs.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread))
         (pager (sys.int::symbol-global-value 'sys.int::*pager-thread*)))
     (when (eql self pager)
       (panic "Page fault in pager!"))
     (when (and *pager-fast-path-enabled*
-               (wait-for-page-fast-path address))
+               (wait-for-page-fast-path address writep))
       (incf *pager-fast-path-hits*)
       (return-from wait-for-page-via-interrupt))
     (incf *pager-fast-path-misses*)
@@ -731,7 +859,15 @@ It will put the thread to sleep, while it waits for the page."
   ;; the ephemeral pager and snapshot threads.
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
   ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
-  (setf *vm-lock* (make-mutex "Global VM Lock")))
+  (setf *vm-lock* (make-mutex "Global VM Lock"))
+  ;; Set all the dirty bits for wired pages. They were not saved over snapshot.
+  (loop
+     for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
+     do
+       (update-pte (or (get-pte-for-address wired-page nil)
+                       (panic "Missing pte for wired page " wired-page))
+                   :dirty t))
+  (flush-tlb))
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
 ;;; When false, the system will continue on and leave the thread in limbo.

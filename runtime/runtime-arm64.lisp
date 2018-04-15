@@ -332,13 +332,11 @@
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; X0 = tag; X1 = data; X2 = words.
   ;; Fetch symbol value cells.
-  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*general-area-bump*))
+  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*general-area-gen0-bump*))
   (mezzano.lap.arm64:ldr :x7 (:object :x7 #.sys.int::+symbol-value+))
-  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*general-area-limit*))
+  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*general-area-gen0-limit*))
   (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
-  (mezzano.lap.arm64:ldr :x4 (:constant sys.int::*dynamic-mark-bit*))
-  (mezzano.lap.arm64:ldr :x4 (:object :x4 #.sys.int::+symbol-value+))
-  ;; X7 = bump. X3 = limit. X4 = mark.
+  ;; X7 = bump. X3 = limit.
   ;; Assemble the final header value in X12.
   (mezzano.lap.arm64:add :x12 :xzr :x0 :lsl #.(- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
@@ -368,9 +366,6 @@
   ;; Set address bits and the tag bits.
   ;; Set address bits, tag bits, and the mark bit.
   (mezzano.lap.arm64:ldr :x9 (:pc general-address-object-tag))
-  (mezzano.lap.arm64:ldr :x10 (:object :x4 #.sys.int::+symbol-value-cell-value+))
-  (mezzano.lap.arm64:add :x10 :xzr :x10 :lsr #.sys.int::+n-fixnum-bits+)
-  (mezzano.lap.arm64:orr :x9 :x9 :x10)
   (mezzano.lap.arm64:orr :x6 :x6 :x9)
   ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
   ;; The gc metadata at this point has :restart t, so if a GC occurs before
@@ -392,6 +387,7 @@
   (:align 16)
   general-address-object-tag
   (:d64/le #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                     (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
                      sys.int::+tag-object+)))
 
 (sys.int::define-lap-function do-cons ((car cdr))
@@ -400,12 +396,10 @@
   ;; Returns (values car cdr t) on failure, just the cons on success.
   ;; R8 = car; R9 = cdr
   ;; Fetch symbol value cells.
-  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*cons-area-bump*))
+  (mezzano.lap.arm64:ldr :x7 (:constant sys.int::*cons-area-gen0-bump*))
   (mezzano.lap.arm64:ldr :x7 (:object :x7 #.sys.int::+symbol-value+))
-  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*cons-area-limit*))
+  (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*cons-area-gen0-limit*))
   (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
-  (mezzano.lap.arm64:ldr :x4 (:constant sys.int::*dynamic-mark-bit*))
-  (mezzano.lap.arm64:ldr :x4 (:object :x4 #.sys.int::+symbol-value+))
   ;; R13 = bump. R11 = limit. R12 = mark.
   ;; Additionally, configure linked mode with :x9 linked to :x7
   (:gc :no-frame :layout #* :restart t :extra-registers :rax-rcx)
@@ -430,8 +424,6 @@
   (mezzano.lap.arm64:add :x6 :xzr :x6 :lsr #.sys.int::+n-fixnum-bits+)
   ;; Set address bits, tag bits, and the mark bit.
   (mezzano.lap.arm64:ldr :x9 (:pc CONS-ADDRESS-CONS-TAG))
-  (mezzano.lap.arm64:ldr :x10 (:object :x4 #.sys.int::+symbol-value-cell-value+))
-  (mezzano.lap.arm64:orr :x9 :x9 :x10 :lsr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:orr :x6 :x6 :x9)
   ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
   ;; It is safe to leave the restart region.
@@ -450,6 +442,7 @@
   (:align 16)
   CONS-ADDRESS-CONS-TAG
   (:d64/le #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                     (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
                      sys.int::+tag-cons+)))
 
 (sys.int::define-lap-function cons ((car cdr))

@@ -13,6 +13,7 @@
 
 (defvar *compositor* nil "Compositor thread.")
 (defvar *compositor-heartbeat* nil "Compositor heartbeat thread. Drives redisplay.")
+(defvar *compositor-debug-enable* nil)
 
 (defvar *event-queue* (mezzano.supervisor:make-fifo 50)
   "Internal FIFO used to submit events to the compositor.")
@@ -542,8 +543,9 @@ A passive drag sends no drag events to the window.")
 
 (defmethod process-event ((event window-create-event))
   (let ((win (window event)))
-    (format t "Registered new ~Dx~D window ~S, attached to FIFO ~S.~%"
-            (width win) (height win) win (fifo win))
+    (when *compositor-debug-enable*
+      (format t "Registered new ~Dx~D window ~S.~%"
+              (width win) (height win) win))
     (setf (window-x win) 0
           (window-y win) 0)
     (case (layer win)
@@ -609,7 +611,8 @@ A passive drag sends no drag events to the window.")
 
 (defmethod process-event ((event window-close-event))
   (let ((win (window event)))
-    (format t "Closing window ~S. Goodbye!~%" win)
+    (when *compositor-debug-enable*
+      (format t "Closing window ~S. Goodbye!~%" win))
     (setf *window-list* (remove win *window-list*))
     (when (eql *drag-window* win)
       (setf *drag-window* nil))

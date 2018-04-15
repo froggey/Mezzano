@@ -263,11 +263,13 @@
 (defun constant-fold (form function arg-list)
   ;; Bail out in case of errors.
   (ignore-errors
-    (let ((mode (get function 'constant-fold-mode)))
+    (let ((mode (get function 'constant-fold-mode))
+          (folder (or (get function 'constant-folder)
+                      function)))
       (etypecase mode
         (cons
          ;; List of arguments & argument types.
-         (ast `(quote ,(apply function
+         (ast `(quote ,(apply folder
                               (mapcar (lambda (thing type)
                                         ;; Bail out if thing is non-constant or does not match the type.
                                         (setf thing (unwrap-the thing))
@@ -279,7 +281,7 @@
               form))
         ((eql t)
          ;; Any arguments!
-         (ast `(quote ,(apply function
+         (ast `(quote ,(apply folder
                               (mapcar (lambda (thing)
                                         ;; Bail out if thing is non-constant or does not match the type.
                                         (setf thing (unwrap-the thing))
@@ -303,7 +305,7 @@
            (setf const-args (nreverse const-args)
                  nonconst-args (nreverse nonconst-args))
            (when (or const-args (not nonconst-args))
-             (setf value (apply function const-args))
+             (setf value (apply folder const-args))
              (if nonconst-args
                  (ast `(call ,function
                              (quote ,value)
@@ -322,7 +324,7 @@
                           (push (value unwrapped) constant-accu))
                          (t
                           (when constant-accu
-                            (push (ast `(quote ,(apply function (nreverse constant-accu)))
+                            (push (ast `(quote ,(apply folder (nreverse constant-accu)))
                                        form)
                                   arg-accu)
                             (setf constant-accu nil))
@@ -331,9 +333,9 @@
                    (ast `(call ,function
                                ,@(nreverse arg-accu)
                                ,@(when constant-accu
-                                       (list `(quote ,(apply function (nreverse constant-accu))))))
+                                       (list `(quote ,(apply folder (nreverse constant-accu))))))
                         form)
-                   (ast `(quote ,(apply function (nreverse constant-accu)))
+                   (ast `(quote ,(apply folder (nreverse constant-accu)))
                         form)))
              (ast `(quote ,(funcall function))
                   form)))
@@ -385,29 +387,37 @@
              (logior :commutative-arithmetic)
              (logxor :commutative-arithmetic)
              (lognot (integer))
-             (sys.int::binary-= :commutative-arithmetic)
-             (sys.int::binary-+ :commutative-arithmetic)
-             (sys.int::binary-- (number number))
-             (sys.int::binary-* :commutative-arithmetic)
-             (sys.int::binary-logand (integer integer))
-             (sys.int::binary-logeqv (integer integer))
-             (sys.int::binary-logior (integer integer))
-             (sys.int::binary-logxor (integer integer))
+             (sys.int::binary-= :commutative-arithmetic =)
+             (sys.int::binary-+ :commutative-arithmetic +)
+             (sys.int::binary-- (number number) -)
+             (sys.int::binary-* :commutative-arithmetic *)
+             (sys.int::binary-logand (integer integer) logand)
+             (sys.int::binary-logeqv (integer integer) logeqv)
+             (sys.int::binary-logior (integer integer) logior)
+             (sys.int::binary-logxor (integer integer) logxor)
              (mezzano.runtime::left-shift (integer integer))
              (mezzano.runtime::right-shift (integer integer))
-             (sys.int::binary-< (number number))
-             (sys.int::binary-<= (number number))
-             (sys.int::binary-> (number number))
-             (sys.int::binary->= (number number))
-             (sys.int::binary-= (number number))
-             (mezzano.runtime::%fixnum-< (integer integer))
+             (sys.int::binary-< (number number) <)
+             (sys.int::binary-<= (number number) <=)
+             (sys.int::binary-> (number number) >)
+             (sys.int::binary->= (number number) >=)
+             (sys.int::binary-= (number number) =)
+             (mezzano.runtime::%fixnum-+ (integer integer) +)
+             (mezzano.runtime::%fixnum-- (integer integer) -)
+             (mezzano.runtime::%fixnum-* (integer integer) *)
+             (mezzano.runtime::%fixnum-< (integer integer) <)
+             (%fast-fixnum-+ (integer integer) +)
+             (%fast-fixnum-- (integer integer) -)
+             (%fast-fixnum-* (integer integer) *)
              (sys.int::fixnump (t))
              (symbolp (t))
              (byte-size (byte))
              (byte-position (byte))
              (keywordp (symbol))
              (sys.int::%type-check (t fixnum t))))
-  (setf (get (first x) 'constant-fold-mode) (second x)))
+  (setf (get (first x) 'constant-fold-mode) (second x))
+  (when (third x)
+    (setf (get (first x) 'constant-folder) (third x))))
 
 (defun mark-as-constant-foldable (name)
   (setf (get name 'constant-fold-mode) t))

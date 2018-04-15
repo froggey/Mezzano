@@ -106,7 +106,7 @@
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (pager-allocate-page :page-table))
+        (let* ((frame (pager-allocate-page :new-type :page-table))
                (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (make-pte frame :writable t))

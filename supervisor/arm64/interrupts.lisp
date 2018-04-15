@@ -134,12 +134,12 @@
         ((logtest #x3C0 (interrupt-frame-raw-register interrupt-frame :rflags))
          ;; IRQs must be enabled when a page fault occurs.
          (unhandled-interrupt interrupt-frame "page-fault-no-irqs"))
-        ((or (<= 0 fault-addr (1- (* 2 1024 1024 1024)))
+        ((or (<= 0 fault-addr (1- (* 512 1024 1024 1024)))
              (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                  fault-addr
                  (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                     (* 512 1024 1024 1024))))
-         ;; Pages below 2G are wired and should never be unmapped or protected.
+         ;; Pages below 512G are wired and should never be unmapped or protected.
          ;; Same for pages in the wired stack area.
          (unhandled-interrupt interrupt-frame "wired-page-fault"))
         ((eql reason :write-to-ro)

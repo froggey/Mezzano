@@ -23,18 +23,6 @@
 
 (defgeneric make-load-form (object &optional environment))
 
-(defun raise-undefined-function (&rest args &fref invoked-through)
-  (setf invoked-through (function-reference-name invoked-through))
-  ;; Allow restarting.
-  ;; FIXME: Restarting doesn't actually work, as args are lost by the undefined function thunk.
-  (restart-case (error 'undefined-function :name invoked-through)
-    (use-value (v)
-      :interactive (lambda ()
-                     (format t "Enter a new value (evaluated): ")
-                     (list (eval (read))))
-      :report (lambda (s) (format s "Input a value to be used in place of ~S." `(fdefinition ',invoked-through)))
-      (apply v args))))
-
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
@@ -90,11 +78,14 @@
 
 (defmethod print-object ((o weak-pointer) stream)
   (print-unreadable-object (o stream :identity t :type t)
-    (multiple-value-bind (value livep)
-        (weak-pointer-value o)
-      (if livep
-          (format stream "pointing to ~S" value)
-          (format stream "dead")))))
+    (multiple-value-bind (key value livep)
+        (weak-pointer-pair o)
+      (cond (livep
+             (if (eql key value)
+                 (format stream "pointing to ~S" value)
+                 (format stream "with key ~S pointing to ~S" key value)))
+            (t
+             (format stream "dead"))))))
 
 (defmethod print-object ((o byte) stream)
   (print-unreadable-object (o stream :type t)
@@ -115,12 +106,43 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~D ~S" (mezzano.supervisor::cpu-apic-id object) (mezzano.supervisor::cpu-state object))))
 
+(defmethod print-object ((object bit-vector) stream)
+  (if *print-array*
+      (write-bit-vector object stream)
+      (call-next-method)))
+
+(defmethod print-object ((object vector) stream)
+  (if *print-array*
+      (write-vector object stream)
+      (call-next-method)))
+
+(defmethod print-object ((object array) stream)
+  (cond (*print-array*
+         (write-char #\# stream)
+         (write (array-rank object) :stream stream :base 10)
+         (write-char #\A stream)
+         (labels ((print-level (dims index)
+                    (cond ((null dims)
+                           (write (row-major-aref object index) :stream stream)
+                           (1+ index))
+                          (t
+                           (write-char #\( stream)
+                           (dotimes (i (first dims))
+                             (setf index (print-level (rest dims) index))
+                             (when (not (eql i (1- (first dims))))
+                               (write-char #\Space stream)))
+                           (write-char #\) stream)
+                           index))))
+           (print-level (array-dimensions object) 0)))
+        (t
+         (call-next-method))))
+
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
 To be run this in the basic repl after ipl completes."
   (mezzano.supervisor:make-thread (lambda ()
                                     (sleep 3)
-                                    (sys.int::gc)
+                                    (sys.int::gc :full t)
                                     (mezzano.supervisor:snapshot)))
   (throw 'mezzano.supervisor::terminate-thread nil))
 

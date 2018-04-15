@@ -189,6 +189,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defgeneric save-one-object (object object-map stream))
 
 (defmethod save-one-object ((object function) omap stream)
+  (when (not (eql (function-tag object) +object-tag-function+))
+    (error "Cannot save complicated function ~S" object))
   (dotimes (i (function-pool-size object))
     (save-object (function-pool-object object i) omap stream))
   ;; FIXME: This should be the fixup list.
@@ -580,7 +582,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                   (external-format :default)
                                   (parallel *compile-parallel*))
   (with-open-file (input-stream input-file :external-format external-format)
-    (format t ";; Compiling file ~S.~%" input-file)
+    (when verbose
+      (format t ";; Compiling file ~S.~%" input-file))
     (let* ((*package* *package*)
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
@@ -679,6 +682,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (format t ";; Writing compiler builtins to ~A.~%" output-file)
     (write-llf-header output-stream output-file)
     (let* ((*llf-forms* nil)
+           (sys.c::*use-new-compiler* nil)
            (omap (make-hash-table)))
       (loop
          for (name lambda) in (ecase target-architecture

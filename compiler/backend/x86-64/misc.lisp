@@ -20,12 +20,14 @@
                               :inputs (list symbol)
                               :outputs (list result))))
         (t
-         (let ((not-global (make-instance 'ir:label :name :symbol-cache-not-global))
+         (let ((is-global (make-instance 'ir:label :name :symbol-cache-global))
+               (not-global (make-instance 'ir:label :name :symbol-cache-not-global))
+               (cache-hit (make-instance 'ir:label :name :symbol-cache-hit))
                (cache-miss (make-instance 'ir:label :name :symbol-cache-miss))
                (resume (make-instance 'ir:label :name :symbol-cache-resume :phis (list result)))
-               (global-cell (make-instance 'virtual-register))
-               (cache-temp (make-instance 'virtual-register))
-               (miss-result (make-instance 'virtual-register)))
+               (global-cell (make-instance 'ir:virtual-register))
+               (cache-temp (make-instance 'ir:virtual-register))
+               (miss-result (make-instance 'ir:virtual-register)))
            (when (not (constant-value-p symbol 'symbol))
              ;; For global symbols, don't even look at the cache.
              ;; Cache entries exist on the stack, which may not be paged in.
@@ -46,21 +48,22 @@
                                   :outputs '()))
              (emit (make-instance 'x86-branch-instruction
                                   :opcode 'lap:jne
-                                  :target not-global))
-             (emit (make-instance 'label :name :symbol-cache-global))
+                                  :true-target not-global
+                                  :false-target is-global))
+             (emit is-global)
              (emit (make-instance 'x86-instruction
                                   :opcode 'lap:mov64
                                   :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
                                   :inputs (list symbol)
                                   :outputs (list global-cell)))
-             (emit (make-instance 'jump-instruction
+             (emit (make-instance 'ir:jump-instruction
                                   :target resume
                                   :values (list global-cell)))
              (emit not-global))
 
            ;; Compute symbol hash. Symbols are wired, so use the address.
            ;; Ignore the low 4 bits.
-           (emit (make-instance 'move-instruction
+           (emit (make-instance 'ir:move-instruction
                                 :source symbol
                                 :destination :rax))
            (emit (make-instance 'x86-instruction
@@ -87,10 +90,12 @@
                                 :operands (list cache-temp cache-temp)
                                 :inputs (list cache-temp)
                                 :outputs (list)))
-           (emit (make-instance 'x86-branch-instruction
-                                :opcode 'lap:jz
-                                :target cache-miss))
-           (emit (make-instance 'ir:label))
+           (let ((tmp (make-instance 'ir:label)))
+             (emit (make-instance 'x86-branch-instruction
+                                  :opcode 'lap:jz
+                                  :true-target cache-miss
+                                  :false-target tmp))
+             (emit tmp))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:cmp64
                                 :operands (list symbol `(:object ,cache-temp ,sys.int::+symbol-value-cell-symbol+))
@@ -98,21 +103,22 @@
                                 :outputs (list)))
            (emit (make-instance 'x86-branch-instruction
                                 :opcode 'lap:jne
-                                :target cache-miss))
+                                :true-target cache-miss
+                                :false-target cache-hit))
            ;; Cache hit. Log.
-           (emit (make-instance 'ir:label :name :symbol-cache-hit))
+           (emit cache-hit)
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:add64
                                 :operands (list `(:object nil 22) (ash 1 sys.int::+n-fixnum-bits+))
                                 :inputs (list)
                                 :outputs (list)
                                 :prefix '(lap:gs)))
-           (emit (make-instance 'jump-instruction
+           (emit (make-instance 'ir:jump-instruction
                                 :target resume
                                 :values (list cache-temp)))
            (emit cache-miss)
            ;; Call the slow function.
-           (emit (make-instance 'call-instruction
+           (emit (make-instance 'ir:call-instruction
                                 :function 'mezzano.runtime::symbol-value-cell
                                 :result miss-result
                                 :arguments (list symbol)))
@@ -124,7 +130,7 @@
                                 :outputs (list)
                                 :prefix '(lap:gs)))
            ;; Recompute the hash.
-           (emit (make-instance 'move-instruction
+           (emit (make-instance 'ir:move-instruction
                                 :source symbol
                                 :destination :rax))
            (emit (make-instance 'x86-instruction
@@ -144,7 +150,7 @@
                                 :inputs (list :rax miss-result)
                                 :outputs (list)
                                 :prefix '(lap:gs)))
-           (emit (make-instance 'jump-instruction
+           (emit (make-instance 'ir:jump-instruction
                                 :target resume
                                 :values (list miss-result)))
            ;; Done.

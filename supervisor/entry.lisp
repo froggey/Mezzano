@@ -31,6 +31,7 @@
                                       'sys.int::*stack-area-bump*)))
          (stack (%make-stack addr size)))
     ;; Allocate blocks.
+    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
     (loop
        for i from 0 do
          (when (allocate-memory-range addr size
@@ -42,12 +43,14 @@
                                                   0)))
            (return))
          (when (> i mezzano.runtime::*maximum-allocation-attempts*)
+           (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))
            (error 'storage-condition))
          (debug-print-line "No memory for stack, calling GC.")
          (sys.int::gc))
     (sys.int::make-weak-pointer stack stack
                                 (lambda ()
-                                  (release-memory-range addr size))
+                                  (release-memory-range addr size)
+                                  (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size)))
                                 :wired)
     stack))
 

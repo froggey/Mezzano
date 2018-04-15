@@ -25,7 +25,7 @@
 ;; +2 freelist next (only when free)
 ;; +2 writeback next (only when waiting for writeback)
 ;; +2 lru next (only when active, not waiting for writeback)
-;; +2 backing page (only when wired)
+;; +2 backing page (only when wired, may be NIL)
 ;; +3 freelist prev
 ;; +3 writeback prev
 ;; +3 lru prev

@@ -725,13 +725,17 @@
              alist
              :key key))
 
-(declaim (inline set-difference union intersection set-exclusive-or))
+(declaim (inline set-difference nset-difference
+                 union nunion
+                 intersection nintersection
+                 set-exclusive-or nset-exclusive-or))
+
 (defun set-difference (list-1 list-2 &key key test test-not)
+  (when (not key)
+    (setf key 'identity))
   (check-type list-1 list)
   (check-type list-2 list)
   (check-test-test-not test test-not)
-  (when (not key)
-    (setf key 'identity))
   (cond (list-2
          (let ((result '()))
            (dolist (e list-1)
@@ -741,14 +745,17 @@
         (t
          list-1)))
 
+(defun nset-difference (list-1 list-2 &key key test test-not)
+  (set-difference list-1 list-2 :key key :test test :test-not test-not))
+
 (defun union (list-1 list-2 &key key test test-not)
+  (when (not key)
+    (setf key 'identity))
   (check-type list-1 list)
   (check-type list-2 list)
   (check-test-test-not test test-not)
-  (when (not key)
-    (setf key 'identity))
   (cond ((and list-1 list-2)
-         (let ((result (copy-list list-2)))
+         (let ((result list-2))
            (dolist (e list-1)
              (when (not (member (funcall key e) list-2 :key key :test test :test-not test-not))
                (push e result)))
@@ -756,22 +763,30 @@
         (list-1)
         (list-2)))
 
+(defun nunion (list-1 list-2 &key key test test-not)
+  (union list-1 list-2 :key key :test test :test-not test-not))
+
 (defun intersection (list-1 list-2 &key key test test-not)
-  (check-type list-1 list)
-  (check-type list-2 list)
   (when (not key)
     (setf key 'identity))
+  (check-type list-1 list)
+  (check-type list-2 list)
+  (check-test-test-not test test-not)
   (let ((result '()))
     (dolist (e list-1)
       (when (member (funcall key e) list-2 :key key :test test :test-not test-not)
         (push e result)))
     result))
 
+(defun nintersection (list-1 list-2 &key key test test-not)
+  (intersection list-1 list-2 :key key :test test :test-not test-not))
+
 (defun set-exclusive-or (list-1 list-2 &key key test test-not)
-  (check-type list-1 list)
-  (check-type list-2 list)
   (when (not key)
     (setf key 'identity))
+  (check-type list-1 list)
+  (check-type list-2 list)
+  (check-test-test-not test test-not)
   (let ((result '()))
     (dolist (e list-1)
       (when (not (member (funcall key e) list-2 :key key :test test :test-not test-not))
@@ -781,16 +796,17 @@
         (push e result)))
     result))
 
+(defun nset-exclusive-or (list-1 list-2 &key key test test-not)
+  (set-exclusive-or list-1 list-2 :key key :test test :test-not test-not))
+
 (defun subsetp (list-1 list-2 &key key test test-not)
+  (when (not key)
+    (setf key 'identity))
   (check-type list-1 list)
   (check-type list-2 list)
   (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (setf test (or test #'eql))
-  (setf key (or key #'identity))
   (every (lambda (e)
-           (member (funcall key e) list-2 :key key :test test))
+           (member (funcall key e) list-2 :key key :test test :test-not test-not))
          list-1))
 
 (defun tree-equal (tree-1 tree-2 &key test test-not)

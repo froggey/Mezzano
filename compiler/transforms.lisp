@@ -329,6 +329,10 @@
      (:result-type fixnum))
   `(call sys.int::%%truncate-single-float ,number))
 
+(define-transform abs ((number single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the single-float (call sys.int::%%single-float-abs ,number)))
+
 ;; Don't use EQ because NaNs are unorderable.
 (define-transform sys.int::binary-= ((lhs single-float) (rhs single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -391,6 +395,10 @@
   `(the double-float
         (call mezzano.runtime::%%coerce-fixnum-to-double-float ,number)))
 
+(define-transform abs ((number double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the double-float (call sys.int::%%double-float-abs ,number)))
+
 ;; Don't use EQ because double floats are not immediates.
 (define-transform sys.int::binary-= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -414,32 +422,36 @@
 
 ;;; Fast array accesses, avoid type-dispatch in AREF.
 ;;; These check bounds, but not the type.
-;;; Currently only functional on simple 1d arrays.
 
 (defmacro define-fast-array-transform (type accessor)
   `(progn
-     (define-transform sys.int::aref-1 ((array (simple-array ,type (*))) (index fixnum))
-         ((:optimize (= safety 0) (= speed 3)))
-       `(progn
-          (call sys.int::%bounds-check ,array ,index)
-          (the ,',type (call ,',accessor ,array ,index))))
-     (define-transform (setf sys.int::aref-1) (value (array (simple-array ,type (*))) (index fixnum))
-         ((:optimize (= safety 0) (= speed 3)))
-       `(progn
-          (call sys.int::%bounds-check ,array ,index)
-          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))
-     (define-transform row-major-aref ((array (simple-array ,type (* *))) (index fixnum))
+     (define-transform row-major-aref ((array (and (simple-array ,type *)
+                                                   (not (simple-array ,type (*)))))
+                                       (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
           (progn
             (call sys.int::%bounds-check storage ,index)
             (the ,',type (call ,',accessor storage ,index)))))
-     (define-transform (setf row-major-aref) (value (array (simple-array ,type (* *))) (index fixnum))
+     (define-transform (setf row-major-aref) (value
+                                              (array (and (simple-array ,type *)
+                                                          (not (simple-array ,type (*)))))
+                                              (index fixnum))
          ((:optimize (= safety 0) (= speed 3)))
        `(let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
           (progn
             (call sys.int::%bounds-check storage ,index)
-            (the ,',type (call (setf ,',accessor) ,value storage ,index)))))))
+            (the ,',type (call (setf ,',accessor) ,value storage ,index)))))
+     (define-transform row-major-aref ((array (simple-array ,type (*))) (index fixnum))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(progn
+          (call sys.int::%bounds-check ,array ,index)
+          (the ,',type (call ,',accessor ,array ,index))))
+     (define-transform (setf row-major-aref) (value (array (simple-array ,type (*))) (index fixnum))
+         ((:optimize (= safety 0) (= speed 3)))
+       `(progn
+          (call sys.int::%bounds-check ,array ,index)
+          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
@@ -453,6 +465,68 @@
 (define-fast-array-transform (signed-byte 8) sys.int::%%object-ref-signed-byte-8)
 (define-fast-array-transform single-float sys.int::%%object-ref-single-float)
 (define-fast-array-transform double-float sys.int::%object-ref-double-float)
+
+;;; AREF and AREF-n transforms.
+
+(macrolet ((def (name n)
+             (let ((indices (loop
+                               repeat n
+                               collect (gensym "INDEX"))))
+               `(progn
+                  (define-transform ,name ((array (array * ,(make-list n :initial-element '*)))
+                                           ,@(loop
+                                                for index in indices
+                                                collect (list index 'fixnum)))
+                      ((:optimize (= safety 0) (= speed 3)))
+                    `(call row-major-aref ,array (call array-row-major-index ,array ,,@indices)))
+                  (define-transform (setf ,name) (value
+                                                  (array (array * ,(make-list n :initial-element '*)))
+                                                  ,@(loop
+                                                       for index in indices
+                                                       collect (list index 'fixnum)))
+                      ((:optimize (= safety 0) (= speed 3)))
+                    `(call (setf row-major-aref) ,value ,array (call array-row-major-index ,array ,,@indices)))))))
+  (def aref 0)
+  (def aref 1)
+  (def aref 2)
+  (def aref 3)
+  (def aref 4)
+  (def sys.int::aref-1 1)
+  (def sys.int::aref-2 2)
+  (def sys.int::aref-3 3))
+
+;;; ARRAY-ROW-MAJOR-INDEX transforms.
+(macrolet ((def (n)
+             (let ((indices (loop
+                               repeat n
+                               collect (gensym "INDEX"))))
+               `(define-transform array-row-major-index ((array (array * ,(make-list n :initial-element '*)))
+                                                         ,@(loop
+                                                              for index in indices
+                                                              collect (list index 'fixnum)))
+                    ((:optimize (= safety 0) (= speed 3)))
+                  ,(if (zerop n)
+                       '''0
+                       (loop
+                          with current = (first indices)
+                          for dim from 1
+                          for i from 0
+                          for index in (rest indices)
+                          do
+                            (setf current ``(the fixnum
+                                                 (call %fast-fixnum-+
+                                                       (the fixnum
+                                                            (call %fast-fixnum-*
+                                                                  ,,current
+                                                                  (call array-dimension ,array ',',dim)))
+                                                       ,,index)))
+                          finally
+                            (return current)))))))
+  (def 0)
+  (def 1)
+  (def 2)
+  (def 3)
+  (def 4))
 
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))
@@ -491,3 +565,11 @@
 (define-transform sys.int::enable-unsafe-struct-access ()
     ((:optimize (/= safety 0)))
   `'nil)
+
+(define-transform list ()
+    ()
+  `'nil)
+
+(define-transform list* (object)
+    ()
+  object)

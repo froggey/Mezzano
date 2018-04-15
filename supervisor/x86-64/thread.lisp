@@ -188,6 +188,7 @@
                                                    #'%%partial-save-return-thunk
                                                    sys.int::+function-entry-point+))
       (setf (thread-state-rsp thread) sp
+            (thread-state-rbp thread) (+ sp (* 15 8))
             (thread-full-save-p thread) nil))))
 
 (defun force-call-on-thread (thread function &optional (argument nil argumentp))
@@ -196,7 +197,7 @@
                                    function
                                    sys.int::+function-entry-point+)
         (thread-state-rcx-value thread) (if argumentp 1 0)
-        (thread-state-rbx-value thread) nil
+        (thread-state-rbx-value thread) function
         (thread-state-r8-value thread) argument
         (thread-state-r9-value thread) nil
         (thread-state-r10-value thread) nil

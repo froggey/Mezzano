@@ -16,13 +16,9 @@
   "Number of immediate bytes following an encoded effective address.
 Used to make rip-relative addressing line up right.")
 
-(defun assemble (code-list &rest args &key (cpu-mode 64) &allow-other-keys)
-  (declare (dynamic-extent args))
+(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
   (let ((*cpu-mode* cpu-mode))
     (apply 'perform-assembly *instruction-assemblers* code-list args)))
-
-(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) &rest args)
-  (apply #'assemble args))
 
 (defmacro define-instruction (name lambda-list &body body)
   (let ((insn (gensym)))
@@ -410,7 +406,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
                    ;; Return an expression, so slot goes through symbol resolution, etc.
                    `(+ (- #b1001) 8 ,slot)
                    nil)))
-        (t (let (base index scale disp rip-relative)
+        (t (let (base index scale disp rip-relative segment)
              (dolist (elt form)
                (cond ((eql elt :rip)
                       (assert (null rip-relative) () "Multiple :RIP forms in r/m form ~S." form)
@@ -418,6 +414,9 @@ Remaining values describe the effective address: base index scale disp rip-relat
                               "RIP-relative addressing only supports displacements.")
                       (assert (= *cpu-mode* 64) () "RIP-relative addressing is only supported in 64-bit mode.")
                       (setf rip-relative t))
+                     ((member elt '(:cs :ss :ds :es :fs :gs))
+                      (assert (null segment) () "Multiple segments in r/m form ~S." form)
+                      (setf segment elt))
                      ((reg-class elt)
                       (assert (null rip-relative) ()
                               "RIP-relative addressing only supports displacements.")
@@ -439,12 +438,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
                         (error "Scale value must be an integer in r/m form ~S." form)))
                      (t (assert (null disp) () "Multiple displacements in r/m form ~S." form)
                         (setf disp elt))))
-             (values nil base index scale disp rip-relative)))))
+             (values nil base index scale disp rip-relative segment)))))
 
 (defun generate-modrm (class r/m reg opc)
-  (multiple-value-bind (r/m-reg base index scale disp rip-relative)
+  (multiple-value-bind (r/m-reg base index scale disp rip-relative segment)
       (parse-r/m r/m)
     (let ((disp-value (when disp (or (resolve-immediate disp) disp))))
+      (when segment
+        (emit (ecase segment
+                (:cs #x2E)
+                (:ss #x36)
+                (:ds #x3E)
+                (:es #x26)
+                (:fs #x64)
+                (:gs #x65))))
       (cond
         (r/m-reg
          (emit-modrm-register class opc reg r/m-reg :rex-w (eql class :gpr-64)))
@@ -651,7 +658,6 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (return-from instruction t))
 
 ;;; Prefixes, not real instructions.
-(define-simple-instruction lock #xF0)
 (define-simple-instruction repne #xF2)
 (define-simple-instruction repnz #xF2)
 (define-simple-instruction rep #xF3)
@@ -698,12 +704,21 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simple-instruction cpuid (#x0F #xA2))
 (define-simple-instruction rsm (#x0F #xAA))
 (define-simple-instruction pause (#xF3 #x90))
+(define-simple-instruction nop #x90)
 
 (define-simple-instruction fninit (#xDB #xE3))
 
 (define-simple-instruction lfence (#x0F #xAE #xE8))
 (define-simple-instruction mfence (#x0F #xAE #xF8))
 (define-simple-instruction sfence (#x0F #xAE #xF0))
+
+(define-instruction lock (&rest extra)
+  (emit #xF0)
+  (when extra
+    (funcall (or (gethash (first extra) *instruction-assemblers*)
+                 (error "Unknown instruction ~S" (first extra)))
+             extra))
+  (return-from instruction t))
 
 (defmacro define-integer-define-instruction (name lambda-list (bitness class) &body body)
   `(defmacro ,name ,lambda-list

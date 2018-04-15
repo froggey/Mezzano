@@ -73,7 +73,7 @@
 (defun store-refill-metadata ()
   ;; Repopulate freelist.
   (let* ((frame (let ((*store-freelist-recursive-metadata-allocation* t))
-                  (pager-allocate-page :other)))
+                  (pager-allocate-page :new-type :other)))
          (addr (convert-to-pmap-address (ash frame 12))))
     (dotimes (i (truncate #x1000 +freelist-metadata-size+))
       (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0

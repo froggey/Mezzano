@@ -339,9 +339,10 @@ Returns NIL if the function captures no variables."
           (t
            (format t "Unknown variable id ~S." id)))))
 
-(defun enter-debugger (condition)
+(defun debugger-main (&optional condition)
   (with-standard-io-syntax
-    (let* ((*standard-input* *debug-io*)
+    (let* ((*print-readably* nil)
+           (*standard-input* *debug-io*)
            (*standard-output* *debug-io*)
            (debug-level *debugger-depth*)
            (*debugger-depth* (1+ *debugger-depth*))
@@ -496,6 +497,13 @@ Returns NIL if the function captures no variables."
                              (fresh-line)
                              (write v))))))))))))))
 
+(defparameter *the-debugger* 'debugger-main)
+
+(defun enter-debugger (condition)
+  (funcall (or *the-debugger*
+               'debugger-main)
+           condition))
+
 (defun show-restarts (restarts)
   (let ((restart-count (length restarts)))
     (format t "Available restarts:~%")
@@ -556,14 +564,20 @@ Returns NIL if the function captures no variables."
                  (if *suppress-trace*
                      (apply old-definition args)
                      (let ((*suppress-trace* t))
-                       (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args)
+                       (let ((*print-readably* nil)
+                             (*print-length* nil)
+                             (*print-level* nil))
+                         (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args))
                        (let ((result :error))
                          (unwind-protect
                               (handler-bind ((error (lambda (condition) (setf result condition))))
                                 (setf result (multiple-value-list (let ((*trace-depth* (1+ *trace-depth*))
                                                                         (*suppress-trace* nil))
                                                                     (apply old-definition args)))))
-                           (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result))
+                           (let ((*print-readably* nil)
+                                 (*print-length* nil)
+                                 (*print-level* nil))
+                             (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result)))
                          (values-list result)))))))
             (setf (function-reference-function fref) wrapper))))))
   *traced-functions*)

@@ -5,8 +5,9 @@
 
 ;;; TODO: Call write-string, terpri, start-line-p(?), fresh-line, advance-to-column, listen, read-line, read-char-no-hang, peek-char
 
-(defpackage :sys.gray
+(defpackage :mezzano.gray
   (:use :cl)
+  (:nicknames :sys.gray)
   (:export
    ;; Gray Streams classes.
    :fundamental-stream
@@ -540,17 +541,20 @@
                                                            :fill-pointer 0)))
   (vector-push-extend character (string-output-stream-string stream)))
 
-;; TODO: declares and other stuff.
 (defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
-  (if string-form
-      `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (setf (string-output-stream-string stream) ,string-form)
-         (unwind-protect (progn ,@body)
-           (close ,var)))
-      `(let ((,var (make-string-output-stream :element-type ,element-type)))
-         (unwind-protect (progn ,@body)
-           (close ,var))
-         (get-output-stream-string ,var))))
+  (multiple-value-bind (real-body declares)
+      (parse-declares body)
+    (if string-form
+        `(let ((,var (make-string-output-stream :element-type ,element-type)))
+           (declare ,@declares)
+           (setf (string-output-stream-string ,var) ,string-form)
+           (unwind-protect (progn ,@real-body)
+             (close ,var)))
+        `(let ((,var (make-string-output-stream :element-type ,element-type)))
+           (declare ,@declares)
+           (unwind-protect (progn ,@real-body)
+             (close ,var))
+           (get-output-stream-string ,var)))))
 
 (defun write-to-string (object &key
                                  (array *print-array*)
@@ -1013,4 +1017,13 @@ CASE may be one of:
   (unless end (setf end (length string)))
   (dotimes (i (- end start))
     (sys.gray:stream-write-char stream (char string (+ start i))))
+  string)
+
+(defun write-string (string &optional stream &key (start 0) end)
+  (let ((s (frob-output-stream stream)))
+    (cond ((cold-stream-p s)
+           (unless end (setf end (length string)))
+           (dotimes (i (- end start))
+             (write-char (char string (+ start i)) stream)))
+          (t (sys.gray:stream-write-string s string start end))))
   string)

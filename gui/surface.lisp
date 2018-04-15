@@ -8,6 +8,10 @@
   (pixels (error "Pixel data not specified."))
   (format (error "Format not specified.")))
 
+(defmethod print-object ((object surface) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (surface-format object))))
+
 (defun make-surface (width height &key (format :argb32) (initial-colour 0))
   "Create a new surface of the specified WIDTH, HEIGHT and FORMAT.
 The surface will be filled with INITIAL-COLOUR, which defaults to fully transparent."

@@ -83,7 +83,9 @@
            #:unsubscribe-notification
            #:get-window-by-kind
            #:screen-geometry-update
-           #:force-redisplay))
+           #:force-redisplay
+           #:window-x
+           #:window-y))
 
 (defpackage :mezzano.gui.input-drivers
   (:use :cl))
