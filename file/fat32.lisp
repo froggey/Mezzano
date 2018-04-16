@@ -260,6 +260,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (* (fat32-sectors-per-cluster fat32)
      (fat32-bytes-per-sector fat32)))
 
+(defun next-free-cluster (fat)
+  (loop :for i :from 0 :by 4 :to (1- (array-dimension fat 0))
+        :for m := (sys.int::ub32ref/le fat i)
+        :when (zerop m)
+        :return (ash i -2)))
+
 (defun read-sector (disk start-sector n-sectors)
   "Read n sectors from disk"
   (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
@@ -491,7 +497,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             r j))))
 
 ;; WIP
-;; TODO Never overwrite other files
 (defun create-file (host file cluster-sector pathname-name pathname-type attributes)
   "Create file/directory"
   (let* ((name (concatenate 'string pathname-name "." pathname-type))
@@ -553,7 +558,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             (date (logior date
                           (ash month 5)
                           (ash (- year 1980) 9)))
-            (cluster-number (1+ (fs-info-next-free-cluster (fat32-info host))))
+            (cluster-number (next-free-cluster (fat host)))
             (millisecond-stamp 0))
         (flet ((set-short-name (name file i cluster-number)
                  ;; Write short name part
@@ -591,11 +596,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                        cluster-sector
                        (fat32-structure host)
                        file)
-        ;; Update fs-info
-        (setf (fs-info-next-free-cluster (fat32-info host)) cluster-number)
-        (write-fat32-info-structure (partition host)
-                                    (fat32-structure host)
-                                    (fat32-info host))
         ;; Update fat
         (setf (sys.int::ub32ref/le (fat host) (* cluster-number 4))
               #x0FFFFFFF)
