@@ -992,7 +992,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;; WIP
 ;; TODO Change access-date , write-time and write-date.
 ;; TODO Don't rewrite unchanged clusters.
-;; TODO Add multi cluster suport for Write.
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (when (member (direction stream) '(:output :io))
