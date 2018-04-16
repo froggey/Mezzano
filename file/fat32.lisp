@@ -266,6 +266,16 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         :when (zerop m)
         :return (ash i -2)))
 
+(defun get-fat32-time ()
+  "Return time and date in fat32 format"
+  (multiple-value-bind (second minute hour date month year) (get-decoded-time)
+    (values (logior (ash second -1)
+                    (ash minute 5)
+                    (ash hour 11))
+            (logior date
+                    (ash month 5)
+                    (ash (- year 1980) 9)))))
+
 (defun read-sector (disk start-sector n-sectors)
   "Read n sectors from disk"
   (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
@@ -324,6 +334,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
 
 ;; TODO Add posibility to resize file
+;; TODO Don't rewrite unchanged clusters.
 (defun write-file (fat32 disk start-cluster fat array)
   (let* ((spc (fat32-sectors-per-cluster fat32))
          (sector-size (mezzano.supervisor:disk-sector-size disk))
@@ -338,20 +349,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (logior (ash (sys.int::ub16ref/le directory (+ 20 offset)) 16)
           (ash (sys.int::ub16ref/le directory (+ 26 offset)) 0)))
 
-(defun read-size (directory offset)
+(defun read-file-size (directory offset)
   (sys.int::ub32ref/le directory (+ 28 offset)))
-
-(defun write-file-size (stream)
-  (let* ((host (host stream))
-         (file-length (read-buffer-size stream)))
-    (multiple-value-bind (directory cluster-n offset)
-        (find-file host (file-stream-pathname stream))
-      (when offset
-        (setf (aref directory (+ 28 offset)) (ldb (byte 8 0) file-length)
-              (aref directory (+ 29 offset)) (ldb (byte 8 8) file-length)
-              (aref directory (+ 30 offset)) (ldb (byte 8 16) file-length)
-              (aref directory (+ 31 offset)) (ldb (byte 8 24) file-length))
-        (write-file (fat32-structure host) (partition host) cluster-n (fat host) directory)))))
 
 (defun checksum (array offset)
   "Return checksum of sort name"
@@ -525,15 +524,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                (aref file (+ i 13)) checksum
                                (sys.int::ub16ref/le file (+ i 26)) 0
                                i (next-space file i))))))
-    (multiple-value-bind (second minute hour date month year) (get-decoded-time)
-      (let ((time (logior (ash second -1)
-                          (ash minute 5)
-                          (ash hour 11)))
-            (date (logior date
-                          (ash month 5)
-                          (ash (- year 1980) 9)))
-            (cluster-number (next-free-cluster (fat host)))
-            (millisecond-stamp 0))
+    (multiple-value-bind (time date) (get-fat32-time)
+      (let ((cluster-number (next-free-cluster (fat host))))
         (flet ((set-short-name (name file i cluster-number)
                  ;; Write short name part
                  (loop
@@ -764,7 +756,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                     (read-first-cluster file-data start)
                                     (fat host))
                   read-buffer-position (read-first-cluster file-data start)
-                  read-buffer-size (read-size file-data start))
+                  read-buffer-size (read-file-size file-data start))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
@@ -990,18 +982,28 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (read-buffer-size stream))
 
 ;; WIP
-;; TODO Change access-date , write-time and write-date.
-;; TODO Don't rewrite unchanged clusters.
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
-         (when (member (direction stream) '(:output :io))
-           (let ((host (host stream)))
-             (write-file (fat32-structure host)
-                         (partition host)
-                         (read-buffer-position stream)
-                         (fat host)
-                         (read-buffer stream)))
-           (write-file-size stream)))
+         (let* ((host (host stream))
+                (file-length (read-buffer-size stream)))
+           (multiple-value-bind (directory cluster-n offset)
+               (find-file host (file-stream-pathname stream))
+             (multiple-value-bind (time date) (get-fat32-time)
+               (when (member (direction stream) '(:output :io))
+                 (let ((host (host stream)))
+                   (write-file (fat32-structure host)
+                               (partition host)
+                               (read-buffer-position stream)
+                               (fat host)
+                               (read-buffer stream)))
+                 ;; Set file size
+                 (setf (sys.int::ub16ref/le directory (+ offset 22)) time
+                       (sys.int::ub16ref/le directory (+ offset 24)) date
+                       (sys.int::ub32ref/le directory (+ 28 offset)) file-length))
+               ;; Set last accsess date
+               (setf (sys.int::ub16ref/le directory (+ offset 18)) date))
+             ;; Write to disk new metadata
+             (write-file (fat32-structure host) (partition host) cluster-n (fat host) directory))))
         (t (error "Aborted close not suported")))
   t)
 
