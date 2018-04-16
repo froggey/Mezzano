@@ -260,8 +260,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (* (fat32-sectors-per-cluster fat32)
      (fat32-bytes-per-sector fat32)))
 
-(defun next-free-cluster (fat)
-  (loop :for i :from 0 :by 4 :to (1- (array-dimension fat 0))
+(defun next-free-cluster (fat &optional (start 0))
+  (loop :for i :from (ash start 2) :by 4 :to (1- (array-dimension fat 0))
         :for m := (sys.int::ub32ref/le fat i)
         :when (zerop m)
         :return (ash i -2)))
@@ -333,15 +333,28 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
       (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
 
-;; TODO Add posibility to resize file
-;; TODO Don't rewrite unchanged clusters.
 (defun write-file (fat32 disk start-cluster fat array)
   (let* ((spc (fat32-sectors-per-cluster fat32))
          (sector-size (mezzano.supervisor:disk-sector-size disk))
          (temp-buf (make-array (* spc sector-size) :element-type '(unsigned-byte 8) :area :wired)))
-    (do ((cluster-n start-cluster (sys.int::ub32ref/le fat (* cluster-n 4)))
+    (do ((cluster-n start-cluster (sys.int::ub32ref/le fat (ash cluster-n 2)))
+         (last-cluster 0)
          (n-cluster 0 (1+ n-cluster)))
-        ((>= cluster-n #x0FFFFFF8) t)
+        ((>= cluster-n #x0FFFFFF8)
+         (if (> (array-dimension array 0)
+                (* n-cluster spc sector-size))
+             (do ((cluster-n (next-free-cluster fat) (next-free-cluster fat (1+ cluster-n)))
+                  (i 0 (1+ i)))
+                 ((= (array-dimension array 0)
+                     (* (+ i n-cluster) spc sector-size))
+                  (setf (sys.int::ub32ref/le fat (ash last-cluster 2)) #x0FFFFFFF)
+                  (write-fat disk fat32 fat))
+               (replace temp-buf array :start2 (* (+ i n-cluster) spc sector-size))
+               (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+               (setf (sys.int::ub32ref/le fat (ash last-cluster 2)) cluster-n
+                     last-cluster cluster-n))
+             t))
+      (setf last-cluster cluster-n)
       (replace temp-buf array :start2 (* n-cluster spc sector-size))
       (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf))))
 
@@ -535,7 +548,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                              (char-code char)))
                  (setf (aref file (+ i 11)) attributes
                        (aref file (+ i 12)) 0
-                       (aref file (+ i 13)) millisecond-stamp
+                       (aref file (+ i 13)) 0
                        (sys.int::ub16ref/le file (+ i 14)) time
                        (sys.int::ub16ref/le file (+ i 16)) date
                        (sys.int::ub16ref/le file (+ i 18)) date
@@ -908,14 +921,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-element-type ((stream fat32-file-character-stream))
   'character)
 
-;; WIP
-;; TODO resize to files bigger than 1 cluster
 (defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
            (read-buffer-size stream))
     (setf (read-buffer-size stream)
           (buffer-offset stream)))
+  (let ((array-size (array-dimension (read-buffer stream) 0)))
+    (when (>= (buffer-offset stream) array-size)
+      (let* ((host (host stream))
+             (fat32 (fat32-structure host)))
+        (setf (read-buffer stream) (adjust-array (read-buffer stream)
+                                                 (+ array-size (bytes-per-cluster fat32))
+                                                 :initial-element 0)))))
   (setf (aref (read-buffer stream)
               (buffer-offset stream))
         byte)
@@ -938,14 +956,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (replace sequence (read-buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
     end2))
 
-;; WIP
-;; TODO resize to files bigger than 1 cluster
 (defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
            (read-buffer-size stream))
     (setf (read-buffer-size stream)
           (buffer-offset stream)))
+  (let ((array-size (array-dimension (read-buffer stream) 0)))
+    (when (>= (buffer-offset stream) array-size)
+      (let* ((host (host stream))
+             (fat32 (fat32-structure host)))
+        (setf (read-buffer stream) (adjust-array (read-buffer stream)
+                                                 (+ array-size (bytes-per-cluster fat32))
+                                                 :initial-element 0)))))
   (setf (aref (read-buffer stream)
               (buffer-offset stream))
         (char-code char))
