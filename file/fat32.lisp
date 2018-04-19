@@ -880,9 +880,23 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
          stack))
       (return-from directory-using-host stack))))
 
-;; WIP
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
-  (error "Feature not implemented: ~a" 'ensure-directories-exist-using-host))
+  (assert (eql (first (pathname-directory pathname)) :absolute) (pathname) "Absoute pathname required.")
+  (loop :with fat32 := (fat32-structure host)
+        :with fat := (fat host)
+        :with disk := (partition host)
+        :with cluster-n := (fat32-root-cluster fat32)
+        :with file-data := (read-file fat32 disk (fat32-root-cluster fat32) fat)
+        :for directory :in (rest (pathname-directory pathname))
+        :do (do-files (start) file-data
+                      (let ((new-directory (create-file host file-data cluster-n directory nil
+                                                        (ash 1 +attribute-directory+))))
+                        (setf cluster-n new-directory
+                              file-data (read-file fat32 disk new-directory fat)))
+              (when (string= directory (read-file-name file-data start))
+                (setf cluster-n (read-first-cluster file-data start)
+                      file-data (read-file fat32 disk (read-first-cluster file-data start) fat))
+                (return t)))))
 
 ;; WIP
 (defmethod rename-file-using-host ((host fat32-host) source dest)
