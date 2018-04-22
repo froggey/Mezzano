@@ -169,12 +169,13 @@
   (format t "~S ~:S~%" instruction (label-phis instruction)))
 
 (defun print-function (function)
-  (format t "~S~%" function)
-  (do-instructions (c function)
-    (cond ((typep c 'label)
-           (format t " ~S ~:S~%" c (label-phis c)))
-          (t
-           (print-instruction c)))))
+  (let ((*print-pretty* nil))
+    (format t "~S~%" function)
+    (do-instructions (c function)
+      (cond ((typep c 'label)
+             (format t " ~S ~:S~%" c (label-phis c)))
+            (t
+             (print-instruction c))))))
 
 (defgeneric perform-target-lowering (backend-function target))
 (defgeneric perform-target-lowering-post-ssa (backend-function target))
