@@ -245,6 +245,12 @@
         (file-position stream :end))
       stream)))
 
+(defmethod probe-using-host ((host remote-file-host) pathname)
+  (let ((path (unparse-remote-file-path pathname)))
+    (with-connection (con host)
+      (when (eql (ignore-errors (command pathname con `(:probe ,path))) :ok)
+        pathname))))
+
 (defmethod gray:stream-element-type ((stream remote-file-stream))
   '(unsigned-byte 8))
 
