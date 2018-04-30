@@ -918,6 +918,11 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
 
+(defmethod probe-using-host ((host fat32-host) pathname)
+  (multiple-value-bind (dir cluster-n start) (find-file host pathname)
+    (declare (ignore dir cluster-n))
+    (if start t nil)))
+
 (defmethod directory-using-host ((host fat32-host) pathname &key)
   (let ((file-data (find-file host pathname)))
     (let ((stack '())
