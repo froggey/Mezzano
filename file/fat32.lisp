@@ -849,12 +849,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                              abort-action :delete)
                (multiple-value-bind (pathname-name pathname-type attributes paret-path) (sub-path pathname)
                  (multiple-value-bind (file-data cluster-n) (find-file host paret-path)
-                   (let ((cluster-number
-                           (first-sector-of-cluster (fat32-structure host)
-                                                    (create-file host file-data cluster-n
-                                                                 pathname-name
-                                                                 pathname-type
-                                                                 attributes))))
+                   (let ((cluster-number (create-file host file-data cluster-n
+                                                      pathname-name
+                                                      pathname-type
+                                                      attributes)))
                      (setf buffer (make-array (* (fat32-sectors-per-cluster (fat32-structure host))
                                                  (fat32-bytes-per-sector (fat32-structure host)))
                                               :initial-element 0)
