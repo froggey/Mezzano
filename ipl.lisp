@@ -80,7 +80,25 @@ Make sure there is a virtio-net NIC attached.~%")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
 ;; ASDF.
-(sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
+(let ((asdf-base (merge-pathnames "asdf/" (user-homedir-pathname))))
+  (loop
+     for file in '("header.lisp" "uiop/package.lisp" "uiop/common-lisp.lisp"
+                   "uiop/utility.lisp" "uiop/version.lisp" "uiop/os.lisp"
+                   "uiop/pathname.lisp" "uiop/filesystem.lisp"
+                   "uiop/stream.lisp" "uiop/image.lisp"
+                   "uiop/lisp-build.lisp" "uiop/launch-program.lisp"
+                   "uiop/run-program.lisp" "uiop/configuration.lisp"
+                   "uiop/backward-driver.lisp" "uiop/driver.lisp"
+                   "upgrade.lisp" "session.lisp" "component.lisp"
+                   "operation.lisp" "system.lisp" "system-registry.lisp"
+                   "action.lisp" "lisp-action.lisp" "find-component.lisp"
+                   "forcing.lisp" "plan.lisp" "operate.lisp"
+                   "find-system.lisp" "parse-defsystem.lisp" "bundle.lisp"
+                   "concatenate-source.lisp" "package-inferred-system.lisp"
+                   "output-translations.lisp" "source-registry.lisp"
+                   "backward-internals.lisp" "backward-interface.lisp"
+                   "interface.lisp" "user.lisp" "footer.lisp")
+     do (load (merge-pathnames file asdf-base))))
 (defun home-source-registry ()
   `(:source-registry
     (:tree ,(user-homedir-pathname))

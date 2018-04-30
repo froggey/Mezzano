@@ -94,7 +94,7 @@
                          (directory path)))))
 
 (defcommand :probe (path)
-  (if (open path :direction :probe)
+  (if (probe-file path)
       (format *client* ":ok~%")
       (format *client* "(:not-found \"File not found\")~%")))
 

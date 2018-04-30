@@ -15,6 +15,7 @@
            #:unparse-pathname-file
            #:unparse-pathname-directory
            #:open-using-host
+           #:probe-using-host
            #:directory-using-host
            #:ensure-directories-exist-using-host
            #:rename-file-using-host
@@ -25,7 +26,8 @@
            #:simple-file-error
            #:stream-truename
            #:truename-using-host
-           #:no-namestring-error))
+           #:no-namestring-error
+           #:tmpdir-pathname))
 
 (in-package :mezzano.file-system)
 
@@ -329,12 +331,13 @@
            (setf directory (append (pathname-directory default-pathname)
                                    (rest directory)))
            ;; remove :backs
-           (let ((dirs))
-             (dolist (d directory)
+           (let ((dir-type (car directory))
+                 (dirs))
+             (dolist (d (cdr directory))
                (if (eq d :back)
                    (pop dirs)
                    (push d dirs)))
-             (setf directory (nreverse dirs))))
+             (setf directory (cons dir-type (nreverse dirs)))))
           ((null directory)
            (setf directory (pathname-directory default-pathname))))
     (make-pathname :host host
@@ -460,11 +463,16 @@ NAMESTRING as the second."
                      :if-does-not-exist if-does-not-exist
                      :external-format external-format)))
 
+(defgeneric probe-using-host (host pathname))
+
 (defun probe-file (pathspec)
-  (let ((stream (open pathspec :direction :probe)))
-    (when stream
-      (close stream)
-      (stream-truename stream))))
+  (let* ((path (translate-logical-pathname (merge-pathnames pathspec)))
+         (host (pathname-host path)))
+    (when (wild-pathname-p path)
+      (error 'simple-file-error
+             :pathname pathspec
+             :format-control "Wild pathname specified."))
+    (probe-using-host host path)))
 
 (defgeneric directory-using-host (host path &key))
 
@@ -609,6 +617,16 @@ NAMESTRING as the second."
   (if (not (member host '(nil :unspecific)))
       nil
       *home-directory*))
+
+(defun tmpdir-pathname ()
+  (let ((home (user-homedir-pathname)))
+    ;; Construct a pathname with the same host as the homedir
+    ;; then merge together to produce the full path on the right host.
+    ;; Without this, the resulting pathname will take on the host
+    ;; of *default-pathname-defaults*, which may differ from homedir's host.
+    (merge-pathnames (make-pathname :host (pathname-host home)
+                                    :directory '(:relative "tmp"))
+                     home)))
 
 ;;; Logical pathnames.
 
