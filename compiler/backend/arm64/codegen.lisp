@@ -260,7 +260,7 @@
              ;; still be in RBX. For non-closures, reconstruct the function
              ;; object and put that in RBX.
              (when (not (sys.c::lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
-               (emit `(lap:adr :x6 (:pc (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+               (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
              (emit `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
              (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
              (emit `(lap:br :x9)
