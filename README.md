@@ -106,7 +106,7 @@ the newline if the point is at the end of the line.
 
 `M-L`          Redraw the screen.
 
-`C-Q`          Insert the next key typed without intepretting it as a command.
+`C-Q`          Insert the next key typed without interpreting it as a command.
 
 `C-Space`      If the point is at the mark and the mark is active, deactivate the mark. Otherwise, activate the mark and move it to the point.
 
@@ -138,7 +138,7 @@ This release includes Swank 2016-03-04.
 The Swank server is listening on port 4005.
 
 Forwarding for port 4005 will need to be enabled in the virtual
-machine's settings. In VirtualBox this is done throught the port
+machine's settings. In VirtualBox this is done through the port
 forwarding settings, which can be accessed through
 Settings -> Network -> Advanced -> Port Forwarding
 
@@ -157,7 +157,7 @@ Many improvements to conformance, stability and performance.
 The editor has been greatly improved, thanks to Burton Samograd.
 The system now functions correctly on computers with more than 1GB of RAM.
 The allocator and garbage collector now make much better use of available
-memory, with far fewer GC cycles occuring.
+memory, with far fewer GC cycles occurring.
 (ROOM T) prints more detailed information about allocated objects.
 Transparency and premultiplied alpha support in the GUI.
 And more!
