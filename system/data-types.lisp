@@ -113,11 +113,11 @@
 (defconstant +object-tag-weak-pointer+            #b111010)
 (defconstant +first-misc-object-tag+ +object-tag-mmx-vector+)
 (defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
-;;#b111011
+(defconstant +object-tag-delimited-continuation+  #b111011)
 (defconstant +object-tag-function+                #b111100)
 (defconstant +object-tag-closure+                 #b111101)
 (defconstant +object-tag-funcallable-instance+    #b111110)
-(defconstant +first-function-object-tag+ +object-tag-function+)
+(defconstant +first-function-object-tag+ +object-tag-delimited-continuation+)
 (defconstant +last-function-object-tag+ +object-tag-funcallable-instance+)
 ;;#b111111
 

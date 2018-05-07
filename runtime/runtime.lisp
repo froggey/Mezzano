@@ -14,7 +14,12 @@
        (simple-vector
         (sys.int::%%disestablish-block-or-tagbody))
        (function
-        (sys.int::%%disestablish-unwind-protect)))))
+        (sys.int::%%disestablish-unwind-protect))
+       ((eql 0)
+        ;; Delimited continuation marker.
+        ;; TODO: Restore the stack object and invaliate the exit function.
+        (setf (sys.int::%%special-stack-pointer)
+              (svref (sys.int::%%special-stack-pointer) 0))))))
 
 (defvar *active-catch-handlers*)
 (defun sys.int::%catch (tag fn)
