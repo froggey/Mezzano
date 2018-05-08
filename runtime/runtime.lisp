@@ -54,7 +54,7 @@
              (sys.int::make-deferred-undefined-function fref)
              fn)))
     (t
-     (raise-type-error object '(or function symbol))
+     (sys.int::raise-type-error object '(or function symbol))
      (%%unreachable))))
 
 (declaim (inline %object-slot-address))
