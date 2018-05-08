@@ -74,7 +74,25 @@
   (declare (ignore mode))
   (setf (function-form form) (value-aware-lowering-1 (function-form form) :single)
         (value-form form) (value-aware-lowering-1 (value-form form) :multiple))
-  form)
+  (cond ((and (typep (value-form form) 'ast-call)
+              (eql (ast-name (value-form form)) 'values))
+         ;; Replace this with funcall.
+         (change-made)
+         (ast `(call mezzano.runtime::%funcall
+                     ,(function-form form)
+                     ,@(ast-arguments (value-form form)))
+              form))
+        ((and (typep (value-form form) 'ast-call)
+              (eql (ast-name (value-form form)) 'values-list)
+              (eql (length (ast-arguments (value-form form))) 1))
+         ;; Replace this with apply.
+         (change-made)
+         (ast `(call mezzano.runtime::%apply
+                     ,(function-form form)
+                     ,(first (ast-arguments (value-form form))))
+              form))
+        (t
+         form)))
 
 (defmethod value-aware-lowering-1 ((form ast-multiple-value-prog1) mode)
   (ecase mode
