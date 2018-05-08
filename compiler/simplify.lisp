@@ -854,6 +854,30 @@ First return value is a list of elements, second is the final dotted component (
                            ,(first (arguments form)))
                      ,@(rest (arguments form)))
               form))
+        ;; (list) => NIL
+        ((and (eql (name form) 'list)
+              (endp (arguments form)))
+         (change-made)
+         (ast `(quote nil) form))
+        ;; (list x . y) => (cons x (list . y))
+        ((and (eql (name form) 'list)
+              (arguments form))
+         (change-made)
+         (ast `(call cons ,(first (arguments form))
+                     (call list ,@(rest (arguments form))))
+              form))
+        ;; (list* x) => x
+        ((and (eql (name form) 'list*)
+              (endp (rest (arguments form))))
+         (change-made)
+         (first (arguments form)))
+        ;; (list* x . y) => (cons x (list* . y))
+        ((and (eql (name form) 'list)
+              (rest (arguments form)))
+         (change-made)
+         (ast `(call cons ,(first (arguments form))
+                     (call list ,@(rest (arguments form))))
+              form))
         (t
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
          (loop

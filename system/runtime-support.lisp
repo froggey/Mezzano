@@ -163,11 +163,6 @@
           (values (second name) '%setf-compiler-macro-function))
     (setf (get sym indicator) value)))
 
-(define-compiler-macro list (&rest args)
-  (cond
-    ((null args) 'nil)
-    (t `(cons ,(first args) (list ,@(rest args))))))
-
 (defun list (&rest args)
   args)
 

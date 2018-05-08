@@ -575,11 +575,6 @@
     (when (member (car i) indicator-list)
       (return (values (first i) (second i) i)))))
 
-(define-compiler-macro list* (object &rest objects)
-  (cond
-    ((null objects) object)
-    (t `(cons ,object (list* ,@objects)))))
-
 (defun list* (object &rest objects)
   (declare (dynamic-extent object))
   (if objects
