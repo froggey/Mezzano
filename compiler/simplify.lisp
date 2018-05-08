@@ -759,9 +759,28 @@ First return value is a list of elements, second is the final dotted component (
        (t
         (values nil form))))
     (ast-quote
-     (if (eql (ast-value form) 'nil)
-         (values '() nil)
-         (values nil form)))
+     (let ((val (ast-value form))
+           (fast (ast-value form))
+           (elts '()))
+       (loop
+          (cond ((null val)
+                 (return (values (reverse elts) nil)))
+                ((not (consp val))
+                 (return (values (reverse elts)
+                                 (ast `(quote ,val) form))))
+                ((and elts (eql fast val))
+                 ;; Slow pointer met fast pointer, this is a circular list.
+                 ;; Give up.
+                 (return (values nil form)))
+                (t
+                 ;; Cons, accumulate elements.
+                 (push (ast `(quote ,(first val)) form) elts)
+                 (setf val (rest val))
+                 ;; Check for circular lists.
+                 (when (consp fast)
+                   (setf fast (rest fast))
+                   (when (consp fast)
+                     (setf fast (rest fast)))))))))
     (t
      (values nil form))))
 
