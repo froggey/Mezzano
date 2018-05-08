@@ -91,6 +91,14 @@
                      ,(function-form form)
                      ,(first (ast-arguments (value-form form))))
               form))
+        ((or (typep (value-form form) 'ast-quote)
+             (typep (value-form form) 'lexical-variable))
+         ;; Replace this with funcall.
+         (change-made)
+         (ast `(call mezzano.runtime::%funcall
+                     ,(function-form form)
+                     ,(value-form form))
+              form))
         (t
          form)))
 
