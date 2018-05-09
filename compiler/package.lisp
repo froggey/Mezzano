@@ -656,5 +656,13 @@
            #:resumable-p
            #:call-with-continuation-barrier
            #:with-continuation-barrier
-           #:suspendable-continuation-p)
+           #:suspendable-continuation-p
+           #:consumed-continuation-resumed
+           #:consumed-continuation-resumed-continuation
+           #:consumed-continuation-resumed-arguments
+           #:barrier-present
+           #:barrier-present-tag
+           #:barrier-present-barrier
+           #:unknown-prompt-tag
+           #:unknown-prompt-tag-tag)
   (:local-nicknames (:lap :sys.lap-x86)))

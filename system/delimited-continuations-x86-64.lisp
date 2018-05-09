@@ -217,102 +217,6 @@
   (:gc :frame :layout #*11)
   (lap:jmp CALL-HANDLER))
 
-(sys.int::define-lap-function %abort-to-barriered-prompt ((prompt values barrier))
-  ;; r8 = prompt; r9 = values; r10 = barrier.
-  (:gc :no-frame :layout #*0)
-  (lap:push :rbp)
-  (:gc :no-frame :layout #*00)
-  (lap:mov64 :rbp :rsp)
-  (:gc :frame)
-  (lap:sub64 :rsp 32)
-  (lap:mov64 (:stack 0) :r8)
-  (:gc :frame :layout #*1)
-  (lap:mov64 (:stack 1) :r9)
-  (:gc :frame :layout #*11)
-  (lap:mov64 (:stack 2) :r10)
-  (:gc :frame :layout #*111)
-  (lap:mov64 :r13 (:function mezzano.runtime::%allocate-object))
-  (lap:mov64 :rcx #.(ash 4 #.sys.int::+n-fixnum-bits+))
-  (lap:mov64 :r8 #.(ash #.sys.int::+object-tag-delimited-continuation+
-                        #.sys.int::+n-fixnum-bits+)) ; tag
-  (lap:mov32 :r9d #.(ash 1 #.sys.int::+n-fixnum-bits+)) ; data (barriered)
-  (lap:mov64 :r10 #.(ash 5 #.sys.int::+n-fixnum-bits+)) ; size. entry, stack, state, sp, info
-  (lap:mov64 :r11 nil) ; area
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (lap:mov64 :r9 (:stack 0)) ; r9 = prompt
-  (lap:mov64 :r10 (:stack 1)) ; r10 = values
-  (lap:mov64 :r12 (:stack 2)) ; r12 = barrier
-  ;; r8 = new continuation, r9 = prompt, r10 = values, r12 = barrier.
-  ;; Work with footholds inhibitied.
-  (lap:gs)
-  (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
-             #.(ash 1 sys.int::+n-fixnum-bits+))
-  ;; Store the entry point...
-  (lap:mov64 :r11 (:function %resume-barriered-continuation))
-  (lap:mov64 :rax (:object :r11 #.sys.int::+fref-entry-point+))
-  (lap:mov64 (:object :r8 #.sys.int::+function-entry-point+) :rax)
-  ;; And the barrier.
-  (lap:mov64 (:object :r8 #.sys.int::+delimited-continuation-state+) :r12)
-  ;; Prepare to return.
-  ;; Restore the thread's stack & special stack pointers.
-  (lap:mov64 :r11 (:object :r9 3)) ; original stack object
-  (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-stack+) :r11)
-  (lap:mov64 :r11 (:object :r9 0)) ; original ssp
-  (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-special-stack-pointer+) :r11)
-  ;; Clear the binding cache, don't want entries to point to the continuation's stack.
-  ;; This must be done after restoring the ssp, otherwise an interrupt may occur & repopulate the
-  ;; cache with stale entries.
-  (lap:mov32 :ecx #.mezzano.supervisor::+thread-symbol-cache-start+)
-  CLEAR-LOOP
-  (lap:gs)
-  (lap:mov64 (:object nil 0 :rcx) 0)
-  (lap:add64 :rcx 8)
-  (lap:cmp64 :rcx #.mezzano.supervisor::+thread-symbol-cache-end+)
-  (lap:jne CLEAR-LOOP)
-  ;; Switch back to the original stack.
-  (lap:mov64 :rbp (:object :r9 5))
-  (:gc :frame :layout #*)
-  (lap:lea64 :rsp (:rbp -16)) ; +2 stack slots, going to construct a cons on the stack.
-  ;; The continuation's stack is going to be throw away, no need to clear it.
-  ;; Fetch the handler.
-  (lap:mov64 :rbx (:object :r9 2))
-  ;; Now call the handler.
-  ;; Construct a cons on the stack for apply. (cons continuation values)
-  (lap:mov64 (:stack 1) :r8) ; continuation
-  (:gc :frame :layout #*01)
-  (lap:mov64 (:stack 0) :r10) ; values
-  (:gc :frame :layout #*11)
-  ;; Reenable footholds
-  (lap:gs)
-  (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
-             #.(ash 1 sys.int::+n-fixnum-bits+))
-  (lap:jz RUN-FOOTHOLDS-1)
-  CALL-HANDLER
-  (lap:mov64 :r8 :rbx) ; first arg, handler
-  (lap:lea64 :r9 (:rsp #.sys.int::+tag-cons+)) ; second arg, continuation + values
-  (lap:mov64 :r13 (:function mezzano.runtime::%apply))
-  (lap:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+))
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (:gc :frame :multiple-values 0)
-  (lap:leave)
-  (:gc :no-frame :layout #*0 :multiple-values 0)
-  (lap:ret)
-  RUN-FOOTHOLDS-1
-  (:gc :frame :layout #*11)
-  ;; Save the handler
-  (lap:sub64 :rsp 16)
-  (lap:mov64 (:rsp 8) :rbx)
-  (:gc :frame :layout #*111)
-  (lap:mov64 :r13 (:function mezzano.supervisor::run-pending-footholds))
-  (lap:xor32 :ecx :ecx)
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (lap:mov64 :rbx (:rsp 8))
-  (lap:add64 :rsp 16)
-  (:gc :frame :layout #*11)
-  (lap:jmp CALL-HANDLER))
-
 (sys.int::define-lap-function %reinvoke-delimited-continuation ((continuation))
   ;; Called by CALL-WITH-PROMPT to resume a delimited continuation after claiming it and updating the handler & tag.
   ;; Fiddle with the calling convention and resume normally.
@@ -333,7 +237,7 @@
   (lap:lock lap:cmpxchg (:object :rbx #.sys.int::+delimited-continuation-state+) :r13)
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (lap:mov64 :r13 (:function %resume-delimited-continuation-1))
-  (lap:cmov64nz :r13 (:function consumed-continuation-resumed-error))
+  (lap:cmov64nz :r13 (:function raise-consumed-continuation-resumed))
   (lap:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 (sys.int::define-lap-function %resume-delimited-continuation-1 (())

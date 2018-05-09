@@ -10,23 +10,54 @@
 (defun delimited-continuation-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-delimited-continuation+))
 
+(define-condition consumed-continuation-resumed (control-error)
+  ((continuation :initarg :continuation
+                 :reader consumed-continuation-resumed-continuation)
+   (arguments :initarg :arguments
+              :initform '()
+              :reader consumed-continuation-resumed-arguments))
+  (:report (lambda (condition stream)
+             (format stream "Attempted to resume consumed continuation ~S with arguments ~:S."
+                     (consumed-continuation-resumed-continuation condition)
+                     (consumed-continuation-resumed-arguments condition)))))
+
+(define-condition barrier-present (control-error)
+  ((tag :initarg :tag
+        :reader barrier-present-tag)
+   (barrier :initarg :barrier
+        :reader barrier-present-barrier))
+  (:report (lambda (condition stream)
+             (format stream "Cannot abort to prompt ~S, blocked by barrier ~S."
+                     (barrier-present-tag condition)
+                     (barrier-present-barrier condition)))))
+
+(define-condition unknown-prompt-tag (control-error)
+  ((tag :initarg :tag
+        :reader unknown-prompt-tag-tag))
+  (:report (lambda (condition stream)
+             (format stream "Unknown prompt tag ~S."
+                     (unknown-prompt-tag-tag condition)))))
+
 (defstruct (prompt-tag
              (:constructor make-prompt-tag (&optional (stem "prompt"))))
   (stem nil :read-only t))
 
 (defparameter *default-prompt-tag* (make-prompt-tag "default-prompt"))
+
+;; This internal tag is used by continuations that have been resumed normally,
+;; not via CALL-WITH-PROMPT, and are not elegible for ABORT-TO-PROMPT.
 (sys.int::defglobal *ignore-prompt-tag* (make-prompt-tag "ignore-prompt"))
 
 ;; This is bound whenever a continuation barrier must be established.
-;; It's not a real variable.
+;; It's not a real variable, just a marker in the special stack.
 (defparameter *continuation-barrier* nil)
 
 (defun resumable-p (delimited-continuation)
+  "Returns true if DELIMITED-CONTINUATION can be resumed."
   (check-type delimited-continuation delimited-continuation)
-  (and (not (logbitp 0 (sys.int::%object-header-data delimited-continuation)))
-       (eql (sys.int::%object-ref-t delimited-continuation
-                                    sys.int::+delimited-continuation-state+)
-            :resumable)))
+  (eql (sys.int::%object-ref-t delimited-continuation
+                               sys.int::+delimited-continuation-state+)
+       :resumable))
 
 (defun call-with-prompt (prompt-tag thunk handler &key stack-size)
   (check-type thunk function)
@@ -34,14 +65,12 @@
   (check-type prompt-tag prompt-tag)
   (cond ((delimited-continuation-p thunk)
          ;; Resuming an existing continuation, reuse the stack.
-         (when (logbitp 0 (sys.int::%object-header-data thunk))
-           (error "Attempted to resume barriered continuation ~S (barrier: ~S)"
-                  thunk
-                  (sys.int::%object-ref-t thunk sys.int::+delimited-continuation-state+)))
          ;; Attempt to take ownership of this continuation.
          (when (not (sys.int::%cas-object thunk sys.int::+delimited-continuation-state+
                                           :resumable :consumed))
-           (error "Attempted to resume consumed delimited continuation ~S" thunk))
+           (error 'consumed-continuation-resumed
+                  :continuation thunk
+                  :arguments '()))
          (let ((prompt (sys.int::%object-ref-t thunk sys.int::+delimited-continuation-prompt+)))
            ;; Update the continuation tag.
            (setf (sys.int::%object-ref-t prompt 1) prompt-tag)
@@ -72,10 +101,11 @@ The second returned value is true if a continuation barrier is present."
      do (setf barrier (svref ssp 2))
      finally
        (if errorp
-           (error "No such prompt ~S" prompt-tag)
+           (error 'unknown-prompt-tag :tag prompt-tag)
            (return (values nil nil)))))
 
 (defmacro abort-to-prompt (prompt-tag &optional (result-form '(values)))
+  "Abort to the prompt specified by PROMPT-TAG, passing the values of RESULT-FORM to the handler."
   `(abort-to-prompt-1 ,prompt-tag
                       (multiple-value-list ,result-form)))
 
@@ -83,15 +113,12 @@ The second returned value is true if a continuation barrier is present."
   (assert (not (eql prompt-tag *ignore-prompt-tag*)))
   (multiple-value-bind (prompt barrier)
       (find-prompt prompt-tag)
-    (if barrier
-        (%abort-to-barriered-prompt prompt values barrier)
-        (%abort-to-prompt prompt values))))
-
-(defun %resume-barriered-continuation (&rest args sys.int::&closure continuation)
-  (declare (ignore args))
-  (error "Attempted to resume barriered continuation ~S (barrier: ~S)"
-         continuation
-         (sys.int::%object-ref-t continuation sys.int::+delimited-continuation-state+)))
+    (cond (barrier
+           (error 'barrier-present
+                  :tag prompt-tag
+                  :barrier barrier))
+          (t
+           (%abort-to-prompt prompt values)))))
 
 (defun call-with-continuation-barrier (thunk &optional reason)
   (let ((*continuation-barrier* (or reason t)))
@@ -101,11 +128,15 @@ The second returned value is true if a continuation barrier is present."
   `(call-with-continuation-barrier (lambda () ,@body) ,reason))
 
 (defun suspendable-continuation-p (prompt-tag)
+  "Returns true if there is a matching active prompt-tag with no intervening barriers."
   (multiple-value-bind (prompt barrier)
       (find-prompt prompt-tag nil)
     (if prompt
         (not barrier)
         nil)))
 
-(defun consumed-continuation-resumed-error (&rest args sys.int::&closure continuation)
-  (error "Attempted to resume consumed delimited-continuation ~S with arguments ~:S" continuation args))
+;; Helper function for %RESUME-DELIMITED-CONTINUATION.
+(defun raise-consumed-continuation-resumed (&rest args sys.int::&closure continuation)
+  (error 'consumed-continuation-resumed
+         :continuation continuation
+         :arguments args))
