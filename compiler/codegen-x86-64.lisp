@@ -564,13 +564,17 @@
 
 (defun emit-nlx-thunk (thunk-name target-label multiple-values-active)
   (emit-trailer (thunk-name nil)
+    (emit (if multiple-values-active
+            `(:gc :frame :multiple-values 0)
+            `(:gc :frame)))
+    (emit `(sys.lap-x86:mov64 :rdx (:rax 24))) ; rbp
+    (dolist (slot (first *active-nl-exits*))
+      (emit `(sys.lap-x86:mov64 (:rdx ,(- (* (1+ slot) 8))) nil)))
     (if multiple-values-active
         (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
         (emit-gc-info :block-or-tagbody-thunk :rax))
     (emit `(sys.lap-x86:mov64 :rsp (:rax 16))
-          `(sys.lap-x86:mov64 :rbp (:rax 24)))
-    (dolist (slot (first *active-nl-exits*))
-      (emit `(sys.lap-x86:mov64 (:stack ,slot) nil)))
+          `(sys.lap-x86:mov64 :rbp :rdx))
     (emit `(sys.lap-x86:jmp ,target-label))))
 
 (defun cg-block (form)

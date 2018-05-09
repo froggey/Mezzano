@@ -765,14 +765,24 @@
   )
 
 (defun emit-nlx-entry (region multiple-values-p)
+  ;; Custom layout, don't use emit-gc-info.
+  ;; The NLX hasn't completed yet and we're still running with the previous
+  ;; rbp/rsp. It's always safe to use a plain :frame at this point as there
+  ;; is no need to keep anything in the frame alive.
+  (emit (if multiple-values-p
+            `(:gc :frame :multiple-values 0)
+            `(:gc :frame)))
+  ;; Flush any dx roots that were invalidated by this exit.
+  ;; Flushing before restoring the stack means that the
+  ;; stack pointer will always be below the live/not-yet-flushed roots.
+  (emit `(lap:mov64 :rdx (:rax 24))) ; rbp
+  (dolist (dx-root (gethash region *dx-root-visibility*))
+    (emit `(lap:mov64 (:rdx ,(- (* (1+ dx-root) 8))) nil)))
   (if multiple-values-p
       (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
       (emit-gc-info :block-or-tagbody-thunk :rax))
   (emit `(lap:mov64 :rsp (:rax 16))
-        `(lap:mov64 :rbp (:rax 24)))
-  ;; Flush any dx roots that were invalidated by this exit.
-  (dolist (dx-root (gethash region *dx-root-visibility*))
-    (emit `(lap:mov64 (:stack ,dx-root) nil))))
+        `(lap:mov64 :rbp :rdx)))
 
 (defmethod emit-lap (backend-function (instruction ir:nlx-entry-instruction) uses defs)
   (emit-nlx-entry (ir:nlx-region instruction) nil))

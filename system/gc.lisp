@@ -273,17 +273,11 @@ This is required to make the GC interrupt safe."
                       "  " (lisp-object-address value)))
                    (cond ((%value-has-tag-p value +tag-dx-root-object+)
                           ;; DX root, convert it to a normal object pointer and scan.
-                          ;; Don't scan it if it's below the stack pointer. This can
-                          ;; happen when a thread is interrupted during a non-local exit.
-                          ;; The exit may cause a DX object's scope to be exited, which
-                          ;; requires the DX pointer to be cleared. If the thread is
-                          ;; interrupted before the pointer can be cleared, this happens.
-                          (when (>= (lisp-object-address value) stack-pointer)
-                            (gc-log
-                             "Scav DX root " (lisp-object-address value))
-                            (scan-object (%%assemble-value (ash (%pointer-field value) 4)
-                                                           +tag-object+)
-                                         cycle-kind)))
+                          (gc-log
+                           "Scav DX root " (lisp-object-address value))
+                          (scan-object (%%assemble-value (ash (%pointer-field value) 4)
+                                                         +tag-object+)
+                                       cycle-kind))
                          ;; Normal object. Don't do anything interesting.
                          (t (scavengef (memref-t base offset) cycle-kind))))))
           (cond (framep
