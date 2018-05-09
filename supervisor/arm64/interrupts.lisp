@@ -103,13 +103,13 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %read-esr-el1 (())
-  (mezzano.lap.arm64:mrs :x0 :esr-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x0 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:mrs :x9 :esr-el1)
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %read-far-el1 (())
-  (mezzano.lap.arm64:mrs :x0 :far-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x0 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:mrs :x9 :far-el1)
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
 (defun unhandled-interrupt (interrupt-frame name)
@@ -142,15 +142,11 @@
          ;; Pages below 512G are wired and should never be unmapped or protected.
          ;; Same for pages in the wired stack area.
          (unhandled-interrupt interrupt-frame "wired-page-fault"))
-        ((eql reason :write-to-ro)
-         ;; Copy on write page, might not return.
-         (snapshot-clone-cow-page-via-page-fault interrupt-frame fault-addr))
-        ((eql reason :not-present)
-         ;; Non-present page. Try to load it from the store.
+        (t ;; Defer to the pager.
          ;; Might not return.
-         (wait-for-page-via-interrupt interrupt-frame fault-addr))
-        (t
-         (unhandled-interrupt interrupt-frame "page-fault"))))
+         (wait-for-page-via-interrupt interrupt-frame
+                                      fault-addr
+                                      (eql reason :write-to-ro)))))
 
 (defun %instruction-abort-handler (interrupt-frame fault-addr esr)
   (let ((status (ldb (byte 5 0) esr)))

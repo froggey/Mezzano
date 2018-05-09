@@ -507,3 +507,10 @@
   (mezzano.lap.arm64:ldr :x7 (:function slow-cons))
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
   (mezzano.lap.arm64:br :x9))
+
+(defun (sys.int::cas sys.int::%memref-unsigned-byte-32) (old-value new-value address index)
+  ;; FIXME.
+  (let ((value (sys.int::%memref-unsigned-byte-32 address index)))
+    (when (eq value old-value)
+      (setf (sys.int::%memref-unsigned-byte-32 address index) new-value))
+    value))

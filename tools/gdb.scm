@@ -32,16 +32,16 @@
   (set! all-symbols (read-symbol-file path)))
 
 (define (ldsym)
-  (let ((f1 (file-write-date "lispos.map"))
-        (f2 (file-write-date "new.map")))
+  (let ((f1 (file-write-date "build-arm64/lispos.map"))
+        (f2 (file-write-date "build-arm64/new.map")))
     (cond ((and f1 f2)
            (load-symbols (if (> f1 f2)
-                             "lispos.map"
-                             "new.map")))
+                             "build-arm64/lispos.map"
+                             "build-arm64/new.map")))
           (f1
-           (load-symbols "lispos.map"))
+           (load-symbols "build-arm64/lispos.map"))
           (f2
-           (load-symbols "new.map")))))
+           (load-symbols "build-arm64/new.map")))))
 
 (define (lookup name)
   (define (frob list)

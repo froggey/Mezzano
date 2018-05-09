@@ -13,6 +13,7 @@
 (define-builtin mezzano.runtime::%fixnum-+ ((lhs rhs) result)
   (let ((out (make-instance 'ir:label :phis (list result)))
         (overflow (make-instance 'ir:label :name :+-overflow))
+        (no-overflow (make-instance 'ir:label :name :+-no-overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
     (cond ((and (constant-value-p rhs 'integer)
@@ -43,8 +44,9 @@
                                 :outputs (list fixnum-result)))))
     (emit (make-instance 'arm64-branch-instruction
                          :opcode 'lap:b.vs
-                         :target overflow))
-    (emit (make-instance 'ir:label :name :+-no-overflow))
+                         :true-target overflow
+                         :false-target no-overflow))
+    (emit no-overflow)
     (emit (make-instance 'ir:jump-instruction
                          :target out
                          :values (list fixnum-result)))
@@ -98,6 +100,7 @@
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
   (let ((out (make-instance 'ir:label :phis (list result)))
         (overflow (make-instance 'ir:label :name :--overflow))
+        (no-overflow (make-instance 'ir:label :name :--no-overflow))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register)))
     (cond ((and (constant-value-p rhs 'integer)
@@ -128,8 +131,9 @@
                                 :outputs (list fixnum-result)))))
     (emit (make-instance 'arm64-branch-instruction
                          :opcode 'lap:b.vs
-                         :target overflow))
-    (emit (make-instance 'ir:label :name :--no-overflow))
+                         :true-target overflow
+                         :false-target no-overflow))
+    (emit no-overflow)
     (emit (make-instance 'ir:jump-instruction
                          :target out
                          :values (list fixnum-result)))

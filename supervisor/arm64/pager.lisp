@@ -90,8 +90,26 @@
 (defun pte-physical-address (pte)
   (logand pte +arm64-tte-address-mask+))
 
+(defun update-pte (pte &key (writable nil writablep) (dirty nil dirtyp))
+  (let ((current-entry (page-table-entry pte)))
+    (when dirtyp
+      (if dirty
+          (setf current-entry (logior current-entry +arm64-tte-dirty+))
+          (setf current-entry (logand current-entry (lognot +arm64-tte-dirty+)))))
+    (when writablep
+      (if writable
+          (setf current-entry (logior current-entry +arm64-tte-writable+))
+          (setf current-entry (logand current-entry (lognot +arm64-tte-writable+))))
+      (setf (ldb +arm64-tte-ap+ current-entry)
+            +arm64-tte-ap-pro-una+))
+    (setf (page-table-entry pte) current-entry)))
+
 (defun page-present-p (page-table &optional (index 0))
   (logtest +arm64-tte-present+
+           (page-table-entry page-table index)))
+
+(defun page-writable-p (page-table &optional (index 0))
+  (logtest +arm64-tte-writable+
            (page-table-entry page-table index)))
 
 (defun page-copy-on-write-p (page-table &optional (index 0))
@@ -102,22 +120,23 @@
   (logtest +arm64-tte-dirty+
            (page-table-entry page-table index)))
 
-(defun descend-page-table (page-table index allocate)
+(defun descend-page-table (page-table index allocate shootdown-in-progress)
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (pager-allocate-page :new-type :page-table))
+        (let* ((frame (pager-allocate-page :new-type :page-table
+                                           :shootdown-in-progress shootdown-in-progress))
                (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (make-pte frame :writable t))
           addr))
       (convert-to-pmap-address (pte-physical-address (page-table-entry page-table index)))))
 
-(defun get-pte-for-address (address &optional (allocate t))
+(defun get-pte-for-address (address &optional (allocate t) shootdown-in-progress)
   (let* ((ttl0 (convert-to-pmap-address (if (logbitp 63 address)
                                             (%ttbr1)
                                             (%ttbr0))))
-         (ttl1           (descend-page-table ttl0 (address-l4-bits address) allocate))
-         (ttl2 (and ttl1 (descend-page-table ttl1 (address-l3-bits address) allocate)))
-         (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate))))
+         (ttl1           (descend-page-table ttl0 (address-l4-bits address) allocate shootdown-in-progress))
+         (ttl2 (and ttl1 (descend-page-table ttl1 (address-l3-bits address) allocate shootdown-in-progress)))
+         (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate shootdown-in-progress))))
     (and ttl3 (+ ttl3 (* 8 (address-l1-bits address))))))
