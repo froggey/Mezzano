@@ -3,8 +3,6 @@
 
 (in-package :mezzano.delimited-continuations)
 
-;; TODO: The assembly functions should inhibit footholds while switching stacks.
-
 (deftype delimited-continuation ()
   `(satisfies delimited-continuation-p))
 
@@ -80,6 +78,10 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:mov64 :rbp :rsp)
   (:gc :frame)
   PHONY-RETURN-ADDRESS
+  ;; Work with footholds inhibitied.
+  (lap:gs)
+  (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Find the top of the new stack.
   (lap:mov64 :rsp (:object :r11 1)) ; stack.base
   (lap:sar64 :rsp #.sys.int::+n-fixnum-bits+)
@@ -113,11 +115,21 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:lea64 :rax (:rsp #.sys.int::+tag-object+))
   (lap:gs)
   (lap:mov64 (:object nil #.mezzano.supervisor::+thread-special-stack-pointer+) :rax)
+  ;; Reenable footholds
+  (lap:gs)
+  (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
+  (lap:jz RUN-FOOTHOLDS-1)
+  CALL-THUNK
   ;; Invoke the thunk.
   (lap:xor32 :ecx :ecx)
   (lap:mov64 :rbx :r9)
   (lap:call (:object :rbx #.sys.int::+function-entry-point+))
   (:gc :frame :layout #*1111 :multiple-values 0)
+  ;; Inhibit footholds again.
+  (lap:gs)
+  (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Note: Control will end up back here if the continuation is aborted & resumed.
   ;; Pop continuation.
   (lap:mov64 :rax (:rsp 8))
@@ -129,11 +141,36 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:mov64 (:object nil #.mezzano.supervisor::+thread-stack+) :rbx)
   ;; Ordinary return, no need to invalidate anything.
   (lap:leave)
-  ;; Only matters if the thread is footholded.
   (:gc :frame :multiple-values 0)
+  ;; Reenable footholds, back on the old stack.
+  (lap:gs)
+  (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
+  ;; FIXME: Need to run pending footholds here, but that requires saving the
+  ;; multiple values. They'll get run eventually, maybe.
   (lap:leave)
   (:gc :no-frame :layout #*0 :multiple-values 0)
-  (lap:ret))
+  (lap:ret)
+  RUN-FOOTHOLDS-1
+  (:gc :frame :layout #*1111)
+  ;; Save the thunk
+  (lap:sub64 :rsp 16)
+  (lap:mov64 (:rsp 8) :r9)
+  (:gc :frame :layout #*1111001)
+  (lap:mov64 :r13 (:function footholds-helper))
+  (lap:xor32 :ecx :ecx)
+  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:mov64 :r9 (:rsp 8))
+  (lap:add64 :rsp 16)
+  (:gc :frame :layout #*1111)
+  (lap:jmp CALL-THUNK))
+
+(defun footholds-helper ()
+  (let ((footholds (sys.int::%xchg-object (mezzano.supervisor:current-thread)
+                                          mezzano.supervisor::+thread-pending-footholds+
+                                          nil)))
+    (dolist (fh footholds)
+      (funcall fh))))
 
 (sys.int::define-lap-function %abort-to-prompt ((prompt values))
   ;; r8 = prompt; r9 = values.
@@ -157,6 +194,10 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:mov64 :r9 (:stack 0)) ; r9 = prompt
   (lap:mov64 :r10 (:stack 1)) ; r10 = values
   ;; r8 = new continuation, r9 = prompt, r10 = values.
+  ;; Work with footholds inhibitied.
+  (lap:gs)
+  (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Store the entry point...
   (lap:mov64 :r11 (:function %resume-delimited-continuation))
   (lap:mov64 :rax (:object :r11 #.sys.int::+fref-entry-point+))
@@ -216,10 +257,17 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:mov64 :r11 (:constant :resumable))
   (lap:mov64 (:object :r8 #.sys.int::+delimited-continuation-state+) :r11)
   ;; Now call the handler.
+  ;; Construct a cons on the stack for apply. (cons continuation values)
   (lap:mov64 (:stack 1) :r8) ; continuation
   (:gc :frame :layout #*01)
   (lap:mov64 (:stack 0) :r10) ; values
   (:gc :frame :layout #*11)
+  ;; Reenable footholds
+  (lap:gs)
+  (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
+  (lap:jz RUN-FOOTHOLDS-1)
+  CALL-HANDLER
   (lap:mov64 :r8 :rbx) ; first arg, handler
   (lap:lea64 :r9 (:rsp #.sys.int::+tag-cons+)) ; second arg, continuation + values
   (lap:mov64 :r13 (:function mezzano.runtime::%apply))
@@ -228,7 +276,20 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (:gc :frame :multiple-values 0)
   (lap:leave)
   (:gc :no-frame :layout #*0 :multiple-values 0)
-  (lap:ret))
+  (lap:ret)
+  RUN-FOOTHOLDS-1
+  (:gc :frame :layout #*11)
+  ;; Save the handler
+  (lap:sub64 :rsp 16)
+  (lap:mov64 (:rsp 8) :rbx)
+  (:gc :frame :layout #*111)
+  (lap:mov64 :r13 (:function footholds-helper))
+  (lap:xor32 :ecx :ecx)
+  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:mov64 :rbx (:rsp 8))
+  (lap:add64 :rsp 16)
+  (:gc :frame :layout #*11)
+  (lap:jmp CALL-HANDLER))
 
 (sys.int::define-lap-function %reinvoke-delimited-continuation ((continuation))
   ;; Called by CALL-WITH-PROMPT to resume a delimited continuation after claiming it and updating the handler & tag.
@@ -291,7 +352,10 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:add64 :rsp 8) ; drop saved count
   ONLY-REG-ARGS
   (:gc :frame :multiple-values 0)
-  PHONY-RETURN-ADDRESS
+  ;; Work with footholds inhibitied.
+  (lap:gs)
+  (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Fetch the prompt from the continuation.
   (lap:mov64 :rax (:object :rbx #.sys.int::+delimited-continuation-prompt+))
   ;; Update the saved original stack object.
@@ -337,12 +401,19 @@ Returns the matching special stack entry if one is found, NIL otherwise."
   (lap:mov64 (:object :rbx #.sys.int::+delimited-continuation-prompt+) 0)
   (lap:mov64 (:object :rbx #.sys.int::+delimited-continuation-stack-pointer+) 0)
   (lap:mov64 (:object :rbx #.sys.int::+delimited-continuation-stack+) 0)
+  ;; Reenable footholds, on the right stack.
+  (lap:gs)
+  (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
+             #.(ash 1 sys.int::+n-fixnum-bits+))
+  ;; FIXME: Need to run pending footholds here, but that requires saving the
+  ;; multiple values. They'll get run eventually, maybe.
   ;; Now return to the function that originally aborted.
   (lap:leave)
   (:gc :no-frame :layout #*0 :multiple-values 0)
   (lap:ret)
   TOO-MANY-VALUES
   (:gc :frame)
+  PHONY-RETURN-ADDRESS ; match %CALL-WITH-PROMPT's GC info
   (lap:mov64 :r13 (:function error))
   (lap:mov64 :r8 (:constant "Resuming continuation ~S with too many values (MULTPLE-VALUES-LIMIT exceeded)"))
   (lap:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
