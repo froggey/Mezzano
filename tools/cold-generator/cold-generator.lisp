@@ -97,6 +97,7 @@
     "system/load.lisp"
     "system/time.lisp"
     "system/delimited-continuations.lisp"
+    ("system/delimited-continuations-x86-64.lisp" :x86-64)
 ))
 
 (defparameter *special-source-files*

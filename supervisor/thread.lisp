@@ -727,9 +727,15 @@ Interrupts must be off and the global thread lock must be held."
        (let ((,thread (current-thread)))
          (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1)
          (when (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
-           (let ((,footholds (sys.int::%xchg-object ,thread +thread-pending-footholds+ nil)))
-             (dolist (,fh ,footholds)
-               (funcall ,fh))))))))
+           (run-pending-footholds))))))
+
+(declaim (inline run-pending-footholds))
+(defun run-pending-footholds ()
+  (let ((footholds (sys.int::%xchg-object (mezzano.supervisor:current-thread)
+                                          mezzano.supervisor::+thread-pending-footholds+
+                                          nil)))
+    (dolist (fh footholds)
+      (funcall fh))))
 
 (defun unsleep-thread (thread)
   (let ((did-wake (safe-without-interrupts (thread)

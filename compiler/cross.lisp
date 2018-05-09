@@ -811,7 +811,10 @@
            #:prompt-tag-p
            #:call-with-prompt
            #:abort-to-prompt
-           #:resumable-p)
+           #:resumable-p
+           #:call-with-continuation-barrier
+           #:with-continuation-barrier
+           #:suspendable-continuation-p)
   (:local-nicknames (:lap :sys.lap-x86)))
 
 (in-package :sys.c)
