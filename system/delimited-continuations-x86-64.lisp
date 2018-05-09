@@ -52,7 +52,10 @@
   (lap:gs)
   (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
              #.(ash 1 sys.int::+n-fixnum-bits+))
-  (lap:jz RUN-FOOTHOLDS-1)
+  (lap:jnz CALL-THUNK)
+  (lap:gs)
+  (lap:cmp64 (:object nil #.mezzano.supervisor::+thread-pending-footholds+) nil)
+  (lap:jne RUN-FOOTHOLDS-1)
   CALL-THUNK
   ;; Invoke the thunk.
   (lap:xor32 :ecx :ecx)
@@ -192,7 +195,10 @@
   (lap:gs)
   (lap:sub64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
              #.(ash 1 sys.int::+n-fixnum-bits+))
-  (lap:jz RUN-FOOTHOLDS-1)
+  (lap:jnz CALL-HANDLER)
+  (lap:gs)
+  (lap:cmp64 (:object nil #.mezzano.supervisor::+thread-pending-footholds+) nil)
+  (lap:jne RUN-FOOTHOLDS-1)
   CALL-HANDLER
   (lap:mov64 :r8 :rbx) ; first arg, handler
   (lap:lea64 :r9 (:rsp #.sys.int::+tag-cons+)) ; second arg, continuation + values
