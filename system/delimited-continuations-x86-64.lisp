@@ -153,12 +153,12 @@
   ;; Clear the binding cache, don't want entries to point to the continuation's stack.
   ;; This must be done after restoring the ssp, otherwise an interrupt may occur & repopulate the
   ;; cache with stale entries.
-  (lap:mov32 :ecx #.mezzano.supervisor::+thread-symbol-cache-start+)
+  (lap:xor32 :ecx :ecx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil 0 :rcx) 0)
-  (lap:add64 :rcx 8)
-  (lap:cmp64 :rcx #.mezzano.supervisor::+thread-symbol-cache-end+)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache-start+ :rcx) 0)
+  (lap:add64 :rcx 1)
+  (lap:cmp64 :rcx #.(- mezzano.supervisor::+thread-symbol-cache-end+ mezzano.supervisor::+thread-symbol-cache-start+))
   (lap:jne CLEAR-LOOP)
   ;; Switch back to the original stack.
   ;; There's a small moment here where the GC can scan both the continuation and the thread
@@ -318,12 +318,12 @@
   ;; Clear the binding cache, there may be stale entries.
   ;; This must be done after restoring the ssp, otherwise an interrupt may occur & repopulate the
   ;; cache with stale entries.
-  (lap:mov32 :edx #.mezzano.supervisor::+thread-symbol-cache-start+)
+  (lap:xor32 :edx :edx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil 0 :rdx) 0)
-  (lap:add64 :rdx 8)
-  (lap:cmp64 :rdx #.mezzano.supervisor::+thread-symbol-cache-end+)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache-start+ :rdx) 0)
+  (lap:add64 :rdx 1)
+  (lap:cmp64 :rdx #.(- mezzano.supervisor::+thread-symbol-cache-end+ mezzano.supervisor::+thread-symbol-cache-start+))
   (lap:jne CLEAR-LOOP)
   ;; Setup complete.
   ;; Hose the old continuation object so it doesn't keep old values live.
