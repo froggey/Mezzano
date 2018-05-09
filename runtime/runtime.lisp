@@ -20,14 +20,14 @@
 (defun sys.int::%catch (tag fn)
   ;; Catch is used in low levelish code, so must avoid allocation.
   (let ((vec (sys.c::make-dx-simple-vector 3)))
-    (setf (svref vec 0) *active-catch-handlers*
-          (svref vec 1) tag
-          (svref vec 2) (flet ((exit-fn (values)
-                                 (return-from sys.int::%catch (values-list values))))
-                          (declare (dynamic-extent (function exit-fn)))
-                          #'exit-fn))
-    (let ((*active-catch-handlers* vec))
-      (funcall fn))))
+    (flet ((exit-fn (values)
+             (return-from sys.int::%catch (values-list values))))
+      (declare (dynamic-extent (function exit-fn)))
+      (setf (svref vec 0) *active-catch-handlers*
+            (svref vec 1) tag
+            (svref vec 2) #'exit-fn)
+      (let ((*active-catch-handlers* vec))
+        (funcall fn)))))
 
 (defun sys.int::%throw (tag values)
   ;; Note! The VALUES list has dynamic extent!
