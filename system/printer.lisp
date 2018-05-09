@@ -320,7 +320,7 @@
            (t (write-string object stream))))
     (character
      (write-character object stream))
-    (function
+    ((and function (not mezzano.delimited-continuations:delimited-continuation))
      (cond ((and (not *print-safe*)
                  (locally
                      ;; ### Bootstrap hack.

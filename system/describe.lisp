@@ -49,7 +49,13 @@
 (defmethod describe-object ((object function) stream)
   (multiple-value-bind (lambda-expression closure-p name)
       (function-lambda-expression object)
-    (format stream "~S is a ~A" object (if closure-p "closure" "function"))
+    (format stream "~S is a ~A" object
+            (cond (closure-p "closure")
+                  ((mezzano.delimited-continuations:delimited-continuation-p object)
+                   (if (mezzano.delimited-continuations:resumable-p object)
+                       "resumable delimited continuation"
+                       "consumed delimited continuation"))
+                  (t "function")))
     (when name
       (format stream " named ~S" name))
     (format stream "~%")))

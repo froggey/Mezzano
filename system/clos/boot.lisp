@@ -282,6 +282,7 @@
 (defclass funcallable-standard-class (std-class) ())
 
 (defclass function (t) () (:metaclass built-in-class))
+(defclass mezzano.delimited-continuations:delimited-continuation (function) () (:metaclass built-in-class))
 (defclass symbol (t) () (:metaclass built-in-class))
 (defclass character (t) () (:metaclass built-in-class))
 ;; FIXME: This should be a built-in class, but this is tricky to make work

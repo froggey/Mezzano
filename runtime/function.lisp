@@ -256,7 +256,9 @@ Arguments to FUNCTION:
      (multiple-value-bind (lambda closurep name)
          (funcallable-instance-lambda-expression function)
        (declare (ignore lambda closurep))
-       name))))
+       name))
+    (#.+object-tag-delimited-continuation+
+     nil)))
 
 (defun function-lambda-expression (function)
   (check-type function function)
@@ -266,7 +268,9 @@ Arguments to FUNCTION:
     (#.+object-tag-closure+
      (values nil t (function-name function)))
     (#.+object-tag-funcallable-instance+
-     (funcallable-instance-lambda-expression function))))
+     (funcallable-instance-lambda-expression function))
+    (#.+object-tag-delimited-continuation+
+     (values nil nil nil))))
 
 (defun function-debug-info (function)
   (check-type function function)
@@ -278,7 +282,9 @@ Arguments to FUNCTION:
      ;; Closure. Return the debug-info of the closed-over function.
      (function-debug-info (%closure-function function)))
     (#.+object-tag-funcallable-instance+
-     (funcallable-instance-debug-info function))))
+     (funcallable-instance-debug-info function))
+    (#.+object-tag-delimited-continuation+
+     nil)))
 
 (declaim (inline funcallable-std-instance-p
                  funcallable-std-instance-class (setf funcallable-std-instance-class)
@@ -323,7 +329,8 @@ Arguments to FUNCTION:
   (when (functionp object)
     (ecase (%object-tag object)
       ((#.+object-tag-function+
-        #.+object-tag-closure+)
+        #.+object-tag-closure+
+        #.+object-tag-delimited-continuation+)
        t)
       (#.+object-tag-funcallable-instance+
        (funcallable-instance-compiled-function-p object)))))

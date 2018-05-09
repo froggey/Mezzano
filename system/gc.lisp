@@ -1012,7 +1012,20 @@ This is required to make the GC interrupt safe."
      (scan-thread object cycle-kind))
     (#.+object-tag-weak-pointer+
      (scan-weak-pointer object cycle-kind))
+    (#.+object-tag-delimited-continuation+
+     (scan-delimited-continuation object cycle-kind))
     (t (scan-error object))))
+
+(defun scan-delimited-continuation (object cycle-kind)
+  (gc-log "Scan delimited continuation " object)
+  (scavengef (%object-ref-t object +delimited-continuation-stack+) cycle-kind)
+  (scavengef (%object-ref-t object +delimited-continuation-state+) cycle-kind)
+  (let ((stack-pointer (%object-ref-signed-byte-64 object +delimited-continuation-stack-pointer+)))
+    (when (not (zerop stack-pointer))
+      ;; Scan the stack. God willing.
+      (let ((frame-pointer (memref-unsigned-byte-64 stack-pointer 2))
+            (return-address (memref-unsigned-byte-64 stack-pointer 3)))
+        (scavenge-stack stack-pointer frame-pointer return-address cycle-kind)))))
 
 (defun scan-weak-pointer (object cycle-kind)
   (ecase cycle-kind
@@ -1232,6 +1245,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-thread+
           512)
          (#.+object-tag-weak-pointer+
+          6)
+         (#.+object-tag-delimited-continuation+
           6)
          (t
           (object-size-error object)))))
@@ -1586,6 +1601,9 @@ Additionally update the card table offset fields."
      ;; not implemented
      nil)
     (#.+object-tag-weak-pointer+
+     ;; not implemented
+     nil)
+    (#.+object-tag-delimited-continuation+
      ;; not implemented
      nil)
     (t (scan-error object))))

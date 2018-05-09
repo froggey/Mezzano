@@ -96,6 +96,7 @@
     "system/parse.lisp"
     "system/load.lisp"
     "system/time.lisp"
+    "system/delimited-continuations.lisp"
 ))
 
 (defparameter *special-source-files*

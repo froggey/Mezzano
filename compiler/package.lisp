@@ -642,3 +642,16 @@
            #:sse-vector-double-float-2-ref
            #:sse-vector
            #:sse-vector-p))
+
+(defpackage :mezzano.delimited-continuations
+  (:use :cl)
+  (:export #:delimited-continuation-p
+           #:delimited-continuation
+           #:*default-prompt-tag*
+           #:make-prompt-tag
+           #:prompt-tag
+           #:prompt-tag-p
+           #:call-with-prompt
+           #:abort-to-prompt
+           #:resumable-p)
+  (:local-nicknames (:lap :sys.lap-x86)))

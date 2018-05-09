@@ -424,6 +424,8 @@
     (simple-vector                                 (find-class-cached 'simple-vector))
     (vector                                        (find-class-cached 'vector))
     (array                                         (find-class-cached 'array))
+    (mezzano.delimited-continuations:delimited-continuation
+     (find-class-cached 'mezzano.delimited-continuations:delimited-continuation))
     (function                                      (find-class-cached 'function))
     (mezzano.supervisor:thread                     (find-class-cached 'mezzano.supervisor:thread))
     (sys.int::function-reference                   (find-class-cached 'sys.int::function-reference))

@@ -63,7 +63,7 @@
     cons                       ; #b111000
     freelist-entry             ; #b111001
     weak-pointer               ; #b111010
-    invalid-111011             ; #b111011
+    'mezzano.delimited-continuations:delimited-continuation ; #b111011
     function                   ; #b111100
     closure                    ; #b111101
     funcallable-instance       ; #b111110

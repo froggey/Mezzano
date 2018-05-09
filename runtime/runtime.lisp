@@ -15,7 +15,7 @@
         (sys.int::%%disestablish-block-or-tagbody))
        (function
         (sys.int::%%disestablish-unwind-protect))
-       ((eql 0)
+       (mezzano.delimited-continuations:prompt-tag
         ;; Delimited continuation marker.
         ;; TODO: Restore the stack object and invaliate the exit function.
         (setf (sys.int::%%special-stack-pointer)

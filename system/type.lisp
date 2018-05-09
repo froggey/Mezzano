@@ -876,7 +876,7 @@
        (#b111000 'pinned-cons)
        (#b111001 'freelist-entry)
        (#b111010 'weak-pointer)
-       (#b111011 'object-tag-111011)
+       (#b111011 'mezzano.delimited-continuations:delimited-continuation)
        (#b111100 'compiled-function)
        (#b111101 'closure)
        (#b111110 (class-name (class-of object)))

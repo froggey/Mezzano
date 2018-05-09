@@ -168,6 +168,12 @@
 (defconstant +funcallable-instance-slots+ 3)
 (defconstant +funcallable-instance-layout+ 4)
 
+;;; Delimited continuations.
+(defconstant +delimited-continuation-stack+ 1)
+(defconstant +delimited-continuation-stack-pointer+ 2)
+(defconstant +delimited-continuation-state+ 3)
+(defconstant +delimited-continuation-prompt+ 4)
+
 ;;; Standard instances.
 (defconstant +std-instance-class+ 0)
 (defconstant +std-instance-slots+ 1)

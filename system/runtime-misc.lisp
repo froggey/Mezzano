@@ -106,6 +106,12 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~D ~S" (mezzano.supervisor::cpu-apic-id object) (mezzano.supervisor::cpu-state object))))
 
+(defmethod print-object ((object mezzano.delimited-continuations:delimited-continuation) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (if (mezzano.delimited-continuations:resumable-p object)
+        (format stream "resumable")
+        (format stream "consumed"))))
+
 (defmethod print-object ((object bit-vector) stream)
   (if *print-array*
       (write-bit-vector object stream)
