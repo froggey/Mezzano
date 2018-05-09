@@ -113,12 +113,12 @@
   (lap:push :r9) ; 1, values
   (:gc :frame :layout #*11)
   (lap:mov64 :r13 (:function mezzano.runtime::%allocate-object))
-  (lap:mov64 :rcx #.(ash 4 #.sys.int::+n-fixnum-bits+))
-  (lap:mov64 :r8 #.(ash #.sys.int::+object-tag-delimited-continuation+
-                        #.sys.int::+n-fixnum-bits+)) ; tag
-  (lap:xor64 :r9 :r9) ; data
-  (lap:mov64 :r10 #.(ash 5 #.sys.int::+n-fixnum-bits+)) ; size. entry, stack, state, sp, info
-  (lap:mov64 :r11 nil) ; area
+  (lap:mov32 :ecx #.(ash 4 #.sys.int::+n-fixnum-bits+))
+  (lap:mov32 :r8d #.(ash #.sys.int::+object-tag-delimited-continuation+
+                         #.sys.int::+n-fixnum-bits+)) ; tag
+  (lap:xor32 :r9d :r9d) ; data
+  (lap:mov32 :r10d #.(ash 5 #.sys.int::+n-fixnum-bits+)) ; size. entry, stack, state, sp, info
+  (lap:mov32 :r11d nil) ; area
   (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
   (lap:mov64 :r9 (:stack 0)) ; r9 = prompt
   (lap:mov64 :r10 (:stack 1)) ; r10 = values
