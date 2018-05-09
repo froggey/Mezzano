@@ -23,9 +23,10 @@
 
 (defun resumable-p (delimited-continuation)
   (check-type delimited-continuation delimited-continuation)
-  (eql (sys.int::%object-ref-t delimited-continuation
-                               sys.int::+delimited-continuation-state+)
-       :resumable))
+  (and (not (logbitp 0 (sys.int::%object-header-data delimited-continuation)))
+       (eql (sys.int::%object-ref-t delimited-continuation
+                                    sys.int::+delimited-continuation-state+)
+            :resumable)))
 
 (defun call-with-prompt (prompt-tag thunk handler &key stack-size)
   (check-type thunk function)
@@ -33,6 +34,10 @@
   (check-type prompt-tag prompt-tag)
   (cond ((delimited-continuation-p thunk)
          ;; Resuming an existing continuation, reuse the stack.
+         (when (logbitp 0 (sys.int::%object-header-data thunk))
+           (error "Attempted to resume barriered continuation ~S (barrier: ~S)"
+                  thunk
+                  (sys.int::%object-ref-t thunk sys.int::+delimited-continuation-state+)))
          ;; Attempt to take ownership of this continuation.
          (when (not (sys.int::%cas-object thunk sys.int::+delimited-continuation-state+
                                           :resumable :consumed))
