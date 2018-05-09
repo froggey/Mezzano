@@ -21,27 +21,40 @@
         (setf (sys.int::%%special-stack-pointer)
               (svref (sys.int::%%special-stack-pointer) 0))))))
 
+(defmacro do-variable-bindings ((value symbol &optional result) &body body)
+  (let ((ssp (gensym "SSP"))
+        (sym (gensym)))
+    `(loop
+        with ,sym = ,symbol
+        for ,ssp = (sys.int::%%special-stack-pointer) then (svref ,ssp 0)
+        until (null ,ssp)
+        when (eql (svref ,ssp 1) ,sym)
+        do (let ((,value (svref ,ssp 2)))
+             ,@body)
+        finally (return ,result))))
+
+;; Scary note: This is not treated like a normal dynamic variable.
+;; The variable itself is not a list, instead the active binding
+;; cells are used to simulate one.
 (defvar *active-catch-handlers*)
 (defun sys.int::%catch (tag fn)
   ;; Catch is used in low levelish code, so must avoid allocation.
-  (let ((vec (sys.c::make-dx-simple-vector 3)))
+  (let ((vec (sys.c::make-dx-simple-vector 2)))
     (flet ((exit-fn (values)
              (return-from sys.int::%catch (values-list values))))
       (declare (dynamic-extent (function exit-fn)))
-      (setf (svref vec 0) *active-catch-handlers*
-            (svref vec 1) tag
-            (svref vec 2) #'exit-fn)
+      (setf (svref vec 0) tag
+            (svref vec 1) #'exit-fn)
       (let ((*active-catch-handlers* vec))
         (funcall fn)))))
 
 (defun sys.int::%throw (tag values)
   ;; Note! The VALUES list has dynamic extent!
   ;; This is fine, as the exit function calls VALUES-LIST on it before unwinding.
-  (do ((current *active-catch-handlers* (svref current 0)))
-      ((not current)
-       (error 'sys.int::bad-catch-tag-error :tag tag))
-    (when (eq (svref current 1) tag)
-      (funcall (svref current 2) values))))
+  (do-variable-bindings (value '*active-catch-handlers*
+                         (error 'sys.int::bad-catch-tag-error :tag tag))
+    (when (eq (svref value 0) tag)
+      (funcall (svref value 1) values))))
 
 (defun sys.int::%coerce-to-callable (object)
   (typecase object
