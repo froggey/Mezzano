@@ -1018,6 +1018,9 @@ This is required to make the GC interrupt safe."
 
 (defun scan-delimited-continuation (object cycle-kind)
   (gc-log "Scan delimited continuation " object)
+  (let ((entry-point (%object-ref-signed-byte-64 object +function-entry-point+)))
+    (when (not (zerop entry-point))
+      (scavenge-object (return-address-to-function entry-point) cycle-kind)))
   (scavengef (%object-ref-t object +delimited-continuation-stack+) cycle-kind)
   (scavengef (%object-ref-t object +delimited-continuation-state+) cycle-kind)
   (let ((stack-pointer (%object-ref-signed-byte-64 object +delimited-continuation-stack-pointer+)))
