@@ -10,34 +10,6 @@
 (defun delimited-continuation-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-delimited-continuation+))
 
-(define-condition consumed-continuation-resumed (control-error)
-  ((continuation :initarg :continuation
-                 :reader consumed-continuation-resumed-continuation)
-   (arguments :initarg :arguments
-              :initform '()
-              :reader consumed-continuation-resumed-arguments))
-  (:report (lambda (condition stream)
-             (format stream "Attempted to resume consumed continuation ~S with arguments ~:S."
-                     (consumed-continuation-resumed-continuation condition)
-                     (consumed-continuation-resumed-arguments condition)))))
-
-(define-condition barrier-present (control-error)
-  ((tag :initarg :tag
-        :reader barrier-present-tag)
-   (barrier :initarg :barrier
-        :reader barrier-present-barrier))
-  (:report (lambda (condition stream)
-             (format stream "Cannot abort to prompt ~S, blocked by barrier ~S."
-                     (barrier-present-tag condition)
-                     (barrier-present-barrier condition)))))
-
-(define-condition unknown-prompt-tag (control-error)
-  ((tag :initarg :tag
-        :reader unknown-prompt-tag-tag))
-  (:report (lambda (condition stream)
-             (format stream "Unknown prompt tag ~S."
-                     (unknown-prompt-tag-tag condition)))))
-
 (defstruct (prompt-tag
              (:constructor make-prompt-tag (&optional (stem "prompt"))))
   (stem nil :read-only t))
