@@ -4,7 +4,6 @@
 (in-package :mezzano.delimited-continuations)
 
 ;; TODO: The assembly functions should inhibit footholds while switching stacks.
-;; TODO: Need to remove the stack less-than hack for variably-sized stack allocations...
 
 (deftype delimited-continuation ()
   `(satisfies delimited-continuation-p))

@@ -17,7 +17,9 @@
         (sys.int::%%disestablish-unwind-protect))
        (mezzano.delimited-continuations:prompt-tag
         ;; Delimited continuation marker.
-        ;; TODO: Restore the stack object and invaliate the exit function.
+        ;; Restore thread's stack object.
+        (setf (mezzano.supervisor::thread-stack (mezzano.supervisor::current-thread))
+              (sys.int::%object-ref-t (sys.int::%%special-stack-pointer) 3))
         (setf (sys.int::%%special-stack-pointer)
               (svref (sys.int::%%special-stack-pointer) 0))))))
 
