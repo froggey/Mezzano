@@ -93,15 +93,26 @@
             (funcall (cdr h) condition)))))
     nil))
 
+(defun %handler-bind (bindings thunk)
+  (if *active-handlers*
+      ;; There is a barrier here as this would capture the entire stack of handlers
+      ;; not just the ones inside the continuation.
+      ;; This should switch to a mechanism similar to %CATCH, but that is more
+      ;; difficult to handle because of the visibility requirements when calling
+      ;; handlers.
+      (mezzano.delimited-continuations:with-continuation-barrier ('handler-bind)
+        (let ((*active-handlers* (cons bindings *active-handlers*)))
+          (funcall thunk)))
+      (let ((*active-handlers* (cons bindings *active-handlers*)))
+        (funcall thunk))))
+
 (defmacro handler-bind (bindings &body forms)
-  `(let ((*active-handlers* (cons (list ,@(mapcar (lambda (binding)
-                                                    (destructuring-bind (type handler)
-                                                        binding
-                                                      `(cons ',type ,handler)))
-                                                  bindings))
-                                  *active-handlers*)))
-     (declare (dynamic-extent *active-handlers*))
-     (progn ,@forms)))
+  `(%handler-bind (list ,@(mapcar (lambda (binding)
+                                    (destructuring-bind (type handler)
+                                        binding
+                                      `(cons ',type ,handler)))
+                                  bindings))
+                  (lambda () (progn ,@forms))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compute-handler-case-forms (clauses)

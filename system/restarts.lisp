@@ -80,16 +80,29 @@
                                  (lambda () (progn ,@body))))
 
 (defun call-with-condition-restarts (condition restarts fn)
-  (let ((*restart-associations* (list* (list* condition restarts)
-                                       *restart-associations*)))
-    (funcall fn)))
+  (mezzano.delimited-continuations:with-continuation-barrier ('with-condition-restarts)
+    (let ((*restart-associations* (list* (list* condition restarts)
+                                         *restart-associations*)))
+      (funcall fn))))
+
+(defun %restart-bind (clauses thunk)
+  (if *active-restarts*
+      ;; There is a barrier here as this would capture the entire stack of handlers
+      ;; not just the ones inside the continuation.
+      ;; This should switch to a mechanism similar to %CATCH, but that is more
+      ;; difficult to handle because of the visibility requirements when calling
+      ;; handlers.
+      (mezzano.delimited-continuations:with-continuation-barrier ('restart-bind)
+        (let ((*active-restarts* (cons clauses *active-restarts*)))
+          (funcall thunk)))
+      (let ((*active-restarts* (cons clauses *active-restarts*)))
+        (funcall thunk))))
 
 (defmacro restart-bind (clauses &rest forms)
-  `(let ((*active-restarts* (cons (list ,@(loop
-                                             for (name . arguments) in clauses
-                                             collect `(make-restart ',name ,@arguments)))
-                                  *active-restarts*)))
-     ,@forms))
+  `(%restart-bind (list ,@(loop
+                             for (name . arguments) in clauses
+                             collect `(make-restart ',name ,@arguments)))
+                  (lambda () (progn ,@forms))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
