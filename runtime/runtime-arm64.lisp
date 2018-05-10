@@ -341,11 +341,11 @@
   (mezzano.lap.arm64:add :x12 :xzr :x0 :lsl #.(- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
   ;; If a garbage collection occurs, it must rewind IP back here.
-  ;; Additionally, configure linked mode with :x9 linked to :x7
-  (:gc :no-frame :layout #* :restart t :extra-registers :rax-rcx)
+  (:gc :no-frame :layout #* :restart t)
   ;; Fetch and increment the current bump pointer.
   (mezzano.lap.arm64:add :x6 :xzr :x2 :lsl 3) ; words * 8
   ;; Address generation.
+  ;; Linked GC mode is not needed as this will be repeated due to the restart region.
   (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
   ;; Atomic add. Blech, load/store linked suck.
   ATOMIC-RETRY
@@ -401,11 +401,11 @@
   (mezzano.lap.arm64:ldr :x3 (:constant sys.int::*cons-area-gen0-limit*))
   (mezzano.lap.arm64:ldr :x3 (:object :x3 #.sys.int::+symbol-value+))
   ;; R13 = bump. R11 = limit. R12 = mark.
-  ;; Additionally, configure linked mode with :x9 linked to :x7
-  (:gc :no-frame :layout #* :restart t :extra-registers :rax-rcx)
+  (:gc :no-frame :layout #* :restart t)
   ;; Fetch and increment the current bump pointer.
   (mezzano.lap.arm64:movz :x6 #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
   ;; Address generation.
+  ;; Linked GC mode is not needed as this will be repeated due to the restart region.
   (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
   ;; Atomic add. Blech, load/store linked suck.
   ATOMIC-RETRY
