@@ -15,6 +15,9 @@
   (stem nil :read-only t))
 
 (defparameter *default-prompt-tag* (make-prompt-tag "default-prompt"))
+(defparameter *default-continuation-stack-size* nil
+  "The size of the stack to allocate for new continuations.
+If this is NIL then CALL-WITH-PROMPT will use the system's default stack size for threads.")
 
 ;; This internal tag is used by continuations that have been resumed normally,
 ;; not via CALL-WITH-PROMPT, and are not elegible for ABORT-TO-PROMPT.
@@ -31,7 +34,7 @@
                                sys.int::+delimited-continuation-state+)
        :resumable))
 
-(defun call-with-prompt (prompt-tag thunk handler &key stack-size)
+(defun call-with-prompt (prompt-tag thunk handler)
   (check-type thunk function)
   (check-type handler function)
   (check-type prompt-tag prompt-tag)
@@ -56,7 +59,7 @@
                             thunk
                             handler
                             (mezzano.supervisor::%allocate-stack
-                             (or stack-size
+                             (or *default-continuation-stack-size*
                                  mezzano.supervisor::*default-stack-size*))))))
 
 (defun find-prompt (prompt-tag &optional (errorp t))

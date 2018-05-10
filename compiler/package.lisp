@@ -651,6 +651,7 @@
            #:make-prompt-tag
            #:prompt-tag
            #:prompt-tag-p
+           #:*default-continuation-stack-size*
            #:call-with-prompt
            #:abort-to-prompt
            #:resumable-p
