@@ -833,7 +833,7 @@
   ;; stack pointer will always be below the live/not-yet-flushed roots.
   (emit `(lap:ldr :x10 (:x9 24))) ; rbp
   (dolist (dx-root (gethash region *dx-root-visibility*))
-    (apply #'emit (code-for-reg-immediate-mem-op 'lap:str :x26 :x10 dx-root)))
+    (apply #'emit (code-for-reg-immediate-mem-op 'lap:str :x26 :x10 (control-stack-frame-offset dx-root))))
   (if multiple-values-p
       (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
       (emit-gc-info :block-or-tagbody-thunk :rax))
