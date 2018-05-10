@@ -79,22 +79,20 @@
   (sys.lap-x86:ret))
 
 (sys.int::define-lap-function current-thread (())
-  (:gc :no-frame :layout #*0)
+  ENTRY-POINT
+  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:test64 :rcx :rcx)
   (sys.lap-x86:jnz BAD-ARGS)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 :r8 (:object nil #.+thread-self+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   BAD-ARGS
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*00)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
+  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-  (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2))
+  (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 (defun arch-initialize-thread-state (thread stack-pointer)
   ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
