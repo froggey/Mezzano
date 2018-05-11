@@ -2,13 +2,6 @@
 ;;;; This code is licensed under the MIT license.
 
 ;;;; Optimized pluggable blitter functions.
-;;;; The low-level pixel blending functions use a custom calling
-;;;; convetion and must not be called directly from lisp.
-;;;; RAX contains the source pixel.
-;;;; R9 contains the destination simple UB32 vector.
-;;;; RDI contains the index of the destination pixel.
-;;;; RAX, RCX, RDX and MMX/SSE registers are caller save.
-;;;; All other registers are callee save.
 
 (in-package :mezzano.gui)
 
