@@ -805,7 +805,6 @@
   (:use :cross-cl)
   (:export #:delimited-continuation-p
            #:delimited-continuation
-           #:*default-prompt-tag*
            #:make-prompt-tag
            #:prompt-tag
            #:prompt-tag-p

@@ -14,7 +14,6 @@
              (:constructor make-prompt-tag (&optional (stem "prompt"))))
   (stem nil :read-only t))
 
-(defparameter *default-prompt-tag* (make-prompt-tag "default-prompt"))
 (defparameter *default-continuation-stack-size* nil
   "The size of the stack to allocate for new continuations.
 If this is NIL then CALL-WITH-PROMPT will use the system's default stack size for threads.")
