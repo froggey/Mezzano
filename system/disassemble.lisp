@@ -868,10 +868,10 @@
     nil
     nil ; 28
     nil
+    (decode-cvt-2a)
     nil
-    nil
-    nil
-    nil
+    (decode-cvt-2c)
+    (decode-cvt-2d)
     (decode-v-w sys.lap-x86:ucomiss sys.lap-x86:ucomisd nil nil)
     nil
     (decode-simple sys.lap-x86:wrmsr) ; 30
@@ -1728,6 +1728,108 @@
                                     (decode-xmm reg (rex-r info))
                                     (decode-xmm-or-mem r/m (rex-b info))
                                     imm)))))))
+
+(defun decode-cvt-2a (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (cond #+(or)
+          ((getf info :osize)
+           (make-instruction 'sys.lap-x86:cvtpi2pd
+                             (decode-xmm reg (rex-r info))
+                             (decode-mmx-or-mem r/m (rex-b info))))
+          ((eql (getf info :rep) #xF2)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvtsi2sd64
+                                 (decode-xmm reg (rex-r info))
+                                 (decode-gpr64-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvtsi2sd32
+                                 (decode-xmm reg (rex-r info))
+                                 (decode-gpr32-or-mem r/m (rex-b info)))))
+          ((eql (getf info :rep) #xF3)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvtsi2ss64
+                                 (decode-xmm reg (rex-r info))
+                                 (decode-gpr64-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvtsi2ss64
+                                 (decode-xmm reg (rex-r info))
+                                 (decode-gpr32-or-mem r/m (rex-b info)))))
+          #+(or)
+          (t
+           (make-instruction 'sys.lap-x86:cvtpi2ps
+                             (decode-xmm reg (rex-r info))
+                             (decode-mmx-or-mem r/m (rex-b info)))))))
+
+(defun decode-cvt-2c (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (cond #+(or)
+          ((getf info :osize)
+           (make-instruction 'sys.lap-x86:cvttpd2pi
+                             (decode-mmx reg (rex-r info))
+                             (decode-xmm-or-mem r/m (rex-b info))))
+          ((eql (getf info :rep) #xF2)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvttsd2si64
+                                 (decode-gpr64 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvttsd2si32
+                                 (decode-gpr32 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))))
+          ((eql (getf info :rep) #xF3)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvttss2si64
+                                 (decode-gpr64 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvttss2si64
+                                 (decode-gpr32 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))))
+          #+(or)
+          (t
+           (make-instruction 'sys.lap-x86:cvttps2pi
+                             (decode-mmx reg (rex-r info))
+                             (decode-xmm-or-mem r/m (rex-b info)))))))
+
+(defun decode-cvt-2d (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (cond #+(or)
+          ((getf info :osize)
+           (make-instruction 'sys.lap-x86:cvtpd2pi
+                             (decode-mmx reg (rex-r info))
+                             (decode-xmm-or-mem r/m (rex-b info))))
+          ((eql (getf info :rep) #xF2)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvtsd2si64
+                                 (decode-gpr64 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvtsd2si32
+                                 (decode-gpr32 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))))
+          ((eql (getf info :rep) #xF3)
+           (if (rex-w info)
+               (make-instruction 'sys.lap-x86:cvtss2si64
+                                 (decode-gpr64 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))
+               nil
+               #+(or)
+               (make-instruction 'sys.lap-x86:cvtss2si64
+                                 (decode-gpr32 reg (rex-r info))
+                                 (decode-xmm-or-mem r/m (rex-b info)))))
+          #+(or)
+          (t
+           (make-instruction 'sys.lap-x86:cvtps2pi
+                             (decode-mmx reg (rex-r info))
+                             (decode-xmm-or-mem r/m (rex-b info)))))))
 
 (defun decode-io (context info opcode16 opcode32 port-is-dx)
   (let ((port (if port-is-dx
