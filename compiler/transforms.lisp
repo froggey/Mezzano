@@ -315,6 +315,15 @@
   `(the single-float
         (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number)))
 
+(define-transform float ((number single-float) (prototype single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  number)
+
+(define-transform float ((number double-float) (prototype single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the single-float
+        (call mezzano.runtime::%%coerce-double-float-to-single-float ,number)))
+
 (define-transform float ((number fixnum))
     ((:optimize (= safety 0) (= speed 3)))
   `(the single-float (call mezzano.runtime::%%coerce-fixnum-to-single-float ,number)))
@@ -394,6 +403,25 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(the double-float
         (call mezzano.runtime::%%coerce-fixnum-to-double-float ,number)))
+
+(define-transform float ((number single-float) (prototype double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the single-float
+        (call mezzano.runtime::%%coerce-single-float-to-double-float ,number)))
+
+(define-transform float ((number double-float) (prototype double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  number)
+
+(define-transform sys.int::%truncate ((number double-float) (divisor (eql 1)))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%truncate-double-float ,number))
+
+(define-transform sys.int::generic-truncate ((number double-float) (divisor (eql 1)))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%truncate-double-float ,number))
 
 (define-transform abs ((number double-float))
     ((:optimize (= safety 0) (= speed 3)))
