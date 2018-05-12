@@ -287,19 +287,25 @@
   index
   bits)
 
-(defvar *random-state*
-  (%make-random-state 0 (make-array
-                         16
-                         :element-type '(unsigned-byte 32)
-                         :initial-element #x12345678)))
+(defvar *random-state* (make-random-state t))
 
 (defun make-random-state (&optional state)
   (case state
-    ((t) (%make-random-state 0 (make-array 16
+    ((t)
+     (let ((state (%make-random-state 0 (make-array
+                                         16
                                          :element-type '(unsigned-byte 32)
-                                         :initial-element 0)))
-    ((nil) (copy-random-state *random-state*))
-    (otherwise (copy-random-state state))))
+                                         :initial-element (get-universal-time)))))
+       (dotimes (i 64)
+         (%random state))
+       state))
+    ((nil)
+     (%make-random-state (random-state-index *random-state*)
+                         (copy-seq (random-state-bits *random-state*))))
+    (otherwise
+     (check-type state random-state)
+     (%make-random-state (random-state-index state)
+                         (copy-seq (random-state-bits state))))))
 
 ;;; Generate 32-bit random number
 (defun %random (random-state)
@@ -321,6 +327,10 @@
                                   (dpb c (byte 4 28) 0)))))
 
 (defun random (limit &optional (random-state *random-state*))
+  (unless (or (and (integerp limit) (> limit 0))
+              (and (realp limit) (> limit 0.0)))
+    (error 'type-error :expected-type '(or positive-fixnum positive-real)
+                :datum limit))
   (let* ((r (%random random-state))
          (rd (/ (float r 1.0d0) (+ 1.0d0 (float #xFFFFFFFF 1.0d0)))))
     (etypecase limit
@@ -335,9 +345,3 @@
              (random limit random-state)
              (* limit rs))))
       (double-float (* limit rd)))))
-
-;;; Discard first few random numbers so that *random-state* is less uniform.
-;;; TODO - initialize *random-state* with something better
-
-(dotimes (i 64)
-  (%random *random-state*))
