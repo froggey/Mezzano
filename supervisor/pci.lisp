@@ -42,6 +42,12 @@
 (defconstant +pci-bridge-secondary-status+  #x1E)
 
 (defconstant +pci-command-bus-master+ 2)
+(defconstant +pci-command-interrupt-disable+ 10)
+
+(defconstant +pci-status-interrupt-status+ 3)
+(defconstant +pci-status-capabilities-list+ 4)
+
+(defconstant +pci-capability-id-msi+ #x05)
 
 (sys.int::defglobal *pci-config-lock*)
 
@@ -53,8 +59,6 @@
   address
   vendor-id
   device-id
-  vendor-name
-  device-name
   boot-id
   claimed)
 
@@ -156,18 +160,16 @@
 (defun pci-intr-line (device)
   (pci-config/8 device +pci-config-intr-line+))
 
-(defconstant +pci-command-bus-master-enable+ (ash 1 2))
-
 (defun pci-bus-master-enabled (device)
-  (logtest (pci-config/16 device +pci-config-command+)
-           +pci-command-bus-master-enable+))
+  (logbitp +pci-command-bus-master+
+           (pci-config/16 device +pci-config-command+)))
 
 (defun (setf pci-bus-master-enabled) (value device)
   (let ((prev (pci-config/16 device +pci-config-command+)))
     (setf (pci-config/16 device +pci-config-command+)
           (if value
-              (logior prev +pci-command-bus-master-enable+)
-              (logand prev (lognot +pci-command-bus-master-enable+))))
+              (logior prev (ash 1 +pci-command-bus-master+))
+              (logand prev (lognot (ash 1 +pci-command-bus-master+)))))
     value))
 
 (defun pci-io-region/8 (location offset)
@@ -243,6 +245,39 @@
         *pci-late-probe-devices* '())
   (add-deferred-boot-action 'pci-late-probe))
 
+(defun dump-pci-device-config-space (device)
+  (let* ((vendor-id (pci-config/16 device +pci-config-vendorid+))
+         (device-id (pci-config/16 device +pci-config-deviceid+))
+         (base-class-code (pci-base-class device))
+         (sub-class-code (pci-sub-class device))
+         (programming-interface (pci-programming-interface device))
+         (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
+    (multiple-value-bind (bus device-nr function)
+        (pci-device-location device)
+      (multiple-value-bind (vendor-name device-name)
+          (pci-find-device-name vendor-id device-id)
+        (debug-print-line "PCI:" bus ":" device-nr ":" function
+                          " " vendor-id ":" device-id
+                          " " vendor-name " - " device-name
+                          " " base-class-code ":" sub-class-code ":" programming-interface
+                          " " (pci-config/8 device +pci-config-revid+)
+                          " " header-type)))
+    (when (logbitp +pci-status-capabilities-list+
+                   (pci-config/16 device +pci-config-status+))
+      (loop
+         with cap = (pci-config/8 device +pci-config-capabilities+)
+         do
+           (setf cap (logand cap (lognot 3))) ; Bottom 2 bits must be masked off.
+           (when (zerop cap)
+             (return))
+           (let ((id (pci-config/8 device cap)))
+             (case id
+               (#.+pci-capability-id-msi+
+                (debug-print-line "    " cap ": MSI " (pci-config/16 device (+ cap 2))))
+               (t
+                (debug-print-line "    " cap ": Unknown capability " id)))
+             (setf cap (pci-config/8 device (1+ cap))))))))
+
 (defun pci-detect ()
   (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
   (when (eql (sys.int::io-port/32 +pci-config-address+) #x80000000)
@@ -263,11 +298,6 @@
                        (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
                          (setf (pci-device-vendor-id device) vendor-id
                                (pci-device-device-id device) device-id)
-                         (multiple-value-bind (vendor-name device-name)
-                             (pci-find-device-name vendor-id device-id)
-                           (setf (pci-device-vendor-name device) vendor-name
-                                 (pci-device-device-name device) device-name)
-                           (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id " " vendor-name " - " device-name))
                          (push-wired device *pci-devices*)
                          (when (eql header-type +pci-bridge-htype+)
                            ;; Bridge device, scan the other side.
@@ -280,15 +310,8 @@
               (device-id (pci-config/16 device +pci-config-deviceid+))
               (base-class-code (pci-base-class device))
               (sub-class-code (pci-sub-class device))
-              (programming-interface (pci-programming-interface device))
-              (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
-         (multiple-value-bind (bus device-nr function)
-             (pci-device-location device)
-           (debug-print-line "PCI:" bus ":" device-nr ":" function
-                             " " vendor-id ":" device-id
-                             " " base-class-code ":" sub-class-code ":" programming-interface
-                             " " (pci-config/8 device +pci-config-revid+)
-                             " " header-type))
+              (programming-interface (pci-programming-interface device)))
+         (dump-pci-device-config-space device)
          (cond ((and (eql vendor-id #x1AF4)
                      (<= #x1000 device-id #x103F))
                 ;; Some kind of virtio-device.
@@ -435,3 +458,11 @@
         (if position
             (values vname dname (svref subsystems (1+ position)))
             (values vname dname nil))))))
+
+(defun pci-device-vendor-name (device)
+  (pci-find-vendor-name (pci-device-vendor-id device)))
+
+(defun pci-device-device-name (device)
+  (multiple-value-bind (vendor-name device-name)
+      (pci-find-device-name (pci-device-vendor-id device) (pci-device-device-id device))
+    device-name))
