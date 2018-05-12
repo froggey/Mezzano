@@ -101,8 +101,8 @@ Returns NIL if the function captures no variables."
                       (repr (read-vu32))
                       (real-repr (ecase repr
                                    (#.+debug-repr-value+ :value)
-                                   (#.+debug-repr-single-float+ single-float)
-                                   (#.+debug-repr-double-float+ double-float)
+                                   (#.+debug-repr-single-float+ 'single-float)
+                                   (#.+debug-repr-double-float+ 'double-float)
                                    (#.+debug-repr-mmx-vector+ 'mezzano.simd:mmx-vector)
                                    (#.+debug-repr-sse-vector+ 'mezzano.simd:sse-vector)
                                    (#.+debug-repr-fixnum+ 'fixnum)
