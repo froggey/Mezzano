@@ -189,6 +189,10 @@
     (#.mezzano.supervisor::+thread-state-rsp+ "thread-state-rsp")
     (#.mezzano.supervisor::+thread-state-ss+ "thread-state-ss")))
 
+(defun type-tag-to-name (tag)
+  (when (zerop (ldb (byte 2 0) tag))
+    (format nil "object-tag-~(~A~)" (aref sys.int::*object-tags-to-basic-types* (ash tag -2)))))
+
 (defun print-instruction (context instruction &key (print-annotations t) (print-labels t))
   (let ((annotations '()))
     (format t "(")
@@ -200,6 +204,13 @@
            (when (inst-lock-prefix instruction)
              (format t "LOCK "))
            (format t "~A" (inst-opcode instruction))
+           (when (and (eql (inst-opcode instruction) 'sys.lap-x86:cmp8)
+                      (eql (first (inst-operands instruction)) :al)
+                      (integerp (second (inst-operands instruction))))
+             ;; Probably a type check.
+             (let ((type-tag (type-tag-to-name (second (inst-operands instruction)))))
+               (when type-tag
+                 (push type-tag annotations))))
            (dolist (operand (inst-operands instruction))
              (format t " ")
              (cond ((typep operand 'effective-address)
