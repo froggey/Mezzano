@@ -240,11 +240,13 @@
   (sys.lap-x86:cmp64 :rcx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:jne BAD-ARGUMENTS)
   (:gc :frame)
+  (:debug ((x :r8 :value) (y :r9 :value)))
   ;; EQ test.
   ;; This additionally covers fixnums, characters and single-floats.
   (sys.lap-x86:cmp64 :r8 :r9)
   (sys.lap-x86:jne MAYBE-NUMBER-CASE)
   ;; Objects are EQ.
+  (:debug ())
   (sys.lap-x86:mov32 :r8d t)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:leave)
@@ -252,6 +254,7 @@
   (sys.lap-x86:ret)
   (:gc :frame)
   MAYBE-NUMBER-CASE
+  (:debug ((x :r8 :value) (y :r9 :value)))
   ;; Not EQ.
   ;; Both must be objects.
   (sys.lap-x86:mov8 :al :r8l)
@@ -288,6 +291,7 @@
   (:gc :frame)
   OBJECTS-UNEQUAL
   ;; Objects are not EQL.
+  (:debug ())
   (sys.lap-x86:mov32 :r8d nil)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:leave)
