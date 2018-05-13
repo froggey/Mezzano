@@ -493,7 +493,8 @@ VALUE may be nil to make the fref unbound."
                                               (princ-to-string *compile-file-pathname*))
                                             sys.int::*top-level-form-number*
                                             lambda-list
-                                            docstring)
+                                            docstring
+                                            nil)
                                     nil
                                     #+x86-64 :x86-64))
        ',name)))

@@ -464,7 +464,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                        (princ-to-string *compile-file-pathname*))
                                      sys.int::*top-level-form-number*
                                      lambda-list
-                                     docstring)
+                                     docstring
+                                     nil)
                                nil
                                #+x86-64 :x86-64
                                #+arm64 :arm64))

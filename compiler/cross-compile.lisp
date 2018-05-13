@@ -881,7 +881,8 @@
                                        (princ-to-string *compile-file-pathname*))
                                      sys.int::*top-level-form-number*
                                      lambda-list
-                                     docstring)
+                                     docstring
+                                     nil)
                                nil
                                *target-architecture*))
           env))))
