@@ -97,3 +97,14 @@
           (if copy-on-write
               +x86-64-pte-copy-on-write+
               0)))
+
+(defun map-ptes (start end fn &key sparse)
+  "Visit all visible page table entries from START to END.
+If SPARSE is true, then PTEs that don't exist in the range won't be visited;
+otherwise FN will be called with a NIL PTE for those entries."
+  ;; TOOD: When sparse is true, skip over entire table levels.
+  (loop
+     for page from start below end by #x1000
+     for pte = (get-pte-for-address page nil)
+     when (or (not sparse) pte)
+     do (funcall fn page pte)))

@@ -551,14 +551,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (declare (ignore ignore1 ignore2 ignore3))
   (with-mutex (*vm-lock*)
     (begin-tlb-shootdown)
-    (loop
-       for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
-       for pte = (or (get-pte-for-address wired-page nil)
-                     (panic "Missing pte for wired page " wired-page))
-       do
-         (when (page-dirty-p pte)
-           (setf (sys.int::card-table-dirty-gen wired-page) 0)
-           (update-pte pte :dirty nil)))
+    (map-ptes
+     sys.int::*wired-area-base* sys.int::*wired-area-bump*
+     (dx-lambda (wired-page pte)
+       (when (not pte)
+         (panic "Missing pte for wired page " wired-page))
+       (when (page-dirty-p pte)
+         (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         (update-pte pte :dirty nil))))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
@@ -861,12 +861,13 @@ It will put the thread to sleep, while it waits for the page."
   ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
   (setf *vm-lock* (make-mutex "Global VM Lock"))
   ;; Set all the dirty bits for wired pages. They were not saved over snapshot.
-  (loop
-     for wired-page from sys.int::*wired-area-base* below sys.int::*wired-area-bump* by #x1000
-     do
-       (update-pte (or (get-pte-for-address wired-page nil)
-                       (panic "Missing pte for wired page " wired-page))
-                   :dirty t))
+  (map-ptes
+   sys.int::*wired-area-base* sys.int::*wired-area-bump*
+   (dx-lambda (wired-page pte)
+     (when (not pte)
+       (panic "Missing pte for wired page " wired-page))
+     (update-pte pte
+                 :dirty t)))
   (flush-tlb))
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
