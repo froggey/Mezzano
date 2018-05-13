@@ -753,6 +753,81 @@
           (sys.int::%object-ref-t value sys.int::+ratio-denominator+) denominator)
     value))
 
+;;; In the supervisor package for historical reasons.
+(in-package :mezzano.supervisor)
+
+(defstruct (stack
+             (:constructor %make-stack (base size))
+             (:area :wired))
+  base
+  size)
+
+(defun %allocate-stack-1 (aligned-size actual-size bump-sym)
+  (mezzano.supervisor:without-footholds
+    (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
+      (when (< (mezzano.runtime::bytes-remaining) size)
+        (sys.int::gc :full t))
+      (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
+                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+        (incf (symbol-value bump-sym) aligned-size)))))
+
+(defconstant +stack-guard-size+ #x200000)
+(defconstant +stack-region-alignment+ #x200000)
+
+;; TODO: Actually allocate virtual memory.
+(defun %allocate-stack (size &optional wired)
+  (declare (sys.c::closure-allocation :wired))
+  (setf size (align-up size #x1000))
+  (let* ((gc-count 0)
+         (stack-address nil)
+         (stack (%make-stack nil size)))
+    ;; Allocate the stack object & finalizer up-front to prevent any issues
+    ;; if the system runs out of memory while allocating the stack.
+    (sys.int::make-weak-pointer stack stack
+                                (lambda ()
+                                  (when stack-address
+                                    (release-memory-range stack-address size)
+                                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))))
+                                :wired)
+    (tagbody
+     RETRY
+       (mezzano.supervisor:without-footholds
+         (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
+           (when (< (mezzano.runtime::bytes-remaining) size)
+             (go DO-GC))
+           ;; This is where the stack starts in virtual memory.
+           (let* ((bump (+ +stack-guard-size+
+                           (if wired
+                               sys.int::*wired-stack-area-bump*
+                               sys.int::*stack-area-bump*)))
+                  (addr (logior bump
+                                (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
+             ;; Allocate backing mmory.
+             (when (not (allocate-memory-range addr size
+                                               (logior sys.int::+block-map-present+
+                                                       sys.int::+block-map-writable+
+                                                       sys.int::+block-map-zero-fill+
+                                                       (if wired
+                                                           sys.int::+block-map-wired+
+                                                           0))))
+               (go DO-GC))
+             ;; Memory actually allocated, now update bump pointers.
+             (if wired
+                 (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
+                 (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
+             (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
+             (setf (stack-base stack) addr
+                   ;; Notify the finalizer that the stack has been allocated & should be freed.
+                   stack-address addr)
+             (return-from %allocate-stack stack))))
+     DO-GC
+       (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
+         (error 'storage-condition))
+       (incf gc-count)
+       (debug-print-line "No memory for stack, calling GC.")
+       (sys.int::gc :full t)
+       (go RETRY))))
+
 ;;; Card table.
 ;;; This would be in gc.lisp, but it needs to be wired.
 

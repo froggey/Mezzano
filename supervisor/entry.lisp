@@ -6,54 +6,6 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-(defstruct (stack
-             (:constructor %make-stack (base size))
-             (:area :wired))
-  base
-  size)
-
-(defun %allocate-stack-1 (aligned-size bump-sym)
-  (mezzano.supervisor:without-footholds
-    (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
-      (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
-                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-        (incf (symbol-value bump-sym) aligned-size)))))
-
-;; TODO: Actually allocate virtual memory.
-(defun %allocate-stack (size &optional wired)
-  (declare (sys.c::closure-allocation :wired))
-  ;; 4k align the size.
-  (setf size (logand (+ size #xFFF) (lognot #xFFF)))
-  ;; 2m align the memory region.
-  (let* ((addr (%allocate-stack-1 (align-up size #x200000)
-                                  (if wired
-                                      'sys.int::*wired-stack-area-bump*
-                                      'sys.int::*stack-area-bump*)))
-         (stack (%make-stack addr size)))
-    ;; Allocate blocks.
-    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
-    (loop
-       for i from 0 do
-         (when (allocate-memory-range addr size
-                                      (logior sys.int::+block-map-present+
-                                              sys.int::+block-map-writable+
-                                              sys.int::+block-map-zero-fill+
-                                              (if wired
-                                                  sys.int::+block-map-wired+
-                                                  0)))
-           (return))
-         (when (> i mezzano.runtime::*maximum-allocation-attempts*)
-           (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))
-           (error 'storage-condition))
-         (debug-print-line "No memory for stack, calling GC.")
-         (sys.int::gc))
-    (sys.int::make-weak-pointer stack stack
-                                (lambda ()
-                                  (release-memory-range addr size)
-                                  (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size)))
-                                :wired)
-    stack))
-
 (defun reboot ()
   ;; FIXME: Need to sync disks and wait until snapshotting finishes.
   (platform-reboot)
