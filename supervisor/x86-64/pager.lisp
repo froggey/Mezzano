@@ -98,13 +98,61 @@
               +x86-64-pte-copy-on-write+
               0)))
 
+(defun map-ptes-pml2 (pml2 pml2e start end fn)
+  (let ((entry (page-table-entry pml2 pml2e)))
+    (when (logtest entry +x86-64-pte-present+)
+      (loop
+         with pml1 = (convert-to-pmap-address (logand entry +x86-64-pte-address-mask+))
+         for i from (align-down start #x0000000000001000) below (align-up end #x0000000000001000) by #x0000000000001000
+         for pml1e = (ldb (byte 9 12) i)
+         do
+           (funcall fn i (+ pml1 (* pml1e 8)))))))
+
+(defun map-ptes-pml3 (pml3 pml3e start end fn)
+  (let ((entry (page-table-entry pml3 pml3e)))
+    (when (logtest entry +x86-64-pte-present+)
+      (loop
+         with pml2 = (convert-to-pmap-address (logand entry +x86-64-pte-address-mask+))
+         for i from (align-down start #x0000000000200000) below (align-up end #x0000000000200000) by #x0000000000200000
+         for pml2e = (ldb (byte 9 21) i)
+         do
+           (map-ptes-pml2 pml2 pml2e
+                          (max start i)
+                          (min end (+ i #x0000000000200000))
+                          fn)))))
+
+(defun map-ptes-pml4 (pml4 pml4e start end fn)
+  (let ((entry (page-table-entry pml4 pml4e)))
+    (when (logtest entry +x86-64-pte-present+)
+      (loop
+         with pml3 = (convert-to-pmap-address (logand entry +x86-64-pte-address-mask+))
+         for i from (align-down start #x0000000040000000) below (align-up end #x0000000040000000) by #x0000000040000000
+         for pml3e = (ldb (byte 9 30) i)
+         do
+           (map-ptes-pml3 pml3 pml3e
+                          (max start i)
+                          (min end (+ i #x0000000040000000))
+                          fn)))))
+
 (defun map-ptes (start end fn &key sparse)
   "Visit all visible page table entries from START to END.
 If SPARSE is true, then PTEs that don't exist in the range won't be visited;
 otherwise FN will be called with a NIL PTE for those entries."
-  ;; TOOD: When sparse is true, skip over entire table levels.
-  (loop
-     for page from start below end by #x1000
-     for pte = (get-pte-for-address page nil)
-     when (or (not sparse) pte)
-     do (funcall fn page pte)))
+  (cond (sparse
+         (loop
+            with start-pml4e = (ldb (byte 9 39) (align-down start #x0000008000000000))
+            with end-pml4e = (ldb (byte 9 39) (align-up end #x0000008000000000))
+            with pml4 = (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF)))
+            for pml4e from start-pml4e below end-pml4e
+            for address from (align-down start #x0000008000000000) by #x0000008000000000
+            do
+              (map-ptes-pml4 pml4 pml4e
+                             (max start address)
+                             (min end (+ address #x0000008000000000))
+                             fn)))
+        (t
+         (loop
+            for page from start below end by #x1000
+            for pte = (get-pte-for-address page nil)
+            when (or (not sparse) pte)
+            do (funcall fn page pte)))))
