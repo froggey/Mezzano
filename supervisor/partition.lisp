@@ -105,7 +105,8 @@
                          (disk-max-transfer disk)
                          'read-disk-partition
                          'write-disk-partition
-                         'flush-disk-partition))))))
+                         'flush-disk-partition
+                         nil))))))
 
 (defun detect-gpt-partition-table (disk)
   (let* ((sector-size (disk-sector-size disk))
@@ -163,7 +164,8 @@
                              (disk-max-transfer disk)
                              'read-disk-partition
                              'write-disk-partition
-                             'flush-disk-partition)))))
+                             'flush-disk-partition
+                             nil)))))
       found-table-p)))
 
 (defun find-iso9660-primary-volume-descriptor (disk buffer)
@@ -233,5 +235,6 @@
                                     (disk-max-transfer disk)
                                     'read-disk-partition
                                     'write-disk-partition
-                                    'flush-disk-partition))
+                                    'flush-disk-partition
+                                    nil))
                    (incf offset rec-len)))))))))

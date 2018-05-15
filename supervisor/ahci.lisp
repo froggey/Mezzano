@@ -571,7 +571,9 @@
                                      (ash (memref-ub16/le identify-data 102) 32)
                                      (ash (memref-ub16/le identify-data 103) 48))
                              (logior (memref-ub16/le identify-data 60)
-                                     (ash (memref-ub16/le identify-data 61) 16)))))
+                                     (ash (memref-ub16/le identify-data 61) 16))))
+           (serial-number (read-ata-string identify-data 10 20 #'memref-ub16/le))
+           (model-number (read-ata-string identify-data 27 47 #'memref-ub16/le)))
       (setf (ahci-port-lba48-capable port-info) lba48-capable
             (ahci-port-sector-size port-info) sector-size
             (ahci-port-sector-count port-info) sector-count)
@@ -579,7 +581,19 @@
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
       ;; FIXME: Can transfer more than 256 sectors at once...
-      (register-disk port-info t sector-count sector-size 256 'ahci-read 'ahci-write 'ahci-flush))))
+      (register-disk port-info
+                     t
+                     sector-count
+                     sector-size
+                     256
+                     'ahci-read 'ahci-write 'ahci-flush
+                     (sys.int::cons-in-area
+                      model-number
+                      (sys.int::cons-in-area
+                       serial-number
+                       nil
+                       :wired)
+                      :wired)))))
 
 (defun (setf ahci-fis) (value ahci port offset)
   "Write an octet into the command FIS for PORT."

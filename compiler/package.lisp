@@ -263,6 +263,7 @@
            #:disk-sector-size
            #:disk-read
            #:disk-write
+           #:disk-name
            #:make-disk-request
            #:disk-submit-request
            #:disk-cancel-request

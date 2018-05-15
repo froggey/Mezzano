@@ -74,7 +74,8 @@
         (debug-print-line " Max LBA: " max-lba " Block sise: " block-size)
         (register-disk cdrom nil
                        max-lba block-size #xFFFF
-                       'cdrom-read nil nil)))))
+                       'cdrom-read nil nil
+                       nil)))))
 
 (defun cdrom-read (cdrom lba count mem-addr)
   (let ((cdb (cdrom-device-cdb cdrom))

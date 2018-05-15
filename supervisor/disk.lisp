@@ -28,7 +28,8 @@
   read-fn
   write-fn
   flush-fn
-  (valid t))
+  (valid t)
+  name)
 
 (defstruct (partition
              (:area :wired))
@@ -62,7 +63,7 @@
   ;; is found, so no allocation outside the wired area.
   *disks*)
 
-(defun register-disk (device writable-p n-sectors sector-size max-transfer read-fn write-fn flush-fn)
+(defun register-disk (device writable-p n-sectors sector-size max-transfer read-fn write-fn flush-fn name)
   (when (> sector-size +4k-page-size+)
     (debug-print-line "Ignoring device " device " with overly-large sector size " sector-size " (should be <= than 4k).")
     (return-from register-disk))
@@ -73,7 +74,8 @@
                          :max-transfer max-transfer
                          :read-fn read-fn
                          :write-fn write-fn
-                         :flush-fn flush-fn)))
+                         :flush-fn flush-fn
+                         :name name)))
     (debug-print-line "Registered new " (if writable-p "R/W" "R/O") " disk " disk " sectors:" n-sectors)
     (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
 

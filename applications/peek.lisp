@@ -232,7 +232,9 @@
 
 (defun peek-disk ()
   (dolist (disk (mezzano.supervisor:all-disks))
-    (format t "~S:~%" disk)
+    (if (mezzano.supervisor:disk-name disk)
+        (format t "~S ~A:~%" disk (mezzano.supervisor:disk-name disk))
+        (format t "~S:~%" disk))
     (if (mezzano.supervisor:disk-writable-p disk)
         (format t "  Read/write.~%")
         (format t "  Read-only.~%"))

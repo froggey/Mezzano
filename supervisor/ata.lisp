@@ -214,6 +214,28 @@ Returns true when the bits are equal, false when the timeout expires or if the d
         (cdrom-initialize-device device cdb-size 'ata-issue-packet-command)
         (setf (atapi-device-initialized-p device) t)))))
 
+(defun read-ata-string (identify-data start end read-fn)
+  (let ((len (* (- end start) 2)))
+    ;; Size the string, can't resize wired strings yet...
+    (loop
+       (when (zerop len)
+         (return))
+       (let* ((word (funcall read-fn identify-data (+ start (ash (1- len) -1))))
+              (byte (if (logtest (1- len) 1)
+                        (ldb (byte 8 0) word)
+                        (ldb (byte 8 8) word))))
+         (when (not (eql byte #x20))
+           (return)))
+       (decf len))
+    (let ((string (mezzano.runtime::make-wired-string len)))
+      (dotimes (i len)
+        (let* ((word (funcall read-fn identify-data (+ start (ash i -1))))
+               (byte (if (logtest i 1)
+                         (ldb (byte 8 0) word)
+                         (ldb (byte 8 8) word))))
+          (setf (char string i) (code-char byte))))
+      string)))
+
 (defun ata-detect-drive (controller channel)
   (let ((buf (sys.int::make-simple-vector 256 :wired)))
     ;; Select the device.
@@ -281,11 +303,27 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                     :channel channel
                                     :block-size sector-size
                                     :sector-count sector-count
-                                    :lba48-capable lba48-capable)))
+                                    :lba48-capable lba48-capable))
+           (serial-number (read-ata-string buf 10 20 #'svref))
+           (model-number (read-ata-string buf 27 47 #'svref)))
       (debug-print-line "Features (83): " supported-command-sets)
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
-      (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write 'ata-flush))))
+      (debug-print-line "Serial: " serial-number)
+      (debug-print-line "Model: " model-number)
+      (register-disk device
+                     t
+                     (ata-device-sector-count device)
+                     (ata-device-block-size device)
+                     256
+                     'ata-read 'ata-write 'ata-flush
+                     (sys.int::cons-in-area
+                      model-number
+                      (sys.int::cons-in-area
+                       serial-number
+                       nil
+                       :wired)
+                      :wired)))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
