@@ -781,22 +781,6 @@
   (check-type bit-array (simple-array bit))
   (apply #'(setf aref) value bit-array subscripts))
 
-#+(or)(defun char (string index)
-  (check-type string string)
-  (aref string index))
-
-(defun (setf char) (value string index)
-  (check-type string string)
-  (setf (aref string index) value))
-
-(defun schar (string index)
-  (check-type string string)
-  (char string index))
-
-(defun (setf schar) (value string index)
-  (check-type string string)
-  (setf (char string index) value))
-
 (defun vector-pop (vector)
   (check-vector-has-fill-pointer vector)
   (when (zerop (fill-pointer vector))

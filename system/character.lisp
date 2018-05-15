@@ -10,20 +10,6 @@
                   *unicode-encoding-table*
                   *unicode-name-trie*))
 
-(defun %make-character (code &optional bits)
-  (check-type code (or (integer 0 #x0010FFFF))
-              "a unicode code-point")
-  (check-type bits (or null (integer 0 15)))
-  (if (or (<= #xD800 code #xDFFF) ; UTF-16 surrogates.
-          ;; Noncharacters.
-          (<= #xFDD0 code #xFDEF)
-          (member code '#.(loop for i to #x10
-                             collect (logior (ash i 16) #xFFFE)
-                             collect (logior (ash i 16) #xFFFF))))
-      nil
-      (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4)
-                        +tag-character+)))
-
 (defconstant +char-control-bit+ #b0001)
 (defconstant +char-meta-bit+    #b0010)
 (defconstant +char-super-bit+   #b0100)
@@ -34,13 +20,6 @@
                                 (if meta +char-meta-bit+ 0)
                                 (if super +char-super-bit+ 0)
                                 (if hyper +char-hyper-bit+ 0))))
-
-(defun char-int (character)
-  (check-type character character)
-  (ash (lisp-object-address character) -4))
-
-(defun code-char (code)
-  (%make-character code))
 
 (defun char-bits (character)
   (check-type character character)

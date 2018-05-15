@@ -3,6 +3,9 @@
 
 (in-package :mezzano.runtime)
 
+(defun wiredp (object)
+  (< (sys.int::lisp-object-address object) #x8000000000))
+
 ;; Hardcoded string accessor, the support stuff for arrays doesn't function at this point.
 (defun char (string index)
   (check-type index integer)
@@ -18,8 +21,7 @@
                    (#.sys.int::+object-tag-array-unsigned-byte-16+
                     (sys.int::%object-ref-unsigned-byte-16 data index))
                    (#.sys.int::+object-tag-array-unsigned-byte-32+
-                    (sys.int::%object-ref-unsigned-byte-32 data index))
-                   (t 0))
+                    (sys.int::%object-ref-unsigned-byte-32 data index)))
                  4)
             sys.int::+tag-character+)))
         (t
@@ -27,9 +29,80 @@
          (check-type string string)
          (aref string index))))
 
-(defun char-code (character)
-  (check-type character character)
-  (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
+(defun resize-string-storage (old-storage new-tag)
+  (let* ((old-tag (sys.int::%object-tag old-storage))
+         (elt-size (ecase new-tag
+                     ((nil) old-tag)
+                     (#.sys.int::+object-tag-array-unsigned-byte-8+
+                      1)
+                     (#.sys.int::+object-tag-array-unsigned-byte-16+
+                      2)
+                     (#.sys.int::+object-tag-array-unsigned-byte-32+
+                      4)))
+         (len (sys.int::%object-header-data old-storage))
+         (new-storage (mezzano.runtime::%allocate-object
+                       new-tag
+                       len
+                       (ceiling (* len elt-size) 8)
+                       (if (wiredp old-storage) :wired nil))))
+    (dotimes (i len)
+      (let ((val (ecase old-tag
+                   (#.sys.int::+object-tag-array-unsigned-byte-8+
+                    (sys.int::%object-ref-unsigned-byte-8 old-storage i))
+                   (#.sys.int::+object-tag-array-unsigned-byte-16+
+                    (sys.int::%object-ref-unsigned-byte-16 old-storage i))
+                   (#.sys.int::+object-tag-array-unsigned-byte-32+
+                    (sys.int::%object-ref-unsigned-byte-32 old-storage i)))))
+        (ecase new-tag
+          (#.sys.int::+object-tag-array-unsigned-byte-8+
+           (setf (sys.int::%object-ref-unsigned-byte-8 new-storage i) val))
+          (#.sys.int::+object-tag-array-unsigned-byte-16+
+           (setf (sys.int::%object-ref-unsigned-byte-16 new-storage i) val))
+          (#.sys.int::+object-tag-array-unsigned-byte-32+
+           (setf (sys.int::%object-ref-unsigned-byte-32 new-storage i) val)))))
+    new-storage))
+
+(defun (setf char) (value string index)
+  (check-type index integer)
+  (check-type value character)
+  (cond ((sys.int::character-array-p string)
+         (let* ((int-value (char-int value))
+                (min-len (cond ((<= int-value #xFF)
+                                sys.int::+object-tag-array-unsigned-byte-8+)
+                               ((<= int-value #xFFFF)
+                                sys.int::+object-tag-array-unsigned-byte-16+)
+                               (t
+                                sys.int::+object-tag-array-unsigned-byte-32+)))
+                (backing-type (sys.int::%object-tag (sys.int::%complex-array-storage string))))
+           (when (< backing-type min-len)
+             ;; Promote the storage array to fit the character.
+             (setf (sys.int::%complex-array-storage string)
+                   (resize-string-storage (sys.int::%complex-array-storage string)
+                                          min-len)))
+           (let ((data (sys.int::%complex-array-storage string)))
+             (assert (and (<= 0 index)
+                          (< index (sys.int::%object-header-data data)))
+                     (string index))
+             (ecase (sys.int::%object-tag data)
+               (#.sys.int::+object-tag-array-unsigned-byte-8+
+                (setf (sys.int::%object-ref-unsigned-byte-8 data index) int-value))
+               (#.sys.int::+object-tag-array-unsigned-byte-16+
+                (setf (sys.int::%object-ref-unsigned-byte-16 data index) int-value))
+               (#.sys.int::+object-tag-array-unsigned-byte-32+
+                (setf (sys.int::%object-ref-unsigned-byte-32 data index) int-value))))
+         value))
+        (t
+         ;; Possibly a displaced string.
+         (check-type string string)
+         (setf (aref string index) value))))
+
+(defun schar (string index)
+  (check-type string string)
+  (char string index))
+
+(defun (setf schar) (value string index)
+  (check-type string string)
+  (setf (char string index) value))
 
 (defun copy-string-in-area (string &optional area)
   (cond ((sys.int::character-array-p string)
@@ -76,3 +149,51 @@
            new-header))
         (t
          (error "TODO: copy non-character-array strings"))))
+
+(defun make-wired-string (len &key fullwidth)
+  (let* ((tag (if fullwidth
+                  #.sys.int::+object-tag-array-unsigned-byte-32+
+                  #.sys.int::+object-tag-array-unsigned-byte-8+))
+         (elt-size (if fullwidth
+                       4
+                       1))
+         (data (mezzano.runtime::%allocate-object
+                tag
+                len
+                (ceiling (* len elt-size) 8)
+                :wired))
+         (header (mezzano.runtime::%allocate-object
+                  sys.int::+object-tag-simple-string+
+                  1
+                  (+ 3 1)
+                  :wired)))
+    (setf (sys.int::%complex-array-storage header) data
+          (sys.int::%complex-array-fill-pointer header) nil
+          (sys.int::%complex-array-info header) nil
+          (sys.int::%complex-array-dimension header 0) len)
+    header))
+
+(defun sys.int::%make-character (code &optional bits)
+  (check-type code (integer 0 #x0010FFFF)
+              "a unicode code-point")
+  (check-type bits (or null (integer 0 15)))
+  (if (or (<= #xD800 code #xDFFF) ; UTF-16 surrogates.
+          ;; Noncharacters.
+          (<= #xFDD0 code #xFDEF)
+          (member code '#.(loop for i to #x10
+                             collect (logior (ash i 16) #xFFFE)
+                             collect (logior (ash i 16) #xFFFF))))
+      nil
+      (sys.int::%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4)
+                                 sys.int::+tag-character+)))
+
+(defun char-code (character)
+  (check-type character character)
+  (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
+
+(defun char-int (character)
+  (check-type character character)
+  (ash (sys.int::lisp-object-address character) -4))
+
+(defun code-char (code)
+  (sys.int::%make-character code))
