@@ -782,7 +782,8 @@
                          :abar (pci-io-region location 5 #x2000))))
     (setf (ahci-irq-handler-function ahci) (lambda (interrupt-frame irq)
                                              (declare (ignore interrupt-frame irq))
-                                             (ahci-irq-handler ahci)))
+                                             (ahci-irq-handler ahci)
+                                             :completed))
     (debug-print-line "Detected AHCI ABAR at " (ahci-abar ahci))
     (debug-print-line "AHCI IRQ is " (pci-intr-line location))
     (ahci-dump-global-registers ahci)
@@ -798,7 +799,9 @@
     (setf (ahci-global-register ahci +ahci-register-GHC+) (ash 1 +ahci-GHC-AE+))
     ;; Attach interrupt handler.
     (debug-print-line "Handler: " (ahci-irq-handler ahci))
-    (i8259-hook-irq (pci-intr-line location) (ahci-irq-handler-function ahci))
+    (irq-attach (platform-irq (pci-intr-line location))
+                (ahci-irq-handler-function ahci)
+                ahci)
     ;; Make sure to enable PCI bus mastering for this device.
     (debug-print-line "Config register: " (pci-config/16 location +pci-config-command+))
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
@@ -823,7 +826,6 @@
     (setf (ahci-global-register ahci +ahci-register-IS+) (ahci-global-register ahci +ahci-register-IS+))
     ;; Now safe to enable HBA interrupts.
     (setf (ldb (byte 1 +ahci-GHC-IE+) (ahci-global-register ahci +ahci-register-GHC+)) 1)
-    (i8259-unmask-irq (pci-intr-line location))
     ;; Initialize devices attached to ports.
     (dotimes (port 32)
       (when (ahci-port ahci port)

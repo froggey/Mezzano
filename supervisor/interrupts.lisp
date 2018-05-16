@@ -211,6 +211,78 @@ RETURN-FROM/GO must not be used to leave this form."
                            (interrupt-frame-register-offset register))
         value))
 
+;;; IRQs
+
+(defstruct (irq
+             (:area :wired))
+  platform-number
+  attachments
+  (count 0))
+
+(defstruct (irq-attachment
+             (:area :wired))
+  irq
+  device
+  handler
+  exclusive-p
+  pending-eoi)
+
+(defun irq-deliver (interrupt-frame irq)
+  (incf (irq-count irq))
+  (let ((accept-count 0)
+        (pending-count 0))
+    (dolist (attachment (irq-attachments irq))
+      (when (irq-attachment-pending-eoi attachment)
+        (debug-print-line "Received IRQ " irq " masked by " attachment "?"))
+      (let ((status (funcall (irq-attachment-handler attachment) interrupt-frame irq)))
+        (case status
+          (:rejected) ; Attachment was not expecting this interrupt.
+          (:completed ; Attachment accepted the interrupt and has completed work.
+           (incf accept-count))
+          (:accepted ; Attachment accepted the interrupt, but has oustanding work and will issue a separate EOI.
+           (incf accept-count)
+           (incf pending-count)
+           (setf (irq-attachment-pending-eoi attachment) t))
+          (t
+           (panic "Attachment " attachment " handler " (irq-attachment-handler attachment) " on IRQ " irq " returned invalid status " status)))))
+    (when (zerop accept-count)
+      (debug-print-line "No handler accepted IRQ " irq))
+    (when (not (zerop pending-count))
+      ;; Mask the IRQ until all EOIs are delivered.
+      (platform-mask-irq (irq-platform-number irq)))))
+
+(defun irq-attach (irq handler device &key exclusive)
+  (cond (exclusive
+         (when (not (endp (irq-attachments irq)))
+           (debug-print-line "Cannot exclusively attach to IRQ " irq " - in use")
+           (return-from irq-attach nil)))
+        (t
+         (when (and (irq-attachments irq)
+                    (irq-attachment-exclusive-p (first (irq-attachments irq))))
+           (debug-print-line "Cannot attach to IRQ " irq " - in exclusive use")
+           (return-from irq-attach nil))))
+  (let ((attachment (make-irq-attachment :irq irq
+                                         :device device
+                                         :handler handler
+                                         :exclusive-p exclusive)))
+    (push-wired attachment (irq-attachments irq))
+    ;; Unmask the IRQ if this is the first attachment.
+    (when (endp (rest (irq-attachments irq)))
+      (platform-unmask-irq (irq-platform-number irq)))
+    attachment))
+
+(defun irq-eoi (attachment)
+  (when (not (irq-attachment-pending-eoi attachment))
+    (debug-print-line "Multiple EOI calls for attachment " attachment))
+  (setf (irq-attachment-pending-eoi attachment) nil)
+  ;; Unmask the IRQ if all attachments have EOI'd.
+  (let ((irq (irq-attachment-irq attachment)))
+    (when (dolist (a (irq-attachments irq) t)
+            (when (irq-attachment-pending-eoi a)
+              (return nil)))
+      (platform-unmask-irq (irq-platform-number irq))))
+  (values))
+
 ;;; Simple IRQ handler.
 ;;; When an IRQ is received, the IRQ is masked and a latch is triggered.
 
@@ -219,25 +291,46 @@ RETURN-FROM/GO must not be used to leave this form."
              (:constructor %make-simple-irq))
   irq
   function
-  latch)
+  attachment
+  latch
+  (state :masked))
 
-(defun make-simple-irq (irq latch)
+(defun make-simple-irq (irq-number latch)
   (declare (sys.c::closure-allocation :wired))
-  (let* ((simple-irq (%make-simple-irq :irq irq
+  (let* ((irq (platform-irq irq-number))
+         (simple-irq (%make-simple-irq :irq irq
                                        :latch latch))
          (fn (lambda (interrupt-frame irq)
                (declare (ignore interrupt-frame))
-               (platform-mask-irq irq)
-               (latch-trigger (simple-irq-latch simple-irq)))))
-    (setf (simple-irq-function simple-irq) fn)
+               (case (simple-irq-state simple-irq)
+                 ((:masked :masked-eoi-pending)
+                  :rejected)
+                 (:unmasked
+                  (setf (simple-irq-state simple-irq) :masked-eoi-pending)
+                  (latch-trigger (simple-irq-latch simple-irq))
+                  :accepted)))))
+    (setf (simple-irq-function simple-irq) fn
+          (simple-irq-attachment simple-irq) (irq-attach irq fn simple-irq))
     simple-irq))
 
 (defun simple-irq-attach (simple-irq)
-  (platform-attach-irq (simple-irq-irq simple-irq)
-                       (simple-irq-function simple-irq)))
+  (values))
 
 (defun simple-irq-mask (simple-irq)
-  (platform-mask-irq (simple-irq-irq simple-irq)))
+  ;; TODO: CAS this slot, or use some locking.
+  (case (simple-irq-state simple-irq)
+    (:masked-eoi-pending
+     (setf (simple-irq-state simple-irq) :masked)
+     (irq-eoi (simple-irq-attachment simple-irq)))
+    (:masked)
+    (:unmasked
+     (setf (simple-irq-state simple-irq) :masked)))
+  (values))
 
 (defun simple-irq-unmask (simple-irq)
-  (platform-unmask-irq (simple-irq-irq simple-irq)))
+  ;; TODO: CAS this slot, or use some locking.
+  (let ((prev (simple-irq-state simple-irq)))
+    (setf (simple-irq-state simple-irq) :unmasked)
+    (when (eql prev :masked-eoi-pending)
+      (irq-eoi (simple-irq-attachment simple-irq))))
+  (values))

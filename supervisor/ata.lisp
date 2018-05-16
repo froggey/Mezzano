@@ -810,10 +810,13 @@ This is used to implement the INTRQ_Wait state."
       (return-from init-ata-controller))
     (debug-print-line "Probing ata controller.")
     ;; Attach interrupt handler.
-    (i8259-hook-irq irq (lambda (interrupt-frame irq)
-                          (declare (ignore interrupt-frame irq))
-                          (ata-irq-handler controller)))
-    (i8259-unmask-irq irq)
+    (irq-attach irq
+                (lambda (interrupt-frame irq)
+                  (declare (ignore interrupt-frame irq))
+                  (ata-irq-handler controller)
+                  :completed)
+                controller
+                :exclusive t)
     ;; Probe drives.
     (ata-detect-drive controller :master)
     (ata-detect-drive controller :slave)
@@ -835,10 +838,10 @@ This is used to implement the INTRQ_Wait state."
                            +ata-compat-primary-control+
                            (pci-bar location 4)
                            (* prdt-page +4k-page-size+)
-                           +ata-compat-primary-irq+))
+                           (platform-irq +ata-compat-primary-irq+)))
     (when (not (logbitp 2 (pci-programming-interface location)))
       (init-ata-controller +ata-compat-secondary-command+
                            +ata-compat-secondary-control+
                            (+ (pci-bar location 4) 8)
                            (+ (* prdt-page +4k-page-size+) 2048)
-                           +ata-compat-secondary-irq+))))
+                           (platform-irq +ata-compat-secondary-irq+)))))

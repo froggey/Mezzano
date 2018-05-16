@@ -58,14 +58,17 @@
   (when (not (boundp '*rtc-lock*))
     (setf *rtc-lock* (place-spinlock-initializer)))
   (configure-pit-tick-rate 100)
-  (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
-  (i8259-unmask-irq +pit-irq+)
+  (irq-attach (platform-irq +pit-irq+)
+              'pit-irq-handler
+              'pit
+              :exclusive t)
   (calibrate-tsc))
 
 (defun pit-irq-handler (interrupt-frame irq)
   (declare (ignore irq))
   (beat-heartbeat *run-time-advance*)
-  (profile-sample interrupt-frame))
+  (profile-sample interrupt-frame)
+  :completed)
 
 ;; RTC IO ports.
 (defconstant +rtc-index-io-reg+ #x70)

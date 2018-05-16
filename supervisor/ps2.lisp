@@ -67,11 +67,13 @@
 
 (defun ps/2-key-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler *ps/2-key-fifo* t))
+  (ps/2-irq-handler *ps/2-key-fifo* t)
+  :completed)
 
 (defun ps/2-aux-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler *ps/2-aux-fifo* nil))
+  (ps/2-irq-handler *ps/2-aux-fifo* nil)
+  :completed)
 
 (defun ps/2-input-wait (&optional (what "data"))
   "Wait for space in the input buffer."
@@ -149,10 +151,14 @@
   (ps/2-output-wait)
   (sys.int::io-port/8 +ps/2-data-port+)
   ;; Enable both IRQs.
-  (i8259-hook-irq +ps/2-key-irq+ 'ps/2-key-irq-handler)
-  (i8259-hook-irq +ps/2-aux-irq+ 'ps/2-aux-irq-handler)
-  (i8259-unmask-irq +ps/2-key-irq+)
-  (i8259-unmask-irq +ps/2-aux-irq+)
+  (irq-attach (platform-irq +ps/2-key-irq+)
+              'ps/2-key-irq-handler
+              'ps/2-key
+              :exclusive t)
+  (irq-attach (platform-irq +ps/2-aux-irq+)
+              'ps/2-aux-irq-handler
+              'ps/2-aux
+              :exclusive t)
   ;; Data may have accumulated in the FIFOs.
   (irq-fifo-reset *ps/2-key-fifo*)
   (irq-fifo-reset *ps/2-aux-fifo*))

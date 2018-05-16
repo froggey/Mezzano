@@ -101,7 +101,8 @@
   (let* ((input (make-virtio-input :virtio-device device))
          (irq-handler (lambda (interrupt-frame irq)
                         (declare (ignore interrupt-frame irq))
-                        (virtio-input-irq-handler input)))
+                        (virtio-input-irq-handler input)
+                        :completed))
          ;; Allocate memory for the event receive buffer.
          (frame (or (allocate-physical-pages 1)
                     (panic "Unable to allocate memory for virtio input buffer.")))
@@ -119,7 +120,6 @@
     ;; Enable IRQ handler.
     (setf (virtio-input-irq-handler-function input) irq-handler)
     (virtio-attach-irq device irq-handler)
-    (setf (virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.
     (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                 +virtio-status-driver+

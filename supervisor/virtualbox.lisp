@@ -147,13 +147,15 @@
                                              :request-page (ash request-page 12)))
          (handler (lambda (interrupt-frame irq)
                     (declare (ignore interrupt-frame irq))
-                    (virtualbox-irq-handler vbox))))
+                    (virtualbox-irq-handler vbox)
+                    :completed)))
     (setf (virtualbox-guest-device-irq-handler-function vbox) handler)
     (pci-io-region device 0 4)
     (pci-io-region device 1 32)
     (debug-print-line "VirtualBox Guest Device detected at " device " using IRQ " irq)
-    (i8259-hook-irq irq handler)
-    (i8259-unmask-irq irq)
+    (irq-attach (platform-irq irq)
+                handler
+                device)
     ;; Take the initial screen dimensions from the bootloader's framebuffer.
     (setf *vbox-screen-xres* (boot-field +boot-information-framebuffer-width+)
           *vbox-screen-yres* (boot-field +boot-information-framebuffer-height+))

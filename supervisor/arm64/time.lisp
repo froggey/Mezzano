@@ -46,7 +46,8 @@
   (declare (ignore irq))
   (setf (%cntp-tval) *generic-timer-reset-value*)
   (beat-heartbeat *run-time-advance*)
-  (profile-sample interrupt-frame))
+  (profile-sample interrupt-frame)
+  :completed)
 
 (defun initialize-platform-time (fdt-node)
   (let* ((fdt-interrupt (fdt-get-property fdt-node "interrupts"))
@@ -64,8 +65,10 @@
     (debug-print-line "Timer advance: " *run-time-advance*)
     (when (not (boundp '*rtc-adjust*))
       (setf *rtc-adjust* 0))
-    (platform-attach-irq irq 'generic-timer-irq-handler)
-    (platform-unmask-irq irq)
+    (irq-attach (platform-irq irq)
+                'generic-timer-irq-handler
+                fdt-node
+                :exclusive t)
     ;; Set countdown value.
     (setf (%cntp-tval) 0)
     ;; Enable the timer.
