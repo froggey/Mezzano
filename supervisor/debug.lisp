@@ -248,8 +248,16 @@
           (debug-print-line)))))
   (panic-print-backtrace fp))
 
+(defun dump-irq (irq)
+  (debug-print-line "IRQ " irq " - " (irq-platform-number irq) " (" (irq-count irq) " delivered)")
+  (dolist (a (irq-attachments irq))
+    (debug-print-line "  " a " " (irq-attachment-device a)
+                      (if (irq-attachment-exclusive-p a) " [exclusive]" "")
+                      (if (irq-attachment-pending-eoi a) " EOI pending" ""))))
+
 (defun debug-dump-threads ()
   (dump-run-queues)
+  (map-platform-irqs #'dump-irq)
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
   (when (boundp '*all-threads*)
     (do ((thread *all-threads*
