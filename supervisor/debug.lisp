@@ -356,8 +356,9 @@
 (defun sys.int::raise-type-error (datum expected-type)
   (panic "Type error. Expected " expected-type " got " datum))
 
-(defun sys.int::raise-invalid-argument-error ()
-  (panic "Invalid arguments."))
+(defun sys.int::raise-invalid-argument-error (&rest args sys.int::&closure function)
+  (declare (ignore args))
+  (panic "Invalid arguments to " function))
 
 (defun error (datum &rest arguments)
   (declare (dynamic-extent arguments))
