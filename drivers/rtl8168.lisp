@@ -348,9 +348,9 @@
              (return-from rtl8168-worker))))
     (loop
        ;; Wait for something to happen.
-       (simple-irq-unmask (rtl8168-irq-handler nic))
        (latch-wait (rtl8168-irq-latch nic))
        (latch-reset (rtl8168-irq-latch nic))
+       (simple-irq-unmask (rtl8168-irq-handler nic))
        ;; Perform receive handling. Remove packets from the RX ring
        ;; until there are none left.
        (loop

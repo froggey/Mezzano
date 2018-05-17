@@ -308,9 +308,9 @@ and then some alignment.")
            (return-from virtio-net-worker))
          (loop
             ;; Wait for something to happen.
-            (simple-irq-unmask (virtio-net-irq-handler-function nic))
             (latch-wait (virtio-net-irq-latch nic))
             (latch-reset (virtio-net-irq-latch nic))
+            (simple-irq-unmask (virtio-net-irq-handler-function nic))
             (let* ((dev (virtio-net-virtio-device nic))
                    (status (virtio-isr-status dev)))
               (virtio-net-receive-processing nic)
@@ -350,6 +350,7 @@ and then some alignment.")
           (return-from virtio-net-initialize nil))
         ;; Configuration complete, go to OK mode.
         (simple-irq-attach (virtio-net-irq-handler-function nic))
+        (simple-irq-unmask (virtio-net-irq-handler-function nic))
         (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                     +virtio-status-driver+
                                                     +virtio-status-ok+))

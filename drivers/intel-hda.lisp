@@ -982,20 +982,23 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (setf (global-reg/32 hda +intctl+) (logior #x80000000 (ash 1 (first-output-stream hda))))
     (stream-go hda (first-output-stream hda))))
 
+(defun clear-pending-interrupt (hda stream)
+  ;; qemu is picky and requires a write to the 8-bit status part of
+  ;; the register.
+  (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2))) ; bcis
+
 (defun wait-for-buffer-interrupt (hda)
   (let ((latch (hda-interrupt-latch hda))
         (stream (first-output-stream hda)))
     (loop
-       (with-hda-access (hda)
-         (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))
        (mezzano.supervisor:latch-wait latch)
        (mezzano.supervisor:latch-reset latch)
        (with-hda-access (hda)
          (when (logbitp stream (global-reg/32 hda +intsts+))
-           ;; qemu is picky and requires a write to the 8-bit status part of
-           ;; the register.
-           (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2)) ; bcis
-           (return))))))
+           (clear-pending-interrupt hda stream)
+           (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda))
+           (return)))
+       (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))))
 
 ;; Return a list of all pin widgets.
 (defun pin-widgets (hda)
@@ -1090,10 +1093,14 @@ Returns NIL if there is no output path."
                           (setf stop-countdown 4)))))
           ;; Prepopulate the initial buffer.
           (funcall buffer-fill-callback float-sample-buffer 0 n-samples)
-          ;; Clear the whole buffer.
           (with-hda-access (hda)
+            ;; Clear the whole buffer.
             (dotimes (i buf-len)
-              (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0)))
+              (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0))
+            ;; Unmask the interrupt, flush any pending IRQs.
+            (mezzano.supervisor:latch-reset (hda-interrupt-latch hda))
+            (clear-pending-interrupt hda output-stream)
+            (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))
           ;; Begin playback.
           (multiple-value-bind (converter mixer)
               (output-path output-pin)
@@ -1113,7 +1120,8 @@ Returns NIL if there is no output path."
                       (refill-fifo)))
                   (wait-for-buffer-interrupt hda))
             (with-hda-access (hda)
-              (stream-reset hda (first-output-stream hda))))))
+              (stream-reset hda (first-output-stream hda))
+              (mezzano.supervisor:simple-irq-mask (hda-interrupt-handler hda))))))
     (device-disconnect ()
       (format t "HDA ~S disconnected.~%" hda)
       (throw 'mezzano.supervisor:terminate-thread nil))))
