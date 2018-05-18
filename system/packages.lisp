@@ -182,7 +182,8 @@
     (multiple-value-bind (other-symbol status)
         (find-symbol (symbol-name symbol) q)
       (when (and (not (eq symbol other-symbol))
-                 status)
+                 status
+                 (not (member other-symbol (package-%shadowing-symbols q))))
         (restart-case
             (error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q)
           (shadow-symbol ()
