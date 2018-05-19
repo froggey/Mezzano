@@ -1,0 +1,4 @@
+mkdir boot
+cd boot
+write kboot-native-cd.cfg kboot.cfg
+write kboot.bin kboot.bin

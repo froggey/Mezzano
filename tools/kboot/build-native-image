@@ -1,0 +1,43 @@
+#!/bin/bash
+
+set -e
+set -x
+
+rm -f efiusb.img bootfs.img disk-header.bin
+rm -rf iso-stage/
+
+# EFI USB partition.
+dd if=/dev/zero of=efiusb.img bs=512 count=2048
+mkfs.vfat efiusb.img
+mmd -i efiusb.img ::efi
+mmd -i efiusb.img ::efi/boot
+mcopy -i efiusb.img kbootx64.efi ::efi/boot/bootx64.efi
+mcopy -i efiusb.img kboot-native-cd.cfg ::efi/boot/kboot.cfg
+
+# EFI CD partition.
+dd if=/dev/zero of=eficd.img bs=512 count=2048
+mkfs.vfat eficd.img
+mmd -i eficd.img ::efi
+mmd -i eficd.img ::efi/boot
+mcopy -i eficd.img kbootx64.efi ::efi/boot/bootx64.efi
+mcopy -i eficd.img kboot-native-cd.cfg ::efi/boot/kboot.cfg
+
+# BIOS USB partition.
+dd if=/dev/zero of=bootfs.img bs=512 count=2048
+mke2fs -F -t ext2 bootfs.img
+debugfs -w -f build-native-image-debugfs-script.txt bootfs.img
+
+# Build the CD image
+# This includes the non-CD boot partitions.
+mkdir iso-stage
+mkdir iso-stage/boot
+sbcl --load "../image-manip.lisp" --eval "(flatten-image \"image.raw\" \"iso-stage/image\" :input-offset #x400000 :output-uuid \"79EEF65C-DF2C-A105-BA4B-6325C41A5F10\")" --quit
+cp cdkboot.img iso-stage/boot/
+cp kboot-native-cd.cfg iso-stage/boot/kboot.cfg
+cp efiusb.img iso-stage/boot/
+cp eficd.img iso-stage/boot/
+cp bootfs.img iso-stage/boot/
+mkisofs -JR -b boot/cdkboot.img -no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -e boot/eficd.img -no-emul-boot -o "cdrom.iso" "iso-stage/"
+#mkisofs -JR -o "cdrom.iso" "iso-stage/"
+dd if=mbr-and-partition-table.bin of=cdrom.iso conv=notrunc
+sbcl --load "patch-partition-table.lisp" --eval "(update-image \"cdrom.iso\")" --quit
