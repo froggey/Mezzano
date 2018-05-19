@@ -260,8 +260,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           (t (sys.int::memref-unsigned-byte-64 bme)))))
 
 (defun allocate-new-block-for-virtual-address (address flags &key eager)
-  (let ((new-block (if (and (not eager)
-                            *pager-lazy-block-allocation-enabled*)
+  (let ((new-block (if (or (and (not eager)
+                                *pager-lazy-block-allocation-enabled*)
+                           *paging-read-only*)
                        sys.int::+block-map-id-lazy+
                        (or (store-alloc 1)
                            (panic "Unable to allocate new block!"))))
