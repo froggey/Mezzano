@@ -7,6 +7,14 @@
 
 (in-package :mezzano.gui.starfield)
 
+(defclass starfield ()
+  ((%window :initarg :window :accessor starfield-window)
+   (%backbuffer :initarg :backbuffer :accessor starfield-backbuffer)))
+
+(defclass star ()
+  ((%angle :initarg :angle :accessor star-angle)
+   (%radius :initarg :radius :accessor star-radius)))
+
 (defconstant +white+ (mezzano.gui:make-colour 1.0 1.0 1.0))
 (defconstant +black+ (mezzano.gui:make-colour 0.0 0.0 0.0))
 
@@ -31,12 +39,11 @@
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:screen-geometry-update))
   (let ((new-framebuffer (mezzano.gui:make-surface (mezzano.gui.compositor:width event)
-                                                   (mezzano.gui.compositor:height event))))
-    (mezzano.gui.compositor:resize-window app new-framebuffer)))
-
-(defclass star ()
-  ((%angle :initarg :angle :accessor star-angle)
-   (%radius :initarg :radius :accessor star-radius)))
+                                                   (mezzano.gui.compositor:height event)))
+        (new-backbuffer (mezzano.gui:make-surface (mezzano.gui.compositor:width event)
+                                                  (mezzano.gui.compositor:height event))))
+    (mezzano.gui.compositor:resize-window (starfield-window app) new-framebuffer)
+    (setf (starfield-backbuffer app) new-backbuffer)))
 
 (defun make-stars (n-stars)
   (let ((stars (make-array n-stars)))
@@ -64,7 +71,7 @@
      for star across stars
      do (render-star star framebuffer x y width height)))
 
-(defparameter *star-speed* 0.75)
+(defparameter *star-speed* 1)
 
 (defun update-starfield (stars dt)
   (loop
@@ -79,21 +86,28 @@
   (with-simple-restart (abort "Close Starfield")
     (catch 'quit
       (let ((fifo (mezzano.supervisor:make-fifo 50))
-            (stars (make-stars 100)))
+            (stars (make-stars 100))
+            (starfield (make-instance 'starfield)))
         (mezzano.gui.compositor:with-window (window fifo 0 0 :initial-z-order :top :layer :top)
           (mezzano.gui.compositor:subscribe-notification window :screen-geometry)
           (mezzano.gui.compositor:set-window-data window :cursor :none)
+          (setf (starfield-window starfield) window
+                (starfield-backbuffer starfield) (mezzano.gui:make-surface 0 0))
           (loop
              (let ((start-time (get-internal-run-time))
                    (framebuffer (mezzano.gui.compositor:window-buffer window))
+                   (backbuffer (starfield-backbuffer starfield))
                    (width (mezzano.gui.compositor:width window))
                    (height (mezzano.gui.compositor:height window)))
-               (render-starfield stars framebuffer 0 0 width height)
+               (render-starfield stars backbuffer 0 0 width height)
+               (mezzano.gui:bitblt :set width height
+                                   backbuffer 0 0
+                                   framebuffer 0 0)
                (mezzano.gui.compositor:damage-window window 0 0 width height)
                (loop
                   (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
                     (when (not evt) (return))
-                    (dispatch-event window evt)))
+                    (dispatch-event starfield evt)))
                (sleep (/ 1 30))
                (let ((dt (/ (- (get-internal-run-time) start-time)
                             (float internal-time-units-per-second 0.0d0))))
