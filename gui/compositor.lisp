@@ -64,6 +64,8 @@
 (defvar *clip-rect-width* 0)
 (defvar *clip-rect-height* 0)
 
+(defparameter *idle-time* 0)
+
 (defun damage-whole-screen ()
   (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
         *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
@@ -225,6 +227,7 @@
       key)))
 
 (defmethod process-event ((event key-event))
+  (setf *idle-time* 0)
   (let* ((scancode (key-scancode event))
          (modifier (assoc scancode *keyboard-modifiers*)))
     (cond ((and modifier (third modifier))
@@ -403,6 +406,7 @@ A passive drag sends no drag events to the window.")
                (max 1 (- old-height (- *drag-y-origin* *mouse-y*))))))))
 
 (defmethod process-event ((event mouse-event))
+  (setf *idle-time* 0)
   ;; Update positions and buttons
   (let* ((buttons (or (mouse-button-state event)
                       *mouse-buttons*))
@@ -1010,33 +1014,46 @@ Only works when the window is active."
         *clip-rect-width* 0
         *clip-rect-height* 0))
 
+(defun compositor-thread-body ()
+  (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
+    ;; Framebuffer changed. Rebuild the screen.
+    (setf *main-screen* (mezzano.supervisor:current-framebuffer)
+          *screen-backbuffer* (mezzano.gui:make-surface
+                               (mezzano.supervisor:framebuffer-width *main-screen*)
+                               (mezzano.supervisor:framebuffer-height *main-screen*)))
+    (recompose-windows t)
+    (broadcast-notification :screen-geometry
+                            (make-instance 'screen-geometry-update
+                                           :width (mezzano.supervisor:framebuffer-width *main-screen*)
+                                           :height (mezzano.supervisor:framebuffer-height *main-screen*))))
+  (sys.int::log-and-ignore-errors
+    (process-event (mezzano.supervisor:fifo-pop *event-queue*))))
+
 (defun compositor-thread ()
-  (loop
-     (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
-       ;; Framebuffer changed. Rebuild the screen.
-       (setf *main-screen* (mezzano.supervisor:current-framebuffer)
-             *screen-backbuffer* (mezzano.gui:make-surface
-                                  (mezzano.supervisor:framebuffer-width *main-screen*)
-                                  (mezzano.supervisor:framebuffer-height *main-screen*)))
-       (recompose-windows t)
-       (broadcast-notification :screen-geometry
-                               (make-instance 'screen-geometry-update
-                                              :width (mezzano.supervisor:framebuffer-width *main-screen*)
-                                              :height (mezzano.supervisor:framebuffer-height *main-screen*))))
-     (sys.int::log-and-ignore-errors
-       (process-event (mezzano.supervisor:fifo-pop *event-queue*)))))
+  (loop (compositor-thread-body)))
 
 (defvar *compositor-update-interval* 1/60)
+(defparameter *screensaver-spawn-function* nil)
+(defparameter *screensaver-time* (* 1 60))
+
+(defun compositor-heartbeat-thread-body ()
+  (sleep *compositor-update-interval*)
+  (when *screensaver-spawn-function*
+    (let ((old-idle *idle-time*))
+      (incf *idle-time* *compositor-update-interval*)
+      (when (and (< old-idle *screensaver-time*)
+                 (>= *idle-time* *screensaver-time*))
+        (ignore-errors
+          (funcall *screensaver-spawn-function*)))))
+  ;; Redisplay only when the system framebuffer changes or when there's
+  ;; nonempty clip rect.
+  (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
+            (and (not (zerop *clip-rect-width*))
+                 (not (zerop *clip-rect-height*))))
+    (submit-compositor-event (make-instance 'redisplay-time-event))))
 
 (defun compositor-heartbeat-thread ()
-  (loop
-     (sleep *compositor-update-interval*)
-     ;; Redisplay only when the system framebuffer changes or when there's
-     ;; nonempty clip rect.
-     (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
-               (and (not (zerop *clip-rect-width*))
-                    (not (zerop *clip-rect-height*))))
-       (submit-compositor-event (make-instance 'redisplay-time-event)))))
+  (loop (compositor-heartbeat-thread-body)))
 
 (when (not *compositor*)
   (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread

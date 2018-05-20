@@ -85,7 +85,9 @@
            #:screen-geometry-update
            #:force-redisplay
            #:window-x
-           #:window-y))
+           #:window-y
+           #:*screensaver-spawn-function*
+           #:*screensaver-time*))
 
 (defpackage :mezzano.gui.input-drivers
   (:use :cl))
