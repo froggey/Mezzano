@@ -172,14 +172,6 @@
             :format-control "Not inlining ~S, has environment arg."
             :format-arguments (list name))
       (return-from lift-lambda))
-    (when (and rest-arg
-               (typep rest-arg 'lexical-variable)
-               (lexical-variable-dynamic-extent rest-arg))
-      ;; Not implemented yet.
-      (warn 'sys.int::simple-style-warning
-            :format-control "Not inlining ~S, has dynamic-extent &REST arg."
-            :format-arguments (list name))
-      (return-from lift-lambda))
     ;; Attempt to match the argument list with the function's lambda list.
     (unless (arguments-match-lambda-list lambda arg-list)
       ;; Bail out.
@@ -243,7 +235,10 @@
                        (t (build-rest-binding arg-vars))))
                (build-rest-binding (arg-vars)
                  (if rest-arg
-                     (ast `(let ((,rest-arg (call list ,@arg-vars)))
+                     (ast `(let ((,rest-arg ,(if (and (typep rest-arg 'lexical-variable)
+                                                      (lexical-variable-dynamic-extent rest-arg))
+                                                 (construct-dx-list arg-vars)
+                                                 `(call list ,@arg-vars))))
                              ,(build-key-bindings key-args))
                           lambda)
                      (build-key-bindings key-args)))
@@ -273,6 +268,16 @@
         (ast `(let ,(mapcar #'list argument-vars arg-list)
                 ,(build-required-bindings required-args argument-vars))
              lambda)))))
+
+(defun construct-dx-list (arg-vars)
+  (cond ((null arg-vars)
+         '(quote nil))
+        (t
+         `(let ((c (call make-dx-cons)))
+            (progn
+              (call (setf mezzano.runtime::%car) ,(first arg-vars) c)
+              (call (setf mezzano.runtime::%cdr) ,(construct-dx-list (rest arg-vars)) c)
+              c)))))
 
 (defun lift-lambda-apply (lambda arguments)
   (multiple-value-bind (list-body list-tail)

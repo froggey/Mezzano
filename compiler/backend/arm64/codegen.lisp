@@ -1091,6 +1091,17 @@
                          sys.int::+tag-object+))
     (emit `(lap:add ,(ir:make-dx-simple-vector-result instruction) :x29 :x9))))
 
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
+
+(defmethod emit-lap (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
+  (let* ((slots (gethash instruction *prepass-data*))
+         (words 2))
+    ;; Generate pointer.
+    (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 2 -1))
+                         sys.int::+tag-cons+))
+    (emit `(lap:add ,(ir:make-dx-cons-result instruction) :x29 :x9))))
+
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-closure-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 

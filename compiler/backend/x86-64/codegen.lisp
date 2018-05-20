@@ -1045,6 +1045,15 @@
     (emit `(lap:lea64 ,(ir:make-dx-simple-vector-result instruction) (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
                                                                                sys.int::+tag-object+))))))
 
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
+
+(defmethod emit-lap (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
+  (let* ((slots (gethash instruction *prepass-data*)))
+    ;; Generate pointer.
+    (emit `(lap:lea64 ,(ir:make-dx-cons-result instruction) (:rbp ,(+ (- (* (1+ (+ slots 2 -1)) 8))
+                                                                      sys.int::+tag-cons+))))))
+
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-closure-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 4 :aligned t)))
 

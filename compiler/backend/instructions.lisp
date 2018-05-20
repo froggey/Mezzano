@@ -902,6 +902,26 @@
 (defmethod instruction-pure-p ((instruction make-dx-simple-vector-instruction))
   t)
 
+(defclass make-dx-cons-instruction (backend-instruction)
+  ((%result :initarg :result :accessor make-dx-cons-result)))
+
+(defmethod instruction-inputs ((instruction make-dx-cons-instruction))
+  (list))
+
+(defmethod instruction-outputs ((instruction make-dx-cons-instruction))
+  (list (make-dx-cons-result instruction)))
+
+(defmethod replace-all-registers ((instruction make-dx-cons-instruction) substitution-function)
+  (setf (make-dx-cons-result instruction) (funcall substitution-function (make-dx-cons-result instruction))))
+
+(defmethod print-instruction ((instruction make-dx-cons-instruction))
+  (format t "   ~S~%"
+          `(:make-dx-cons
+            ,(make-dx-cons-result instruction))))
+
+(defmethod instruction-pure-p ((instruction make-dx-cons-instruction))
+  t)
+
 ;; TODO: Support arbitrary environments.
 (defclass make-dx-closure-instruction (backend-instruction)
   ((%result :initarg :result :accessor make-dx-closure-result)

@@ -562,6 +562,15 @@
                                                 sys.int::+tag-object+)))))))
   (setf *r8-value* (list (gensym))))
 
+(defun cg-make-dx-cons (form)
+  (declare (ignore form))
+  (smash-r8)
+  (let ((slots (allocate-control-stack-slots 2 t)))
+    ;; Generate pointer.
+    (emit `(sys.lap-x86:lea64 :r8 (:rbp ,(+ (control-stack-frame-offset (+ slots 2 -1))
+                                            sys.int::+tag-cons+)))))
+  (setf *r8-value* (list (gensym))))
+
 (defun emit-nlx-thunk (thunk-name target-label multiple-values-active)
   (emit-trailer (thunk-name nil)
     (emit (if multiple-values-active
@@ -1588,6 +1597,8 @@ Returns an appropriate tag."
               (match-builtin (ast-name form) (length (ast-arguments form))))))
     (cond ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
            (cg-make-dx-simple-vector form))
+          ((eql (ast-name form) 'sys.c::make-dx-cons)
+           (cg-make-dx-cons form))
           ((and (eql *for-value* :predicate)
                 (member (ast-name form) '(null not))
                 (= (length (ast-arguments form)) 1))

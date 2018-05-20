@@ -704,6 +704,9 @@
            #:make-dx-simple-vector-result
            #:make-dx-simple-vector-size
 
+           #:make-dx-cons-instruction
+           #:make-dx-cons-result
+
            #:make-dx-closure-instruction
            #:make-dx-closure-result
            #:make-dx-closure-function

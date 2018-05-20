@@ -904,6 +904,12 @@
                                   :result result
                                   :size (ast-value (first (ast-arguments form)))))
              result))
+          ((eql (ast-name form) 'sys.c::make-dx-cons)
+           (assert (eql (length (ast-arguments form)) 0))
+           (let ((result (make-instance 'virtual-register)))
+             (emit (make-instance 'make-dx-cons-instruction
+                                  :result result))
+             result))
           ((eql (ast-name form) 'sys.c::make-dx-closure)
            (assert (eql (length (ast-arguments form)) 2))
            (let ((result (make-instance 'virtual-register)))
