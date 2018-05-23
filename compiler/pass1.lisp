@@ -374,9 +374,8 @@
 
 (defun frob-flet-function (fn)
   "Turn an FLET/LABELS function definition into a symbolic name, a lexical variable and a lambda expression."
-  (multiple-value-bind (body declares)
-      (parse-declares (cddr fn))
-    ;; FIXME: docstring permitted here.
+  (multiple-value-bind (body declares docstring)
+      (sys.int::parse-declares (cddr fn) :permit-docstring t)
     (let* ((name (first fn))
            (var (make-instance 'lexical-variable
                                :name name
@@ -384,6 +383,7 @@
       (values name var `(lambda ,(second fn)
                           (declare (sys.int::lambda-name (flet ,name :in ,(lambda-information-name *current-lambda*)))
                                    ,@declares)
+                          ,docstring
                           (block ,(if (consp name)
                                       (second name)
                                       name)
@@ -410,7 +410,7 @@
 (defun pass1-flet (form env)
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
-        (parse-declares forms)
+        (sys.int::parse-declares forms)
       (let ((bindings '())
             (env (extend-environment env
                                      :declarations (remove-if-not (lambda (x) (eql x 'optimize))
@@ -473,7 +473,7 @@
 (defun pass1-labels (form env)
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
-        (parse-declares forms)
+        (sys.int::parse-declares forms)
       ;; Generate variables & lambda expressions for each function.
       (let* ((raw-bindings (mapcar (lambda (x)
                                      (multiple-value-list (frob-flet-function x)))
@@ -517,7 +517,7 @@
 (defun pass1-let (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
-        (parse-declares forms)
+        (sys.int::parse-declares forms)
       (let* ((names (loop for binding in bindings collect (parse-let-binding binding)))
              (env (extend-environment env
                                       :declarations (append
@@ -580,7 +580,7 @@
 (defun pass1-let* (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
-        (parse-declares forms)
+        (sys.int::parse-declares forms)
       (let* ((env (extend-environment env
                                       :declarations (remove-if-not (lambda (x) (eql x 'optimize))
                                                                    declares
@@ -618,7 +618,7 @@
 
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
-      (parse-declares forms)
+      (sys.int::parse-declares forms)
     (pass1-form `(progn ,@body) (extend-environment env :declarations declares))))
 
 (defun pass1-locally (form env)
@@ -634,7 +634,7 @@
         (when (not env)
           (setf env (gensym "ENV")))
         (multiple-value-bind (body declares)
-            (parse-declares forms)
+            (sys.int::parse-declares forms)
           (list name
                 (sys.int::eval-in-lexenv
                  `(lambda (,whole ,env)
@@ -772,7 +772,7 @@
             ()
             "Bad SYMBOL-MACROLET definition.")
     (multiple-value-bind (body declares)
-        (parse-declares body)
+        (sys.int::parse-declares body)
       (let* ((defs (loop
                       for (name expansion) in definitions
                       do

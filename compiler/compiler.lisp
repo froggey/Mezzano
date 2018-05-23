@@ -81,22 +81,6 @@ be generated instead.")
       #+x86-64 :x86-64
       #+arm64 :arm64))
 
-(defun parse-declares (forms)
-  "Extract any leading declare forms.
-Returns 2 values:
-The body, with the declare forms removed.
-A list of any declaration-specifiers."
-  (do ((declares '())
-       (itr forms (cdr itr)))
-      ((or (null itr)
-           ;; Stop when (car itr) is not a declare form.
-           (not (and (consp (car itr))
-                     (eq 'declare (caar itr)))))
-       (values itr (nreverse declares)))
-    ;; Dump the bodies of each declare form into a single list.
-    (dolist (decl (cdar itr))
-      (push decl declares))))
-
 (defun compile-lambda (lambda &optional env target-architecture)
   (log-event :compile-lambda)
   (let ((target (canonicalize-target target-architecture)))

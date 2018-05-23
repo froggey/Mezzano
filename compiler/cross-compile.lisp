@@ -458,7 +458,7 @@
 (defun x-compile-top-level-lms-body (forms env mode)
   "Common code for handling the body of LOCALLY, MACROLET and SYMBOL-MACROLET forms at the top-level."
   (multiple-value-bind (body declares)
-      (parse-declares forms)
+      (sys.int::parse-declares forms)
     (x-compile-top-level-implicit-progn
      body (extend-environment env :declarations declares) mode)))
 
