@@ -1612,8 +1612,10 @@ has only has class specializer."
                          (t
                           (lambda (&rest args)
                             (apply #'no-applicable-method gf args))))))
-        (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
-        (pushnew gf (class-dependents class))
+        ;; Cache is only valid for non-eql methods.
+        (when validp
+          (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
+          (pushnew gf (class-dependents class)))
         (apply emfun args)))))
 
 (defun slow-unspecialized-dispatch-method-lookup (gf args)
