@@ -335,25 +335,42 @@
   (replace sequence value :start1 start :end1 end)
   value)
 
+(defparameter *sort-list-vector-crossover-length* 128
+  "A list longer than this will be coerced to a vector, sorted, then coerced back to a list.")
+
 ;; Selection sort!
 (defun sort-list (sequence predicate key)
-  (cond ((endp sequence)
-         '())
-        (t
-         (do* ((ipos sequence (cdr ipos))
-               (imin ipos ipos))
-              ((null ipos)
-               sequence)
-           (do ((i (cdr ipos) (cdr i)))
-               ((null i))
-             (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
-               (setf imin i)))
-           (when (not (eq imin ipos))
-             ;; Swap
-             (let ((old-ipos (car ipos))
-                   (old-imin (car imin)))
-               (setf (car ipos) old-imin
-                     (car imin) old-ipos)))))))
+  (let ((len (length sequence)))
+    (cond ((> len *sort-list-vector-crossover-length*)
+           (let ((vec (make-array len)))
+             (loop
+                for i from 0
+                for elt in sequence
+                do (setf (svref vec i) elt))
+             (sort-vector vec predicate key)
+             (loop
+                for i from 0
+                for cons on sequence
+                do (setf (car cons) (svref vec i))))
+           sequence)
+          (t
+           (cond ((endp sequence)
+                  '())
+                 (t
+                  (do* ((ipos sequence (cdr ipos))
+                        (imin ipos ipos))
+                       ((null ipos)
+                        sequence)
+                    (do ((i (cdr ipos) (cdr i)))
+                        ((null i))
+                      (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
+                        (setf imin i)))
+                    (when (not (eq imin ipos))
+                      ;; Swap
+                      (let ((old-ipos (car ipos))
+                            (old-imin (car imin)))
+                        (setf (car ipos) old-imin
+                              (car imin) old-ipos))))))))))
 
 ;; Heapsort implementation from https://en.wikipedia.org/wiki/Heapsort
 (defun sort-vector (sequence predicate key)
