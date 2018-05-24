@@ -94,6 +94,7 @@ The second returned value is true if a continuation barrier is present."
           (t
            (%abort-to-prompt prompt values)))))
 
+(declaim (inline call-with-continuation-barrier))
 (defun call-with-continuation-barrier (thunk &optional reason)
   (let ((*continuation-barrier* (or reason t)))
     (funcall thunk)))
