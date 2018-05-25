@@ -162,7 +162,7 @@
             (write-char #\* s)
             (write-string type s)))
       (case version
-        ((nil :newest))
+        ((nil :newest :wild))
         (:previous
          (write-char #\~ s))
         (t (format s ".~~~D~~" version))))))
