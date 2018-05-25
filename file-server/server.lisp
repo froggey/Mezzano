@@ -131,7 +131,10 @@
   (format *client* "~D~%" (file-write-date path)))
 
 (defcommand :delete (path)
-  (delete-file path)
+  (if (or (pathname-name path) (pathname-type path))
+      (delete-file path)
+      #+sbcl (sb-posix:rmdir path)
+      #-sbcl (error "delete of directories not implemented"))
   (format *client* ":ok~%"))
 
 (defun handle-client (*client*)
