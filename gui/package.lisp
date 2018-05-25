@@ -46,6 +46,7 @@
            #:window-buffer
            #:width
            #:height
+           #:event
            #:key-event
            #:key-scancode
            #:key-releasep

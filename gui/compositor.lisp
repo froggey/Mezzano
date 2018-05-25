@@ -44,6 +44,10 @@
                      :cursor :default
                      :grabp nil))
 
+(defclass event ()
+  ((%window :initarg :window :reader window))
+  (:default-initargs :window nil))
+
 (defgeneric width (thing))
 (defgeneric height (thing))
 
@@ -173,7 +177,7 @@
 
 ;;;; Keyboard events, including translation from HID scancode.
 
-(defclass key-event ()
+(defclass key-event (event)
   ((%scancode :initarg :scancode :reader key-scancode)
    (%releasep :initarg :releasep :reader key-releasep)
    (%key :initarg :key :reader key-key)
@@ -307,6 +311,7 @@
                  (*active-window*
                   (send-event *active-window*
                               (make-instance 'key-event
+                                             :window *active-window*
                                              :scancode (key-scancode event)
                                              :releasep (key-releasep event)
                                              :key translated
@@ -320,16 +325,14 @@
 
 ;;;; Mouse events
 
-(defclass mouse-event ()
-  ((%window :initarg :window :reader window)
-   (%button-state :initarg :button-state :reader mouse-button-state)
+(defclass mouse-event (event)
+  ((%button-state :initarg :button-state :reader mouse-button-state)
    (%button-change :initarg :button-change :reader mouse-button-change)
    (%x-position :initarg :x-position :reader mouse-x-position)
    (%y-position :initarg :y-position :reader mouse-y-position)
    (%x-motion :initarg :x-motion :reader mouse-x-motion)
    (%y-motion :initarg :y-motion :reader mouse-y-motion))
-  (:default-initargs :window nil
-                     :button-state nil
+  (:default-initargs :button-state nil
                      :button-change 0
                      :x-position nil
                      :y-position nil
@@ -541,9 +544,8 @@ A passive drag sends no drag events to the window.")
 ;;;; Window creation event.
 ;;;; From clients to the compositor.
 
-(defclass window-create-event ()
-  ((%window :initarg :window :reader window)
-   (%initial-z-order :initarg :initial-z-order :reader initial-z-order)))
+(defclass window-create-event (event)
+  ((%initial-z-order :initarg :initial-z-order :reader initial-z-order)))
 
 (defmethod process-event ((event window-create-event))
   (let ((win (window event)))
@@ -610,8 +612,8 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Window close event.
 
-(defclass window-close-event ()
-  ((%window :initarg :window :reader window)))
+(defclass window-close-event (event)
+  ())
 
 (defmethod process-event ((event window-close-event))
   (let ((win (window event)))
@@ -636,15 +638,13 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Window activation changed.
 
-(defclass window-activation-event ()
-  ((%window :initarg :window :reader window)
-   (%state :initarg :state :reader state)))
+(defclass window-activation-event (event)
+  ((%state :initarg :state :reader state)))
 
 ;;;; Window content updates.
 
-(defclass damage-event ()
-  ((%window :initarg :window :reader window)
-   (%x :initarg :x :reader x)
+(defclass damage-event (event)
+  ((%x :initarg :x :reader x)
    (%y :initarg :y :reader y)
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
@@ -669,9 +669,8 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Window dragging.
 
-(defclass begin-drag-event ()
-  ((%window :initarg :window :reader window)
-   (%mode :initarg :mode :reader mode)))
+(defclass begin-drag-event (event)
+  ((%mode :initarg :mode :reader mode)))
 
 (defmethod process-event ((event begin-drag-event))
   (let ((window (window event))
@@ -704,15 +703,13 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Window resizing.
 
-(defclass resize-request-event ()
-  ((%window :initarg :window :reader window)
-   (%origin :initarg :origin :reader resize-origin)
+(defclass resize-request-event (event)
+  ((%origin :initarg :origin :reader resize-origin)
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
 
-(defclass resize-event ()
-  ((%window :initarg :window :reader window)
-   (%origin :initarg :origin :reader resize-origin)
+(defclass resize-event (event)
+  ((%origin :initarg :origin :reader resize-origin)
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)
    (%new-fb :initarg :new-fb :reader resize-new-fb)))
@@ -778,9 +775,8 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Window data.
 
-(defclass set-window-data-event ()
-  ((%window :initarg :window :reader window)
-   (%data :initarg :data :reader window-data)))
+(defclass set-window-data-event (event)
+  ((%data :initarg :data :reader window-data)))
 
 (defun lookup-cursor (cursor)
   (cond ((typep cursor 'mouse-cursor)
@@ -806,9 +802,8 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Cursor control.
 
-(defclass grab-cursor-event ()
-  ((%window :initarg :window :reader window)
-   (%grabp :initarg :grabp :reader grabp)
+(defclass grab-cursor-event (event)
+  ((%grabp :initarg :grabp :reader grabp)
    (%x :initarg :x :reader x)
    (%y :initarg :y :reader y)
    (%width :initarg :width :reader width)
@@ -840,12 +835,12 @@ Only works when the window is active."
 
 ;;;; Quit event, sent by the compositor when the user wants to close the window.
 
-(defclass quit-event ()
-  ((%window :initarg :window :reader window)))
+(defclass quit-event (event)
+  ())
 
 ;;;; Internal redisplay timer event.
 
-(defclass redisplay-time-event ()
+(defclass redisplay-time-event (event)
   ((%fullp :initarg :full :reader redisplay-time-event-fullp))
   (:default-initargs :full nil))
 
@@ -857,9 +852,8 @@ Only works when the window is active."
 
 ;;;; Notifications.
 
-(defclass subscribe-event ()
-  ((%window :initarg :window :reader window)
-   (%category :initarg :category :reader category)))
+(defclass subscribe-event (event)
+  ((%category :initarg :category :reader category)))
 
 (defun subscribe-notification (window category)
   (submit-compositor-event (make-instance 'subscribe-event
@@ -874,9 +868,8 @@ Only works when the window is active."
                                               :width (mezzano.supervisor:framebuffer-width *main-screen*)
                                               :height (mezzano.supervisor:framebuffer-height *main-screen*))))))
 
-(defclass unsubscribe-event ()
-  ((%window :initarg :window :reader window)
-   (%category :initarg :category :reader category)))
+(defclass unsubscribe-event (event)
+  ((%category :initarg :category :reader category)))
 
 (defun unsubscribe-notification (window category)
   (submit-compositor-event (make-instance 'unsubscribe-event
@@ -895,7 +888,7 @@ Only works when the window is active."
 
 ;;;; Screen geometry change notification.
 
-(defclass screen-geometry-update ()
+(defclass screen-geometry-update (event)
   ((%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
 
