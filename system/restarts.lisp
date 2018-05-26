@@ -170,7 +170,7 @@
        (values nil t))))
 
 (defun abort (&optional condition)
-  (invoke-restart (find-restart 'abort condition)))
+  (invoke-restart (find-restart-or-die 'abort condition)))
 
 (defun continue (&optional condition)
   (let ((r (find-restart 'continue condition)))
@@ -178,7 +178,7 @@
       (invoke-restart r))))
 
 (defun muffle-warning (&optional condition)
-  (invoke-restart (find-restart 'muffle-warning condition)))
+  (invoke-restart (find-restart-or-die 'muffle-warning condition)))
 
 (defun store-value (value &optional condition)
   (let ((r (find-restart 'store-value condition)))
