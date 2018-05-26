@@ -2212,8 +2212,12 @@ has only has class specializer."
 (defgeneric no-applicable-method (generic-function &rest function-arguments))
 
 (defmethod no-applicable-method ((generic-function t) &rest function-arguments)
-  (error "No applicable methods to generic function ~S (~S) when called with ~S."
-         generic-function (generic-function-name generic-function) function-arguments))
+  (restart-case
+      (error "No applicable methods to generic function ~S (~S) when called with ~S."
+             generic-function (generic-function-name generic-function) function-arguments)
+    (continue ()
+      :report "Retry calling the generic function."
+      (apply generic-function function-arguments))))
 
 ;;; Built-in-class.
 
