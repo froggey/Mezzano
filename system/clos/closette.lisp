@@ -1811,11 +1811,51 @@ has only has class specializer."
                                  (method-specializers method))))
                  methods)))
 
+(defun std-compute-effective-method-standard-method-combination (gf applicable-methods)
+  (let (around before primary after)
+    (dolist (method
+              applicable-methods)
+      (cond ((match-qualifier-pattern '(:around) (method-qualifiers method))
+             (push method around))
+            ((match-qualifier-pattern '(:before) (method-qualifiers method))
+             (push method before))
+            ((match-qualifier-pattern 'nil (method-qualifiers method))
+             (push method primary))
+            ((match-qualifier-pattern '(:after) (method-qualifiers method))
+             (push method after))
+            (t
+             (invalid-method-error method "No specifiers matched."))))
+    (when (endp primary)
+      (error "No primary methods in generic function ~S." gf))
+    (setf around (reverse around))
+    (setf before (reverse before))
+    (setf primary (reverse primary))
+    (setf after (reverse after))
+    (flet ((call-methods (methods)
+             (mapcar #'(lambda (method)
+                         `(call-method ,method))
+                     methods)))
+      (let ((form (if (or before
+                          after
+                          (rest primary))
+                      `(multiple-value-prog1
+                           (progn ,@(call-methods before)
+                                  (call-method ,(first primary) ,(rest primary)))
+                         ,@(call-methods (reverse after)))
+                      `(call-method ,(first primary)))))
+        (if around
+            `(call-method ,(first around)
+                          (,@(rest around)
+                           (make-method ,form)))
+            form)))))
+
 (defun std-compute-effective-method (gf mc methods)
-  (apply (method-combination-combiner (method-combination-object-method-combination mc))
-         gf
-         methods
-         (method-combination-object-arguments mc)))
+  (if mc
+      (apply (method-combination-combiner (method-combination-object-method-combination mc))
+             gf
+             methods
+             (method-combination-object-arguments mc))
+      (std-compute-effective-method-standard-method-combination gf methods)))
 
 (defun std-compute-effective-method-function (gf methods)
   (let ((mc (generic-function-method-combination gf)))
