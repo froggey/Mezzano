@@ -2475,6 +2475,17 @@ has only has class specializer."
   (when (not (class-finalized-p class))
     (error "Class ~S has not been finalized." class)))
 
+(defmethod class-prototype ((class built-in-class))
+  (when (not (slot-boundp class 'prototype))
+    ;; This isn't really right...
+    (setf (slot-value class 'prototype)
+          (allocate-std-instance
+           class
+           (allocate-slot-storage (length (class-slot-storage-layout class))
+                                  *secret-unbound-value*)
+           (class-slot-storage-layout class))))
+  (slot-value class 'prototype))
+
 (defmethod class-prototype ((class clos-class))
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (when (not (slot-boundp class 'prototype))
