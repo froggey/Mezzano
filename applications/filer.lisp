@@ -43,7 +43,7 @@
 (defvar *type-registry*
   '((:lisp-source-code "lisp" "lsp" "asd" "lisp-expr")
     (:compiled-lisp-code "llf")
-    (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown" "md" "el")
+    (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown" "md" "el" "cfg")
     (:font "ttf")
     (:image "png" "jpeg" "jpg")
     (:video "avi" "gif")
@@ -65,13 +65,7 @@
     (error "No way to view files of type ~A." type)))
 
 (defun view-in-editor (path)
-  ;; Ech, the terrible groveling.
-  (let ((existing (mezzano.gui.compositor:get-window-by-kind :editor)))
-    (cond (existing
-           (mezzano.supervisor:fifo-push (make-instance (read-from-string "med:open-file-request") :path path)
-                                           (mezzano.gui.compositor::fifo existing)
-                                           nil))
-          (t (funcall (read-from-string "med:spawn") :initial-file path)))))
+  (ed path))
 
 (defmethod view ((type (eql :lisp-source-code)) path)
   (view-in-editor path))
@@ -153,11 +147,7 @@
 
 (defun change-path (viewer new-path)
   (setf (path viewer) new-path
-        ;; Grumble
-        (mezzano.gui.widgets:frame-title (frame viewer)) (concatenate 'string
-                                                                      (string (mezzano.file-system:host-name (pathname-host new-path)))
-                                                                      ":"
-                                                                      (mezzano.file-system:unparse-pathname new-path (pathname-host new-path))))
+        (mezzano.gui.widgets:frame-title (frame viewer)) (namestring new-path))
   (let* ((window (window viewer))
          (framebuffer (mezzano.gui.compositor:window-buffer window))
          (font (font viewer))
@@ -165,6 +155,7 @@
          (height (mezzano.gui.compositor:height window))
          (stuff (directory (make-pathname :name :wild
                                           :type :wild
+                                          :device :wild
                                           :defaults new-path)))
          (files (sort (remove-if-not (lambda (x) (pathname-name x)) stuff)
                       #'string-lessp
