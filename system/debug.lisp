@@ -194,10 +194,16 @@ Returns NIL if the function captures no variables."
      ;; Environment vector path.
      (case repr
        (:value
-        (let ((value (read-frame-slot frame (first slot))))
-          (dolist (index (rest slot))
-            (setf value (elt value index)))
-          value))
+        (multiple-value-bind (value failurep)
+            (ignore-errors
+              (let ((value (read-frame-slot frame (first slot))))
+                (dolist (index (rest slot))
+                  (setf value (elt value index)))
+                value))
+          ;; HACK: Work around a compiler bug. Sometimes the environment gets overwritten.
+          (if failurep
+              :$inaccessible-value$
+              value)))
        (t
         :$inaccessible-value$)))
     (t
@@ -279,9 +285,10 @@ Returns NIL if the function captures no variables."
       (function-from-frame frame)
     (let* ((info (function-debug-info fn))
            (var-id -1)
-           (result '()))
+           (result '())
+           (locals (local-variables-at-offset fn offset)))
       (loop
-         for (name location repr . plist) in (local-variables-at-offset fn offset)
+         for (name location repr . plist) in locals
          do (destructuring-bind (&key hidden)
                 plist
               (when (or show-hidden (not hidden))
@@ -300,8 +307,7 @@ Returns NIL if the function captures no variables."
       (multiple-value-bind (env-var env-layout)
           (sys.int::debug-info-precise-closure-layout info)
         (when env-var
-          (let ((env-slot (second (find env-var (local-variables-at-offset fn offset)
-                                        :key #'first))))
+          (let ((env-slot (second (find env-var locals :key #'first))))
             (when env-slot
               (let ((base-path (list env-slot)))
                 (dolist (level env-layout)
