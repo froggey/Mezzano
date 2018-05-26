@@ -8,7 +8,9 @@
            #:make-disassembler-context
            #:disassembler-context-function
            #:instruction-at
-           #:print-instruction))
+           #:print-instruction
+           #:*print-gc-metadata*
+           #:*print-debug-metadata*))
 
 (in-package :mezzano.disassemble)
 
