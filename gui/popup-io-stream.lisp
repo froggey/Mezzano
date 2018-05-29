@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.gui.popup-io-stream
   (:use :cl :mezzano.gui.font)
-  (:export #:popup-io-stream))
+  (:export #:popup-io-stream
+           #:lazy-popup-io-stream))
 
 (in-package :mezzano.gui.popup-io-stream)
 
@@ -132,36 +133,37 @@
 
 
 (defun window-thread (stream)
-  (mezzano.gui.compositor:with-window (window (fifo stream) (mezzano.gui:surface-width (framebuffer stream)) (mezzano.gui:surface-height (framebuffer stream))
-                                              :initial-z-order :below-current)
-    (setf (slot-value stream '%window) window
-          (mezzano.gui.widgets:activep (frame stream)) nil)
-    (mezzano.gui.widgets:draw-frame (frame stream))
-    (dispatch-event stream
-                    (make-instance 'damage
-                                   :x 0
-                                   :y 0
-                                   :width (mezzano.gui.compositor:width window)
-                                   :height (mezzano.gui.compositor:height window)))
-    (unwind-protect
-         (loop
-            (handler-case
-                (dispatch-event stream (mezzano.supervisor:fifo-pop (fifo stream)))
-              (mezzano.gui.widgets:close-button-clicked ()
-                (mezzano.supervisor:with-mutex ((lock stream))
-                  (when (zerop (waiting-input-count stream))
-                    (setf (slot-value stream '%window) nil
-                          (slot-value stream '%thread) nil
-                          (window-closed stream) t)
-                    (return))))
-              (error (c)
-                (ignore-errors
-                  (format t "~&Error ~A in popup stream.~%" c)))))
-      (mezzano.supervisor:with-mutex ((lock stream))
-        (when (eql (slot-value stream '%window) window)
-          (setf (slot-value stream '%window) nil
-                (slot-value stream '%thread) nil
-                (window-closed stream) t))))))
+  (let ((*terminal-io* sys.int::*cold-stream*))
+    (mezzano.gui.compositor:with-window (window (fifo stream) (mezzano.gui:surface-width (framebuffer stream)) (mezzano.gui:surface-height (framebuffer stream))
+                                                :initial-z-order :below-current)
+      (setf (slot-value stream '%window) window
+            (mezzano.gui.widgets:activep (frame stream)) nil)
+      (mezzano.gui.widgets:draw-frame (frame stream))
+      (dispatch-event stream
+                      (make-instance 'damage
+                                     :x 0
+                                     :y 0
+                                     :width (mezzano.gui.compositor:width window)
+                                     :height (mezzano.gui.compositor:height window)))
+      (unwind-protect
+           (loop
+              (handler-case
+                  (dispatch-event stream (mezzano.supervisor:fifo-pop (fifo stream)))
+                (mezzano.gui.widgets:close-button-clicked ()
+                  (mezzano.supervisor:with-mutex ((lock stream))
+                    (when (zerop (waiting-input-count stream))
+                      (setf (slot-value stream '%window) nil
+                            (slot-value stream '%thread) nil
+                            (window-closed stream) t)
+                      (return))))
+                (error (c)
+                  (ignore-errors
+                    (format t "~&Error ~A in popup stream.~%" c)))))
+        (mezzano.supervisor:with-mutex ((lock stream))
+          (when (eql (slot-value stream '%window) window)
+            (setf (slot-value stream '%window) nil
+                  (slot-value stream '%thread) nil
+                  (window-closed stream) t)))))))
 
 (defun open-window (stream)
   (when (window-closed stream)
@@ -254,3 +256,58 @@
   (check-for-break stream)
   (mezzano.supervisor:with-mutex ((lock stream))
     (sys.int::stream-clear-between (display stream) start-x start-y end-x end-y)))
+
+(defvar *instances* '())
+(defvar *instances-lock* (mezzano.supervisor:make-mutex "Popup instances lock"))
+
+(defclass lazy-popup-io-stream (sys.gray:fundamental-character-input-stream
+                                sys.gray:fundamental-character-output-stream)
+  ())
+
+(defun get-thread-popup-io-stream ()
+  (mezzano.supervisor:with-mutex (*instances-lock*)
+    ;; Prune dead pointers.
+    (setf *instances* (remove nil *instances* :key #'sys.int::weak-pointer-value))
+    (let ((thread (mezzano.supervisor:current-thread)))
+      (dolist (instance *instances*
+               (let ((new (make-instance 'popup-io-stream
+                                         :title (format nil "Console for ~S" thread))))
+                 (push (sys.int::make-weak-pointer thread new) *instances*)
+                 new))
+        (multiple-value-bind (key value)
+            (sys.int::weak-pointer-pair instance)
+          (when (eql key thread)
+            (return value)))))))
+
+(defmethod sys.gray:stream-read-char ((stream lazy-popup-io-stream))
+  (sys.gray:stream-read-char (get-thread-popup-io-stream)))
+
+(defmethod sys.gray:stream-read-char-no-hang ((stream lazy-popup-io-stream))
+  (sys.gray:stream-read-char-no-hang (get-thread-popup-io-stream)))
+
+(defmethod sys.gray:stream-terpri ((stream lazy-popup-io-stream))
+  (sys.gray:stream-terpri (get-thread-popup-io-stream)))
+
+(defmethod sys.gray:stream-write-char ((stream lazy-popup-io-stream) character)
+  (sys.gray:stream-write-char (get-thread-popup-io-stream) character))
+
+(defmethod sys.gray:stream-start-line-p ((stream lazy-popup-io-stream))
+  (sys.gray:stream-start-line-p (get-thread-popup-io-stream)))
+
+(defmethod sys.gray:stream-line-column ((stream lazy-popup-io-stream))
+  (sys.gray:stream-line-column (get-thread-popup-io-stream)))
+
+(defmethod sys.int::stream-cursor-pos ((stream lazy-popup-io-stream))
+  (sys.int::stream-cursor-pos (get-thread-popup-io-stream)))
+
+(defmethod sys.int::stream-move-to ((stream lazy-popup-io-stream) x y)
+  (sys.int::stream-move-to (get-thread-popup-io-stream) x y))
+
+(defmethod sys.int::stream-character-width ((stream lazy-popup-io-stream) character)
+  (sys.int::stream-character-width (get-thread-popup-io-stream) character))
+
+(defmethod sys.int::stream-compute-motion ((stream lazy-popup-io-stream) string &optional (start 0) end initial-x initial-y)
+  (sys.int::stream-compute-motion (get-thread-popup-io-stream) string start end initial-x initial-y))
+
+(defmethod sys.int::stream-clear-between ((stream lazy-popup-io-stream) start-x start-y end-x end-y)
+  (sys.int::stream-clear-between (get-thread-popup-io-stream) start-x start-y end-x end-y))
