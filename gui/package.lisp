@@ -74,6 +74,8 @@
            #:resize-event
            #:resize-origin
            #:resize-window
+           #:move-event
+           #:move-window
            #:set-window-data
            #:grab-cursor
            #:make-mouse-cursor
