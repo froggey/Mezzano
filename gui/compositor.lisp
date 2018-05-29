@@ -773,6 +773,24 @@ A passive drag sends no drag events to the window.")
                                           :origin origin
                                           :new-fb new-framebuffer)))
 
+;;;; Window move event.
+
+(defclass move-event ()
+  ((%window :initarg :window :reader window)
+   (%x      :initarg :x      :reader new-x)
+   (%y      :initarg :y      :reader new-y)))
+
+(defmethod process-event ((event move-event))
+  (let ((window (window event)))
+    (setf (window-x window) (new-x event)
+          (window-y window) (new-y event))))
+
+(defun move-window (window new-x new-y)
+  (submit-compositor-event (make-instance 'move-event
+                                          :window window
+                                          :x new-x
+                                          :y new-y)))
+
 ;;;; Window data.
 
 (defclass set-window-data-event (event)
