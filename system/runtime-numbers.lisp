@@ -103,6 +103,9 @@
      (cond ((eql (float (truncate power) power) power)
             ;; Moderately integer-like?
             (expt base (truncate power)))
+           ((zerop base)
+            (assert (not (minusp power)))
+            (float 0.0 power))
            (t
             ;; Slower...
             (exp (* power (log base))))))
