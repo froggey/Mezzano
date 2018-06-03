@@ -17,7 +17,7 @@
 
 (defun buffered-format (stream control-string &rest arguments)
   "Buffered FORMAT."
-  (declare (dynamic-extent argument))
+  (declare (dynamic-extent arguments))
   (write-sequence (apply 'format nil control-string arguments) stream))
 
 (defun utf-8-decode-leader (leader)
