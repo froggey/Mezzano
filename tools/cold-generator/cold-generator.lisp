@@ -140,6 +140,7 @@
     "compiler/kill-temps.lisp"
     "compiler/keyword-arguments.lisp"
     "compiler/simplify-arguments.lisp"
+    "compiler/dynamic-extent.lisp"
     "compiler/codegen-x86-64.lisp"
     "compiler/builtins-x86-64/builtins.lisp"
     "compiler/builtins-x86-64/array.lisp"

@@ -38,6 +38,7 @@
                (:file "compiler/simplify-control-flow")
                (:file "compiler/blexit")
                (:file "compiler/transforms")
+               (:file "compiler/dynamic-extent")
                (:file "compiler/codegen-x86-64")
                (:file "compiler/branch-tension")
                (:file "compiler/builtins-x86-64/builtins")

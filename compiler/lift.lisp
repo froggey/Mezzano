@@ -269,14 +269,14 @@
                 ,(build-required-bindings required-args argument-vars))
              lambda)))))
 
-(defun construct-dx-list (arg-vars)
+(defun construct-dx-list (arg-vars &optional tail)
   (cond ((null arg-vars)
-         '(quote nil))
+         (or tail '(quote nil)))
         (t
          `(let ((c (call make-dx-cons)))
             (progn
               (call (setf mezzano.runtime::%car) ,(first arg-vars) c)
-              (call (setf mezzano.runtime::%cdr) ,(construct-dx-list (rest arg-vars)) c)
+              (call (setf mezzano.runtime::%cdr) ,(construct-dx-list (rest arg-vars) tail) c)
               c)))))
 
 (defun lift-lambda-apply (lambda arguments)
