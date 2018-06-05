@@ -257,6 +257,18 @@
 (defmethod gray:stream-element-type ((stream remote-file-character-stream))
   'character)
 
+(defmethod gray:stream-external-format ((stream remote-file-stream))
+  :default)
+
+(defmethod gray:stream-external-format ((stream remote-file-character-stream))
+  :utf-8)
+
+(defmethod input-stream-p ((stream remote-file-stream))
+  (member (direction stream) '(:input :io)))
+
+(defmethod output-stream-p ((stream remote-file-stream))
+  (member (direction stream) '(:output :io)))
+
 (defun command (pathname connection command &optional payload (start 0) end)
   (with-standard-io-syntax
     (sys.net:buffered-format connection "~S~%" command))
@@ -328,11 +340,13 @@
   byte)
 
 (defmethod close ((stream remote-file-stream) &key abort)
+  (call-next-method)
   (cond ((not abort)
          (flush-buffer stream))
-        (t (when (abort-action stream)
-             (with-connection (con (host stream))
-               (command stream con (list (abort-action stream) (path stream)))))))
+        (t
+         (when (abort-action stream)
+           (with-connection (con (host stream))
+             (command stream con (list (abort-action stream) (path stream)))))))
   t)
 
 (defun refill-buffer (stream)
@@ -442,6 +456,8 @@ The file position must be less than the file length."
 
 (defmethod gray:stream-file-position ((stream remote-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
+         (when (eql position-spec :start)
+           (setf position-spec 0))
          (when (eql position-spec :end)
            (setf position-spec (file-length* stream)))
          (assert (<= 0 position-spec))

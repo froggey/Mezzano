@@ -23,14 +23,12 @@
   ())
 
 (defclass http-binary-stream (sys.gray:fundamental-binary-input-stream
-                              sys.gray:fundamental-binary-output-stream
                               file-stream)
   ((path :initarg :path :reader path)
    (position :initarg :position :accessor stream-position)
    (buffer :initarg :buffer :reader stream-buffer)))
 
 (defclass http-character-stream (sys.gray:fundamental-character-input-stream
-                                 sys.gray:fundamental-character-output-stream
                                  file-stream)
   ((path :initarg :path :reader path)
    (position :initarg :position :accessor stream-position)
@@ -302,16 +300,16 @@
 (defmethod sys.gray:stream-file-position ((stream http-binary-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
          (setf (stream-position stream)
-               (if (eql position-spec :end)
-                   (length (stream-buffer stream))
-                   position-spec)))
+               (case position-spec
+                 (:start 0)
+                 (:end (length (stream-buffer stream)))
+                 (t position-spec))))
         (t (stream-position stream))))
 
 (defmethod sys.gray:stream-file-length ((stream http-binary-stream))
   (length (stream-buffer stream)))
 
 (defmethod sys.gray:stream-element-type ((stream http-character-stream))
-  (declare (ignore stream))
   'character)
 
 (defmethod sys.gray:stream-read-char ((stream http-character-stream))
@@ -325,9 +323,10 @@
 (defmethod sys.gray:stream-file-position ((stream http-character-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
          (setf (stream-position stream)
-               (if (eql position-spec :end)
-                   (length (stream-buffer stream))
-                   position-spec)))
+               (case position-spec
+                 (:start 0)
+                 (:end (length (stream-buffer stream)))
+                 (t position-spec))))
         (t (stream-position stream))))
 
 (defmethod sys.gray:stream-file-length ((stream http-character-stream))

@@ -1058,6 +1058,18 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-element-type ((stream fat32-file-character-stream))
   'character)
 
+(defmethod sys.gray:stream-external-format ((stream fat32-file-stream))
+  :default)
+
+(defmethod sys.gray:stream-external-format ((stream fat32-file-character-stream))
+  :utf-8)
+
+(defmethod input-stream-p ((stream fat32-file-stream))
+  (member (direction stream) '(:input :io)))
+
+(defmethod output-stream-p ((stream fat32-file-stream))
+  (member (direction stream) '(:output :io)))
+
 (defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
@@ -1133,9 +1145,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defmethod sys.gray:stream-file-position ((stream fat32-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
-         (setf (buffer-offset stream) (if (eql position-spec :end)
-                                          (read-buffer-size stream)
-                                          position-spec)))
+         (setf (buffer-offset stream) (case position-spec
+                                        (:start 0)
+                                        (:end (read-buffer-size stream))
+                                        (t position-spec))))
         (t (buffer-offset stream))))
 
 (defmethod sys.gray:stream-file-length ((stream fat32-file-stream))

@@ -31,7 +31,17 @@
     (write-char (char string (+ start i)) stream))
   string)
 
-(defun start-line-p (stream)
+(defun terpri (&optional stream)
+  (write-char #\Newline stream)
+  nil)
+
+(defun fresh-line (&optional stream)
+  (cond ((start-line-p stream)
+         nil)
+        (t (terpri stream)
+           t)))
+
+(defun start-line-p (&optional stream)
   (cold-start-line-p stream))
 
 (defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)

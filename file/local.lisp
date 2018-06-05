@@ -625,14 +625,24 @@
 (defmethod sys.gray:stream-element-type ((stream local-stream))
   (array-element-type (file-storage (local-stream-file stream))))
 
+(defmethod sys.gray:stream-external-format ((stream local-stream))
+  :default)
+
+(defmethod input-stream-p ((stream local-stream))
+  (member (direction stream) '(:input :io)))
+
+(defmethod output-stream-p ((stream local-stream))
+  (member (direction stream) '(:output :io)))
+
 (defmethod sys.gray:stream-file-length ((stream local-stream))
   (length (file-storage (local-stream-file stream))))
 
 (defmethod sys.gray:stream-file-position ((stream local-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
-         (setf (stream-position stream) (if (eql position-spec :end)
-                                            (length (file-storage (local-stream-file stream)))
-                                            position-spec)))
+         (setf (stream-position stream) (case position-spec
+                                          (:start 0)
+                                          (:end (length (file-storage (local-stream-file stream))))
+                                          (t position-spec))))
         (t (stream-position stream))))
 
 (defmethod sys.gray:stream-line-column ((stream local-stream))
@@ -651,6 +661,7 @@
   nil)
 
 (defmethod close ((stream local-stream) &key abort &allow-other-keys)
+  (call-next-method)
   (when (and (not abort)
              (superseded-file stream))
     ;; Replace the superseded file's contents.

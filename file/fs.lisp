@@ -371,8 +371,10 @@
 (defgeneric parse-namestring-using-host (host namestring junk-allowed))
 
 (defun parse-namestring (thing &optional host (default-pathname *default-pathname-defaults*) &key (start 0) (end nil) junk-allowed)
-  (setf thing (sys.int::follow-synonym-stream thing))
-  (check-type thing (or string pathname stream))
+  (loop
+     (when (not (typep thing 'synonym-stream))
+       (return))
+     (setf thing (symbol-value (synonym-stream-symbol thing))))
   (when (typep thing 'file-stream)
     (setf thing (file-stream-pathname thing)))
   (etypecase thing

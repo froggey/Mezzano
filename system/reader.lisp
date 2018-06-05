@@ -901,15 +901,6 @@
                eof-value
                recursive-p))
 
-(defun read-from-string (string &optional (eof-error-p t) eof-value &key (start 0) end preserve-whitespace)
-  (let (index)
-    (values
-     (with-input-from-string (stream string :start start :end end :index index)
-       (if preserve-whitespace
-           (read-preserving-whitespace stream eof-error-p eof-value)
-           (read stream eof-error-p eof-value)))
-     index)))
-
 (defmacro with-standard-io-syntax (&body body)
   `(%with-standard-io-syntax (lambda () (progn ,@body))))
 
