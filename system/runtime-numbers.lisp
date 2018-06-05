@@ -74,7 +74,7 @@
      (%integer-as-double-float (%object-ref-unsigned-byte-64 number +complex-imagpart+)))
     (t
      (check-type number number)
-     0)))
+     (* 0 number))))
 
 (defun upgraded-complex-part-type (typespec &optional environment)
   (cond
@@ -602,7 +602,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (double-float
      (%%double-float-sqrt (float number 0.0d0)))
     (real
-     (%%single-float-sqrt (float number 0.0f0)))))
+     (%%single-float-sqrt (float number 0.0f0)))
+    (complex
+     (exp (/ (log number) 2)))))
 
 (defun isqrt (number)
   (values (floor (sqrt number))))
@@ -977,9 +979,12 @@ Implements the dumb mp_div algorithm from BigNum Math."
         x)))
 
 (defun log (number &optional base)
-  (if base
-      (/ (log number) (log base))
-      (log-e number)))
+  (cond (base
+         (/ (log number) (log base)))
+        ((complexp number)
+         (complex (log (abs number)) (phase number)))
+        (t
+         (log-e number))))
 
 (defun atan (number1 &optional number2)
   (if number2
