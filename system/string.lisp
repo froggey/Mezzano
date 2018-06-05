@@ -83,7 +83,8 @@ same characters in the corresponding positions; otherwise it returns false."))
                   (dotimes (i (min (- end1 start1)
                                    (- end2 start2))
                             (if (,numeric-comparator (- end1 start1) (- end2 start2))
-                                end1
+                                (+ start1 (min (- end1 start1)
+                                               (- end2 start2)))
                                 nil))
                     ;; Compare prefix.
                     (unless (char= (char string1 (+ start1 i))
