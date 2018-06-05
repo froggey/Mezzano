@@ -864,9 +864,12 @@
                  :start start
                  :end end))
 
-(defun reduce (function sequence &key key (initial-value nil initial-valuep) from-end) ; start end
+(defun reduce (function sequence &key key (initial-value nil initial-valuep) from-end (start 0) end)
   (check-type key (or null symbol function))
   (unless key (setf key 'identity))
+  (when (or (not (eql start 0))
+            end)
+    (setf sequence (subseq sequence start end)))
   (when from-end
     (setf sequence (reverse sequence)))
   (cond ((eql (length sequence) 0)
