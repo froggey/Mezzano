@@ -84,6 +84,23 @@ A list of two elements, the short & long name." )
                 :initial-position (top-level-form-position pathname tlf)))))
   (values))
 
+(defparameter *inspect-hook* nil)
+
+(defun inspect (object)
+  (assert *inspect-hook* (*inspect-hook*) "No inspector configured")
+  (funcall *inspect-hook* object))
+
+(defun dribble (&optional pathname)
+  (if pathname
+      (with-open-stream (stream (open pathname :direction :io :if-exists :new-version))
+        (with-simple-restart (finish-dribble "Exit DRIBBLE")
+          (let ((*standard-output* (make-broadcast-stream stream *standard-output*))
+                (*standard-input* (make-echo-stream *standard-input* stream)))
+            (repl))))
+      (let ((restart (find-restart 'finish-dribble)))
+        (when restart
+          (invoke-restart restart)))))
+
 ;;; 25.1.1 Top Level Loop.
 
 (declaim (special * ** ***
