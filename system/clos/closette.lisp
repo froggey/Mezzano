@@ -2281,7 +2281,7 @@ has only has class specializer."
       (when (eql (sys.int::structure-slot-name slot) slot-name)
         (when (sys.int::structure-slot-read-only slot)
           (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
-        (return (funcall `(setf ,(sys.int::structure-slot-accessor slot)) new-value instance))))))
+        (return (funcall (fdefinition `(setf ,(sys.int::structure-slot-accessor slot))) new-value instance))))))
 
 (defmethod slot-boundp-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
   t)
