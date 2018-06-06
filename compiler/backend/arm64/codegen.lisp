@@ -172,7 +172,7 @@
             (*labels* (make-hash-table :test 'eq :synchronized nil)))
         (ir:do-instructions (inst-or-label backend-function)
           (cond ((typep inst-or-label 'ir:label)
-                 (setf (gethash inst-or-label *labels*) (gensym)))
+                 (setf (gethash inst-or-label *labels*) (sys.lap:make-label)))
                 (t
                  (lap-prepass backend-function inst-or-label uses defs))))
         (let ((*emitted-lap* '())
@@ -184,7 +184,7 @@
                                               'simple-bit-vector))
               (*literals* (make-array 8 :adjustable t :fill-pointer 0))
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
-              (mv-flow (ir::multiple-value-flow backend-function :x86-64)))
+              (mv-flow (ir::multiple-value-flow backend-function *target*)))
           ;; Create stack frame.
           (emit 'entry-point
                 `(:debug ())
@@ -263,7 +263,9 @@
                (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
              (emit `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
              (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
-             (emit `(lap:br :x9)
+             (emit `(lap:ldp :x29 :x30 (:post :sp 16))
+                   `(:gc :no-frame :incoming-arguments :rcx :layout #*)
+                   `(lap:br :x9)
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       ;; FIXME: Support more than 2047 arguments (subs immediate limit).
