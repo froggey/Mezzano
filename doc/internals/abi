@@ -68,8 +68,8 @@ The fref is loaded into R13, then the entry point is called.
 
 When a function is not defined, the entry point of the corresponding fref
 is points to the undefined function thunk.
-This assembly thunk calls SYS.INT::RAISE-UNDEFINED-FUNCTION with the fref as
-the first argument. Currently, the arguments of the called function are lost.
+This assembly thunk tail calls to SYS.INT::RAISE-UNDEFINED-FUNCTION, leaving
+the fref and the original arguments intact.
 
 
 ***  Function references and closures.
@@ -171,8 +171,8 @@ are equally compact, vectors involve less pointer-chasing.
 
  Type         | Meaning
 --------------+--------------------
-SYMBOL        | This is a dynamic binding. Element 2 is the previous value
-              | of the symbol.
+SYMBOL        | This is value cell for a dynamic binding. Element 2 is the
+              | current value of the symbol.
 SIMPLE-VECTOR | This is an environment vector containing an NLX information
               | object. Element 2 is the offset of the NLX info.
 FUNCTION      | This is an unwind-protect cleanup pseudo-closure. Element 2
@@ -181,22 +181,20 @@ FUNCTION      | This is an unwind-protect cleanup pseudo-closure. Element 2
 
 ** Dynamic bindings.
 
-All dynamically-bound symbols have a thread-local storage (TLS) index
-permanently associated with them. This is used to index into the thread's
-TLS area, a fixed size part of the thread object. When the symbol has a
-dynamic binding in this thread, this slot contains the symbol's current value.
-If the symbol is not bound in the thread, then the slot contains the
-:UNBOUND-TLS-SLOT value and the value of the symbol can be found in the
-symbol's value cell.
-This implementation of dynamic binding restricts the total number of
-dynamically-bound special variables to approximately 300. This limit has not
-been a problem yet, but it will have to be fixed in the future. After loading
-the demo system, there are approximately 200 slots remaining.
-
-A dynamic binding is created by allocating a TLS slot for the symbol, pushing
-the symbol and current value of the TLS slot on to the special stack, and then
-setting the TLS slot to the new value.
-The binding is undone by restoring the saved value of the TLS slot.
+Dynamic bindings is implemented using deep binding. Each binding has an
+associated value cell. A value cell is a 3 element SIMPLE-VECTOR containing
+a link to the previous special stack entry, the associated symbol, and the
+binding's value. Symbols have a global value cell that contains the symbol's
+global value, this is used when there are no value cells for that symbol on
+the stack. To determine the active value cell for a symbol, the special stack
+is searched upwards and the most recent value cell for that symbol found is
+the the active value cell. If there are no value cells on the stack or if
+the symbol has been declared global, then the symbol's global value cell is
+used. Value cell lookup is implemented by SYMBOL-VALUE-CELL.
+A cache from symbols to value cells is maintained to optimize value lookup.
+The cache is a 128 element array embedded in the thread object, indexed
+by (LDB (BYTE 7 4) (LISP-OBJECT-ADDRESS symbol)). Cache entries are updated
+on binding/unbinding to ensure that the cache is always up to day.
 
 
 ** BLOCK/TAGBODY NLX information.
