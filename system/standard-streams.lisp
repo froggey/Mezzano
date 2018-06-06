@@ -493,7 +493,7 @@
   ;; between blocking & EOF.
   (loop
      (when (endp (concatenated-stream-streams stream))
-       (return :eof))
+       (return nil))
      (let ((ch (read-char-no-hang (first (concatenated-stream-streams stream)) nil :eof)))
        (case ch
          (:eof
