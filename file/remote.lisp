@@ -153,9 +153,10 @@
                   :format-control "Invalid directory component ~S."
                   :format-arguments (list d))))
         (write-char #\/ s))
-      (if (eql name :wild)
-          (write-char #\* s)
-          (write-string name s))
+      (cond ((eql name :wild)
+             (write-char #\* s))
+            (name
+             (write-string name s)))
       (when type
         (write-char #\. s)
         (if (eql type :wild)

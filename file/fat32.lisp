@@ -721,9 +721,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                   :format-control "Invalid directory component ~S."
                   :format-arguments (list sub-dir))))
         (write-char #\> s))
-      (if (eql name :wild)
-          (write-char #\* s)
-          (write-string name s))
+      (cond ((eql name :wild)
+             (write-char #\* s))
+            (name
+             (write-string name s)))
       (when type
         (write-char #\. s)
         (if (eql type :wild)
