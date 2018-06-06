@@ -5,7 +5,13 @@
 
 ;;; I/O customization variables.
 
-(defvar *terminal-io* :terminal-io-is-uninitialized
+(defclass cold-stream (sys.gray:fundamental-character-input-stream
+                       sys.gray:fundamental-character-output-stream)
+  ())
+
+(defparameter *cold-stream* (make-instance 'cold-stream))
+
+(defparameter *terminal-io* *cold-stream*
   "A bi-directional stream connected to the user's console.")
 (defparameter *debug-io* (make-synonym-stream '*terminal-io*)
   "Interactive debugging stream.")
@@ -19,19 +25,36 @@
   "Default output stream.")
 (defparameter *trace-output* (make-synonym-stream '*terminal-io*))
 
-(defparameter *fundamental-stream-class* (find-class 'sys.gray:fundamental-stream))
+(setf (symbol-global-value '*terminal-io*) *cold-stream*)
 
-;; FIXME: The cold stream doesn't inherit from STREAM.
+;;; Cold stream methods.
+
+(defmethod sys.gray:stream-read-char ((stream cold-stream))
+  (or (cold-read-char stream) :eof))
+
+(defmethod sys.gray:stream-listen ((stream cold-stream))
+  (cold-listen stream))
+
+(defmethod sys.gray:stream-unread-char ((stream cold-stream) character)
+  (cold-unread-char character stream))
+
+(defmethod sys.gray:stream-write-char ((stream cold-stream) character)
+  (cold-write-char character stream))
+
+(defmethod sys.gray:stream-clear-input ((stream cold-stream))
+  (cold-clear-input stream))
+
+(defmethod sys.gray:stream-start-line-p ((stream cold-stream))
+  (cold-start-line-p stream))
+
+(defmethod sys.gray:stream-line-column ((stream cold-stream))
+  (cold-line-column stream))
+
+(defmethod sys.gray:stream-line-length ((stream cold-stream))
+  (cold-line-length stream))
 
 (defun streamp (object)
-  (or (cold-stream-p object)
-      (and (boundp '*fundamental-stream-class*)
-           (std-instance-p object)
-           (member *fundamental-stream-class* (mezzano.clos:class-precedence-list (std-instance-class object))))))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'stream 'streamp)
-)
+  (typep object 'stream))
 
 (defgeneric stream-with-edit (stream fn))
 (defgeneric stream-cursor-pos (stream))
@@ -79,15 +102,6 @@
 (defun frob-output-stream (stream)
   (frob-stream stream *standard-output*))
 
-(defmethod stream-element-type ((stream cold-stream))
-  'character)
-
-(defmethod sys.gray:stream-line-column ((stream cold-stream))
-  (cold-line-column stream))
-
-(defmethod sys.gray:stream-line-length ((stream cold-stream))
-  (cold-line-length stream))
-
 (defun read-byte (stream &optional (eof-error-p t) eof-value)
   (let ((b (sys.gray:stream-read-byte (frob-input-stream stream))))
     (check-type b (or integer (eql :eof)))
@@ -134,7 +148,7 @@
 (defun %with-stream-editor (stream recursive-p fn)
   (cond ((typep stream 'synonym-stream)
          (%with-stream-editor (symbol-value (synonym-stream-symbol stream)) recursive-p fn))
-        ((or (cold-stream-p stream) recursive-p)
+        (recursive-p
          (funcall fn))
         (t (stream-with-edit stream fn))))
 
@@ -143,35 +157,25 @@
 
 (defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
-  (let ((s (frob-input-stream stream)))
-    (cond ((cold-stream-p s)
-           (or (cold-read-char s)
-               (when eof-error-p
-                 (error 'end-of-file :stream s))
-               eof-value))
-          (t (let ((c (sys.gray:stream-read-char s)))
-               (check-type c (or character (eql :eof)))
-               (cond ((eql c :eof)
-                      (when eof-error-p
-                        (error 'end-of-file :stream s))
-                      eof-value)
-                     (c)))))))
+  (let* ((s (frob-input-stream stream))
+         (c (sys.gray:stream-read-char s)))
+    (check-type c (or character (eql :eof)))
+    (cond ((eql c :eof)
+           (when eof-error-p
+             (error 'end-of-file :stream s))
+           eof-value)
+          (c))))
 
 (defun read-char-no-hang (&optional stream (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
-  (let ((s (frob-input-stream stream)))
-    (cond ((cold-stream-p s)
-           (or (cold-read-char s)
-               (when eof-error-p
-                 (error 'end-of-file :stream s))
-               eof-value))
-          (t (let ((c (sys.gray:stream-read-char-no-hang s)))
-               (check-type c (or character (eql :eof) null))
-               (cond ((eql c :eof)
-                      (when eof-error-p
-                        (error 'end-of-file :stream s))
-                      eof-value)
-                     (c)))))))
+  (let* ((s (frob-input-stream stream))
+         (c (sys.gray:stream-read-char-no-hang s)))
+    (check-type c (or character (eql :eof) null))
+    (cond ((eql c :eof)
+           (when eof-error-p
+             (error 'end-of-file :stream s))
+           eof-value)
+          (c))))
 
 (defun read-line (&optional input-stream (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
@@ -188,10 +192,7 @@
 (defun unread-char (character &optional stream)
   (let ((s (frob-input-stream stream)))
     (check-type character character)
-    (cond ((cold-stream-p s)
-           (cold-unread-char character s))
-          (t
-           (sys.gray:stream-unread-char s character)))
+    (sys.gray:stream-unread-char s character)
     nil))
 
 (defun peek-char (&optional peek-type stream (eof-error-p t) eof-value recursive-p)
@@ -226,40 +227,29 @@
                                      eof-value))))))))
 
 (defun clear-input (&optional stream)
-  (let ((s (frob-input-stream stream)))
-    (cond ((cold-stream-p s)
-           (cold-clear-input s))
-          (t (sys.gray:stream-clear-input s))))
+  (sys.gray:stream-clear-input (frob-input-stream stream))
   nil)
 
 (defun finish-output (&optional output-stream)
-  (let ((s (frob-output-stream output-stream)))
-    (cond ((cold-stream-p s) nil)
-          (t (sys.gray:stream-finish-output s)))))
+  (sys.gray:stream-finish-output (frob-output-stream output-stream))
+  nil)
 
 (defun force-output (&optional output-stream)
-  (let ((s (frob-output-stream output-stream)))
-    (cond ((cold-stream-p s) nil)
-          (t (sys.gray:stream-force-output s)))))
+  (sys.gray:stream-force-output (frob-output-stream output-stream))
+  nil)
 
 (defun clear-output (&optional output-stream)
-  (let ((s (frob-output-stream output-stream)))
-    (cond ((cold-stream-p s) nil)
-          (t (sys.gray:stream-clear-output s)))))
+  (sys.gray:stream-clear-output (frob-output-stream output-stream))
+  nil)
 
 (defun write-char (character &optional stream)
   (let ((s (frob-output-stream stream)))
     (check-type character character)
-    (cond ((cold-stream-p s)
-           (cold-write-char character s))
-          (t (sys.gray:stream-write-char s character)))
+    (sys.gray:stream-write-char s character)
     character))
 
 (defun start-line-p (&optional stream)
-  (let ((s (frob-output-stream stream)))
-    (cond ((cold-stream-p s)
-           (cold-start-line-p s))
-          (t (sys.gray:stream-start-line-p s)))))
+  (sys.gray:stream-start-line-p (frob-output-stream stream)))
 
 (defun advance-to-column (column &optional stream)
   (sys.gray:stream-advance-to-column (frob-output-stream stream) column))
@@ -271,10 +261,7 @@
   (sys.gray:stream-line-length (frob-output-stream stream)))
 
 (defun listen (&optional input-stream)
-  (let ((s (frob-input-stream input-stream)))
-    (cond ((cold-stream-p s)
-           (cold-listen s))
-          (t (sys.gray:stream-listen s)))))
+  (sys.gray:stream-listen (frob-input-stream input-stream)))
 
 (defclass case-correcting-stream (sys.gray:fundamental-character-output-stream)
   ((stream :initarg :stream)
@@ -421,28 +408,13 @@ CASE may be one of:
      (format *query-io* "Please respond with \"yes\" or \"no\". ")))
 
 (defun write-string (string &optional stream &key (start 0) end)
-  (let ((s (frob-output-stream stream)))
-    (cond ((cold-stream-p s)
-           (unless end (setf end (length string)))
-           (dotimes (i (- end start))
-             (write-char (char string (+ start i)) stream)))
-          (t (sys.gray:stream-write-string s string start end))))
+  (check-type string string)
+  (sys.gray:stream-write-string (frob-output-stream stream) string start end)
   string)
 
 (defun terpri (&optional stream)
-  (let ((s (frob-output-stream stream)))
-    (if (cold-stream-p s)
-        (write-char #\Newline s)
-        (sys.gray:stream-terpri s)))
+  (sys.gray:stream-terpri (frob-output-stream stream))
   nil)
 
 (defun fresh-line (&optional stream)
-  (let ((s (frob-output-stream stream)))
-    (cond ((cold-stream-p s)
-           (cond ((cold-start-line-p stream)
-                  nil)
-                 (t
-                  (write-char #\Newline s)
-                  t)))
-          (t
-           (sys.gray:stream-fresh-line (frob-output-stream stream))))))
+  (sys.gray:stream-fresh-line (frob-output-stream stream)))

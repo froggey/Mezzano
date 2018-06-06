@@ -297,10 +297,6 @@
   `(when (not ,condition)
      (panic ,@things)))
 
-(in-package :sys.int)
-
-(defstruct (cold-stream (:area :wired)))
-
 (in-package :mezzano.supervisor)
 
 (sys.int::defglobal *cold-unread-char*)

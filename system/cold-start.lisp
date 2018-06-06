@@ -92,9 +92,8 @@
      (write-char #\Newline)
      (format t "Please respond with \"yes\" or \"no\". ")))
 
-(defvar *cold-stream*)
 (defun streamp (object)
-  (eql object *cold-stream*))
+  (eql object :cold-stream))
 
 (defun %with-stream-editor (stream recursive-p function)
   (funcall function))
@@ -212,11 +211,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *cold-start-start-time* (get-internal-real-time))
   (cold-array-initialization)
   (setf *package* nil
-        *cold-stream* (make-cold-stream)
-        *terminal-io* *cold-stream*
-        *standard-output* *cold-stream*
-        *standard-input* *cold-stream*
-        *debug-io* *cold-stream*
+        *terminal-io* :cold-stream
+        *standard-output* :cold-stream
+        *standard-input* :cold-stream
+        *debug-io* :cold-stream
         * nil
         ** nil
         *** nil
