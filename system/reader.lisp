@@ -141,14 +141,6 @@
                  (char-downcase c)
                  (char-upcase c)))))
 
-(defun follow-stream-designator (stream default)
-  (cond ((null stream) default)
-        ((eql stream 't) *terminal-io*)
-        ((streamp stream) stream)
-        (t (error 'type-error
-                  :expected-type '(or stream null (eql t))
-                  :datum stream))))
-
 (defun whitespace[2]p (char &optional (readtable *readtable*))
   "Test if CHAR is a whitespace[2] character under READTABLE."
   (eql (readtable-syntax-type char readtable) :whitespace))
@@ -892,7 +884,7 @@
 
 (defun read (&optional input-stream (eof-error-p t) eof-value recursive-p)
   "READ parses the printed representation of an object from STREAM and builds such an object."
-  (let ((stream (follow-stream-designator input-stream *standard-input*)))
+  (let ((stream (frob-input-stream input-stream)))
     (with-stream-editor (stream recursive-p)
       (let ((result (read-common stream
                                  eof-error-p
@@ -906,7 +898,7 @@
         result))))
 
 (defun read-preserving-whitespace (&optional input-stream (eof-error-p t) eof-value recursive-p)
-  (read-common (follow-stream-designator input-stream *standard-input*)
+  (read-common (frob-input-stream input-stream)
                eof-error-p
                eof-value
                recursive-p))
