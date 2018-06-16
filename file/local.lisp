@@ -351,16 +351,23 @@
     (do ((element (rest (pathname-directory pathname)) (cdr element))
          (dir (local-host-root host)))
         ((endp element)
-         (when  (or (null (pathname-name pathname))
-                    (and (null (pathname-type pathname))
-                         (read-directory-entry
-                          dir (pathname-name pathname) "directory"))
-                    (read-directory-entry
-                     dir
-                     (pathname-name pathname)
-                     (pathname-type pathname)
-                     (pathname-version pathname)))
-           pathname))
+         (when (or (null (pathname-name pathname))
+                   (and (null (pathname-type pathname))
+                        (read-directory-entry
+                         dir (pathname-name pathname) "directory"))
+                   (read-directory-entry
+                    dir
+                    (pathname-name pathname)
+                    (pathname-type pathname)
+                    (pathname-version pathname)))
+           (cond ((string= (pathname-type pathname) "directory")
+                  (make-pathname :directory (append (pathname-directory pathname)
+                                                    (list (pathname-name pathname)))
+                                 :name nil
+                                 :type nil
+                                 :defaults pathname))
+                 (t
+                  pathname))))
       (let ((next (read-directory-entry dir (car element) "directory")))
         (when (not next)
           ;; directory doesn't exist, return nil
