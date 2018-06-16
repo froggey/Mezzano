@@ -9,6 +9,7 @@
   "An alist mapping lexical-variables to their values, if known.")
 
 (defparameter *constprop-lambda-copy-limit* 3)
+(defparameter *constant-fold-modes* (make-hash-table :test 'equal))
 
 (defun constprop (lambda architecture)
   (declare (ignore architecture))
@@ -275,9 +276,9 @@
 (defun constant-fold (form function arg-list)
   ;; Bail out in case of errors.
   (ignore-errors
-    (let ((mode (get function 'constant-fold-mode))
-          (folder (or (get function 'constant-folder)
-                      function)))
+    (let* ((info (gethash function *constant-fold-modes*))
+           (mode (car info))
+           (folder (or (cdr info) function)))
       (etypecase mode
         (cons
          ;; List of arguments & argument types.
@@ -381,6 +382,9 @@
     (setf (lambda-information-body form) (cp-form (lambda-information-body form))))
   form)
 
+(defun mark-as-constant-foldable (name &key (mode t) folder)
+  (setf (gethash name *constant-fold-modes*) (cons mode folder)))
+
 ;;; Initialize constant folders.
 (dolist (x '((sys.int::%simple-array-length ((satisfies sys.int::%simple-array-p)))
              (char-code (character))
@@ -433,9 +437,6 @@
              (keywordp (symbol))
              (sys.int::%type-check (t fixnum t))
              (float (t t))))
-  (setf (get (first x) 'constant-fold-mode) (second x))
-  (when (third x)
-    (setf (get (first x) 'constant-folder) (third x))))
-
-(defun mark-as-constant-foldable (name)
-  (setf (get name 'constant-fold-mode) t))
+  (mark-as-constant-foldable (first x)
+                             :mode (second x)
+                             :folder (third x)))
