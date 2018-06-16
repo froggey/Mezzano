@@ -109,6 +109,8 @@
 
 (defun pathnamep (x) nil)
 (defun pathnames-equal (x y) nil)
+(defun hash-pathname (pathname depth)
+  (error "Early call to hash-pathname"))
 
 (declaim (special * ** ***))
 

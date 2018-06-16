@@ -325,7 +325,7 @@ is below the rehash-threshold."
         (t
          ;; ### Bootstrap hack. Don't call typep with 'pathname.
          (if (pathnamep object)
-             (sxhash-1 (namestring object) (1- depth))
+             (hash-pathname object depth)
              ;; EQL-HASH also works for characters and numbers.
              (eql-hash object))))))
 

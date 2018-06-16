@@ -155,6 +155,14 @@
                 (eql (pathname-version x) :newest))
            (equal (pathname-version x) (pathname-version y)))))
 
+(defun sys.int::hash-pathname (pathname depth)
+  (logxor (sys.int::sxhash-1 (host-name (pathname-host pathname)) depth)
+          (sys.int::sxhash-1 (pathname-device pathname) depth)
+          (sys.int::sxhash-1 (pathname-directory pathname) depth)
+          (sys.int::sxhash-1 (pathname-name pathname) depth)
+          (sys.int::sxhash-1 (pathname-type pathname) depth)
+          (sys.int::sxhash-1 (pathname-version pathname) depth)))
+
 (defun pathname-match-directory (p w)
   (let ((p-dir (pathname-directory p))
         (w-dir (pathname-directory w)))
