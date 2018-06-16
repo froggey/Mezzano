@@ -1,6 +1,7 @@
 (in-package :cl-user)
 
 (require :nibbles)
+(require :alexandria)
 
 (defun read-image-header (stream offset)
   (let ((header (make-array 4096 :element-type '(unsigned-byte 8))))

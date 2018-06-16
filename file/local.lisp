@@ -594,7 +594,8 @@
 
 (defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :output))
-  (let ((file (local-stream-file stream)))
+  (let ((file (local-stream-file stream))
+        (end (or end (length sequence))))
     (mezzano.supervisor:with-mutex ((file-lock file))
       (when (> (+ (stream-position stream)
                   (- end start))
