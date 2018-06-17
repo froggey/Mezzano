@@ -17,17 +17,19 @@
     (#\Q "Quit" nil "Quit Peek")))
 
 (defun print-header ()
+  (format t "Commands:  ")
   (dolist (cmd *peek-commands*)
     (write-string (second cmd))
     (unless (char-equal (char (second cmd) 0) (first cmd))
-      (format t "(~S)" (first cmd)))
+      (format t "(~C)" (first cmd)))
+    (write-char #\Space)
     (write-char #\Space)))
 
 (defun peek-help ()
   (format t "      Peek help~%")
   (format t "Char~6TCommand~20TInfo~%")
   (dolist (cmd *peek-commands*)
-    (format t "~S~6T~A~20T~A~%" (first cmd) (second cmd) (fourth cmd))))
+    (format t "  ~C~6T ~A~20T~A~%" (first cmd) (second cmd) (fourth cmd))))
 
 (defun peek-thread ()
   (format t "Thread Name~24TState~%")
