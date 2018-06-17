@@ -354,9 +354,7 @@
                     0 0
                     (mezzano.gui:surface-width (framebuffer frame)) 19))
          ;; Check for close button click.
-         (when (and (logbitp 0 (mouse-button-change event))
-                    ;; Mouse1 up
-                    (not (logbitp 0 (mouse-button-state event))))
+         (when (eq (mouse-button-state event) :left-up)
            (signal 'close-button-clicked)))
         (t
          (when (close-button-hover frame)
@@ -376,9 +374,7 @@
                           (border-to-cursor border)
                           :default)))
            (cond ((not win))
-                 ((not (and (logbitp 0 (mouse-button-change event))
-                            ;; Mouse1 down
-                            (logbitp 0 (mouse-button-state event)))))
+                 ((not (eq (mouse-button-state event) :left-down)))
                  ((and (resizablep frame)
                        border)
                   (mezzano.gui.compositor:begin-window-drag

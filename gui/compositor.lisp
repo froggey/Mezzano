@@ -408,6 +408,15 @@ A passive drag sends no drag events to the window.")
                old-width
                (max 1 (- old-height (- *drag-y-origin* *mouse-y*))))))))
 
+(defun parse-mouse-buttons (buttons changes)
+  (cond ((logbitp 0 changes)
+         (if (logbitp 0 buttons) :left-down :left-up))
+        ((logbitp 1 changes)
+         (if (logbitp 1 buttons) :right-down :right-up))
+        ((logbitp 2 changes)
+         (if (logbitp 2 buttons) :middle-down :middle-up))
+        (T NIL)))
+
 (defmethod process-event ((event mouse-event))
   (setf *idle-time* 0)
   ;; Update positions and buttons
@@ -470,14 +479,16 @@ A passive drag sends no drag events to the window.")
                        (not (zerop changes))))
           (multiple-value-bind (win-x win-y)
               (screen-to-window-coordinates win *mouse-x* *mouse-y*)
-            (send-event win (make-instance 'mouse-event
-                                           :window win
-                                           :button-state *mouse-buttons*
-                                           :button-change changes
-                                           :x-position win-x
-                                           :y-position win-y
-                                           :x-motion x-motion
-                                           :y-motion y-motion))))))
+            (send-event win (make-instance
+                             'mouse-event
+                             :window win
+                             :button-state (parse-mouse-buttons *mouse-buttons* changes)
+                             ;; :button-state *mouse-buttons*
+                             ;;:button-change changes
+                             :x-position win-x
+                             :y-position win-y
+                             :x-motion x-motion
+                             :y-motion y-motion))))))
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       (when *drag-window*

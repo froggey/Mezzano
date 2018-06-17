@@ -93,8 +93,7 @@
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:mouse-event))
   (mezzano.gui.widgets:frame-mouse-event (frame window) event)
-  (when (and (not (logbitp 0 (mezzano.gui.compositor:mouse-button-state event)))
-             (logbitp 0 (mezzano.gui.compositor:mouse-button-change event)))
+  (when (eq (mezzano.gui.compositor:mouse-button-state event) :left-up)
     (let ((mx (mezzano.gui.compositor:mouse-x-position event))
           (my (mezzano.gui.compositor:mouse-y-position event)))
       (loop for (x1 y1 x2 y2 thing) in (clickables window) do
