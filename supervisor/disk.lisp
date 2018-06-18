@@ -35,7 +35,8 @@
              (:area :wired))
   disk
   offset
-  id)
+  id
+  type)
 
 (defstruct (disk-request
              (:constructor make-disk-request ())
