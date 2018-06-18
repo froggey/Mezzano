@@ -168,7 +168,7 @@
          (write-char #\~ s))
         (t (format s ".~~~D~~" version))))))
 
-(defmethod unparse-pathname (path (host remote-file-host))
+(defmethod namestring-using-host ((host remote-file-host) path)
   (unparse-remote-file-path path))
 
 (defmacro with-connection ((var host) &body body)

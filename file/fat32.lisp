@@ -698,7 +698,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
   (parse-simple-file-path host namestring))
 
-(defmethod unparse-pathname (pathname (host fat32-host))
+(defmethod namestring-using-host ((host fat32-host) pathname)
   (when (pathname-device pathname)
     (error 'no-namestring-error
            :pathname pathname
@@ -927,7 +927,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod directory-using-host ((host fat32-host) pathname &key)
   (let ((file-data (find-file host pathname)))
     (let ((stack '())
-          (path (unparse-pathname-directory pathname host)))
+          (path (directory-namestring pathname)))
       (do-files (file) file-data
                 t
         (push

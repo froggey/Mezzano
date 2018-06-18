@@ -11,9 +11,7 @@
            #:host-default-device
            #:host-pathname-class
            #:parse-namestring-using-host
-           #:unparse-pathname
-           #:unparse-pathname-file
-           #:unparse-pathname-directory
+           #:namestring-using-host
            #:open-using-host
            #:probe-using-host
            #:directory-using-host
@@ -194,44 +192,36 @@
          (or (member (pathname-version w) '(nil :wild))
              (equal (pathname-version p) (pathname-version w))))))
 
-(defgeneric unparse-pathname (path host))
-(defgeneric unparse-pathname-file (pathname host))
-(defgeneric unparse-pathname-directory (pathname host))
+(defgeneric namestring-using-host (path host))
 
 (defun host-namestring (pathname)
   (host-name (pathname-host pathname)))
-
-(defmethod unparse-pathname-file (pathname host)
-  (unparse-pathname (make-pathname :host host
-                                   :device nil
-                                   :directory nil
-                                   :name (pathname-name pathname)
-                                   :type (pathname-type pathname)
-                                   :version (pathname-version pathname)
-                                   :defaults pathname)
-                    host))
-
-(defun file-namestring (pathname)
-  (unparse-pathname-file pathname (pathname-host pathname)))
-
-(defmethod unparse-pathname-directory (pathname host)
-  (unparse-pathname (make-pathname :host host
-                                   :device nil
-                                   :directory (pathname-directory pathname)
-                                   :name nil
-                                   :type nil
-                                   :version nil
-                                   :defaults pathname)
-                    host))
-
-(defun directory-namestring (pathname)
-  (unparse-pathname-directory pathname (pathname-host pathname)))
 
 (defun namestring (pathname)
   (concatenate 'string
                (string (host-name (pathname-host pathname)))
                ":"
-               (unparse-pathname pathname (pathname-host pathname))))
+               (namestring-using-host (pathname-host pathname) pathname)))
+
+(defun file-namestring (pathname)
+  (namestring-using-host (pathname-host pathname)
+                         (make-pathname :host (pathname-host pathname)
+                                        :device nil
+                                        :directory nil
+                                        :name (pathname-name pathname)
+                                        :type (pathname-type pathname)
+                                        :version (pathname-version pathname)
+                                        :defaults pathname)))
+
+(defun directory-namestring (pathname)
+  (namestring-using-host (pathname-host pathname)
+                         (make-pathname :host (pathname-host pathname)
+                                        :device nil
+                                        :directory (pathname-directory pathname)
+                                        :name nil
+                                        :type nil
+                                        :version nil
+                                        :defaults pathname)))
 
 (defun enough-namestring (pathname &optional (defaults *default-pathname-defaults*))
   (if (eql (pathname-host pathname) (pathname-host defaults))
@@ -251,17 +241,17 @@
                             ;; default directory has more entries than pathname
                             (namestring pathname)))
                        ((null d-dir)
-                        (unparse-pathname (make-pathname
-                                           :host (pathname-host pathname)
-                                           :directory (cons :relative p-rest)
-                                           :name (pathname-name pathname)
-                                           :type (pathname-type pathname)
-                                           :version (pathname-version pathname))
-                                          (pathname-host pathname)))
+                        (namestring-using-host (pathname-host pathname)
+                                               (make-pathname
+                                                :host (pathname-host pathname)
+                                                :directory (cons :relative p-rest)
+                                                :name (pathname-name pathname)
+                                                :type (pathname-type pathname)
+                                                :version (pathname-version pathname))))
                        ;; directory names differ
                        (t (namestring pathname)))))
             ;; pathnames are not absolute but have the same host
-            (unparse-pathname pathname (pathname-host pathname))))
+            (namestring-using-host (pathname-host pathname) pathname)))
       ;; hosts don't match
       (namestring pathname)))
 
@@ -734,7 +724,7 @@ NAMESTRING as the second."
                    :type type
                    :version version)))
 
-(defmethod unparse-pathname ((path logical-pathname) (host logical-host))
+(defmethod namestring-using-host ((host logical-host) (path logical-pathname))
   (with-output-to-string (namestring)
     (when (eql (first (pathname-directory path)) :relative)
       (write-char #\; namestring))

@@ -125,7 +125,7 @@
                    :type type
                    :version version)))
 
-(defmethod unparse-pathname (pathname (host local-file-host))
+(defmethod namestring-using-host ((host local-file-host) pathname)
   (when (pathname-device pathname)
     (error 'no-namestring-error
            :pathname pathname

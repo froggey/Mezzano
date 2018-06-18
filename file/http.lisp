@@ -94,17 +94,9 @@
           (cdr (pathname-device path))
           (pathname-name path)))
 
-(defmethod unparse-pathname (path (host http-host))
+(defmethod namestring-using-host ((host http-host) path)
   (declare (ignore host))
   (unparse-http-path path))
-
-(defmethod unparse-pathname-file (pathname (host http-host))
-  (declare (ignore host))
-  (unparse-http-path pathname))
-
-(defmethod unparse-pathname-directory (pathname (host http-host))
-  (declare (ignore host))
-  (unparse-http-path pathname))
 
 (defun match-header (header line)
   (and (< (length header) (length line))
