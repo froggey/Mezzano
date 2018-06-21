@@ -1506,6 +1506,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cmpxchg16b (place)
   (modrm-single :gpr-64 place '(#x0F #xC7) 1))
 
+(define-instruction bt64 (bit-base bit-offset)
+  (modrm :gpr-64 bit-base bit-offset '(#x0F #xA3))
+  (imm-short :gpr-64 bit-base bit-offset '(#x0F #xBA) 4))
+
 (define-instruction btr64 (bit-base bit-offset)
   (modrm :gpr-64 bit-base bit-offset '(#x0F #xB3))
   (imm-short :gpr-64 bit-base bit-offset '(#x0F #xBA) 6))
