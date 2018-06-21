@@ -166,6 +166,7 @@ And more!
 
 A number of status lights are displayed at the top left of the screen.
 From left to right:
+
 `Green`        Disk read in progress.
 
 `Red`          Disk write in progress.

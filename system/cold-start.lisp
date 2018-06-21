@@ -31,7 +31,17 @@
     (write-char (char string (+ start i)) stream))
   string)
 
-(defun start-line-p (stream)
+(defun terpri (&optional stream)
+  (write-char #\Newline stream)
+  nil)
+
+(defun fresh-line (&optional stream)
+  (cond ((start-line-p stream)
+         nil)
+        (t (terpri stream)
+           t)))
+
+(defun start-line-p (&optional stream)
   (cold-start-line-p stream))
 
 (defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)
@@ -82,9 +92,8 @@
      (write-char #\Newline)
      (format t "Please respond with \"yes\" or \"no\". ")))
 
-(defvar *cold-stream*)
 (defun streamp (object)
-  (eql object *cold-stream*))
+  (eql object :cold-stream))
 
 (defun %with-stream-editor (stream recursive-p function)
   (funcall function))
@@ -100,6 +109,8 @@
 
 (defun pathnamep (x) nil)
 (defun pathnames-equal (x y) nil)
+(defun hash-pathname (pathname depth)
+  (error "Early call to hash-pathname"))
 
 (declaim (special * ** ***))
 
@@ -202,11 +213,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *cold-start-start-time* (get-internal-real-time))
   (cold-array-initialization)
   (setf *package* nil
-        *cold-stream* (make-cold-stream)
-        *terminal-io* *cold-stream*
-        *standard-output* *cold-stream*
-        *standard-input* *cold-stream*
-        *debug-io* *cold-stream*
+        *terminal-io* :cold-stream
+        *standard-output* :cold-stream
+        *standard-input* :cold-stream
+        *debug-io* :cold-stream
         * nil
         ** nil
         *** nil

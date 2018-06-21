@@ -597,6 +597,9 @@
   (declare (ignore abort))
   (close-tcp-connection (tcp-stream-connection stream)))
 
+(defmethod open-stream-p ((stream tcp-octet-stream))
+  (not (tcp-connection-closed-p stream)))
+
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
 

@@ -256,6 +256,7 @@
        ((null (cdr i))
         (setf (cdr tail) (car i))
         (cdr head))
+    (declare (dynamic-extent head))
     (dolist (elt (car i))
       (setf (cdr tail) (cons elt nil)
             tail (cdr tail)))))

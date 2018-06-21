@@ -285,6 +285,9 @@
 (defmethod sys.gray:stream-read-char-no-hang ((stream lazy-popup-io-stream))
   (sys.gray:stream-read-char-no-hang (get-thread-popup-io-stream)))
 
+(defmethod sys.gray:stream-unread-char ((stream lazy-popup-io-stream) character)
+  (sys.gray:stream-unread-char (get-thread-popup-io-stream) character))
+
 (defmethod sys.gray:stream-terpri ((stream lazy-popup-io-stream))
   (sys.gray:stream-terpri (get-thread-popup-io-stream)))
 

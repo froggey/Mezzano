@@ -48,9 +48,10 @@
 (defmethod sys.gray:stream-file-position ((stream memory-file-stream) &optional (position-spec nil position-specp))
   (with-slots (%fpos) stream
     (cond (position-specp
-           (setf %fpos (if (eql position-spec :end)
-                           (length (memory-file-stream-vector stream))
-                           position-spec)))
+           (setf %fpos (case position-spec
+                         (:start 0)
+                         (:end (length (memory-file-stream-vector stream)))
+                         (t position-spec))))
           (t %fpos))))
 
 (defmethod sys.gray:stream-file-length ((stream memory-file-stream))

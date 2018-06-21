@@ -155,6 +155,15 @@
                 (eql (pathname-version x) :newest))
            (equal (pathname-version x) (pathname-version y)))))
 
+(defun sys.int::hash-pathname (pathname depth)
+  (let ((version (or (pathname-version pathname) :newest)))
+    (logxor (sys.int::sxhash-1 (host-name (pathname-host pathname)) depth)
+            (sys.int::sxhash-1 (pathname-device pathname) depth)
+            (sys.int::sxhash-1 (pathname-directory pathname) depth)
+            (sys.int::sxhash-1 (pathname-name pathname) depth)
+            (sys.int::sxhash-1 (pathname-type pathname) depth)
+            (sys.int::sxhash-1 version depth))))
+
 (defun pathname-match-directory (p w)
   (let ((p-dir (pathname-directory p))
         (w-dir (pathname-directory w)))
@@ -371,8 +380,10 @@
 (defgeneric parse-namestring-using-host (host namestring junk-allowed))
 
 (defun parse-namestring (thing &optional host (default-pathname *default-pathname-defaults*) &key (start 0) (end nil) junk-allowed)
-  (setf thing (sys.int::follow-synonym-stream thing))
-  (check-type thing (or string pathname stream))
+  (loop
+     (when (not (typep thing 'synonym-stream))
+       (return))
+     (setf thing (symbol-value (synonym-stream-symbol thing))))
   (when (typep thing 'file-stream)
     (setf thing (file-stream-pathname thing)))
   (etypecase thing

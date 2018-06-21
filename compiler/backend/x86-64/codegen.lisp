@@ -133,7 +133,7 @@
                                               'simple-bit-vector))
               (*literals* (make-array 8 :adjustable t :fill-pointer 0))
               (*literals/128* (make-array 8 :adjustable t :fill-pointer 0))
-              (mv-flow (ir::multiple-value-flow backend-function :x86-64)))
+              (mv-flow (ir::multiple-value-flow backend-function *target*)))
           ;; Create stack frame.
           (emit 'entry-point
                 `(:debug ())
@@ -866,15 +866,13 @@
     ;; Save into the simple-vector.
     (emit `(lap:lea64 :rdi (:rsp ,(* 6 8)))) ; skip header and registers.
     ;; Load from the MV area.
-    (emit `(lap:mov64 :rsi ,(+ (- 8 sys.int::+tag-object+)
-                                       ;; fixme. should be +thread-mv-slots-start+
-                                       (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+    (emit `(lap:xor32 :esi :esi))
     ;; Save the values into a simple-vector.
     (emit save-loop-head)
     (emit `(lap:gs))
-    (emit `(lap:mov64 :rbx (:rsi)))
+    (emit `(lap:mov64 :rbx (:object nil 32 :rsi))) ; fixme. should be +thread-mv-slots-start+
     (emit `(lap:mov64 (:rdi) :rbx))
-    (emit `(lap:add64 :rsi 8))
+    (emit `(lap:add64 :rsi 1))
     (emit `(lap:add64 :rdi 8))
     (emit `(lap:sub64 :rax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
     (emit `(lap:jnz ,save-loop-head))

@@ -91,12 +91,16 @@
     (values (get sym mode-name)
             (get sym form-name))))
 
-;;; Turn (APPLY fn arg) into (%APPLY fn arg), bypassing APPLY's
-;;; rest-list generation in the single arg case.
+;;; Turn (APPLY fn args...) into (%APPLY fn (list* args...)), bypassing APPLY's
+;;; rest-list generation.
 (define-compiler-macro apply (&whole whole function arg &rest more-args)
   (if more-args
-      `(mezzano.runtime::%apply (%coerce-to-callable ,function)
-                                (list* ,arg ,@more-args))
+      (let ((function-sym (gensym))
+            (args-sym (gensym)))
+        `(let ((,function-sym ,function)
+               (,args-sym (list* ,arg ,@more-args)))
+           (declare (dynamic-extent ,args-sym))
+           (mezzano.runtime::%apply (%coerce-to-callable ,function-sym) ,args-sym)))
       `(mezzano.runtime::%apply (%coerce-to-callable ,function) ,arg)))
 
 (defun apply (function arg &rest more-args)
@@ -106,11 +110,14 @@
     (setf function (%coerce-to-callable function)))
   (cond (more-args
          ;; Convert (... (final-list ...)) to (... final-list...)
+         ;; This modifies the dx more-args rest list, but that's ok as apply
+         ;; isn't inlined so it will never share structure with an existing list.
          (do* ((arg-list (cons arg more-args))
                (i arg-list (cdr i)))
               ((null (cddr i))
                (setf (cdr i) (cadr i))
-               (mezzano.runtime::%apply function arg-list))))
+               (mezzano.runtime::%apply function arg-list))
+           (declare (dynamic-extent arg-list))))
         (t (mezzano.runtime::%apply function arg))))
 
 (defun funcall (function &rest arguments)

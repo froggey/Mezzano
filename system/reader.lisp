@@ -141,14 +141,6 @@
                  (char-downcase c)
                  (char-upcase c)))))
 
-(defun follow-stream-designator (stream default)
-  (cond ((null stream) default)
-        ((eql stream 't) *terminal-io*)
-        ((streamp stream) stream)
-        (t (error 'type-error
-                  :expected-type '(or stream null (eql t))
-                  :datum stream))))
-
 (defun whitespace[2]p (char &optional (readtable *readtable*))
   "Test if CHAR is a whitespace[2] character under READTABLE."
   (eql (readtable-syntax-type char readtable) :whitespace))
@@ -288,10 +280,10 @@
       ;; Attempt to parse a number.
       (t (or (read-integer token)
              (read-float token)
-             (read-ratio token)
+             (read-ratio token stream)
              (intern token))))))
 
-(defun read-ratio (string)
+(defun read-ratio (string stream)
   ;; ratio = sign? digits+ slash digits+
   (let ((numerator nil)
         (denominator nil)
@@ -341,6 +333,10 @@
            (return-from read-ratio))
          (setf denominator (+ (* denominator *read-base*)
                               weight))))
+    (when (zerop denominator)
+      (error 'simple-reader-error :stream stream
+             :format-control "Invalid ratio, dividing by zero: ~A"
+             :format-arguments (list string)))
     (/ numerator denominator)))
 
 (defvar *exponent-markers* "DdEeFfLlSs")
@@ -623,11 +619,17 @@
             (case ch
               (#\0 (vector-push-extend 0 bits))
               (#\1 (vector-push-extend 1 bits))
-              (t (error "Invalid character ~S in #*." ch)))))
+              (t (error 'simple-reader-error :stream stream
+                        :format-control "Invalid character ~S in #*."
+                        :format-arguments (list ch))))))
     (when (and p (not (zerop p)) (zerop (length bits)))
-      (error "Need at least one bit for #* with an explicit length."))
+      (error 'simple-reader-error :stream stream
+             :format-control "Need at least one bit for #* with an explicit length."
+             :format-arguments '()))
     (when (and p (> (length bits) p))
-      (error "Too many bits."))
+      (error 'simple-reader-error :stream stream
+             :format-control "Too many bits."
+             :format-arguments '()))
     (let ((final-array (make-array (or p (length bits))
                                    :element-type 'bit)))
       (unless (zerop (length final-array))
@@ -882,7 +884,7 @@
 
 (defun read (&optional input-stream (eof-error-p t) eof-value recursive-p)
   "READ parses the printed representation of an object from STREAM and builds such an object."
-  (let ((stream (follow-stream-designator input-stream *standard-input*)))
+  (let ((stream (frob-input-stream input-stream)))
     (with-stream-editor (stream recursive-p)
       (let ((result (read-common stream
                                  eof-error-p
@@ -896,19 +898,10 @@
         result))))
 
 (defun read-preserving-whitespace (&optional input-stream (eof-error-p t) eof-value recursive-p)
-  (read-common (follow-stream-designator input-stream *standard-input*)
+  (read-common (frob-input-stream input-stream)
                eof-error-p
                eof-value
                recursive-p))
-
-(defun read-from-string (string &optional (eof-error-p t) eof-value &key (start 0) end preserve-whitespace)
-  (let (index)
-    (values
-     (with-input-from-string (stream string :start start :end end :index index)
-       (if preserve-whitespace
-           (read-preserving-whitespace stream eof-error-p eof-value)
-           (read stream eof-error-p eof-value)))
-     index)))
 
 (defmacro with-standard-io-syntax (&body body)
   `(%with-standard-io-syntax (lambda () (progn ,@body))))

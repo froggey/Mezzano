@@ -285,11 +285,8 @@
 (defclass mezzano.delimited-continuations:delimited-continuation (function) () (:metaclass built-in-class))
 (defclass symbol (t) () (:metaclass built-in-class))
 (defclass character (t) () (:metaclass built-in-class))
-;; FIXME: This should be a built-in class, but this is tricky to make work
-;; with gray streams.
-;; Specifically, FUNDAMENTAL-STREAM needs to inherit from STREAM, but
-;; this will fail because BUILT-IN-CLASSes are not compatible with STANDARD-CLASSes.
-;; One solution would be to just define early FUNDAMENTAL-STREAM here...
+;; Streams are ordinary objects with no special representation,
+;; they don't need to be BUILT-IN-CLASSes.
 (defclass stream (t) ())
 (defclass mezzano.supervisor:thread (t) () (:metaclass built-in-class))
 (defclass sys.int::function-reference (t) () (:metaclass built-in-class))

@@ -913,14 +913,11 @@ It will put the thread to sleep, while it waits for the page."
            ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
            ((or (not (boundp '*panic-on-unhandled-paging-requests*))
                 *panic-on-unhandled-paging-requests*)
-            ;; This strange contortion is here to get a dynamic-extent list that can be passed
-            ;; to PANIC-1. Need to implement DX list allocation in the compiler.
-            ((lambda (&rest stuff)
-               (declare (dynamic-extent stuff))
-               (panic-1 stuff (lambda ()
-                                (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
-                                (debug-print-line "-------"))))
-             "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*))
+            (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
+              (declare (dynamic-extent message))
+              (panic-1 message (lambda ()
+                                 (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                                 (debug-print-line "-------")))))
            (t
             (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
             (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))

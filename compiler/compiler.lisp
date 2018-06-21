@@ -185,8 +185,10 @@ be generated instead.")
 (defvar *max-optimizer-iterations* 20)
 
 (defvar *optimization-passes*
-  ;; Inlining must be run before lifting.
-  '(inline-functions
+  ;; DX conversion should come early before variables get optimized away & declarations lost.
+  '(convert-dynamic-extent
+    ;; Inlining must be run before lifting.
+    inline-functions
     lambda-lift
     ;; Key arg conversion must be performed after lambda-lifting, so as not to
     ;; complicate the lift code.

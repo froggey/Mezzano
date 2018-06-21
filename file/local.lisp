@@ -351,16 +351,23 @@
     (do ((element (rest (pathname-directory pathname)) (cdr element))
          (dir (local-host-root host)))
         ((endp element)
-         (when  (or (null (pathname-name pathname))
-                    (and (null (pathname-type pathname))
-                         (read-directory-entry
-                          dir (pathname-name pathname) "directory"))
-                    (read-directory-entry
-                     dir
-                     (pathname-name pathname)
-                     (pathname-type pathname)
-                     (pathname-version pathname)))
-           pathname))
+         (when (or (null (pathname-name pathname))
+                   (and (null (pathname-type pathname))
+                        (read-directory-entry
+                         dir (pathname-name pathname) "directory"))
+                   (read-directory-entry
+                    dir
+                    (pathname-name pathname)
+                    (pathname-type pathname)
+                    (pathname-version pathname)))
+           (cond ((string= (pathname-type pathname) "directory")
+                  (make-pathname :directory (append (pathname-directory pathname)
+                                                    (list (pathname-name pathname)))
+                                 :name nil
+                                 :type nil
+                                 :defaults pathname))
+                 (t
+                  pathname))))
       (let ((next (read-directory-entry dir (car element) "directory")))
         (when (not next)
           ;; directory doesn't exist, return nil
@@ -587,7 +594,8 @@
 
 (defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :output))
-  (let ((file (local-stream-file stream)))
+  (let ((file (local-stream-file stream))
+        (end (or end (length sequence))))
     (mezzano.supervisor:with-mutex ((file-lock file))
       (when (> (+ (stream-position stream)
                   (- end start))
@@ -625,14 +633,24 @@
 (defmethod sys.gray:stream-element-type ((stream local-stream))
   (array-element-type (file-storage (local-stream-file stream))))
 
+(defmethod sys.gray:stream-external-format ((stream local-stream))
+  :default)
+
+(defmethod input-stream-p ((stream local-stream))
+  (member (direction stream) '(:input :io)))
+
+(defmethod output-stream-p ((stream local-stream))
+  (member (direction stream) '(:output :io)))
+
 (defmethod sys.gray:stream-file-length ((stream local-stream))
   (length (file-storage (local-stream-file stream))))
 
 (defmethod sys.gray:stream-file-position ((stream local-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
-         (setf (stream-position stream) (if (eql position-spec :end)
-                                            (length (file-storage (local-stream-file stream)))
-                                            position-spec)))
+         (setf (stream-position stream) (case position-spec
+                                          (:start 0)
+                                          (:end (length (file-storage (local-stream-file stream))))
+                                          (t position-spec))))
         (t (stream-position stream))))
 
 (defmethod sys.gray:stream-line-column ((stream local-stream))
@@ -651,6 +669,7 @@
   nil)
 
 (defmethod close ((stream local-stream) &key abort &allow-other-keys)
+  (call-next-method)
   (when (and (not abort)
              (superseded-file stream))
     ;; Replace the superseded file's contents.

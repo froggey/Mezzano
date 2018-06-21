@@ -127,16 +127,6 @@
       (double-float
        (write-string "D0" stream)))))
 
-(defun terpri (&optional stream)
-  (write-char #\Newline stream)
-  nil)
-
-(defun fresh-line (&optional stream)
-  (cond ((start-line-p stream)
-         nil)
-        (t (terpri stream)
-           t)))
-
 (defun write-line (string &optional stream &key (start 0) end)
   (write-string string stream :start start :end end)
   (terpri stream)

@@ -150,13 +150,11 @@
          (let ((n-value (gensym "N"))
                (values (gensym "VALUES")))
            `(let ((,n-value ,n))
-              (multiple-value-call
-                  (flet ((nth-value-closure (&rest ,values)
-                           (declare (dynamic-extent ,values))
-                           (nth ,n-value ,values)))
-                    (declare (dynamic-extent #'nth-value-closure))
-                    #'nth-value-closure)
-                ,form))))))
+              (flet ((nth-value-closure (&rest ,values)
+                       (declare (dynamic-extent ,values))
+                       (nth ,n-value ,values)))
+                (declare (dynamic-extent #'nth-value-closure))
+                (multiple-value-call #'nth-value-closure ,form)))))))
 
 (defmacro case (keyform &body cases)
   (let ((test-key (gensym "CASE-KEY")))
