@@ -117,7 +117,7 @@
 
 (defmethod ir:print-instruction ((instruction x86-atomic-instruction))
   (format t "   ~S~%"
-          `(:x86-atomic ,(x86-atomic-prefix instruction)
+          `(:x86-atomic ,(x86-instruction-prefix instruction)
                         ,(x86-instruction-opcode instruction)
                         ,(x86-atomic-result instruction)
                         ,(x86-atomic-object instruction)
