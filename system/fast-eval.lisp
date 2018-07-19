@@ -93,14 +93,23 @@
                     (macroexpand form env)
                   (cond (expanded-p
                          (eval-in-lexenv expansion env))
-                        ((not (fboundp (first form)))
-                         ;; Punt if the function is not bound, take advantage
-                         ;; of the restarts set up by the runtime.
-                         (eval-compile form env))
                         (t
-                         (apply (symbol-function (first form))
-                                (mapcar (lambda (f) (eval-in-lexenv f env))
-                                        (rest form)))))))))))
+                         (eval-call form env)))))))))
+
+(defun eval-call (form env)
+  ;; Don't use FDEFINITION, poke directly in the fref to stop trace wrappers
+  ;; from being hidden.
+  (let ((fn (sys.int::function-reference-function
+             (sys.int::function-reference (first form))))
+        (args (rest form)))
+    (cond (fn
+           (apply fn
+                  (mapcar (lambda (f) (eval-in-lexenv f env))
+                          (rest form))))
+          (t
+           ;; Punt if the function is not bound, take advantage
+           ;; of the restarts set up by the runtime.
+           (eval-compile form env)))))
 
 (defun eval-symbol (form env)
   (let ((expanded (macroexpand form env)))
