@@ -44,13 +44,36 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (file-truename object))))
 
-(defclass local-stream (file-stream sys.gray:fundamental-stream sys.gray:unread-char-mixin)
+(defclass local-stream (sys.gray:fundamental-stream file-stream)
   ((%file :initarg :file :reader local-stream-file)
    (%pathname :initarg :pathname :reader file-stream-pathname)
    (%position :initarg :position :accessor stream-position)
    (%direction :initarg :direction :reader direction)
    (%superseded-file :initarg :superseded-file :reader superseded-file))
   (:default-initargs :superseded-file nil))
+
+(defclass local-character-stream (local-stream
+                                  sys.gray:fundamental-character-input-stream
+                                  sys.gray:fundamental-character-output-stream
+                                  sys.gray:unread-char-mixin)
+  ())
+
+(defclass local-binary-stream (local-stream
+                               sys.gray:fundamental-binary-input-stream
+                               sys.gray:fundamental-binary-output-stream)
+  ())
+
+(defclass translating-stream (file-stream sys.gray:fundamental-character-stream)
+  ((%underlying-stream :initarg :underlying-stream :reader translating-underlying-stream)))
+
+(defclass translating-input-stream (translating-stream
+                                    sys.gray:fundamental-character-input-stream
+                                    sys.gray:unread-char-mixin)
+  ())
+
+(defclass translating-output-stream (translating-stream
+                                     sys.gray:fundamental-character-output-stream)
+  ())
 
 (defmacro with-host-locked ((host) &body body)
   `(mezzano.supervisor:with-mutex ((local-host-lock ,host))
@@ -228,15 +251,13 @@
         (setf truename (make-pathname :directory (append (pathname-directory dir-truename)
                                                          (list (pathname-name dir-truename)))
                                       :defaults truename))))
-    (format t "Creating file ~S.~%" truename)
     (let ((key (cons (pathname-name truename) (pathname-type truename)))
           (file (make-instance 'local-file
                                :truename truename
                                :storage (make-array 0
                                                     :element-type element-type
                                                     :adjustable t
-                                                    :fill-pointer 0
-                                                    :area :pinned)
+                                                    :fill-pointer 0)
                                :plist (list :creation-time time
                                             :write-time time))))
       (cond (container
@@ -322,25 +343,46 @@
                                      :storage (make-array 0
                                                           :element-type element-type
                                                           :adjustable t
-                                                          :fill-pointer 0
-                                                          :area :pinned))))
+                                                          :fill-pointer 0))))
           ((:overwrite :append)
            ???)
           ((nil) (return-from open-using-host nil))))
-      (when (and (not (eql direction :probe))
-                 (not (equal (upgraded-array-element-type element-type)
-                             (array-element-type (file-storage file)))))
-        (error "Incompatible ELEMENT-TYPE. File is of type ~S."
-               (array-element-type (file-storage file))))
-      (make-instance 'local-stream
-                     :file file
-                     :pathname pathname
-                     :position (if (and (member direction '(:output :io))
-                                        (eql if-exists :append))
-                                   (length (file-storage file))
-                                   0)
-                     :direction direction
-                     :superseded-file superseded-file))))
+      (cond ((and (not (eql direction :probe))
+                  (not (equal (upgraded-array-element-type element-type)
+                              (array-element-type (file-storage file)))))
+             (make-translating-stream
+              (make-instance (cond ((subtypep (array-element-type (file-storage file)) 'character)
+                                   'local-character-stream)
+                                  ((subtypep (array-element-type (file-storage file)) 'integer)
+                                   'local-binary-stream)
+                                  (t
+                                   'local-stream))
+                             :file file
+                             :pathname pathname
+                             :position (if (and (member direction '(:output :io))
+                                                (eql if-exists :append))
+                                           (length (file-storage file))
+                                           0)
+                             :direction direction
+                             :superseded-file superseded-file)
+              direction
+              element-type
+              external-format))
+            (t
+             (make-instance (cond ((subtypep element-type 'character)
+                                   'local-character-stream)
+                                  ((subtypep element-type 'integer)
+                                   'local-binary-stream)
+                                  (t
+                                   'local-stream))
+                            :file file
+                            :pathname pathname
+                            :position (if (and (member direction '(:output :io))
+                                               (eql if-exists :append))
+                                          (length (file-storage file))
+                                          0)
+                            :direction direction
+                            :superseded-file superseded-file))))))
 
 (defmethod probe-using-host ((host local-file-host) pathname)
   (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
@@ -698,3 +740,49 @@
                           :defaults truename))
           (t
            truename))))
+
+(defun make-translating-stream (underlying-stream direction element-type external-format)
+  (when (eql direction :io)
+    (error "Element translation not supported with :IO direction"))
+  (when (not (equal (stream-element-type underlying-stream) '(unsigned-byte 8)))
+    (error "Underlying stream must have octet type, not type ~S"
+           (stream-element-type underlying-stream)))
+  (when (not (and (subtypep element-type 'character)
+                  (subtypep 'character element-type)))
+    (error "Translation element-type must be CHARACTER, not ~S" element-type))
+  (when (not (member external-format '(:default :utf-8)))
+    (error "Unsupported external format ~S" external-format))
+  (make-instance (ecase direction
+                   (:input 'translating-input-stream)
+                   (:output 'translating-output-stream))
+                 :underlying-stream underlying-stream))
+
+(defmethod print-object ((instance translating-stream) stream)
+  (print-unreadable-object (instance stream :type t)
+    (format stream "for ~S" (translating-underlying-stream instance))))
+
+(defmethod sys.gray:stream-external-format ((stream translating-stream))
+  :utf-8)
+
+(defmethod close ((stream translating-stream) &rest keys)
+  (apply #'close (translating-underlying-stream stream) keys))
+
+(defmethod sys.gray:stream-file-position ((stream translating-stream) &optional (position-spec nil position-spec-p))
+  (if position-spec-p
+      (file-position (translating-underlying-stream stream) position-spec)
+      (file-position (translating-underlying-stream stream))))
+
+(defmethod sys.gray:stream-file-length ((stream translating-stream))
+  (file-length (translating-underlying-stream stream)))
+
+(defmethod stream-truename ((stream translating-stream))
+  (stream-truename (translating-underlying-stream stream)))
+
+(defmethod file-stream-pathname ((stream translating-stream))
+  (file-stream-pathname (translating-underlying-stream stream)))
+
+(defmethod sys.gray:stream-read-char ((stream translating-input-stream))
+  (mezzano.file-system.remote::read-and-decode-char (translating-underlying-stream stream)))
+
+(defmethod sys.gray:stream-clear-input ((stream translating-input-stream))
+  (clear-input (translating-underlying-stream stream)))
