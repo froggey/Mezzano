@@ -380,6 +380,13 @@
            :pathname pathname
            :format-control "Non-absolute pathname."))
   (with-host-locked (host)
+    (when (and (not (pathname-name pathname))
+               (not (pathname-type pathname))
+               (rest (pathname-directory pathname)))
+      (setf pathname (make-pathname :directory (butlast (pathname-directory pathname))
+                                    :name (first (last (pathname-directory pathname)))
+                                    :type "directory"
+                                    :version :newest)))
     (do ((element (rest (pathname-directory pathname)) (cdr element))
          (dir (local-host-root host)))
         ((endp element)
