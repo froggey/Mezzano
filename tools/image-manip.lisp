@@ -230,7 +230,13 @@
      ;; Fifth group. Not byteswapped.
      (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))
 
-(defun flatten-image-stream (input-stream output-stream &key (input-offset 0) (output-offset 0) output-uuid)
+(defun load-image-header (path)
+  (with-open-file (s path :direction :input :element-type '(unsigned-byte 8))
+    (let ((data (make-array (file-length s) :element-type '(unsigned-byte 8))))
+      (read-sequence data s)
+      data)))
+
+(defun flatten-image-stream (input-stream output-stream &key (input-offset 0) output-offset output-uuid header-path output-size)
   (let* ((input-header (decode-image-header (read-image-header input-stream input-offset)))
          (block-map (read-block-map input-stream input-offset (getf input-header :bml4)))
          (output-block-map (make-hash-table))
@@ -238,7 +244,22 @@
          (sorted-blocks (sort (alexandria:hash-table-alist block-map) #'<
                               :key #'first))
          (output-bml4 nil)
-         (output-freelist-block nil))
+         (output-freelist-block nil)
+         (image-header-data (when header-path
+                              (load-image-header header-path))))
+    (when (not output-offset)
+      (setf output-offset (if image-header-data
+                              (length image-header-data)
+                              0)))
+    (when image-header-data
+      (when (not output-size)
+        (setf output-size (* 512 1024 1024)))
+      (write-sequence image-header-data output-stream)
+      ;; Update the size of the third partition entry, the Mezzano partiton.
+      (file-position output-stream #x1EA)
+      (nibbles:write-ub32/le (truncate (- output-size output-offset) 512) output-stream)
+      (file-position output-stream (1- output-size))
+      (write-byte 0 output-stream))
     ;; Copy blocks from the input to the output.
     (file-position output-stream (+ output-offset 4096))
     (loop
