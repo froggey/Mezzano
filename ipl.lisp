@@ -80,7 +80,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
 ;; ASDF.
-(sys.int::cal (merge-pathnames "asdf/build/asdf.lisp" (user-homedir-pathname)))
+(sys.int::cal "sys:home;asdf;build;asdf.lisp")
 
 (defun home-source-registry ()
   `(:source-registry
