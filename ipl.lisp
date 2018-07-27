@@ -110,7 +110,9 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :cl-video-gif)
 (require :cl-video-wav)
 (require :cl-wav)
-(require :swank)
+;; Swank doesn't really support logical pathname shenanigans.
+(load (merge-pathnames "slime/swank-loader.lisp" (user-homedir-pathname)))
+(eval (read-from-string "(swank-loader::init)"))
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
