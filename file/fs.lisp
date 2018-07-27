@@ -52,7 +52,7 @@
 
 (defvar *host-alist* '())
 
-(define-condition unknown-host (error)
+(define-condition unknown-host (file-error)
   ((host :initarg :host :reader unknown-host-host))
   (:report (lambda (condition stream)
              (format stream "Unknown host ~S." (unknown-host-host condition)))))
@@ -65,7 +65,9 @@
          (pathname-host *default-pathname-defaults*)
          (or (second (assoc name *host-alist* :test 'string=))
              (when errorp
-               (error 'unknown-host :host name)))))
+               (error 'unknown-host
+                      :host name
+                      :pathname (format nil "~A:" name))))))
     (t name)))
 
 (defun (setf find-host) (new-value name &optional errorp)
