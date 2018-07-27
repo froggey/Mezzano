@@ -482,14 +482,24 @@ NAMESTRING as the second."
   (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
     (apply #'directory-using-host (pathname-host path) path args)))
 
+(defun mixed-case-p (name)
+  (not (every (lambda (ch)
+                (or (eql ch #\*)
+                    (eql ch #\-)
+                    (digit-char-p ch)
+                    (upper-case-p ch)))
+              name)))
+
 (defun case-correct-path-component (component from-host to-host)
   (cond ((and (typep from-host 'logical-host)
               (not (typep to-host 'logical-host))
-              (stringp component))
+              (stringp component)
+              (not (mixed-case-p component)))
          (string-downcase component))
         ((and (not (typep from-host 'logical-host))
               (typep to-host 'logical-host)
-              (stringp component))
+              (stringp component)
+              (not (mixed-case-p component)))
          (string-upcase component))
         (t component)))
 
@@ -498,12 +508,16 @@ NAMESTRING as the second."
          (case-correct-path-component (funcall what source)
                                       (pathname-host from)
                                       (pathname-host to)))
-        ((or (eql (funcall what source) (funcall what from))
+        ((and (equal (funcall what source) (funcall what from))
+              (not (member (funcall what to) '(nil :wild :unspecified))))
+         (funcall what to))
+        ((or (equal (funcall what source) (funcall what from))
              (eql (funcall what from) :wild))
          (case-correct-path-component (funcall what source)
                                       (pathname-host from)
                                       (pathname-host to)))
-        (t (error "Source and from ~S don't match." what))))
+        (t
+         (error "Source and from ~S don't match." what))))
 
 (defun translate-directory (source from-wildcard to-wildcard)
   (let* ((s-d (pathname-directory source))
@@ -663,17 +677,44 @@ NAMESTRING as the second."
              (let ((chars (make-array 50
                                       :element-type 'character
                                       :fill-pointer 0
-                                      :adjustable t)))
+                                      :adjustable t))
+                   (saw-escape nil))
                (loop
                   (when (>= offset (length namestring))
+                    (when saw-escape
+                      (error "Unexpected end of string after escape in logical pathname"))
                     (return))
                   (let ((ch (char namestring offset)))
-                    (cond ((or (alphanumericp ch)
+                    (cond ((and (eql saw-escape :multiple)
+                                (eql ch #\|))
+                           ;; Leave multiple escape.
+                           (setf saw-escape nil)
+                           (incf offset))
+                          ((and (eql saw-escape :multiple)
+                                (eql ch #\\))
+                           (setf saw-escape :multiple-single)
+                           (incf offset))
+                          (saw-escape
+                           (vector-push-extend ch chars)
+                           (case saw-escape
+                             (:single
+                              (setf saw-escape nil))
+                             (:multiple-single
+                              (setf saw-escape :multiple)))
+                           (incf offset))
+                          ((or (alphanumericp ch)
                                (eql ch #\-)
                                (eql ch #\*))
                            (vector-push-extend (char-upcase ch) chars)
                            (incf offset))
-                          (t (return)))))
+                          ((eql ch #\\)
+                           (setf saw-escape :single)
+                           (incf offset))
+                          ((eql ch #\|)
+                           (setf saw-escape :multiple)
+                           (incf offset))
+                          (t
+                           (return)))))
                (cond ((string= chars "*")
                       :wild)
                      ((string= chars "**")
@@ -730,35 +771,47 @@ NAMESTRING as the second."
   (with-output-to-string (namestring)
     (when (eql (first (pathname-directory path)) :relative)
       (write-char #\; namestring))
-    (dolist (dir (rest (pathname-directory path)))
-      (cond ((eql dir :wild)
-             (write-string "*" namestring))
-            ((eql dir :wild-inferiors)
-             (write-string "**" namestring))
-            (t
-             (write-string dir namestring)))
-      (write-char #\; namestring))
-    (let ((name (pathname-name path))
-          (type (pathname-type path))
-          (version (pathname-version path)))
-      (cond ((eql name :wild)
-             (write-string "*" namestring))
-            (name
-             (write-string name namestring)))
-      (when type
-        (write-char #\. namestring)
-        (cond ((eql type :wild)
+    (flet ((write-word (word)
+             (cond ((mixed-case-p word)
+                    (write-char #\| namestring)
+                    (loop
+                       for ch across word
+                       do
+                         (when (member ch '(#\\ #\|))
+                           (write-char #\\ namestring))
+                         (write-char ch namestring))
+                    (write-char #\| namestring))
+                   (t
+                    (write-string word namestring)))))
+      (dolist (dir (rest (pathname-directory path)))
+        (cond ((eql dir :wild)
                (write-string "*" namestring))
+              ((eql dir :wild-inferiors)
+               (write-string "**" namestring))
               (t
-               (write-string type namestring)))
-        (when version
+               (write-word dir)))
+        (write-char #\; namestring))
+      (let ((name (pathname-name path))
+            (type (pathname-type path))
+            (version (pathname-version path)))
+        (cond ((eql name :wild)
+               (write-string "*" namestring))
+              (name
+               (write-word name)))
+        (when type
           (write-char #\. namestring)
-          (cond ((eql version :wild)
+          (cond ((eql type :wild)
                  (write-string "*" namestring))
-                ((eql version :newest)
-                 (write-string "NEWEST" namestring))
                 (t
-                 (write type namestring))))))))
+                 (write-word type)))
+          (when version
+            (write-char #\. namestring)
+            (cond ((eql version :wild)
+                   (write-string "*" namestring))
+                  ((eql version :newest)
+                   (write-string "NEWEST" namestring))
+                  (t
+                   (write type namestring)))))))))
 
 (defmethod host-default-device ((host logical-host))
   nil)
