@@ -3,15 +3,6 @@
 
 (in-package :cl-user)
 
-(defun sys.int::setup-for-release ()
-  (load "tools/load-sources.lisp")
-  (setf (sys.int::symbol-global-value '*package*) (find-package :cl-user))
-  (setf *default-pathname-defaults* (pathname "LOCAL:>")
-        mezzano.file-system::*home-directory* *default-pathname-defaults*)
-  (setf (mezzano.file-system:find-host :remote) nil)
-  (when (y-or-n-p "Snapshot?")
-    (sys.int::snapshot-and-exit)))
-
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
