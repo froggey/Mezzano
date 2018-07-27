@@ -197,21 +197,10 @@
 
 (defun read-directory-entry (dir file type &optional version)
   (let* ((name-table (aref (file-storage dir) 0))
-         (container (gethash (cons file type) name-table)))
-    (when (and container
-               (not (zerop (length container))))
-      (case version
-        ((:newest nil)
-         (aref container (1- (length container))))
-        (:oldest
-         (aref container 0))
-        (:previous
-         (when (>= (length container) 2)
-           (aref container (- (length container) 2))))
-        (t (let ((position (sys.int::bsearch version container
-                                             :key 'file-container-key)))
-             (when position
-               (aref container position))))))))
+         (container (gethash (cons file type) name-table))
+         (index (version-position version container)))
+    (when index
+      (aref container index))))
 
 (defmethod truename-using-host ((host local-file-host) pathname)
   (cond ((and (pathname-directory pathname)
@@ -231,27 +220,42 @@
         (t
          (call-next-method))))
 
+(defun next-version (name-table key)
+  (let ((container (gethash key name-table)))
+    (cond (container
+           (1+ (pathname-version (file-truename (aref container (1- (length container)))))))
+          (t
+           1))))
+
+(defun canonicalize-new-file-path (dir name type version)
+  (let ((dir-truename (file-truename dir)))
+    (cond ((pathname-name dir-truename)
+           (make-pathname :defaults dir-truename
+                          :directory (append (pathname-directory dir-truename)
+                                             (list (pathname-name dir-truename)))
+                          :name name
+                          :type type
+                          :version version))
+          (t
+           ;; Root dir does not have a name. Poor root directory.
+           (make-pathname :defaults dir-truename
+                          :directory '(:absolute)
+                          :name name
+                          :type type
+                          :version version)))))
+
 (defun make-file (dir truename element-type)
   (let* ((time (get-universal-time))
          (name-table (aref (file-storage dir) 0))
-         (container (gethash (cons (pathname-name truename) (pathname-type truename))
-                             name-table)))
-    ;; Figure out the file version.
-    (when (member (pathname-version truename) '(nil :newest))
-      (cond (container
-             (setf truename (make-pathname :version (1+ (pathname-version (file-truename (aref container (1- (length container))))))
-                                           :defaults truename)))
-            (t
-             (setf truename (make-pathname :version 1
-                                           :defaults truename)))))
-    ;; Canonicalize case in the directory part.
-    (let ((dir-truename (file-truename dir)))
-      ;; Root dir does not have a name. Poor root directory.
-      (when (pathname-name dir-truename)
-        (setf truename (make-pathname :directory (append (pathname-directory dir-truename)
-                                                         (list (pathname-name dir-truename)))
-                                      :defaults truename))))
-    (let ((key (cons (pathname-name truename) (pathname-type truename)))
+         (key (directory-key truename))
+         (container (gethash key name-table)))
+    (setf truename (canonicalize-new-file-path dir
+                                               (pathname-name truename)
+                                               (pathname-type truename)
+                                               (if (member (pathname-version truename) '(nil :newest))
+                                                   (next-version name-table key)
+                                                   (pathname-version truename))))
+    (let ((key (directory-key truename))
           (file (make-instance 'local-file
                                :truename truename
                                :storage (make-array 0
@@ -464,23 +468,15 @@
                      (t (push (make-pathname :version :newest
                                              :defaults truename)
                               result))))))
-      (cond ((integerp version)
-             ;; Exact match.
-             (let ((position (sys.int::bsearch version container
-                                               :key 'file-container-key)))
-               (when position
-                 (accumulate (aref container position) t))))
-            ((eql version :wild)
+      (cond ((eql version :wild)
              ;; All of them.
              (dotimes (i (length container))
                (accumulate (aref container i) t)))
-            ((eql version :previous)
-             ;; Latest but one (assuming at least two).
-             (when (>= (length container) 2)
-               (accumulate (aref container (- (length container) 2)) t)))
-            ((member version '(nil :newest))
-             ;; Latest one.
-             (accumulate (aref container (1- (length container))) nil))))
+            (t
+             (let ((index (version-position version container)))
+               (when index
+                 (accumulate (aref container index)
+                             (not (member version '(nil :newest :unspecific)))))))))
     result))
 
 (defun match-in-directory (directory rest-of-dir-path pathname)
@@ -585,9 +581,126 @@
           (setf (file-storage existing) (make-array 1 :initial-element (make-hash-table :test 'equalp))))
         (setf dir existing)))))
 
+(defun walk-directory (host pathname &key (errorp t))
+  "Return the directory specified by PATHNAME.
+If ERRORP is true, then a file error will be signalled if any components are missing."
+  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Non-absolute pathname."))
+  (loop
+     with dir = (local-host-root host)
+     for element in (rest (pathname-directory pathname))
+     for next-dir = (read-directory-entry dir element "directory")
+     do
+       (when (not next-dir)
+         (if errorp
+             (error 'simple-file-error
+                    :pathname pathname
+                    :format-control "File does not exist.")
+             (return nil)))
+       (setf dir next-dir)
+     finally
+       (return dir)))
+
+(defun canonicalize-directory-file-pathname (pathname)
+  "Convert a pathname of the form \">foo>bar>\" to \">foo>bar.directory\""
+  (if (and (not (pathname-name pathname))
+           (not (pathname-type pathname))
+           (rest (pathname-directory pathname)))
+      (make-pathname :directory (butlast (pathname-directory pathname))
+                     :name (first (last (pathname-directory pathname)))
+                     :type "directory"
+                     :version :newest)
+      pathname))
+
+(defun directory-key (pathname)
+  (cons (pathname-name pathname) (pathname-type pathname)))
+
+(defun version-position (version container)
+  (when (or (eql version :wild)
+            (not container))
+    (return-from version-position nil))
+  (case version
+    ((:newest :unspecific nil)
+     (1- (length container)))
+    (:oldest
+     0)
+    (:previous
+     (when (>= (length container) 2)
+       (- (length container) 2)))
+    (t
+     (sys.int::bsearch version container :key 'file-container-key))))
+
+(defun remove-specific-file (name-table key container version-index)
+  (cond ((eql (length container) 1)
+         ;; Deleting the last version, remove the file
+         ;; entirely from the directory.
+         (remhash key name-table))
+        (t
+         (let ((new (make-array (1- (length container)))))
+           (replace new container :end1 version-index)
+           (replace new container :start1 version-index :start2 (1+ version-index))
+           (setf (gethash key name-table) new)))))
+
+(defmethod rename-file-using-host ((host local-file-host) source dest)
+  (with-host-locked (host)
+    (setf source (canonicalize-directory-file-pathname source))
+    (setf dest (canonicalize-directory-file-pathname dest))
+    (let* ((source-dir (walk-directory host source))
+           (source-name-table (aref (file-storage source-dir) 0))
+           (source-key (directory-key source))
+           (source-container (gethash source-key source-name-table))
+           (source-index (version-position (pathname-version source)
+                                           source-container))
+           (dest-dir (walk-directory host dest))
+           (dest-name-table (aref (file-storage dest-dir) 0))
+           (dest-key (directory-key dest)))
+      ;; ###: Not sure if a specific version should be allowed here...
+      (assert (member (pathname-version dest) '(:newest :unspecific nil)))
+      (when (gethash dest-key dest-name-table)
+        ;; ###: This should probably do something different based on the version.
+        (error 'simple-file-error
+               :pathname dest
+               :format-control "Destination file exists."))
+      (when (not source-index)
+        (error 'simple-file-error
+               :pathname source
+               :format-control "File does not exist."))
+      (let* ((file (aref source-container source-index))
+             (old-truename (file-truename file))
+             ;; As the destination file must not exist, the version will always be 1.
+             (new-truename (canonicalize-new-file-path dest-dir (pathname-name dest) (pathname-type dest) 1)))
+        ;; Remove the file from the old directory.
+        (remove-specific-file source-name-table source-key source-container source-index)
+        ;; Insert it into the new directory.
+        (setf (gethash dest-key dest-name-table) (vector file))
+        ;; Update name.
+        (setf (file-truename file) new-truename)
+        (values old-truename new-truename)))))
+
+;; FIXME: Mark files deleted, let expunge actually delete them.
+(defmethod delete-file-using-host ((host local-file-host) pathname &key)
+  (with-host-locked (host)
+    (setf pathname (canonicalize-directory-file-pathname pathname))
+    (let* ((dir (walk-directory host pathname))
+           (name-table (aref (file-storage dir) 0))
+           (version (pathname-version pathname))
+           (key (directory-key pathname))
+           (container (gethash key name-table)))
+      (cond ((and container
+                  (eql version :wild))
+             ;; Delete everything.
+             (remhash key name-table))
+            (t
+             (let ((index (version-position version container)))
+               (when (not index)
+                 (error 'simple-file-error
+                        :pathname pathname
+                        :format-control "File does not exist."))
+               (remove-specific-file name-table key container index)))))))
+
 #|
-           #:rename-file-using-host
-           #:delete-file-using-host
            #:expunge-directory-using-host
 |#
 
