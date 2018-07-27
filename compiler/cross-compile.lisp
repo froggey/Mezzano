@@ -1035,8 +1035,8 @@
            (*package* (find-package "CL-USER"))
            (*compile-print* *compile-print*)
            (*compile-verbose* *compile-verbose*)
-           (*compile-file-pathname* (pathname (merge-pathnames path)))
-           (*compile-file-truename* (truename *compile-file-pathname*))
+           (*compile-file-pathname* nil)
+           (*compile-file-truename* nil)
            (*gensym-counter* 0)
            (*use-new-compiler* nil))
       (dolist (b builtins)
@@ -1081,3 +1081,14 @@
   ;; It's not currently needed by any of the cross-compiled files.
   (declare (ignore env))
   (eval lambda))
+
+(defparameter *cross-logical-base* "SYS:SOURCE")
+
+(defun namestring (pathname)
+  ;; Convert back to a relative path, then emit as a logical pathname.
+  (let ((p (enough-namestring pathname)))
+    (format nil "~:@(~A;~{~A;~}~A.~A.NEWEST~)"
+            *cross-logical-base*
+            (rest (pathname-directory p))
+            (pathname-name p)
+            (pathname-type p))))

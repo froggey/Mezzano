@@ -114,26 +114,26 @@ Make sure there is a virtio-net NIC attached.~%")
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
-(sys.int::cal "gui/package.lisp")
-(sys.int::cal "gui/colour.lisp")
-(sys.int::cal "gui/surface.lisp")
-(sys.int::cal "gui/blit.lisp")
+(sys.int::cal "sys:source;gui;package.lisp")
+(sys.int::cal "sys:source;gui;colour.lisp")
+(sys.int::cal "sys:source;gui;surface.lisp")
+(sys.int::cal "sys:source;gui;blit.lisp")
 ;; SIMD code requires use of the new compiler.
 #+x86-64
 (let ((sys.c::*use-new-compiler* t))
-  (sys.int::cal "gui/blit-x86-64-simd.lisp"))
+  (sys.int::cal "sys:source;gui;blit-x86-64-simd.lisp"))
 #+arm64
-(sys.int::cal "gui/blit-generic.lisp")
-(sys.int::cal "gui/keymaps.lisp")
-(sys.int::cal "gui/compositor.lisp")
+(sys.int::cal "sys:source;gui;blit-generic.lisp")
+(sys.int::cal "sys:source;gui;keymaps.lisp")
+(sys.int::cal "sys:source;gui;compositor.lisp")
 #+x86-64
-(sys.int::cal "gui/input-drivers.lisp")
+(sys.int::cal "sys:source;gui;input-drivers.lisp")
 #+arm64
-(sys.int::cal "gui/input-drivers-virtio.lisp")
+(sys.int::cal "sys:source;gui;input-drivers-virtio.lisp")
 #+x86-64
-(sys.int::cal "gui/virtualbox-guest-helper.lisp")
-(sys.int::cal "system/unifont.lisp")
-(sys.int::cal "gui/basic-repl.lisp")
+(sys.int::cal "sys:source;gui;virtualbox-guest-helper.lisp")
+(sys.int::cal "sys:source;system;unifont.lisp")
+(sys.int::cal "sys:source;gui;basic-repl.lisp")
 (eval (read-from-string "(mezzano.gui.basic-repl:spawn)"))
 (sys.int::cal "sys:source;gui;font.lisp")
 (sys.int::cal "sys:source;gui;image.lisp")

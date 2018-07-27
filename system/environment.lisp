@@ -80,7 +80,9 @@ A list of two elements, the short & long name." )
             (pathname (debug-info-source-pathname info))
             (tlf (debug-info-source-top-level-form-number info)))
        (funcall *ed-hook*
-                :initial-pathname pathname
+                :initial-pathname (if pathname
+                                      (translate-logical-pathname pathname)
+                                      nil)
                 :initial-position (top-level-form-position pathname tlf)))))
   (values))
 

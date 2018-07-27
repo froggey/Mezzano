@@ -60,7 +60,8 @@
            :ldb
            :dpb
            :subtypep
-           :upgraded-array-element-type)
+           :upgraded-array-element-type
+           :namestring)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
