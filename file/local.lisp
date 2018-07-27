@@ -278,6 +278,8 @@
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
+  (when (eql element-type :default)
+    (setf element-type 'character))
   (when (not (or (and (eql element-type 'character)
                       (eql external-format :utf-8))
                  (eql external-format :default)))
