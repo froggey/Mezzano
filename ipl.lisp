@@ -200,7 +200,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;system;disassemble.lisp")
 
 ;; Load the desktop image and start the desktop.
-(sys.int::copy-file (merge-pathnames "Ducks.jpg" (user-homedir-pathname))
+(sys.int::copy-file (merge-pathnames "19377769093_c9cb23b4d3_b.jpg" (user-homedir-pathname))
                     "LOCAL:>Desktop.jpeg"
                     '(unsigned-byte 8))
 (defvar sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
