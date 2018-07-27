@@ -98,9 +98,12 @@
 (defun build-text-cache (icons font colour)
   (let ((cache (make-hash-table :test 'equal)))
     (loop
-       for (icon name fn) in icons
-       when (not (gethash name cache))
-       do (setf (gethash name cache) (rasterize-string name font colour)))
+       for icon-repr in icons
+       when (consp icon-repr)
+       do
+         (destructuring-bind (icon name fn) icon-repr
+           (when (not (gethash name cache))
+             (setf (gethash name cache) (rasterize-string name font colour)))))
     cache))
 
 (defun icon-geometry (icon-data text-cache)
@@ -128,18 +131,23 @@
        with widest = 0
        for icon-repr in *icons*
        do
-         (incf icon-pen *icon-vertical-space*)
-         (multiple-value-bind (width height)
-             (icon-geometry icon-repr text-cache)
-           (when (> (+ icon-pen height) desktop-height)
-             (incf column widest)
-             (setf widest 0)
-             (setf icon-pen *icon-vertical-space*))
-           (when (and (<= column x (1- (+ column width)))
-                      (<= icon-pen y (1- (+ icon-pen height))))
-             (return icon-repr))
-           (incf icon-pen height)
-           (setf widest (max widest width))))))
+         (cond ((consp icon-repr)
+                (incf icon-pen *icon-vertical-space*)
+                (multiple-value-bind (width height)
+                    (icon-geometry icon-repr text-cache)
+                  (when (> (+ icon-pen height) desktop-height)
+                    (incf column widest)
+                    (setf widest 0)
+                    (setf icon-pen *icon-vertical-space*))
+                  (when (and (<= column x (1- (+ column width)))
+                             (<= icon-pen y (1- (+ icon-pen height))))
+                    (return icon-repr))
+                  (incf icon-pen height)
+                  (setf widest (max widest width))))
+               ((eql icon-repr :next-column)
+                (incf column widest)
+                (setf widest 0)
+                (setf icon-pen 0))))))
 
 (defmethod dispatch-event (desktop (event comp:mouse-event))
   (when (logbitp 0 (comp:mouse-button-change event))
@@ -188,16 +196,21 @@
        with widest = 0
        for icon-repr in *icons*
        do
-         (incf icon-pen *icon-vertical-space*)
-         (multiple-value-bind (width height)
-             (icon-geometry icon-repr text-cache)
-           (when (> (+ icon-pen height) desktop-height)
-             (incf column (+ widest *icon-horizontal-offset*))
-             (setf widest 0)
-             (setf icon-pen *icon-vertical-space*))
-           (render-icon desktop icon-pen column icon-repr text-cache)
-           (incf icon-pen height)
-           (setf widest (max widest width))))
+         (cond ((consp icon-repr)
+                (incf icon-pen *icon-vertical-space*)
+                (multiple-value-bind (width height)
+                    (icon-geometry icon-repr text-cache)
+                  (when (> (+ icon-pen height) desktop-height)
+                    (incf column (+ widest *icon-horizontal-offset*))
+                    (setf widest 0)
+                    (setf icon-pen *icon-vertical-space*))
+                  (render-icon desktop icon-pen column icon-repr text-cache)
+                  (incf icon-pen height)
+                  (setf widest (max widest width))))
+               ((eql icon-repr :next-column)
+                (incf column (+ widest *icon-horizontal-offset*))
+                (setf widest 0)
+                (setf icon-pen 0))))
     (comp:damage-window window 0 0 (comp:width window) (comp:height window))))
 
 (defun render-icon (desktop icon-pen column-offset icon-data text-cache)
