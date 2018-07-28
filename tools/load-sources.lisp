@@ -132,7 +132,7 @@
 ;; Cutting a release:
 ;; Start from a clean checkout of mbuild
 ;; Set *lisp-implementation-version* appropriately (system/environment.lisp)
-;; Optional: Point ASDF source registry at #p"SYS:HOME;" (ipl.lisp, HOME-SOURCE-REGISTRY) instead of (user-homedir-pathname). This gets the source paths right for ED.
+;; Optional: Point ASDF source registry at (pathname "SYS:HOME;") (ipl.lisp, HOME-SOURCE-REGISTRY) instead of (user-homedir-pathname). This gets the source paths right for ED.
 ;; Build as normal
 ;; In the initial repl:
 ;; (load "tools/load-sources.lisp")
