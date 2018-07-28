@@ -208,10 +208,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
           (sys.int::ub32ref/le sector 488) (fs-info-last-free-cluster fat32-info)
           (sys.int::ub32ref/le sector 492) (fs-info-next-free-cluster fat32-info)
           (sys.int::ub32ref/le sector 508) (fs-info-trail-signature fat32-info))
-    (write-sector disk
-                  (fat32-fat-info fat32)
-                  sector
-                  1)))
+    (write-sector disk (fat32-fat-info fat32) sector 1)))
 
 (defun read-fat (disk fat32)
   (read-sector disk
@@ -226,8 +223,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                 (/ (fat32-table-size-32 fat32)
                    (fat32-table-count fat32))))
 
-(defun root-dir-sectors ()
-  0)
+(defun root-dir-sectors () 0)
 
 (defun data-sectors (fat32)
   (- (fat32-total-sectors32 fat32)
@@ -237,9 +233,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (root-dir-sectors))))
 
 (defun total-clusters (fat32)
-  (floor
-   (/ (data-sectors fat32)
-      (fat32-sectors-per-cluster fat32))))
+  (floor (/ (data-sectors fat32)
+            (fat32-sectors-per-cluster fat32))))
 
 (defun first-data-sector (fat32)
   (+ (fat32-reserved-sector-count fat32)
@@ -330,7 +325,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (do ((cluster-n start-cluster (sys.int::ub32ref/le fat (* cluster-n 4)))
          (n-cluster 0 (1+ n-cluster)))
         ((>= cluster-n #x0FFFFFF8) result)
-      (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+      (multiple-value-bind (successp error-reason)
+          (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+        (when (not successp)
+          (error "Disk read error: ~S" error-reason)))
       (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
 
 (defun write-file (fat32 disk start-cluster fat array)
@@ -350,13 +348,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                   (setf (sys.int::ub32ref/le fat (ash last-cluster 2)) #x0FFFFFFF)
                   (write-fat disk fat32 fat))
                (replace temp-buf array :start2 (* (+ i n-cluster) spc sector-size))
-               (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+               (multiple-value-bind (successp error-reason)
+                   (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+                 (when (not successp)
+                   (error "Disk write error: ~S" error-reason)))
                (setf (sys.int::ub32ref/le fat (ash last-cluster 2)) cluster-n
                      last-cluster cluster-n))
              t))
       (setf last-cluster cluster-n)
       (replace temp-buf array :start2 (* n-cluster spc sector-size))
-      (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf))))
+      (multiple-value-bind (successp error-reason)
+          (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
+        (when (not successp)
+          (error "Disk write error: ~S" error-reason))))))
 
 (defun read-attributes (directory offset)
   (aref directory (+ offset 11)))
@@ -433,11 +437,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         :finally (return sum)))
 
 (defun next-file (directory offset)
+  "Return offset of next file/directory"
   (do ((i offset (+ 32 i)))
       ((<= (length directory) i) nil)
     (let ((first-byte (aref directory i)))
       (when (zerop first-byte)
-        (return))
+        (return nil))
       (unless (= #xE5 first-byte)
         (unless (= #x0F (aref directory (+ 11 i)))
           (return i))))))
@@ -554,6 +559,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (setf (aref directory i) #xE5)))
 
 (defun next-space (directory offset)
+  "Return offset of next space"
   (do ((i offset (+ 32 i)))
       ((<= (length directory) i) nil)
     (let ((first-byte (aref directory i)))
@@ -562,6 +568,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (return i)))))
 
 (defun next-n-spaces (directory n)
+  "Return offset of next n contiguous spaces"
   (do ((i 0 (1+ i))
        (j (next-space directory 0) (next-space directory (+ 32 j)))
        (r (next-space directory 0)))
@@ -570,7 +577,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (setf i 0
             r j))))
 
-;; WIP
+;; TODO Make proper function for generating short names.
 (defun create-file (host file cluster-n pathname-name pathname-type attributes)
   "Create file/directory"
   (let* ((name (concatenate 'string pathname-name "." pathname-type))
@@ -715,11 +722,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
           ((eql sub-dir :up) (write-string ".." s))
           ((eql sub-dir :wild) (write-char #\* s))
           ((eql sub-dir :wild-inferiors) (write-string "**" s))
-          (t
-           (error 'no-namestring-error
-                  :pathname pathname
-                  :format-control "Invalid directory component ~S."
-                  :format-arguments (list sub-dir))))
+          (t (error 'no-namestring-error
+                    :pathname pathname
+                    :format-control "Invalid directory component ~S."
+                    :format-arguments (list sub-dir))))
         (write-char #\> s))
       (cond ((eql name :wild)
              (write-char #\* s))
@@ -735,31 +741,23 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defclass fat32-file-stream (sys.gray:fundamental-binary-input-stream
                              sys.gray:fundamental-binary-output-stream
                              file-stream)
-  ((path :initarg :path :reader path) ;<
-   (pathname :initarg :pathname :reader file-stream-pathname)
+  ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
    (direction :initarg :direction :reader direction)
    ;; Read buffer.
-   (read-buffer :initarg :read-buffer
-                :accessor read-buffer)
+   (buffer :initarg :buffer
+           :accessor buffer)
    ;; File position where the buffer data starts.
-   (read-buffer-position :initarg :read-buffer-position
-                         :initform 0
-                         :accessor read-buffer-position)
+   (buffer-position :initarg :buffer-position
+                    :initform 0
+                    :accessor buffer-position)
    ;; Current offset into the buffer.
    (buffer-offset :initarg :buffer-offset
                   :accessor buffer-offset)
    ;; File size
-   (read-buffer-size :initarg :read-buffer-size
-                     :initform 0
-                     :accessor read-buffer-size)
-   ;; Write buffer.
-   (write-buffer :initarg :write-buffer
-                 :initform nil
-                 :accessor write-buffer) ;<
-   (write-buffer-position :initarg :write-buffer-position
-                          :initform 0
-                          :accessor write-buffer-position) ;<
+   (buffer-size :initarg :buffer-size
+                :initform 0
+                :accessor buffer-size)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass fat32-file-character-stream (sys.gray:fundamental-character-input-stream
@@ -791,7 +789,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                   (pathname (subseq namestring 0 (1+ i)))))))))
 
 (defun file-name (pathname)
-  "Take pathname and return file name name."
+  "Take pathname and return file name."
   (unless (or (eql :wild (pathname-name pathname))
               (eql :wild (pathname-type pathname)))
     (if (pathname-type pathname)
@@ -821,14 +819,13 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                        (when (string= file-name (read-file-name file-data start))
                          (return-from find-file (values file-data cluster-n start)))))))
 
-;; WIP
 (defmethod open-using-host ((host fat32-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
   (with-fat32-host-locked (host)
     (let ((buffer nil)
-          (read-buffer-position 0)
+          (buffer-position 0)
           (buffer-offset 0)
-          (read-buffer-size 0)
+          (buffer-size 0)
           (created-file nil)
           (abort-action nil))
       (multiple-value-bind (file-data cluster-n start) (find-file host pathname)
@@ -838,14 +835,13 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                     (partition host)
                                     (read-first-cluster file-data start)
                                     (fat host))
-                  read-buffer-position (read-first-cluster file-data start)
-                  read-buffer-size (read-file-size file-data start))
+                  buffer-position (read-first-cluster file-data start)
+                  buffer-size (read-file-size file-data start))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
                              :format-control "File ~A does not exist. ~S"
                              :format-arguments (list pathname (file-name pathname))))
-              ;; TODO Implement abort-action :delete
               (:create (setf created-file t
                              abort-action :delete)
                (multiple-value-bind (pathname-name pathname-type attributes paret-path) (sub-path pathname)
@@ -857,17 +853,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                      (setf buffer (make-array (* (fat32-sectors-per-cluster (fat32-structure host))
                                                  (fat32-bytes-per-sector (fat32-structure host)))
                                               :initial-element 0)
-                           read-buffer-position cluster-number
-                           read-buffer-size 0))))))))
+                           buffer-position cluster-number
+                           buffer-size 0))))))))
       (when (and (not created-file) (member direction '(:output :io)))
         (ecase if-exists
           (:error (error 'simple-file-error
                          :pathname pathname
                          :format-control "File ~A exists."
                          :format-arguments (list pathname)))
-          ((:new-version
-            :rename
+          (:new-version (error ":new-version not suported in fat32."))
+          ;; TODO :rename and :rename-and-delete
+          ((:rename
             :rename-and-delete)
+           (error ":rename and :rename-and-delete are not implemented.")
            (when t
              (error 'simple-file-error
                     :pathname pathname
@@ -880,7 +878,9 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                     :format-arguments (list pathname)))
            (when created-file
              (error "Cannot create ~A. ~S" pathname)))
+          ;; TODO :supersede
           (:supersede
+           (error ":supersede is not implemented")
            (setf abort-action :delete)
            (when nil
              (error 'simple-file-error
@@ -890,8 +890,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
            (unless created-file
              (error "Cannot create ~A. ~S" pathname)))
           ((:overwrite) t)
-          ((:append)
-           (setf buffer-offset read-buffer-size))
+          ((:append) (setf buffer-offset buffer-size))
           ((nil) (return-from open-using-host nil))))
       (let ((stream (cond ((or (eql element-type :default)
                                (subtypep element-type 'character))
@@ -901,10 +900,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :pathname pathname
                                           :host host
                                           :direction direction
-                                          :read-buffer buffer
-                                          :read-buffer-position read-buffer-position
+                                          :buffer buffer
+                                          :buffer-position buffer-position
                                           :buffer-offset buffer-offset
-                                          :read-buffer-size read-buffer-size))
+                                          :buffer-size buffer-size))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
                            (assert (eql external-format :default) (external-format))
@@ -912,10 +911,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :pathname pathname
                                           :host host
                                           :direction direction
-                                          :read-buffer buffer
-                                          :read-buffer-position read-buffer-position
+                                          :buffer buffer
+                                          :buffer-position buffer-position
                                           :buffer-offset buffer-offset
-                                          :read-buffer-size read-buffer-size))
+                                          :buffer-size buffer-size))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
 
@@ -1074,27 +1073,27 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
-           (read-buffer-size stream))
-    (setf (read-buffer-size stream)
+           (buffer-size stream))
+    (setf (buffer-size stream)
           (buffer-offset stream)))
-  (let ((array-size (array-dimension (read-buffer stream) 0)))
+  (let ((array-size (array-dimension (buffer stream) 0)))
     (when (>= (buffer-offset stream) array-size)
       (let* ((host (host stream))
              (fat32 (fat32-structure host)))
-        (setf (read-buffer stream) (adjust-array (read-buffer stream)
-                                                 (+ array-size (bytes-per-cluster fat32))
-                                                 :initial-element 0)))))
-  (setf (aref (read-buffer stream)
+        (setf (buffer stream) (adjust-array (buffer stream)
+                                            (+ array-size (bytes-per-cluster fat32))
+                                            :initial-element 0)))))
+  (setf (aref (buffer stream)
               (buffer-offset stream))
         byte)
   (incf (buffer-offset stream)))
 
 (defmethod sys.gray:stream-read-byte ((stream fat32-file-stream))
   (assert (member (direction stream) '(:input :io)))
-  (let ((char (aref (read-buffer stream)
+  (let ((char (aref (buffer stream)
                     (buffer-offset stream))))
     (incf (buffer-offset stream))
-    (if (<= (read-buffer-size stream)
+    (if (<= (buffer-size stream)
             (buffer-offset stream))
         :eof
         char)))
@@ -1102,34 +1101,34 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
   (unless end (setf end (length sequence)))
-  (let ((end2 (min end (read-buffer-size stream))))
-    (replace sequence (read-buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
+  (let ((end2 (min end (buffer-size stream))))
+    (replace sequence (buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
     end2))
 
 (defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
   (assert (member (direction stream) '(:output :io)))
   (when (> (buffer-offset stream)
-           (read-buffer-size stream))
-    (setf (read-buffer-size stream)
+           (buffer-size stream))
+    (setf (buffer-size stream)
           (buffer-offset stream)))
-  (let ((array-size (array-dimension (read-buffer stream) 0)))
+  (let ((array-size (array-dimension (buffer stream) 0)))
     (when (>= (buffer-offset stream) array-size)
       (let* ((host (host stream))
              (fat32 (fat32-structure host)))
-        (setf (read-buffer stream) (adjust-array (read-buffer stream)
-                                                 (+ array-size (bytes-per-cluster fat32))
-                                                 :initial-element 0)))))
-  (setf (aref (read-buffer stream)
+        (setf (buffer stream) (adjust-array (buffer stream)
+                                            (+ array-size (bytes-per-cluster fat32))
+                                            :initial-element 0)))))
+  (setf (aref (buffer stream)
               (buffer-offset stream))
         (char-code char))
   (incf (buffer-offset stream)))
 
 (defmethod sys.gray:stream-read-char ((stream fat32-file-character-stream))
   (assert (member (direction stream) '(:input :io)))
-  (let ((char (aref (read-buffer stream)
+  (let ((char (aref (buffer stream)
                     (buffer-offset stream))))
     (incf (buffer-offset stream))
-    (if (<= (read-buffer-size stream)
+    (if (<= (buffer-size stream)
             (buffer-offset stream))
         :eof
         (code-char char))))
@@ -1137,11 +1136,11 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod sys.gray:stream-read-sequence ((stream fat32-file-character-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
   (unless end (setf end (length sequence)))
-  (let ((end2 (min end (read-buffer-size stream))))
+  (let ((end2 (min end (buffer-size stream))))
     (loop :for n1 :from start :to (1- end)
           :for n2 :to (1- end2)
           :do (setf (aref sequence n1)
-                    (code-char (aref (read-buffer stream) n2))))
+                    (code-char (aref (buffer stream) n2))))
     end2))
 
 (defmethod sys.gray:stream-file-position ((stream fat32-file-stream) &optional (position-spec nil position-specp))
@@ -1153,13 +1152,12 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         (t (buffer-offset stream))))
 
 (defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
-  (read-buffer-size stream))
+  (buffer-size stream))
 
-;; WIP
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (let* ((host (host stream))
-                (file-size (read-buffer-size stream)))
+                (file-size (buffer-size stream)))
            (multiple-value-bind (directory cluster-n offset)
                (find-file host (file-stream-pathname stream))
              (multiple-value-bind (time date) (get-fat32-time)
@@ -1167,15 +1165,16 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                  (let ((host (host stream)))
                    (write-file (fat32-structure host)
                                (partition host)
-                               (read-buffer-position stream)
+                               (buffer-position stream)
                                (fat host)
-                               (read-buffer stream)))
+                               (buffer stream)))
                  (setf (read-write-time directory offset) time
                        (read-write-date directory offset) date
                        (read-file-size directory offset) file-size))
                (setf (read-last-access-date directory offset) date))
              ;; Write to disk new metadata
              (write-file (fat32-structure host) (partition host) cluster-n (fat host) directory))))
+        ;; TODO Implement abort-action :delete
         (t (error "Aborted close not suported")))
   t)
 
@@ -1200,7 +1199,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 ;;   ;; Write to some file
 ;;   (time
 ;;    (with-open-file (file path :direction :output :if-exists :overwrite)
-;;      (loop for i to (read-buffer-size file)
+;;      (loop for i to (buffer-size file)
 ;;            do (write-byte (ldb (byte 8 0) i) file))))
 ;;   ;; Read some file
 ;;   (time

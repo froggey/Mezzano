@@ -92,13 +92,16 @@
              (size (- (1+ last-lba) first-lba)))
         (when (loop
                  for i from 0 below 16
-                 when (not (eql (sys.int::memref-unsigned-byte-8 (+ base i) 0) 0))
+                 for system-id = (sys.int::memref-unsigned-byte-8 (+ base i) 0)
+                            then (sys.int::memref-unsigned-byte-8 (+ base i) 0)
+                 when (not (eql system-id 0))
                  do (return t)
                  finally (return nil))
           (debug-print-line "Detected partition " i " on disk " disk ". Start: " first-lba " size: " size)
           (register-disk (make-partition :disk disk
                                          :offset first-lba
-                                         :id i)
+                                         :id i
+                                         :type system-id)
                          (disk-writable-p disk)
                          size
                          sector-size
@@ -133,10 +136,20 @@
              disk offset i entry-size page-addr))))
       found-table-p)))
 
+(defun decode-ebr (page-addr)
+  (if (and (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FE) #x55)
+           (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FF) #xAA))
+    (values (sys.int::memref-unsigned-byte-8 (+ page-addr #x1BE) 4)
+            (memref-ub32/le (+ page-addr #x1BE 8))
+            (memref-ub32/le (+ page-addr #x1BE 12))
+            (memref-ub32/le (+ page-addr #x1CE 8)))
+    (values 0 0 0 0)))
+
 (defun detect-mbr-partition-table (disk)
   (let* ((sector-size (disk-sector-size disk))
          (pages-per-sector (ceiling sector-size +4k-page-size+))
-         (found-table-p nil))
+         (found-table-p nil)
+         (ebr-lba nil))
     (with-pages (page-addr pages-per-sector
                            :mandatory-p "DETECT-DISK disk buffer")
       (when (not (disk-read disk 0 1 page-addr))
@@ -147,17 +160,17 @@
         ;; Found, scan partitions.
         (setf found-table-p t)
         (debug-print-line "Detected MBR style parition table on disk " disk)
-        ;; TODO: Extended partitions.
         (dotimes (i 4)
-          (let ((system-id (sys.int::memref-unsigned-byte-8 (+ page-addr #x1BE (* 16 i) 4)))
+          (let ((part-type (sys.int::memref-unsigned-byte-8 (+ page-addr #x1BE (* 16 i) 4)))
                 (start-lba (memref-ub32/le (+ page-addr #x1BE (* 16 i) 8)))
                 (size (memref-ub32/le (+ page-addr #x1BE (* 16 i) 12))))
-            (when (and (not (eql system-id 0))
+            (when (and (not (eql part-type 0))
                        (not (eql size 0)))
               (debug-print-line "Detected partition " i " on disk " disk ". Start: " start-lba " size: " size)
               (register-disk (make-partition :disk disk
                                              :offset start-lba
-                                             :id i)
+                                             :id i
+                                             :type part-type)
                              (disk-writable-p disk)
                              size
                              sector-size
@@ -165,7 +178,49 @@
                              'read-disk-partition
                              'write-disk-partition
                              'flush-disk-partition
-                             nil)))))
+                             nil)
+              (when (or (eql part-type #x05) (eql part-type #x0F))
+                (setf ebr-lba start-lba)))))
+        ;; Handle extended partition documentation at:
+        ;; https://thestarman.pcministry.com/asm/mbr/PartTables.htm
+        (when ebr-lba
+          (when (not (disk-read disk ebr-lba 1 page-addr))
+            ;; What do to with this error?
+            )
+          (loop with part-type and data-offset and size and ebr-offset
+             with part-num = 4
+             do (setf (values part-type data-offset size ebr-offset)
+                      (decode-ebr page-addr))
+             unless (or (eql data-offset 0)
+                        (eql size 0))
+             do
+               (progn
+                 (debug-print-line "Extended partition " part-num
+                                   " on disk " disk
+                                   ". Type: " part-type
+                                   " start: " (+ ebr-lba data-offset)
+                                   " size: " size)
+                 (register-disk (make-partition :disk disk
+                                                :offset (+ ebr-lba data-offset)
+                                                :id part-num
+                                                :type part-type)
+                                (disk-writable-p disk)
+                                size
+                                sector-size
+                                (disk-max-transfer disk)
+                                'read-disk-partition
+                                'write-disk-partition
+                                'flush-disk-partition
+                                nil)
+                 (incf part-num))
+             if (eql ebr-offset 0)
+             do (return nil)
+             else do
+               (progn
+                 (setf ebr-lba (+ ebr-lba ebr-offset))
+                 (when (not (disk-read disk ebr-lba 1 page-addr))
+                   ;; what to do with this error?
+                   )))))
       found-table-p)))
 
 (defun find-iso9660-primary-volume-descriptor (disk buffer)
@@ -228,7 +283,8 @@
                      ;; Valid file.
                      (register-disk (make-partition :disk disk
                                                     :offset extent
-                                                    :id (incf n-entries))
+                                                    :id (incf n-entries)
+                                                    :type nil)
                                     nil
                                     (ceiling length 2048)
                                     2048

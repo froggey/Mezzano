@@ -4,9 +4,9 @@ Creating and running Mezzano in a dual boot system takes three steps:
 
 1. Create the dual boot system
 
-2. Create a mezzano image
+2. Create a Mezzano image
 
-3. Put the mezzano image on the partition in the dual boot system
+3. Put the Mezzano image on the partition in the dual boot system
 
 
 ### 1. Create the dual boot system.
@@ -15,7 +15,7 @@ For example, I installed Fedora 28, using custom disk partitioning:
 
     /	    20 GB (my development system is using about 14GB of 50GB)
 
-    /home	    50 GB (my mezzano development directory is using 3.5GB)
+    /home	    50 GB (my Mezzano development directory is using 3.5GB)
 
     /boot	    2 GB (increased from 1GB just because)
 
@@ -26,7 +26,7 @@ For example, I installed Fedora 28, using custom disk partitioning:
     /tag-fs	    50 GB (created as standard partition and ext4 - but will change partition type later)
 
 I created the /tag-fs partition because one of the projects I want to
-work on is a mezzano based file system. This partition is not required
+work on is a Mezzano based file system. This partition is not required
 otherwise required.
 
 After installing and configuring Fedora, I noted which partitions are
@@ -40,7 +40,9 @@ systems.
 Using fdisk, I changed the partition type for /tag-fs to 7f (unkown)
 as there is no tag-fs specific partition type at this time. The
 partition type for /mezzano was left as 83 (Linux) which matches the
-partition type in the other images generated for mezzano.
+partition type in the other images generated for Mezzano.
+
+#### kboot setup
 
 The next step in creating a dual boot system is to update the /boot
 directory by copying kboot.bin into /boot and creating kboot.cfg in
@@ -49,32 +51,52 @@ directory by copying kboot.bin into /boot and creating kboot.cfg in
 For kboot.cfg I'm using the following contents:
 
     set "timeout" 5
-    entry "Mezzano" {
-          set "video_mode" "lfb:1440x900"
-          mezzano "hd0,2" "freestanding" "no-detect"
-    }
 
-    entry "Mezzano - video console" {
+    entry "Mezzano - hardware detection with video console" {
           set "video_mode" "lfb:1440x900"
-          mezzano "hd0,2" "freestanding" "no-detect" "video-console"
+          mezzano "hd0,2" "video-console"
     }
 
     entry "Mezzano - hardware detection" {
           set "video_mode" "lfb:1440x900"
-          mezzano "hd0,2" "freestanding"
+          mezzano "hd0,2"
     }
 
-    entry "Mezzano - hardware detection, video console" {
+    entry "Mezzano - freestanding with video console" {
           set "video_mode" "lfb:1440x900"
-          mezzano "hd0,2" "freestanding" "video-console"
+          mezzano "hd0,2" "freestanding" "no-detect" "video-console"
     }
 
+    entry "Mezzano - freestanding" {
+          set "video_mode" "lfb:1440x900"
+          mezzano "hd0,2" "freestanding"  "no-detect"
+    }
 
 The hd0,2 is because the /mezzano partition is /dev/sda3 and kboot
 uses partition numbers starting with 0 where fdisk uses partition
 numbers starting with 1.
 
 The 1440x900 is the resolution of my laptop.
+
+"video-console" means that console messages are shown on the
+display. They are not shown in a window, they are drawn directly on
+the background window. This can be annoying, but useful if you are
+experience crashs or panics.
+
+"freestanding" means that Mezzano runs as is in memory, no paging and
+no snapshots. This mode is suitable for read only media (eg CDROMs and
+DVDs). It also requires less working drivers, so if you have
+difficulting booting without "freestanding", it may be worth trying
+with it.
+
+"no-detect" disables most hardware detection. Again, this option maybe
+useful when having trouble booting.
+
+The first entry in the table is the default entry which is
+automatically selected after "timeout" seconds. So, it's nice if the
+first entry is the one you expect to use the most.
+
+#### grub2 setup
 
 I created a Mezzano boot menu item by adding the following lines to
 /etc/grub.d/40_custom:
@@ -123,9 +145,9 @@ compresses the Mezzano significantly.  `build-native-image` requires
 that the kboot tool set be installed.
 
 
-### 3. Put the mezzano image on the partition in the dual boot system
+### 3. Put the Mezzano image on the partition in the dual boot system
 
-Get the mezzano image into the Fedora file system. Either create it
+Get the Mezzano image into the Fedora file system. Either create it
 there in step 2 or copy it from where ever it was created.
 
 If you are using cdrom.iso, then copy the image onto the partition using:
@@ -142,12 +164,12 @@ skip over the first two partitions in cdrom.iso. The output of `fdisk
     cdrom.iso2 *      2440   4487    2048     1M 83 Linux
     cdrom.iso3        6540 542155  535616 261.5M 83 Linux
 
-This means that the mezzano image starts at byte offset
+This means that the Mezzano image starts at byte offset
 6540\*512. Since skip=1635 causes dd to skip over the first 1635
 blocks (of size 2048) of the input file and 1635\*2048 = 6540\*512, dd
-starts copying at the beginning of the mezzano image.
+starts copying at the beginning of the Mezzano image.
 
-If you are using image.raw, then copy the image onto the parition using:
+If you are using image.raw, then copy the image onto the partition using:
 
     sudo dd if=image.raw of=<partition> bs=8192 skip=512
 
@@ -158,9 +180,59 @@ This works because the output of `fdisk -l image.raw` is:
     image.raw2 *     4096    6143    2048   1M 83 Linux
     image.raw3       8192 8388607 8380416   4G 83 Linux
 
-Similar to the case above, the mezzano image starts at byte offset
+Similar to the case above, the Mezzano image starts at byte offset
 8192\*512 and dd skips over the first 512 blocks (of size 8192).
 
 Now when you reboot, one of the grub boot menu items will be "Mezzano"
-and if you select that item, the kboot menu will apppear and you can
+and if you select that item, the kboot menu will appear and you can
 select one of the versions of Mezzano boot.
+
+### Troubleshooting
+
+#### SMP (Symmetric Multiprocessing)
+
+If booting fails and the last message on the console is "Multiple CPUS
+detected. SMP support is currently experimental and unreliable." Then
+it's likely that you are running on system with multiple processors
+(including multithread cores) with SMP enabled in both HW and Mezzano
+and that is failing.
+
+This can be fixed by either turning off SMP in the BIOS (which affects
+all of the OSes) or by disabling it in Mezzano.
+
+To disable it in Mezzano, you can comment out the call to
+boot-secondary-cpus in supervisor/entry.lisp (approx. line 172).
+
+#### Disk Issues
+
+If you suspect a disk driver issue the problem maybe the disk
+controller's mode of operation. In my case, the system booted with
+"freestanding" and "no-detect". But, I noticed that no disk drives
+were configured ((mezzano.supervisor:all-disks) returned NIL).
+
+Attempting to boot without "freestanding" and "no-detect" hung. The
+disk controller was originally configured in the BIOS as IRRT (intel
+rapid restore technology) and the other options were: ATA mode or AHCI
+mode. By trial and error I determined that AHCI mode worked. All three
+modes worked for my Linux partition.
+
+ATA mode may work if it operates in ISA compatitiblity mode as the
+Mezzano ATA driver only supports ISA compatible devices.
+
+#### USB Keyboard and Mouse Issues
+
+USB keyboards and mice are unreliable because there's no USB
+stack. The BIOS emulates a PS/2 device and a lot of them tend to be
+buggy. Try booting with the keyboard or mouse attached, if that doesn't work
+try attaching them after booting.
+
+In my case, the external mouse interferred with the trackpad and
+internal mouse. With the external mouse plugged in, the pointer would
+only move up and down near the left edge of the display, and would
+only move a very short way left and right.
+
+#### Network Issues
+
+Mezzano only has drivers for virtio-net and rtl8168 NICs.
+
+Last modified 17 June 2018.
