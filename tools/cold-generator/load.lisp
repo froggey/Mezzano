@@ -313,8 +313,13 @@
     (#.sys.int::+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.sys.int::+llf-character+
-     (logior (ash (load-character stream) 4)
-             sys.int::+tag-character+))
+     (logior (ash (load-character stream)
+                  (+ (cross-cl:byte-position sys.int::+immediate-tag+)
+                     (cross-cl:byte-size sys.int::+immediate-tag+)))
+             (cross-cl:dpb sys.int::+immediate-tag-character+
+                           sys.int::+immediate-tag+
+                           0)
+             sys.int::+tag-immediate+))
     (#.sys.int::+llf-structure-definition+
      (let ((area (stack-pop stack))
            (parent (stack-pop stack))
@@ -330,7 +335,10 @@
        (load-structure-slot-definition name accessor initform type read-only)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
-             sys.int::+tag-single-float+))
+             (cross-cl:dpb sys.int::+immediate-tag-single-float+
+                           sys.int::+immediate-tag+
+                           0)
+             sys.int::+tag-immediate+))
     (#.sys.int::+llf-double-float+
      (let* ((bits (load-integer stream))
             (address (allocate 2)))
@@ -375,9 +383,12 @@
     (#.sys.int::+llf-byte+
      (let ((size (load-integer stream))
            (position (load-integer stream)))
-       (logior (ash size 4)
-               (ash position 18)
-               sys.int::+tag-byte-specifier+)))
+       (logior (ash size 6)
+               (ash position 19)
+               (cross-cl:dpb sys.int::+immediate-tag-byte-specifier+
+                             sys.int::+immediate-tag+
+                             0)
+               sys.int::+tag-immediate+)))
     (#.sys.int::+llf-funcall-n+
      (let* ((n-args-value (stack-pop stack))
             (n-args (extract-object n-args-value))

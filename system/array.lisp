@@ -616,9 +616,14 @@
                          (+ index (%complex-array-info array))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
-         (%%assemble-value (ash (%simple-array-aref (%complex-array-storage array) index)
-                                4)
-                           +tag-character+))
+         (%%assemble-value
+          (logior (ash (%simple-array-aref (%complex-array-storage array) index)
+                       (+ (byte-position sys.int::+immediate-tag+)
+                          (byte-size sys.int::+immediate-tag+)))
+                  (dpb +immediate-tag-character+
+                       +immediate-tag+
+                       0))
+          +tag-immediate+))
         (t ;; Normal array, backed by a simple array.
          (%simple-array-aref (%complex-array-storage array) index))))
 

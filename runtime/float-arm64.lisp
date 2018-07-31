@@ -11,7 +11,10 @@
 
 (sys.int::define-lap-function sys.int::%integer-as-single-float ((integer))
   (mezzano.lap.arm64:add :x0 :xzr :x0 :lsl #.(- 32 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:add :x0 :x0 #.sys.int::+tag-single-float+)
+  (mezzano.lap.arm64:add :x0 :x0 #.(logior sys.int::+tag-immediate+
+                                           (dpb sys.int::+immediate-tag-single-float+
+                                                sys.int::+immediate-tag+
+                                                0)))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 
@@ -28,7 +31,10 @@
                 ;; Box result & return.
                 (mezzano.lap.arm64:fmov :w9 :s0)
                 (mezzano.lap.arm64:add :x9 :xzr :x9 :lsl 32)
-                (mezzano.lap.arm64:add :x0 :x9 #.sys.int::+tag-single-float+)
+                (mezzano.lap.arm64:add :x0 :x9 #.(logior sys.int::+tag-immediate+
+                                                         (dpb sys.int::+immediate-tag-single-float+
+                                                              sys.int::+immediate-tag+
+                                                              0)))
                 (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
                 (mezzano.lap.arm64:ret))))
   (def sys.int::%%single-float-+ mezzano.lap.arm64:fadd)
@@ -86,7 +92,10 @@
   ;; Box result & return.
   (mezzano.lap.arm64:fmov :w9 :s0)
   (mezzano.lap.arm64:add :x9 :xzr :x9 :lsl 32)
-  (mezzano.lap.arm64:add :x0 :x9 #.sys.int::+tag-single-float+)
+  (mezzano.lap.arm64:add :x0 :x9 #.(logior sys.int::+tag-immediate+
+                                           (dpb sys.int::+immediate-tag-single-float+
+                                                sys.int::+immediate-tag+
+                                                0)))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 
@@ -206,7 +215,10 @@
   ;; Box result & return.
   (mezzano.lap.arm64:fmov :w9 :s0)
   (mezzano.lap.arm64:add :x9 :xzr :x9 :lsl 32)
-  (mezzano.lap.arm64:add :x0 :x9 #.sys.int::+tag-single-float+)
+  (mezzano.lap.arm64:add :x0 :x9 #.(logior sys.int::+tag-immediate+
+                                           (dpb sys.int::+immediate-tag-single-float+
+                                                sys.int::+immediate-tag+
+                                                0)))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 

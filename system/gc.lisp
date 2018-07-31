@@ -162,9 +162,7 @@
 (defun immediatep (object)
   "Return true if OBJECT is an immediate object."
   (or (fixnump object)
-      (%value-has-tag-p object +tag-character+)
-      (%value-has-tag-p object +tag-single-float+)
-      (%value-has-tag-p object +tag-byte-specifier+)))
+      (%value-has-tag-p object +tag-immediate+)))
 
 (defmacro scavengef (place cycle-kind &environment env)
   "Scavenge PLACE. Only update PLACE if the scavenged value is different.

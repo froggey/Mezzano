@@ -50,8 +50,13 @@
 
 (defun character-to-raw (character)
   (check-type character character)
-  (logior (ash (char-int character) 4)
-          sys.int::+tag-character+))
+  (logior (ash (char-int character)
+               (+ (byte-position sys.int::+immediate-tag+)
+                  (byte-size sys.int::+immediate-tag+)))
+          (dpb sys.int::+immediate-tag-character+
+               sys.int::+immediate-tag+
+               0)
+          sys.int::+tag-immediate+))
 
 (defun control-stack-frame-offset (slot)
   "Convert a control stack slot number to an offset."

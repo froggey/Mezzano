@@ -146,7 +146,6 @@
     "compiler/codegen-x86-64.lisp"
     "compiler/builtins-x86-64/builtins.lisp"
     "compiler/builtins-x86-64/array.lisp"
-    "compiler/builtins-x86-64/character.lisp"
     "compiler/builtins-x86-64/cons.lisp"
     "compiler/builtins-x86-64/memory.lisp"
     "compiler/builtins-x86-64/misc.lisp"
@@ -1585,8 +1584,11 @@
         #.sys.int::+tag-fixnum-100+ #.sys.int::+tag-fixnum-101+
         #.sys.int::+tag-fixnum-110+ #.sys.int::+tag-fixnum-111+)
        (ash value (- sys.int::+n-fixnum-bits+)))
-      (#.sys.int::+tag-character+
-       (code-char (ash value -4)))
+      (#.sys.int::+tag-immediate+
+       (ecase (cross-cl:ldb sys.int::+immediate-tag+ value)
+         (#.sys.int::+immediate-tag-character+
+          (code-char (ash value (- (+ (cross-cl:byte-position sys.int::+immediate-tag+)
+                                      (cross-cl:byte-size sys.int::+immediate-tag+))))))))
       (#.sys.int::+tag-cons+
        ;; Avoid recursing down lists.
        (let* ((result (cons nil nil))

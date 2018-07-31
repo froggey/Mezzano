@@ -10,7 +10,7 @@
 
 (declaim (inline sys.int::single-float-p sys.int::double-float-p))
 (defun sys.int::single-float-p (object)
-  (sys.int::%value-has-tag-p object sys.int::+tag-single-float+))
+  (sys.int::%value-has-immediate-tag-p object sys.int::+immediate-tag-single-float+))
 
 (defun sys.int::double-float-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-double-float+))

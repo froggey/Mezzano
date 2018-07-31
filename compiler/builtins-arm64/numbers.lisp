@@ -336,7 +336,10 @@
         `(lap:scvtf :s0 :x9)
         `(lap:fmov :w9 :s0)
         `(lap:add :x0 :xzr :x9 :lsl 32)
-        `(lap:add :x0 :x0 ,sys.int::+tag-single-float+))
+        `(lap:add :x0 :x0 ,(logior sys.int::+tag-immediate+
+                                   (dpb sys.int::+immediate-tag-single-float+
+                                        sys.int::+immediate-tag+
+                                        0))))
   (setf *x0-value* (list (gensym))))
 
 ;;; Fast fixnum arithmetic.

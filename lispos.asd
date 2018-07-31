@@ -43,7 +43,6 @@
                (:file "compiler/branch-tension")
                (:file "compiler/builtins-x86-64/builtins")
                (:file "compiler/builtins-x86-64/array")
-               (:file "compiler/builtins-x86-64/character")
                (:file "compiler/builtins-x86-64/cons")
                (:file "compiler/builtins-x86-64/memory")
                (:file "compiler/builtins-x86-64/misc")

@@ -1118,7 +1118,10 @@
         (t
          (emit `(lap:movd :eax ,(ir:box-source instruction)))))
   (emit `(lap:shl64 :rax 32)
-        `(lap:lea64 ,(ir:box-destination instruction) (:rax ,sys.int::+tag-single-float+))))
+        `(lap:lea64 ,(ir:box-destination instruction) (:rax ,(logior sys.int::+tag-immediate+
+                                                                     (dpb sys.int::+immediate-tag-single-float+
+                                                                          sys.int::+immediate-tag+
+                                                                          0))))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-single-float-instruction) uses defs)
   (let ((tmp :rax))

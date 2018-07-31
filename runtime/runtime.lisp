@@ -98,9 +98,14 @@
     (sys.int::raise-type-error object expected-type)
     (sys.int::%%unreachable)))
 
+(defun sys.int::%value-has-immediate-tag-p (object immediate-tag)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-immediate+)
+       (eq (ldb sys.int::+immediate-tag+ (sys.int::lisp-object-address object))
+           immediate-tag)))
+
 (declaim (inline characterp))
 (defun characterp (object)
-  (sys.int::%value-has-tag-p object sys.int::+tag-character+))
+  (sys.int::%value-has-immediate-tag-p object sys.int::+immediate-tag-character+))
 
 (defun %functionp (object)
   (<= sys.int::+first-function-object-tag+

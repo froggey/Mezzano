@@ -116,14 +116,14 @@
   (position 0 :type (integer 0) :read-only t))
 
 ;; Stuff size & position into the low 32-bits.
-(defconstant +byte-size+ (byte 14 4))
-(defconstant +byte-position+ (byte 14 18))
+(defconstant +byte-size+ (byte 13 6))
+(defconstant +byte-position+ (byte 13 19))
 
 (deftype byte ()
   `(satisfies bytep))
 
 (defun small-byte-p (object)
-  (%value-has-tag-p object +tag-byte-specifier+))
+  (%value-has-immediate-tag-p object +immediate-tag-byte-specifier+))
 
 (defun bytep (object)
   (or (small-byte-p object)
@@ -138,8 +138,11 @@
   (if (and (fits-in-field-p +byte-size+ size)
            (fits-in-field-p +byte-position+ position))
       (%%assemble-value (logior (ash size (byte-position +byte-size+))
-                                (ash position (byte-position +byte-position+)))
-                        +tag-byte-specifier+)
+                                (ash position (byte-position +byte-position+))
+                                (dpb +immediate-tag-byte-specifier+
+                                     +immediate-tag+
+                                     0))
+                        +tag-immediate+)
       (make-large-byte size position)))
 
 (defun byte-size (byte-specifier)
