@@ -80,7 +80,6 @@
                 :expected-type 'condition-designator))))
 
 (defun signal (datum &rest arguments)
-  (declare (dynamic-extent arguments))
   (let ((condition (coerce-to-condition 'simple-condition datum arguments)))
     (when (and *break-on-signals* (typep condition *break-on-signals*))
       (let ((*break-on-signals* nil))
