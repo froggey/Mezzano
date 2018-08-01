@@ -739,6 +739,9 @@
            #:debug-variable
            #:debug-value
 
+           #:spice-instruction
+           #:spice-value
+
            #:compile-backend-function
 
            #:perform-target-lowering

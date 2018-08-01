@@ -1178,3 +1178,22 @@
             ,(debug-variable instruction)
             ,(debug-value instruction)
             ,(debug-representation instruction))))
+
+;;; Extend life of a value.
+
+(defclass spice-instruction (backend-instruction)
+  ((%value :initarg :value :accessor spice-value)))
+
+(defmethod instruction-inputs ((instruction spice-instruction))
+  (list (spice-value instruction)))
+
+(defmethod instruction-outputs ((instruction spice-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction spice-instruction) substitution-function)
+  (setf (spice-value instruction) (funcall substitution-function (spice-value instruction))))
+
+(defmethod print-instruction ((instruction spice-instruction))
+  (format t "   ~S~%"
+          `(:spice
+            ,(spice-value instruction))))

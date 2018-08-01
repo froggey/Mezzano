@@ -26,13 +26,12 @@
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
-        (type (%struct-slot object 0)))
+        (type (%struct-type object)))
     (write (list* (type-of object)
                   (loop
-                     for i from 1
-                     for slot in (structure-slots type)
-                     collect (intern (symbol-name (structure-slot-name slot)) "KEYWORD")
-                     collect (%struct-slot object i)))
+                     for slot in (structure-definition-slots type)
+                     collect (intern (symbol-name (structure-slot-definition-name slot)) "KEYWORD")
+                     collect (%struct-slot object type slot)))
            :stream stream)))
 
 (defmethod print-object ((object hash-table) stream)
@@ -70,7 +69,7 @@
 
 (defmethod print-object ((o structure-definition) stream)
   (print-unreadable-object (o stream :identity t :type t)
-    (write (structure-name o) :stream stream)))
+    (write (structure-definition-name o) :stream stream)))
 
 (defmethod print-object ((o function-reference) stream)
   (print-unreadable-object (o stream :identity t :type t)

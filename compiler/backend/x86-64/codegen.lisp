@@ -1141,3 +1141,6 @@
 
 (defmethod emit-lap (backend-function (instruction ir:debug-instruction) uses defs)
   nil)
+
+(defmethod emit-lap (backend-function (instruction ir:spice-instruction) uses defs)
+  nil)

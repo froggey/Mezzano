@@ -682,7 +682,7 @@
       (when struct-type
         (return-from typep
           (and (structure-object-p object)
-               (do ((type (%struct-slot object 0) (structure-parent type)))
+               (do ((type (%struct-type object) (structure-definition-parent type)))
                    ((null type)
                     nil)
                  (when (eq type struct-type)
@@ -775,7 +775,7 @@
         (return-from compile-typep-expression
           `(let ((,obj-sym ,object))
              (and (structure-object-p ,obj-sym)
-                  (or (eq (%struct-slot ,obj-sym 0) ',struct-type)
+                  (or (eq (%struct-type ,obj-sym) ',struct-type)
                       (structure-type-p ,obj-sym ',struct-type))))))))
   nil)
 )
@@ -868,7 +868,7 @@
                   ((eql object 't) 'boolean)
                   ((keywordp object) 'keyword)
                   (t 'symbol)))
-           (#b110001 (structure-name (%struct-slot object 0)))
+           (#b110001 (structure-definition-name (%struct-type object)))
            (#b110010 (class-name (class-of object)))
            (#b110011 'mezzano.simd:sse-vector)
            (#b110100 'mezzano.supervisor:thread)

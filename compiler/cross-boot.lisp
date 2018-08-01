@@ -155,33 +155,45 @@
 (defun sys.int::concat-symbols (&rest symbols)
   (intern (apply 'concatenate 'string (mapcar 'string symbols))))
 
-(defun sys.int::structure-name (x) (structure-type-name x))
-(defun sys.int::structure-slots (x) (structure-type-slots x))
-
-(defstruct cross-struct data)
+(defstruct cross-struct
+  type
+  data)
 
 (defun sys.int::%defstruct (def)
-  (when (gethash (structure-type-name def) *structure-types*)
-    (assert (eql (gethash (structure-type-name def) *structure-types*) def)))
-  (let ((predicate (gensym (string (structure-type-name def)))))
+  (when (member (sys.int::structure-definition-name def)
+                '(sys.int::structure-definition
+                  sys.int::structure-slot-definition))
+    (return-from sys.int::%defstruct))
+  (when (gethash (sys.int::structure-definition-name def) *structure-types*)
+    (assert (eql (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
+  (let ((predicate (gensym (string (sys.int::structure-definition-name def)))))
     (setf (symbol-function predicate) (lambda (x)
                                         (and (cross-struct-p x)
-                                             (eql (sys.int::%struct-slot x 0) def))))
-    (unless (or (eql (symbol-package (structure-type-name def))
+                                             (eql (sys.int::%struct-type x) def))))
+    (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
                      (find-package "CL"))
-                (eql (symbol-package (structure-type-name def))
+                (eql (symbol-package (sys.int::structure-definition-name def))
                      (find-package "SYS.C")))
-      (eval `(cl:deftype ,(structure-type-name def) () '(satisfies ,predicate))))
-    (setf (gethash (structure-type-name def) *structure-types*) def)))
+      (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))
+    (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
 
-(defun sys.int::%make-struct (length area)
-  (declare (ignore area))
-  (make-cross-struct :data (make-array length)))
+(defun sys.int::%make-struct (definition)
+  (make-cross-struct
+   :type definition
+   :data (make-array (length (sys.int::structure-definition-slots definition)))))
 
-(defun sys.int::%struct-slot (struct index)
-  (aref (cross-struct-data struct) index))
-(defun (setf sys.int::%struct-slot) (value struct index)
-  (setf (aref (cross-struct-data struct) index) value))
+(defun sys.int::%struct-type (struct)
+  (cross-struct-type struct))
+
+(defun sys.int::structure-slot-index (def slot)
+  (position (sys.int::structure-slot-definition-name slot)
+            (sys.int::structure-definition-slots def)
+            :key #'sys.int::structure-slot-definition-name))
+
+(defun sys.int::%struct-slot (struct def slot)
+  (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot)))
+(defun (setf sys.int::%struct-slot) (value struct def slot)
+  (setf (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot)) value))
 
 (defun sys.int::get-structure-type (name &optional (errorp t))
   (or (gethash name *structure-types*)
@@ -193,7 +205,7 @@
 
 (defun sys.int::structure-type-p (object struct-type)
   (when (cross-struct-p object)
-    (do ((object-type (sys.int::%struct-slot object 0)
+    (do ((object-type (cross-struct-type object)
                       (structure-type-parent object-type)))
         ((not (structure-type-p object-type))
          nil)

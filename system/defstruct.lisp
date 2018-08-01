@@ -213,8 +213,8 @@
   (generate-defstruct-constructor struct-type
                                   name
                                   (list* '&key (mapcar (lambda (slot)
-                                                         (list (structure-slot-name slot) (structure-slot-initform slot)))
-                                                       (structure-slots struct-type)))
+                                                         (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
+                                                       (structure-definition-slots struct-type)))
                                   area))
 
 (defun generate-defstruct-constructor (struct-type name lambda-list area)
@@ -231,24 +231,23 @@
                                    (mapcar #'cadar keys)
                                    (remove 'nil (mapcar #'third keys))
                                    (mapcar #'first aux)))
-           (default-slots (set-difference (mapcar #'structure-slot-name (structure-slots struct-type)) assigned-slots))
+           (default-slots (set-difference (mapcar #'structure-slot-definition-name (structure-definition-slots struct-type)) assigned-slots))
            (tmp (gensym)))
       `(defun ,name ,lambda-list
          ,@(loop
-              for s in (structure-slots struct-type)
-              when (not (member (structure-slot-name s) default-slots))
-              collect `(check-type ,(structure-slot-name s) ,(structure-slot-type s)))
-         (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
-           (setf (%struct-slot ,tmp 0) ',struct-type)
+              for s in (structure-definition-slots struct-type)
+              when (not (member (structure-slot-definition-name s) default-slots))
+              collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
+         (let ((,tmp (%make-struct ',struct-type)))
            ,@(loop
-                for n from 1
-                for s in (structure-slots struct-type)
-                collect `(setf (%struct-slot ,tmp ,n) ,(if (member (structure-slot-name s) default-slots)
-                                                           (let ((val (gensym (string (structure-slot-name s)))))
-                                                             `(let ((,val ,(structure-slot-initform s)))
-                                                                (check-type ,val ,(structure-slot-type s))
-                                                                ,val))
-                                                           (structure-slot-name s))))
+                for s in (structure-definition-slots struct-type)
+                collect `(setf (%struct-slot ,tmp ',struct-type ',s)
+                               ,(if (member (structure-slot-definition-name s) default-slots)
+                                    (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                      `(let ((,val ,(structure-slot-definition-initform s)))
+                                         (check-type ,val ,(structure-slot-definition-type s))
+                                         ,val))
+                                    (structure-slot-definition-name s))))
            ,tmp)))))
 
 (defun generate-defstruct-list/vector-constructor (leader-name slots name lambda-list construction-function)
@@ -263,22 +262,22 @@
                                    (mapcar #'cadar keys)
                                    (remove 'nil (mapcar #'third keys))
                                    (mapcar #'first aux)))
-           (default-slots (set-difference (mapcar #'structure-slot-name slots) assigned-slots)))
+           (default-slots (set-difference (mapcar #'structure-slot-definition-name slots) assigned-slots)))
       `(defun ,name ,lambda-list
          ,@(loop
               for s in slots
-              when (not (member (structure-slot-name s) default-slots))
-              collect `(check-type ,(structure-slot-name s) ,(structure-slot-type s)))
+              when (not (member (structure-slot-definition-name s) default-slots))
+              collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
          (,construction-function
           ,@(when leader-name (list `',leader-name))
           ,@(loop
                for s in slots
-               collect (if (member (structure-slot-name s) default-slots)
-                           (let ((val (gensym (string (structure-slot-name s)))))
-                             `(let ((,val ,(structure-slot-initform s)))
-                                (check-type ,val ,(structure-slot-type s))
+               collect (if (member (structure-slot-definition-name s) default-slots)
+                           (let ((val (gensym (string (structure-slot-definition-name s)))))
+                             `(let ((,val ,(structure-slot-definition-initform s)))
+                                (check-type ,val ,(structure-slot-definition-type s))
                                 ,val))
-                           (structure-slot-name s))))))))
+                           (structure-slot-definition-name s))))))))
 
 (defun generate-simple-defstruct-list-constructor (leader-name slots name area)
   (generate-defstruct-list/vector-constructor leader-name
@@ -286,7 +285,7 @@
                                               name
                                               (list* '&key
                                                      (mapcar (lambda (slot)
-                                                               (list (structure-slot-name slot) (structure-slot-initform slot)))
+                                                               (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
                                                              slots))
                                               'list))
 
@@ -299,7 +298,7 @@
                                               name
                                               (list* '&key
                                                      (mapcar (lambda (slot)
-                                                               (list (structure-slot-name slot) (structure-slot-initform slot)))
+                                                               (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
                                                              slots))
                                               'vector))
 
@@ -309,11 +308,11 @@
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
   (let ((included-slots (when included-structure
                           (mapcar (lambda (x)
-                                    (list (structure-slot-name x)
-                                          (structure-slot-initform x)
-                                          :type (structure-slot-type x)
-                                          :read-only (structure-slot-read-only x)))
-                                  (structure-slots included-structure)))))
+                                    (list (structure-slot-definition-name x)
+                                          (structure-slot-definition-initform x)
+                                          :type (structure-slot-definition-type x)
+                                          :read-only (structure-slot-definition-read-only x)))
+                                  (structure-definition-slots included-structure)))))
     (dolist (is included-slot-descriptions)
       (let* ((slot-name (first is))
              (def (assoc slot-name included-slots)))
@@ -325,23 +324,6 @@
               (parse-defstruct-slot conc-name s))
             (append included-slots
                     slot-descriptions))))
-
-;; The compiler will replace calls to this function with NIL or T
-;; depending on the current SAFETY setting.
-(defun enable-unsafe-struct-access ()
-  nil)
-
-(defmacro check-struct-type (place struct-type)
-  (let ((value (gensym))
-        (struct-type-sym (gensym "struct-type")))
-    `(let ((,value ,place)
-           (,struct-type-sym ,struct-type))
-       (when (not (or (enable-unsafe-struct-access)
-                      (and (structure-object-p ,value)
-                           (or (eql (%struct-slot ,value 0) ,struct-type-sym)
-                               (structure-type-p ,value ,struct-type-sym)))))
-         (raise-type-error ,value (structure-name ,struct-type-sym))
-         (%%unreachable)))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
@@ -371,27 +353,21 @@
            (list `(defmethod print-object ((object ,name) stream)
                     (funcall (function ,print-function) object stream 0))))
        ,@(loop
-            for n from 1
+            for n from 0
             for s in slots
             collect `(progn
-                       (declaim (inline ,(structure-slot-accessor s)))
-                       (defun ,(structure-slot-accessor s) (object)
-                         (check-struct-type object ',struct-type)
-                         (the ,(structure-slot-type s) (%struct-slot (the ,name object) ,n)))
-                       ,@(unless (structure-slot-read-only s)
-                           (list `(declaim (inline (setf ,(structure-slot-accessor s))))
-                                 `(defun (setf ,(structure-slot-accessor s)) (new-value object)
-                                    (check-struct-type object ',struct-type)
-                                    (setf (%struct-slot (the ,name object) ,n)
-                                          (the ,(structure-slot-type s) new-value)))
-                                 `(declaim (inline (cas ,(structure-slot-accessor s))))
-                                 `(defun (cas ,(structure-slot-accessor s)) (old new object)
-                                    (check-struct-type object ',struct-type)
-                                    (cas (%struct-slot (the ,name object) ,n)
-                                         (the ,(structure-slot-type s) old)
-                                         (the ,(structure-slot-type s) new)))))
+                       (declaim (inline ,(structure-slot-definition-accessor s)))
+                       (defun ,(structure-slot-definition-accessor s) (object)
+                         (%struct-slot object ',struct-type ',s))
+                       ,@(unless (structure-slot-definition-read-only s)
+                           (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
+                                 `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
+                                    (setf (%struct-slot object ',struct-type ',s) new-value))
+                                 `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
+                                 `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
+                                    (cas (%struct-slot object ',struct-type ',s) old new))))
                        ,@(when slot-offsets
-                           `((defconstant ,(concat-symbols "+" (structure-slot-accessor s) "+") ',n)))))
+                           `((defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+") ',n)))))
        ,@(loop
             for x in constructors
             collect (if (symbolp x)
@@ -426,15 +402,15 @@
            (mapcar (lambda (s)
                      (incf n)
                      `(progn
-                        (defun ,(structure-slot-accessor s) (object)
+                        (defun ,(structure-slot-definition-accessor s) (object)
                           ,@(when (and named predicate)
                               (list `(check-type object (satisfies ,predicate))))
                           (nth ,n object))
-                        ,@(unless (structure-slot-read-only s)
-                            (list `(defun (setf ,(structure-slot-accessor s)) (new-value object)
+                        ,@(unless (structure-slot-definition-read-only s)
+                            (list `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (setf (nth ,n object) (the ,(structure-slot-type s) new-value)))))))
+                                     (setf (nth ,n object) (the ,(structure-slot-definition-type s) new-value)))))))
                    slots))
        ,@(mapcar (lambda (x)
                    (if (symbolp x)
@@ -475,22 +451,22 @@
            (mapcar (lambda (s)
                      (incf n)
                      `(progn
-                        (declaim (inline ,(structure-slot-accessor s)))
-                        (defun ,(structure-slot-accessor s) (object)
+                        (declaim (inline ,(structure-slot-definition-accessor s)))
+                        (defun ,(structure-slot-definition-accessor s) (object)
                           ,@(when (and named predicate)
                               (list `(check-type object (satisfies ,predicate))))
                           (svref object ,n))
-                        ,@(unless (structure-slot-read-only s)
-                            (list `(declaim (inline (setf ,(structure-slot-accessor s))))
-                                  `(defun (setf ,(structure-slot-accessor s)) (new-value object)
+                        ,@(unless (structure-slot-definition-read-only s)
+                            (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
+                                  `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (setf (svref object ,n) (the ,(structure-slot-type s) new-value)))
-                                  `(declaim (inline (cas ,(structure-slot-accessor s))))
-                                  `(defun (cas ,(structure-slot-accessor s)) (old new object)
+                                     (setf (svref object ,n) (the ,(structure-slot-definition-type s) new-value)))
+                                  `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
+                                  `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (cas (svref object ,n) (the ,(structure-slot-type s) old) (the ,(structure-slot-type s) new)))))))
+                                     (cas (svref object ,n) (the ,(structure-slot-definition-type s) old) (the ,(structure-slot-definition-type s) new)))))))
                    slots))
        ,@(mapcar (lambda (x)
                    (if (symbolp x)
@@ -499,17 +475,6 @@
                  constructors)
        ',name)))
 )
-
-(defun copy-structure (structure)
-  (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")
-  (let* ((struct-type (%struct-slot structure 0))
-         (n-slots (length (structure-slots struct-type)))
-         (new (%make-struct (1+ n-slots)
-                            (structure-area struct-type))))
-    (setf (%struct-slot new 0) struct-type)
-    (dotimes (i n-slots)
-      (setf (%struct-slot new (1+ i)) (%struct-slot structure (1+ i))))
-    new))
 
 (defmacro defstruct (name-and-options &rest slot-descriptions)
   (multiple-value-bind (name conc-name constructors predicate area copier

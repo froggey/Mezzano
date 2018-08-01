@@ -269,7 +269,7 @@ FN will be called with the world stopped, it must not allocate."
                        (#.+object-tag-funcallable-instance+
                         (add-class (funcallable-std-instance-class object)))
                        (#.+object-tag-structure-object+
-                        (add-class (%struct-slot object 0))))))))
+                        (add-class (%struct-type object))))))))
     (values allocated-words total-words largest-free-space
             n-allocated-objects allocated-objects-sizes allocated-classes)))
 

@@ -375,21 +375,21 @@
         (t (built-in-class-of x))))
 
 (defun canonicalize-struct-slot (slot)
-  (list :name (sys.int::structure-slot-name slot)
-        :accessor-name (sys.int::structure-slot-accessor slot)
-        :type (sys.int::structure-slot-type slot)
-        :read-only-p (sys.int::structure-slot-read-only slot)))
+  (list :name (sys.int::structure-slot-definition-name slot)
+        :accessor-name (sys.int::structure-slot-definition-accessor slot)
+        :type (sys.int::structure-slot-definition-type slot)
+        :read-only-p (sys.int::structure-slot-definition-read-only slot)))
 
 (defun canonicalize-struct-slots (struct-def)
-  (mapcar 'canonicalize-struct-slot (sys.int::structure-slots struct-def)))
+  (mapcar 'canonicalize-struct-slot (sys.int::structure-definition-slots struct-def)))
 
 (defun make-structure-class (struct-def)
   (make-instance 'structure-class
-                 :name (sys.int::structure-name struct-def)
+                 :name (sys.int::structure-definition-name struct-def)
                  :definition struct-def
                  :direct-slots (canonicalize-struct-slots struct-def)
-                 :direct-superclasses (list (if (sys.int::structure-parent struct-def)
-                                                (class-of-structure-definition (sys.int::structure-parent struct-def))
+                 :direct-superclasses (list (if (sys.int::structure-definition-parent struct-def)
+                                                (class-of-structure-definition (sys.int::structure-definition-parent struct-def))
                                                 (find-class 'structure-object)))))
 
 (defun class-of-structure-definition (struct-def)
@@ -434,7 +434,7 @@
     (mezzano.simd:mmx-vector                       (find-class-cached 'mezzano.simd:mmx-vector))
     (mezzano.simd:sse-vector                       (find-class-cached 'mezzano.simd:sse-vector))
     (structure-object
-     (class-of-structure-definition (sys.int::%struct-slot x 0)))
+     (class-of-structure-definition (sys.int::%struct-type x)))
     (t                                             (find-class-cached 't))))
 
 ;;; subclassp and sub-specializer-p
@@ -2238,13 +2238,8 @@ has only has class specializer."
 (defmethod allocate-instance ((class structure-class) &rest initargs)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (declare (ignore initargs))
-  (let* ((def (slot-value class 'structure-definition))
-         (slots (sys.int::structure-slots def))
-         (n-slots (length slots))
-         (struct (sys.int::%make-struct (1+ n-slots)
-                                        (sys.int::structure-area def))))
-    (setf (sys.int::%struct-slot struct 0) def)
-    struct))
+  (sys.int::%make-struct
+   (slot-value class 'structure-definition)))
 
 (defmethod direct-slot-definition-class ((class structure-class) &rest initargs)
   *the-class-standard-direct-slot-definition*)
@@ -2263,10 +2258,10 @@ has only has class specializer."
         (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
-    (dolist (slot (sys.int::structure-slots def)
+    (dolist (slot (sys.int::structure-definition-slots def)
              (values (slot-missing class instance slot-name 'slot-value)))
-      (when (eql (sys.int::structure-slot-name slot) slot-name)
-        (return (funcall (sys.int::structure-slot-accessor slot) instance))))))
+      (when (eql (sys.int::structure-slot-definition-name slot) slot-name)
+        (return (funcall (sys.int::structure-slot-definition-accessor slot) instance))))))
 
 (defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot standard-effective-slot-definition))
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -2274,14 +2269,14 @@ has only has class specializer."
         (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
-    (dolist (slot (sys.int::structure-slots def)
+    (dolist (slot (sys.int::structure-definition-slots def)
              (progn
                (slot-missing class instance slot-name 'setf new-value)
                new-value))
-      (when (eql (sys.int::structure-slot-name slot) slot-name)
-        (when (sys.int::structure-slot-read-only slot)
+      (when (eql (sys.int::structure-slot-definition-name slot) slot-name)
+        (when (sys.int::structure-slot-definition-read-only slot)
           (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
-        (return (funcall (fdefinition `(setf ,(sys.int::structure-slot-accessor slot))) new-value instance))))))
+        (return (funcall (fdefinition `(setf ,(sys.int::structure-slot-definition-accessor slot))) new-value instance))))))
 
 (defmethod slot-boundp-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
   t)

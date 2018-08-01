@@ -16,18 +16,17 @@
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
 (defvar *system-symbol-declarations* (make-hash-table :test 'eq))
 
-(defstruct (structure-type
-             (:constructor sys.int::make-struct-type
+(in-package :sys.int)
+
+(defstruct (structure-definition
+             (:constructor sys.int::make-struct-definition
                            (name slots parent area)))
   (name)
   (slots)
   (parent)
   (area))
 
-(defun sys.int::make-struct-definition (&rest blah)
-  (apply #'sys.int::make-struct-type blah))
-
-(defstruct (structure-slot
+(defstruct (structure-slot-definition
              (:constructor sys.int::make-struct-slot-definition
                            (name accessor initform type read-only)))
   name
@@ -36,11 +35,7 @@
   type
   read-only)
 
-(defun sys.int::structure-slot-name (x) (structure-slot-name x))
-(defun sys.int::structure-slot-accessor (x) (structure-slot-accessor x))
-(defun sys.int::structure-slot-initform (x) (structure-slot-initform x))
-(defun sys.int::structure-slot-type (x) (structure-slot-type x))
-(defun sys.int::structure-slot-read-only (x) (structure-slot-read-only x))
+(in-package :sys.c)
 
 (defvar *structure-types* (make-hash-table :test 'eq))
 
@@ -720,19 +715,19 @@
   (write-byte sys.int::+llf-character+ stream)
   (save-character object stream))
 
-(defmethod save-one-object ((object structure-type) omap stream)
-  (save-object (structure-type-name object) omap stream)
-  (save-object (structure-type-slots object) omap stream)
-  (save-object (structure-type-parent object) omap stream)
-  (save-object (structure-type-area object) omap stream)
+(defmethod save-one-object ((object sys.int::structure-definition) omap stream)
+  (save-object (sys.int::structure-definition-name object) omap stream)
+  (save-object (sys.int::structure-definition-slots object) omap stream)
+  (save-object (sys.int::structure-definition-parent object) omap stream)
+  (save-object (sys.int::structure-definition-area object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
-(defmethod save-one-object ((object structure-slot) omap stream)
-  (save-object (structure-slot-name object) omap stream)
-  (save-object (structure-slot-accessor object) omap stream)
-  (save-object (structure-slot-initform object) omap stream)
-  (save-object (structure-slot-type object) omap stream)
-  (save-object (structure-slot-read-only object) omap stream)
+(defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)
+  (save-object (sys.int::structure-slot-definition-name object) omap stream)
+  (save-object (sys.int::structure-slot-definition-accessor object) omap stream)
+  (save-object (sys.int::structure-slot-definition-initform object) omap stream)
+  (save-object (sys.int::structure-slot-definition-type object) omap stream)
+  (save-object (sys.int::structure-slot-definition-read-only object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
 (defun sys.int::%single-float-as-integer (value)
@@ -1019,17 +1014,13 @@
            (x-compile-top-level form nil :not-compile-time))))
   t)
 
-(defun save-compiler-builtins (path target-architecture)
+(defun save-custom-compiled-file (path generator)
   (with-open-file (*output-fasl* path
                    :element-type '(unsigned-byte 8)
                    :if-exists :supersede
                    :direction :output)
-    (format t ";; Writing compiler builtins to ~A.~%" path)
     (write-llf-header *output-fasl* path)
-    (let* ((builtins (ecase target-architecture
-                       (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
-                       (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
-           (*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
            (*package* (find-package "CL-USER"))
@@ -1037,14 +1028,18 @@
            (*compile-verbose* *compile-verbose*)
            (*compile-file-pathname* nil)
            (*compile-file-truename* nil)
-           (*gensym-counter* 0)
-           (*use-new-compiler* nil))
-      (dolist (b builtins)
-        (let ((form `(sys.int::%defun ',(first b) ,(second b))))
-          (let ((*print-length* 3)
-                (*print-level* 3))
-            (format t ";; Compiling form ~S.~%" form))
-          (x-compile form nil)))
+           (*gensym-counter* 0))
+      (loop
+         for values = (multiple-value-list (funcall generator))
+         for form = (first values)
+         do
+           (when (not values)
+             (return))
+           (when *compile-print*
+             (let ((*print-length* 3)
+                   (*print-level* 2))
+               (format t ";; X-compiling: ~S~%" form)))
+           (x-compile-top-level form nil))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
       (let ((commands (reverse *pending-llf-commands*)))
@@ -1059,6 +1054,19 @@
             (when (car cmd)
               (write-byte (car cmd) *output-fasl*)))))
       (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
+
+(defun save-compiler-builtins (path target-architecture)
+  (format t ";; Writing compiler builtins to ~A.~%" path)
+  (let* ((builtins (ecase target-architecture
+                     (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
+                     (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
+         (*use-new-compiler* nil))
+    (save-custom-compiled-file path
+                               (lambda ()
+                                 (if builtins
+                                     (let ((b (pop builtins)))
+                                       `(sys.int::%defun ',(first b) ,(second b)))
+                                     (values))))))
 
 (deftype sys.int::non-negative-fixnum ()
   `(integer 0 ,most-positive-fixnum))

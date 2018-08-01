@@ -76,7 +76,8 @@
 (defstruct (mutex
              (:include wait-queue)
              (:constructor make-mutex (&optional name))
-             (:area :wired))
+             (:area :wired)
+             :slot-offsets)
   ;; Thread holding the lock, or NIL if it is free.
   ;; May not be correct when the lock is being acquired/released.
   (owner nil)
@@ -86,7 +87,6 @@
   ;;           attempted to acquire it.
   ;; :contested - The lock is held, and there are threads attempting to
   ;;              acquire it. This causes release to wake sleeping threads.
-  ;; Must be index 6. CONS grovels directly in the lock.
   (state :unlocked)
   (stack-next nil)
   ;; Number of times ACQUIRE-MUTEX failed to immediately acquire the lock.
@@ -108,7 +108,7 @@
                  :format-control "Recursive locking detected on ~S ~S"
                  :format-arguments (list mutex (mutex-name mutex)))))
     ;; Increment MUTEX-CONTESTED-COUNT
-    (sys.int::%atomic-fixnum-add-object mutex 8 1)
+    (sys.int::%atomic-fixnum-add-object mutex +mutex-contested-count+ 1)
     (when wait-p
       (ensure-interrupts-enabled)
       (unless (not *pseudo-atomic*)
@@ -123,7 +123,7 @@
   (lock-wait-queue mutex)
   ;; Put the lock into the contested state.
   ;; Try to acquire again, release may have been running.
-  (when (eql (sys.int::%xchg-object mutex 6 :contested) :unlocked)
+  (when (eql (sys.int::%xchg-object mutex +mutex-state+ :contested) :unlocked)
     ;; We got it.
     (setf (mutex-owner mutex) self)
     (unlock-wait-queue mutex)

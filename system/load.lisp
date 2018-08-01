@@ -160,8 +160,8 @@
         vector)))
 
 (defun structure-slot-definition-compatible (x y)
-  (and (eql (structure-slot-name x) (structure-slot-name y))
-       (equal (structure-slot-type x) (structure-slot-type y))))
+  (and (eql (structure-slot-definition-name x) (structure-slot-definition-name y))
+       (equal (structure-slot-definition-type x) (structure-slot-definition-type y))))
 
 (defun load-llf-structure-definition (stream stack)
   (let* ((area (vector-pop stack))
@@ -170,9 +170,9 @@
          (name (vector-pop stack))
          (definition (get-structure-type name nil)))
     (cond (definition
-           (unless (and (eql (length (structure-slots definition)) (length slots))
-                        (every #'structure-slot-definition-compatible (structure-slots definition) slots))
-             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-slots definition) slots))
+           (unless (and (eql (length (structure-definition-slots definition)) (length slots))
+                        (every #'structure-slot-definition-compatible (structure-definition-slots definition) slots))
+             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-definition-slots definition) slots))
            definition)
           (t
            (let ((def (make-struct-definition name slots parent area)))

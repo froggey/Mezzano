@@ -134,12 +134,16 @@
             t)))
     (structure-object
      (and (typep y 'structure-object)
-          (eq (%struct-slot x 0) (%struct-slot y 0))
-          (dotimes (slot (length (structure-slots (%struct-slot x 0)))
-                    t)
-            (when (not (equalp (%struct-slot x (1+ slot))
-                               (%struct-slot y (1+ slot))))
-              (return nil)))))
+          (eq (%struct-type x) (%struct-type y))
+          (loop
+             with ty = (%struct-type x)
+             for slot in (structure-definition-slots ty)
+             do
+               (when (not (equalp (%struct-slot x ty slot)
+                                  (%struct-slot y ty slot)))
+                 (return nil))
+             finally
+               (return t))))
     (t (equal x y))))
 
 (defun macroexpand-1 (form &optional env)

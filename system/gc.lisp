@@ -963,7 +963,12 @@ This is required to make the GC interrupt safe."
     (#.+object-tag-symbol+
      (scan-generic object 8 cycle-kind))
     (#.+object-tag-structure-object+
-     (scan-generic object (1+ (%object-header-data object)) cycle-kind))
+     (let ((struct-type (%struct-type object)))
+       (scavenge-object struct-type cycle-kind)
+       (scan-generic object
+                     ;; 1+ to account for the header word.
+                     (1+ (length (structure-definition-slots struct-type)))
+                     cycle-kind)))
     (#.+object-tag-std-instance+
      (scan-generic object 4 cycle-kind))
     (#.+object-tag-function-reference+
@@ -1164,7 +1169,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (case (%object-tag object)
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
-           #.+object-tag-structure-object+
            #.+object-tag-closure+
            #.+object-tag-funcallable-instance+)
           ;; simple-vector, std-instance or structure-object.
@@ -1249,6 +1253,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           6)
          (#.+object-tag-delimited-continuation+
           6)
+         (#.+object-tag-structure-object+
+          (1+ (length (structure-definition-slots (%struct-type object)))))
          (t
           (object-size-error object)))))
     (t
@@ -1554,7 +1560,7 @@ Additionally update the card table offset fields."
     (#.+object-tag-symbol+
      (verify-generic object 8 gen))
     (#.+object-tag-structure-object+
-     (verify-generic object (1+ (%object-header-data object)) gen))
+     (verify-generic object (1+ (length (structure-definition-slots (%struct-type object)))) gen))
     (#.+object-tag-std-instance+
      (verify-generic object 4 gen))
     (#.+object-tag-function-reference+
