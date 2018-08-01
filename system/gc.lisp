@@ -970,12 +970,21 @@ This is required to make the GC interrupt safe."
     (#.+object-tag-symbol+
      (scan-generic object 8 cycle-kind))
     (#.+object-tag-structure-object+
-     (let ((struct-type (%struct-type object)))
+     (let* ((struct-type (%struct-type object))
+            (layout (structure-definition-layout struct-type)))
        (scavenge-object struct-type cycle-kind)
-       (scan-generic object
-                     ;; 1+ to account for the header word.
-                     (1+ (length (structure-definition-slots struct-type)))
-                     cycle-kind)))
+       (cond ((eql layout 't)
+              ;; All slots boxed
+              (scan-generic object
+                            ;; 1+ to account for the header word.
+                            (1+ (structure-definition-size struct-type))
+                            cycle-kind))
+             (layout
+              ;; Bit vector of slot boxedness.
+              (loop
+                 for i below (structure-definition-size struct-type)
+                 when (eql (aref layout i) 1)
+                 do (scavengef (%object-ref-t object i) cycle-kind))))))
     (#.+object-tag-std-instance+
      (scan-generic object 4 cycle-kind))
     (#.+object-tag-function-reference+
@@ -1178,7 +1187,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            #.+object-tag-array-fixnum+
            #.+object-tag-closure+
            #.+object-tag-funcallable-instance+)
-          ;; simple-vector, std-instance or structure-object.
+          ;; simple-vector-like.
           ;; 1+ to account for the header word.
           (1+ length))
          ((#.+object-tag-array-bit+
@@ -1261,7 +1270,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-delimited-continuation+
           6)
          (#.+object-tag-structure-object+
-          (1+ (length (structure-definition-slots (%struct-type object)))))
+          (1+ (structure-definition-size (%struct-type object))))
          (t
           (object-size-error object)))))
     (t
@@ -1574,7 +1583,15 @@ Additionally update the card table offset fields."
     (#.+object-tag-symbol+
      (verify-generic object 8 gen))
     (#.+object-tag-structure-object+
-     (verify-generic object (1+ (length (structure-definition-slots (%struct-type object)))) gen))
+     (let* ((struct-type (%struct-type object))
+            (layout (structure-definition-layout struct-type)))
+       (cond ((eql layout 't)
+              ;; All slots boxed
+              (verify-generic object (1+ (structure-definition-size (%struct-type object))) gen))
+             (layout
+              ;; Bit vector of slot boxedness.
+              ;; TODO: Not implemented.
+              nil))))
     (#.+object-tag-std-instance+
      (verify-generic object 4 gen))
     (#.+object-tag-function-reference+

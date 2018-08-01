@@ -18,21 +18,17 @@
 (defun sys.int::structure-object-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-structure-object+))
 
-(defun sys.int::structure-slot-index (definition slot)
+(defun sys.int::%struct-slot (object definition slot)
   ;; Make sure these accessors get open-coded.
   (declare (optimize (speed 3) (safety 0))
            (type sys.int::structure-definition definition)
            (type sys.int::structure-slot-definition slot))
-  (position (sys.int::structure-slot-definition-name slot)
-            (sys.int::structure-definition-slots definition)
-            :key #'sys.int::structure-slot-definition-name))
-
-(defun sys.int::%struct-slot (object definition slot)
   (when (not (sys.int::structure-type-p object definition))
     (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
     (sys.int::%%unreachable))
-  (sys.int::%object-ref-t object
-                          (sys.int::structure-slot-index definition slot)))
+  (funcall (sys.int::structure-slot-definition-ref-fn slot)
+           object
+           (sys.int::structure-slot-definition-index slot)))
 
 (defun (setf sys.int::%struct-slot) (value object definition slot)
   (when (not (sys.int::structure-type-p object definition))
@@ -40,9 +36,13 @@
     (sys.int::%%unreachable))
   (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
     (assert (typep value (sys.int::structure-slot-definition-type slot))))
-  (setf (sys.int::%object-ref-t object
-                                (sys.int::structure-slot-index definition slot))
-        value))
+  (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
+             (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
+             (t
+              (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
+           value
+           object
+           (sys.int::structure-slot-definition-index slot)))
 
 (defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot)
   (when (not (sys.int::structure-type-p object definition))
@@ -52,9 +52,11 @@
     (assert (typep old (sys.int::structure-slot-definition-type slot))))
   (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
     (assert (typep new (sys.int::structure-slot-definition-type slot))))
+  (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
+    (error "Can't cas unboxed slots"))
   (multiple-value-bind (successp actual-value)
       (sys.int::%cas-object object
-                            (sys.int::structure-slot-index definition slot)
+                            (sys.int::structure-slot-definition-index definition slot)
                             old new)
     (declare (ignore successp))
     actual-value))
@@ -81,12 +83,21 @@
             (sys.int::%struct-slot structure struct-type slot)))
     new))
 
-(defun sys.int::make-struct-definition (name slots parent area)
+(defun sys.int::make-struct-definition (name slots parent area size layout)
   (sys.int::%make-struct-definition name
                                     ;; Slots list must be wired.
                                     (sys.int::copy-list-in-area slots :wired)
                                     parent
-                                    area))
+                                    area
+                                    size
+                                    ;; Layout must be pinned or wired.
+                                    ;; Used by the GC.
+                                    (if (bit-vector-p layout)
+                                        (make-array (length layout)
+                                                    :element-type 'bit
+                                                    :initial-contents layout
+                                                    :area :wired)
+                                        layout)))
 
 (defun %make-structure-header (structure-definition)
   (with-live-objects (structure-definition)

@@ -893,10 +893,10 @@ First return value is a list of elements, second is the final dotted component (
          (change-made)
          (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
                 (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (third (arguments form))))
-                           (call sys.int::%object-ref-t
+                           (call ,(sys.int::structure-slot-definition-ref-fn
+                                   (ast-value (third (arguments form))))
                                  ,(first (arguments form))
-                                 ',(sys.int::structure-slot-index
-                                    (ast-value (second (arguments form)))
+                                 ',(sys.int::structure-slot-definition-index
                                     (ast-value (third (arguments form))))))
                      form))
                (t
@@ -908,10 +908,10 @@ First return value is a list of elements, second is the final dotted component (
                                     (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
                                 'nil)
                             (the ,(sys.int::structure-slot-definition-type (ast-value (third (arguments form))))
-                                 (call sys.int::%object-ref-t
+                                 (call ,(sys.int::structure-slot-definition-ref-fn
+                                         (ast-value (third (arguments form))))
                                        obj
-                                       ',(sys.int::structure-slot-index
-                                          (ast-value (second (arguments form)))
+                                       ',(sys.int::structure-slot-definition-index
                                           (ast-value (third (arguments form))))))
                             (notinline-call sys.int::%struct-slot
                                             obj
@@ -929,11 +929,11 @@ First return value is a list of elements, second is the final dotted component (
          (change-made)
          (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
                 (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))
-                           (call (setf sys.int::%object-ref-t)
+                           (call (setf ,(sys.int::structure-slot-definition-ref-fn
+                                         (ast-value (fourth (arguments form)))))
                                  ,(first (arguments form))
                                  ,(second (arguments form))
-                                 ',(sys.int::structure-slot-index
-                                    (ast-value (third (arguments form)))
+                                 ',(sys.int::structure-slot-definition-index
                                     (ast-value (fourth (arguments form))))))
                      form))
                (t
@@ -946,17 +946,17 @@ First return value is a list of elements, second is the final dotted component (
                                     (call sys.int::structure-type-p obj ',(ast-value (third (arguments form)))))
                                 'nil)
                             (progn
-                              (if (source-call typep val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form)))))
+                              (if (source-fragment (typep val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))))
                                   'nil
                                   (progn
                                     (call sys.int::raise-type-error val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form)))))
                                     (call sys.int::%%unreachable)))
                               (the ,(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))
-                                   (call (setf sys.int::%object-ref-t)
+                                   (call (setf ,(sys.int::structure-slot-definition-ref-fn
+                                                 (ast-value (fourth (arguments form)))))
                                          val
                                          obj
-                                         ',(sys.int::structure-slot-index
-                                            (ast-value (third (arguments form)))
+                                         ',(sys.int::structure-slot-definition-index
                                             (ast-value (fourth (arguments form)))))))
                             (notinline-call (setf sys.int::%struct-slot)
                                             val
@@ -971,7 +971,9 @@ First return value is a list of elements, second is the final dotted component (
               (typep (fourth (arguments form)) 'ast-quote)
               (typep (ast-value (fourth (arguments form))) 'sys.int::structure-definition)
               (typep (fifth (arguments form)) 'ast-quote)
-              (typep (ast-value (fifth (arguments form))) 'sys.int::structure-slot-definition))
+              (typep (ast-value (fifth (arguments form))) 'sys.int::structure-slot-definition)
+              (eql (sys.int::structure-slot-definition-ref-fn (ast-value (fifth (arguments form))))
+                   'sys.int::%object-ref-t))
          (change-made)
          (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
                 (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form))))
@@ -981,8 +983,7 @@ First return value is a list of elements, second is the final dotted component (
                              (multiple-value-bind (successp actual-value)
                                  (call sys.int::%cas-object
                                        obj
-                                       ',(sys.int::structure-slot-index
-                                          (ast-value (fourth (arguments form)))
+                                       ',(sys.int::structure-slot-definition-index
                                           (ast-value (fifth (arguments form))))
                                        old
                                        new)
@@ -999,7 +1000,7 @@ First return value is a list of elements, second is the final dotted component (
                                     (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form)))))
                                 'nil)
                             (progn
-                              (if (source-call typep new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form)))))
+                              (if (source-fragment (typep new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form))))))
                                   'nil
                                   (progn
                                     (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form)))))
@@ -1008,8 +1009,7 @@ First return value is a list of elements, second is the final dotted component (
                                    (multiple-value-bind (successp actual-value)
                                        (call sys.int::%cas-object
                                              obj
-                                             ',(sys.int::structure-slot-index
-                                                (ast-value (fourth (arguments form)))
+                                             ',(sys.int::structure-slot-definition-index
                                                 (ast-value (fifth (arguments form))))
                                              old
                                              new)

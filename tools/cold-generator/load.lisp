@@ -110,7 +110,7 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
-(defun load-structure-definition (name* slots* parent* area*)
+(defun load-structure-definition (name* slots* parent* area* size* layout*)
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))
          (slots-list (extract-object slots* t))
@@ -119,14 +119,16 @@
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
           (t
-           (let ((address (allocate 6 :wired)))
+           (let ((address (allocate 8 :wired)))
              (setf (word address) (structure-header (make-value *structure-definition-definition* sys.int::+tag-object+)))
              (setf (word (+ address 1)) name*)
              (setf (word (+ address 2)) (let ((*default-cons-allocation-area* :wired))
                                           (apply #'vlist slots-list)))
              (setf (word (+ address 3)) parent*)
              (setf (word (+ address 4)) area*)
-             (setf (word (+ address 5)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+             (setf (word (+ address 5)) size*)
+             (setf (word (+ address 6)) layout*)
+             (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
              (setf (gethash name *struct-table*) (list address name slots))
              (make-value address sys.int::+tag-object+))))))
 
@@ -248,9 +250,9 @@
       (setf (word (+ address 1 i)) (aref stack (+ (length stack) i))))
     (make-value address sys.int::+tag-object+)))
 
-(defun load-structure-slot-definition (name accessor initform type read-only)
-  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only))
-        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only)))
+(defun load-structure-slot-definition (name accessor initform type read-only ref-fn index)
+  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only ref-fn index))
+        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only ref-fn index)))
     (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
     image-def))
 
@@ -323,18 +325,22 @@
                            0)
              sys.int::+tag-immediate+))
     (#.sys.int::+llf-structure-definition+
-     (let ((area (stack-pop stack))
+     (let ((layout (stack-pop stack))
+           (size (stack-pop stack))
+           (area (stack-pop stack))
            (parent (stack-pop stack))
            (slots (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-definition name slots parent area)))
+       (load-structure-definition name slots parent area size layout)))
     (#.sys.int::+llf-structure-slot-definition+
-     (let ((read-only (stack-pop stack))
+     (let ((index (stack-pop stack))
+           (ref-fn (stack-pop stack))
+           (read-only (stack-pop stack))
            (type (stack-pop stack))
            (initform (stack-pop stack))
            (accessor (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-slot-definition name accessor initform type read-only)))
+       (load-structure-slot-definition name accessor initform type read-only ref-fn index)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              (cross-cl:dpb sys.int::+immediate-tag-single-float+

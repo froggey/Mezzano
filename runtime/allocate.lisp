@@ -575,17 +575,10 @@
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
 
 (defun sys.int::%make-struct (definition)
-  (let* ((area (sys.int::structure-definition-area definition))
-         (slots (sys.int::structure-definition-slots definition))
-         ;; Open-code length here - not wired.
-         (n-slots (loop
-                     for i from 0
-                     for slot in slots
-                     finally (return i))))
-    (%allocate-object sys.int::+object-tag-structure-object+
-                      (sys.int::lisp-object-address definition)
-                      n-slots
-                      area)))
+  (%allocate-object sys.int::+object-tag-structure-object+
+                    (sys.int::lisp-object-address definition)
+                    (sys.int::structure-definition-size definition)
+                    (sys.int::structure-definition-area definition)))
 
 (defun sys.int::make-closure (function environment &optional area)
   "Allocate a closure object."

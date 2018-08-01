@@ -200,14 +200,52 @@
             print-object print-function print-object-specializer
             named type slot-offsets)))
 
-;; Parses slot-description and produces:
-;; (slot-name accessor-name initform type read-only)
-(defun parse-defstruct-slot (conc-name slot)
-  (if (symbolp slot)
-      (make-struct-slot-definition slot (concat-symbols conc-name slot) nil 't nil)
-      (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only)
-          slot
-        (make-struct-slot-definition slot-name (concat-symbols conc-name slot-name) slot-initform type read-only))))
+(defun compute-struct-slot-accessor-and-size (type)
+  (cond ((subtypep type '(unsigned-byte 8))
+         (values '%object-ref-unsigned-byte-8-unscaled 1))
+        ((subtypep type '(unsigned-byte 16))
+         (values '%object-ref-unsigned-byte-16-unscaled 2))
+        ((subtypep type '(unsigned-byte 32))
+         (values '%object-ref-unsigned-byte-32-unscaled 4))
+        ((subtypep type '(unsigned-byte 64))
+         (values '%object-ref-unsigned-byte-64-unscaled 8))
+        ((subtypep type '(signed-byte 8))
+         (values '%object-ref-signed-byte-8-unscaled 1))
+        ((subtypep type '(signed-byte 16))
+         (values '%object-ref-signed-byte-16-unscaled 2))
+        ((subtypep type '(signed-byte 32))
+         (values '%object-ref-signed-byte-32-unscaled 4))
+        ((and (subtypep type '(signed-byte 64))
+              (not (subtypep type 'fixnum)))
+         (values '%object-ref-signed-byte-64-unscaled 8))
+        ((subtypep type 'single-float)
+         (values '%object-ref-single-float-unscaled 4))
+        ((subtypep type 'double-float)
+         (values '%object-ref-double-float-unscaled 8))
+        (t
+         (values nil 8))))
+
+;; Parses slot-description and returns a struct slot definition
+(defun parse-defstruct-slot (conc-name slot current-index)
+  (multiple-value-bind (name accessor initform type read-only)
+      (if (symbolp slot)
+          (values slot (concat-symbols conc-name slot) nil 't nil)
+          (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only)
+              slot
+            (values slot-name (concat-symbols conc-name slot-name) slot-initform type read-only)))
+    (multiple-value-bind (ref-fn element-size)
+        (compute-struct-slot-accessor-and-size type)
+      ;; Align current index to element size.
+      (incf current-index (1- element-size))
+      (setf current-index (- current-index (rem current-index element-size)))
+      (values (make-struct-slot-definition name accessor initform type read-only
+                                           (or ref-fn '%object-ref-t)
+                                           (if ref-fn
+                                               current-index
+                                               ;; %object-ref-t takes a scaled index.
+                                               (truncate current-index 8)))
+              (+ current-index element-size)
+              (not ref-fn)))))
 
 (defun generate-simple-defstruct-constructor (struct-type name area)
   (generate-defstruct-constructor struct-type
@@ -320,60 +358,74 @@
                 is slot-name)
         (when (rest is)
           (setf (second def) (second is)))))
-    (mapcar (lambda (s)
-              (parse-defstruct-slot conc-name s))
-            (append included-slots
-                    slot-descriptions))))
+    (loop
+       with current-index = 0
+       with layout = (make-array 0 :element-type 'bit :adjustable t)
+       for s in (append included-slots
+                        slot-descriptions)
+       collect (multiple-value-bind (def next-index boxedp)
+                   (parse-defstruct-slot conc-name s current-index)
+                 (adjust-array layout (truncate (+ next-index 7) 8))
+                 (setf (bit layout (truncate current-index 8)) (if boxedp 1 0))
+                 (setf current-index next-index)
+                 def)
+       into slot-defs
+       finally (return (values slot-defs
+                               (cond ((every (lambda (x) (eql x 1)) layout) t)
+                                     ((every (lambda (x) (eql x 1)) layout) nil)
+                                     (t layout))
+                               (length layout))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer slot-offsets)
   (let* ((included-structure (when included-structure-name
-                               (get-structure-type included-structure-name)))
-         (slots (compute-defstruct-slots conc-name
+                               (get-structure-type included-structure-name))))
+    (multiple-value-bind (slots layout size)
+        (compute-defstruct-slots conc-name
                                          slot-descriptions
                                          included-structure
-                                         included-slot-descriptions))
-         (struct-type (or (get-structure-type name nil)
-                          (make-struct-definition name slots included-structure area))))
-    `(progn
-       (eval-when (:compile-toplevel :load-toplevel :execute)
-         (%defstruct ',struct-type))
-       ,@(when predicate
-           (list `(defun ,predicate (object)
-                    (structure-type-p object ',struct-type))))
-       ,@(when copier
-           (list `(defun ,copier (object)
-                    (check-type object ,name)
-                    (copy-structure object))))
-       ,@(when print-object
-           (list `(defmethod print-object ((object ,name) stream)
-                    (funcall (function ,print-object) object stream))))
-       ,@(when print-function
-           (list `(defmethod print-object ((object ,name) stream)
-                    (funcall (function ,print-function) object stream 0))))
-       ,@(loop
-            for n from 0
-            for s in slots
-            collect `(progn
-                       (declaim (inline ,(structure-slot-definition-accessor s)))
-                       (defun ,(structure-slot-definition-accessor s) (object)
-                         (%struct-slot object ',struct-type ',s))
-                       ,@(unless (structure-slot-definition-read-only s)
-                           (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
-                                 `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
-                                    (setf (%struct-slot object ',struct-type ',s) new-value))
-                                 `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
-                                 `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
-                                    (cas (%struct-slot object ',struct-type ',s) old new))))
-                       ,@(when slot-offsets
-                           `((defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+") ',n)))))
-       ,@(loop
-            for x in constructors
-            collect (if (symbolp x)
-                        (generate-simple-defstruct-constructor struct-type x area)
-                        (generate-defstruct-constructor struct-type (first x) (second x) area)))
-       ',name)))
+                                         included-slot-descriptions)
+      (let ((struct-type (or (get-structure-type name nil)
+                             (make-struct-definition name slots included-structure area size layout))))
+        `(progn
+           (eval-when (:compile-toplevel :load-toplevel :execute)
+             (%defstruct ',struct-type))
+           ,@(when predicate
+               (list `(defun ,predicate (object)
+                        (structure-type-p object ',struct-type))))
+           ,@(when copier
+               (list `(defun ,copier (object)
+                        (check-type object ,name)
+                        (copy-structure object))))
+           ,@(when print-object
+               (list `(defmethod print-object ((object ,name) stream)
+                        (funcall (function ,print-object) object stream))))
+           ,@(when print-function
+               (list `(defmethod print-object ((object ,name) stream)
+                        (funcall (function ,print-function) object stream 0))))
+           ,@(loop
+                for n from 0
+                for s in slots
+                collect `(progn
+                           (declaim (inline ,(structure-slot-definition-accessor s)))
+                           (defun ,(structure-slot-definition-accessor s) (object)
+                             (%struct-slot object ',struct-type ',s))
+                           ,@(unless (structure-slot-definition-read-only s)
+                               (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
+                                     `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
+                                        (setf (%struct-slot object ',struct-type ',s) new-value))
+                                     `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
+                                     `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
+                                        (cas (%struct-slot object ',struct-type ',s) old new))))
+                           ,@(when slot-offsets
+                               `((defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+") ',n)))))
+           ,@(loop
+                for x in constructors
+                collect (if (symbolp x)
+                            (generate-simple-defstruct-constructor struct-type x area)
+                            (generate-defstruct-constructor struct-type (first x) (second x) area)))
+           ',name)))))
 
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                 included-structure-name included-slot-descriptions

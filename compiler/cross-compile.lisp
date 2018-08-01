@@ -20,20 +20,24 @@
 
 (defstruct (structure-definition
              (:constructor sys.int::make-struct-definition
-                           (name slots parent area)))
+                           (name slots parent area size layout)))
   (name)
   (slots)
   (parent)
-  (area))
+  (area)
+  (size)
+  (layout))
 
 (defstruct (structure-slot-definition
              (:constructor sys.int::make-struct-slot-definition
-                           (name accessor initform type read-only)))
+                           (name accessor initform type read-only ref-fn index)))
   name
   accessor
   initform
   type
-  read-only)
+  read-only
+  ref-fn
+  index)
 
 (defstruct (structure-header
              (:constructor mezzano.runtime::%make-structure-header
@@ -732,6 +736,8 @@
   (save-object (sys.int::structure-definition-slots object) omap stream)
   (save-object (sys.int::structure-definition-parent object) omap stream)
   (save-object (sys.int::structure-definition-area object) omap stream)
+  (save-object (sys.int::structure-definition-size object) omap stream)
+  (save-object (sys.int::structure-definition-layout object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)
@@ -740,6 +746,8 @@
   (save-object (sys.int::structure-slot-definition-initform object) omap stream)
   (save-object (sys.int::structure-slot-definition-type object) omap stream)
   (save-object (sys.int::structure-slot-definition-read-only object) omap stream)
+  (save-object (sys.int::structure-slot-definition-ref-fn object) omap stream)
+  (save-object (sys.int::structure-slot-definition-index object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
 (defun sys.int::%single-float-as-integer (value)

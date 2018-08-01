@@ -33,7 +33,7 @@ Inherit source locations/etc from INHERIT."
            ((the) #'convert-ast-the)
            ((unwind-protect) #'convert-ast-unwind-protect)
            ((call) #'convert-ast-call)
-           ((source-call) #'convert-ast-source-call)
+           ((source-fragment) #'convert-ast-source-fragment)
            ((notinline-call) #'convert-ast-notinline-call)
            ((jump-table) #'convert-ast-jump-table))
          inherit
@@ -213,9 +213,9 @@ Inherit source locations/etc from INHERIT."
                                for form in arguments
                                collect (convert-ast-form form inherit new-variables))))
 
-(defun convert-ast-source-call (inherit new-variables name &rest arguments)
+(defun convert-ast-source-fragment (inherit new-variables form)
   (declare (ignore inherit))
-  (pass1-form (list* name arguments)
+  (pass1-form form
               (extend-environment nil
                                   :variables (mapcar (lambda (x)
                                                        (list (car x) (cdr x)))

@@ -299,6 +299,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (structure-definition-slots object) omap stream)
   (save-object (structure-definition-parent object) omap stream)
   (save-object (structure-definition-area object) omap stream)
+  (save-object (structure-definition-size object) omap stream)
+  (save-object (structure-definition-layout object) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object structure-slot-definition) omap stream)
@@ -307,6 +309,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (structure-slot-definition-initform object) omap stream)
   (save-object (structure-slot-definition-type object) omap stream)
   (save-object (structure-slot-definition-read-only object) omap stream)
+  (save-object (structure-slot-definition-ref-fn object) omap stream)
+  (save-object (structure-slot-definition-index object) omap stream)
   (write-byte +llf-structure-slot-definition+ stream))
 
 (defmethod save-one-object ((object float) omap stream)

@@ -532,16 +532,32 @@
 
 (defun populate-structure-definition (address name slots parent area)
   (setf (word (+ address 0)) (structure-header (make-value *structure-definition-definition* sys.int::+tag-object+))
+        ;; name
         (word (+ address 1)) (vsym name)
+        ;; slots
         (word (+ address 2)) (let ((*default-cons-allocation-area* :wired))
-                               (apply #'vlist (mapcar (lambda (def)
-                                                        (apply #'vmake-struct-slot-def (mapcar #'vsym def)))
-                                                      slots)))
+                               (apply #'vlist
+                                      (loop
+                                         for i from 0
+                                         for def in slots
+                                         for (name accessor initform type read-only) = (mapcar #'vsym def)
+                                         collect (vmake-struct-slot-def name accessor initform type read-only (vsym 'sys.int::%object-ref-t) (make-fixnum i)))))
+        ;; parent
         (word (+ address 3)) (or parent (vsym nil))
+        ;; area
         (word (+ address 4)) (vsym area)
-        (word (+ address 5)) (vsym nil)
+        ;; size
+        (word (+ address 5)) (make-fixnum (length slots))
+        ;; layout
+        (word (+ address 6)) (vsym t)
+        ;; class
+        (word (+ address 7)) (vsym nil)
         (gethash name *struct-table*) (list address name
-                                            (mapcar (lambda (slot) (apply #'sys.int::make-struct-slot-definition (mapcar #'vsym slot))) slots))))
+                                            (loop
+                                               for i from 0
+                                               for def in slots
+                                               for (name accessor initform type read-only) = (mapcar #'vsym def)
+                                               collect (sys.int::make-struct-slot-definition name accessor initform type read-only (vsym 'sys.int::%object-ref-t) (make-fixnum i))))))
 
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
@@ -578,19 +594,23 @@
                                                        :name 'sys.int::%%funcallable-instance-trampoline))
   (format t "UDF at word ~X~%" *undefined-function-address*)
   ;; And finally the initial structure definitions.
-  ;;                             name, accessor, initform, type, read-only
+  ;;                             name                       accessor          initform, type, read-only
   (let ((structure-def-layout '((sys.int::name   sys.int::structure-definition-name   nil t t)
                                 (sys.int::slots  sys.int::structure-definition-slots  nil list t)
                                 (sys.int::parent sys.int::structure-definition-parent nil t t)
                                 (sys.int::area   sys.int::structure-definition-area   nil t t)
+                                (sys.int::size   sys.int::structure-definition-size   nil t t)
+                                (sys.int::layout sys.int::structure-definition-layout nil t t)
                                 (sys.int::class  sys.int::structure-definition-class  nil t nil)))
         (structure-slot-layout '((sys.int::name      sys.int::structure-slot-definition-name      nil t t)
                                  (sys.int::accessor  sys.int::structure-slot-definition-accessor  nil t t)
                                  (sys.int::initform  sys.int::structure-slot-definition-initform  nil t t)
                                  (sys.int::type      sys.int::structure-slot-definition-type      t   t t)
-                                 (sys.int::read-only sys.int::structure-slot-definition-read-only nil t t))))
-    (setf *structure-definition-definition* (allocate 6 :wired)
-          *structure-slot-definition-definition* (allocate 6 :wired))
+                                 (sys.int::read-only sys.int::structure-slot-definition-read-only nil t t)
+                                 (sys.int::ref-fn    sys.int::structure-slot-definition-ref-fn    nil t t)
+                                 (sys.int::index     sys.int::structure-slot-definition-index     nil t t))))
+    (setf *structure-definition-definition* (allocate 8 :wired)
+          *structure-slot-definition-definition* (allocate 8 :wired))
     (populate-structure-definition *structure-definition-definition*
                                    'sys.int::structure-definition
                                    structure-def-layout
@@ -609,11 +629,15 @@
                                              (sys.int::name
                                               sys.int::slots
                                               sys.int::parent
-                                              sys.int::area)))
+                                              sys.int::area
+                                              sys.int::size
+                                              sys.int::layout)))
                     (sys.int::name nil :read-only t)
                     (sys.int::slots nil :read-only t :type list)
                     (sys.int::parent nil :read-only t)
                     (sys.int::area nil :read-only t)
+                    (sys.int::size nil :read-only t)
+                    (sys.int::layout nil :read-only t)
                     (sys.int::class nil))
                   (defstruct (sys.int::structure-slot-definition
                                (:area :wired)
@@ -622,12 +646,16 @@
                                               sys.int::accessor
                                               sys.int::initform
                                               sys.int::type
-                                              sys.int::read-only)))
+                                              sys.int::read-only
+                                              sys.int::ref-fn
+                                              sys.int::index)))
                     (sys.int::name nil :read-only t)
                     (sys.int::accessor nil :read-only t)
                     (sys.int::initform nil :read-only t)
                     (sys.int::type t :read-only t)
-                    (sys.int::read-only nil :read-only t))))
+                    (sys.int::read-only nil :read-only t)
+                    (sys.int::ref-fn nil :read-only t)
+                    (sys.int::index nil :read-only t))))
           (path (merge-pathnames "%%structure-defs.llf"
                                  (build-directory))))
       (sys.c::save-custom-compiled-file path
@@ -636,14 +664,16 @@
                                               (values))))
       (load-source-file path t t))))
 
-(defun vmake-struct-slot-def (name accessor initial-value type read-only)
-  (let ((addr (allocate 6 :wired)))
+(defun vmake-struct-slot-def (name accessor initial-value type read-only ref-fn index)
+  (let ((addr (allocate 8 :wired)))
     (setf (word (+ addr 0)) (structure-header (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
           (word (+ addr 1)) name
           (word (+ addr 2)) accessor
           (word (+ addr 3)) initial-value
           (word (+ addr 4)) type
-          (word (+ addr 5)) read-only)
+          (word (+ addr 5)) read-only
+          (word (+ addr 6)) ref-fn
+          (word (+ addr 7)) index)
     (make-value addr sys.int::+tag-object+)))
 
 (defun vmake-structure (type &rest initargs &key &allow-other-keys)
@@ -1580,7 +1610,11 @@
            (equal (extract-object (sys.int::structure-slot-definition-type x))
                   (extract-object (sys.int::structure-slot-definition-type y))))
        (eql (sys.int::structure-slot-definition-read-only x)
-            (sys.int::structure-slot-definition-read-only y))))
+            (sys.int::structure-slot-definition-read-only y))
+       (eql (sys.int::structure-slot-definition-ref-fn x)
+            (sys.int::structure-slot-definition-ref-fn y))
+       (eql (sys.int::structure-slot-definition-index x)
+            (sys.int::structure-slot-definition-index y))))
 
 (defun ensure-structure-layout-compatible (definition slots)
   (let ((definition-slots (third definition)))
@@ -1785,9 +1819,9 @@ Tag with +TAG-OBJECT+."
     "system/cas.lisp"
     "system/defstruct.lisp"
     "system/condition.lisp"
-    "system/restarts.lisp"
-    "system/error.lisp"
     "system/type.lisp"
+    "system/error.lisp"
+    "system/restarts.lisp"
     "system/runtime-array.lisp"
     "system/array.lisp"
     "system/sequence.lisp"
