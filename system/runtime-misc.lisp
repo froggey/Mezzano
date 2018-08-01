@@ -30,8 +30,9 @@
     (write (list* (type-of object)
                   (loop
                      for slot in (structure-definition-slots type)
-                     collect (intern (symbol-name (structure-slot-definition-name slot)) "KEYWORD")
-                     collect (%struct-slot object type slot)))
+                     for slot-name = (structure-slot-definition-name slot)
+                     collect (intern (symbol-name slot-name) "KEYWORD")
+                     collect (%struct-slot object type slot-name)))
            :stream stream)))
 
 (defmethod print-object ((object hash-table) stream)

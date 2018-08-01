@@ -138,9 +138,10 @@
           (loop
              with ty = (%struct-type x)
              for slot in (structure-definition-slots ty)
+             for slot-name = (structure-slot-definition-name slot)
              do
-               (when (not (equalp (%struct-slot x ty slot)
-                                  (%struct-slot y ty slot)))
+               (when (not (equalp (%struct-slot x ty slot-name)
+                                  (%struct-slot y ty slot-name)))
                  (return nil))
              finally
                (return t))))

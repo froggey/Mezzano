@@ -185,15 +185,15 @@
 (defun sys.int::%struct-type (struct)
   (cross-struct-type struct))
 
-(defun sys.int::structure-slot-index (def slot)
-  (position (sys.int::structure-slot-definition-name slot)
+(defun sys.int::structure-slot-index (def slot-name)
+  (position slot-name
             (sys.int::structure-definition-slots def)
             :key #'sys.int::structure-slot-definition-name))
 
-(defun sys.int::%struct-slot (struct def slot)
-  (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot)))
-(defun (setf sys.int::%struct-slot) (value struct def slot)
-  (setf (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot)) value))
+(defun sys.int::%struct-slot (struct def slot-name)
+  (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot-name)))
+(defun (setf sys.int::%struct-slot) (value struct def slot-name)
+  (setf (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot-name)) value))
 
 (defun sys.int::get-structure-type (name &optional (errorp t))
   (or (gethash name *structure-types*)

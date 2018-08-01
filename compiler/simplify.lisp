@@ -889,35 +889,36 @@ First return value is a list of elements, second is the final dotted component (
               (typep (second (arguments form)) 'ast-quote)
               (typep (ast-value (second (arguments form))) 'sys.int::structure-definition)
               (typep (third (arguments form)) 'ast-quote)
-              (typep (ast-value (third (arguments form))) 'sys.int::structure-slot-definition))
+              (find (ast-value (third (arguments form)))
+                    (sys.int::structure-definition-slots (ast-value (second (arguments form))))
+                    :key #'sys.int::structure-slot-definition-name))
          (change-made)
-         (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-                (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (third (arguments form))))
-                           (call ,(sys.int::structure-slot-definition-ref-fn
-                                   (ast-value (third (arguments form))))
-                                 ,(first (arguments form))
-                                 ',(sys.int::structure-slot-definition-index
-                                    (ast-value (third (arguments form))))))
-                     form))
-               (t
-                (ast `(let ((obj ,(first (arguments form))))
-                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                 (ast-value (second (arguments form)))))
-                                    't
-                                    (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
-                                'nil)
-                            (the ,(sys.int::structure-slot-definition-type (ast-value (third (arguments form))))
-                                 (call ,(sys.int::structure-slot-definition-ref-fn
-                                         (ast-value (third (arguments form))))
-                                       obj
-                                       ',(sys.int::structure-slot-definition-index
-                                          (ast-value (third (arguments form))))))
-                            (notinline-call sys.int::%struct-slot
-                                            obj
-                                            ',(ast-value (second (arguments form)))
-                                            ',(ast-value (third (arguments form))))))
-                      form))))
+         (let ((slot-def (find (ast-value (third (arguments form)))
+                               (sys.int::structure-definition-slots (ast-value (second (arguments form))))
+                               :key #'sys.int::structure-slot-definition-name)))
+           (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+                  (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
+                             (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
+                                   ,(first (arguments form))
+                                   ',(sys.int::structure-slot-definition-index slot-def)))
+                       form))
+                 (t
+                  (ast `(let ((obj ,(first (arguments form))))
+                          (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                   (ast-value (second (arguments form)))))
+                                      't
+                                      (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
+                                  'nil)
+                              (the ,(sys.int::structure-slot-definition-type slot-def)
+                                   (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
+                                         obj
+                                         ',(sys.int::structure-slot-definition-index slot-def)))
+                              (notinline-call sys.int::%struct-slot
+                                              obj
+                                              ',(ast-value (second (arguments form)))
+                                              ',(ast-value (third (arguments form))))))
+                       form)))))
         ;; ((setf %struct-slot) value s 'def 'slot) => fast-writer
         ((and (equal (name form) '(setf sys.int::%struct-slot))
               (local-inlining-permitted-p form)
@@ -925,45 +926,46 @@ First return value is a list of elements, second is the final dotted component (
               (typep (third (arguments form)) 'ast-quote)
               (typep (ast-value (third (arguments form))) 'sys.int::structure-definition)
               (typep (fourth (arguments form)) 'ast-quote)
-              (typep (ast-value (fourth (arguments form))) 'sys.int::structure-slot-definition))
+              (find (ast-value (fourth (arguments form)))
+                    (sys.int::structure-definition-slots (ast-value (third (arguments form))))
+                    :key #'sys.int::structure-slot-definition-name))
          (change-made)
-         (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-                (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))
-                           (call (setf ,(sys.int::structure-slot-definition-ref-fn
-                                         (ast-value (fourth (arguments form)))))
-                                 ,(first (arguments form))
-                                 ,(second (arguments form))
-                                 ',(sys.int::structure-slot-definition-index
-                                    (ast-value (fourth (arguments form))))))
-                     form))
-               (t
-                (ast `(let ((val ,(first (arguments form)))
-                            (obj ,(second (arguments form))))
-                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                 (ast-value (third (arguments form)))))
-                                    't
-                                    (call sys.int::structure-type-p obj ',(ast-value (third (arguments form)))))
-                                'nil)
-                            (progn
-                              (if (source-fragment (typep val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))))
-                                  'nil
-                                  (progn
-                                    (call sys.int::raise-type-error val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form)))))
-                                    (call sys.int::%%unreachable)))
-                              (the ,(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form))))
-                                   (call (setf ,(sys.int::structure-slot-definition-ref-fn
-                                                 (ast-value (fourth (arguments form)))))
-                                         val
-                                         obj
-                                         ',(sys.int::structure-slot-definition-index
-                                            (ast-value (fourth (arguments form)))))))
-                            (notinline-call (setf sys.int::%struct-slot)
-                                            val
-                                            obj
-                                            ',(ast-value (third (arguments form)))
-                                            ',(ast-value (fourth (arguments form))))))
-                      form))))
+         (let ((slot-def (find (ast-value (fourth (arguments form)))
+                               (sys.int::structure-definition-slots (ast-value (third (arguments form))))
+                               :key #'sys.int::structure-slot-definition-name)))
+           (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+                  (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
+                             (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
+                                   ,(first (arguments form))
+                                   ,(second (arguments form))
+                                   ',(sys.int::structure-slot-definition-index slot-def)))
+                       form))
+                 (t
+                  (ast `(let ((val ,(first (arguments form)))
+                              (obj ,(second (arguments form))))
+                          (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                   (ast-value (third (arguments form)))))
+                                      't
+                                      (call sys.int::structure-type-p obj ',(ast-value (third (arguments form)))))
+                                  'nil)
+                              (progn
+                                (if (source-fragment (typep val ',(sys.int::structure-slot-definition-type slot-def)))
+                                    'nil
+                                    (progn
+                                      (call sys.int::raise-type-error val ',(sys.int::structure-slot-definition-type slot-def))
+                                      (call sys.int::%%unreachable)))
+                                (the ,(sys.int::structure-slot-definition-type slot-def)
+                                     (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
+                                           val
+                                           obj
+                                           ',(sys.int::structure-slot-definition-index slot-def))))
+                              (notinline-call (setf sys.int::%struct-slot)
+                                              val
+                                              obj
+                                              ',(ast-value (third (arguments form)))
+                                              ',(ast-value (fourth (arguments form))))))
+                       form)))))
         ;; ((cas %struct-slot) old new s 'def 'slot) => fast-cas
         ((and (equal (name form) '(sys.int::cas sys.int::%struct-slot))
               (local-inlining-permitted-p form)
@@ -971,56 +973,66 @@ First return value is a list of elements, second is the final dotted component (
               (typep (fourth (arguments form)) 'ast-quote)
               (typep (ast-value (fourth (arguments form))) 'sys.int::structure-definition)
               (typep (fifth (arguments form)) 'ast-quote)
-              (typep (ast-value (fifth (arguments form))) 'sys.int::structure-slot-definition)
-              (eql (sys.int::structure-slot-definition-ref-fn (ast-value (fifth (arguments form))))
+              (find (ast-value (fifth (arguments form)))
+                    (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
+                    :key #'sys.int::structure-slot-definition-name)
+              (eql (sys.int::structure-slot-definition-ref-fn (find (ast-value (fifth (arguments form)))
+                                                                    (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
+                                                                    :key #'sys.int::structure-slot-definition-name))
                    'sys.int::%object-ref-t))
          (change-made)
-         (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-                (ast `(the ,(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form))))
-                           (let ((old ,(first (arguments form)))
-                                 (new ,(second (arguments form)))
-                                 (obj ,(third (arguments form))))
-                             (multiple-value-bind (successp actual-value)
-                                 (call sys.int::%cas-object
-                                       obj
-                                       ',(sys.int::structure-slot-definition-index
-                                          (ast-value (fifth (arguments form))))
-                                       old
-                                       new)
-                               actual-value)))
-                     form))
-               (t
-                (ast `(let ((old ,(first (arguments form)))
-                            (new ,(second (arguments form)))
-                            (obj ,(third (arguments form))))
-                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                 (ast-value (fourth (arguments form)))))
-                                    't
-                                    (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form)))))
-                                'nil)
-                            (progn
-                              (if (source-fragment (typep new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form))))))
-                                  'nil
-                                  (progn
-                                    (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form)))))
-                                    (call sys.int::%%unreachable)))
-                              (the ,(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form))))
-                                   (multiple-value-bind (successp actual-value)
-                                       (call sys.int::%cas-object
-                                             obj
-                                             ',(sys.int::structure-slot-definition-index
-                                                (ast-value (fifth (arguments form))))
-                                             old
-                                             new)
-                                     actual-value)))
-                            (notinline-call (sys.int::cas sys.int::%struct-slot)
-                                            old
-                                            new
-                                            obj
-                                            ',(ast-value (fourth (arguments form)))
-                                            ',(ast-value (fifth (arguments form))))))
-                      form))))
+         (let ((slot-def (find (ast-value (fifth (arguments form)))
+                               (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
+                               :key #'sys.int::structure-slot-definition-name)))
+           (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+                  (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
+                             (let ((old ,(first (arguments form)))
+                                   (new ,(second (arguments form)))
+                                   (obj ,(third (arguments form))))
+                               (multiple-value-bind (successp actual-value)
+                                   (call sys.int::%cas-object
+                                         obj
+                                         ',(sys.int::structure-slot-definition-index slot-def)
+                                         old
+                                         new)
+                                 actual-value)))
+                       form))
+                 (t
+                  (ast `(let ((old ,(first (arguments form)))
+                              (new ,(second (arguments form)))
+                              (obj ,(third (arguments form))))
+                          (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                   (ast-value (fourth (arguments form)))))
+                                      't
+                                      (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form)))))
+                                  'nil)
+                              (progn
+                                (if (source-fragment (typep old ',(sys.int::structure-slot-definition-type slot-def)))
+                                    'nil
+                                    (progn
+                                      (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type slot-def))
+                                      (call sys.int::%%unreachable)))
+                                (if (source-fragment (typep new ',(sys.int::structure-slot-definition-type slot-def)))
+                                    'nil
+                                    (progn
+                                      (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type slot-def))
+                                      (call sys.int::%%unreachable)))
+                                (the ,(sys.int::structure-slot-definition-type slot-def)
+                                     (multiple-value-bind (successp actual-value)
+                                         (call sys.int::%cas-object
+                                               obj
+                                               ',(sys.int::structure-slot-definition-index slot-def)
+                                               old
+                                               new)
+                                       actual-value)))
+                              (notinline-call (sys.int::cas sys.int::%struct-slot)
+                                              old
+                                              new
+                                              obj
+                                              ',(ast-value (fourth (arguments form)))
+                                              ',(ast-value (fifth (arguments form))))))
+                       form)))))
 
         (t
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.

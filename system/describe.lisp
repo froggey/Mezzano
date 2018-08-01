@@ -87,10 +87,14 @@
           object (type-of object) (lisp-object-address object))
   (let ((type (%struct-type object)))
     (loop
-       for slot in (structure-definition-slots type) do
+       for slot in (structure-definition-slots type)
+       for slot-name = (structure-slot-definition-name slot)
+       do
          (let ((*print-level* 3)
                (*print-length* 5))
-           (format stream "  ~S: ~S~%" (structure-slot-definition-name slot) (%struct-slot object type slot))))))
+           (format stream "  ~S: ~S~%"
+                   slot-name
+                   (%struct-slot object type slot-name))))))
 
 (defmethod describe-object ((object mezzano.supervisor:thread) stream)
   (format stream "~S is a thread with address ~X~%"

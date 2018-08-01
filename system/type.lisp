@@ -775,7 +775,7 @@
         (return-from compile-typep-expression
           `(let ((,obj-sym ,object))
              (and (structure-object-p ,obj-sym)
-                  (or (eq (%struct-type ,obj-sym) ',struct-type)
+                  (or (%fast-structure-type-p ,obj-sym ',struct-type)
                       (structure-type-p ,obj-sym ',struct-type))))))))
   nil)
 )

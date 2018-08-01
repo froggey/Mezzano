@@ -18,48 +18,55 @@
 (defun sys.int::structure-object-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-structure-object+))
 
-(defun sys.int::%struct-slot (object definition slot)
-  ;; Make sure these accessors get open-coded.
-  (declare (optimize (speed 3) (safety 0))
-           (type sys.int::structure-definition definition)
-           (type sys.int::structure-slot-definition slot))
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
-    (sys.int::%%unreachable))
-  (funcall (sys.int::structure-slot-definition-ref-fn slot)
-           object
-           (sys.int::structure-slot-definition-index slot)))
+(defun find-struct-slot (definition slot-name &optional (errorp t))
+  (or (find slot-name (sys.int::structure-definition-slots definition)
+            :key #'sys.int::structure-slot-definition-name)
+      (if errorp
+          (error "Slot ~S missing from structure definition ~S."
+                 slot-name definition)
+          nil)))
 
-(defun (setf sys.int::%struct-slot) (value object definition slot)
+(defun sys.int::%struct-slot (object definition slot-name)
   (when (not (sys.int::structure-type-p object definition))
     (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
     (sys.int::%%unreachable))
-  (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-    (assert (typep value (sys.int::structure-slot-definition-type slot))))
-  (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
-             (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
-             (t
-              (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
-           value
-           object
-           (sys.int::structure-slot-definition-index slot)))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (funcall (sys.int::structure-slot-definition-ref-fn slot)
+             object
+             (sys.int::structure-slot-definition-index slot))))
 
-(defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot)
+(defun (setf sys.int::%struct-slot) (value object definition slot-name)
   (when (not (sys.int::structure-type-p object definition))
     (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
     (sys.int::%%unreachable))
-  (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-    (assert (typep old (sys.int::structure-slot-definition-type slot))))
-  (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-    (assert (typep new (sys.int::structure-slot-definition-type slot))))
-  (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
-    (error "Can't cas unboxed slots"))
-  (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object object
-                            (sys.int::structure-slot-definition-index definition slot)
-                            old new)
-    (declare (ignore successp))
-    actual-value))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep value (sys.int::structure-slot-definition-type slot))))
+    (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
+               (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
+               (t
+                (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
+             value
+             object
+             (sys.int::structure-slot-definition-index slot))))
+
+(defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot-name)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep old (sys.int::structure-slot-definition-type slot))))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep new (sys.int::structure-slot-definition-type slot))))
+    (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
+      (error "Can't cas unboxed slots"))
+    (multiple-value-bind (successp actual-value)
+        (sys.int::%cas-object object
+                              (sys.int::structure-slot-definition-index definition slot)
+                              old new)
+      (declare (ignore successp))
+      actual-value)))
 
 (defun sys.int::%fast-structure-type-p (object structure-header)
   (sys.int::%fast-structure-type-p object structure-header))
@@ -78,9 +85,12 @@
   (assert (sys.int::structure-object-p structure) (structure) "STRUCTURE is not a structure!")
   (let* ((struct-type (sys.int::%struct-type structure))
          (new (sys.int::%make-struct struct-type)))
-    (dolist (slot (sys.int::structure-definition-slots struct-type))
-      (setf (sys.int::%struct-slot new struct-type slot)
-            (sys.int::%struct-slot structure struct-type slot)))
+    (loop
+       for slot in (sys.int::structure-definition-slots struct-type)
+       for slot-name = (sys.int::structure-slot-definition-name slot)
+       do
+         (setf (sys.int::%struct-slot new struct-type slot-name)
+               (sys.int::%struct-slot structure struct-type slot-name)))
     new))
 
 (defun sys.int::make-struct-definition (name slots parent area size layout)

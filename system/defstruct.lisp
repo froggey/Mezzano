@@ -279,7 +279,7 @@
          (let ((,tmp (%make-struct ',struct-type)))
            ,@(loop
                 for s in (structure-definition-slots struct-type)
-                collect `(setf (%struct-slot ,tmp ',struct-type ',s)
+                collect `(setf (%struct-slot ,tmp ',struct-type ',(structure-slot-definition-name s))
                                ,(if (member (structure-slot-definition-name s) default-slots)
                                     (let ((val (gensym (string (structure-slot-definition-name s)))))
                                       `(let ((,val ,(structure-slot-definition-initform s)))
@@ -410,14 +410,14 @@
                 collect `(progn
                            (declaim (inline ,(structure-slot-definition-accessor s)))
                            (defun ,(structure-slot-definition-accessor s) (object)
-                             (%struct-slot object ',struct-type ',s))
+                             (%struct-slot object ',struct-type ',(structure-slot-definition-name s)))
                            ,@(unless (structure-slot-definition-read-only s)
                                (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
                                      `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
-                                        (setf (%struct-slot object ',struct-type ',s) new-value))
+                                        (setf (%struct-slot object ',struct-type ',(structure-slot-definition-name s)) new-value))
                                      `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
                                      `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
-                                        (cas (%struct-slot object ',struct-type ',s) old new))))
+                                        (cas (%struct-slot object ',struct-type ',(structure-slot-definition-name s)) old new))))
                            ,@(when slot-offsets
                                `((defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+") ',n)))))
            ,@(loop
