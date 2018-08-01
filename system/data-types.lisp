@@ -21,7 +21,10 @@
 (defconstant +tag-fixnum-010+       #b0100)
 (defconstant +tag-immediate+        #b0101)
 (defconstant +tag-fixnum-011+       #b0110)
-;;#b0111
+;; Low two bits of this one must be set, high two bits must match low
+;; two bits of +object-tag-structure-object+.
+;; See %FAST-STRUCTURE-TYPE-P.
+(defconstant +tag-structure-header+ #b0111) ; Low two bits must be set.
 (defconstant +tag-fixnum-100+       #b1000)
 (defconstant +tag-object+           #b1001)
 (defconstant +tag-fixnum-101+       #b1010)
@@ -103,6 +106,7 @@
 ;;#b101110
 (defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
+;; Low two bits must match high two bits of +tag-structure-header+.
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
 (defconstant +object-tag-sse-vector+              #b110011)
@@ -322,6 +326,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-complex-rational+          #x21)
 (defconstant +llf-complex-single-float+      #x22)
 (defconstant +llf-complex-double-float+      #x23)
+(defconstant +llf-structure-header+          #x24)
 
 ;;; Fields in the Unicode info tables.
 

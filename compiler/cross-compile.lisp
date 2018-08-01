@@ -35,7 +35,15 @@
   type
   read-only)
 
+(defstruct (structure-header
+             (:constructor mezzano.runtime::%make-structure-header
+                           (definition)))
+  definition)
+
 (in-package :sys.c)
+
+(defun mezzano.runtime::%unpack-structure-header (header)
+  (sys.int::structure-header-definition header))
 
 (defvar *structure-types* (make-hash-table :test 'eq))
 
@@ -637,6 +645,10 @@
           (t (error "TODO character ~S." character)))))
 
 (defgeneric save-one-object (object object-map stream))
+
+(defmethod save-one-object ((object sys.int::structure-header) omap stream)
+  (save-object (mezzano.runtime::%unpack-structure-header object) omap stream)
+  (write-byte sys.int::+llf-structure-header+ stream))
 
 (defmethod save-one-object ((object cross-fref) omap stream)
   (save-object (cross-fref-name object) omap stream)

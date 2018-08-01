@@ -59,17 +59,18 @@
     (declare (ignore successp))
     actual-value))
 
+(defun sys.int::%fast-structure-type-p (object structure-header)
+  (sys.int::%fast-structure-type-p object structure-header))
+
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
   (when (sys.int::structure-object-p object)
-    (let ((ty (sys.int::%struct-type object)))
-      (if (eq ty struct-type)
-          't
-          (do ((object-type ty (sys.int::structure-definition-parent object-type)))
-              ((not object-type)
-               nil)
-            (when (eq object-type struct-type)
-              (return t)))))))
+    (do ((object-type (sys.int::%struct-type object)
+                      (sys.int::structure-definition-parent object-type)))
+        ((not object-type)
+         nil)
+      (when (eq object-type struct-type)
+        (return t)))))
 
 (defun copy-structure (structure)
   (assert (sys.int::structure-object-p structure) (structure) "STRUCTURE is not a structure!")
@@ -86,3 +87,17 @@
                                     (sys.int::copy-list-in-area slots :wired)
                                     parent
                                     area))
+
+(defun %make-structure-header (structure-definition)
+  (with-live-objects (structure-definition)
+    (sys.int::%%assemble-value
+     (logior (ash (sys.int::lisp-object-address structure-definition)
+                  sys.int::+object-data-shift+)
+             (ash sys.int::+object-tag-structure-object+
+                  sys.int::+object-type-shift+))
+     sys.int::+tag-structure-header+)))
+
+(defun %unpack-structure-header (structure-header)
+  (sys.int::%%assemble-value
+   (ash (sys.int::lisp-object-address structure-header) (- sys.int::+object-data-shift+))
+   0))

@@ -468,6 +468,9 @@
        (dotimes (i total-size)
          (setf (row-major-aref temp-array i) (extract-object (aref stack (+ (length stack) i)))))
        (save-object temp-array)))
+    (#.sys.int::+llf-structure-header+
+     (make-value (ash (stack-pop stack) sys.int::+object-data-shift+)
+                 sys.int::+tag-structure-header+))
 ))
 
 (defun load-llf (stream)

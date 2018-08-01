@@ -901,7 +901,12 @@ First return value is a list of elements, second is the final dotted component (
                      form))
                (t
                 (ast `(let ((obj ,(first (arguments form))))
-                        (if (call sys.int::structure-type-p obj ',(ast-value (second (arguments form))))
+                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                 (ast-value (second (arguments form)))))
+                                    't
+                                    (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
+                                'nil)
                             (the ,(sys.int::structure-slot-definition-type (ast-value (third (arguments form))))
                                  (call sys.int::%object-ref-t
                                        obj
@@ -934,7 +939,12 @@ First return value is a list of elements, second is the final dotted component (
                (t
                 (ast `(let ((val ,(first (arguments form)))
                             (obj ,(second (arguments form))))
-                        (if (call sys.int::structure-type-p obj ',(ast-value (third (arguments form))))
+                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                 (ast-value (third (arguments form)))))
+                                    't
+                                    (call sys.int::structure-type-p obj ',(ast-value (third (arguments form)))))
+                                'nil)
                             (progn
                               (if (source-call typep val ',(sys.int::structure-slot-definition-type (ast-value (fourth (arguments form)))))
                                   'nil
@@ -982,7 +992,12 @@ First return value is a list of elements, second is the final dotted component (
                 (ast `(let ((old ,(first (arguments form)))
                             (new ,(second (arguments form)))
                             (obj ,(third (arguments form))))
-                        (if (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form))))
+                        (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
+                                (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
+                                                                                 (ast-value (fourth (arguments form)))))
+                                    't
+                                    (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form)))))
+                                'nil)
                             (progn
                               (if (source-call typep new ',(sys.int::structure-slot-definition-type (ast-value (fifth (arguments form)))))
                                   'nil

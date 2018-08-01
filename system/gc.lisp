@@ -199,6 +199,13 @@ This is required to make the GC interrupt safe."
   (when (immediatep object)
     ;; Don't care about immediate objects, return them unchanged.
     (return-from scavenge-object object))
+  (when (%value-has-tag-p object +tag-structure-header+)
+    ;; Structure headers will be returned unchanged, and the pointed to
+    ;; structure definition will be scavenged.
+    ;; This assumes that structure headers only refer to pinned/wired objects
+    ;; and don't need to move.
+    (scavenge-object (mezzano.runtime::%unpack-structure-header object) cycle-kind)
+    (return-from scavenge-object object))
   (let ((address (ash (%pointer-field object) 4)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
       ((#.+address-tag-general+
@@ -1522,6 +1529,13 @@ Additionally update the card table offset fields."
   (let ((object (memref-t field-address)))
     (when (immediatep object)
       ;; Don't care about immediate objects, return them unchanged.
+      (return-from verify-one object))
+    (when (%value-has-tag-p object +tag-structure-header+)
+      ;; Structure headers will be returned unchanged, and the pointed to
+      ;; structure definition will be scavenged.
+      ;; This assumes that structure headers only refer to pinned/wired objects
+      ;; and don't need to move.
+      (verify-one (mezzano.runtime::%unpack-structure-header object) gen)
       (return-from verify-one object))
     (let ((object-address (ash (%pointer-field object) 4)))
       (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
