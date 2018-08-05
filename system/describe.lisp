@@ -5,6 +5,12 @@
 
 (defgeneric describe-object (object stream))
 
+(defmethod describe-object (object stream)
+  (format stream "~S is a ~:(~A~), with address ~X~%"
+          object
+          (type-of object)
+          (lisp-object-address object)))
+
 (defmethod describe-object ((object symbol) stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
   (if (symbol-package object)
