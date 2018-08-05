@@ -103,7 +103,7 @@
 ;;#b101011
 ;;#b101100
 ;;#b101101
-;;#b101110
+(defconstant +object-tag-symbol-value-cell+       #b101110)
 (defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
 ;; Low two bits must match high two bits of +tag-structure-header+.
@@ -327,6 +327,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-complex-single-float+      #x22)
 (defconstant +llf-complex-double-float+      #x23)
 (defconstant +llf-structure-header+          #x24)
+(defconstant +llf-symbol-global-value-cell+  #x25)
 
 ;;; Fields in the Unicode info tables.
 

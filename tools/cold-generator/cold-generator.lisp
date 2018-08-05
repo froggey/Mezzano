@@ -514,7 +514,7 @@
     address))
 
 (defun populate-symbol (address name package value &optional is-constant)
-  (let ((global-cell (allocate 4 :wired)))
+  (let ((global-cell (allocate 6 :wired)))
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
                                              (if is-constant
                                                  (ash sys.int::+symbol-mode-constant+ (cross-cl:byte-position sys.int::+symbol-header-mode+))
@@ -525,10 +525,11 @@
           (word (+ address 4)) (vsym nil) ; function
           (word (+ address 5)) (vsym nil) ; plist
           (word (+ address 6)) (vsym t)) ;type
-    (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
+    (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-symbol-value-cell+ 4)
           (word (+ global-cell 1)) (vsym nil)
-          (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
-          (word (+ global-cell 3)) value)))
+          (word (+ global-cell 2)) (make-value global-cell sys.int::+tag-object+)
+          (word (+ global-cell 3)) value
+          (word (+ global-cell 4)) (make-value address sys.int::+tag-object+))))
 
 (defun populate-structure-definition (address name slots parent area)
   (setf (word (+ address 0)) (structure-header (make-value *structure-definition-definition* sys.int::+tag-object+))

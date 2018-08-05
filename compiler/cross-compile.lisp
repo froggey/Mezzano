@@ -578,6 +578,17 @@
 (defun sys.int::function-reference (name)
   (resolve-fref name))
 
+;; Should be a weak hash table.
+(defvar *symbol-global-value-cell-table* (make-hash-table :test #'equal))
+
+(defstruct (cross-symbol-global-value-cell
+             (:constructor make-cross-symbol-global-value-cell (name)))
+  name)
+
+(defun mezzano.runtime::symbol-global-value-cell (symbol)
+  (alexandria:ensure-gethash symbol *symbol-global-value-cell-table*
+                             (make-cross-symbol-global-value-cell symbol)))
+
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
@@ -657,6 +668,10 @@
 (defmethod save-one-object ((object cross-fref) omap stream)
   (save-object (cross-fref-name object) omap stream)
   (write-byte sys.int::+llf-function-reference+ stream))
+
+(defmethod save-one-object ((object cross-symbol-global-value-cell) omap stream)
+  (save-object (cross-symbol-global-value-cell-name object) omap stream)
+  (write-byte sys.int::+llf-symbol-global-value-cell+ stream))
 
 (defmethod save-one-object ((object cross-function) omap stream)
   (let ((constants (cross-function-constants object)))

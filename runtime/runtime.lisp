@@ -8,8 +8,8 @@
   (loop (when (eq target-special-stack-pointer (sys.int::%%special-stack-pointer))
           (return))
      (assert (sys.int::%%special-stack-pointer))
-     (etypecase (svref (sys.int::%%special-stack-pointer) 1)
-       (symbol
+     (etypecase (sys.int::%object-ref-t (sys.int::%%special-stack-pointer) 1)
+       (symbol-value-cell
         (sys.int::%%unbind))
        (simple-vector
         (sys.int::%%disestablish-block-or-tagbody))
@@ -28,10 +28,11 @@
         (sym (gensym)))
     `(loop
         with ,sym = ,symbol
-        for ,ssp = (sys.int::%%special-stack-pointer) then (svref ,ssp 0)
+        for ,ssp = (sys.int::%%special-stack-pointer) then (sys.int::%object-ref-t ,ssp 0)
         until (null ,ssp)
-        when (eql (svref ,ssp 1) ,sym)
-        do (let ((,value (svref ,ssp 2)))
+        when (and (symbol-value-cell-p ,ssp)
+                  (eq (symbol-value-cell-symbol ,ssp) ,sym))
+        do (let ((,value (sys.int::%object-ref-t ,ssp 2)))
              ,@body)
         finally (return ,result))))
 
@@ -132,7 +133,7 @@
                           (car values)
                           (%unbound-value))))
            (check-type symbol symbol)
-           (%%bind symbol value)
+           (%%bind (mezzano.runtime::symbol-global-value-cell symbol) value)
            (multiple-value-prog1
                (%progv (cdr symbols) (cdr values) fn)
              (%%unbind))))

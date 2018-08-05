@@ -28,6 +28,11 @@
                (global-cell (make-instance 'ir:virtual-register))
                (cache-temp (make-instance 'ir:virtual-register))
                (miss-result (make-instance 'ir:virtual-register)))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
+                                :inputs (list symbol)
+                                :outputs (list global-cell)))
            (when (not (constant-value-p symbol 'symbol))
              ;; For global symbols, don't even look at the cache.
              ;; Cache entries exist on the stack, which may not be paged in.
@@ -51,20 +56,14 @@
                                   :true-target not-global
                                   :false-target is-global))
              (emit is-global)
-             (emit (make-instance 'x86-instruction
-                                  :opcode 'lap:mov64
-                                  :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
-                                  :inputs (list symbol)
-                                  :outputs (list global-cell)))
              (emit (make-instance 'ir:jump-instruction
                                   :target resume
                                   :values (list global-cell)))
              (emit not-global))
-
            ;; Compute symbol hash. Symbols are wired, so use the address.
            ;; Ignore the low 4 bits.
            (emit (make-instance 'ir:move-instruction
-                                :source symbol
+                                :source global-cell
                                 :destination :rax))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:shr32
@@ -98,8 +97,8 @@
              (emit tmp))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:cmp64
-                                :operands (list symbol `(:object ,cache-temp ,sys.int::+symbol-value-cell-symbol+))
-                                :inputs (list symbol cache-temp)
+                                :operands (list global-cell `(:object ,cache-temp ,sys.int::+symbol-value-cell-symbol+))
+                                :inputs (list global-cell cache-temp)
                                 :outputs (list)))
            (emit (make-instance 'x86-branch-instruction
                                 :opcode 'lap:jne
@@ -131,7 +130,7 @@
                                 :prefix '(lap:gs)))
            ;; Recompute the hash.
            (emit (make-instance 'ir:move-instruction
-                                :source symbol
+                                :source global-cell
                                 :destination :rax))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:shr32

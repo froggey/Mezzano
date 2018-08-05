@@ -433,6 +433,7 @@
     (byte                                          (find-class-cached 'byte))
     (mezzano.simd:mmx-vector                       (find-class-cached 'mezzano.simd:mmx-vector))
     (mezzano.simd:sse-vector                       (find-class-cached 'mezzano.simd:sse-vector))
+    (mezzano.runtime::symbol-value-cell            (find-class-cached 'mezzano.runtime::symbol-value-cell))
     (structure-object
      (class-of-structure-definition (sys.int::%struct-type x)))
     (t                                             (find-class-cached 't))))

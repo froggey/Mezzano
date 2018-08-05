@@ -845,7 +845,8 @@
     (emit (make-instance 'push-special-stack-instruction
                          :a-value symbol
                          :b-value value
-                         :frame frame))
+                         :frame frame
+                         :tag sys.int::+object-tag-symbol-value-cell+))
     (emit (make-instance 'flush-binding-cache-entry-instruction
                          :symbol symbol
                          :new-value frame))

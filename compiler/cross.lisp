@@ -692,6 +692,7 @@
            #:push-special-stack-a-value
            #:push-special-stack-b-value
            #:push-special-stack-frame
+           #:push-special-stack-tag
 
            #:flush-binding-cache-entry-instruction
            #:flush-binding-cache-entry-symbol

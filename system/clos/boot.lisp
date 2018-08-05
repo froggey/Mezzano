@@ -290,6 +290,7 @@
 (defclass stream (t) ())
 (defclass mezzano.supervisor:thread (t) () (:metaclass built-in-class))
 (defclass sys.int::function-reference (t) () (:metaclass built-in-class))
+(defclass mezzano.runtime::symbol-value-cell (t) () (:metaclass built-in-class))
 (defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
 ;; FIXME: This doesn't quite work with large bytes.
 (defclass byte (t) () (:metaclass built-in-class))

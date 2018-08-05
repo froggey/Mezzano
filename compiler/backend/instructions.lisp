@@ -787,7 +787,9 @@
 (defclass push-special-stack-instruction (backend-instruction)
   ((%a-value :initarg :a-value :accessor push-special-stack-a-value)
    (%b-value :initarg :b-value :accessor push-special-stack-b-value)
-   (%frame :initarg :frame :accessor push-special-stack-frame)))
+   (%frame :initarg :frame :accessor push-special-stack-frame)
+   (%tag :initarg :tag :accessor push-special-stack-tag))
+  (:default-initargs :tag sys.int::+object-tag-array-t+))
 
 (defmethod instruction-inputs ((instruction push-special-stack-instruction))
   (list (push-special-stack-a-value instruction) (push-special-stack-b-value instruction)))

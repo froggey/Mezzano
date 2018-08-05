@@ -954,7 +954,8 @@ This is required to make the GC interrupt safe."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+)
+      #.+object-tag-funcallable-instance+
+      #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
      (scan-generic object (1+ (%object-header-data object)) cycle-kind))
@@ -1186,7 +1187,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
            #.+object-tag-closure+
-           #.+object-tag-funcallable-instance+)
+           #.+object-tag-funcallable-instance+
+           #.+object-tag-symbol-value-cell+)
           ;; simple-vector-like.
           ;; 1+ to account for the header word.
           (1+ length))
@@ -1567,7 +1569,8 @@ Additionally update the card table offset fields."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+)
+      #.+object-tag-funcallable-instance+
+      #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
      (verify-generic object (1+ (%object-header-data object)) gen))

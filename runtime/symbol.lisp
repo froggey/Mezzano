@@ -7,15 +7,29 @@
 
 ;; Symbol value cell manipulation.
 
-(declaim (inline symbol-value-cell-symbol
+(declaim (inline symbol-value-cell-p
+                 symbol-value-cell-symbol
                  symbol-value-cell-value
                  (setf symbol-value-cell-value)
                  (sys.int::cas symbol-value-cell-value)
                  symbol-value-cell-boundp
                  symbol-value-cell-makunbound))
 
+(deftype symbol-value-cell ()
+  '(satisfies symbol-value-cell-p))
+
+(defun symbol-value-cell-p (object)
+  (sys.int::%object-of-type-p object sys.int::+object-tag-symbol-value-cell+))
+
+(defun symbol-global-value-cell-p (object)
+  (and (symbol-value-cell-p object)
+       (eq (sys.int::%object-header-data object) 4)))
+
 (defun symbol-value-cell-symbol (cell)
-  (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-symbol+))
+  ;; Fetch the original global cell, then pull the symbol out of that.
+  (sys.int::%object-ref-t
+   (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-symbol+)
+   3))
 
 (defun symbol-value-cell-value (cell)
   (let ((value (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+)))
@@ -122,12 +136,13 @@
     (return-from symbol-value-cell
       (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
   ;; Walk the special stack, looking for an associated binding.
-  (do ((ssp (sys.int::%%special-stack-pointer)
+  (do ((global-cell (symbol-global-value-cell symbol))
+       (ssp (sys.int::%%special-stack-pointer)
             (sys.int::%object-ref-t ssp 0)))
       ((null ssp)
        ;; Fall back on the global cell.
        (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
-    (when (eq (sys.int::%object-ref-t ssp 1) symbol)
+    (when (eq (sys.int::%object-ref-t ssp 1) global-cell)
       (return ssp))))
 
 (defun symbol-value (symbol)

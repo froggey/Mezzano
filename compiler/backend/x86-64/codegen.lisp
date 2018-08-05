@@ -953,7 +953,9 @@
   (let ((slots (gethash instruction *prepass-data*))
         (frame-reg (ir:push-special-stack-frame instruction)))
     ;; Flush slots.
-    (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+object-data-shift+))
+    (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(logior (ash 3 sys.int::+object-data-shift+)
+                                                     (ash (ir:push-special-stack-tag instruction)
+                                                          sys.int::+object-type-shift+)))
           `(lap:mov64 (:stack ,(+ slots 2)) nil)
           `(lap:mov64 (:stack ,(+ slots 1)) nil)
           `(lap:mov64 (:stack ,(+ slots 0)) nil))

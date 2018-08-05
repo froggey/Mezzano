@@ -76,6 +76,14 @@
   (print-unreadable-object (o stream :identity t :type t)
     (write (function-reference-name o) :stream stream)))
 
+(defmethod print-object ((o mezzano.runtime::symbol-value-cell) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (format stream "~A~A"
+            (mezzano.runtime::symbol-value-cell-symbol o)
+            (if (mezzano.runtime::symbol-global-value-cell-p o)
+                " [global]"
+                ""))))
+
 (defmethod print-object ((o weak-pointer) stream)
   (print-unreadable-object (o stream :identity t :type t)
     (multiple-value-bind (key value livep)

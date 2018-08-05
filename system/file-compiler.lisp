@@ -361,6 +361,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (function-reference-name object) omap stream)
   (write-byte +llf-function-reference+ stream))
 
+(defmethod save-one-object ((object mezzano.runtime::symbol-value-cell) omap stream)
+  (assert (mezzano.runtime::symbol-global-value-cell-p object))
+  (save-object (mezzano.runtime::symbol-value-cell-symbol object) omap stream)
+  (write-byte +llf-symbol-global-value-cell+ stream))
+
 (defmethod save-one-object ((object byte) omap stream)
   (write-byte sys.int::+llf-byte+ stream)
   (save-integer (byte-size object) stream)
