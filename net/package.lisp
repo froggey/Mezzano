@@ -32,7 +32,8 @@
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:export #:arp-lookup))
+  (:export #:arp-lookup
+           #:start-arp-expiration))
 
 (defpackage :mezzano.network.ip
   (:use :cl)

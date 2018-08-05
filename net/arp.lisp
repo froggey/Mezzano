@@ -8,9 +8,11 @@
 
 (defconstant +arp-hrd-ethernet+ 1)
 
+(defvar *arp-expiration-time* 600)
 ;;; The ARP table is a list of lists. Each list holds:
 ;;; (protocol-type protocol-address network-address age)
 (defvar *arp-table* nil)
+(defvar *arp-lock* (mezzano.supervisor:make-mutex "ARP routing table."))
 
 (defun arp-receive (interface packet)
   (let* ((htype (ub16ref/be packet 14))
@@ -44,7 +46,10 @@
             (return)))
         (when (and address (eql tpa address))
           (unless merge-flag
-            (push (list ptype spa (subseq packet sha-start spa-start) 0) *arp-table*))
+            (mezzano.supervisor:with-mutex (*arp-lock*)
+              (push (list ptype spa (subseq packet sha-start spa-start)
+                          (+ *arp-expiration-time* (get-universal-time)))
+                    *arp-table*)))
           (when (eql oper +arp-op-request+)
             ;; Copy source hardware address to dest MAC and target h/w address.
             (dotimes (i 6)
@@ -106,3 +111,21 @@ Returns NIL if there is no entry currently in the cache, this will trigger a loo
       (return-from arp-lookup (third e))))
   (send-arp interface ptype address)
   nil)
+
+(defun start-arp-expiration ()
+  (mezzano.supervisor:make-thread
+   #'(lambda ()
+       (loop :do (let ((time (get-universal-time)))
+                   (mezzano.supervisor:with-mutex (*arp-lock*)
+                     (setf *arp-table* (remove-if #'(lambda (arp)
+                                                      (>= time (fourth arp)))
+                                                  *arp-table*)))
+                   (if *arp-table*
+                       (loop :with min-time := (fourth (car *arp-table*))
+                             :for arp :in *arp-table*
+                             :for arp-expiration-time := (fourth arp)
+                             :while (< arp-expiration-time min-time)
+                             :do (setf min-time arp-expiration-time)
+                             :finally (sleep (- min-time time)))
+                       (sleep *arp-expiration-time*)))))
+   :name "ARP expiration"))
