@@ -12,27 +12,11 @@
           "SETF VALUES not supported here.")
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-                           (get (car place) 'setf-expander)))
-            (update-fn (and (symbolp (car place))
-                            (get (car place) 'setf-update-fn))))
+                           (get (car place) 'setf-expander))))
         (cond
           (expander
            ;; Invoke the exansion function.
            (funcall expander place environment))
-          (update-fn
-           (let ((vars '())
-                 (vals '())
-                 (store-sym (gensym)))
-             (dolist (arg (cdr place))
-               (setf vars (cons (gensym) vars)
-                     vals (cons arg vals)))
-             (setf vars (nreverse vars)
-                   vals (nreverse vals))
-             (values vars vals (list store-sym)
-                     (append (list update-fn)
-                             vars
-                             (list store-sym))
-                     (list* (car place) vars))))
           (t (multiple-value-bind (expansion expanded-p)
                  (macroexpand-1 place environment)
                (if expanded-p
@@ -188,8 +172,7 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander)
-  (setf (get access-fn 'setf-expander) expander
-        (get access-fn 'setf-update-fn) nil))
+  (setf (get access-fn 'setf-expander) expander))
 )
 
 (define-modify-macro incf (&optional (delta 1)) +)
@@ -218,14 +201,6 @@
       (setf (first results) 'psetf)
       `(progn ,results 'nil))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-(defun %defsetf-short-form (access-fn update-fn documentation)
-  (declare (ignore documentation))
-  (setf (get access-fn 'setf-expander) nil
-        (get access-fn 'setf-update-fn) update-fn)
-  access-fn)
-)
-
 (defmacro defsetf (access-fn &rest args)
   (cond ((listp (first args))
          `(defsetf-long ,access-fn ,@args))
@@ -233,8 +208,12 @@
          `(defsetf-short ,access-fn ,@args))))
 
 (defmacro defsetf-short (access-fn update-fn &optional documentation)
-  `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (%defsetf-short-form ',access-fn ',update-fn ',documentation)))
+  (check-type documentation (or null string))
+  (let ((args (gensym "ARGS"))
+        (value (gensym "VALUE")))
+    `(defsetf-long ,access-fn (&rest ,args) (,value)
+       ,@documentation
+       `(,',update-fn ,@,args ,,value))))
 
 (defmacro defsetf-long (access-fn lambda-list store-variables &body body)
   (when (member '&aux lambda-list)
@@ -267,8 +246,7 @@
                      store-syms
                      expansion
                      `(,access-fn ,@param-syms)))))
-    (setf (get access-fn 'setf-expander) #'expand
-          (get access-fn 'setf-update-fn) nil))
+    (setf (get access-fn 'setf-expander) #'expand))
   access-fn)
 )
 
