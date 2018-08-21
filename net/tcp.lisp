@@ -145,36 +145,35 @@
                 (setf (tcp-connection-state connection) :closed)
                 (detach-tcp-connection connection))))
         (:established
-         (cond
-           ((eql seq (tcp-connection-r-next connection))
-            (unless (eql data-length 0)
-              ;; Send data to the user layer
-              (if (tcp-connection-rx-data connection)
-                  (setf (cdr (last (tcp-connection-rx-data connection))) (list (list packet (+ start header-length) end)))
-                  (setf (tcp-connection-rx-data connection) (list (list packet (+ start header-length) end))))
-              (setf (tcp-connection-r-next connection)
-                    (logand (+ (tcp-connection-r-next connection) data-length)
-                            #xFFFFFFFF)))
-            (cond
-              ((logtest flags +tcp4-flag-fin+)
-               ;; Always ack FIN packets.
-               (setf (tcp-connection-state connection) :close-wait
-                     (tcp-connection-r-next connection)
-                     (logand (+ (tcp-connection-r-next connection) 1)
-                             #xFFFFFFFF))
-               (tcp4-send-packet connection
-                                 (tcp-connection-s-next connection)
-                                 (tcp-connection-r-next connection)
-                                 nil
-                                 :fin-p t))
-              ((not (eql data-length 0))
-               (tcp4-send-packet connection
-                                 (tcp-connection-s-next connection)
-                                 (tcp-connection-r-next connection)
-                                 nil))))
-           (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
-            (format t "TCP: Ignoring packet with sequence number ~D, wanted ~D.~%"
-                    seq (tcp-connection-r-next connection)))))
+         (if (zerop data-length)
+             (when (= seq (tcp-connection-r-next connection))
+               (cond ((logtest flags +tcp4-flag-fin+)
+                      (setf (tcp-connection-state connection) :close-wait
+                            (tcp-connection-r-next connection)
+                            (logand (+ (tcp-connection-r-next connection) 1)
+                                    #xFFFFFFFF))
+                      (tcp4-send-packet connection ack seq nil :ack-p t))))
+             (progn
+               (when (= seq (tcp-connection-r-next connection))
+                 ;; Send data to the user layer
+                 (if (tcp-connection-rx-data connection)
+                     (setf (cdr (last (tcp-connection-rx-data connection)))
+                           (list (list packet (+ start header-length) end)))
+                     (setf (tcp-connection-rx-data connection)
+                           (list (list packet (+ start header-length) end))))
+                 (setf (tcp-connection-r-next connection)
+                       (logand (+ (tcp-connection-r-next connection) data-length)
+                               #xFFFFFFFF)))
+               (cond ((<= seq (tcp-connection-r-next connection))
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil
+                                        :ack-p t))
+                     ;; Ignore future out-of-order packets, should be managed instead.
+                     (t (format t "TCP state :established. ~
+                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
+                                seq (tcp-connection-r-next connection)))))))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
@@ -185,95 +184,109 @@
            (detach-tcp-connection connection)))
         (:fin-wait-1
          ;; Local closed, waiting for remote to close.
-         (cond
-           ((eql seq (tcp-connection-r-next connection))
-            (unless (eql data-length 0)
-              ;; Send data to the user layer
-              (if (tcp-connection-rx-data connection)
-                  (setf (cdr (last (tcp-connection-rx-data connection))) (list (list packet (+ start header-length) end)))
-                  (setf (tcp-connection-rx-data connection) (list (list packet (+ start header-length) end))))
-              (setf (tcp-connection-r-next connection)
-                    (logand (+ (tcp-connection-r-next connection) data-length)
-                            #xFFFFFFFF)))
-            (when (logtest flags +tcp4-flag-fin+)
-              (setf (tcp-connection-r-next connection)
-                    (logand (+ (tcp-connection-r-next connection) 1)
-                            #xFFFFFFFF)))
-            (cond ((and (logtest flags +tcp4-flag-ack+)
-                        (logtest flags +tcp4-flag-fin+))
-                   ;; Remote saw our FIN and closed as well.
-                   (tcp4-send-packet connection
-                                     (tcp-connection-s-next connection)
-                                     (tcp-connection-r-next connection)
-                                     nil)
-                   (setf (tcp-connection-state connection) :closed)
-                   (detach-tcp-connection connection))
-                  ((logtest flags +tcp4-flag-ack+)
-                   ;; Remote saw FIN, but stays open.
-                   (setf (tcp-connection-state connection) :fin-wait-2)
-                   (when (not (eql data-length 0))
-                     (tcp4-send-packet connection
-                                       (tcp-connection-s-next connection)
-                                       (tcp-connection-r-next connection)
-                                       nil)))
-                  ((logtest flags +tcp4-flag-fin+)
-                   ;; Simultaneous close.
-                   (tcp4-send-packet connection
-                                     (tcp-connection-s-next connection)
-                                     (tcp-connection-r-next connection)
-                                     nil)
-                   (setf (tcp-connection-state connection) :closing))
-                  ((not (eql data-length 0))
-                   (tcp4-send-packet connection
-                                     (tcp-connection-s-next connection)
-                                     (tcp-connection-r-next connection)
-                                     nil))))
-           (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
-            (format t "TCP: Ignoring packet with sequence number ~D, wanted ~D.~%"
-                    seq (tcp-connection-r-next connection)))))
+         (if (zerop data-length)
+             (when (= seq (tcp-connection-r-next connection))
+               (when (logtest flags +tcp4-flag-fin+)
+                 (setf (tcp-connection-r-next connection)
+                       (logand (+ (tcp-connection-r-next connection) 1)
+                               #xFFFFFFFF)))
+               (cond ((and (logtest flags +tcp4-flag-ack+)
+                           (logtest flags +tcp4-flag-fin+))
+                      ;; Remote saw our FIN and closed as well.
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil)
+                      (setf (tcp-connection-state connection) :closed)
+                      (detach-tcp-connection connection))
+                     ((logtest flags +tcp4-flag-ack+)
+                      ;; Remote saw FIN, but stays open.
+                      (setf (tcp-connection-state connection) :fin-wait-2)
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil))
+                     ((logtest flags +tcp4-flag-fin+)
+                      ;; Simultaneous close.
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil)
+                      (setf (tcp-connection-state connection) :closing))))
+             (progn
+               (when (= seq (tcp-connection-r-next connection))
+                 ;; Send data to the user layer
+                 (if (tcp-connection-rx-data connection)
+                     (setf (cdr (last (tcp-connection-rx-data connection)))
+                           (list (list packet (+ start header-length) end)))
+                     (setf (tcp-connection-rx-data connection)
+                           (list (list packet (+ start header-length) end))))
+                 (setf (tcp-connection-r-next connection)
+                       (logand (+ (tcp-connection-r-next connection) data-length)
+                               #xFFFFFFFF)))
+               (cond ((<= seq (tcp-connection-r-next connection))
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil
+                                        :ack-p t))
+                     ;; Ignore future out-of-order packets, should be managed instead.
+                     (t (format t "TCP state :established. ~
+                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
+                                seq (tcp-connection-r-next connection)))))))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
-         (cond
-           ((eql seq (tcp-connection-r-next connection))
-            (unless (eql data-length 0)
-              ;; Send data to the user layer
-              (if (tcp-connection-rx-data connection)
-                  (setf (cdr (last (tcp-connection-rx-data connection))) (list (list packet (+ start header-length) end)))
-                  (setf (tcp-connection-rx-data connection) (list (list packet (+ start header-length) end))))
-              (setf (tcp-connection-r-next connection)
-                    (logand (+ (tcp-connection-r-next connection) data-length)
-                            #xFFFFFFFF)))
-            (when (logtest flags +tcp4-flag-fin+)
-              (setf (tcp-connection-r-next connection)
-                    (logand (+ (tcp-connection-r-next connection) 1)
-                            #xFFFFFFFF)))
-            (cond ((logtest flags +tcp4-flag-fin+)
-                   (tcp4-send-packet connection
-                                     (tcp-connection-s-next connection)
-                                     (tcp-connection-r-next connection)
-                                     nil)
-                   (setf (tcp-connection-state connection) :closed)
-                   (detach-tcp-connection connection))
-                  ((not (eql data-length 0))
-                   (tcp4-send-packet connection
-                                     (tcp-connection-s-next connection)
-                                     (tcp-connection-r-next connection)
-                                     nil
-                                     :rst-p t)
-                   (setf (tcp-connection-state connection) :closed)
-                   (detach-tcp-connection connection))
-                  (t
-                   (tcp4-send-packet connection
-                                     0
-                                     0
-                                     nil
-                                     :ack-p nil
-                                     :rst-p t)
-                   (setf (tcp-connection-state connection) :closed)
-                   (detach-tcp-connection connection))))
-           (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
-            (format t "TCP: Ignoring packet with sequence number ~D, wanted ~D.~%"
-                    seq (tcp-connection-r-next connection)))))
+         (if (zerop data-length)
+             (when (= seq (tcp-connection-r-next connection))
+               (when (logtest flags +tcp4-flag-fin+)
+                 (setf (tcp-connection-r-next connection)
+                       (logand (+ (tcp-connection-r-next connection) 1)
+                               #xFFFFFFFF)))
+               (cond ((logtest flags +tcp4-flag-fin+)
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil)
+                      (setf (tcp-connection-state connection) :closed)
+                      (detach-tcp-connection connection))
+                     ((not (eql data-length 0))
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil
+                                        :rst-p t)
+                      (setf (tcp-connection-state connection) :closed)
+                      (detach-tcp-connection connection))
+                     (t
+                      (tcp4-send-packet connection
+                                        0
+                                        0
+                                        nil
+                                        :ack-p nil
+                                        :rst-p t)
+                      (setf (tcp-connection-state connection) :closed)
+                      (detach-tcp-connection connection))))
+             (progn
+               (when (= seq (tcp-connection-r-next connection))
+                 ;; Send data to the user layer
+                 (if (tcp-connection-rx-data connection)
+                     (setf (cdr (last (tcp-connection-rx-data connection)))
+                           (list (list packet (+ start header-length) end)))
+                     (setf (tcp-connection-rx-data connection)
+                           (list (list packet (+ start header-length) end))))
+                 (setf (tcp-connection-r-next connection)
+                       (logand (+ (tcp-connection-r-next connection) data-length)
+                               #xFFFFFFFF)))
+               (cond ((<= seq (tcp-connection-r-next connection))
+                      (tcp4-send-packet connection
+                                        (tcp-connection-s-next connection)
+                                        (tcp-connection-r-next connection)
+                                        nil
+                                        :ack-p t))
+                     ;; Ignore future out-of-order packets, should be managed instead.
+                     (t (format t "TCP state :established. ~
+                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
+                                seq (tcp-connection-r-next connection)))))))
         (:closing
          (cond ((eql seq (tcp-connection-r-next connection))
                 (when (logtest flags +tcp4-flag-ack+)
