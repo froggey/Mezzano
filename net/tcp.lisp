@@ -128,6 +128,11 @@
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
+               ((logtest flags +tcp4-flag-syn+)
+                (setf (tcp-connection-state connection) :syn-received
+                      (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
+                (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
+                                  :ack-p t :syn-p t))
                (t
                 (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags)
                 (setf (tcp-connection-state connection) :connection-aborted)
