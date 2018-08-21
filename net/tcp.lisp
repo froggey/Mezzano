@@ -239,35 +239,17 @@
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (if (zerop data-length)
-             (when (= seq (tcp-connection-r-next connection))
-               (when (logtest flags +tcp4-flag-fin+)
-                 (setf (tcp-connection-r-next connection)
-                       (logand (+ (tcp-connection-r-next connection) 1)
-                               #xFFFFFFFF)))
-               (cond ((logtest flags +tcp4-flag-fin+)
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil)
-                      (setf (tcp-connection-state connection) :closed)
-                      (detach-tcp-connection connection))
-                     ((not (eql data-length 0))
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil
-                                        :rst-p t)
-                      (setf (tcp-connection-state connection) :closed)
-                      (detach-tcp-connection connection))
-                     (t
-                      (tcp4-send-packet connection
-                                        0
-                                        0
-                                        nil
-                                        :ack-p nil
-                                        :rst-p t)
-                      (setf (tcp-connection-state connection) :closed)
-                      (detach-tcp-connection connection))))
+             (when (and (= seq (tcp-connection-r-next connection))
+                        (logtest flags +tcp4-flag-fin+))
+               (setf (tcp-connection-r-next connection)
+                     (logand (+ (tcp-connection-r-next connection) 1)
+                             #xFFFFFFFF))
+               (tcp4-send-packet connection
+                                 (tcp-connection-s-next connection)
+                                 (tcp-connection-r-next connection)
+                                 nil)
+               (setf (tcp-connection-state connection) :closed)
+               (detach-tcp-connection connection))
              (progn
                (when (= seq (tcp-connection-r-next connection))
                  ;; Send data to the user layer
