@@ -207,20 +207,14 @@
                                         nil)
                       (setf (tcp-connection-state connection) :closed)
                       (detach-tcp-connection connection))
-                     ((logtest flags +tcp4-flag-ack+)
-                      ;; Remote saw FIN, but stays open.
-                      (setf (tcp-connection-state connection) :fin-wait-2)
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil))
                      ((logtest flags +tcp4-flag-fin+)
-                      ;; Simultaneous close.
                       (tcp4-send-packet connection
                                         (tcp-connection-s-next connection)
                                         (tcp-connection-r-next connection)
                                         nil)
-                      (setf (tcp-connection-state connection) :closing))))
+                      (setf (tcp-connection-state connection) :closing))
+                     ((logtest flags +tcp4-flag-ack+)
+                      (setf (tcp-connection-state connection) :fin-wait-2))))
              (progn
                (when (= seq (tcp-connection-r-next connection))
                  ;; Send data to the user layer
