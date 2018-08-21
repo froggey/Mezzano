@@ -142,6 +142,9 @@
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
                 (setf (tcp-connection-state connection) :established))
+               ((and (logtest flags +tcp4-flag-syn+)
+                     (eql ack (1- (tcp-connection-s-next connection))))
+                (format t "TCP: Ignore duplicated syn packets."))
                (t
                 (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
                         ack (tcp-connection-s-next connection)
