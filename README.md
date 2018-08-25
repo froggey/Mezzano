@@ -9,9 +9,9 @@ Demo releases are available through [GitHub](https://github.com/froggey/Mezzano/
 These releases are designed to be run in VirtualBox, though QEMU is also supported.
 2GB of RAM, a virtio-net NIC and an Intel HDA audio controller are recommended.
 
-## Installation/building
+## Building from source
 
-See the MBuild repo for installation: (https://github.com/froggey/MBuild)
+See the MBuild repo: (https://github.com/froggey/MBuild)
 
 For help & support, join #mezzano on Freenode (irc.freenode.net)
 
