@@ -659,6 +659,7 @@
                     (sys.int::index nil :read-only t))))
           (path (merge-pathnames "%%structure-defs.llf"
                                  (build-directory))))
+      (ensure-directories-exist path)
       (sys.c::save-custom-compiled-file path
                                         (lambda ()
                                           (or (pop defs)
