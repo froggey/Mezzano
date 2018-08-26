@@ -7,6 +7,23 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
+(defun expand-setf-function-call (place environment)
+  ;; Generate an expansion for a function call form place.
+  (loop
+     with store-sym = (gensym)
+     for arg in (rest place)
+     for var = (gensym)
+     when (constantp arg environment)
+     collect arg into call-vars
+     else
+     collect var into call-vars
+     and collect var into vars
+     and collect arg into vals
+     finally
+       (return (values vars vals (list store-sym)
+                       `(funcall #'(setf ,(car place)) ,store-sym ,@call-vars)
+                       (list* (car place) call-vars)))))
+
 (defun get-setf-expansion (place &optional environment)
   (assert (not (and (consp place) (eql (first place) 'values))) (place)
           "SETF VALUES not supported here.")
@@ -22,21 +39,7 @@
                (if expanded-p
                    ;; Expand one level of macros.
                    (get-setf-expansion expansion environment)
-                   ;; Generate an expansion for a function call form place.
-                   (loop
-                      with store-sym = (gensym)
-                      for arg in (rest place)
-                      for var = (gensym)
-                      when (constantp arg environment)
-                      collect arg into call-vars
-                      else
-                      collect var into call-vars
-                      and collect var into vars
-                      and collect arg into vals
-                      finally
-                        (return (values vars vals (list store-sym)
-                                        `(funcall #'(setf ,(car place)) ,store-sym ,@call-vars)
-                                        (list* (car place) call-vars)))))))))
+                   (expand-setf-function-call expansion environment))))))
       (multiple-value-bind (expansion expanded-p)
           (macroexpand-1 place environment)
         (if expanded-p
