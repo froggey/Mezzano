@@ -358,8 +358,8 @@
            #:virtio-ring-disable-interrupts
            #:virtio-ring-enable-interrupts
            #:virtio-device-status
-           #:virtio-device-features
-           #:virtio-guest-features
+           #:virtio-device-feature
+           #:virtio-driver-feature
            #:virtio-isr-status
            #:virtio-device-irq
            #:virtio-attach-irq

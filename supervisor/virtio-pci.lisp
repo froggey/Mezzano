@@ -98,6 +98,36 @@
   (debug-print-line "  Notify CFG @ " (virtio-pci-device-notify-cfg device))
   (debug-print-line "    notify-off-multiplier: " (virtio-pci-device-notify-off-multiplier device)))
 
+(defun virtio-pci-transport-device-specific-header/8 (device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (pci-io-region/8 loc real-offset)))
+
+(defun (setf virtio-pci-transport-device-specific-header/8) (value device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (setf (pci-io-region/8 loc real-offset) value)))
+
+(defun virtio-pci-transport-device-specific-header/16 (device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (pci-io-region/16 loc real-offset)))
+
+(defun (setf virtio-pci-transport-device-specific-header/16) (value device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (setf (pci-io-region/16 loc real-offset) value)))
+
+(defun virtio-pci-transport-device-specific-header/32 (device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (pci-io-region/32 loc real-offset)))
+
+(defun (setf virtio-pci-transport-device-specific-header/32) (value device offset)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
+    (setf (pci-io-region/32 loc real-offset) value)))
+
 (defun virtio-pci-transport-device-status (device)
   (virtio-pci-common-cfg-device-status device))
 
@@ -227,6 +257,23 @@
   (accessor virtio-legacy-pci-transport-queue-notify +virtio-legacy-pci-queue-notify+ pci-io-region/16)
   (accessor virtio-legacy-pci-transport-device-status +virtio-legacy-pci-device-status+ pci-io-region/8)
   (accessor virtio-legacy-pci-transport-isr-status +virtio-legacy-pci-isr-status+ pci-io-region/8))
+
+(defun virtio-legacy-pci-transport-device-feature (device bit)
+  (cond ((< bit 32)
+         (logbitp bit (virtio-legacy-pci-transport-device-features device)))
+        (t nil)))
+
+(defun virtio-legacy-pci-transport-driver-feature (device bit)
+  (cond ((< bit 32)
+         (logbitp bit (virtio-legacy-pci-transport-guest-features device)))
+        (t nil)))
+
+(defun (setf virtio-legacy-pci-transport-driver-feature) (value device bit)
+  (cond ((< bit 32)
+         (setf (ldb (byte 1 bit) (virtio-legacy-pci-transport-guest-features device))
+               (if value 1 0))
+         value)
+        (t (error "feature bit ~D out of range" bit))))
 
 (defun virtio-legacy-pci-transport-device-specific-header/8 (device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."

@@ -326,11 +326,11 @@ and then some alignment.")
       (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                   +virtio-status-driver+))
       ;; Feature negotiation, we only have eyes for the MAC feature.
-      (when (not (logbitp +virtio-net-f-mac+ (virtio-device-features device)))
+      (when (not (virtio-device-feature device +virtio-net-f-mac+))
         (setf (virtio-device-status device) +virtio-status-failed+)
         (return-from virtio-net-initialize nil))
       ;; Enable MAC feature.
-      (setf (ldb (byte 1 +virtio-net-f-mac+) (virtio-guest-features device)) 1)
+      (setf (virtio-driver-feature device +virtio-net-f-mac+) t)
       ;; Allocate virtqueues.
       (when (not (virtio-configure-virtqueues device 2))
         (setf (virtio-device-status device) +virtio-status-failed+)
