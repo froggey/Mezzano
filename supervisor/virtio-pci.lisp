@@ -104,6 +104,26 @@
 (defun (setf virtio-pci-transport-device-status) (value device)
   (setf (virtio-pci-common-cfg-device-status device) value))
 
+(defun virtio-pci-transport-device-feature (device bit)
+  (multiple-value-bind (leaf leaf-bit)
+      (truncate bit 32)
+    (setf (virtio-pci-common-cfg-device-feature-select device) leaf)
+    (logbitp leaf-bit (virtio-pci-common-cfg-device-feature device))))
+
+(defun virtio-pci-transport-driver-feature (device bit)
+  (multiple-value-bind (leaf leaf-bit)
+      (truncate bit 32)
+    (setf (virtio-pci-common-cfg-driver-feature-select device) leaf)
+    (logbitp leaf-bit (virtio-pci-common-cfg-driver-feature device))))
+
+(defun (setf virtio-pci-transport-driver-feature) (value device bit)
+  (multiple-value-bind (leaf leaf-bit)
+      (truncate bit 32)
+    (setf (virtio-pci-common-cfg-driver-feature-select device) leaf)
+    (setf (ldb (byte 1 leaf-bit) (virtio-pci-common-cfg-driver-feature device))
+          (if value 1 0))
+    value))
+
 (defun virtio-pci-transport-kick (device vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-pci-common-cfg-queue-select device) vq-id)

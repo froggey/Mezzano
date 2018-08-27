@@ -64,22 +64,17 @@
 
 (defmacro define-virtio-transport (name)
   (let ((transport-functions '(device-specific-header/8
-                               (setf-device-specific-header/8
-                                device-specific-header/8)
+                               (setf-device-specific-header/8 device-specific-header/8)
                                device-specific-header/16
-                               (setf-device-specific-header/16
-                                device-specific-header/16)
+                               (setf-device-specific-header/16 device-specific-header/16)
                                device-specific-header/32
-                               (setf-device-specific-header/32
-                                device-specific-header/32)
+                               (setf-device-specific-header/32 device-specific-header/32)
                                kick
                                device-status
-                               (setf-device-status
-                                device-status)
-                               device-features
-                               guest-features
-                               (setf-guest-features
-                                guest-features)
+                               (setf-device-status device-status)
+                               device-feature
+                               driver-feature
+                               (setf-driver-feature driver-feature)
                                isr-status
                                device-irq
                                ack-irq
@@ -360,9 +355,9 @@
         (setf (virtio-device-claimed dev) drv)
         (return)))))
 
-(define-virtio-transport-function device-features (device))
-(define-virtio-transport-function guest-features (device))
-(define-virtio-transport-function (setf guest-features) (value device))
+(define-virtio-transport-function device-feature (device bit))
+(define-virtio-transport-function driver-feature (device bit))
+(define-virtio-transport-function (setf driver-feature) (value device bit))
 (define-virtio-transport-function isr-status (device))
 (define-virtio-transport-function device-irq (device))
 (define-virtio-transport-function ack-irq (device status))
