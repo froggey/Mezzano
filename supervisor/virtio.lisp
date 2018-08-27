@@ -30,6 +30,8 @@
   "The driver is set up and ready to drive the device.")
 (defconstant +virtio-status-failed+ #x80
  "The guest has given up on the device.")
+(defconstant +virtio-status-device-needs-reset+ #x40
+  "The device has experienced an error from which it can't recover.")
 
 (defconstant +virtio-ring-desc-size+ (+ 8 4 2 2))
 (defconstant +virtio-ring-used-elem-size+ (+ 4 4))
@@ -60,14 +62,39 @@
 (defconstant +virtio-ring-used-elem-id-offset+ 0)
 (defconstant +virtio-ring-used-elem-len-offset+ 4)
 
+(defmacro define-virtio-transport (name)
+  (let ((transport-functions '(device-specific-header/8
+                               (setf-device-specific-header/8
+                                device-specific-header/8)
+                               device-specific-header/16
+                               (setf-device-specific-header/16
+                                device-specific-header/16)
+                               device-specific-header/32
+                               (setf-device-specific-header/32
+                                device-specific-header/32)
+                               kick
+                               device-status
+                               (setf-device-status
+                                device-status)
+                               device-features
+                               guest-features
+                               (setf-guest-features
+                                guest-features)
+                               isr-status
+                               device-irq
+                               ack-irq
+                               configure-virtqueues)))
+    `(defun ,name (function)
+       (ecase function
+         ,@(loop
+              for fn in transport-functions
+              collect (if (consp fn) ; setf function.
+                          (list (first fn) `#'(setf ,(intern (format nil "~A-~A" name (second fn)))))
+                          (list fn `',(intern (format nil "~A-~A" name fn)))))))))
+
 (defstruct (virtio-device
              (:area :wired))
-  ;; Access through the PCI config space.
-  pci-device
-  header
-  ;; Access through MMIO.
-  mmio
-  mmio-irq
+  transport
   virtqueues
   did
   claimed
@@ -92,41 +119,31 @@
 (defun virtio-virtqueue (device virtqueue)
   (svref (virtio-device-virtqueues device) virtqueue))
 
-(defun virtio-device-specific-header/8 (device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (virtio-mmio-device-specific-header/8 device offset)
-      (virtio-pci-device-specific-header/8 device offset)))
+(defmacro define-virtio-transport-function (name lambda-list &optional docstring)
+  "Define a new transport function. The lambda list must contain a DEVICE entry."
+  `(defun ,(if (consp name)
+               `(setf ,(intern (format nil "VIRTIO-~A" (second name))))
+               (intern (format nil "VIRTIO-~A" name)))
+       ,lambda-list
+     ,docstring
+     (funcall (funcall (virtio-device-transport device)
+                       ',(if (consp name)
+                             (intern (format nil "SETF-~A" (second name)))
+                             name))
+              ,@lambda-list)))
 
-(defun (setf virtio-device-specific-header/8) (value device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (setf (virtio-mmio-device-specific-header/8 device offset) value)
-      (setf (virtio-pci-device-specific-header/8 device offset) value)))
-
-(defun virtio-device-specific-header/16 (device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (virtio-mmio-device-specific-header/16 device offset)
-      (virtio-pci-device-specific-header/16 device offset)))
-
-(defun (setf virtio-device-specific-header/16) (value device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (setf (virtio-mmio-device-specific-header/16 device offset) value)
-      (setf (virtio-pci-device-specific-header/16 device offset) value)))
-
-(defun virtio-device-specific-header/32 (device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (virtio-mmio-device-specific-header/32 device offset)
-      (virtio-pci-device-specific-header/32 device offset)))
-
-(defun (setf virtio-device-specific-header/32) (value device offset)
-  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (if (virtio-device-mmio device)
-      (setf (virtio-mmio-device-specific-header/32 device offset) value)
-      (setf (virtio-pci-device-specific-header/32 device offset) value)))
+(define-virtio-transport-function device-specific-header/8 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
+(define-virtio-transport-function (setf device-specific-header/8) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
+(define-virtio-transport-function device-specific-header/16 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
+(define-virtio-transport-function (setf device-specific-header/16) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
+(define-virtio-transport-function device-specific-header/32 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
+(define-virtio-transport-function (setf device-specific-header/32) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required.")
 
 (defun virtio-device-specific-header/64 (device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
@@ -292,11 +309,8 @@
                  (ldb (byte 16 0) (1+ (virtqueue-last-seen-used vq))))
            desc))))
 
-(defun virtio-kick (dev vq-id)
-  "Notify the device that new buffers have been added to VQ-ID."
-  (if (virtio-device-mmio dev)
-      (virtio-mmio-kick dev vq-id)
-      (virtio-pci-kick dev vq-id)))
+(define-virtio-transport-function kick (device vq-id)
+  "Notify the device that new buffers have been added to VQ-ID.")
 
 (defun virtio-ring-disable-interrupts (vq)
   (setf (virtio-ring-avail-flags vq) (logior (virtio-ring-avail-flags vq)
@@ -306,15 +320,8 @@
   (setf (virtio-ring-avail-flags vq) (logand (virtio-ring-avail-flags vq)
                                              (lognot (ash 1 +virtio-ring-avail-f-no-interrupt+)))))
 
-(defun virtio-device-status (dev)
-  (if (virtio-device-mmio dev)
-      (virtio-mmio-status dev)
-      (virtio-pci-device-status dev)))
-
-(defun (setf virtio-device-status) (value dev)
-  (if (virtio-device-mmio dev)
-      (setf (virtio-mmio-status dev) value)
-      (setf (virtio-pci-device-status dev) value)))
+(define-virtio-transport-function device-status (device))
+(define-virtio-transport-function (setf device-status) (value device))
 
 ;; Currently no lock required here, this is only modified at boot time
 ;; during device detection.
@@ -353,30 +360,13 @@
         (setf (virtio-device-claimed dev) drv)
         (return)))))
 
-(defun virtio-device-features (device)
-  (if (virtio-device-mmio device)
-      (virtio-mmio-host-features device)
-      (virtio-pci-device-features device)))
-
-(defun virtio-guest-features (device)
-  (if (virtio-device-mmio device)
-      (virtio-mmio-guest-features device)
-      (virtio-pci-guest-features device)))
-
-(defun (setf virtio-guest-features) (value device)
-  (if (virtio-device-mmio device)
-      (setf (virtio-mmio-guest-features device) value)
-      (setf (virtio-pci-guest-features device) value)))
-
-(defun virtio-isr-status (device)
-  (if (virtio-device-mmio device)
-      (virtio-mmio-interrupt-status device)
-      (virtio-pci-isr-status device)))
-
-(defun virtio-device-irq (device)
-  (if (virtio-device-mmio device)
-      (virtio-mmio-device-irq device)
-      (virtio-pci-device-irq device)))
+(define-virtio-transport-function device-features (device))
+(define-virtio-transport-function guest-features (device))
+(define-virtio-transport-function (setf guest-features) (value device))
+(define-virtio-transport-function isr-status (device))
+(define-virtio-transport-function device-irq (device))
+(define-virtio-transport-function ack-irq (device status))
+(define-virtio-transport-function configure-virtqueues (device n-queues))
 
 (defun virtio-attach-irq (device handler)
   (declare (sys.c::closure-allocation :wired))
@@ -388,15 +378,6 @@
                   (virtio-ack-irq device status))
                 :completed)
               device))
-
-(defun virtio-ack-irq (device status)
-  (when (virtio-device-mmio device)
-    (setf (virtio-mmio-interrupt-ack device) status)))
-
-(defun virtio-configure-virtqueues (device n-queues)
-  (if (virtio-device-mmio device)
-      (virtio-mmio-configure-virtqueues device n-queues)
-      (virtio-pci-configure-virtqueues device n-queues)))
 
 ;; FIXME: Access to this needs to be protected.
 ;; I'm not sure a mutex will cut it, it needs to be accessible

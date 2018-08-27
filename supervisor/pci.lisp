@@ -47,7 +47,13 @@
 (defconstant +pci-status-interrupt-status+ 3)
 (defconstant +pci-status-capabilities-list+ 4)
 
+(defconstant +pci-capability-vendor+ 0)
+(defconstant +pci-capability-next+ 1)
+(defconstant +pci-capability-length+ 2)
+(defconstant +pci-capability-vendor-type+ 3)
+
 (defconstant +pci-capability-id-msi+ #x05)
+(defconstant +pci-capability-id-vendor+ #x09)
 
 (sys.int::defglobal *pci-config-lock*)
 
@@ -223,6 +229,28 @@
                                                  offset))
             value)))
 
+;; Little-endian accessors.
+(defun pci-io-region/le16 (location offset)
+  (pci-io-region/16 location offset))
+
+(defun pci-io-region/le32 (location offset)
+  (pci-io-region/32 location offset))
+
+(defun pci-io-region/le64 (location offset)
+  (logior (pci-io-region/32 location offset)
+          (ash (pci-io-region/32 location (+ offset 4)) 32)))
+
+(defun (setf pci-io-region/le16) (value location offset)
+  (setf (pci-io-region/16 location offset) value))
+
+(defun (setf pci-io-region/le32) (value location offset)
+  (setf (pci-io-region/32 location offset) value))
+
+(defun (setf pci-io-region/le64) (value location offset)
+  (setf (pci-io-region/32 location offset) (ldb (byte 32 0) value))
+  (setf (pci-io-region/32 location (+ offset 4)) (ldb (byte 32 32) value))
+  value)
+
 (defun map-pci-devices (fn)
   (dolist (device *pci-devices*)
     (funcall fn device)))
@@ -270,13 +298,32 @@
            (setf cap (logand cap (lognot 3))) ; Bottom 2 bits must be masked off.
            (when (zerop cap)
              (return))
-           (let ((id (pci-config/8 device cap)))
+           (let ((id (pci-config/8 device (+ cap +pci-capability-vendor+))))
              (case id
                (#.+pci-capability-id-msi+
-                (debug-print-line "    " cap ": MSI " (pci-config/16 device (+ cap 2))))
+                (debug-print-line "    " cap ": MSI " (pci-config/16 device (+ cap +pci-capability-length+))))
+               (#.+pci-capability-id-vendor+
+                (let ((subid (pci-config/8 device (+ cap +pci-capability-vendor-type+))))
+                  (cond ((and (eql vendor-id #x1AF4)
+                              (eql subid 1))
+                         (debug-print-line "    " cap ": Virtio common config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 2))
+                         (debug-print-line "    " cap ": Virtio notify config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 3))
+                         (debug-print-line "    " cap ": Virtio ISR config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 4))
+                         (debug-print-line "    " cap ": Virtio device config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 5))
+                         (debug-print-line "    " cap ": Virtio PCI config"))
+                        (t
+                         (debug-print-line "    " cap ": Vendor-specific " subid)))))
                (t
                 (debug-print-line "    " cap ": Unknown capability " id)))
-             (setf cap (pci-config/8 device (1+ cap))))))))
+             (setf cap (pci-config/8 device (+ cap +pci-capability-next+))))))))
 
 (defun pci-detect ()
   (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
@@ -313,7 +360,7 @@
               (programming-interface (pci-programming-interface device)))
          (dump-pci-device-config-space device)
          (cond ((and (eql vendor-id #x1AF4)
-                     (<= #x1000 device-id #x103F))
+                     (<= #x1000 device-id #x107F))
                 ;; Some kind of virtio-device.
                 (virtio-pci-register device)
                 (setf (pci-device-claimed device) :virtio-pci))
@@ -466,3 +513,19 @@
   (multiple-value-bind (vendor-name device-name)
       (pci-find-device-name (pci-device-vendor-id device) (pci-device-device-id device))
     device-name))
+
+(defun pci-get-vendor-capability (device subid)
+  (when (logbitp +pci-status-capabilities-list+
+                 (pci-config/16 device +pci-config-status+))
+    (loop
+       with cap = (pci-config/8 device +pci-config-capabilities+)
+       do
+         (setf cap (logand cap (lognot 3))) ; Bottom 2 bits must be masked off.
+         (when (zerop cap)
+           (return nil))
+         (when (and (eql (pci-config/8 device (+ cap +pci-capability-vendor+))
+                         +pci-capability-id-vendor+)
+                    (eql (pci-config/8 device (+ cap +pci-capability-vendor-type+))
+                         subid))
+           (return cap))
+         (setf cap (pci-config/8 device (+ cap +pci-capability-next+))))))

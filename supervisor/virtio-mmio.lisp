@@ -5,6 +5,14 @@
 
 (in-package :mezzano.supervisor)
 
+(define-virtio-transport virtio-legacy-mmio-transport)
+
+(defstruct (virtio-legacy-mmio-device
+             (:include virtio-device)
+             (:area :wired))
+  mmio
+  mmio-irq)
+
 (defmacro define-virtio-mmio-register (name index)
   (let ((accessor (intern (format nil "VIRTIO-MMIO-~A" name)
                           (symbol-package name))))
@@ -73,10 +81,15 @@
                                              offset))
         value))
 
+(defun virtio-legacy-mmio-transport-virtio-ack-irq (device status)
+  (setf (virtio-mmio-interrupt-ack device) status))
+
 (defun virtio-mmio-register (address irq)
-  (let* ((dev (make-virtio-device :mmio address
-                                  :mmio-irq irq
-                                  :boot-id (current-boot-id)))
+  (let* ((dev (make-virtio-legacy-mmio-device
+               :mmio address
+               :mmio-irq irq
+               :transport 'virtio-legacy-mmio-transport
+               :boot-id (current-boot-id)))
          (magic (virtio-mmio-magic dev))
          (version (virtio-mmio-version dev))
          (did (virtio-mmio-device-id dev))
