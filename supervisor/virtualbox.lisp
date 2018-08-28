@@ -212,6 +212,5 @@
                            *vbox-screen-xres*
                            *vbox-screen-yres*
                            (* *vbox-screen-xres* 4)
-                           :x8r8g8b8
-                           nil))
+                           :x8r8g8b8))
   (decf *snapshot-inhibit*))

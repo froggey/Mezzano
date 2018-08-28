@@ -346,6 +346,7 @@
            #:framebuffer-blit
            #:framebuffer-width
            #:framebuffer-height
+           #:framebuffer-device
            ;; The heartbeat timer is wired directly to the PIT, and beats at 18Hz.
            #:wait-for-heartbeat
            #:read-rtc-time

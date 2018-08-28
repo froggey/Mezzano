@@ -426,6 +426,8 @@
                 (virtio-gpu-height gpu) height)
           (video-set-framebuffer framebuffer-phys width height
                                  (* width 4) :x8r8g8b8
+                                 :damage-fn
                                  (lambda (x y w h in-unsafe-context-p)
-                                   (virtio-gpu-dirty gpu x y w h in-unsafe-context-p))))))
+                                   (virtio-gpu-dirty gpu x y w h in-unsafe-context-p))
+                                 :device gpu))))
     t))

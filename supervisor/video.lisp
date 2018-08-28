@@ -17,7 +17,8 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
   layout
   damage-fn
   blit-fn
-  fill-fn)
+  fill-fn
+  device)
 
 (sys.int::defglobal *current-framebuffer* nil)
 (sys.int::defglobal *debug-video-x* 0)
@@ -44,12 +45,12 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
     (map-physical-memory (logand phys (lognot #xFFF))
                          (logand (+ (* height pitch) (logand phys #xFFF) #xFFF) (lognot #xFFF))
                          "System Framebuffer")
-    (video-set-framebuffer phys width height pitch layout nil)))
+    (video-set-framebuffer phys width height pitch layout)))
 
 (defun framebuffer-dummy-damage (x y w h in-unsafe-context-p)
   (declare (ignore x y w h in-unsafe-context-p)))
 
-(defun video-set-framebuffer (phys width height pitch layout damage-fn)
+(defun video-set-framebuffer (phys width height pitch layout &key damage-fn device)
   (debug-print-line "Configured new framebuffer at " phys "  " width "x" height "  layout " layout "  pitch " pitch)
   (multiple-value-bind (bytes-per-pixel blit-fn fill-fn)
       (ecase layout
@@ -63,6 +64,7 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
                                                   :layout layout
                                                   :damage-fn (or damage-fn
                                                                  'framebuffer-dummy-damage)
+                                                  :device device
                                                   :blit-fn blit-fn
                                                   :fill-fn fill-fn)))
   (set-run-light t)
