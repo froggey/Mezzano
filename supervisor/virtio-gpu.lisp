@@ -431,9 +431,9 @@
       (multiple-value-bind (successp error)
           (virtio-gpu-resource-create-2d gpu
                                          +virtio-gpu-framebuffer-resource-id+
+                                         +virtio-gpu-format-b8g8r8a8-unorm+
                                          width
-                                         height
-                                         +virtio-gpu-format-b8g8r8a8-unorm+)
+                                         height)
         (when (not successp)
           (sup:debug-print-line "virtio-gpu: Unable to create framebuffer resource: " error)
           (return-from virtio::virtio-gpu-register nil)))
