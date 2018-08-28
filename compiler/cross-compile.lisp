@@ -11,12 +11,10 @@
 
 (defvar *target-architecture*)
 
-(defvar *system-macros* (make-hash-table :test 'eq))
-(defvar *system-compiler-macros* (make-hash-table :test 'equal))
-(defvar *system-symbol-macros* (make-hash-table :test 'eq))
-(defvar *system-symbol-declarations* (make-hash-table :test 'eq))
-
 (in-package :sys.int)
+
+(defun mezzano.clos:class-precedence-list (class)
+  (sb-mop:class-precedence-list class))
 
 (defstruct (structure-definition
              (:constructor sys.int::make-struct-definition
@@ -48,8 +46,6 @@
 
 (defun mezzano.runtime::%unpack-structure-header (header)
   (sys.int::structure-header-definition header))
-
-(defvar *structure-types* (make-hash-table :test 'eq))
 
 (defun ldb (bytespec integer)
   (logand (ash integer (- (byte-position bytespec)))
@@ -333,7 +329,7 @@
 
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)
-      (gethash symbol *system-symbol-macros*)
+      (gethash symbol cross-support::*system-symbol-macros*)
     (if expandedp
         (make-instance 'symbol-macro :name symbol :expansion expansion)
         (make-instance 'special-variable
@@ -356,10 +352,10 @@
   nil)
 
 (defmethod compiler-macro-function-in-environment (name (environment null))
-  (gethash name *system-compiler-macros*))
+  (gethash name cross-support::*system-compiler-macros*))
 
 (defmethod macro-function-in-environment (symbol (environment null))
-  (gethash symbol *system-macros*))
+  (gethash symbol cross-support::*system-macros*))
 
 (defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
   (mezzano.runtime::symbol-type symbol))
@@ -376,7 +372,7 @@
 
 (defun (setf compiler-macro-function) (value name &optional env)
   (assert (eql env nil))
-  (setf (gethash name *system-compiler-macros*) value))
+  (setf (gethash name cross-support::*system-compiler-macros*) value))
 
 (defun macro-function (symbol &optional env)
   (macro-function-in-environment symbol env))
@@ -404,37 +400,6 @@
                (values form nil))))
         (t (values form nil))))
 
-(defun remove-&environment (orig-lambda-list)
-  (do* ((lambda-list (copy-list orig-lambda-list))
-        (prev nil i)
-        (i lambda-list (cdr i)))
-       ((null i) (values lambda-list nil))
-    (when (eql (first i) '&environment)
-      (assert (not (null (cdr i))) ()
-              "Missing variable after &ENVIRONMENT.")
-      (if prev
-          (setf (cdr prev) (cddr i))
-          (setf lambda-list (cddr i)))
-      (assert (not (member '&environment lambda-list)) ()
-              "Duplicate &ENVIRONMENT variable in lambda-list ~S." orig-lambda-list)
-      (return (values lambda-list (second i))))))
-
-(defmacro def-x-macro (name lambda-list &body body)
-  (let ((whole))
-    (multiple-value-bind (fixed-lambda-list env)
-        (remove-&environment lambda-list)
-      (when (null env)
-        (setf env (gensym)))
-      (if (eql (first fixed-lambda-list) '&whole)
-          (setf whole (second fixed-lambda-list)
-                fixed-lambda-list (cddr fixed-lambda-list))
-          (setf whole (gensym)))
-      `(setf (gethash ',name *system-macros*)
-             (lambda (,whole ,env)
-               (declare (ignorable ,whole ,env))
-               (destructuring-bind ,fixed-lambda-list (cdr ,whole)
-                 (block ,name ,@body)))))))
-
 (defvar *macroexpand-hook* 'funcall)
 
 (defun constantp (form &optional env)
@@ -451,7 +416,7 @@
              (cl:constantp symbol))
          :constant)
         (t
-         (values (gethash symbol *system-symbol-declarations*)))))
+         (values (gethash symbol cross-support::*system-symbol-declarations*)))))
 
 (defvar *output-fasl*)
 (defvar *output-map*)
@@ -989,7 +954,7 @@
       (let* ((*readtable* (copy-readtable *cross-readtable*))
              (*output-map* (make-hash-table))
              (*pending-llf-commands* nil)
-             (*package* (find-package "CL-USER"))
+             (*package* (find-package "CROSS-CL-USER"))
              (*compile-print* print)
              (*compile-verbose* verbose)
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
@@ -1030,7 +995,7 @@
                            (external-format :default))
   (with-open-file (input input-file :external-format external-format)
     (let* ((*readtable* (copy-readtable *cross-readtable*))
-           (*package* (find-package "CL-USER"))
+           (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* print)
            (*compile-verbose* verbose)
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
@@ -1058,7 +1023,7 @@
     (let* ((*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
-           (*package* (find-package "CL-USER"))
+           (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* *compile-print*)
            (*compile-verbose* *compile-verbose*)
            (*compile-file-pathname* nil)
@@ -1135,3 +1100,7 @@
             (rest (pathname-directory p))
             (pathname-name p)
             (pathname-type p))))
+
+(defun function-inline-info (name)
+  (values (gethash name cross-support::*inline-modes*)
+          (gethash name cross-support::*inline-forms*)))
