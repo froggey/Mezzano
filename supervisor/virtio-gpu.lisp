@@ -74,6 +74,18 @@
 
 (defconstant +virtio-gpu-display-size+    24)
 
+(defconstant +virtio-gpu-get-capset-info-capset-index+ 0)
+(defconstant +virtio-gpu-get-capset-info-size+ 8)
+
+(defconstant +virtio-gpu-resp-get-capset-info-capset-id+ 0)
+(defconstant +virtio-gpu-resp-get-capset-info-capset-max-version+ 4)
+(defconstant +virtio-gpu-resp-get-capset-info-capset-max-size+ 8)
+(defconstant +virtio-gpu-resp-get-capset-info-size+ 16)
+
+(defconstant +virtio-gpu-get-capset-capset-id+ 0)
+(defconstant +virtio-gpu-get-capset-capset-version+ 4)
+(defconstant +virtio-gpu-get-capset-size+ 8)
+
 (defconstant +virtio-gpu-format-b8g8r8a8-unorm+ 1)
 (defconstant +virtio-gpu-format-b8g8r8x8-unorm+ 2)
 (defconstant +virtio-gpu-format-a8r8g8b8-unorm+ 3)
@@ -120,7 +132,7 @@
   (let ((addr (virtio-gpu-request-virt gpu)))
     (setf (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-type+) 0) type
           (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-flags+) 0) flags
-          (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-fence-id+) 0) fence-id
+          (sys.int::memref-unsigned-byte-64 (+ addr +virtio-gpu-ctrl-hdr-fence-id+) 0) fence-id
           (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-ctx-id+) 0) ctx-id)))
 
 (defun virtio-gpu-issue-command (gpu command-length response-length)
@@ -161,9 +173,9 @@
             (physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-ctx-id+)))))
 
 (defmacro define-virtio-gpu-command (name &key command command-fields command-size)
-  `(defun ,name (gpu ,@(mapcar #'first command-fields))
+  `(defun ,name (gpu ,@(mapcar #'first command-fields) &key (context 0) (fence 0) (flags 0))
      (with-mutex ((virtio-gpu-command-lock gpu))
-       (virtio-gpu-configure-command gpu ,command 0 0 0)
+       (virtio-gpu-configure-command gpu ,command flags fence context)
        ,@(loop
             for (name offset accessor) in command-fields
             collect `(setf (,(ecase accessor
@@ -267,6 +279,33 @@
                      (height 12 :ub32/le)
                      (resource-id 16 :ub32/le))
     :command-size 24)
+
+(defun virtio-gpu-get-capset-info (gpu capset-index)
+  (with-mutex ((virtio-gpu-command-lock gpu))
+    (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-capset-info+ 0 0 0)
+    (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-info-capset-index+)) capset-index)
+    (let ((resp-type (virtio-gpu-issue-command gpu +virtio-gpu-get-capset-info-size+ +virtio-gpu-resp-get-capset-info-size+)))
+      (when (not (eql resp-type +virtio-gpu-resp-ok-capset-info+))
+        (debug-print-line "virtio-gpu: Invalid response during get-capset-info: " resp-type)
+        (return-from virtio-gpu-get-capset-info nil))
+      (values (sys.int::memref-unsigned-byte-32 (virtio-gpu-response-address gpu +virtio-gpu-resp-get-capset-info-capset-id+))
+              (sys.int::memref-unsigned-byte-32 (virtio-gpu-response-address gpu +virtio-gpu-resp-get-capset-info-capset-max-version+))
+              (sys.int::memref-unsigned-byte-32 (virtio-gpu-response-address gpu +virtio-gpu-resp-get-capset-info-capset-max-size+))))))
+
+;; CAPSET-DATA must be a correctly-sized array for the result.
+(defun virtio-gpu-get-capset (gpu capset-id capset-version capset-data)
+  (assert (< (length capset-data) 2048)) ; limited by size of response buffer.
+  (with-mutex ((virtio-gpu-command-lock gpu))
+    (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-capset+ 0 0 0)
+    (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-capset-id+)) capset-id)
+    (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-capset-version+)) capset-version)
+    (let ((resp-type (virtio-gpu-issue-command gpu +virtio-gpu-get-capset-size+ (length capset-data))))
+      (when (not (eql resp-type +virtio-gpu-resp-ok-capset+))
+        (debug-print-line "virtio-gpu: Invalid response during get-capset: " resp-type)
+        (return-from virtio-gpu-get-capset nil))
+      (dotimes (i (length capset-data))
+        (setf (aref capset-data i) (sys.int::memref-unsigned-byte-8 (virtio-gpu-response-address gpu i))))
+      capset-data)))
 
 ;;; 3d commands
 
