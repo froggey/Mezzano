@@ -1,7 +1,14 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtio-input
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:virtio :mezzano.supervisor.virtio))
+  (:export #:*virtio-input-devices*
+           #:read-virtio-input-device))
+
+(in-package :mezzano.supervisor.virtio-input)
 
 (defconstant +virtio-input-cfg-unset+     #x00)
 (defconstant +virtio-input-cfg-id-name+   #x01)
@@ -41,19 +48,19 @@
   event-phys
   event-virt
   (debug-dump-state 0)
-  (fifo (make-irq-fifo 50 :name "Virtio-Input fifo")))
+  (fifo (sup:make-irq-fifo 50 :name "Virtio-Input fifo")))
 
 (defun virtio-input-event-processing (input)
   (let* ((dev (virtio-input-virtio-device input))
-         (vq (virtio-virtqueue dev 0)))
+         (vq (virtio:virtio-virtqueue dev 0)))
     (loop
-       (let ((desc (virtio-pop-used-ring vq)))
+       (let ((desc (virtio:virtio-pop-used-ring vq)))
          (when (not desc)
            (return))
-         (let* ((phys-addr (virtio-ring-desc-address vq desc))
-                (type (physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-type+)))
-                (code (physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-code+)))
-                (value (physical-memref-unsigned-byte-32 (+ phys-addr +virtio-input-event-value+))))
+         (let* ((phys-addr (virtio:virtio-ring-desc-address vq desc))
+                (type (sup::physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-type+)))
+                (code (sup::physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-code+)))
+                (value (sup::physical-memref-unsigned-byte-32 (+ phys-addr +virtio-input-event-value+))))
            ;; Check for magic key press.
            (when (and (eql type #x01)
                       (eql value 1))
@@ -66,7 +73,7 @@
                          ;; Stay in this state.
                          )
                         ((eql code #x57) ; F11
-                         (debug-dump-threads)
+                         (sup::debug-dump-threads)
                          (setf (virtio-input-debug-dump-state input) 0))
                         (t
                          (setf (virtio-input-debug-dump-state input) 0))))
@@ -76,19 +83,19 @@
            (let ((packed-value (logior (ash type 48)
                                        (ash code 32)
                                        value)))
-             (irq-fifo-push packed-value (virtio-input-fifo input))))
+             (sup:irq-fifo-push packed-value (virtio-input-fifo input))))
          ;; Re-add the descriptor to the avail ring.
-         (virtio-ring-add-to-avail-ring vq desc)))
-    (virtio-kick dev 0)))
+         (virtio:virtio-ring-add-to-avail-ring vq desc)))
+    (virtio:virtio-kick dev 0)))
 
 (defun virtio-input-status-processing (input)
   (let* ((dev (virtio-input-virtio-device input))
-         (vq (virtio-virtqueue dev 1)))
+         (vq (virtio:virtio-virtqueue dev 1)))
     (loop
-       (let ((desc (virtio-pop-used-ring vq)))
+       (let ((desc (virtio:virtio-pop-used-ring vq)))
          (when (not desc)
            (return))
-         (virtio-ring-free-descriptor vq desc)))))
+         (virtio:virtio-ring-free-descriptor vq desc)))))
 
 (defun virtio-input-irq-handler (input)
   (virtio-input-event-processing input)
@@ -97,51 +104,51 @@
 (defun virtio-input-register (device)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
-  (debug-print-line "Detected virtio input device " device)
+  (sup:debug-print-line "Detected virtio input device " device)
   (let* ((input (make-virtio-input :virtio-device device))
          (irq-handler (lambda (interrupt-frame irq)
                         (declare (ignore interrupt-frame irq))
                         (virtio-input-irq-handler input)
                         :completed))
          ;; Allocate memory for the event receive buffer.
-         (frame (or (allocate-physical-pages 1)
-                    (panic "Unable to allocate memory for virtio input buffer.")))
-         (phys (* frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
+         (frame (or (sup::allocate-physical-pages 1)
+                    (sup:panic "Unable to allocate memory for virtio input buffer.")))
+         (phys (* frame sup::+4k-page-size+))
+         (virt (sup::convert-to-pmap-address phys)))
     (setf (virtio-input-event-phys input) phys
           (virtio-input-event-virt input) virt)
     ;; Set the driver bit in the status field.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+))
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+))
     ;; Allocate virtqueues.
-    (when (not (virtio-configure-virtqueues device 2))
-      (setf (virtio-device-status device) +virtio-status-failed+)
-      (panic "Unable to initialize virtqueues."))
+    (when (not (virtio:virtio-configure-virtqueues device 2))
+      (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
+      (sup:panic "Unable to initialize virtqueues."))
     ;; Enable IRQ handler.
     (setf (virtio-input-irq-handler-function input) irq-handler)
-    (virtio-attach-irq device irq-handler)
+    (virtio:virtio-attach-irq device irq-handler)
     ;; Configuration complete, go to OK mode.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+
-                                                +virtio-status-ok+))
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+
+                                                       virtio:+virtio-status-ok+))
     ;; Submit event buffers.
-    (let ((event-vq (virtio-virtqueue device 0)))
-      (dotimes (i (truncate +4k-page-size+ +virtio-input-event-total-size+))
+    (let ((event-vq (virtio:virtio-virtqueue device 0)))
+      (dotimes (i (truncate sup::+4k-page-size+ +virtio-input-event-total-size+))
         (let ((addr (+ phys (* i +virtio-input-event-total-size+)))
-              (desc (virtio-ring-alloc-descriptor event-vq)))
+              (desc (virtio:virtio-ring-alloc-descriptor event-vq)))
           (when (null desc)
             (return))
-          (setf (virtio-ring-desc-address event-vq desc) addr
-                (virtio-ring-desc-length event-vq desc) +virtio-input-event-total-size+
-                (virtio-ring-desc-flags event-vq desc) (ash 1 +virtio-ring-desc-f-write+))
-          (virtio-ring-add-to-avail-ring event-vq desc))))
-    (virtio-kick device 0)
+          (setf (virtio:virtio-ring-desc-address event-vq desc) addr
+                (virtio:virtio-ring-desc-length event-vq desc) +virtio-input-event-total-size+
+                (virtio:virtio-ring-desc-flags event-vq desc) (ash 1 virtio:+virtio-ring-desc-f-write+))
+          (virtio:virtio-ring-add-to-avail-ring event-vq desc))))
+    (virtio:virtio-kick device 0)
     (when (not (boundp '*virtio-input-devices*))
       (setf *virtio-input-devices* '()))
-    (push-wired input *virtio-input-devices*)))
+    (sup::push-wired input *virtio-input-devices*)))
 
 (defun read-virtio-input-device (device &optional (wait-p t))
-  (let ((packed-value (irq-fifo-pop (virtio-input-fifo device) wait-p)))
+  (let ((packed-value (sup:irq-fifo-pop (virtio-input-fifo device) wait-p)))
     (when packed-value
       (values (ldb (byte 12 48) packed-value) ; type
               (ldb (byte 16 32) packed-value) ; code

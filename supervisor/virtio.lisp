@@ -1,7 +1,86 @@
 ;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtio
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor))
+  (:export #:+virtio-dev-id-invalid+
+           #:+virtio-dev-id-net+
+           #:+virtio-dev-id-block+
+           #:+virtio-dev-id-console+
+           #:+virtio-dev-id-entropy-src+
+           #:+virtio-dev-id-mem-balloon+
+           #:+virtio-dev-id-io-memory+
+           #:+virtio-dev-id-rpmsg+
+           #:+virtio-dev-id-scsi-host+
+           #:+virtio-dev-id-9p-transport+
+           #:+virtio-dev-id-mac80211-wlan+
+           #:+virtio-dev-id-rproc-serial+
+           #:+virtio-dev-id-caif+
+           #:+virtio-dev-id-gpu+
+           #:+virtio-dev-id-input+
+
+           #:+virtio-status-reset+
+           #:+virtio-status-acknowledge+
+           #:+virtio-status-driver+
+           #:+virtio-status-ok+
+           #:+virtio-status-failed+
+
+           #:+virtio-ring-desc-size+
+           #:+virtio-ring-desc-f-next+
+           #:+virtio-ring-desc-f-write+
+           #:+virtio-ring-desc-f-indirect+
+
+           #:define-virtio-transport
+           #:virtio-device
+           #:virtqueue
+           #:virtio-ring-size
+           #:virtio-virtqueue
+           #:virtio-device-virtqueues
+           #:virtio-device-did
+           #:virtio-device-register
+           #:make-virtqueue
+           #:virtqueue-index
+           #:virtqueue-size
+           #:virtqueue-avail-offset
+           #:virtqueue-used-offset
+           #:virtqueue-next-free-descriptor
+           #:virtqueue-last-seen-used
+           #:virtio-device-specific-header/8
+           #:virtio-device-specific-header/16
+           #:virtio-device-specific-header/32
+           #:virtio-device-specific-header/64
+           #:virtio-ring-desc-address
+           #:virtio-ring-desc-length
+           #:virtio-ring-desc-flags
+           #:virtio-ring-desc-next
+           #:virtio-ring-avail-flags
+           #:virtio-ring-avail-idx
+           #:virtio-ring-avail-ring
+           #:virtio-ring-used-flags
+           #:virtio-ring-used-idx
+           #:virtio-ring-used-elem-id
+           #:virtio-ring-used-elem-len
+           #:virtio-ring-alloc-descriptor
+           #:virtio-ring-free-descriptor
+           #:virtio-ring-add-to-avail-ring
+           #:virtio-pop-used-ring
+           #:virtio-kick
+           #:virtio-ring-disable-interrupts
+           #:virtio-ring-enable-interrupts
+           #:virtio-device-status
+           #:virtio-device-feature
+           #:virtio-driver-feature
+           #:virtio-isr-status
+           #:virtio-device-irq
+           #:virtio-attach-irq
+           #:virtio-ack-irq
+           #:virtio-irq-mask
+           #:virtio-configure-virtqueues
+           #:virtio-driver-detached
+           #:define-virtio-driver))
+
+(in-package :mezzano.supervisor.virtio)
 
 ;;; Subsystem IDs
 (defconstant +virtio-dev-id-invalid+       #x00)
@@ -108,8 +187,8 @@
 
 (defun virtio-ring-size (queue-size)
   "Compute the actual size of a vring from the queue-size field."
-  (+ (align-up (+ (* +virtio-ring-desc-size+ queue-size) (* 2 (+ 2 queue-size))) 4096)
-     (align-up (* +virtio-ring-used-elem-size+ queue-size) 4096)))
+  (+ (sup::align-up (+ (* +virtio-ring-desc-size+ queue-size) (* 2 (+ 2 queue-size))) 4096)
+     (sup::align-up (* +virtio-ring-used-elem-size+ queue-size) 4096)))
 
 (defun virtio-virtqueue (device virtqueue)
   (svref (virtio-device-virtqueues device) virtqueue))
@@ -154,11 +233,11 @@
 (macrolet ((def (name offset accessor)
              `(progn
                 (defun ,name (vq idx)
-                  #+(or)(debug-print-line "read field " ',name " idx " idx " @ " (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset))
+                  #+(or)(sup:debug-print-line "read field " ',name " idx " idx " @ " (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset))
                   (assert (< idx (virtqueue-size vq)))
                   (,accessor (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset) 0))
                 (defun (setf ,name) (value vq idx)
-                  #+(or)(debug-print-line "write field " ',name " idx " idx " @ " (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset) " value " value)
+                  #+(or)(sup:debug-print-line "write field " ',name " idx " idx " @ " (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset) " value " value)
                   (assert (< idx (virtqueue-size vq)))
                   (setf (,accessor (+ (virtqueue-virtual vq) (* idx +virtio-ring-desc-size+) ,offset) 0) value)))))
   (def virtio-ring-desc-address +virtio-ring-desc-address-offset+ sys.int::memref-unsigned-byte-64)
@@ -324,7 +403,7 @@
 (sys.int::defglobal *virtio-late-probe-devices*)
 
 (defun virtio-device-register (dev)
-  (push-wired dev *virtio-devices*)
+  (sup::push-wired dev *virtio-devices*)
   ;; Reset device.
   (setf (virtio-device-status dev) +virtio-status-reset+)
   ;; Acknowledge the device.
@@ -340,14 +419,14 @@
      (virtio-input-register dev)
      (setf (virtio-device-claimed dev) :input))
     (t
-     (push-wired dev *virtio-late-probe-devices*))))
+     (sup::push-wired dev *virtio-late-probe-devices*))))
 
 ;; These devices must be probed late because their drivers may not be in wired memory.
 (defun virtio-late-probe ()
   (dolist (dev *virtio-late-probe-devices*)
     (dolist (drv *virtio-drivers*
              (progn
-               (debug-print-line "Unknown virtio device type " (virtio-device-did dev))
+               (sup:debug-print-line "Unknown virtio device type " (virtio-device-did dev))
                (setf (virtio-device-status dev) +virtio-status-failed+)))
       (when (and (eql (virtio-device-did dev) (virtio-driver-dev-id drv))
                  (sys.int::log-and-ignore-errors
@@ -365,14 +444,14 @@
 
 (defun virtio-attach-irq (device handler)
   (declare (sys.c::closure-allocation :wired))
-  (irq-attach (platform-irq (virtio-device-irq device))
-              (lambda (interrupt-frame irq)
-                (let ((status (virtio-isr-status device)))
-                  (when (logbitp 0 status)
-                    (funcall handler interrupt-frame irq))
-                  (virtio-ack-irq device status))
-                :completed)
-              device))
+  (sup:irq-attach (sup:platform-irq (virtio-device-irq device))
+                  (lambda (interrupt-frame irq)
+                    (let ((status (virtio-isr-status device)))
+                      (when (logbitp 0 status)
+                        (funcall handler interrupt-frame irq))
+                      (virtio-ack-irq device status))
+                    :completed)
+                  device))
 
 ;; FIXME: Access to this needs to be protected.
 ;; I'm not sure a mutex will cut it, it needs to be accessible
@@ -400,8 +479,8 @@
                  :name name
                  :probe probe-function
                  :dev-id dev-id)))
-    (debug-print-line "Registered new virtio driver " name " for device-id " dev-id)
-    (push-wired driver *virtio-drivers*)
+    (sup:debug-print-line "Registered new virtio driver " name " for device-id " dev-id)
+    (sup::push-wired driver *virtio-drivers*)
     ;; Probe devices.
     (dolist (dev *virtio-devices*)
       (when (and (not (virtio-device-claimed dev))
@@ -411,18 +490,18 @@
         (setf (virtio-device-claimed dev) driver)))
     name))
 
-(defun initialize-virtio ()
+(defun sup::initialize-virtio ()
   (when (not (boundp '*virtio-drivers*))
     (setf *virtio-drivers* '()))
   ;; TODO: This should notify drivers that devices are gone.
   (setf *virtio-devices* '()
         *virtio-late-probe-devices* '())
-  (add-deferred-boot-action 'virtio-late-probe))
+  (sup::add-deferred-boot-action 'virtio-late-probe))
 
 (defun virtio-driver-detached (dev)
   "Call when a driver is done with a device."
   (setf (virtio-device-claimed dev) nil)
-  (with-pseudo-atomic ()
+  (sup:with-pseudo-atomic ()
     (when (eql (virtio-device-boot-id dev) (current-boot-id))
       ;; TODO: Maybe reprobe the device?
       (setf (virtio-device-status dev) +virtio-status-failed+))))

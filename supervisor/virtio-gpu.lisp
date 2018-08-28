@@ -1,7 +1,12 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtio-gpu
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:virtio :mezzano.supervisor.virtio)))
+
+(in-package :mezzano.supervisor.virtio-gpu)
 
 (defconstant +virtio-gpu-controlq+ 0)
 (defconstant +virtio-gpu-cursorq+  1)
@@ -138,43 +143,43 @@
 (defun virtio-gpu-issue-command (gpu command-length response-length)
   (let* ((req-phys (virtio-gpu-request-phys gpu))
          (dev (virtio-gpu-virtio-device gpu))
-         (vq (virtio-virtqueue dev +virtio-gpu-controlq+))
-         (cmd-desc (virtio-ring-alloc-descriptor vq))
-         (rsp-desc (virtio-ring-alloc-descriptor vq)))
-    (ensure cmd-desc)
-    (ensure rsp-desc)
+         (vq (virtio:virtio-virtqueue dev +virtio-gpu-controlq+))
+         (cmd-desc (virtio:virtio-ring-alloc-descriptor vq))
+         (rsp-desc (virtio:virtio-ring-alloc-descriptor vq)))
+    (sup:ensure cmd-desc)
+    (sup:ensure rsp-desc)
     #+(or)
-    (debug-print-line "dev:" dev " clen:" command-length " rlen:" response-length " cmdd:" cmd-desc " rspd:" rsp-desc)
+    (sup:debug-print-line "dev:" dev " clen:" command-length " rlen:" response-length " cmdd:" cmd-desc " rspd:" rsp-desc)
     ;; Command descriptor.
-    (setf (virtio-ring-desc-address vq cmd-desc) req-phys
-          (virtio-ring-desc-length vq cmd-desc) (+ +virtio-gpu-ctrl-hdr-size+ command-length)
-          (virtio-ring-desc-flags vq cmd-desc) (ash 1 +virtio-ring-desc-f-next+)
-          (virtio-ring-desc-next vq cmd-desc) rsp-desc)
+    (setf (virtio:virtio-ring-desc-address vq cmd-desc) req-phys
+          (virtio:virtio-ring-desc-length vq cmd-desc) (+ +virtio-gpu-ctrl-hdr-size+ command-length)
+          (virtio:virtio-ring-desc-flags vq cmd-desc) (ash 1 virtio:+virtio-ring-desc-f-next+)
+          (virtio:virtio-ring-desc-next vq cmd-desc) rsp-desc)
     ;; Response descriptor.
-    (setf (virtio-ring-desc-address vq rsp-desc) (+ req-phys 2048)
-          (virtio-ring-desc-length vq rsp-desc) (+ +virtio-gpu-ctrl-hdr-size+ response-length)
-          (virtio-ring-desc-flags vq rsp-desc) (ash 1 +virtio-ring-desc-f-write+)
-          (virtio-ring-desc-next vq rsp-desc) 0)
+    (setf (virtio:virtio-ring-desc-address vq rsp-desc) (+ req-phys 2048)
+          (virtio:virtio-ring-desc-length vq rsp-desc) (+ +virtio-gpu-ctrl-hdr-size+ response-length)
+          (virtio:virtio-ring-desc-flags vq rsp-desc) (ash 1 virtio:+virtio-ring-desc-f-write+)
+          (virtio:virtio-ring-desc-next vq rsp-desc) 0)
     ;; Issue command & await completion.
-    (let ((last-used (virtio-ring-used-idx vq)))
-      (virtio-ring-add-to-avail-ring vq cmd-desc)
-      (virtio-kick dev +virtio-gpu-controlq+)
+    (let ((last-used (virtio:virtio-ring-used-idx vq)))
+      (virtio:virtio-ring-add-to-avail-ring vq cmd-desc)
+      (virtio:virtio-kick dev +virtio-gpu-controlq+)
       ;; Spin waiting for the command to complete.
       (loop
-         (when (not (eql last-used (virtio-ring-used-idx vq)))
+         (when (not (eql last-used (virtio:virtio-ring-used-idx vq)))
            (return))))
     ;; Release descriptors
-    (virtio-ring-free-descriptor vq cmd-desc)
-    (virtio-ring-free-descriptor vq rsp-desc)
+    (virtio:virtio-ring-free-descriptor vq cmd-desc)
+    (virtio:virtio-ring-free-descriptor vq rsp-desc)
     ;; Return response header.
-    (values (physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-type+))
-            (physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-flags+))
-            (physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-fence-id+))
-            (physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-ctx-id+)))))
+    (values (sup::physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-type+))
+            (sup::physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-flags+))
+            (sup::physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-fence-id+))
+            (sup::physical-memref-unsigned-byte-32 (+ req-phys 2048 +virtio-gpu-ctrl-hdr-ctx-id+)))))
 
 (defmacro define-virtio-gpu-command (name &key command command-fields command-size)
   `(defun ,name (gpu ,@(mapcar #'first command-fields) &key (context 0) (fence 0) (flags 0))
-     (with-mutex ((virtio-gpu-command-lock gpu))
+     (sup:with-mutex ((virtio-gpu-command-lock gpu))
        (virtio-gpu-configure-command gpu ,command flags fence context)
        ,@(loop
             for (name offset accessor) in command-fields
@@ -194,22 +199,15 @@
 ;;; 2d commands
 
 (defun virtio-gpu-get-display-info (gpu)
-  (with-mutex ((virtio-gpu-command-lock gpu))
-    (virtio-gpu-configure-command gpu
-                                  +virtio-gpu-cmd-get-display-info+
-                                  0
-                                  0
-                                  0)
-    (let ((resp-type (virtio-gpu-issue-command gpu
-                                               0
-                                               (* +virtio-gpu-max-scanouts+
-                                                  +virtio-gpu-display-size+)))
+  (sup:with-mutex ((virtio-gpu-command-lock gpu))
+    (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-display-info+ 0 0 0)
+    (let ((resp-type (virtio-gpu-issue-command gpu 0 (* +virtio-gpu-max-scanouts+ +virtio-gpu-display-size+)))
           (base (virtio-gpu-response-address gpu))
           (pmode nil)
           (pmode-width nil)
           (pmode-height nil))
       (when (not (eql resp-type +virtio-gpu-resp-ok-display-info+))
-        (debug-print-line "virtio-gpu: Invalid response during get-display-info: " resp-type)
+        (sup:debug-print-line "virtio-gpu: Invalid response during get-display-info: " resp-type)
         (return-from virtio-gpu-get-display-info nil))
       (dotimes (i +virtio-gpu-max-scanouts+)
         (let* ((offset (* i +virtio-gpu-display-size+))
@@ -219,7 +217,7 @@
                (height (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-height+) 0))
                (enabled (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-enabled+) 0))
                (flags (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-flags+) 0)))
-          (debug-print-line "Display " i ": x:" x " y:" y " w: " width " h:" height " en:" enabled " flg:" flags)
+          (sup:debug-print-line "Display " i ": x:" x " y:" y " w: " width " h:" height " en:" enabled " flg:" flags)
           (when (not pmode)
             (setf pmode i
                   pmode-width width
@@ -281,12 +279,12 @@
     :command-size 24)
 
 (defun virtio-gpu-get-capset-info (gpu capset-index)
-  (with-mutex ((virtio-gpu-command-lock gpu))
+  (sup:with-mutex ((virtio-gpu-command-lock gpu))
     (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-capset-info+ 0 0 0)
     (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-info-capset-index+)) capset-index)
     (let ((resp-type (virtio-gpu-issue-command gpu +virtio-gpu-get-capset-info-size+ +virtio-gpu-resp-get-capset-info-size+)))
       (when (not (eql resp-type +virtio-gpu-resp-ok-capset-info+))
-        (debug-print-line "virtio-gpu: Invalid response during get-capset-info: " resp-type)
+        (sup:debug-print-line "virtio-gpu: Invalid response during get-capset-info: " resp-type)
         (return-from virtio-gpu-get-capset-info nil))
       (values (sys.int::memref-unsigned-byte-32 (virtio-gpu-response-address gpu +virtio-gpu-resp-get-capset-info-capset-id+))
               (sys.int::memref-unsigned-byte-32 (virtio-gpu-response-address gpu +virtio-gpu-resp-get-capset-info-capset-max-version+))
@@ -295,13 +293,13 @@
 ;; CAPSET-DATA must be a correctly-sized array for the result.
 (defun virtio-gpu-get-capset (gpu capset-id capset-version capset-data)
   (assert (< (length capset-data) 2048)) ; limited by size of response buffer.
-  (with-mutex ((virtio-gpu-command-lock gpu))
+  (sup:with-mutex ((virtio-gpu-command-lock gpu))
     (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-capset+ 0 0 0)
     (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-capset-id+)) capset-id)
     (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-capset-version+)) capset-version)
     (let ((resp-type (virtio-gpu-issue-command gpu +virtio-gpu-get-capset-size+ (length capset-data))))
       (when (not (eql resp-type +virtio-gpu-resp-ok-capset+))
-        (debug-print-line "virtio-gpu: Invalid response during get-capset: " resp-type)
+        (sup:debug-print-line "virtio-gpu: Invalid response during get-capset: " resp-type)
         (return-from virtio-gpu-get-capset nil))
       (dotimes (i (length capset-data))
         (setf (aref capset-data i) (sys.int::memref-unsigned-byte-8 (virtio-gpu-response-address gpu i))))
@@ -391,44 +389,45 @@
                                x y w h
                                +virtio-gpu-framebuffer-resource-id+)))
 
-(defun virtio-gpu-register (device)
+;; In the virtio package for backwards compatiblity reasons.
+(defun virtio::virtio-gpu-register (device)
   (declare (sys.c::closure-allocation :wired))
-  (debug-print-line "Detected virtio GPU device " device)
+  (sup:debug-print-line "Detected virtio GPU device " device)
   (let ((gpu (make-virtio-gpu :virtio-device device
-                              :command-lock (make-mutex "Virtio GPU command lock"))))
+                              :command-lock (sup:make-mutex "Virtio GPU command lock"))))
     ;; Allocate some memory for the request header & footer.
-    (let* ((frame (or (allocate-physical-pages 1)
+    (let* ((frame (or (sup::allocate-physical-pages 1)
                       (panic "Unable to allocate memory for virtio gpu request")))
-           (phys (* frame +4k-page-size+))
-           (virt (convert-to-pmap-address phys)))
-      (debug-print-line "Virtio-GPU request data at " phys)
+           (phys (* frame sup::+4k-page-size+))
+           (virt (sup::convert-to-pmap-address phys)))
+      (sup:debug-print-line "Virtio-GPU request data at " phys)
       (setf (virtio-gpu-request-phys gpu) phys
             (virtio-gpu-request-virt gpu) virt))
     ;; Set the driver bit in the status field.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+))
-    (debug-print-line "virtio-gpu: " (virtio-device-specific-header/32 device +virtio-gpu-config-num-scanouts+) " scanouts")
-    (debug-print-line "virtio-gpu: " (virtio-device-specific-header/32 device +virtio-gpu-config-num-capsets+) " capsets")
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+))
+    (sup:debug-print-line "virtio-gpu: " (virtio:virtio-device-specific-header/32 device +virtio-gpu-config-num-scanouts+) " scanouts")
+    (sup:debug-print-line "virtio-gpu: " (virtio:virtio-device-specific-header/32 device +virtio-gpu-config-num-capsets+) " capsets")
     ;; Enable virgl, if present.
-    (when (virtio-device-feature device +virtio-gpu-f-virgl+)
-      (debug-print-line "virtio-gpu: virgl enabled")
-      (setf (virtio-driver-feature device +virtio-gpu-f-virgl+) t)
+    (when (virtio:virtio-device-feature device +virtio-gpu-f-virgl+)
+      (sup:debug-print-line "virtio-gpu: virgl enabled")
+      (setf (virtio:virtio-driver-feature device +virtio-gpu-f-virgl+) t)
       (setf (virtio-gpu-virgl-p gpu) t))
     ;; Allocate virtqueues.
-    (when (not (virtio-configure-virtqueues device 2))
-      (setf (virtio-device-status device) +virtio-status-failed+)
-      (return-from virtio-gpu-register nil))
+    (when (not (virtio:virtio-configure-virtqueues device 2))
+      (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
+      (return-from virtio::virtio-gpu-register nil))
     ;; Configuration complete, go to OK mode.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+
-                                                +virtio-status-ok+))
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+
+                                                       virtio:+virtio-status-ok+))
     ;; Initialize the GPU & framebuffer.
     (multiple-value-bind (pmode width height)
         (virtio-gpu-get-display-info gpu)
       (when (not pmode)
-        (debug-print-line "virtio-gpu: No enabled display found")
-        (return-from virtio-gpu-register nil))
-      (debug-print-line "virtio-gpu: Using pmode " pmode " " width "x" height)
+        (sup:debug-print-line "virtio-gpu: No enabled display found")
+        (return-from virtio::virtio-gpu-register nil))
+      (sup:debug-print-line "virtio-gpu: Using pmode " pmode " " width "x" height)
       (multiple-value-bind (successp error)
           (virtio-gpu-resource-create-2d gpu
                                          +virtio-gpu-framebuffer-resource-id+
@@ -436,37 +435,37 @@
                                          height
                                          +virtio-gpu-format-b8g8r8a8-unorm+)
         (when (not successp)
-          (debug-print-line "virtio-gpu: Unable to create framebuffer resource: " error)
-          (return-from virtio-gpu-register nil)))
+          (sup:debug-print-line "virtio-gpu: Unable to create framebuffer resource: " error)
+          (return-from virtio::virtio-gpu-register nil)))
       (let* ((framebuffer-size (* width height 4))
-             (n-framebuffer-pages (ceiling framebuffer-size +4k-page-size+))
-             (framebuffer-frames (allocate-physical-pages n-framebuffer-pages)))
+             (n-framebuffer-pages (ceiling framebuffer-size sup::+4k-page-size+))
+             (framebuffer-frames (sup::allocate-physical-pages n-framebuffer-pages)))
         (when (not framebuffer-frames)
-          (debug-print-line "virtio-gpu: Unable to allocate framebuffer memory")
-          (return-from virtio-gpu-register nil))
-        (let ((framebuffer-phys (* framebuffer-frames +4k-page-size+)))
-          (debug-print-line "virtio-gpu: Framebuffer at " framebuffer-phys)
+          (sup:debug-print-line "virtio-gpu: Unable to allocate framebuffer memory")
+          (return-from virtio::virtio-gpu-register nil))
+        (let ((framebuffer-phys (* framebuffer-frames sup::+4k-page-size+)))
+          (sup:debug-print-line "virtio-gpu: Framebuffer at " framebuffer-phys)
           ;; Clear framebuffer.
-          (sys.int::%fill-words (convert-to-pmap-address framebuffer-phys) 0 (truncate framebuffer-size 2))
+          (sys.int::%fill-words (sup::convert-to-pmap-address framebuffer-phys) 0 (truncate framebuffer-size 2))
           ;; Attach backing store to framebuffer resource.
           (multiple-value-bind (successp error)
               (virtio-gpu-resource-attach-backing gpu +virtio-gpu-framebuffer-resource-id+ 1 framebuffer-phys framebuffer-size)
             (when (not successp)
-              (debug-print-line "virtio-gpu: Unable to attach framebuffer memory: " error)
-            (return-from virtio-gpu-register nil)))
+              (sup:debug-print-line "virtio-gpu: Unable to attach framebuffer memory: " error)
+            (return-from virtio::virtio-gpu-register nil)))
           ;; Attach framebuffer resource to scanout.
           (multiple-value-bind (successp error)
               (virtio-gpu-set-scanout gpu 0 0 width height pmode +virtio-gpu-framebuffer-resource-id+)
             (when (not successp)
-              (debug-print-line "virtio-gpu: Unable to set scanout: " error)
-            (return-from virtio-gpu-register nil)))
+              (sup:debug-print-line "virtio-gpu: Unable to set scanout: " error)
+            (return-from virtio::virtio-gpu-register nil)))
           (setf (virtio-gpu-scanout gpu) pmode
                 (virtio-gpu-width gpu) width
                 (virtio-gpu-height gpu) height)
-          (video-set-framebuffer framebuffer-phys width height
-                                 (* width 4) :x8r8g8b8
-                                 :damage-fn
-                                 (lambda (x y w h in-unsafe-context-p)
-                                   (virtio-gpu-dirty gpu x y w h in-unsafe-context-p))
-                                 :device gpu))))
+          (sup::video-set-framebuffer framebuffer-phys width height
+                                      (* width 4) :x8r8g8b8
+                                      :damage-fn
+                                      (lambda (x y w h in-unsafe-context-p)
+                                        (virtio-gpu-dirty gpu x y w h in-unsafe-context-p))
+                                      :device gpu))))
     t))

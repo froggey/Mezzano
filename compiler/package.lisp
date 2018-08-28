@@ -332,12 +332,47 @@
            #:fifo-reset
            #:fifo-size
            #:fifo-element-type
+           #:make-irq-fifo
+           #:irq-fifo-push
+           #:irq-fifo-pop
+           #:irq-fifo-reset
+           #:irq-fifo-size
+           #:irq-fifo-element-type
            #:add-boot-hook
            #:remove-boot-hook
            #:store-statistics
            #:physical-memory-statistics
            #:reboot
            #:current-boot-id
+           #:ensure
+           #:safe-without-interrupts
+           #:with-symbol-spinlock
+           #:map-physical-memory
+           #:add-deferred-boot-action
+
+           #:boot-uuid
+           #:boot-field
+           #:+boot-information-boot-uuid-offset+
+           #:+boot-information-32-bit-physical-buddy-bins-offset+
+           #:+boot-information-64-bit-physical-buddy-bins-offset+
+           #:+boot-information-video+
+           #:+boot-information-framebuffer-physical-address+
+           #:+boot-information-framebuffer-width+
+           #:+boot-information-framebuffer-pitch+
+           #:+boot-information-framebuffer-height+
+           #:+boot-information-framebuffer-layout+
+           #:+boot-information-acpi-rsdp+
+           #:+boot-information-options+
+           #:+boot-information-n-memory-map-entries+
+           #:+boot-information-memory-map+
+           #:+boot-information-efi-system-table+
+           #:+boot-information-fdt-address+
+           #:+boot-information-block-map+
+           #:boot-option
+           #:+boot-option-force-read-only+
+           #:+boot-option-freestanding+
+           #:+boot-option-video-console+
+           #:+boot-option-no-detect+
 
            ;; Temporary drivers.
            #:ps/2-key-read
@@ -362,105 +397,20 @@
            #:disk-cancel-request
            #:disk-await-request
            #:disk-request-complete-p
+           #:register-disk
            #:start-profiling
            #:stop-profiling
-           #:*virtio-input-devices*
-           #:read-virtio-input-device
            #:virtualbox-read-event
            #:virtualbox-graphics-update-framebuffer
 
-           #:pci-device-location
-           #:pci-config/8
-           #:pci-config/16
-           #:pci-config/32
-           #:pci-base-class
-           #:pci-sub-class
-           #:pci-programming-interface
-           #:pci-bar
-           #:pci-io-region
-           #:pci-io-region/8
-           #:pci-io-region/16
-           #:pci-io-region/32
-           #:pci-intr-line
-           #:pci-bus-master-enabled
-           #:map-pci-devices
-           #:pci-probe
-           #:define-pci-driver
+           #:platform-irq
+           #:irq-attach
+           #:irq-eoi
 
            #:make-simple-irq
            #:simple-irq-unmask
            #:simple-irq-mask
            #:simple-irq-attach
-
-           #:+virtio-dev-id-invalid+
-           #:+virtio-dev-id-net+
-           #:+virtio-dev-id-block+
-           #:+virtio-dev-id-console+
-           #:+virtio-dev-id-entropy-src+
-           #:+virtio-dev-id-mem-balloon+
-           #:+virtio-dev-id-io-memory+
-           #:+virtio-dev-id-rpmsg+
-           #:+virtio-dev-id-scsi-host+
-           #:+virtio-dev-id-9p-transport+
-           #:+virtio-dev-id-mac80211-wlan+
-           #:+virtio-dev-id-rproc-serial+
-           #:+virtio-dev-id-caif+
-           #:+virtio-dev-id-gpu+
-           #:+virtio-dev-id-input+
-
-           #:+virtio-status-reset+
-           #:+virtio-status-acknowledge+
-           #:+virtio-status-driver+
-           #:+virtio-status-ok+
-           #:+virtio-status-failed+
-
-           #:+virtio-ring-desc-f-next+
-           #:+virtio-ring-desc-f-write+
-           #:+virtio-ring-desc-f-indirect+
-
-           #:virtio-device
-           #:virtqueue
-           #:virtio-ring-size
-           #:virtio-virtqueue
-           #:virtqueue-index
-           #:virtqueue-size
-           #:virtqueue-avail-offset
-           #:virtqueue-used-offset
-           #:virtqueue-next-free-descriptor
-           #:virtqueue-last-seen-used
-           #:virtio-device-specific-header/8
-           #:virtio-device-specific-header/16
-           #:virtio-device-specific-header/32
-           #:virtio-device-specific-header/64
-           #:virtio-ring-desc-address
-           #:virtio-ring-desc-length
-           #:virtio-ring-desc-flags
-           #:virtio-ring-desc-next
-           #:virtio-ring-avail-flags
-           #:virtio-ring-avail-idx
-           #:virtio-ring-avail-ring
-           #:virtio-ring-used-flags
-           #:virtio-ring-used-idx
-           #:virtio-ring-used-elem-id
-           #:virtio-ring-used-elem-len
-           #:virtio-ring-alloc-descriptor
-           #:virtio-ring-free-descriptor
-           #:virtio-ring-add-to-avail-ring
-           #:virtio-pop-used-ring
-           #:virtio-kick
-           #:virtio-ring-disable-interrupts
-           #:virtio-ring-enable-interrupts
-           #:virtio-device-status
-           #:virtio-device-feature
-           #:virtio-driver-feature
-           #:virtio-isr-status
-           #:virtio-device-irq
-           #:virtio-attach-irq
-           #:virtio-ack-irq
-           #:virtio-irq-mask
-           #:virtio-configure-virtqueues
-           #:virtio-driver-detached
-           #:define-virtio-driver
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

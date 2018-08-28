@@ -16,9 +16,6 @@
     ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/partition.lisp"
-    "supervisor/ata.lisp"
-    "supervisor/ahci.lisp"
-    "supervisor/cdrom.lisp"
     "supervisor/thread.lisp"
     ("supervisor/x86-64/thread.lisp" :x86-64)
     ("supervisor/arm64/thread.lisp" :arm64)
@@ -37,6 +34,9 @@
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
+    "supervisor/cdrom.lisp"
+    "supervisor/ata.lisp"
+    "supervisor/ahci.lisp"
     "supervisor/virtio.lisp"
     "supervisor/virtio-pci.lisp"
     "supervisor/virtio-mmio.lisp"

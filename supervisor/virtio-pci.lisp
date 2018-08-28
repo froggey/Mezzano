@@ -3,14 +3,20 @@
 
 ;;;; PCI transport for virtio devices.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtio-pci-transport
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:pci :mezzano.supervisor.pci)
+                    (:virtio :mezzano.supervisor.virtio)))
+
+(in-package :mezzano.supervisor.virtio-pci-transport)
 
 ;;;; Standard v1.0 PCI transport.
 
-(define-virtio-transport virtio-pci-transport)
+(virtio:define-virtio-transport virtio-pci-transport)
 
 (defstruct (virtio-pci-device
-             (:include virtio-device)
+             (:include virtio:virtio-device)
              (:area :wired))
   pci-device
   common-cfg
@@ -35,11 +41,11 @@
 (defun virtio-pci-read-cap (pci-device cap-id)
   ;; Read the BAR, offset & length fields for a given capability.
   ;; Returns an object suitable for use with ....
-  (let* ((cap (pci-get-vendor-capability pci-device cap-id))
-         (bar (pci-config/8 pci-device (+ cap +virtio-pci-capability-bar+)))
-         (offset (pci-config/32 pci-device (+ cap +virtio-pci-capability-offset+)))
-         (length (pci-config/32 pci-device (+ cap +virtio-pci-capability-length+)))
-         (region (pci-io-region pci-device bar (+ offset length))))
+  (let* ((cap (pci:pci-get-vendor-capability pci-device cap-id))
+         (bar (pci:pci-config/8 pci-device (+ cap +virtio-pci-capability-bar+)))
+         (offset (pci:pci-config/32 pci-device (+ cap +virtio-pci-capability-offset+)))
+         (length (pci:pci-config/32 pci-device (+ cap +virtio-pci-capability-length+)))
+         (region (pci:pci-io-region pci-device bar (+ offset length))))
     (sys.int::cons-in-area region offset :wired)))
 
 (defun virtio-pci-access (cap offset)
@@ -56,77 +62,77 @@
                   (multiple-value-bind (loc real-offset)
                       (virtio-pci-access (virtio-pci-device-common-cfg device) ,offset)
                     (setf (,how loc real-offset) value))))))
-  (def virtio-pci-common-cfg-device-feature-select 0 pci-io-region/le32)
-  (def virtio-pci-common-cfg-device-feature        4 pci-io-region/le32)
-  (def virtio-pci-common-cfg-driver-feature-select 8 pci-io-region/le32)
-  (def virtio-pci-common-cfg-driver-feature       12 pci-io-region/le32)
-  (def virtio-pci-common-cfg-msix-config          16 pci-io-region/le16)
-  (def virtio-pci-common-cfg-num-queues           18 pci-io-region/le16)
-  (def virtio-pci-common-cfg-device-status        20 pci-io-region/8)
-  (def virtio-pci-common-cfg-config-generation    21 pci-io-region/8)
-  (def virtio-pci-common-cfg-queue-select         22 pci-io-region/le16)
-  (def virtio-pci-common-cfg-queue-size           24 pci-io-region/le16)
-  (def virtio-pci-common-cfg-queue-msix-vector    26 pci-io-region/le16)
-  (def virtio-pci-common-cfg-queue-enable         28 pci-io-region/le16)
-  (def virtio-pci-common-cfg-queue-notify-off     30 pci-io-region/le16)
-  (def virtio-pci-common-cfg-queue-desc           32 pci-io-region/le64)
-  (def virtio-pci-common-cfg-queue-avail          40 pci-io-region/le64)
-  (def virtio-pci-common-cfg-queue-used           48 pci-io-region/le64))
+  (def virtio-pci-common-cfg-device-feature-select 0 pci:pci-io-region/le32)
+  (def virtio-pci-common-cfg-device-feature        4 pci:pci-io-region/le32)
+  (def virtio-pci-common-cfg-driver-feature-select 8 pci:pci-io-region/le32)
+  (def virtio-pci-common-cfg-driver-feature       12 pci:pci-io-region/le32)
+  (def virtio-pci-common-cfg-msix-config          16 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-num-queues           18 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-device-status        20 pci:pci-io-region/8)
+  (def virtio-pci-common-cfg-config-generation    21 pci:pci-io-region/8)
+  (def virtio-pci-common-cfg-queue-select         22 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-queue-size           24 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-queue-msix-vector    26 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-queue-enable         28 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-queue-notify-off     30 pci:pci-io-region/le16)
+  (def virtio-pci-common-cfg-queue-desc           32 pci:pci-io-region/le64)
+  (def virtio-pci-common-cfg-queue-avail          40 pci:pci-io-region/le64)
+  (def virtio-pci-common-cfg-queue-used           48 pci:pci-io-region/le64))
 
 (defun dump-virtio-pci-device (device)
-  (debug-print-line "Virtio PCI device " device)
-  (debug-print-line "  Common CFG @ " (virtio-pci-device-common-cfg device))
-  (debug-print-line "    device-feature-select: " (virtio-pci-common-cfg-device-feature-select device))
-  (debug-print-line "    device-feature: " (virtio-pci-common-cfg-device-feature device))
-  (debug-print-line "    driver-feature-select: " (virtio-pci-common-cfg-driver-feature-select device))
-  (debug-print-line "    driver-feature: " (virtio-pci-common-cfg-driver-feature device))
-  (debug-print-line "    msix-config: " (virtio-pci-common-cfg-msix-config device))
-  (debug-print-line "    num-queues: " (virtio-pci-common-cfg-num-queues device))
-  (debug-print-line "    device-status: " (virtio-pci-common-cfg-device-status device))
-  (debug-print-line "    config-generation: " (virtio-pci-common-cfg-config-generation device))
+  (sup:debug-print-line "Virtio PCI device " device)
+  (sup:debug-print-line "  Common CFG @ " (virtio-pci-device-common-cfg device))
+  (sup:debug-print-line "    device-feature-select: " (virtio-pci-common-cfg-device-feature-select device))
+  (sup:debug-print-line "    device-feature: " (virtio-pci-common-cfg-device-feature device))
+  (sup:debug-print-line "    driver-feature-select: " (virtio-pci-common-cfg-driver-feature-select device))
+  (sup:debug-print-line "    driver-feature: " (virtio-pci-common-cfg-driver-feature device))
+  (sup:debug-print-line "    msix-config: " (virtio-pci-common-cfg-msix-config device))
+  (sup:debug-print-line "    num-queues: " (virtio-pci-common-cfg-num-queues device))
+  (sup:debug-print-line "    device-status: " (virtio-pci-common-cfg-device-status device))
+  (sup:debug-print-line "    config-generation: " (virtio-pci-common-cfg-config-generation device))
   (dotimes (i (virtio-pci-common-cfg-num-queues device))
     (setf (virtio-pci-common-cfg-queue-select device) i)
-    (debug-print-line "   Queue " i)
-    (debug-print-line "    queue-select: " (virtio-pci-common-cfg-queue-select device))
-    (debug-print-line "    queue-size: " (virtio-pci-common-cfg-queue-size device))
-    (debug-print-line "    queue-msix-vector: " (virtio-pci-common-cfg-queue-msix-vector device))
-    (debug-print-line "    queue-enable: " (virtio-pci-common-cfg-queue-enable device))
-    (debug-print-line "    queue-notify-off: " (virtio-pci-common-cfg-queue-notify-off device))
-    (debug-print-line "    queue-desc: " (virtio-pci-common-cfg-queue-desc device))
-    (debug-print-line "    queue-avail: " (virtio-pci-common-cfg-queue-avail device))
-    (debug-print-line "    queue-used: " (virtio-pci-common-cfg-queue-used device)))
-  (debug-print-line "  Notify CFG @ " (virtio-pci-device-notify-cfg device))
-  (debug-print-line "    notify-off-multiplier: " (virtio-pci-device-notify-off-multiplier device)))
+    (sup:debug-print-line "   Queue " i)
+    (sup:debug-print-line "    queue-select: " (virtio-pci-common-cfg-queue-select device))
+    (sup:debug-print-line "    queue-size: " (virtio-pci-common-cfg-queue-size device))
+    (sup:debug-print-line "    queue-msix-vector: " (virtio-pci-common-cfg-queue-msix-vector device))
+    (sup:debug-print-line "    queue-enable: " (virtio-pci-common-cfg-queue-enable device))
+    (sup:debug-print-line "    queue-notify-off: " (virtio-pci-common-cfg-queue-notify-off device))
+    (sup:debug-print-line "    queue-desc: " (virtio-pci-common-cfg-queue-desc device))
+    (sup:debug-print-line "    queue-avail: " (virtio-pci-common-cfg-queue-avail device))
+    (sup:debug-print-line "    queue-used: " (virtio-pci-common-cfg-queue-used device)))
+  (sup:debug-print-line "  Notify CFG @ " (virtio-pci-device-notify-cfg device))
+  (sup:debug-print-line "    notify-off-multiplier: " (virtio-pci-device-notify-off-multiplier device)))
 
 (defun virtio-pci-transport-device-specific-header/8 (device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (pci-io-region/8 loc real-offset)))
+    (pci:pci-io-region/8 loc real-offset)))
 
 (defun (setf virtio-pci-transport-device-specific-header/8) (value device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (setf (pci-io-region/8 loc real-offset) value)))
+    (setf (pci:pci-io-region/8 loc real-offset) value)))
 
 (defun virtio-pci-transport-device-specific-header/16 (device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (pci-io-region/16 loc real-offset)))
+    (pci:pci-io-region/16 loc real-offset)))
 
 (defun (setf virtio-pci-transport-device-specific-header/16) (value device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (setf (pci-io-region/16 loc real-offset) value)))
+    (setf (pci:pci-io-region/16 loc real-offset) value)))
 
 (defun virtio-pci-transport-device-specific-header/32 (device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (pci-io-region/32 loc real-offset)))
+    (pci:pci-io-region/32 loc real-offset)))
 
 (defun (setf virtio-pci-transport-device-specific-header/32) (value device offset)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-device-cfg device) offset)
-    (setf (pci-io-region/32 loc real-offset) value)))
+    (setf (pci:pci-io-region/32 loc real-offset) value)))
 
 (defun virtio-pci-transport-device-status (device)
   (virtio-pci-common-cfg-device-status device))
@@ -161,52 +167,53 @@
       (virtio-pci-access (virtio-pci-device-notify-cfg device)
                          (* (virtio-pci-device-notify-off-multiplier device)
                             (virtio-pci-common-cfg-queue-notify-off device)))
-    (setf (pci-io-region/le16 loc real-offset) vq-id)))
+    (setf (pci:pci-io-region/le16 loc real-offset) vq-id)))
 
 (defun virtio-pci-transport-configure-virtqueues (device n-queues)
-  (setf (virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
+  (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
   (dotimes (queue n-queues)
     ;; 1. Write the virtqueue index to the queue select field.
     (setf (virtio-pci-common-cfg-queue-select device) queue)
     ;; Read the virtqueue size from the queue size field.
     ;; TODO: This is the maximum size, could be reduced.
     (let* ((queue-size (virtio-pci-common-cfg-queue-size device))
-           (size (virtio-ring-size queue-size)))
-      (debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
+           (size (virtio:virtio-ring-size queue-size)))
+      (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
       (when (not (zerop queue-size))
         ;; Allocate and clear the virtqueue.
         ;; Must be 4k aligned and contiguous in physical memory.
-        (let* ((frame (or (allocate-physical-pages (ceiling size +4k-page-size+))
-                          (progn (debug-print-line "Virtqueue allocation failed")
+        (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
+                          (progn (sup:debug-print-line "Virtqueue allocation failed")
                                  (return-from virtio-pci-transport-configure-virtqueues nil))))
-               (phys (* frame +4k-page-size+))
-               (virt (convert-to-pmap-address phys)))
-          (debug-print-line "Virtqueue allocated at " phys " (" (ceiling size +4k-page-size+) ")")
+               (phys (* frame sup::+4k-page-size+))
+               (virt (sup::convert-to-pmap-address phys)))
+          (sup:debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
           (dotimes (i size)
             (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
           ;; Write the address to the the queue address field.
           (setf (virtio-pci-common-cfg-queue-desc device) phys)
-          (setf (virtio-pci-common-cfg-queue-avail device) (+ phys (* queue-size +virtio-ring-desc-size+)))
-          (setf (virtio-pci-common-cfg-queue-used device) (+ phys (align-up (+ (* queue-size +virtio-ring-desc-size+)
-                                                                              4
-                                                                              (* queue-size 2))
-                                                                           4096)))
-          (let ((vq (make-virtqueue :index queue
-                                    :virtual virt
-                                    :physical phys
-                                    :size queue-size
-                                    :avail-offset (* queue-size +virtio-ring-desc-size+)
-                                    :used-offset (align-up (+ (* queue-size +virtio-ring-desc-size+)
-                                                              4
-                                                              (* queue-size 2))
-                                                           4096)
-                                    :last-seen-used 0)))
-            (setf (svref (virtio-device-virtqueues device) queue) vq)
+          (setf (virtio-pci-common-cfg-queue-avail device) (+ phys (* queue-size virtio:+virtio-ring-desc-size+)))
+          (setf (virtio-pci-common-cfg-queue-used device) (+ phys (sup::align-up
+                                                                   (+ (* queue-size virtio:+virtio-ring-desc-size+)
+                                                                      4
+                                                                      (* queue-size 2))
+                                                                   4096)))
+          (let ((vq (virtio:make-virtqueue :index queue
+                                           :virtual virt
+                                           :physical phys
+                                           :size queue-size
+                                           :avail-offset (* queue-size virtio:+virtio-ring-desc-size+)
+                                           :used-offset (sup::align-up (+ (* queue-size virtio:+virtio-ring-desc-size+)
+                                                                          4
+                                                                          (* queue-size 2))
+                                                                       4096)
+                                           :last-seen-used 0)))
+            (setf (svref (virtio:virtio-device-virtqueues device) queue) vq)
             ;; Initialize the free descriptor list.
             (dotimes (i (1- queue-size))
-              (setf (virtio-ring-desc-next vq i) (1+ i)
-                    (virtio-ring-desc-flags vq i) (ash 1 +virtio-ring-desc-f-next+)))
-            (setf (virtqueue-next-free-descriptor vq) 0))))))
+              (setf (virtio:virtio-ring-desc-next vq i) (1+ i)
+                    (virtio:virtio-ring-desc-flags vq i) (ash 1 virtio:+virtio-ring-desc-f-next+)))
+            (setf (virtio:virtqueue-next-free-descriptor vq) 0))))))
   ;; Enable virtqueues.
   (dotimes (queue n-queues)
     (setf (virtio-pci-common-cfg-queue-select device) queue)
@@ -215,10 +222,10 @@
 
 ;;;; Legacy PCI transport.
 
-(define-virtio-transport virtio-legacy-pci-transport)
+(virtio:define-virtio-transport virtio-legacy-pci-transport)
 
 (defstruct (virtio-legacy-pci-device
-             (:include virtio-device)
+             (:include virtio:virtio-device)
              (:area :wired))
   pci-device
   header)
@@ -249,14 +256,14 @@
                   (,how (virtio-legacy-pci-device-header device) ,offset))
                 (defun (setf ,name) (value device)
                   (setf (,how (virtio-legacy-pci-device-header device) ,offset) value)))))
-  (accessor virtio-legacy-pci-transport-device-features +virtio-legacy-pci-device-features+ pci-io-region/32)
-  (accessor virtio-legacy-pci-transport-guest-features +virtio-legacy-pci-guest-features+ pci-io-region/32)
-  (accessor virtio-legacy-pci-transport-queue-address +virtio-legacy-pci-queue-address+ pci-io-region/32)
-  (accessor virtio-legacy-pci-transport-queue-size +virtio-legacy-pci-queue-size+ pci-io-region/16)
-  (accessor virtio-legacy-pci-transport-queue-select +virtio-legacy-pci-queue-select+ pci-io-region/16)
-  (accessor virtio-legacy-pci-transport-queue-notify +virtio-legacy-pci-queue-notify+ pci-io-region/16)
-  (accessor virtio-legacy-pci-transport-device-status +virtio-legacy-pci-device-status+ pci-io-region/8)
-  (accessor virtio-legacy-pci-transport-isr-status +virtio-legacy-pci-isr-status+ pci-io-region/8))
+  (accessor virtio-legacy-pci-transport-device-features +virtio-legacy-pci-device-features+ pci:pci-io-region/32)
+  (accessor virtio-legacy-pci-transport-guest-features  +virtio-legacy-pci-guest-features+  pci:pci-io-region/32)
+  (accessor virtio-legacy-pci-transport-queue-address   +virtio-legacy-pci-queue-address+   pci:pci-io-region/32)
+  (accessor virtio-legacy-pci-transport-queue-size      +virtio-legacy-pci-queue-size+      pci:pci-io-region/16)
+  (accessor virtio-legacy-pci-transport-queue-select    +virtio-legacy-pci-queue-select+    pci:pci-io-region/16)
+  (accessor virtio-legacy-pci-transport-queue-notify    +virtio-legacy-pci-queue-notify+    pci:pci-io-region/16)
+  (accessor virtio-legacy-pci-transport-device-status   +virtio-legacy-pci-device-status+   pci:pci-io-region/8)
+  (accessor virtio-legacy-pci-transport-isr-status      +virtio-legacy-pci-isr-status+      pci:pci-io-region/8))
 
 (defun virtio-legacy-pci-transport-device-feature (device bit)
   (cond ((< bit 32)
@@ -277,96 +284,96 @@
 
 (defun virtio-legacy-pci-transport-device-specific-header/8 (device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (pci-io-region/8 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
+  (pci:pci-io-region/8 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
 
 (defun (setf virtio-legacy-pci-transport-specific-header/8) (value device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (setf (pci-io-region/8 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
+  (setf (pci:pci-io-region/8 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
 
 (defun virtio-legacy-pci-transport-specific-header/16 (device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (pci-io-region/16 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
+  (pci:pci-io-region/16 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
 
 (defun (setf virtio-legacy-pci-transport-specific-header/16) (value device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (setf (pci-io-region/16 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
+  (setf (pci:pci-io-region/16 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
 
 (defun virtio-legacy-pci-transport-specific-header/32 (device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (pci-io-region/32 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
+  (pci:pci-io-region/32 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)))
 
 (defun (setf virtio-legacy-pci-transport-specific-header/32) (value device offset)
   "Access the device-specific portion of the header, skpping the MSI-X fields if required."
-  (setf (pci-io-region/32 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
+  (setf (pci:pci-io-region/32 (virtio-legacy-pci-device-header device) (+ +virtio-legacy-pci-device-specific+ offset)) value))
 
 (defun virtio-legacy-pci-transport-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-legacy-pci-transport-queue-notify dev) vq-id))
 
 (defun virtio-legacy-pci-transport-configure-virtqueues (device n-queues)
-  (setf (virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
+  (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
   (dotimes (queue n-queues)
     ;; 1. Write the virtqueue index to the queue select field.
     (setf (virtio-legacy-pci-transport-queue-select device) queue)
     ;; Read the virtqueue size from the queue size field.
     (let* ((queue-size (virtio-legacy-pci-transport-queue-size device))
-           (size (virtio-ring-size queue-size)))
-      (debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
+           (size (virtio:virtio-ring-size queue-size)))
+      (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
       (when (not (zerop queue-size))
         ;; Allocate and clear the virtqueue.
         ;; Must be 4k aligned and contiguous in physical memory.
-        (let* ((frame (or (allocate-physical-pages (ceiling size +4k-page-size+))
-                          (progn (debug-print-line "Virtqueue allocation failed")
+        (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
+                          (progn (sup:debug-print-line "Virtqueue allocation failed")
                                  (return-from virtio-legacy-pci-transport-configure-virtqueues nil))))
-               (phys (* frame +4k-page-size+))
-               (virt (convert-to-pmap-address phys)))
-          (debug-print-line "Virtqueue allocated at " phys " (" (ceiling size +4k-page-size+) ")")
+               (phys (* frame sup::+4k-page-size+))
+               (virt (sup::convert-to-pmap-address phys)))
+          (sup:debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
           (dotimes (i size)
             (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
           ;; Write the address to the the queue address field.
           ;; This is a page number, not an actual address.
           (setf (virtio-legacy-pci-transport-queue-address device) frame)
-          (let ((vq (make-virtqueue :index queue
-                                    :virtual virt
-                                    :physical phys
-                                    :size queue-size
-                                    :avail-offset (* queue-size +virtio-ring-desc-size+)
-                                    :used-offset (align-up (+ (* queue-size +virtio-ring-desc-size+)
-                                                              4
-                                                              (* queue-size 2))
-                                                           4096)
-                                    :last-seen-used 0)))
-            (setf (svref (virtio-device-virtqueues device) queue) vq)
+          (let ((vq (virtio:make-virtqueue :index queue
+                                           :virtual virt
+                                           :physical phys
+                                           :size queue-size
+                                           :avail-offset (* queue-size virtio:+virtio-ring-desc-size+)
+                                           :used-offset (sup::align-up (+ (* queue-size virtio:+virtio-ring-desc-size+)
+                                                                          4
+                                                                          (* queue-size 2))
+                                                                       4096)
+                                           :last-seen-used 0)))
+            (setf (svref (virtio:virtio-device-virtqueues device) queue) vq)
             ;; Initialize the free descriptor list.
             (dotimes (i (1- queue-size))
-              (setf (virtio-ring-desc-next vq i) (1+ i)
-                    (virtio-ring-desc-flags vq i) (ash 1 +virtio-ring-desc-f-next+)))
-            (setf (virtqueue-next-free-descriptor vq) 0))))))
+              (setf (virtio:virtio-ring-desc-next vq i) (1+ i)
+                    (virtio:virtio-ring-desc-flags vq i) (ash 1 virtio:+virtio-ring-desc-f-next+)))
+            (setf (virtio:virtqueue-next-free-descriptor vq) 0))))))
   t)
 
 (defun virtio-legacy-pci-transport-device-irq (device)
-  (pci-config/8 (virtio-legacy-pci-device-pci-device device) +pci-config-intr-line+))
+  (pci:pci-intr-line (virtio-legacy-pci-device-pci-device device)))
 
 (defun virtio-legacy-pci-transport-ack-irq (device status)
   (declare (ignore device status))
   nil)
 
-(defun virtio-pci-register (location)
-  (cond ((<= #x1000 (pci-config/16 location +pci-config-deviceid+) #x103F)
+(defun pci::virtio-pci-register (location)
+  (cond ((<= #x1000 (pci:pci-config/16 location pci:+pci-config-deviceid+) #x103F)
          ;; This is a legacy or transitional device
          ;; TODO: Operate transitional devices in normal mode.
          ;; TODO: Test the VIRTIO_F_VERSION_1 feature.
-         (let* ((legacy-header (pci-bar location 0))
+         (let* ((legacy-header (pci:pci-bar location 0))
                 (dev (make-virtio-legacy-pci-device
                       :pci-device location
                       :header legacy-header
                       :transport 'virtio-legacy-pci-transport
-                      :did (pci-config/16 location +pci-config-subdeviceid+)
-                      :boot-id (current-boot-id))))
+                      :did (pci:pci-config/16 location pci:+pci-config-subdeviceid+)
+                      :boot-id (sup:current-boot-id))))
            ;; Enable PCI bus master bit, just in case it wasn't set and
            ;; the emulator is really picky.
-           (setf (pci-bus-master-enabled location) t)
-           (virtio-device-register dev)))
+           (setf (pci:pci-bus-master-enabled location) t)
+           (virtio:virtio-device-register dev)))
         (t
          ;; This is a standard v1 device.
          (let* ((common-cfg (virtio-pci-read-cap location +virtio-pci-cap-common-cfg+))
@@ -383,15 +390,15 @@
                       :pci-cfg pci-cfg
                       :notify-off-multiplier (virtio-pci-read-notify-off-multiplier location)
                       :transport 'virtio-pci-transport
-                      :did (- (pci-config/16 location +pci-config-deviceid+) #x1040)
-                      :boot-id (current-boot-id))))
+                      :did (- (pci:pci-config/16 location pci:+pci-config-deviceid+) #x1040)
+                      :boot-id (sup:current-boot-id))))
            (dump-virtio-pci-device dev)
            ;; Enable PCI bus master bit, just in case it wasn't set and
            ;; the emulator is really picky.
-           (setf (pci-bus-master-enabled location) t)
-           (virtio-device-register dev)))))
+           (setf (pci:pci-bus-master-enabled location) t)
+           (virtio:virtio-device-register dev)))))
 
 (defun virtio-pci-read-notify-off-multiplier (pci-device)
   "Read the NOTIFY-OFF-MULTIPLIER from PCI config space."
-  (let ((cap (pci-get-vendor-capability pci-device +virtio-pci-cap-notify-cfg+)))
-    (pci-config/32 pci-device (+ cap +virtio-pci-capability-notify-off-multiplier+))))
+  (let ((cap (pci:pci-get-vendor-capability pci-device +virtio-pci-cap-notify-cfg+)))
+    (pci:pci-config/32 pci-device (+ cap +virtio-pci-capability-notify-off-multiplier+))))

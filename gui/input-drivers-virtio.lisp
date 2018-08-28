@@ -84,7 +84,7 @@
     (loop
        (sys.int::log-and-ignore-errors
         (multiple-value-bind (type code value)
-            (mezzano.supervisor:read-virtio-input-device device)
+            (mezzano.supervisor.virtio-input:read-virtio-input-device device)
           (case type
             (#.+evdev-type-syn+
              (when mouse-state-changed
@@ -127,7 +127,7 @@
                   (setf mouse-rel-y signed-value)))))))))))
 
 (defun detect-virtio-input-devices ()
-  (dolist (dev mezzano.supervisor:*virtio-input-devices*)
+  (dolist (dev mezzano.supervisor.virtio-input:*virtio-input-devices*)
     (when (not (gethash dev *virtio-input-forwarders*))
       (format t "Created input forwarder for ~A~%"
               (with-output-to-string (s)
