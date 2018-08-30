@@ -206,10 +206,10 @@
 (defgeneric external-format-string-length (external-format string))
 
 (defmethod external-format-string-length ((external-format (eql :default)) string)
-  (length (sys.int::encode-utf-8-string string 0 nil :lf)))
+  (length (sys.int::encode-utf-8-string string :eol-style :lf)))
 
 (defmethod external-format-string-length ((external-format (eql :utf-8)) string)
-  (length (sys.int::encode-utf-8-string string 0 nil :lf)))
+  (length (sys.int::encode-utf-8-string string :eol-style :lf)))
 
 (defmethod stream-file-string-length ((stream sys.gray:fundamental-character-output-stream) string)
   (external-format-string-length (stream-external-format stream) string))

@@ -408,7 +408,7 @@ The file position must be less than the file length."
     (+ start bytes-read)))
 
 (defmethod gray:stream-write-char ((stream remote-file-character-stream) char)
-  (let ((encoded (sys.net::encode-utf-8-string (string char) 0 nil :lf)))
+  (let ((encoded (sys.net::encode-utf-8-string (string char) :eol-style :lf)))
     (loop
        for byte across encoded
        do (gray:stream-write-byte stream byte))))

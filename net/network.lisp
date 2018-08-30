@@ -31,7 +31,7 @@
         ((eql (logand leader #b11111000) #b11110000)
          (values 3 (logand leader #b00000111)))))
 
-(defun encode-utf-8-string (sequence &optional (start 0) end (eol-style :crlf))
+(defun encode-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
   (setf end (or end (length sequence)))
   (let ((bytes (make-array (- end start)
                            :element-type '(unsigned-byte 8)
@@ -73,6 +73,8 @@
                       (vector-push-extend (logior (ash (logand code #x3F000) -12) #x80) bytes)
                       (vector-push-extend (logior (ash (logand code #xFC0) -6) #x80) bytes)
                       (vector-push-extend (logior (logand code #x3F) #x80) bytes))))))))
+    (when nul-terminate
+      (vector-push-extend 0 bytes))
     bytes))
 
 (defmacro with-open-network-stream ((var address port) &body body)
