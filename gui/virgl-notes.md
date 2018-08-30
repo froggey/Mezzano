@@ -1,22 +1,30 @@
-blah blah
+Misc notes
 =========
 
 On start, context 0 and subcontext 0 are always available. No need to create a context.
+
 Creating a new context will automatically create a subcontext 0, don't need to do that.
+
 Interesting GL initial state after subcontext creation:
-far val = 1.0 forall viewports
-vertex array bound unless has\_feature(feat\_gles31\_vertex\_attrib\_binding)
-sub->fb\_id = framebuffer x1
-sub->blit\_fb\_ids = framebuffer x2
+* far val = 1.0 forall viewports
+* vertex array bound unless has\_feature(feat\_gles31\_vertex\_attrib\_binding)
+* sub->fb\_id = framebuffer x1
+* sub->blit\_fb\_ids = framebuffer x2
+
 Actually that's not very interesting. the GL state is effectively 0, everything must be configured.
 
 Shaders are in TGSL text format, must be nul-terminated strings.
+
 Large shader sources can be sent over multiple create shader commands.
+
 SO fields are only processed in the initial create shader command, not in the continuations.
 
 Resources are global.
+
 Resources must be attached to contexts (not subcontexts) before they can be used. (virtio-gpu-attach-resource)
+
 Resources are distinct from objects.
+
 Objects are per-subcontext
 
 don't clear all color buffers, just the ones you're using. (for speed, not correctness)
@@ -33,8 +41,8 @@ You pick context, object, and resource ids.
 Shaders are passed in the TGSI text format, but create\_shader also wants to know how log it will be in the binary format.
 
 Some VIRGL\_CCMDs have subcommands based on the object type field.
-VIRGL\_CCMD\_BIND\_OBJECT
-VIRGL\_CCMD\_CREATE\_OBJECT
+* `VIRGL\_CCMD\_BIND\_OBJECT`
+* `VIRGL\_CCMD\_CREATE\_OBJECT`
 
 Where do uniforms come from?
 Constant buffers.
@@ -49,28 +57,37 @@ called, not just attached resources.
 
 A minimal and incomplete introduction to TGSI
 ==========
-Shaders start with a header 'VERT' or 'FRAG' or one of the other kinds, but who cares about them.
+Shaders start with a header 'VERT' or 'FRAG' or one of the other kinds.
+
 Followed by input and output declarations:
-  declaration = 'DCL' register [',' attachment] [',' interpolation]
-  register = ('IN'|'OUT') '[' index ']'
-  attachment = 'POSITION'|'COLOR'|('GENERIC' '[' index ']')
-  interpolation = 'CONSTANT'|'LINEAR'|'PERSPECTIVE'|'COLOR'
+*  declaration = 'DCL' register [',' attachment] [',' interpolation]
+*  register = ('IN'|'OUT') '[' index ']'
+*  attachment = 'POSITION'|'COLOR'|('GENERIC' '[' index ']')
+*  interpolation = 'CONSTANT'|'LINEAR'|'PERSPECTIVE'|'COLOR'
+
 Followed by immediate definitions:
-  immediate = 'IMM' 'FLT32' '{' float ',' float ',' float ',' float '}'
+*  immediate = 'IMM' 'FLT32' '{' float ',' float ',' float ',' float '}'
+
 Followed by instructions, terminated by 'END'
+
 There are no comments. This is very incomplete, there are more kinds of declarations & immediates.
 
-Vertex shader input declarations are mapped to the vertex element thing elements, virgl\_create/bind\_vertex\_elements
+Vertex shader input declarations are mapped to the vertex element thing elements, `virgl\_create/bind\_vertex\_elements`
+
 Vertex shader outputs get mapped to fragment shader inputs. The POSITION attachment must be specified for one of them. I don't know how GENERIC attachments work yet.
+
 Fragment shader input attachments should match the vertex shader output attachments, register indices don't seem to matter.
+
 Fragment shader should have a "DCL OUT[0], COLOR" output, this is used as the fragment colour output. I think.
+
 Instructions consist of an opcode followed by the single destination and an arbitrary number of sources.
+
 Immediate values are referenced using the "IMM[n]" register, when n is nth immediate definition.
 
 
 Actually doing stuff
 =======
-
+```
 // Detect displays
 scanout, width, height = virtio\_gpu\_get\_display\_info(...)
 
@@ -185,33 +202,45 @@ virgl\_draw\_vbo(start, count, mode, indexed=false, instance-count=0, start-inst
 // Update the scanout and actually show things.
 // Just like the 2D side.
 virtio\_gpu\_resource\_flush(x,y,w,h, render\_id);
+```
 
 Fences
 =====
 Iunno.
 
-"documentation"
+Documentation
 ==========
 
 virtio-gpu virtio device, 2d commands only:
+
 https://www.kraxel.org/virtio/virtio-v1.0-cs03-virtio-gpu.pdf
 
 All virtio-gpu command definitions:
+
 https://github.com/qemu/qemu/blob/master/include/standard-headers/linux/virtio_gpu.h
+
 Note: virtio\_gpu\_cmd\_submit is immediately followed by the command buffer.
 
 Virgl commands:
+
 https://github.com/freedesktop/virglrenderer/blob/master/src/virgl_protocol.h
+
 Defines the layout of commands passed via submit\_3d
 
 Virgl texture formats and virtio-gpu capset info:
+
 https://github.com/freedesktop/virglrenderer/blob/master/src/virgl_hw.h
 
 Gallium pipe defines:
+
 https://github.com/freedesktop/virglrenderer/blob/master/src/gallium/include/pipe/p_defines.h
+
 These are the PIPE_foo defines. Very important.
 
 TGSI:
+
 https://www.freedesktop.org/wiki/Software/gallium/tgsi-specification.pdf
+
 https://gallium.readthedocs.io/en/latest/tgsi.html
+
 An example shader: https://lists.freedesktop.org/archives/mesa-dev/2011-April/007056.html
