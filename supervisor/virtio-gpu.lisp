@@ -4,7 +4,52 @@
 (defpackage :mezzano.supervisor.virtio-gpu
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio)))
+                    (:virtio :mezzano.supervisor.virtio))
+  (:export #:+virtio-gpu-resp-err-unspec+
+           #:+virtio-gpu-resp-err-out-of-memory+
+           #:+virtio-gpu-resp-err-invalid-scanout-id+
+           #:+virtio-gpu-resp-err-invalid-resource-id+
+           #:+virtio-gpu-resp-err-invalid-context-id+
+           #:+virtio-gpu-resp-err-invalid-parameter+
+
+           #:+virtio-gpu-flag-fence+
+           #:+virtio-gpu-max-scanouts+
+
+           #:+virtio-gpu-format-b8g8r8a8-unorm+
+           #:+virtio-gpu-format-b8g8r8x8-unorm+
+           #:+virtio-gpu-format-a8r8g8b8-unorm+
+           #:+virtio-gpu-format-x8r8g8b8-unorm+
+           #:+virtio-gpu-format-r8g8b8a8-unorm+
+           #:+virtio-gpu-format-x8b8g8r8-unorm+
+           #:+virtio-gpu-format-a8b8g8r8-unorm+
+           #:+virtio-gpu-format-r8g8b8x8-unorm+
+
+           #:+virtio-gpu-framebuffer-resource-id+
+
+           #:virtio-device
+           #:virtio-gpu-scanout
+           #:virtio-gpu-width
+           #:virtio-gpu-height
+           #:virtio-gpu-virgl-p
+
+           #:virtio-gpu-get-display-info
+           #:virtio-gpu-resource-create-2d
+           #:virtio-gpu-resource-attach-backing
+           #:virtio-gpu-set-scanout
+           #:virtio-gpu-transfer-to-host-2d
+           #:virtio-gpu-resource-flush
+           #:virtio-gpu-resource-flush
+           #:virtio-gpu-get-capset-info
+           #:virtio-gpu-get-capset
+           #:virtio-gpu-ctx-create
+           #:virtio-gpu-ctx-destroy
+           #:virtio-gpu-attach-resource
+           #:virtio-gpu-detach-resource
+           #:virtio-gpu-resource-create-3d
+           #:virtio-gpu-transfer-to-host-3d
+           #:virtio-gpu-transfer-from-host-3d
+           #:virtio-gpu-submit-3d
+           ))
 
 (in-package :mezzano.supervisor.virtio-gpu)
 
@@ -292,7 +337,7 @@
 
 ;; CAPSET-DATA must be a correctly-sized array for the result.
 (defun virtio-gpu-get-capset (gpu capset-id capset-version capset-data)
-  (assert (< (length capset-data) 2048)) ; limited by size of response buffer.
+  (assert (< (length capset-data) 2000)) ; limited by size of response buffer.
   (sup:with-mutex ((virtio-gpu-command-lock gpu))
     (virtio-gpu-configure-command gpu +virtio-gpu-cmd-get-capset+ 0 0 0)
     (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-get-capset-capset-id+)) capset-id)
@@ -307,22 +352,26 @@
 
 ;;; 3d commands
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-ctx-create
     :command +virtio-gpu-cmd-ctx-create+
     ;; FIXME: Include the debug name.
-    :command-fields ((nlen 0 :ub32/le))
+    :command-fields ((nlen 0 :ub32/le)) ; name length
     :command-size 72)
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-ctx-destroy
     :command +virtio-gpu-cmd-ctx-destroy+
     :command-fields ()
     :command-size 0)
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-attach-resource
     :command +virtio-gpu-cmd-ctx-attach-resource+
     :command-fields ((resource-id 0 :ub32/le))
     :command-size 8)
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-detach-resource
     :command +virtio-gpu-cmd-ctx-detach-resource+
     :command-fields ((resource-id 0 :ub32/le))
@@ -343,6 +392,7 @@
                      (flags 40 :ub32/le))
     :command-size 48)
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-transfer-to-host-3d
     :command +virtio-gpu-cmd-transfer-to-host-3d+
     :command-fields ((x 0 :ub32/le)
@@ -358,6 +408,7 @@
                      (layer-size 44 :ub32/le))
     :command-size 48)
 
+;; Cares about context
 (define-virtio-gpu-command virtio-gpu-transfer-from-host-3d
     :command +virtio-gpu-cmd-transfer-from-host-3d+
     :command-fields ((x 0 :ub32/le)
@@ -373,10 +424,22 @@
                      (layer-size 44 :ub32/le))
     :command-size 48)
 
-(define-virtio-gpu-command virtio-gpu-submit-3d
-    :command +virtio-gpu-cmd-submit-3d+
-    :command-fields ((size 0 :ub32/le))
-    :command-size 8)
+;; Cares about context
+(defun virtio-gpu-submit-3d (gpu command-data &key (context 0) (fence 0) (flags 0))
+  (check-type command-data (array (unsigned-byte 8) (*)))
+  (assert (< (length command-data) 2000)) ; limited by size of command buffer.
+  (sup:with-mutex ((virtio-gpu-command-lock gpu))
+    (virtio-gpu-configure-command gpu +virtio-gpu-cmd-submit-3d+ flags fence context)
+    (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu 0)) (length command-data))
+    (loop
+       for i from 8
+       for elt across command-data
+       do (setf (sys.int::memref-unsigned-byte-8 (virtio-gpu-command-address gpu i)) elt))
+    (let ((resp-type (virtio-gpu-issue-command gpu (+ 8 (length command-data)) 0)))
+      (when (not (eql resp-type +virtio-gpu-resp-ok-nodata+))
+        (sup:debug-print-line "virtio-gpu: Invalid response during submit-3d: " resp-type)
+        (return-from virtio-gpu-submit-3d (values nil resp-type)))
+      t)))
 
 (defun virtio-gpu-dirty (gpu x y w h in-unsafe-context-p)
   (when (not in-unsafe-context-p)
