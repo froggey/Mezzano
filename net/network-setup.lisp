@@ -62,4 +62,5 @@
 (when (not mezzano.network.ethernet::*ethernet-thread*)
   (setf mezzano.network.ethernet::*ethernet-thread*
         (mezzano.supervisor:make-thread 'mezzano.network.ethernet::ethernet-thread
-                                        :name "Ethernet thread")))
+                                        :name "Ethernet thread"))
+  (mezzano.network.arp:start-arp-expiration))
