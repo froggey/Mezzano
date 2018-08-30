@@ -215,7 +215,7 @@
   (let ((args (gensym "ARGS"))
         (value (gensym "VALUE")))
     `(defsetf-long ,access-fn (&rest ,args) (,value)
-       ,@documentation
+       ,@(when documentation (list documentation))
        `(,',update-fn ,@,args ,,value))))
 
 (defmacro defsetf-long (access-fn lambda-list store-variables &body body)
