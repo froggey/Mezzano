@@ -33,6 +33,8 @@ Inherit source locations/etc from INHERIT."
            ((the) #'convert-ast-the)
            ((unwind-protect) #'convert-ast-unwind-protect)
            ((call) #'convert-ast-call)
+           ((source-fragment) #'convert-ast-source-fragment)
+           ((notinline-call) #'convert-ast-notinline-call)
            ((jump-table) #'convert-ast-jump-table))
          inherit
          new-variables
@@ -210,6 +212,25 @@ Inherit source locations/etc from INHERIT."
                  :arguments (loop
                                for form in arguments
                                collect (convert-ast-form form inherit new-variables))))
+
+(defun convert-ast-source-fragment (inherit new-variables form)
+  (declare (ignore inherit))
+  (pass1-form form
+              (extend-environment nil
+                                  :variables (mapcar (lambda (x)
+                                                       (list (car x) (cdr x)))
+                                                     new-variables))))
+
+(defun convert-ast-notinline-call (inherit new-variables name &rest arguments)
+  (let ((ast (make-instance 'ast-call
+                             :inherit inherit
+                             :name name)))
+    (push (list name 'notinline) (ast-inline-declarations ast))
+    (setf (ast-arguments ast)
+          (loop
+             for form in arguments
+             collect (convert-ast-form form ast new-variables)))
+    ast))
 
 (defun convert-ast-jump-table (inherit new-variables value &rest targets)
   (make-instance 'ast-jump-table

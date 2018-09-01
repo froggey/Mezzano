@@ -953,7 +953,9 @@
   (let ((slots (gethash instruction *prepass-data*))
         (frame-reg (ir:push-special-stack-frame instruction)))
     ;; Flush slots.
-    (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+object-data-shift+))
+    (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(logior (ash 3 sys.int::+object-data-shift+)
+                                                     (ash (ir:push-special-stack-tag instruction)
+                                                          sys.int::+object-type-shift+)))
           `(lap:mov64 (:stack ,(+ slots 2)) nil)
           `(lap:mov64 (:stack ,(+ slots 1)) nil)
           `(lap:mov64 (:stack ,(+ slots 0)) nil))
@@ -1118,7 +1120,10 @@
         (t
          (emit `(lap:movd :eax ,(ir:box-source instruction)))))
   (emit `(lap:shl64 :rax 32)
-        `(lap:lea64 ,(ir:box-destination instruction) (:rax ,sys.int::+tag-single-float+))))
+        `(lap:lea64 ,(ir:box-destination instruction) (:rax ,(logior sys.int::+tag-immediate+
+                                                                     (dpb sys.int::+immediate-tag-single-float+
+                                                                          sys.int::+immediate-tag+
+                                                                          0))))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-single-float-instruction) uses defs)
   (let ((tmp :rax))
@@ -1137,4 +1142,7 @@
      (emit `(lap:movq ,(ir:unbox-destination instruction) (:object ,(ir:unbox-source instruction) 0))))))
 
 (defmethod emit-lap (backend-function (instruction ir:debug-instruction) uses defs)
+  nil)
+
+(defmethod emit-lap (backend-function (instruction ir:spice-instruction) uses defs)
   nil)

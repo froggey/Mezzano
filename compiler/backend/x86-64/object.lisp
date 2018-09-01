@@ -256,6 +256,49 @@
                          :lhs temp2
                          :rhs (- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))))
 
+(define-builtin sys.int::%struct-type ((object) result)
+  (let ((temp1 (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list temp1 `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list temp1)))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:shr64
+                         :result result
+                         :lhs temp1
+                         :rhs sys.int::+object-data-shift+))
+    ;; The object must be kept live over the shift, as the header will
+    ;; initially be read as a fixnum. If the object is the only thing keeping
+    ;; the structure definition live there is a possibility that it and the
+    ;; structure definition could be end up being GC'd between the load & shift.
+    ;; Then the shift would resurrect a dead object, leading to trouble.
+    (emit (make-instance 'ir:spice-instruction :value object))))
+
+(define-builtin sys.int::%fast-structure-type-p ((object structure-header) :e)
+  (let ((temp1 (make-instance 'ir:virtual-register :kind :integer))
+        (temp2 (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Read the object header.
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list temp1 `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list temp1)))
+    ;; Set the two low bits to potentially convert the header to a
+    ;; structure-header. This must be performed in an integer register
+    ;; as this will construct some random bad value if the object isn't a
+    ;; structure-object.
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:or64
+                         :result temp2
+                         :lhs temp1
+                         :rhs 3))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cmp64
+                         :operands (list temp2 structure-header)
+                         :inputs (list temp2 structure-header)
+                         :outputs '()))))
+
 (define-builtin sys.int::%%object-ref-unsigned-byte-8 ((object index) result)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))

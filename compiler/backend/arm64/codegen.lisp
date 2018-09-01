@@ -1159,7 +1159,10 @@
     (:fp-128
      (emit `(lap:fmov :w9 ,(lap::convert-width (ir:box-source instruction) 32)))))
   (emit `(lap:add :x9 :xzr :x9 :lsl 32)
-        `(lap:add ,(ir:box-destination instruction) :x9 ,sys.int::+tag-single-float+)))
+        `(lap:add ,(ir:box-destination instruction) :x9 ,(logior sys.int::+tag-immediate+
+                                                                 (dpb sys.int::+immediate-tag-single-float+
+                                                                      sys.int::+immediate-tag+
+                                                                      0)))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-single-float-instruction) uses defs)
   (ecase (lap::register-class (ir:box-source instruction))

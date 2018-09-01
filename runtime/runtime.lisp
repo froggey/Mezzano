@@ -8,8 +8,8 @@
   (loop (when (eq target-special-stack-pointer (sys.int::%%special-stack-pointer))
           (return))
      (assert (sys.int::%%special-stack-pointer))
-     (etypecase (svref (sys.int::%%special-stack-pointer) 1)
-       (symbol
+     (etypecase (sys.int::%object-ref-t (sys.int::%%special-stack-pointer) 1)
+       (symbol-value-cell
         (sys.int::%%unbind))
        (simple-vector
         (sys.int::%%disestablish-block-or-tagbody))
@@ -28,10 +28,11 @@
         (sym (gensym)))
     `(loop
         with ,sym = ,symbol
-        for ,ssp = (sys.int::%%special-stack-pointer) then (svref ,ssp 0)
+        for ,ssp = (sys.int::%%special-stack-pointer) then (sys.int::%object-ref-t ,ssp 0)
         until (null ,ssp)
-        when (eql (svref ,ssp 1) ,sym)
-        do (let ((,value (svref ,ssp 2)))
+        when (and (symbol-value-cell-p ,ssp)
+                  (eq (symbol-value-cell-symbol ,ssp) ,sym))
+        do (let ((,value (sys.int::%object-ref-t ,ssp 2)))
              ,@body)
         finally (return ,result))))
 
@@ -98,9 +99,14 @@
     (sys.int::raise-type-error object expected-type)
     (sys.int::%%unreachable)))
 
+(defun sys.int::%value-has-immediate-tag-p (object immediate-tag)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-immediate+)
+       (eq (ldb sys.int::+immediate-tag+ (sys.int::lisp-object-address object))
+           immediate-tag)))
+
 (declaim (inline characterp))
 (defun characterp (object)
-  (sys.int::%value-has-tag-p object sys.int::+tag-character+))
+  (sys.int::%value-has-immediate-tag-p object sys.int::+immediate-tag-character+))
 
 (defun %functionp (object)
   (<= sys.int::+first-function-object-tag+
@@ -127,7 +133,7 @@
                           (car values)
                           (%unbound-value))))
            (check-type symbol symbol)
-           (%%bind symbol value)
+           (%%bind (mezzano.runtime::symbol-global-value-cell symbol) value)
            (multiple-value-prog1
                (%progv (cdr symbols) (cdr values) fn)
              (%%unbind))))
@@ -299,6 +305,73 @@ thread's stack if this function is called from normal code."
 (defun (setf %object-ref-double-float) (value object index)
   (check-type value double-float)
   (setf (%object-ref-unsigned-byte-64 object index)
+        (%double-float-as-integer value))
+  value)
+
+(declaim (inline %object-ref-unsigned-byte-8-unscaled (setf %object-ref-unsigned-byte-8-unscaled)))
+(defun %object-ref-unsigned-byte-8-unscaled (object index)
+  (%%object-ref-unsigned-byte-8-unscaled object index))
+(defun (setf %object-ref-unsigned-byte-8-unscaled) (value object index)
+  (check-type value (unsigned-byte 8))
+  (setf (%%object-ref-unsigned-byte-8-unscaled object index) value))
+
+(declaim (inline %object-ref-unsigned-byte-16-unscaled (setf %object-ref-unsigned-byte-16-unscaled)))
+(defun %object-ref-unsigned-byte-16-unscaled (object index)
+  (%%object-ref-unsigned-byte-16-unscaled object index))
+(defun (setf %object-ref-unsigned-byte-16-unscaled) (value object index)
+  (check-type value (unsigned-byte 16))
+  (setf (%%object-ref-unsigned-byte-16-unscaled object index) value))
+
+(declaim (inline %object-ref-unsigned-byte-32-unscaled (setf %object-ref-unsigned-byte-32-unscaled)))
+(defun %object-ref-unsigned-byte-32-unscaled (object index)
+  (%%object-ref-unsigned-byte-32-unscaled object index))
+(defun (setf %object-ref-unsigned-byte-32-unscaled) (value object index)
+  (check-type value (unsigned-byte 32))
+  (setf (%%object-ref-unsigned-byte-32-unscaled object index) value))
+
+(declaim (inline %object-ref-signed-byte-8-unscaled (setf %object-ref-signed-byte-8-unscaled)))
+(defun %object-ref-signed-byte-8-unscaled (object index)
+  (%%object-ref-signed-byte-8-unscaled object index))
+(defun (setf %object-ref-signed-byte-8-unscaled) (value object index)
+  (check-type value (signed-byte 8))
+  (setf (%%object-ref-signed-byte-8-unscaled object index) value))
+
+(declaim (inline %object-ref-signed-byte-16-unscaled (setf %object-ref-signed-byte-16-unscaled)))
+(defun %object-ref-signed-byte-16-unscaled (object index)
+  (%%object-ref-signed-byte-16-unscaled object index))
+(defun (setf %object-ref-signed-byte-16-unscaled) (value object index)
+  (check-type value (signed-byte 16))
+  (setf (%%object-ref-signed-byte-16-unscaled object index) value))
+
+(declaim (inline %object-ref-signed-byte-32-unscaled (setf %object-ref-signed-byte-32-unscaled)))
+(defun %object-ref-signed-byte-32-unscaled (object index)
+  (%%object-ref-signed-byte-32-unscaled object index))
+(defun (setf %object-ref-signed-byte-32-unscaled) (value object index)
+  (check-type value (signed-byte 32))
+  (setf (%%object-ref-signed-byte-32-unscaled object index) value))
+
+(declaim (inline %object-ref-single-float-unscaled (setf %object-ref-single-float-unscaled)))
+(defun %object-ref-single-float-unscaled (object index)
+  (%%object-ref-single-float-unscaled object index))
+(defun (setf %object-ref-single-float-unscaled) (value object index)
+  (check-type value single-float)
+  (setf (%%object-ref-single-float-unscaled object index) value)
+  value)
+
+(declaim (inline %%object-ref-single-float-unscaled (setf %%object-ref-single-float-unscaled)))
+(defun %%object-ref-single-float-unscaled (object index)
+  (%integer-as-single-float (%%object-ref-unsigned-byte-32-unscaled object index)))
+(defun (setf %%object-ref-single-float-unscaled) (value object index)
+  (setf (%%object-ref-unsigned-byte-32 object-unscaled index)
+        (%single-float-as-integer value))
+  value)
+
+(declaim (inline %object-ref-double-float-unscaled (setf %object-ref-double-float-unscaled)))
+(defun %object-ref-double-float-unscaled (object index)
+  (%integer-as-double-float (%object-ref-unsigned-byte-64-unscaled object index)))
+(defun (setf %object-ref-double-float-unscaled) (value object index)
+  (check-type value double-float)
+  (setf (%object-ref-unsigned-byte-64-unscaled object index)
         (%double-float-as-integer value))
   value)
 

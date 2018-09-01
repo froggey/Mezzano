@@ -188,7 +188,7 @@
 ;;; Used during cold-image bringup, various files will redefine packages before
 ;;; the package system is loaded.
 
-(defvar *deferred-%defpackage-calls* '())
+(defvar *deferred-%defpackage-calls*)
 
 (defun %defpackage (&rest arguments)
   (push arguments *deferred-%defpackage-calls*))
@@ -244,7 +244,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)))
         *gc-epoch* 0
         *hash-table-unbound-value* (list "unbound hash-table entry")
-        *hash-table-tombstone* (list "hash-table tombstone"))
+        *hash-table-tombstone* (list "hash-table tombstone")
+        *deferred-%defpackage-calls* '())
   ;; Wire up all the structure types.
   (setf mezzano.runtime::*structure-types* (make-hash-table))
   (%defstruct sys.int::*structure-type-type*)

@@ -2,7 +2,8 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.driver.intel-hda
-  (:use :cl))
+  (:use :cl)
+  (:local-nicknames (:pci :mezzano.supervisor.pci)))
 
 (in-package :mezzano.driver.intel-hda)
 
@@ -222,7 +223,7 @@
 (define-condition device-disconnect () ())
 
 (defun check-hda-presence (hda)
-  (when (not (eql (mezzano.supervisor::pci-device-boot-id (hda-pci-device hda))
+  (when (not (eql (pci:pci-device-boot-id (hda-pci-device hda))
                   (mezzano.supervisor:current-boot-id)))
     (signal 'device-disconnect)))
 
@@ -232,30 +233,30 @@
      ,@body))
 
 (defun global-reg/8 (hda reg)
-  (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg))
+  (pci:pci-io-region/8 (hda-register-set hda) reg))
 (defun global-reg/16 (hda reg)
-  (mezzano.supervisor:pci-io-region/16 (hda-register-set hda) reg))
+  (pci:pci-io-region/16 (hda-register-set hda) reg))
 (defun global-reg/32 (hda reg)
-  (mezzano.supervisor:pci-io-region/32 (hda-register-set hda) reg))
+  (pci:pci-io-region/32 (hda-register-set hda) reg))
 (defun (setf global-reg/8) (value hda reg)
-  (setf (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) reg) value))
+  (setf (pci:pci-io-region/8 (hda-register-set hda) reg) value))
 (defun (setf global-reg/16) (value hda reg)
-  (setf (mezzano.supervisor:pci-io-region/16 (hda-register-set hda) reg) value))
+  (setf (pci:pci-io-region/16 (hda-register-set hda) reg) value))
 (defun (setf global-reg/32) (value hda reg)
-  (setf (mezzano.supervisor:pci-io-region/32 (hda-register-set hda) reg) value))
+  (setf (pci:pci-io-region/32 (hda-register-set hda) reg) value))
 
 (defun sd-reg/8 (hda sd reg)
-  (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
+  (pci:pci-io-region/8 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
 (defun sd-reg/16 (hda sd reg)
-  (mezzano.supervisor:pci-io-region/16 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
+  (pci:pci-io-region/16 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
 (defun sd-reg/32 (hda sd reg)
-  (mezzano.supervisor:pci-io-region/32 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
+  (pci:pci-io-region/32 (hda-register-set hda) (+ #x80 (* sd #x20) reg)))
 (defun (setf sd-reg/8) (value hda sd reg)
-  (setf (mezzano.supervisor:pci-io-region/8 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
+  (setf (pci:pci-io-region/8 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
 (defun (setf sd-reg/16) (value hda sd reg)
-  (setf (mezzano.supervisor:pci-io-region/16 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
+  (setf (pci:pci-io-region/16 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
 (defun (setf sd-reg/32) (value hda sd reg)
-  (setf (mezzano.supervisor:pci-io-region/32 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
+  (setf (pci:pci-io-region/32 (hda-register-set hda) (+ #x80 (* sd #x20) reg)) value))
 
 (defun initialize-corb (hda)
   ;; Stop the CORB if it's running and disable memory error interrupt.
@@ -838,12 +839,12 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 
 (defun intel-hda-probe (device)
   ;; FIXME: Flush old cards first.
-  (let* ((bar0 (mezzano.supervisor:pci-io-region device 0 #x3000))
+  (let* ((bar0 (pci:pci-io-region device 0 #x3000))
          (hda (make-instance 'hda :pci-device device :register-set bar0)))
     (setf (hda-interrupt-latch hda) (mezzano.supervisor:make-latch "HDA IRQ latch"))
-    (setf (hda-interrupt-handler hda) (mezzano.supervisor:make-simple-irq (mezzano.supervisor:pci-intr-line device) (hda-interrupt-latch hda)))
+    (setf (hda-interrupt-handler hda) (mezzano.supervisor:make-simple-irq (pci:pci-intr-line device) (hda-interrupt-latch hda)))
     (format t "Found Intel HDA controller at ~S.~%" device)
-    (setf (mezzano.supervisor:pci-bus-master-enabled device) t)
+    (setf (pci:pci-bus-master-enabled device) t)
     ;; Perform a controller reset by pulsing crst to 0.
     (format t "Begin reset.~%")
     (setf (global-reg/32 hda +gctl+) 0)
@@ -899,7 +900,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
     (mezzano.driver.sound:register-sound-card hda))
   t)
 
-(mezzano.supervisor:define-pci-driver intel-hda intel-hda-probe
+(pci:define-pci-driver intel-hda intel-hda-probe
   ((#x8086 #x2668) ; ICH6 HDA
    (#x8086 #x27D8)) ; ICH7 HDA
   ())

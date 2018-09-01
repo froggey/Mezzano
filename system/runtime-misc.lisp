@@ -26,13 +26,13 @@
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
-        (type (%struct-slot object 0)))
+        (type (%struct-type object)))
     (write (list* (type-of object)
                   (loop
-                     for i from 1
-                     for slot in (structure-slots type)
-                     collect (intern (symbol-name (structure-slot-name slot)) "KEYWORD")
-                     collect (%struct-slot object i)))
+                     for slot in (structure-definition-slots type)
+                     for slot-name = (structure-slot-definition-name slot)
+                     collect (intern (symbol-name slot-name) "KEYWORD")
+                     collect (%struct-slot object type slot-name)))
            :stream stream)))
 
 (defmethod print-object ((object hash-table) stream)
@@ -70,11 +70,19 @@
 
 (defmethod print-object ((o structure-definition) stream)
   (print-unreadable-object (o stream :identity t :type t)
-    (write (structure-name o) :stream stream)))
+    (write (structure-definition-name o) :stream stream)))
 
 (defmethod print-object ((o function-reference) stream)
   (print-unreadable-object (o stream :identity t :type t)
     (write (function-reference-name o) :stream stream)))
+
+(defmethod print-object ((o mezzano.runtime::symbol-value-cell) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (format stream "~A~A"
+            (mezzano.runtime::symbol-value-cell-symbol o)
+            (if (mezzano.runtime::symbol-global-value-cell-p o)
+                " [global]"
+                ""))))
 
 (defmethod print-object ((o weak-pointer) stream)
   (print-unreadable-object (o stream :identity t :type t)
@@ -92,13 +100,14 @@
     (format stream ":Size ~D :Position ~D"
             (byte-size o) (byte-position o))))
 
-(defmethod print-object ((object mezzano.supervisor::pci-device) stream)
+(defmethod print-object ((object mezzano.supervisor.pci:pci-device) stream)
   (print-unreadable-object (object stream :type t)
     (multiple-value-bind (bus device function)
-        (mezzano.supervisor:pci-device-location object)
+        (mezzano.supervisor.pci:pci-device-location object)
       (format stream "~2,'0X:~2,'0X:~X~A"
               bus device function
-              (if (eql (mezzano.supervisor::pci-device-boot-id object) mezzano.supervisor::*boot-id*)
+              (if (eql (mezzano.supervisor.pci:pci-device-boot-id object)
+                       (mezzano.supervisor:current-boot-id))
                   ""
                   " (stale)")))))
 

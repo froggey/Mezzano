@@ -14,22 +14,31 @@
 (defconstant +pinned-object-mark-bit+ #b10)
 
 ;;; Low 4 bits of a value are tag bits:
-(defconstant +tag-fixnum-000+     #b0000)
-(defconstant +tag-dx-root-object+ #b0001)
-(defconstant +tag-fixnum-001+     #b0010)
-(defconstant +tag-cons+           #b0011)
-(defconstant +tag-fixnum-010+     #b0100)
-;;#b0101
-(defconstant +tag-fixnum-011+     #b0110)
-(defconstant +tag-byte-specifier+ #b0111)
-(defconstant +tag-fixnum-100+     #b1000)
-(defconstant +tag-object+         #b1001)
-(defconstant +tag-fixnum-101+     #b1010)
-(defconstant +tag-character+      #b1011)
-(defconstant +tag-fixnum-110+     #b1100)
-(defconstant +tag-single-float+   #b1101)
-(defconstant +tag-fixnum-111+     #b1110)
-(defconstant +tag-gc-forward+     #b1111)
+(defconstant +tag-fixnum-000+       #b0000)
+(defconstant +tag-dx-root-object+   #b0001)
+(defconstant +tag-fixnum-001+       #b0010)
+(defconstant +tag-cons+             #b0011)
+(defconstant +tag-fixnum-010+       #b0100)
+(defconstant +tag-immediate+        #b0101)
+(defconstant +tag-fixnum-011+       #b0110)
+;; Low two bits of this one must be set, high two bits must match low
+;; two bits of +object-tag-structure-object+.
+;; See %FAST-STRUCTURE-TYPE-P.
+(defconstant +tag-structure-header+ #b0111) ; Low two bits must be set.
+(defconstant +tag-fixnum-100+       #b1000)
+(defconstant +tag-object+           #b1001)
+(defconstant +tag-fixnum-101+       #b1010)
+;;#b1011
+(defconstant +tag-fixnum-110+       #b1100)
+;;#b1101
+(defconstant +tag-fixnum-111+       #b1110)
+(defconstant +tag-gc-forward+       #b1111)
+
+(defconstant +immediate-tag+ (byte 2 4))
+(defconstant +immediate-tag-character+ #b00)
+(defconstant +immediate-tag-single-float+ #b01)
+(defconstant +immediate-tag-byte-specifier+ #b10)
+;; #b11
 
 ;;; Simple 1D arrays.
 ;; Array type T == simple vector.
@@ -94,9 +103,10 @@
 ;;#b101011
 ;;#b101100
 ;;#b101101
-;;#b101110
+(defconstant +object-tag-symbol-value-cell+       #b101110)
 (defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
+;; Low two bits must match high two bits of +tag-structure-header+.
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
 (defconstant +object-tag-sse-vector+              #b110011)
@@ -277,7 +287,7 @@ When the page is written to, the corresponding dirty bit in the card table will 
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 23)
+(defparameter *llf-version* 24)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
@@ -316,6 +326,8 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-complex-rational+          #x21)
 (defconstant +llf-complex-single-float+      #x22)
 (defconstant +llf-complex-double-float+      #x23)
+(defconstant +llf-structure-header+          #x24)
+(defconstant +llf-symbol-global-value-cell+  #x25)
 
 ;;; Fields in the Unicode info tables.
 

@@ -586,14 +586,6 @@
     ((:optimize (= safety 0) (= speed 3)))
   object)
 
-(define-transform sys.int::enable-unsafe-struct-access ()
-    ((:optimize (= safety 0)))
-  `'t)
-
-(define-transform sys.int::enable-unsafe-struct-access ()
-    ((:optimize (/= safety 0)))
-  `'nil)
-
 (define-transform list ()
     ()
   `'nil)

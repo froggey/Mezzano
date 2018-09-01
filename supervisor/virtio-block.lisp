@@ -1,7 +1,12 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtio-block
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:virtio :mezzano.supervisor.virtio)))
+
+(in-package :mezzano.supervisor.virtio-block)
 
 (defconstant +virtio-block-capacity+ 0)
 (defconstant +virtio-block-size-max+ 8)
@@ -26,17 +31,17 @@
              (:area :wired))
   virtio-device
   irq-handler-function
-  (irq-latch (make-latch "Virtio-Block IRQ Notifier"))
+  (irq-latch (sup:make-latch "Virtio-Block IRQ Notifier"))
   request-phys
   request-virt)
 
 (defun virtio-block-rw (device lba count mem-addr rw)
   (let* ((req (virtio-block-request-virt device))
          (dev (virtio-block-virtio-device device))
-         (vq (virtio-virtqueue dev 0))
-         (req-desc (virtio-ring-alloc-descriptor vq))
-         (buf-desc (virtio-ring-alloc-descriptor vq))
-         (stat-desc (virtio-ring-alloc-descriptor vq)))
+         (vq (virtio:virtio-virtqueue dev 0))
+         (req-desc (virtio:virtio-ring-alloc-descriptor vq))
+         (buf-desc (virtio:virtio-ring-alloc-descriptor vq))
+         (stat-desc (virtio:virtio-ring-alloc-descriptor vq)))
     ;; Set up the block request.
     (setf (sys.int::memref-unsigned-byte-32 (+ req +virtio-block-req-type+) 0)
           (ecase rw
@@ -48,35 +53,35 @@
           lba)
     (setf (sys.int::memref-unsigned-byte-32 (+ req +virtio-block-req-status+) 0)
           0)
-    (ensure req-desc)
-    (ensure buf-desc)
-    (ensure stat-desc)
+    (sup:ensure req-desc)
+    (sup:ensure buf-desc)
+    (sup:ensure stat-desc)
     ;; Request descriptor.
-    (setf (virtio-ring-desc-address vq req-desc) (virtio-block-request-phys device)
-          (virtio-ring-desc-length vq req-desc) +virtio-block-req-status+
-          (virtio-ring-desc-flags vq req-desc) (ash 1 +virtio-ring-desc-f-next+)
-          (virtio-ring-desc-next vq req-desc) buf-desc)
+    (setf (virtio:virtio-ring-desc-address vq req-desc) (virtio-block-request-phys device)
+          (virtio:virtio-ring-desc-length vq req-desc) +virtio-block-req-status+
+          (virtio:virtio-ring-desc-flags vq req-desc) (ash 1 virtio:+virtio-ring-desc-f-next+)
+          (virtio:virtio-ring-desc-next vq req-desc) buf-desc)
     ;; Buffer descriptor.
-    (setf (virtio-ring-desc-address vq buf-desc) (- mem-addr +physical-map-base+)
-          (virtio-ring-desc-length vq buf-desc) (* count 512)
-          (virtio-ring-desc-flags vq buf-desc) (logior (ash 1 +virtio-ring-desc-f-next+)
-                                                       (ecase rw
-                                                         (:read (ash 1 +virtio-ring-desc-f-write+))
-                                                         (:write 0)))
-          (virtio-ring-desc-next vq buf-desc) stat-desc)
+    (setf (virtio:virtio-ring-desc-address vq buf-desc) (- mem-addr sup::+physical-map-base+)
+          (virtio:virtio-ring-desc-length vq buf-desc) (* count 512)
+          (virtio:virtio-ring-desc-flags vq buf-desc) (logior (ash 1 virtio:+virtio-ring-desc-f-next+)
+                                                              (ecase rw
+                                                                (:read (ash 1 virtio:+virtio-ring-desc-f-write+))
+                                                                (:write 0)))
+          (virtio:virtio-ring-desc-next vq buf-desc) stat-desc)
     ;; Status descriptor.
-    (setf (virtio-ring-desc-address vq stat-desc) (+ (virtio-block-request-phys device)
-                                                     +virtio-block-req-status+)
-          (virtio-ring-desc-length vq stat-desc) 1
-          (virtio-ring-desc-flags vq stat-desc) (ash 1 +virtio-ring-desc-f-write+))
-    (virtio-ring-add-to-avail-ring vq req-desc)
-    (virtio-kick dev 0)
-    (latch-wait (virtio-block-irq-latch device))
-    (latch-reset (virtio-block-irq-latch device))
+    (setf (virtio:virtio-ring-desc-address vq stat-desc) (+ (virtio-block-request-phys device)
+                                                            +virtio-block-req-status+)
+          (virtio:virtio-ring-desc-length vq stat-desc) 1
+          (virtio:virtio-ring-desc-flags vq stat-desc) (ash 1 virtio:+virtio-ring-desc-f-write+))
+    (virtio:virtio-ring-add-to-avail-ring vq req-desc)
+    (virtio:virtio-kick dev 0)
+    (sup:latch-wait (virtio-block-irq-latch device))
+    (sup:latch-reset (virtio-block-irq-latch device))
     ;; Release the descriptors.
-    (virtio-ring-free-descriptor vq req-desc)
-    (virtio-ring-free-descriptor vq buf-desc)
-    (virtio-ring-free-descriptor vq stat-desc)
+    (virtio:virtio-ring-free-descriptor vq req-desc)
+    (virtio:virtio-ring-free-descriptor vq buf-desc)
+    (virtio:virtio-ring-free-descriptor vq stat-desc)
     ;; Check status.
     (let ((status (sys.int::memref-unsigned-byte-8 (+ req +virtio-block-req-status+) 0)))
       (values (eql status +virtio-block-s-ok+)
@@ -97,47 +102,47 @@
   t)
 
 (defun virtio-block-irq-handler (blk)
-  (latch-trigger (virtio-block-irq-latch blk)))
+  (sup:latch-trigger (virtio-block-irq-latch blk)))
 
-(defun virtio-block-register (device)
+(defun virtio::virtio-block-register (device)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
-  (debug-print-line "Detected virtio block device " device)
+  (sup:debug-print-line "Detected virtio block device " device)
   (let* ((blk (make-virtio-block :virtio-device device))
          (irq-handler (lambda (interrupt-frame irq)
                         (declare (ignore interrupt-frame irq))
                         (virtio-block-irq-handler blk)))
          ;; Allocate some memory for the request header & footer.
-         (frame (or (allocate-physical-pages 1)
-                    (panic "Unable to allocate memory for virtio block request")))
-         (phys (* frame +4k-page-size+))
-         (virt (convert-to-pmap-address phys)))
-    (debug-print-line "Virtio-Block request data at " phys)
+         (frame (or (sup::allocate-physical-pages 1)
+                    (sup:panic "Unable to allocate memory for virtio block request")))
+         (phys (* frame sup::+4k-page-size+))
+         (virt (sup::convert-to-pmap-address phys)))
+    (sup:debug-print-line "Virtio-Block request data at " phys)
     (setf (virtio-block-request-phys blk) phys
           (virtio-block-request-virt blk) virt)
     (setf (virtio-block-irq-handler-function blk) irq-handler)
-    (virtio-attach-irq device irq-handler)
+    (virtio:virtio-attach-irq device irq-handler)
     ;; Set the driver bit in the status field.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+))
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+))
     ;; Allocate virtqueue.
-    (when (not (virtio-configure-virtqueues device 1))
-      (setf (virtio-device-status device) +virtio-status-failed+)
-      (return-from virtio-block-register nil))
+    (when (not (virtio:virtio-configure-virtqueues device 1))
+      (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
+      (return-from virtio::virtio-block-register nil))
     ;; Read data from the config area.
     ;; TODO: Set the BLK-SIZE feature and use non-512 byte blocks.
-    (let ((capacity (virtio-device-specific-header/64 device +virtio-block-capacity+)))
-      (register-disk blk
-                     t
-                     capacity
-                     512
-                     256
-                     'virtio-block-read 'virtio-block-write 'virtio-block-flush
-                     nil))
+    (let ((capacity (virtio:virtio-device-specific-header/64 device +virtio-block-capacity+)))
+      (sup:register-disk blk
+                         t
+                         capacity
+                         512
+                         256
+                         'virtio-block-read 'virtio-block-write 'virtio-block-flush
+                         nil))
     ;; Enable IRQ handler.
-    (setf (virtio-irq-mask device) nil)
+    (setf (virtio:virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.
-    (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                +virtio-status-driver+
-                                                +virtio-status-ok+))
+    (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
+                                                       virtio:+virtio-status-driver+
+                                                       virtio:+virtio-status-ok+))
     t))

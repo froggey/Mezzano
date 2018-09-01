@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.driver.rtl8168
   (:use :cl :mezzano.supervisor)
-  (:local-nicknames (:nic :mezzano.driver.network-card)))
+  (:local-nicknames (:nic :mezzano.driver.network-card)
+                    (:pci :mezzano.supervisor.pci)))
 
 (in-package :mezzano.driver.rtl8168)
 
@@ -143,9 +144,9 @@
 
 (defun rtl8168-pci-register (location)
   (let ((nic (make-rtl8168 :pci-location location
-                           :io-base (pci-io-region location 2 256)
+                           :io-base (pci:pci-io-region location 2 256)
                            :boot-id (current-boot-id)
-                           :irq (pci-intr-line location))))
+                           :irq (pci:pci-intr-line location))))
     (setf (rtl8168-worker-thread nic)
           (make-thread (lambda () (rtl8168-worker nic))
                        :name "RTL8168 NIC worker")))
@@ -154,18 +155,18 @@
 ;;; Register access.
 
 (defun rtl8168-reg/8 (nic reg)
-  (pci-io-region/8 (rtl8168-io-base nic) reg))
+  (pci:pci-io-region/8 (rtl8168-io-base nic) reg))
 (defun rtl8168-reg/16 (nic reg)
-  (pci-io-region/16 (rtl8168-io-base nic) reg))
+  (pci:pci-io-region/16 (rtl8168-io-base nic) reg))
 (defun rtl8168-reg/32 (nic reg)
-  (pci-io-region/32 (rtl8168-io-base nic) reg))
+  (pci:pci-io-region/32 (rtl8168-io-base nic) reg))
 
 (defun (setf rtl8168-reg/8) (value nic reg)
-  (setf (pci-io-region/8 (rtl8168-io-base nic) reg) value))
+  (setf (pci:pci-io-region/8 (rtl8168-io-base nic) reg) value))
 (defun (setf rtl8168-reg/16) (value nic reg)
-  (setf (pci-io-region/16 (rtl8168-io-base nic) reg) value))
+  (setf (pci:pci-io-region/16 (rtl8168-io-base nic) reg) value))
 (defun (setf rtl8168-reg/32) (value nic reg)
-  (setf (pci-io-region/32 (rtl8168-io-base nic) reg) value))
+  (setf (pci:pci-io-region/32 (rtl8168-io-base nic) reg) value))
 
 ;;; Descriptor field access.
 
@@ -220,7 +221,7 @@
       (return-from rtl8168-initialize))
     (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
     (simple-irq-attach (rtl8168-irq-handler nic))
-    (setf (pci-bus-master-enabled (rtl8168-pci-location nic)) t)
+    (setf (pci:pci-bus-master-enabled (rtl8168-pci-location nic)) t)
     ;; Mask and ack interrupts.
     (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #x0000
           (rtl8168-reg/16 nic +rtl8168-register-ISR+) #xFFFF)
@@ -479,6 +480,6 @@
 (defmethod nic:device-transmit-packet ((nic rtl8168-network-card) packet)
   (rtl8168-transmit (slot-value nic 'nic) packet))
 
-(define-pci-driver rtl8168 rtl8168-pci-register
+(pci:define-pci-driver rtl8168 rtl8168-pci-register
   ((#x10EC #x8168))
   ())

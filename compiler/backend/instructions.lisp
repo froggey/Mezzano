@@ -787,7 +787,9 @@
 (defclass push-special-stack-instruction (backend-instruction)
   ((%a-value :initarg :a-value :accessor push-special-stack-a-value)
    (%b-value :initarg :b-value :accessor push-special-stack-b-value)
-   (%frame :initarg :frame :accessor push-special-stack-frame)))
+   (%frame :initarg :frame :accessor push-special-stack-frame)
+   (%tag :initarg :tag :accessor push-special-stack-tag))
+  (:default-initargs :tag sys.int::+object-tag-array-t+))
 
 (defmethod instruction-inputs ((instruction push-special-stack-instruction))
   (list (push-special-stack-a-value instruction) (push-special-stack-b-value instruction)))
@@ -1178,3 +1180,22 @@
             ,(debug-variable instruction)
             ,(debug-value instruction)
             ,(debug-representation instruction))))
+
+;;; Extend life of a value.
+
+(defclass spice-instruction (backend-instruction)
+  ((%value :initarg :value :accessor spice-value)))
+
+(defmethod instruction-inputs ((instruction spice-instruction))
+  (list (spice-value instruction)))
+
+(defmethod instruction-outputs ((instruction spice-instruction))
+  '())
+
+(defmethod replace-all-registers ((instruction spice-instruction) substitution-function)
+  (setf (spice-value instruction) (funcall substitution-function (spice-value instruction))))
+
+(defmethod print-instruction ((instruction spice-instruction))
+  (format t "   ~S~%"
+          `(:spice
+            ,(spice-value instruction))))

@@ -1,7 +1,78 @@
 ;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.pci
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor))
+  (:export #:pci-device
+           #:pci-device-location
+           #:pci-device-boot-id
+           #:pci-config/8
+           #:pci-config/16
+           #:pci-config/32
+           #:pci-base-class
+           #:pci-sub-class
+           #:pci-programming-interface
+           #:pci-bar
+           #:pci-io-region
+           #:pci-io-region/8
+           #:pci-io-region/16
+           #:pci-io-region/32
+           #:pci-io-region/64
+           #:pci-io-region/le16
+           #:pci-io-region/le32
+           #:pci-io-region/le64
+           #:pci-intr-line
+           #:pci-bus-master-enabled
+           #:pci-get-vendor-capability
+           #:map-pci-devices
+           #:define-pci-driver
+
+           #:+pci-config-vendorid+
+           #:+pci-config-deviceid+
+           #:+pci-config-command+
+           #:+pci-config-status+
+           #:+pci-config-revid+
+           #:+pci-config-classcode+
+           #:+pci-config-cachelinesz+
+           #:+pci-config-latency-timer+
+           #:+pci-config-hdr-type+
+           #:+pci-config-bist+
+           #:+pci-config-bar-start+
+           #:+pci-config-cardbus-cis+
+           #:+pci-config-subvendorid+
+           #:+pci-config-subdeviceid+
+           #:+pci-config-ex-rom-base+
+           #:+pci-config-capabilities+
+           #:+pci-config-intr-line+
+           #:+pci-config-intr-pin+
+           #:+pci-config-min-gnt+
+           #:+pci-config-max-lat+
+
+           #:+pci-bridge-htype+
+           #:+pci-bridge-primary-bus+
+           #:+pci-bridge-secondary-bus+
+           #:+pci-bridge-subordinate-bus+
+           #:+pci-bridge-secondary-latency+
+           #:+pci-bridge-io-base+
+           #:+pci-bridge-io-limit+
+           #:+pci-bridge-secondary-status+
+
+           #:+pci-command-bus-master+
+           #:+pci-command-interrupt-disable+
+
+           #:+pci-status-interrupt-status+
+           #:+pci-status-capabilities-list+
+
+           #:+pci-capability-vendor+
+           #:+pci-capability-next+
+           #:+pci-capability-length+
+           #:+pci-capability-vendor-type+
+
+           #:+pci-capability-id-msi+
+           #:+pci-capability-id-vendor+))
+
+(in-package :mezzano.supervisor.pci)
 
 ;; Layout of CONFIG-ADDRESS register:
 ;; 31|30      24|23      16|15      11|10      8|7      2|1|0|
@@ -47,7 +118,13 @@
 (defconstant +pci-status-interrupt-status+ 3)
 (defconstant +pci-status-capabilities-list+ 4)
 
+(defconstant +pci-capability-vendor+ 0)
+(defconstant +pci-capability-next+ 1)
+(defconstant +pci-capability-length+ 2)
+(defconstant +pci-capability-vendor-type+ 3)
+
 (defconstant +pci-capability-id-msi+ #x05)
+(defconstant +pci-capability-id-vendor+ #x09)
 
 (sys.int::defglobal *pci-config-lock*)
 
@@ -72,8 +149,8 @@
           (ash function 8)))
 
 (defun pci-set-config-address (address register)
-  (setf (sys.int::io-port/32 +pci-config-address+) (logior address
-                                                           (logand register #b11111100))))
+  (setf (sys.int::io-port/32 +pci-config-address+)
+        (logior address (logand register #b11111100))))
 
 (defun pci-device-location (device)
   (let ((address (pci-device-address device)))
@@ -82,52 +159,52 @@
             (ldb (byte 3 8) address)))) ; function
 
 (defun pci-config/8 (device register)
-  (safe-without-interrupts (device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
 
 (defun pci-config/16 (device register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (safe-without-interrupts (device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
 
 (defun pci-config/32 (device register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (safe-without-interrupts (device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (sys.int::io-port/32 +pci-config-data+)))))
 
 (defun (setf pci-config/8) (value device register)
-  (safe-without-interrupts (value device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (setf (sys.int::io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
 
 (defun (setf pci-config/16) (value device register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (safe-without-interrupts (value device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (setf (sys.int::io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
 
 (defun (setf pci-config/32) (value device register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (safe-without-interrupts (value device register)
-    (when (eql (pci-device-boot-id device) *boot-id*)
-      (with-symbol-spinlock (*pci-config-lock*)
+  (sup:safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (sup:with-symbol-spinlock (*pci-config-lock*)
         (pci-set-config-address (pci-device-address device) register)
         (setf (sys.int::io-port/32 +pci-config-data+) value)))))
 
@@ -149,12 +226,12 @@
   (let ((address (pci-bar device bar)))
     (when (not (logbitp 0 address))
       (let* ((base (logand address (lognot #b1111)))
-             (end (align-up (+ base size) #x1000))
+             (end (sup::align-up (+ base size) #x1000))
              (aligned-base (logand base (lognot #xFFF)))
              (aligned-size (- end aligned-base)))
-        (map-physical-memory aligned-base
-                             aligned-size
-                             "PCI MMIO")))
+        (sup:map-physical-memory aligned-base
+                                 aligned-size
+                                 "PCI MMIO")))
     address))
 
 (defun pci-intr-line (device)
@@ -177,32 +254,32 @@
       ;; Port IO.
       (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
-                                          offset))))
+      (sup::physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                               offset))))
 
 (defun pci-io-region/16 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
-                                           offset))))
+      (sup::physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                                offset))))
 
 (defun pci-io-region/32 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
-                                           offset))))
+      (sup::physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                                offset))))
 
 (defun (setf pci-io-region/8) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (setf (sys.int::io-port/8 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
-                                                offset))
+      (setf (sup::physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                                     offset))
             value)))
 
 (defun (setf pci-io-region/16) (value location offset)
@@ -210,8 +287,8 @@
       ;; Port IO.
       (setf (sys.int::io-port/16 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
-                                                 offset))
+      (setf (sup::physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                                      offset))
             value)))
 
 (defun (setf pci-io-region/32) (value location offset)
@@ -219,31 +296,43 @@
       ;; Port IO.
       (setf (sys.int::io-port/32 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
-                                                 offset))
+      (setf (sup::physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                                      offset))
             value)))
+
+;; Little-endian accessors.
+(defun pci-io-region/le16 (location offset)
+  (pci-io-region/16 location offset))
+
+(defun pci-io-region/le32 (location offset)
+  (pci-io-region/32 location offset))
+
+(defun pci-io-region/le64 (location offset)
+  (logior (pci-io-region/32 location offset)
+          (ash (pci-io-region/32 location (+ offset 4)) 32)))
+
+(defun (setf pci-io-region/le16) (value location offset)
+  (setf (pci-io-region/16 location offset) value))
+
+(defun (setf pci-io-region/le32) (value location offset)
+  (setf (pci-io-region/32 location offset) value))
+
+(defun (setf pci-io-region/le64) (value location offset)
+  (setf (pci-io-region/32 location offset) (ldb (byte 32 0) value))
+  (setf (pci-io-region/32 location (+ offset 4)) (ldb (byte 32 32) value))
+  value)
 
 (defun map-pci-devices (fn)
   (dolist (device *pci-devices*)
     (funcall fn device)))
 
-(defun pci-probe (callback vid-did-pairs)
-  (map-pci-devices (dx-lambda (device)
-                     (let ((vendor-id (pci-config/16 device +pci-config-vendorid+))
-                           (device-id (pci-config/16 device +pci-config-deviceid+)))
-                       (loop
-                          for (vid did) in vid-did-pairs
-                          when (and (eql vid vendor-id)
-                                    (eql did device-id))
-                          do (funcall callback device))))))
-
-(defun initialize-pci ()
+(defun sup::initialize-pci ()
   (when (not (boundp '*pci-drivers*))
     (setf *pci-drivers* '()))
   (setf *pci-config-lock* :unlocked)
   (setf *pci-devices* '()
         *pci-late-probe-devices* '())
-  (add-deferred-boot-action 'pci-late-probe))
+  (sup:add-deferred-boot-action 'pci-late-probe))
 
 (defun dump-pci-device-config-space (device)
   (let* ((vendor-id (pci-config/16 device +pci-config-vendorid+))
@@ -256,12 +345,12 @@
         (pci-device-location device)
       (multiple-value-bind (vendor-name device-name)
           (pci-find-device-name vendor-id device-id)
-        (debug-print-line "PCI:" bus ":" device-nr ":" function
-                          " " vendor-id ":" device-id
-                          " " vendor-name " - " device-name
-                          " " base-class-code ":" sub-class-code ":" programming-interface
-                          " " (pci-config/8 device +pci-config-revid+)
-                          " " header-type)))
+        (sup:debug-print-line "PCI:" bus ":" device-nr ":" function
+                              " " vendor-id ":" device-id
+                              " " vendor-name " - " device-name
+                              " " base-class-code ":" sub-class-code ":" programming-interface
+                              " " (pci-config/8 device +pci-config-revid+)
+                              " " header-type)))
     (when (logbitp +pci-status-capabilities-list+
                    (pci-config/16 device +pci-config-status+))
       (loop
@@ -270,42 +359,61 @@
            (setf cap (logand cap (lognot 3))) ; Bottom 2 bits must be masked off.
            (when (zerop cap)
              (return))
-           (let ((id (pci-config/8 device cap)))
+           (let ((id (pci-config/8 device (+ cap +pci-capability-vendor+))))
              (case id
                (#.+pci-capability-id-msi+
-                (debug-print-line "    " cap ": MSI " (pci-config/16 device (+ cap 2))))
+                (sup:debug-print-line "    " cap ": MSI " (pci-config/16 device (+ cap +pci-capability-length+))))
+               (#.+pci-capability-id-vendor+
+                (let ((subid (pci-config/8 device (+ cap +pci-capability-vendor-type+))))
+                  (cond ((and (eql vendor-id #x1AF4)
+                              (eql subid 1))
+                         (sup:debug-print-line "    " cap ": Virtio common config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 2))
+                         (sup:debug-print-line "    " cap ": Virtio notify config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 3))
+                         (sup:debug-print-line "    " cap ": Virtio ISR config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 4))
+                         (sup:debug-print-line "    " cap ": Virtio device config"))
+                        ((and (eql vendor-id #x1AF4)
+                              (eql subid 5))
+                         (sup:debug-print-line "    " cap ": Virtio PCI config"))
+                        (t
+                         (sup:debug-print-line "    " cap ": Vendor-specific " subid)))))
                (t
-                (debug-print-line "    " cap ": Unknown capability " id)))
-             (setf cap (pci-config/8 device (1+ cap))))))))
+                (sup:debug-print-line "    " cap ": Unknown capability " id)))
+             (setf cap (pci-config/8 device (+ cap +pci-capability-next+))))))))
 
-(defun pci-detect ()
+(defun sup::pci-detect ()
   (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
   (when (eql (sys.int::io-port/32 +pci-config-address+) #x80000000)
-    (debug-print-line "Begin PCI scan.")
+    (sup:debug-print-line "Begin PCI scan.")
     (labels ((scan-bus (bus)
                (dotimes (device-nr 32)
                  ;; High bit of the header type specifies if a device is multifunction.
                  (let ((multifunction (logbitp 7 (pci-config/8
                                                   (make-pci-device :address (make-pci-address bus device-nr 0)
-                                                                   :boot-id *boot-id*)
+                                                                   :boot-id (sup:current-boot-id))
                                                   +pci-config-hdr-type+))))
                    (dotimes (function (if multifunction 8 1))
                      (let* ((address (make-pci-address bus device-nr function))
-                            (device (make-pci-device :address address :boot-id *boot-id*))
+                            (device (make-pci-device :address address :boot-id (sup:current-boot-id)))
                             (vendor-id (pci-config/16 device +pci-config-vendorid+))
                             (device-id (pci-config/16 device +pci-config-deviceid+))
                             (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
                        (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
                          (setf (pci-device-vendor-id device) vendor-id
                                (pci-device-device-id device) device-id)
-                         (push-wired device *pci-devices*)
+                         (sup::push-wired device *pci-devices*)
                          (when (eql header-type +pci-bridge-htype+)
                            ;; Bridge device, scan the other side.
                            (scan-bus (pci-config/8 device +pci-bridge-secondary-bus+))))))))))
       (declare (dynamic-extent #'scan-bus))
       (scan-bus 0))
     (map-pci-devices
-     (dx-lambda (device)
+     (sup::dx-lambda (device)
        (let* ((vendor-id (pci-config/16 device +pci-config-vendorid+))
               (device-id (pci-config/16 device +pci-config-deviceid+))
               (base-class-code (pci-base-class device))
@@ -313,7 +421,7 @@
               (programming-interface (pci-programming-interface device)))
          (dump-pci-device-config-space device)
          (cond ((and (eql vendor-id #x1AF4)
-                     (<= #x1000 device-id #x103F))
+                     (<= #x1000 device-id #x107F))
                 ;; Some kind of virtio-device.
                 (virtio-pci-register device)
                 (setf (pci-device-claimed device) :virtio-pci))
@@ -344,13 +452,13 @@
                 (setf (pci-device-claimed device)
                       (virtualbox-graphics-register device)))
                (t
-                (push-wired device *pci-late-probe-devices*))))))))
+                (sup::push-wired device *pci-late-probe-devices*))))))))
 
 ;; These devices must be probed late because their drivers may not be in wired memory.
 (defun pci-late-probe ()
   (dolist (dev *pci-late-probe-devices*)
     (dolist (drv *pci-drivers*
-             (debug-print-line "PCI device " (pci-config/16 dev +pci-config-vendorid+) ":" (pci-config/16 dev +pci-config-deviceid+) " not supported."))
+             (sup::debug-print-line "PCI device " (pci-config/16 dev +pci-config-vendorid+) ":" (pci-config/16 dev +pci-config-deviceid+) " not supported."))
       (when (and (not (pci-device-claimed dev))
                  (pci-driver-compatible-p drv dev)
                  (sys.int::log-and-ignore-errors
@@ -413,28 +521,15 @@
                  :probe probe-function
                  :pci-ids pci-ids
                  :classes classes)))
-    (debug-print-line "Registered new pci driver " name)
-    (push-wired driver *pci-drivers*)
+    (sup:debug-print-line "Registered new pci driver " name)
+    (sup::push-wired driver *pci-drivers*)
     (probe-pci-driver driver)
     name))
 
 (declaim (special sys.int::*pci-ids*))
 
-(defun bsearch (item vector &key (start 0) end (stride 1))
-  "Locate ITEM using a binary search through VECTOR."
-  ;; IMIN/IMAX are inclusive indicies.
-  (do ((imin start)
-       (imax (1- (truncate (or end (sys.int::simple-vector-length vector)) stride))))
-      ((< imax imin)
-       nil)
-    (let* ((imid (truncate (+ imin imax) 2))
-           (elt (svref vector (* imid stride))))
-      (cond ((< elt item) (setf imin (1+ imid)))
-            ((> elt item) (setf imax (1- imid)))
-            (t (return (* imid stride)))))))
-
 (defun pci-find-vendor-name (id &optional (ids sys.int::*pci-ids*))
-  (let ((position (bsearch id ids :stride 3)))
+  (let ((position (sup::bsearch id ids :stride 3)))
     (when position
       (values (svref ids (+ position 1))
               (svref ids (+ position 2))))))
@@ -443,7 +538,7 @@
   (multiple-value-bind (vname devices)
       (pci-find-vendor-name vid ids)
     (when (and vname devices)
-      (let ((position (bsearch did devices :stride 3)))
+      (let ((position (sup::bsearch did devices :stride 3)))
         (when position
           (values vname
                   (svref devices (+ position 1))
@@ -453,8 +548,8 @@
   (multiple-value-bind (vname dname subsystems)
       (pci-find-device-name vid did ids)
     (when (and vname subsystems)
-      (let ((position (bsearch (logior (ash svid 16) sdid) subsystems
-                               :stride 2)))
+      (let ((position (sup::bsearch (logior (ash svid 16) sdid) subsystems
+                                    :stride 2)))
         (if position
             (values vname dname (svref subsystems (1+ position)))
             (values vname dname nil))))))
@@ -466,3 +561,19 @@
   (multiple-value-bind (vendor-name device-name)
       (pci-find-device-name (pci-device-vendor-id device) (pci-device-device-id device))
     device-name))
+
+(defun pci-get-vendor-capability (device subid)
+  (when (logbitp +pci-status-capabilities-list+
+                 (pci-config/16 device +pci-config-status+))
+    (loop
+       with cap = (pci-config/8 device +pci-config-capabilities+)
+       do
+         (setf cap (logand cap (lognot 3))) ; Bottom 2 bits must be masked off.
+         (when (zerop cap)
+           (return nil))
+         (when (and (eql (pci-config/8 device (+ cap +pci-capability-vendor+))
+                         +pci-capability-id-vendor+)
+                    (eql (pci-config/8 device (+ cap +pci-capability-vendor-type+))
+                         subid))
+           (return cap))
+         (setf cap (pci-config/8 device (+ cap +pci-capability-next+))))))

@@ -225,7 +225,7 @@
   name)
 
 (defun %defstruct (structure-type)
-  (setf (gethash (structure-name structure-type) mezzano.runtime::*structure-types*) structure-type))
+  (setf (gethash (structure-definition-name structure-type) mezzano.runtime::*structure-types*) structure-type))
 
 (defparameter *incompatible-constant-redefinition-is-an-error* nil)
 (defparameter *defconstant-redefinition-comparator* 'eql)

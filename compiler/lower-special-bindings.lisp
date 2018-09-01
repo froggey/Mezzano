@@ -131,7 +131,7 @@
                                  updated-special-bindings)
                            (ast `(progn
                                    (call sys.int::%%bind
-                                         (quote ,(name variable))
+                                         (quote ,(mezzano.runtime::symbol-global-value-cell (name variable)))
                                          ,(lsb-form init-form))
                                    (multiple-value-prog1 ,(frob (rest bindings))
                                      (call sys.int::%%unbind)))

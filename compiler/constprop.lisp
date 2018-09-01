@@ -120,12 +120,12 @@
 
 (defun constprop-function-ast-p (ast)
   ;; #'FOO is only pure if FOO is inlinable.
-  ;; FIXME: Respect INLINE/NOTININE declarations.
   (and (typep ast 'ast-function)
-       (or (multiple-value-bind (inlinep expansion)
-               (function-inline-info (ast-name ast))
-             (declare (ignore expansion))
-             inlinep)
+       (or (let* ((name (ast-name ast))
+                  (decls (assoc name (ast-inline-declarations ast))))
+             (and (or (function-inline-info name)
+                      (eql (second decls) 'inline))
+                  (not (eql (second decls) 'notinline))))
            ;; Everything in the CL package is a candidate for constprop.
            (let ((true-name (if (symbolp (ast-name ast))
                                 (ast-name ast)

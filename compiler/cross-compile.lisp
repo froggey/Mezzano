@@ -11,38 +11,41 @@
 
 (defvar *target-architecture*)
 
-(defvar *system-macros* (make-hash-table :test 'eq))
-(defvar *system-compiler-macros* (make-hash-table :test 'equal))
-(defvar *system-symbol-macros* (make-hash-table :test 'eq))
-(defvar *system-symbol-declarations* (make-hash-table :test 'eq))
+(in-package :sys.int)
 
-(defstruct (structure-type
-             (:constructor sys.int::make-struct-type
-                           (name slots parent area)))
+(defun mezzano.clos:class-precedence-list (class)
+  (sb-mop:class-precedence-list class))
+
+(defstruct (structure-definition
+             (:constructor sys.int::make-struct-definition
+                           (name slots parent area size layout)))
   (name)
   (slots)
   (parent)
-  (area))
+  (area)
+  (size)
+  (layout))
 
-(defun sys.int::make-struct-definition (&rest blah)
-  (apply #'sys.int::make-struct-type blah))
-
-(defstruct (structure-slot
+(defstruct (structure-slot-definition
              (:constructor sys.int::make-struct-slot-definition
-                           (name accessor initform type read-only)))
+                           (name accessor initform type read-only ref-fn index)))
   name
   accessor
   initform
   type
-  read-only)
+  read-only
+  ref-fn
+  index)
 
-(defun sys.int::structure-slot-name (x) (structure-slot-name x))
-(defun sys.int::structure-slot-accessor (x) (structure-slot-accessor x))
-(defun sys.int::structure-slot-initform (x) (structure-slot-initform x))
-(defun sys.int::structure-slot-type (x) (structure-slot-type x))
-(defun sys.int::structure-slot-read-only (x) (structure-slot-read-only x))
+(defstruct (structure-header
+             (:constructor mezzano.runtime::%make-structure-header
+                           (definition)))
+  definition)
 
-(defvar *structure-types* (make-hash-table :test 'eq))
+(in-package :sys.c)
+
+(defun mezzano.runtime::%unpack-structure-header (header)
+  (sys.int::structure-header-definition header))
 
 (defun ldb (bytespec integer)
   (logand (ash integer (- (byte-position bytespec)))
@@ -326,7 +329,7 @@
 
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)
-      (gethash symbol *system-symbol-macros*)
+      (gethash symbol cross-support::*system-symbol-macros*)
     (if expandedp
         (make-instance 'symbol-macro :name symbol :expansion expansion)
         (make-instance 'special-variable
@@ -349,10 +352,10 @@
   nil)
 
 (defmethod compiler-macro-function-in-environment (name (environment null))
-  (gethash name *system-compiler-macros*))
+  (gethash name cross-support::*system-compiler-macros*))
 
 (defmethod macro-function-in-environment (symbol (environment null))
-  (gethash symbol *system-macros*))
+  (gethash symbol cross-support::*system-macros*))
 
 (defmethod lookup-variable-declared-type-in-environment (symbol (environment null))
   (mezzano.runtime::symbol-type symbol))
@@ -369,7 +372,7 @@
 
 (defun (setf compiler-macro-function) (value name &optional env)
   (assert (eql env nil))
-  (setf (gethash name *system-compiler-macros*) value))
+  (setf (gethash name cross-support::*system-compiler-macros*) value))
 
 (defun macro-function (symbol &optional env)
   (macro-function-in-environment symbol env))
@@ -397,37 +400,6 @@
                (values form nil))))
         (t (values form nil))))
 
-(defun remove-&environment (orig-lambda-list)
-  (do* ((lambda-list (copy-list orig-lambda-list))
-        (prev nil i)
-        (i lambda-list (cdr i)))
-       ((null i) (values lambda-list nil))
-    (when (eql (first i) '&environment)
-      (assert (not (null (cdr i))) ()
-              "Missing variable after &ENVIRONMENT.")
-      (if prev
-          (setf (cdr prev) (cddr i))
-          (setf lambda-list (cddr i)))
-      (assert (not (member '&environment lambda-list)) ()
-              "Duplicate &ENVIRONMENT variable in lambda-list ~S." orig-lambda-list)
-      (return (values lambda-list (second i))))))
-
-(defmacro def-x-macro (name lambda-list &body body)
-  (let ((whole))
-    (multiple-value-bind (fixed-lambda-list env)
-        (remove-&environment lambda-list)
-      (when (null env)
-        (setf env (gensym)))
-      (if (eql (first fixed-lambda-list) '&whole)
-          (setf whole (second fixed-lambda-list)
-                fixed-lambda-list (cddr fixed-lambda-list))
-          (setf whole (gensym)))
-      `(setf (gethash ',name *system-macros*)
-             (lambda (,whole ,env)
-               (declare (ignorable ,whole ,env))
-               (destructuring-bind ,fixed-lambda-list (cdr ,whole)
-                 (block ,name ,@body)))))))
-
 (defvar *macroexpand-hook* 'funcall)
 
 (defun constantp (form &optional env)
@@ -444,7 +416,7 @@
              (cl:constantp symbol))
          :constant)
         (t
-         (values (gethash symbol *system-symbol-declarations*)))))
+         (values (gethash symbol cross-support::*system-symbol-declarations*)))))
 
 (defvar *output-fasl*)
 (defvar *output-map*)
@@ -571,6 +543,17 @@
 (defun sys.int::function-reference (name)
   (resolve-fref name))
 
+;; Should be a weak hash table.
+(defvar *symbol-global-value-cell-table* (make-hash-table :test #'equal))
+
+(defstruct (cross-symbol-global-value-cell
+             (:constructor make-cross-symbol-global-value-cell (name)))
+  name)
+
+(defun mezzano.runtime::symbol-global-value-cell (symbol)
+  (alexandria:ensure-gethash symbol *symbol-global-value-cell-table*
+                             (make-cross-symbol-global-value-cell symbol)))
+
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
@@ -643,9 +626,17 @@
 
 (defgeneric save-one-object (object object-map stream))
 
+(defmethod save-one-object ((object sys.int::structure-header) omap stream)
+  (save-object (mezzano.runtime::%unpack-structure-header object) omap stream)
+  (write-byte sys.int::+llf-structure-header+ stream))
+
 (defmethod save-one-object ((object cross-fref) omap stream)
   (save-object (cross-fref-name object) omap stream)
   (write-byte sys.int::+llf-function-reference+ stream))
+
+(defmethod save-one-object ((object cross-symbol-global-value-cell) omap stream)
+  (save-object (cross-symbol-global-value-cell-name object) omap stream)
+  (write-byte sys.int::+llf-symbol-global-value-cell+ stream))
 
 (defmethod save-one-object ((object cross-function) omap stream)
   (let ((constants (cross-function-constants object)))
@@ -720,19 +711,23 @@
   (write-byte sys.int::+llf-character+ stream)
   (save-character object stream))
 
-(defmethod save-one-object ((object structure-type) omap stream)
-  (save-object (structure-type-name object) omap stream)
-  (save-object (structure-type-slots object) omap stream)
-  (save-object (structure-type-parent object) omap stream)
-  (save-object (structure-type-area object) omap stream)
+(defmethod save-one-object ((object sys.int::structure-definition) omap stream)
+  (save-object (sys.int::structure-definition-name object) omap stream)
+  (save-object (sys.int::structure-definition-slots object) omap stream)
+  (save-object (sys.int::structure-definition-parent object) omap stream)
+  (save-object (sys.int::structure-definition-area object) omap stream)
+  (save-object (sys.int::structure-definition-size object) omap stream)
+  (save-object (sys.int::structure-definition-layout object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
-(defmethod save-one-object ((object structure-slot) omap stream)
-  (save-object (structure-slot-name object) omap stream)
-  (save-object (structure-slot-accessor object) omap stream)
-  (save-object (structure-slot-initform object) omap stream)
-  (save-object (structure-slot-type object) omap stream)
-  (save-object (structure-slot-read-only object) omap stream)
+(defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)
+  (save-object (sys.int::structure-slot-definition-name object) omap stream)
+  (save-object (sys.int::structure-slot-definition-accessor object) omap stream)
+  (save-object (sys.int::structure-slot-definition-initform object) omap stream)
+  (save-object (sys.int::structure-slot-definition-type object) omap stream)
+  (save-object (sys.int::structure-slot-definition-read-only object) omap stream)
+  (save-object (sys.int::structure-slot-definition-ref-fn object) omap stream)
+  (save-object (sys.int::structure-slot-definition-index object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
 (defun sys.int::%single-float-as-integer (value)
@@ -959,7 +954,7 @@
       (let* ((*readtable* (copy-readtable *cross-readtable*))
              (*output-map* (make-hash-table))
              (*pending-llf-commands* nil)
-             (*package* (find-package "CL-USER"))
+             (*package* (find-package "CROSS-CL-USER"))
              (*compile-print* print)
              (*compile-verbose* verbose)
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
@@ -1000,7 +995,7 @@
                            (external-format :default))
   (with-open-file (input input-file :external-format external-format)
     (let* ((*readtable* (copy-readtable *cross-readtable*))
-           (*package* (find-package "CL-USER"))
+           (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* print)
            (*compile-verbose* verbose)
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
@@ -1019,32 +1014,32 @@
            (x-compile-top-level form nil :not-compile-time))))
   t)
 
-(defun save-compiler-builtins (path target-architecture)
+(defun save-custom-compiled-file (path generator)
   (with-open-file (*output-fasl* path
                    :element-type '(unsigned-byte 8)
                    :if-exists :supersede
                    :direction :output)
-    (format t ";; Writing compiler builtins to ~A.~%" path)
     (write-llf-header *output-fasl* path)
-    (let* ((builtins (ecase target-architecture
-                       (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
-                       (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
-           (*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
-           (*package* (find-package "CL-USER"))
+           (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* *compile-print*)
            (*compile-verbose* *compile-verbose*)
            (*compile-file-pathname* nil)
            (*compile-file-truename* nil)
-           (*gensym-counter* 0)
-           (*use-new-compiler* nil))
-      (dolist (b builtins)
-        (let ((form `(sys.int::%defun ',(first b) ,(second b))))
-          (let ((*print-length* 3)
-                (*print-level* 3))
-            (format t ";; Compiling form ~S.~%" form))
-          (x-compile form nil)))
+           (*gensym-counter* 0))
+      (loop
+         for values = (multiple-value-list (funcall generator))
+         for form = (first values)
+         do
+           (when (not values)
+             (return))
+           (when *compile-print*
+             (let ((*print-length* 3)
+                   (*print-level* 2))
+               (format t ";; X-compiling: ~S~%" form)))
+           (x-compile-top-level form nil))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
       (let ((commands (reverse *pending-llf-commands*)))
@@ -1059,6 +1054,19 @@
             (when (car cmd)
               (write-byte (car cmd) *output-fasl*)))))
       (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
+
+(defun save-compiler-builtins (path target-architecture)
+  (format t ";; Writing compiler builtins to ~A.~%" path)
+  (let* ((builtins (ecase target-architecture
+                     (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
+                     (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
+         (*use-new-compiler* nil))
+    (save-custom-compiled-file path
+                               (lambda ()
+                                 (if builtins
+                                     (let ((b (pop builtins)))
+                                       `(sys.int::%defun ',(first b) ,(second b)))
+                                     (values))))))
 
 (deftype sys.int::non-negative-fixnum ()
   `(integer 0 ,most-positive-fixnum))
@@ -1092,3 +1100,7 @@
             (rest (pathname-directory p))
             (pathname-name p)
             (pathname-type p))))
+
+(defun function-inline-info (name)
+  (values (gethash name cross-support::*inline-modes*)
+          (gethash name cross-support::*inline-forms*)))

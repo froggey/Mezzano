@@ -48,7 +48,9 @@
     (#.+llf-drop+ 'drop)
     (#.+llf-complex-rational+ 'complex-rational)
     (#.+llf-complex-single-float+ 'complex-single-float)
-    (#.+llf-complex-double-float+ 'complex-double-float)))
+    (#.+llf-complex-double-float+ 'complex-double-float)
+    (#.+llf-structure-header+ 'structure-header)
+    (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -160,32 +162,38 @@
         vector)))
 
 (defun structure-slot-definition-compatible (x y)
-  (and (eql (structure-slot-name x) (structure-slot-name y))
-       (equal (structure-slot-type x) (structure-slot-type y))))
+  (and (eql (structure-slot-definition-name x) (structure-slot-definition-name y))
+       (equal (structure-slot-definition-type x) (structure-slot-definition-type y))
+       (eql (structure-slot-definition-ref-fn x) (structure-slot-definition-ref-fn y))
+       (eql (structure-slot-definition-index x) (structure-slot-definition-index y))))
 
 (defun load-llf-structure-definition (stream stack)
-  (let* ((area (vector-pop stack))
+  (let* ((layout (vector-pop stack))
+         (size (vector-pop stack))
+         (area (vector-pop stack))
          (parent (vector-pop stack))
          (slots (vector-pop stack))
          (name (vector-pop stack))
          (definition (get-structure-type name nil)))
     (cond (definition
-           (unless (and (eql (length (structure-slots definition)) (length slots))
-                        (every #'structure-slot-definition-compatible (structure-slots definition) slots))
-             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-slots definition) slots))
+           (unless (and (eql (length (structure-definition-slots definition)) (length slots))
+                        (every #'structure-slot-definition-compatible (structure-definition-slots definition) slots))
+             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-definition-slots definition) slots))
            definition)
           (t
-           (let ((def (make-struct-definition name slots parent area)))
+           (let ((def (make-struct-definition name slots parent area size layout)))
              (%defstruct def)
              def)))))
 
 (defun load-llf-structure-slot-definition (stream stack)
-  (let* ((read-only (vector-pop stack))
+  (let* ((index (vector-pop stack))
+         (ref-fn (vector-pop stack))
+         (read-only (vector-pop stack))
          (type (vector-pop stack))
          (initform (vector-pop stack))
          (accessor (vector-pop stack))
          (name (vector-pop stack)))
-    (make-struct-slot-definition name accessor initform type read-only)))
+    (make-struct-slot-definition name accessor initform type read-only ref-fn index)))
 
 (defun load-llf-array (stream stack)
   (let* ((n-dimensions (load-integer stream))
@@ -326,7 +334,11 @@
     (#.+llf-complex-double-float+
      (let ((realpart (%integer-as-double-float (load-integer stream)))
            (imagpart (%integer-as-double-float (load-integer stream))))
-       (complex realpart imagpart)))))
+       (complex realpart imagpart)))
+    (#.+llf-structure-header+
+     (mezzano.runtime::%make-structure-header (vector-pop stack)))
+    (#.+llf-symbol-global-value-cell+
+     (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)

@@ -169,6 +169,7 @@
     (when (not (boot-option +boot-option-no-detect+))
       (detect-disk-partitions))
     (initialize-paging-system)
+    ;; Disabled, SMP is more broken than normal.
     ;;(boot-secondary-cpus)
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")

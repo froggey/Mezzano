@@ -15,6 +15,9 @@
 (defconstant +char-super-bit+   #b0100)
 (defconstant +char-hyper-bit+   #b1000)
 
+(defconstant +char-code+ (byte 21 6))
+(defconstant +char-bits+ (byte 4 27))
+
 (defun make-character (code &key control meta super hyper)
   (%make-character code (logior (if control +char-control-bit+ 0)
                                 (if meta +char-meta-bit+ 0)
@@ -23,7 +26,7 @@
 
 (defun char-bits (character)
   (check-type character character)
-  (logand (ash (ash (lisp-object-address character) -4) -21) 15))
+  (ldb +char-bits+ (lisp-object-address character)))
 
 (defun char-bit (character bit)
   (let ((bits (char-bits character)))

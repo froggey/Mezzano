@@ -311,12 +311,14 @@ If clear, the fault occured in supervisor mode.")
 
 (defun all-platform-irqs ()
   (loop
-     for irq across *i8259-irqs*
+     for i below (sys.int::%object-header-data *i8259-irqs*)
+     for irq = (svref *i8259-irqs* i)
      collect irq))
 
 (defun map-platform-irqs (fn)
   (loop
-     for irq across *i8259-irqs*
+     for i below (sys.int::%object-header-data *i8259-irqs*)
+     for irq = (svref *i8259-irqs* i)
      do (funcall fn irq)))
 
 (defun platform-mask-irq (vector)

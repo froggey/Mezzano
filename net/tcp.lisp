@@ -586,7 +586,7 @@
 (defmethod sys.gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
   (unless end (setf end (length sequence)))
   (cond ((stringp sequence)
-         (setf sequence (sys.net::encode-utf-8-string sequence start end)))
+         (setf sequence (sys.net::encode-utf-8-string sequence :start start :end end)))
         ((not (and (zerop start)
                    (eql end (length sequence))))
          (setf sequence (subseq sequence start end))))

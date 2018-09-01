@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(cl:defpackage :sys.format
+(defpackage :sys.format
   (:use :cl #:sys.int))
 
 (in-package :sys.format)

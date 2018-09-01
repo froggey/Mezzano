@@ -15,15 +15,20 @@
                         (< index (sys.int::%object-header-data data)))
                    (string index))
            (sys.int::%%assemble-value
-            (ash (ecase (sys.int::%object-tag data)
-                   (#.sys.int::+object-tag-array-unsigned-byte-8+
-                    (sys.int::%object-ref-unsigned-byte-8 data index))
-                   (#.sys.int::+object-tag-array-unsigned-byte-16+
-                    (sys.int::%object-ref-unsigned-byte-16 data index))
-                   (#.sys.int::+object-tag-array-unsigned-byte-32+
-                    (sys.int::%object-ref-unsigned-byte-32 data index)))
-                 4)
-            sys.int::+tag-character+)))
+            (logior
+             (ash (ecase (sys.int::%object-tag data)
+                    (#.sys.int::+object-tag-array-unsigned-byte-8+
+                     (sys.int::%object-ref-unsigned-byte-8 data index))
+                    (#.sys.int::+object-tag-array-unsigned-byte-16+
+                     (sys.int::%object-ref-unsigned-byte-16 data index))
+                    (#.sys.int::+object-tag-array-unsigned-byte-32+
+                     (sys.int::%object-ref-unsigned-byte-32 data index)))
+                  (+ (byte-position sys.int::+immediate-tag+)
+                     (byte-size sys.int::+immediate-tag+)))
+             (dpb sys.int::+immediate-tag-character+
+                  sys.int::+immediate-tag+
+                  0))
+            sys.int::+tag-immediate+)))
         (t
          ;; Possibly a displaced string.
          (check-type string string)
@@ -173,6 +178,16 @@
           (sys.int::%complex-array-dimension header 0) len)
     header))
 
+(declaim (inline sys.int::%%make-character))
+(defun sys.int::%%make-character (code &optional bits)
+  (sys.int::%%assemble-value
+   (logior (dpb code sys.int::+char-code+ 0)
+           (dpb (or bits 0) sys.int::+char-bits+ 0)
+           (dpb sys.int::+immediate-tag-character+
+                sys.int::+immediate-tag+
+                0))
+   sys.int::+tag-immediate+))
+
 (defun sys.int::%make-character (code &optional bits)
   (check-type code (integer 0 #x0010FFFF)
               "a unicode code-point")
@@ -184,16 +199,18 @@
                              collect (logior (ash i 16) #xFFFE)
                              collect (logior (ash i 16) #xFFFF))))
       nil
-      (sys.int::%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4)
-                                 sys.int::+tag-character+)))
+      (sys.int::%%make-character code bits)))
 
 (defun char-code (character)
   (check-type character character)
-  (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
+  (ldb sys.int::+char-code+ (sys.int::lisp-object-address character)))
 
 (defun char-int (character)
   (check-type character character)
-  (ash (sys.int::lisp-object-address character) -4))
+  ;; Strip tag & immediate tag.
+  (ash (sys.int::lisp-object-address character)
+       (- (+ (byte-position sys.int::+immediate-tag+)
+             (byte-size sys.int::+immediate-tag+)))))
 
 (defun code-char (code)
   (sys.int::%make-character code))

@@ -3,7 +3,45 @@
 
 ;;;; Bootstrap macros and functions for the cross-compiler.
 
-(in-package :sys.c)
+(in-package :cross-support)
+
+(defvar *system-macros* (make-hash-table :test 'eq))
+(defvar *system-compiler-macros* (make-hash-table :test 'equal))
+(defvar *system-symbol-macros* (make-hash-table :test 'eq))
+(defvar *system-symbol-declarations* (make-hash-table :test 'eq))
+(defvar *structure-types* (make-hash-table :test 'eq))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun remove-&environment (orig-lambda-list)
+    (do* ((lambda-list (copy-list orig-lambda-list))
+          (prev nil i)
+          (i lambda-list (cdr i)))
+         ((null i) (values lambda-list nil))
+      (when (eql (first i) '&environment)
+        (assert (not (null (cdr i))) ()
+                "Missing variable after &ENVIRONMENT.")
+        (if prev
+            (setf (cdr prev) (cddr i))
+            (setf lambda-list (cddr i)))
+        (assert (not (member '&environment lambda-list)) ()
+                "Duplicate &ENVIRONMENT variable in lambda-list ~S." orig-lambda-list)
+        (return (values lambda-list (second i)))))))
+
+(cl:defmacro def-x-macro (name lambda-list &body body)
+  (let ((whole))
+    (multiple-value-bind (fixed-lambda-list env)
+        (remove-&environment lambda-list)
+      (when (null env)
+        (setf env (gensym)))
+      (if (eql (first fixed-lambda-list) '&whole)
+          (setf whole (second fixed-lambda-list)
+                fixed-lambda-list (cddr fixed-lambda-list))
+          (setf whole (gensym)))
+      `(setf (gethash ',name *system-macros*)
+             (lambda (,whole ,env)
+               (declare (ignorable ,whole ,env))
+               (destructuring-bind ,fixed-lambda-list (cdr ,whole)
+                 (block ,name ,@body)))))))
 
 (setf (gethash 'cross-cl:defconstant *system-macros*)
       (cl:macro-function 'cross-cl:defconstant))
@@ -43,10 +81,6 @@
   (unless (and (consp name) (eql (first name) 'sys.int::cas))
     (setf (fdefinition name) lambda))
   name)
-
-(defun function-inline-info (name)
-  (values (gethash name *inline-modes*)
-          (gethash name *inline-forms*)))
 
 (defvar *variable-types* (make-hash-table))
 
@@ -155,33 +189,45 @@
 (defun sys.int::concat-symbols (&rest symbols)
   (intern (apply 'concatenate 'string (mapcar 'string symbols))))
 
-(defun sys.int::structure-name (x) (structure-type-name x))
-(defun sys.int::structure-slots (x) (structure-type-slots x))
-
-(defstruct cross-struct data)
+(defstruct cross-struct
+  type
+  data)
 
 (defun sys.int::%defstruct (def)
-  (when (gethash (structure-type-name def) *structure-types*)
-    (assert (eql (gethash (structure-type-name def) *structure-types*) def)))
-  (let ((predicate (gensym (string (structure-type-name def)))))
+  (when (member (sys.int::structure-definition-name def)
+                '(sys.int::structure-definition
+                  sys.int::structure-slot-definition))
+    (return-from sys.int::%defstruct))
+  (when (gethash (sys.int::structure-definition-name def) *structure-types*)
+    (assert (eql (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
+  (let ((predicate (gensym (string (sys.int::structure-definition-name def)))))
     (setf (symbol-function predicate) (lambda (x)
                                         (and (cross-struct-p x)
-                                             (eql (sys.int::%struct-slot x 0) def))))
-    (unless (or (eql (symbol-package (structure-type-name def))
+                                             (eql (sys.int::%struct-type x) def))))
+    (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
                      (find-package "CL"))
-                (eql (symbol-package (structure-type-name def))
+                (eql (symbol-package (sys.int::structure-definition-name def))
                      (find-package "SYS.C")))
-      (eval `(cl:deftype ,(structure-type-name def) () '(satisfies ,predicate))))
-    (setf (gethash (structure-type-name def) *structure-types*) def)))
+      (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))
+    (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
 
-(defun sys.int::%make-struct (length area)
-  (declare (ignore area))
-  (make-cross-struct :data (make-array length)))
+(defun sys.int::%make-struct (definition)
+  (make-cross-struct
+   :type definition
+   :data (make-array (length (sys.int::structure-definition-slots definition)))))
 
-(defun sys.int::%struct-slot (struct index)
-  (aref (cross-struct-data struct) index))
-(defun (setf sys.int::%struct-slot) (value struct index)
-  (setf (aref (cross-struct-data struct) index) value))
+(defun sys.int::%struct-type (struct)
+  (cross-struct-type struct))
+
+(defun sys.int::structure-slot-index (def slot-name)
+  (position slot-name
+            (sys.int::structure-definition-slots def)
+            :key #'sys.int::structure-slot-definition-name))
+
+(defun sys.int::%struct-slot (struct def slot-name)
+  (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot-name)))
+(defun (setf sys.int::%struct-slot) (value struct def slot-name)
+  (setf (aref (cross-struct-data struct) (sys.int::structure-slot-index def slot-name)) value))
 
 (defun sys.int::get-structure-type (name &optional (errorp t))
   (or (gethash name *structure-types*)
@@ -193,7 +239,7 @@
 
 (defun sys.int::structure-type-p (object struct-type)
   (when (cross-struct-p object)
-    (do ((object-type (sys.int::%struct-slot object 0)
+    (do ((object-type (cross-struct-type object)
                       (structure-type-parent object-type)))
         ((not (structure-type-p object-type))
          nil)
@@ -206,6 +252,77 @@
     '(&allow-other-keys &aux &body &environment &key &optional &rest &whole sys.int::&fref sys.int::&closure)
   :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp))
+
+;; Replicated from system/package.lisp. Needed to define packages in package.lisp
+(in-package :sys.int)
+(defmacro defpackage (defined-package-name &rest options)
+  (let ((nicknames '())
+        (documentation nil)
+        (use-list '())
+        (import-list '())
+        (export-list '())
+        (intern-list '())
+        (shadow-list '())
+        (shadow-import-list '())
+        (local-nicknames '()))
+    (dolist (o options)
+      (ecase (first o)
+        (:nicknames
+         (dolist (n (rest o))
+           (pushnew (string n) nicknames)))
+        (:documentation
+         (when documentation
+           (error "Multiple documentation options in DEFPACKAGE form."))
+         (unless (or (eql 2 (length o))
+                     (not (stringp (second o))))
+           (error "Invalid documentation option in DEFPACKAGE form."))
+         (setf documentation (second o)))
+        (:use
+         (dolist (u (rest o))
+           (if (packagep u)
+               (pushnew u use-list)
+               (pushnew (string u) use-list))))
+        (:import-from
+         (let ((package (find-package-or-die (second o))))
+           (dolist (name (cddr o))
+             (multiple-value-bind (symbol status)
+                 (find-symbol (string name) package)
+               (unless status
+                 (error "No such symbol ~S in package ~S." (string name) package))
+               (pushnew symbol import-list)))))
+        (:export
+         (dolist (name (cdr o))
+           (pushnew name export-list)))
+        (:intern
+         (dolist (name (cdr o))
+           (pushnew name intern-list)))
+        (:shadow
+         (dolist (name (cdr o))
+           (pushnew name shadow-list)))
+        (:shadowing-import-from
+         (let ((package (find-package-or-die (second o))))
+           (dolist (name (cddr o))
+             (multiple-value-bind (symbol status)
+                 (find-symbol (string name) package)
+               (unless status
+                 (error "No such symbol ~S in package ~S." (string name) package))
+               (pushnew symbol shadow-import-list)))))
+        (:size)
+        (:local-nicknames
+         (setf local-nicknames (append local-nicknames (rest o))))))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (%defpackage ,(string defined-package-name)
+                    :nicknames ',nicknames
+                    :documentation ',documentation
+                    :uses ',use-list
+                    :imports ',import-list
+                    :exports ',export-list
+                    :interns ',intern-list
+                    :shadows ',shadow-list
+                    :shadowing-imports ',shadow-import-list
+                    :local-nicknames ',local-nicknames))))
+
+(in-package :cross-support)
 
 (defun sys.int::%defpackage (name &key
                                     nicknames
@@ -286,9 +403,6 @@
 (defun sys.int::binary-logior (x y) (logior x y))
 (defun sys.int::binary-logxor (x y) (logxor x y))
 (defun mezzano.runtime::%fixnum-< (x y) (< x y))
-
-(defun mezzano.clos:class-precedence-list (class)
-  (sb-mop:class-precedence-list class))
 
 (defun convert-internal-time-units (time)
   (* time

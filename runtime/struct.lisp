@@ -10,102 +10,115 @@
 
 (sys.int::defglobal *structure-types*)
 
-(declaim (inline sys.int::structure-object-p
-                 sys.int::%struct-slot
-                 (setf sys.int::%struct-slot)
-                 (sys.int::cas sys.int::%struct-slot)))
+(declaim (inline sys.int::structure-object-p))
+
+(defun sys.int::%struct-type (object)
+  (sys.int::%struct-type object))
 
 (defun sys.int::structure-object-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-structure-object+))
 
-(defun sys.int::%struct-slot (object slot)
-  (sys.int::%object-ref-t object slot))
+(defun find-struct-slot (definition slot-name &optional (errorp t))
+  (or (find slot-name (sys.int::structure-definition-slots definition)
+            :key #'sys.int::structure-slot-definition-name)
+      (if errorp
+          (error "Slot ~S missing from structure definition ~S."
+                 slot-name definition)
+          nil)))
 
-(defun (setf sys.int::%struct-slot) (value object slot)
-  (setf (sys.int::%object-ref-t object slot) value))
+(defun sys.int::%struct-slot (object definition slot-name)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (funcall (sys.int::structure-slot-definition-ref-fn slot)
+             object
+             (sys.int::structure-slot-definition-index slot))))
 
-(defun (sys.int::cas sys.int::%struct-slot) (old new object slot)
-  (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object object slot old new)
-    (declare (ignore successp))
-    actual-value))
+(defun (setf sys.int::%struct-slot) (value object definition slot-name)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep value (sys.int::structure-slot-definition-type slot))))
+    (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
+               (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
+               (t
+                (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
+             value
+             object
+             (sys.int::structure-slot-definition-index slot))))
+
+(defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot-name)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep old (sys.int::structure-slot-definition-type slot))))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep new (sys.int::structure-slot-definition-type slot))))
+    (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
+      (error "Can't cas unboxed slots"))
+    (multiple-value-bind (successp actual-value)
+        (sys.int::%cas-object object
+                              (sys.int::structure-slot-definition-index definition slot)
+                              old new)
+      (declare (ignore successp))
+      actual-value)))
+
+(defun sys.int::%fast-structure-type-p (object structure-header)
+  (sys.int::%fast-structure-type-p object structure-header))
 
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
   (when (sys.int::structure-object-p object)
-    (let ((ty (sys.int::%object-ref-t object 0)))
-      (if (eq ty struct-type)
-          't
-          (do ((object-type ty (sys.int::structure-parent object-type)))
-              ;; Stop when the object-type stops being a structure-definition, not
-              ;; when it becomes NIL.
-              ;; This avoids a race condition in the GC when it is
-              ;; scavenging a partially initialized structure.
-              ((not (and (sys.int::structure-object-p object-type)
-                         (eq (sys.int::%struct-slot object-type 0)
-                             sys.int::*structure-type-type*)))
-               nil)
-            (when (eq object-type struct-type)
-              (return t)))))))
+    (do ((object-type (sys.int::%struct-type object)
+                      (sys.int::structure-definition-parent object-type)))
+        ((not object-type)
+         nil)
+      (when (eq object-type struct-type)
+        (return t)))))
 
-;;; Manually define accessors & constructors for the structure-definition type.
-;;; This is required because the structure-definition for structure-definition
-;;; must be kept in *structure-type-type* and it must be wired.
-;;; The structure-definition is currently created by the cold-generator.
+(defun copy-structure (structure)
+  (assert (sys.int::structure-object-p structure) (structure) "STRUCTURE is not a structure!")
+  (let* ((struct-type (sys.int::%struct-type structure))
+         (new (sys.int::%make-struct struct-type)))
+    (loop
+       for slot in (sys.int::structure-definition-slots struct-type)
+       for slot-name = (sys.int::structure-slot-definition-name slot)
+       do
+         (setf (sys.int::%struct-slot new struct-type slot-name)
+               (sys.int::%struct-slot structure struct-type slot-name)))
+    new))
 
-(defun sys.int::make-struct-definition (name slots parent area)
-  (let ((x (sys.int::%make-struct 6 :wired)))
-    (setf (sys.int::%struct-slot x 0) sys.int::*structure-type-type*
-          (sys.int::%struct-slot x 1) name
-          (sys.int::%struct-slot x 2) slots
-          (sys.int::%struct-slot x 3) parent
-          (sys.int::%struct-slot x 4) area
-          (sys.int::%struct-slot x 5) nil)
-    x))
+(defun sys.int::make-struct-definition (name slots parent area size layout)
+  (sys.int::%make-struct-definition name
+                                    ;; Slots list must be wired.
+                                    (sys.int::copy-list-in-area slots :wired)
+                                    parent
+                                    area
+                                    size
+                                    ;; Layout must be pinned or wired.
+                                    ;; Used by the GC.
+                                    (if (bit-vector-p layout)
+                                        (make-array (length layout)
+                                                    :element-type 'bit
+                                                    :initial-contents layout
+                                                    :area :wired)
+                                        layout)))
 
-(defun sys.int::structure-definition-p (object)
-  (and (sys.int::structure-object-p object)
-       (eq (sys.int::%struct-slot object 0) sys.int::*structure-type-type*)))
+(defun %make-structure-header (structure-definition)
+  (with-live-objects (structure-definition)
+    (sys.int::%%assemble-value
+     (logior (ash (sys.int::lisp-object-address structure-definition)
+                  sys.int::+object-data-shift+)
+             (ash sys.int::+object-tag-structure-object+
+                  sys.int::+object-type-shift+))
+     sys.int::+tag-structure-header+)))
 
-(macrolet ((def (name field)
-             `(defun ,name (object)
-                (unless (sys.int::structure-definition-p object)
-                  (error 'type-error :datum object :expected-type 'sys.int::structure-definition))
-                (sys.int::%struct-slot object ,field))))
-  (def sys.int::structure-name 1)
-  (def sys.int::structure-slots 2)
-  (def sys.int::structure-parent 3)
-  (def sys.int::structure-area 4)
-  (def sys.int::structure-definition-class 5))
-
-(defun (setf sys.int::structure-definition-class) (value object)
-  (unless (sys.int::structure-definition-p object)
-    (error 'type-error :datum object :expected-type 'sys.int::structure-definition))
-  (setf (sys.int::%struct-slot object 5) value))
-
-;;; Structure slot definitions.
-
-(defun sys.int::make-struct-slot-definition (name accessor initform type read-only)
-  (let ((x (sys.int::%make-struct 6 :wired)))
-    (setf (sys.int::%struct-slot x 0) sys.int::*structure-slot-type*
-          (sys.int::%struct-slot x 1) name
-          (sys.int::%struct-slot x 2) accessor
-          (sys.int::%struct-slot x 3) initform
-          (sys.int::%struct-slot x 4) type
-          (sys.int::%struct-slot x 5) read-only)
-    x))
-
-(defun sys.int::structure-slot-definition-p (object)
-  (and (sys.int::structure-object-p object)
-       (eq (sys.int::%struct-slot object 0) sys.int::*structure-slot-type*)))
-
-(macrolet ((def (name field)
-             `(defun ,name (object)
-                (unless (sys.int::structure-slot-definition-p object)
-                  (error 'type-error :datum object :expected-type 'sys.int::structure-slot-definition))
-                (sys.int::%struct-slot object ,field))))
-  (def sys.int::structure-slot-name 1)
-  (def sys.int::structure-slot-accessor 2)
-  (def sys.int::structure-slot-initform 3)
-  (def sys.int::structure-slot-type 4)
-  (def sys.int::structure-slot-read-only 5))
+(defun %unpack-structure-header (structure-header)
+  (sys.int::%%assemble-value
+   (ash (sys.int::lisp-object-address structure-header) (- sys.int::+object-data-shift+))
+   0))

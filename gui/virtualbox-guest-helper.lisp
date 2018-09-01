@@ -9,11 +9,11 @@
   (loop
      (sys.int::log-and-ignore-errors
       (multiple-value-bind (abs-x abs-y)
-          (mezzano.supervisor:virtualbox-read-event)
+          (mezzano.supervisor.virtualbox:virtualbox-read-event)
         (cond ((integerp abs-x)
                (mezzano.gui.compositor:submit-mouse-absolute abs-x abs-y))
               ((eql abs-x :screen-geometry-changed)
-               (mezzano.supervisor:virtualbox-graphics-update-framebuffer))
+               (mezzano.supervisor.virtualbox:virtualbox-graphics-update-framebuffer))
               (t
                (error "Unknown VirtualBox event ~S." abs-x)))))))
 

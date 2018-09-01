@@ -256,9 +256,8 @@
              (debug-write " compat:")
              (dotimes (i (fdt-property-length prop))
                (debug-write-char
-                (sys.int::%%assemble-value
-                 (ash (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i) 4)
-                 sys.int::+tag-character+)))
+                (sys.int::%%make-character
+                 (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i))))
              (debug-print-line))
            (fdt-string-list-contains (fdt-property-data prop) (fdt-property-length prop) compatible))
           (t nil))))
@@ -306,9 +305,8 @@
       (debug-write "resolving path: ")
       (dotimes (i path-len)
         (debug-write-char
-         (sys.int::%%assemble-value
-          (ash (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i) 4)
-          sys.int::+tag-character+)))
+         (sys.int::%%make-character
+          (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i))))
       (debug-print-line)
       (loop
          (let ((name-len (loop
@@ -320,9 +318,8 @@
            (debug-write "resolving element: ")
            (dotimes (i name-len)
              (debug-write-char
-              (sys.int::%%assemble-value
-               (ash (sys.int::memref-unsigned-byte-8 (+ (fdt-property-data prop) path-element-start) i) 4)
-               sys.int::+tag-character+)))
+              (sys.int::%%make-charater
+               (sys.int::memref-unsigned-byte-8 (+ (fdt-property-data prop) path-element-start) i))))
            (debug-print-line)
            (setf current (fdt-get-named-child-node-internal current
                                                             (+ (fdt-property-data prop) path-element-start)

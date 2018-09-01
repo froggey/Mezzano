@@ -162,9 +162,7 @@
 (defun immediatep (object)
   "Return true if OBJECT is an immediate object."
   (or (fixnump object)
-      (%value-has-tag-p object +tag-character+)
-      (%value-has-tag-p object +tag-single-float+)
-      (%value-has-tag-p object +tag-byte-specifier+)))
+      (%value-has-tag-p object +tag-immediate+)))
 
 (defmacro scavengef (place cycle-kind &environment env)
   "Scavenge PLACE. Only update PLACE if the scavenged value is different.
@@ -200,6 +198,13 @@ This is required to make the GC interrupt safe."
   "Scavenge one object, returning an updated pointer."
   (when (immediatep object)
     ;; Don't care about immediate objects, return them unchanged.
+    (return-from scavenge-object object))
+  (when (%value-has-tag-p object +tag-structure-header+)
+    ;; Structure headers will be returned unchanged, and the pointed to
+    ;; structure definition will be scavenged.
+    ;; This assumes that structure headers only refer to pinned/wired objects
+    ;; and don't need to move.
+    (scavenge-object (mezzano.runtime::%unpack-structure-header object) cycle-kind)
     (return-from scavenge-object object))
   (let ((address (ash (%pointer-field object) 4)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
@@ -949,7 +954,8 @@ This is required to make the GC interrupt safe."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+)
+      #.+object-tag-funcallable-instance+
+      #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
      (scan-generic object (1+ (%object-header-data object)) cycle-kind))
@@ -965,7 +971,21 @@ This is required to make the GC interrupt safe."
     (#.+object-tag-symbol+
      (scan-generic object 8 cycle-kind))
     (#.+object-tag-structure-object+
-     (scan-generic object (1+ (%object-header-data object)) cycle-kind))
+     (let* ((struct-type (%struct-type object))
+            (layout (structure-definition-layout struct-type)))
+       (scavenge-object struct-type cycle-kind)
+       (cond ((eql layout 't)
+              ;; All slots boxed
+              (scan-generic object
+                            ;; 1+ to account for the header word.
+                            (1+ (structure-definition-size struct-type))
+                            cycle-kind))
+             (layout
+              ;; Bit vector of slot boxedness.
+              (loop
+                 for i below (structure-definition-size struct-type)
+                 when (eql (aref layout i) 1)
+                 do (scavengef (%object-ref-t object i) cycle-kind))))))
     (#.+object-tag-std-instance+
      (scan-generic object 4 cycle-kind))
     (#.+object-tag-function-reference+
@@ -1166,10 +1186,10 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (case (%object-tag object)
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
-           #.+object-tag-structure-object+
            #.+object-tag-closure+
-           #.+object-tag-funcallable-instance+)
-          ;; simple-vector, std-instance or structure-object.
+           #.+object-tag-funcallable-instance+
+           #.+object-tag-symbol-value-cell+)
+          ;; simple-vector-like.
           ;; 1+ to account for the header word.
           (1+ length))
          ((#.+object-tag-array-bit+
@@ -1251,6 +1271,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           6)
          (#.+object-tag-delimited-continuation+
           6)
+         (#.+object-tag-structure-object+
+          (1+ (structure-definition-size (%struct-type object))))
          (t
           (object-size-error object)))))
     (t
@@ -1519,6 +1541,13 @@ Additionally update the card table offset fields."
     (when (immediatep object)
       ;; Don't care about immediate objects, return them unchanged.
       (return-from verify-one object))
+    (when (%value-has-tag-p object +tag-structure-header+)
+      ;; Structure headers will be returned unchanged, and the pointed to
+      ;; structure definition will be scavenged.
+      ;; This assumes that structure headers only refer to pinned/wired objects
+      ;; and don't need to move.
+      (verify-one (mezzano.runtime::%unpack-structure-header object) gen)
+      (return-from verify-one object))
     (let ((object-address (ash (%pointer-field object) 4)))
       (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
         ((#.+address-tag-general+
@@ -1540,7 +1569,8 @@ Additionally update the card table offset fields."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+)
+      #.+object-tag-funcallable-instance+
+      #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
      (verify-generic object (1+ (%object-header-data object)) gen))
@@ -1556,7 +1586,15 @@ Additionally update the card table offset fields."
     (#.+object-tag-symbol+
      (verify-generic object 8 gen))
     (#.+object-tag-structure-object+
-     (verify-generic object (1+ (%object-header-data object)) gen))
+     (let* ((struct-type (%struct-type object))
+            (layout (structure-definition-layout struct-type)))
+       (cond ((eql layout 't)
+              ;; All slots boxed
+              (verify-generic object (1+ (structure-definition-size (%struct-type object))) gen))
+             (layout
+              ;; Bit vector of slot boxedness.
+              ;; TODO: Not implemented.
+              nil))))
     (#.+object-tag-std-instance+
      (verify-generic object 4 gen))
     (#.+object-tag-function-reference+

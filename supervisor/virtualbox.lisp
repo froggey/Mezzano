@@ -1,7 +1,14 @@
 ;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :mezzano.supervisor)
+(defpackage :mezzano.supervisor.virtualbox
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:pci :mezzano.supervisor.pci))
+  (:export #:virtualbox-graphics-update-framebuffer
+           #:virtualbox-read-event))
+
+(in-package :mezzano.supervisor.virtualbox)
 
 ;;; Support for VirtualBox window resizing and mouse integration.
 ;;; http://wiki.osdev.org/VirtualBox_Guest_Additions
@@ -20,26 +27,26 @@
                                collect field))
        (let ((,phys (virtualbox-guest-device-request-page ,vbox)))
          ;; Header.
-         (setf (physical-memref-unsigned-byte-32 ,phys 0) ,(+ 24 (* (length fields) 4)) ; total size.
-               (physical-memref-unsigned-byte-32 ,phys 1) +vbox-request-header-version+
-               (physical-memref-unsigned-byte-32 ,phys 2) ,request-id
-               (physical-memref-unsigned-byte-32 ,phys 3) 0 ; return code
-               (physical-memref-unsigned-byte-32 ,phys 4) 0 ; reserved
-               (physical-memref-unsigned-byte-32 ,phys 5) 0) ; reserved
+         (setf (sup::physical-memref-unsigned-byte-32 ,phys 0) ,(+ 24 (* (length fields) 4)) ; total size.
+               (sup::physical-memref-unsigned-byte-32 ,phys 1) +vbox-request-header-version+
+               (sup::physical-memref-unsigned-byte-32 ,phys 2) ,request-id
+               (sup::physical-memref-unsigned-byte-32 ,phys 3) 0 ; return code
+               (sup::physical-memref-unsigned-byte-32 ,phys 4) 0 ; reserved
+               (sup::physical-memref-unsigned-byte-32 ,phys 5) 0) ; reserved
          ,@(loop
               for i from 6
               for (field direction) in fields
-              collect `(setf (physical-memref-unsigned-byte-32 ,phys ,i) ,(if (eql direction :input)
-                                                                              field
-                                                                              0)))
-         (setf (pci-io-region/32 (virtualbox-guest-device-kick-port ,vbox) 0) ,phys)
+              collect `(setf (sup::physical-memref-unsigned-byte-32 ,phys ,i) ,(if (eql direction :input)
+                                                                                   field
+                                                                                   0)))
+         (setf (pci:pci-io-region/32 (virtualbox-guest-device-kick-port ,vbox) 0) ,phys)
          (values
-          (physical-memref-unsigned-byte-32 ,phys 3)
+          (sup::physical-memref-unsigned-byte-32 ,phys 3)
           ,@(loop
                for i from 6
                for (field direction) in fields
                when (eql direction :output)
-               collect `(physical-memref-unsigned-byte-32 ,phys ,i)))))))
+               collect `(sup::physical-memref-unsigned-byte-32 ,phys ,i)))))))
 
 (define-vbox-packet guest-info 50
   ((version :input)
@@ -95,12 +102,12 @@
                         (eql *vbox-screen-yres* yres))))
       ;; Screen size has changed. Resize the display and send an event
       ;; to the listener thread to update the video framebuffer.
-      (debug-print-line "New screen geometry is " xres "x" yres "x" bpp)
+      (sup:debug-print-line "New screen geometry is " xres "x" yres "x" bpp)
       (setf *vbox-screen-xres* xres
             *vbox-screen-yres* yres)
       (bochs-vbe-switch-resolution xres yres)
-      (irq-fifo-push :screen-geometry-changed
-                     *vbox-event-fifo*))
+      (sup:irq-fifo-push :screen-geometry-changed
+                         *vbox-event-fifo*))
     (multiple-value-bind (rc x y)
         (vbox-issue-get-mouse vbox +vbox-mouse-features+)
       (declare (ignore rc))
@@ -108,23 +115,23 @@
       ;; back to the screen geometry.
       (let ((scaled-x (truncate (* x *vbox-screen-xres*) #xFFFF))
             (scaled-y (truncate (* y *vbox-screen-yres*) #xFFFF)))
-        (irq-fifo-push (logior (logand scaled-x #xFFFF)
-                               (ash (logand scaled-y #xFFFF) 16))
-                       *vbox-event-fifo*))))
+        (sup:irq-fifo-push (logior (logand scaled-x #xFFFF)
+                                   (ash (logand scaled-y #xFFFF) 16))
+                           *vbox-event-fifo*))))
   (vbox-issue-ack-events vbox 0))
 
 (defun vbox-ensure-fifo-exists ()
   (when (not (boundp '*vbox-event-fifo*))
     ;; Create a new fifo in the unlikely event that this image has never
     ;; been booted in virtualbox.
-    (let ((new-fifo (make-irq-fifo 50 :name "VirtualBox event FIFO")))
-      (safe-without-interrupts (new-fifo)
+    (let ((new-fifo (sup:make-irq-fifo 50 :name "VirtualBox event FIFO")))
+      (sup:safe-without-interrupts (new-fifo)
         (when (not (boundp '*vbox-event-fifo*))
           (setf *vbox-event-fifo* new-fifo))))))
 
 (defun virtualbox-read-event (&optional (wait-p t))
   (vbox-ensure-fifo-exists)
-  (let ((value (irq-fifo-pop *vbox-event-fifo* wait-p)))
+  (let ((value (sup:irq-fifo-pop *vbox-event-fifo* wait-p)))
     (if (integerp value)
         ;; Decode mouse position
         (values (ldb (byte 16 0) value)
@@ -132,16 +139,16 @@
         ;; Otherwise leave event intact.
         value)))
 
-(defun virtualbox-guest-register (device)
+(defun pci::virtualbox-guest-register (device)
   (declare (sys.c::closure-allocation :wired))
   (vbox-ensure-fifo-exists)
-  (irq-fifo-reset *vbox-event-fifo*)
-  (let* ((irq (pci-intr-line device))
-         (kick-port (pci-bar device 0))
-         (state-region (pci-bar device 1))
-         (request-page (allocate-physical-pages 1
-                                                :mandatory-p "VirtualBox Guest request page"
-                                                :32-bit-only t))
+  (sup:irq-fifo-reset *vbox-event-fifo*)
+  (let* ((irq (pci:pci-intr-line device))
+         (kick-port (pci:pci-bar device 0))
+         (state-region (pci:pci-bar device 1))
+         (request-page (sup::allocate-physical-pages 1
+                                                     :mandatory-p "VirtualBox Guest request page"
+                                                     :32-bit-only t))
          (vbox (make-virtualbox-guest-device :pci-device device
                                              :kick-port kick-port
                                              :request-page (ash request-page 12)))
@@ -150,15 +157,15 @@
                     (virtualbox-irq-handler vbox)
                     :completed)))
     (setf (virtualbox-guest-device-irq-handler-function vbox) handler)
-    (pci-io-region device 0 4)
-    (pci-io-region device 1 32)
-    (debug-print-line "VirtualBox Guest Device detected at " device " using IRQ " irq)
-    (irq-attach (platform-irq irq)
-                handler
-                device)
+    (pci:pci-io-region device 0 4)
+    (pci:pci-io-region device 1 32)
+    (sup:debug-print-line "VirtualBox Guest Device detected at " device " using IRQ " irq)
+    (sup:irq-attach (sup:platform-irq irq)
+                    handler
+                    device)
     ;; Take the initial screen dimensions from the bootloader's framebuffer.
-    (setf *vbox-screen-xres* (boot-field +boot-information-framebuffer-width+)
-          *vbox-screen-yres* (boot-field +boot-information-framebuffer-height+))
+    (setf *vbox-screen-xres* (sup:boot-field sup:+boot-information-framebuffer-width+)
+          *vbox-screen-yres* (sup:boot-field sup:+boot-information-framebuffer-height+))
     ;; This is an Unknown 64-bit OS.
     (vbox-issue-guest-info vbox +vbox-vmmdev-version+ #x100)
     ;; Support auto-resize guest display.
@@ -166,7 +173,7 @@
     ;; Enable mouse integration.
     (vbox-issue-set-mouse vbox +vbox-mouse-features+ 0 0)
     ;; Enable interrupts for these capabilities.
-    (setf (pci-io-region/32 state-region 12) #xFFFFFFFF)
+    (setf (pci:pci-io-region/32 state-region 12) #xFFFFFFFF)
     vbox))
 
 (defconstant +bochs-vbe-index-port+ #x01CE)
@@ -195,9 +202,9 @@
 (sys.int::defglobal *virtualbox-graphics-boot-id* nil)
 (sys.int::defglobal *virtualbox-graphics-fb-address* nil)
 
-(defun virtualbox-graphics-register (device)
-  (setf *virtualbox-graphics-boot-id* (current-boot-id)
-        *virtualbox-graphics-fb-address* (logand (pci-bar device 0)
+(defun pci::virtualbox-graphics-register (device)
+  (setf *virtualbox-graphics-boot-id* (sup:current-boot-id)
+        *virtualbox-graphics-fb-address* (logand (pci:pci-bar device 0)
                                                  #xFFFFF000))
   :virtualbox-graphics)
 
@@ -212,6 +219,5 @@
                            *vbox-screen-xres*
                            *vbox-screen-yres*
                            (* *vbox-screen-xres* 4)
-                           :x8r8g8b8
-                           nil))
+                           :x8r8g8b8))
   (decf *snapshot-inhibit*))

@@ -5,6 +5,12 @@
 
 (defgeneric describe-object (object stream))
 
+(defmethod describe-object (object stream)
+  (format stream "~S is a ~:(~A~), with address ~X~%"
+          object
+          (type-of object)
+          (lisp-object-address object)))
+
 (defmethod describe-object ((object symbol) stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
   (if (symbol-package object)
@@ -85,13 +91,16 @@
 (defmethod describe-object ((object structure-object) stream)
   (format stream "~S is a structure of type ~:(~S~), with address ~X~%"
           object (type-of object) (lisp-object-address object))
-  (let ((type (%struct-slot object 0)))
+  (let ((type (%struct-type object)))
     (loop
-       for i from 1
-       for slot in (structure-slots type) do
+       for slot in (structure-definition-slots type)
+       for slot-name = (structure-slot-definition-name slot)
+       do
          (let ((*print-level* 3)
                (*print-length* 5))
-           (format stream "  ~S: ~S~%" (structure-slot-name slot) (%struct-slot object i))))))
+           (format stream "  ~S: ~S~%"
+                   slot-name
+                   (%struct-slot object type slot-name))))))
 
 (defmethod describe-object ((object mezzano.supervisor:thread) stream)
   (format stream "~S is a thread with address ~X~%"

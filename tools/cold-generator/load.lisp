@@ -110,23 +110,27 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
-(defun load-structure-definition (name* slots* parent* area*)
+(defun load-structure-definition (name* slots* parent* area* size* layout*)
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))
+         (slots-list (extract-object slots* t))
          (definition (gethash name *struct-table*)))
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
-          (t (let ((address (allocate 7 :wired)))
-               (setf (word address) (array-header sys.int::+object-tag-structure-object+ 6))
-               (setf (word (+ address 1)) (make-value *structure-definition-definition* sys.int::+tag-object+))
-               (setf (word (+ address 2)) name*)
-               (setf (word (+ address 3)) slots*)
-               (setf (word (+ address 4)) parent*)
-               (setf (word (+ address 5)) area*)
-               (setf (word (+ address 6)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-               (setf (gethash name *struct-table*) (list address name slots))
-               (make-value address sys.int::+tag-object+))))))
+          (t
+           (let ((address (allocate 8 :wired)))
+             (setf (word address) (structure-header (make-value *structure-definition-definition* sys.int::+tag-object+)))
+             (setf (word (+ address 1)) name*)
+             (setf (word (+ address 2)) (let ((*default-cons-allocation-area* :wired))
+                                          (apply #'vlist slots-list)))
+             (setf (word (+ address 3)) parent*)
+             (setf (word (+ address 4)) area*)
+             (setf (word (+ address 5)) size*)
+             (setf (word (+ address 6)) layout*)
+             (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+             (setf (gethash name *struct-table*) (list address name slots))
+             (make-value address sys.int::+tag-object+))))))
 
 (defun cross-value-p (value)
   (and (consp value)
@@ -246,9 +250,9 @@
       (setf (word (+ address 1 i)) (aref stack (+ (length stack) i))))
     (make-value address sys.int::+tag-object+)))
 
-(defun load-structure-slot-definition (name accessor initform type read-only)
-  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only))
-        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only)))
+(defun load-structure-slot-definition (name accessor initform type read-only ref-fn index)
+  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only ref-fn index))
+        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only ref-fn index)))
     (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
     image-def))
 
@@ -287,7 +291,7 @@
            (value (stack-pop stack))
            (name (stack-pop stack))
            (address (allocate 8 :wired))
-           (global-cell (allocate 4 :wired)))
+           (global-cell (allocate 6 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
              (word (+ address 1)) name
@@ -296,10 +300,11 @@
              (word (+ address 4)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
              (word (+ address 5)) plist
              (word (+ address 6)) (vsym t))
-       (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
+       (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 4)
              (word (+ global-cell 1)) (vsym nil)
-             (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
-             (word (+ global-cell 3)) value)
+             (word (+ global-cell 2)) (make-value global-cell sys.int::+tag-object+)
+             (word (+ global-cell 3)) value
+             (word (+ global-cell 4)) (make-value address sys.int::+tag-object+))
        (unless (eql fn (unbound-value))
          (error "Uninterned symbol with function not supported."))
        (make-value address sys.int::+tag-object+)))
@@ -313,24 +318,36 @@
     (#.sys.int::+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.sys.int::+llf-character+
-     (logior (ash (load-character stream) 4)
-             sys.int::+tag-character+))
+     (logior (ash (load-character stream)
+                  (+ (cross-cl:byte-position sys.int::+immediate-tag+)
+                     (cross-cl:byte-size sys.int::+immediate-tag+)))
+             (cross-cl:dpb sys.int::+immediate-tag-character+
+                           sys.int::+immediate-tag+
+                           0)
+             sys.int::+tag-immediate+))
     (#.sys.int::+llf-structure-definition+
-     (let ((area (stack-pop stack))
+     (let ((layout (stack-pop stack))
+           (size (stack-pop stack))
+           (area (stack-pop stack))
            (parent (stack-pop stack))
            (slots (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-definition name slots parent area)))
+       (load-structure-definition name slots parent area size layout)))
     (#.sys.int::+llf-structure-slot-definition+
-     (let ((read-only (stack-pop stack))
+     (let ((index (stack-pop stack))
+           (ref-fn (stack-pop stack))
+           (read-only (stack-pop stack))
            (type (stack-pop stack))
            (initform (stack-pop stack))
            (accessor (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-slot-definition name accessor initform type read-only)))
+       (load-structure-slot-definition name accessor initform type read-only ref-fn index)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
-             sys.int::+tag-single-float+))
+             (cross-cl:dpb sys.int::+immediate-tag-single-float+
+                           sys.int::+immediate-tag+
+                           0)
+             sys.int::+tag-immediate+))
     (#.sys.int::+llf-double-float+
      (let* ((bits (load-integer stream))
             (address (allocate 2)))
@@ -375,9 +392,12 @@
     (#.sys.int::+llf-byte+
      (let ((size (load-integer stream))
            (position (load-integer stream)))
-       (logior (ash size 4)
-               (ash position 18)
-               sys.int::+tag-byte-specifier+)))
+       (logior (ash size 6)
+               (ash position 19)
+               (cross-cl:dpb sys.int::+immediate-tag-byte-specifier+
+                             sys.int::+immediate-tag+
+                             0)
+               sys.int::+tag-immediate+)))
     (#.sys.int::+llf-funcall-n+
      (let* ((n-args-value (stack-pop stack))
             (n-args (extract-object n-args-value))
@@ -455,6 +475,12 @@
        (dotimes (i total-size)
          (setf (row-major-aref temp-array i) (extract-object (aref stack (+ (length stack) i)))))
        (save-object temp-array)))
+    (#.sys.int::+llf-structure-header+
+     (make-value (ash (stack-pop stack) sys.int::+object-data-shift+)
+                 sys.int::+tag-structure-header+))
+    (#.sys.int::+llf-symbol-global-value-cell+
+     (let* ((symbol (stack-pop stack)))
+       (word (+ (pointer-part symbol) 3))))
 ))
 
 (defun load-llf (stream)
