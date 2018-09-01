@@ -125,16 +125,18 @@
 (defpackage :system.internals
   (:nicknames :sys.int)
   (:use :cl)
-  (:export :allocate-std-instance
-           :std-instance-p
-           :std-instance-class
-           :std-instance-slots
-           :allocate-funcallable-std-instance
-           :funcallable-std-instance-p
-           :funcallable-std-instance-function
-           :funcallable-std-instance-class
-           :funcallable-std-instance-slots
-           :funcallable-standard-object))
+  (:export #:allocate-std-instance
+           #:std-instance-p
+           #:std-instance-class
+           #:std-instance-slots
+           #:std-instance-layout
+           #:allocate-funcallable-std-instance
+           #:funcallable-std-instance-p
+           #:funcallable-std-instance-function
+           #:funcallable-std-instance-class
+           #:funcallable-std-instance-slots
+           #:funcallable-std-instance-layout
+           #:funcallable-standard-object))
 
 (defpackage :mezzano.clos
   (:use :cl)
