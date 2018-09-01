@@ -365,7 +365,7 @@
     (ecase (tcp-connection-state connection)
       (:syn-sent
        (setf (tcp-connection-state connection) :closed))
-      (:established
+      ((:established :syn-received)
        (setf (tcp-connection-state connection) :fin-wait-1)
        (tcp4-send-packet connection
                          (tcp-connection-s-next connection)
