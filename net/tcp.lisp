@@ -78,9 +78,12 @@
 (defun get-tcp-listener (local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (dolist (listener *tcp-listeners*)
-      (when (and ;; (mezzano.network.ip:address-equal
-                 ;;  (tcp-listener-local-ip listener)
-                 ;;  local-ip)
+      (when (and (or (mezzano.network.ip:address-equal
+                      (tcp-listener-local-ip listener)
+                      (sys.net::resolve-address "0.0.0.0"))
+                     (mezzano.network.ip:address-equal
+                      (tcp-listener-local-ip listener)
+                      local-ip))
                  (eql (tcp-listener-local-port listener) local-port))
         (return listener)))))
 
