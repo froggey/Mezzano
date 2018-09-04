@@ -21,6 +21,7 @@
 (defvar *tcp-connections* nil)
 (defvar *tcp-listeners* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
+(defvar *tcp-listeners-lock* (mezzano.supervisor:make-mutex "TCP listen list"))
 (defvar *allocated-tcp-ports* nil)
 
 (defvar *server-alist* '())
@@ -31,7 +32,7 @@
    (callback :accessor tcp-listener-callback :initarg :callback)))
 
 (defun close-tcp-listener (listener)
-  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
 (defclass tcp-connection ()
@@ -79,7 +80,7 @@
         (return connection)))))
 
 (defun get-tcp-listener (local-ip local-port)
-  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
     (dolist (listener *tcp-listeners*)
       (when (and (or (mezzano.network.ip:address-equal
                       (tcp-listener-local-ip listener)
@@ -482,7 +483,7 @@
                                     :local-port port
                                     :local-ip source-address
                                     :callback callback)))
-      (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+      (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
         (push listener *tcp-listeners*))
       listener)))
 
