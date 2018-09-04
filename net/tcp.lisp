@@ -55,7 +55,6 @@
   (tcp-connection-%state connection))
 
 (defun (setf tcp-connection-state) (value connection)
-  ;(format t "~S ~S => ~S~%" connection (tcp-connection-%state connection) value)
   (setf (tcp-connection-%state connection) value))
 
 (defmacro with-tcp-connection-locked (connection &body body)
