@@ -30,8 +30,7 @@
    (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
    (callback :accessor tcp-listener-callback :initarg :callback)))
 
-(defmethod close ((listener tcp-listener) &key abort)
-  (declare (ignore abort))
+(defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
