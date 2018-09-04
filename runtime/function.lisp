@@ -329,11 +329,18 @@ Arguments to FUNCTION:
   (when (functionp object)
     (ecase (%object-tag object)
       ((#.+object-tag-function+
-        #.+object-tag-closure+
-        #.+object-tag-delimited-continuation+)
+        #.+object-tag-closure+)
        t)
       (#.+object-tag-funcallable-instance+
-       (funcallable-instance-compiled-function-p object)))))
+       (funcallable-instance-compiled-function-p object))
+      (#.+object-tag-delimited-continuation+
+       nil))))
 
 (deftype compiled-function ()
   '(satisfies compiled-function-p))
+
+(defun sys.int::closure-p (object)
+  (%object-of-type-p object sys.int::+object-tag-closure+))
+
+(deftype sys.int::closure ()
+  '(satisfies sys.int::closure-p))
