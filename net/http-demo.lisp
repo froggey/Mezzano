@@ -126,7 +126,7 @@
                                                         :name "HTTP server"))
          (listen-function (lambda (connection)
                             (when (not (mezzano.supervisor:fifo-push
-                                        (make-instance 'sys.net::tcp-stream :connection connection)
+                                        (make-instance 'mezzano.network.tcp::tcp-stream :connection connection)
                                         connection-queue
                                         nil))
                               ;; Drop connections when they can't be handled.
