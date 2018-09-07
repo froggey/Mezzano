@@ -19,10 +19,21 @@
 (defconstant +tcp4-flag-ack+ #b00010000)
 
 (defvar *tcp-connections* nil)
+(defvar *tcp-listeners* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
+(defvar *tcp-listeners-lock* (mezzano.supervisor:make-mutex "TCP listen list"))
 (defvar *allocated-tcp-ports* nil)
 
 (defvar *server-alist* '())
+
+(defclass tcp-listener ()
+  ((local-port :accessor tcp-listener-local-port :initarg :local-port)
+   (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
+   (callback :accessor tcp-listener-callback :initarg :callback)))
+
+(defun close-tcp-listener (listener)
+  (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
+    (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
@@ -49,7 +60,6 @@
   (tcp-connection-%state connection))
 
 (defun (setf tcp-connection-state) (value connection)
-  ;(format t "~S ~S => ~S~%" connection (tcp-connection-%state connection) value)
   (setf (tcp-connection-%state connection) value))
 
 (defmacro with-tcp-connection-locked (connection &body body)
@@ -69,19 +79,53 @@
                  (eql (tcp-connection-local-port connection) local-port))
         (return connection)))))
 
+(defun get-tcp-listener (local-ip local-port)
+  (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
+    (dolist (listener *tcp-listeners*)
+      (when (and (or (mezzano.network.ip:address-equal
+                      (tcp-listener-local-ip listener)
+                      (sys.net::resolve-address "0.0.0.0"))
+                     (mezzano.network.ip:address-equal
+                      (tcp-listener-local-ip listener)
+                      local-ip))
+                 (eql (tcp-listener-local-port listener) local-port))
+        (return listener)))))
+
 (defun %tcp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
          (flags (ldb (byte 12 0)
                      (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))))
-         (connection (get-tcp-connection remote-ip remote-port local-ip local-port)))
+         (connection (get-tcp-connection remote-ip remote-port local-ip local-port))
+         (listener (get-tcp-listener local-ip local-port)))
     (cond
       (connection
        (tcp4-receive connection packet start end))
+      ((and listener (eql flags +tcp4-flag-syn+))
+       (tcp4-establish-connection-n listener local-ip local-port remote-ip remote-port packet start))
       ((eql flags +tcp4-flag-syn+)
        (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
       (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
                  (subseq packet start end))))))
+
+(defun tcp4-establish-connection-n (listener local-ip local-port remote-ip remote-port packet start)
+  (let* ((seq (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
+         (ack (random #x100000000))
+         (connection (make-instance 'tcp-connection
+                                    :%state :syn-received
+                                    :local-port local-port
+                                    :local-ip local-ip
+                                    :remote-port remote-port
+                                    :remote-ip remote-ip
+                                    :s-next (logand #xFFFFFFFF (1+ ack))
+                                    :r-next seq
+                                    :window-size 8192)))
+    (when (funcall (tcp-listener-callback listener) connection)
+      (format t "Establishing TCP connection. l ~D ~D r ~D ~D.~%"
+              local-ip local-port remote-port remote-ip)
+      (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+        (push connection *tcp-connections*))
+      (tcp4-send-packet connection ack seq nil :ack-p t :syn-p t))))
 
 (defun tcp4-establish-connection (local-ip local-port remote-ip remote-port packet start end)
   (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
@@ -430,6 +474,18 @@
                     :port port))
            (sleep 0.01)))
       connection)))
+
+(defun tcp-listen (ip port callback)
+  (multiple-value-bind (host interface)
+      (mezzano.network.ip:ipv4-route ip)
+    (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
+           (listener (make-instance 'tcp-listener
+                                    :local-port port
+                                    :local-ip source-address
+                                    :callback callback)))
+      (mezzano.supervisor:with-mutex (*tcp-listeners-lock*)
+        (push listener *tcp-listeners*))
+      listener)))
 
 (defun tcp-send (connection data &optional (start 0) end)
   (when (eql (tcp-connection-state connection) :established)
