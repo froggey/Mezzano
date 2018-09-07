@@ -162,6 +162,13 @@
             *secret-unbound-value*)))
 
 ;;; Define the standard class hierarchy.
+;;;
+;;; ENSURE-CLASS is currently set to the primordial ENSURE-CLASS. This will
+;;; install primordial class definitions in *PRIMORDIAL-CLASS-TABLE*.
+;;; These primordial classes will be converted to real classes by
+;;; INITIALIZE-CLOS.
+;;; INITIALIZE-CLOS does not respect VALIDATE-SUPERCLASS, which normally
+;;; prevents new built-in classes from being defined.
 
 ;;(format t "Defining bootstrap classes.~%")
 
@@ -351,10 +358,6 @@
 ;;; Done defining classes.
 ;;; Don't define any new classes in this file after this point!
 
-;;; Compute slot layouts for each class.
-
-;;(format t "Computing slot layouts...~%")
-
 (defun compute-primordial-slot-layout (class-name)
   (let* ((initargs (gethash class-name *primordial-class-table*))
          (layout (getf initargs :layout)))
@@ -376,13 +379,6 @@
         (setf layout (make-array (length layout) :initial-contents layout))
         (setf (getf (gethash class-name *primordial-class-table*) :layout) layout)))
     layout))
-
-(maphash (lambda (name def)
-           (declare (ignore def))
-           (compute-primordial-slot-layout name))
-         *primordial-class-table*)
-
-;;; Start defining real classes.
 
 ;;; topological-sort implements the standard algorithm for topologically
 ;;; sorting an arbitrary set of elements while honoring the precedence
@@ -579,50 +575,56 @@
               (primordial-slot-value class 'direct-default-initargs) direct-default-initargs
               (primordial-slot-value class 'slot-storage-layout) layout)))))
 
-;;(format t "Transitioning to real class hierarchy.~%")
+(defun initialize-clos ()
+  ;; Compute slot layouts for each class.
+  ;;(format t "Computing slot layouts...~%")
+  (maphash (lambda (name def)
+             (declare (ignore def))
+             (compute-primordial-slot-layout name))
+           *primordial-class-table*)
+  ;; Start defining real classes.
+  ;;(format t "Transitioning to real class hierarchy.~%")
+  ;; Initialize every real class object, initializing it and preparing for
+  ;; finalization.
+  (maphash (lambda (name def)
+             (declare (ignore def))
+             (convert-primordial-class name))
+           *primordial-class-table*)
+  ;; Now all classes have been initialized to the point where they
+  ;; can be finalized.
+  (maphash (lambda (name def)
+             (declare (ignore def))
+             (finalize-primordial-class (find-class name)))
+           *primordial-class-table*)
+  ;; Final setup.
+  ;; Known important classes.
+  (setf *the-class-standard-class* (find-class 'standard-class)
+        *the-class-funcallable-standard-class* (find-class 'funcallable-standard-class)
+        *the-class-built-in-class* (find-class 'built-in-class)
+        *the-class-standard-direct-slot-definition* (find-class 'standard-direct-slot-definition)
+        *the-class-standard-effective-slot-definition* (find-class 'standard-effective-slot-definition)
+        *the-class-standard-gf* (find-class 'standard-generic-function)
+        *the-class-standard-method* (find-class 'standard-method)
+        *the-class-t* (find-class 't))
+  ;; Positions of various slots in standard-class and funcallable-standard-class.
+  (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
+    ;; Verify that standard-class, funcallable-standard-class, and built-in-class have the same layout.
+    (when (not (equalp s-c-layout
+                       (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
+      (error (format nil "STANARD-CLASS and FUNCALLABLE-STANDARD-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
+                     s-c-layout
+                     (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout))))
+    (when (not (equalp s-c-layout
+                       (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
+      (error (format nil "STANARD-CLASS and BUILT-IN-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
+                     s-c-layout
+                     (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout))))
+    (setf *standard-class-effective-slots-position* (position 'effective-slots s-c-layout)
+          *standard-class-slot-storage-layout-position* (position 'slot-storage-layout s-c-layout)
+          *standard-class-hash-position* (position 'hash s-c-layout)
+          *standard-class-finalized-p-position* (position 'finalized-p s-c-layout)
+          *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
+          *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)
+          *standard-class-default-initargs-position* (position 'default-initargs s-c-layout))))
 
-;; Initialize every real class object, initializing it and preparing for
-;; finalization.
-(maphash (lambda (name def)
-           (declare (ignore def))
-           (convert-primordial-class name))
-         *primordial-class-table*)
-
-;; Now all classes have been initialized to the point where they can be finalized.
-(maphash (lambda (name def)
-           (declare (ignore def))
-           (finalize-primordial-class (find-class name)))
-         *primordial-class-table*)
-
-;; Final setup..
-
-;; Known important classes.
-(setf *the-class-standard-class* (find-class 'standard-class)
-      *the-class-funcallable-standard-class* (find-class 'funcallable-standard-class)
-      *the-class-built-in-class* (find-class 'built-in-class)
-      *the-class-standard-direct-slot-definition* (find-class 'standard-direct-slot-definition)
-      *the-class-standard-effective-slot-definition* (find-class 'standard-effective-slot-definition)
-      *the-class-standard-gf* (find-class 'standard-generic-function)
-      *the-class-standard-method* (find-class 'standard-method)
-      *the-class-t* (find-class 't))
-
-;; Positions of various slots in standard-class and funcallable-standard-class.
-(let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
-  ;; Verify that standard-class, funcallable-standard-class, and built-in-class have the same layout.
-  (when (not (equalp s-c-layout
-                     (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
-    (error (format nil "STANARD-CLASS and FUNCALLABLE-STANDARD-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
-                   s-c-layout
-                   (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout))))
-  (when (not (equalp s-c-layout
-                     (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
-    (error (format nil "STANARD-CLASS and BUILT-IN-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
-                   s-c-layout
-                   (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout))))
-  (setf *standard-class-effective-slots-position* (position 'effective-slots s-c-layout)
-        *standard-class-slot-storage-layout-position* (position 'slot-storage-layout s-c-layout)
-        *standard-class-hash-position* (position 'hash s-c-layout)
-        *standard-class-finalized-p-position* (position 'finalized-p s-c-layout)
-        *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
-        *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)
-        *standard-class-default-initargs-position* (position 'default-initargs s-c-layout)))
+(initialize-clos)
