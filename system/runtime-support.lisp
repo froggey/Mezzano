@@ -225,7 +225,9 @@
   name)
 
 (defun %defstruct (structure-type)
-  (setf (gethash (structure-definition-name structure-type) mezzano.runtime::*structure-types*) structure-type))
+  (setf (gethash (structure-definition-name structure-type)
+                 mezzano.runtime::*structure-types*)
+        structure-type))
 
 (defparameter *incompatible-constant-redefinition-is-an-error* nil)
 (defparameter *defconstant-redefinition-comparator* 'eql)
@@ -368,7 +370,7 @@ VALUE may be nil to make the fref unbound."
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
     ;; FIXME: Doesn't match the behaviour of FUNCTION.
-    (when (and (funcallable-std-instance-p fn) ; Avoid typep in the usual case.
+    (when (and (funcallable-instance-p fn) ; Avoid typep in the usual case.
                (locally
                    (declare (notinline typep)) ; bootstrap hack.
                  (typep fn 'trace-wrapper)))
@@ -505,35 +507,6 @@ VALUE may be nil to make the fref unbound."
                                     nil
                                     #+x86-64 :x86-64))
        ',name)))
-
-(declaim (inline std-instance-p
-                 std-instance-class (setf std-instance-class)
-                 std-instance-slots (setf std-instance-slots)
-                 std-instance-layout (setf std-instance-layout)))
-
-(defun std-instance-p (object)
-  (%object-of-type-p object +object-tag-std-instance+))
-
-(defun std-instance-class (std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (%object-ref-t std-instance +std-instance-class+))
-(defun (setf std-instance-class) (value std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (setf (%object-ref-t std-instance +std-instance-class+) value))
-
-(defun std-instance-slots (std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (%object-ref-t std-instance +std-instance-slots+))
-(defun (setf std-instance-slots) (value std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (setf (%object-ref-t std-instance +std-instance-slots+) value))
-
-(defun std-instance-layout (std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (%object-ref-t std-instance +std-instance-layout+))
-(defun (setf std-instance-layout) (value std-instance)
-  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (setf (%object-ref-t std-instance +std-instance-layout+) value))
 
 (macrolet ((def (op)
              `(setf (fdefinition ',op)

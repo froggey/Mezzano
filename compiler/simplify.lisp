@@ -912,8 +912,10 @@ First return value is a list of elements, second is the final dotted component (
                  (t
                   (ast `(let ((obj ,(first (arguments form))))
                           (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                   (ast-value (second (arguments form)))))
+                                  (if (call sys.int::%fast-instance-layout-eq-p
+                                            obj
+                                            ',(mezzano.runtime::%make-instance-header
+                                               (sys.int::structure-definition-layout (ast-value (second (arguments form))))))
                                       't
                                       (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
                                   'nil)
@@ -951,8 +953,10 @@ First return value is a list of elements, second is the final dotted component (
                   (ast `(let ((val ,(first (arguments form)))
                               (obj ,(second (arguments form))))
                           (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                   (ast-value (third (arguments form)))))
+                                  (if (call sys.int::%fast-instance-layout-eq-p
+                                            obj
+                                            ',(mezzano.runtime::%make-instance-header
+                                               (sys.int::structure-definition-layout (ast-value (third (arguments form))))))
                                       't
                                       (call sys.int::structure-type-p obj ',(ast-value (third (arguments form)))))
                                   'nil)
@@ -1009,8 +1013,10 @@ First return value is a list of elements, second is the final dotted component (
                               (new ,(second (arguments form)))
                               (obj ,(third (arguments form))))
                           (if (if (call sys.int::%value-has-tag-p obj ',sys.int::+tag-object+)
-                                  (if (call sys.int::%fast-structure-type-p obj ',(mezzano.runtime::%make-structure-header
-                                                                                   (ast-value (fourth (arguments form)))))
+                                  (if (call sys.int::%fast-instance-layout-eq-p
+                                            obj
+                                            ',(mezzano.runtime::%make-instance-header
+                                               (sys.int::structure-definition-layout (ast-value (fourth (arguments form))))))
                                       't
                                       (call sys.int::structure-type-p obj ',(ast-value (fourth (arguments form)))))
                                   'nil)

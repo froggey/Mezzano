@@ -49,7 +49,7 @@
     (#.+llf-complex-rational+ 'complex-rational)
     (#.+llf-complex-single-float+ 'complex-single-float)
     (#.+llf-complex-double-float+ 'complex-double-float)
-    (#.+llf-structure-header+ 'structure-header)
+    (#.+llf-instance-header+ 'instance-header)
     (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)))
 
 (defun llf-architecture-name (id)
@@ -335,8 +335,8 @@
      (let ((realpart (%integer-as-double-float (load-integer stream)))
            (imagpart (%integer-as-double-float (load-integer stream))))
        (complex realpart imagpart)))
-    (#.+llf-structure-header+
-     (mezzano.runtime::%make-structure-header (vector-pop stack)))
+    (#.+llf-instance-header+
+     (mezzano.runtime::%make-instance-header (vector-pop stack)))
     (#.+llf-symbol-global-value-cell+
      (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))))
 

@@ -256,7 +256,7 @@
                          :lhs temp2
                          :rhs (- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))))
 
-(define-builtin sys.int::%struct-type ((object) result)
+(define-builtin sys.int::%instance-layout ((object) result)
   (let ((temp1 (make-instance 'ir:virtual-register)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:mov64
@@ -275,7 +275,7 @@
     ;; Then the shift would resurrect a dead object, leading to trouble.
     (emit (make-instance 'ir:spice-instruction :value object))))
 
-(define-builtin sys.int::%fast-structure-type-p ((object structure-header) :e)
+(define-builtin sys.int::%fast-instance-layout-eq-p ((object instance-header) :e)
   (let ((temp1 (make-instance 'ir:virtual-register :kind :integer))
         (temp2 (make-instance 'ir:virtual-register :kind :integer)))
     ;; Read the object header.
@@ -295,8 +295,8 @@
                          :rhs 3))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:cmp64
-                         :operands (list temp2 structure-header)
-                         :inputs (list temp2 structure-header)
+                         :operands (list temp2 instance-header)
+                         :inputs (list temp2 instance-header)
                          :outputs '()))))
 
 (define-builtin sys.int::%%object-ref-unsigned-byte-8 ((object index) result)

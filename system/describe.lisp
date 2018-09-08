@@ -91,7 +91,7 @@
 (defmethod describe-object ((object structure-object) stream)
   (format stream "~S is a structure of type ~:(~S~), with address ~X~%"
           object (type-of object) (lisp-object-address object))
-  (let ((type (%struct-type object)))
+  (let ((type (instance-class (%instance-layout object))))
     (loop
        for slot in (structure-definition-slots type)
        for slot-name = (structure-slot-definition-name slot)

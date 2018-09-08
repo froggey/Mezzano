@@ -134,9 +134,9 @@
             t)))
     (structure-object
      (and (typep y 'structure-object)
-          (eq (%struct-type x) (%struct-type y))
+          (eq (%instance-layout x) (%instance-layout y))
           (loop
-             with ty = (%struct-type x)
+             with ty = (layout-class (%instance-layout x))
              for slot in (structure-definition-slots ty)
              for slot-name = (structure-slot-definition-name slot)
              do

@@ -26,7 +26,7 @@
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
-        (type (%struct-type object)))
+        (type (layout-class (%instance-layout object))))
     (write (list* (type-of object)
                   (loop
                      for slot in (structure-definition-slots type)

@@ -111,25 +111,28 @@
     seq))
 
 (defun load-structure-definition (name* slots* parent* area* size* layout*)
+  (declare (ignore size* layout*))
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))
-         (slots-list (extract-object slots* t))
          (definition (gethash name *struct-table*)))
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
           (t
-           (let ((address (allocate 8 :wired)))
-             (setf (word address) (structure-header (make-value *structure-definition-definition* sys.int::+tag-object+)))
-             (setf (word (+ address 1)) name*)
-             (setf (word (+ address 2)) (let ((*default-cons-allocation-area* :wired))
-                                          (apply #'vlist slots-list)))
-             (setf (word (+ address 3)) parent*)
-             (setf (word (+ address 4)) area*)
-             (setf (word (+ address 5)) size*)
-             (setf (word (+ address 6)) layout*)
-             (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-             (setf (gethash name *struct-table*) (list address name slots))
+           (let ((address (allocate 8 :wired))
+                 (layout-address (allocate 8 :wired)))
+             (populate-structure-definition
+              address layout-address
+              name*
+              (loop
+                 for slot-def in slots
+                 collect (list (sys.int::structure-slot-definition-name slot-def)
+                               (sys.int::structure-slot-definition-accessor slot-def)
+                               (sys.int::structure-slot-definition-initform slot-def)
+                               (sys.int::structure-slot-definition-type slot-def)
+                               (sys.int::structure-slot-definition-read-only slot-def)))
+              parent*
+              (extract-object area*))
              (make-value address sys.int::+tag-object+))))))
 
 (defun cross-value-p (value)
@@ -475,9 +478,11 @@
        (dotimes (i total-size)
          (setf (row-major-aref temp-array i) (extract-object (aref stack (+ (length stack) i)))))
        (save-object temp-array)))
-    (#.sys.int::+llf-structure-header+
-     (make-value (ash (stack-pop stack) sys.int::+object-data-shift+)
-                 sys.int::+tag-structure-header+))
+    (#.sys.int::+llf-instance-header+
+     (logior (ash (word (+ (pointer-part (stack-pop stack)) 6)) ; structure definition layout
+                  sys.int::+object-data-shift+)
+             (ash sys.int::+object-tag-instance+ sys.int::+object-type-shift+)
+             sys.int::+tag-instance-header+))
     (#.sys.int::+llf-symbol-global-value-cell+
      (let* ((symbol (stack-pop stack)))
        (word (+ (pointer-part symbol) 3))))

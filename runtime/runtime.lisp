@@ -155,9 +155,8 @@ thread's stack if this function is called from normal code."
                                       (memref-unsigned-byte-8 address 0))
      do
        (when (and
-              ;; Closures never contain code.
-              (or (eql potential-header-type +object-tag-function+)
-                  (eql potential-header-type +object-tag-funcallable-instance+))
+              ;; Only compiled functions contain code.
+              (eql potential-header-type +object-tag-function+)
               ;; Check entry point halves individually, avoiding bignums.
               ;; Currently the entry point of every non-closure function
               ;; points to the base-address + 16.

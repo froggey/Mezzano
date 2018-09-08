@@ -663,8 +663,7 @@
 
 (defun typep (object type-specifier &optional environment)
   (declare (notinline find-class)) ; ### Boostrap hack.
-  (when (and (or (std-instance-p type-specifier)
-                 (funcallable-std-instance-p type-specifier))
+  (when (and (instance-p type-specifier)
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
       (class-typep object type-specifier)))
@@ -681,18 +680,11 @@
     (let ((struct-type (get-structure-type type-specifier nil)))
       (when struct-type
         (return-from typep
-          (and (structure-object-p object)
-               (do ((type (%struct-type object) (structure-definition-parent type)))
-                   ((null type)
-                    nil)
-                 (when (eq type struct-type)
-                   (return t)))))))
-    (when (or (std-instance-p object)
-              (funcallable-std-instance-p object))
-      (let ((class (find-class type-specifier nil)))
-        (when (and class
-                   (class-typep object class))
-          (return-from typep t)))))
+          (structure-type-p object struct-type))))
+    (let ((class (find-class type-specifier nil)))
+      (when (and class
+                 (class-typep object class))
+          (return-from typep t))))
   (let ((compound-test (get (if (symbolp type-specifier)
                                 type-specifier
                                 (first type-specifier))
@@ -774,9 +766,7 @@
       (when struct-type
         (return-from compile-typep-expression
           `(let ((,obj-sym ,object))
-             (and (structure-object-p ,obj-sym)
-                  (or (%fast-structure-type-p ,obj-sym ',struct-type)
-                      (structure-type-p ,obj-sym ',struct-type))))))))
+             (structure-type-p ,obj-sym ',struct-type))))))
   nil)
 )
 
@@ -868,8 +858,8 @@
                   ((eql object 't) 'boolean)
                   ((keywordp object) 'keyword)
                   (t 'symbol)))
-           (#b110001 (structure-definition-name (%struct-type object)))
-           (#b110010 (class-name (class-of object)))
+           (#b110001 (class-name (class-of object)))
+           (#b110010 'object-tag-110010)
            (#b110011 'mezzano.simd:sse-vector)
            (#b110100 'mezzano.supervisor:thread)
            (#b110101 'unbound-value)
@@ -880,8 +870,8 @@
            (#b111010 'weak-pointer)
            (#b111011 'mezzano.delimited-continuations:delimited-continuation)
            (#b111100 'compiled-function)
-           (#b111101 'closure)
-           (#b111110 (class-name (class-of object)))
+           (#b111101 (class-name (class-of object)))
+           (#b111110 'closure)
            (#b111111 'object-tag-111111)))
         ((%value-has-tag-p object +tag-structure-header+)
          'structure-header)

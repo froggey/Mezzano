@@ -574,12 +574,6 @@
 (defun sys.int::make-simple-vector (size &optional area)
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
 
-(defun sys.int::%make-struct (definition)
-  (%allocate-object sys.int::+object-tag-structure-object+
-                    (sys.int::lisp-object-address definition)
-                    (sys.int::structure-definition-size definition)
-                    (sys.int::structure-definition-area definition)))
-
 (defun sys.int::make-closure (function environment &optional area)
   "Allocate a closure object."
   (check-type function function)
@@ -632,13 +626,6 @@
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
 
-(defun sys.int::allocate-std-instance (class slots layout &optional area)
-  (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 3 3 area)))
-    (setf (sys.int::std-instance-class value) class
-          (sys.int::std-instance-slots value) slots
-          (sys.int::std-instance-layout value) layout)
-    value))
-
 (defun sys.int::make-function-with-fixups (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
          (gc-info-size (ceiling (length gc-info) 8))
@@ -690,25 +677,31 @@
 (defun sys.int::make-function (machine-code constants gc-info &optional wired)
   (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
-(defun sys.int::allocate-funcallable-std-instance (function class slots layout &optional area)
+(defun sys.int::allocate-instance (layout)
+  (%allocate-object sys.int::+object-tag-instance+
+                    (sys.int::lisp-object-address layout)
+                    (sys.int::layout-heap-size layout)
+                    (sys.int::layout-area layout)))
+
+(defun sys.int::allocate-funcallable-instance (function layout)
   "Allocate a funcallable instance."
   (check-type function function)
-  (let* ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
-                                   5
-                                   5
-                                   area))
-         (entry-point (sys.int::%object-ref-unsigned-byte-64
-                       (sys.int::%funcallable-instance-trampoline)
-                       sys.int::+function-entry-point+)))
+  ;; Layout heap size must be at least 2, to hold the entry point and function.
+  ;; TODO: Verify that LAYOUT more thoroughly.
+  (assert (>= (layout-heap-size layout) 2))
+  (let ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
+                                  (sys.int::lisp-object-address definition)
+                                  (sys.int::layout-heap-size definition)
+                                  (sys.int::layout-area definition)))
+        (entry-point (sys.int::%object-ref-unsigned-byte-64
+                      (sys.int::%funcallable-instance-trampoline)
+                      sys.int::+function-entry-point+)))
     (setf
      ;; Entry point. F-I trampoline.
      ;; TODO: If FUNCTION is an +object-tag-function+, then the entry point could point directly at it.
      (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) entry-point
-     ;; Function and other bits.
-     (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function
-     (sys.int::%object-ref-t object sys.int::+funcallable-instance-class+) class
-     (sys.int::%object-ref-t object sys.int::+funcallable-instance-slots+) slots
-     (sys.int::%object-ref-t object sys.int::+funcallable-instance-layout+) layout)
+     ;; Function
+     (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function)
     object))
 
 (defun sys.int::make-weak-pointer (key &optional (value key) finalizer area)

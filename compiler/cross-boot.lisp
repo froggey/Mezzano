@@ -202,8 +202,7 @@
     (assert (eql (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
   (let ((predicate (gensym (string (sys.int::structure-definition-name def)))))
     (setf (symbol-function predicate) (lambda (x)
-                                        (and (cross-struct-p x)
-                                             (eql (sys.int::%struct-type x) def))))
+                                        (sys.int::structure-type-p x def)))
     (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
                      (find-package "CL"))
                 (eql (symbol-package (sys.int::structure-definition-name def))
@@ -215,9 +214,6 @@
   (make-cross-struct
    :type definition
    :data (make-array (length (sys.int::structure-definition-slots definition)))))
-
-(defun sys.int::%struct-type (struct)
-  (cross-struct-type struct))
 
 (defun sys.int::structure-slot-index (def slot-name)
   (position slot-name
@@ -234,14 +230,11 @@
       (and errorp
            (error "Unknown structure type ~S." name))))
 
-(defun sys.int::structure-object-p (object)
-  (cross-struct-p object))
-
 (defun sys.int::structure-type-p (object struct-type)
   (when (cross-struct-p object)
     (do ((object-type (cross-struct-type object)
-                      (structure-type-parent object-type)))
-        ((not (structure-type-p object-type))
+                      (sys.int::structure-definition-parent object-type)))
+        ((not (sys.int::structure-definition-p object-type))
          nil)
       (when (eq object-type struct-type)
         (return t)))))

@@ -199,12 +199,12 @@ This is required to make the GC interrupt safe."
   (when (immediatep object)
     ;; Don't care about immediate objects, return them unchanged.
     (return-from scavenge-object object))
-  (when (%value-has-tag-p object +tag-structure-header+)
-    ;; Structure headers will be returned unchanged, and the pointed to
-    ;; structure definition will be scavenged.
-    ;; This assumes that structure headers only refer to pinned/wired objects
+  (when (%value-has-tag-p object +tag-instance-header+)
+    ;; Instance headers will be returned unchanged, and the pointed to
+    ;; layout will be scavenged.
+    ;; This assumes that instance headers only refer to pinned/wired objects
     ;; and don't need to move.
-    (scavenge-object (mezzano.runtime::%unpack-structure-header object) cycle-kind)
+    (scavenge-object (mezzano.runtime::%unpack-instance-header object) cycle-kind)
     (return-from scavenge-object object))
   (let ((address (ash (%pointer-field object) 4)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
@@ -954,7 +954,6 @@ This is required to make the GC interrupt safe."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+
       #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
@@ -970,24 +969,24 @@ This is required to make the GC interrupt safe."
      (scan-generic object 3 cycle-kind))
     (#.+object-tag-symbol+
      (scan-generic object 8 cycle-kind))
-    (#.+object-tag-structure-object+
-     (let* ((struct-type (%struct-type object))
-            (layout (structure-definition-layout struct-type)))
-       (scavenge-object struct-type cycle-kind)
-       (cond ((eql layout 't)
+    ((#.+object-tag-instance+
+      #.+object-tag-funcallable-instance+)
+     (let* ((layout (%instance-layout object))
+            (heap-layout (layout-heap-layout layout))
+            (heap-size (layout-heap-size layout)))
+       (scavenge-object layout cycle-kind)
+       (cond ((eql heap-layout 't)
               ;; All slots boxed
               (scan-generic object
                             ;; 1+ to account for the header word.
-                            (1+ (structure-definition-size struct-type))
+                            (1+ heap-size)
                             cycle-kind))
              (layout
               ;; Bit vector of slot boxedness.
               (loop
-                 for i below (structure-definition-size struct-type)
+                 for i below heap-size
                  when (eql (aref layout i) 1)
                  do (scavengef (%object-ref-t object i) cycle-kind))))))
-    (#.+object-tag-std-instance+
-     (scan-generic object 4 cycle-kind))
     (#.+object-tag-function-reference+
      (scan-generic object 4 cycle-kind))
     (#.+object-tag-function+
@@ -1187,7 +1186,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
            #.+object-tag-closure+
-           #.+object-tag-funcallable-instance+
            #.+object-tag-symbol-value-cell+)
           ;; simple-vector-like.
           ;; 1+ to account for the header word.
@@ -1248,8 +1246,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           4)
          (#.+object-tag-symbol+
           8)
-         (#.+object-tag-std-instance+
-          4)
+         ((#.+object-tag-instance+
+           #.+object-tag-funcallable-instance+)
+          (1+ (layout-heap-size (%instance-layout object))))
          (#.+object-tag-function-reference+
           4)
          (#.+object-tag-function+
@@ -1271,8 +1270,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           6)
          (#.+object-tag-delimited-continuation+
           6)
-         (#.+object-tag-structure-object+
-          (1+ (structure-definition-size (%struct-type object))))
          (t
           (object-size-error object)))))
     (t
@@ -1541,12 +1538,12 @@ Additionally update the card table offset fields."
     (when (immediatep object)
       ;; Don't care about immediate objects, return them unchanged.
       (return-from verify-one object))
-    (when (%value-has-tag-p object +tag-structure-header+)
-      ;; Structure headers will be returned unchanged, and the pointed to
-      ;; structure definition will be scavenged.
-      ;; This assumes that structure headers only refer to pinned/wired objects
+    (when (%value-has-tag-p object +tag-instance-header+)
+      ;; Instance headers will be returned unchanged, and the pointed to
+      ;; layout will be scavenged.
+      ;; This assumes that instance header only refer to pinned/wired objects
       ;; and don't need to move.
-      (verify-one (mezzano.runtime::%unpack-structure-header object) gen)
+      (verify-one (mezzano.runtime::%unpack-instance-header object) gen)
       (return-from verify-one object))
     (let ((object-address (ash (%pointer-field object) 4)))
       (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
@@ -1569,7 +1566,6 @@ Additionally update the card table offset fields."
   (case (%object-tag object)
     ((#.+object-tag-array-t+
       #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+
       #.+object-tag-symbol-value-cell+)
      ;; simple-vector
      ;; 1+ to account for the header word.
@@ -1585,18 +1581,18 @@ Additionally update the card table offset fields."
      (verify-generic object 3 gen))
     (#.+object-tag-symbol+
      (verify-generic object 8 gen))
-    (#.+object-tag-structure-object+
-     (let* ((struct-type (%struct-type object))
-            (layout (structure-definition-layout struct-type)))
-       (cond ((eql layout 't)
+    ((#.+object-tag-instance+
+      #.+object-tag-funcallable-instance+)
+     (let* ((layout (%instance-layout object))
+            (heap-layout (layout-heap-layout layout))
+            (heap-size (layout-heap-size layout)))
+       (cond ((eql heap-layout 't)
               ;; All slots boxed
-              (verify-generic object (1+ (structure-definition-size (%struct-type object))) gen))
+              (verify-generic object (1+ heap-size) gen))
              (layout
               ;; Bit vector of slot boxedness.
               ;; TODO: Not implemented.
               nil))))
-    (#.+object-tag-std-instance+
-     (verify-generic object 4 gen))
     (#.+object-tag-function-reference+
      (verify-generic object 4 gen))
     (#.+object-tag-function+

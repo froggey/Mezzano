@@ -286,45 +286,6 @@ Arguments to FUNCTION:
     (#.+object-tag-delimited-continuation+
      nil)))
 
-(declaim (inline funcallable-std-instance-p
-                 funcallable-std-instance-class (setf funcallable-std-instance-class)
-                 funcallable-std-instance-slots (setf funcallable-std-instance-slots)
-                 funcallable-std-instance-layout (setf funcallable-std-instance-layout)))
-
-(defun funcallable-std-instance-p (object)
-  (%object-of-type-p object +object-tag-funcallable-instance+))
-
-(defun funcallable-std-instance-function (funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (%object-ref-t funcallable-instance +funcallable-instance-function+))
-(defun (setf funcallable-std-instance-function) (value funcallable-instance)
-  (check-type value function)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  ;; TODO: If the function is an +OBJECT-TAG-FUNCTION+, then the entry point could point directly at it.
-  ;; Same as in ALLOCATE-FUNCALLABLE-STD-INSTANCE.
-  (setf (%object-ref-t funcallable-instance +funcallable-instance-function+) value))
-
-(defun funcallable-std-instance-class (funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (%object-ref-t funcallable-instance +funcallable-instance-class+))
-(defun (setf funcallable-std-instance-class) (value funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (setf (%object-ref-t funcallable-instance +funcallable-instance-class+) value))
-
-(defun funcallable-std-instance-slots (funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (%object-ref-t funcallable-instance +funcallable-instance-slots+))
-(defun (setf funcallable-std-instance-slots) (value funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (setf (%object-ref-t funcallable-instance +funcallable-instance-slots+) value))
-
-(defun funcallable-std-instance-layout (funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (%object-ref-t funcallable-instance +funcallable-instance-layout+))
-(defun (setf funcallable-std-instance-layout) (value funcallable-instance)
-  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
-  (setf (%object-ref-t funcallable-instance +funcallable-instance-layout+) value))
-
 (defun compiled-function-p (object)
   (when (functionp object)
     (ecase (%object-tag object)

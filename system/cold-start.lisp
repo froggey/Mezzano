@@ -201,6 +201,12 @@
 (defun find-package-or-die (name)
   t)
 
+;;; Early FIND-CLASS, needed for typep.
+(defun find-class (name &optional (errorp t))
+  (when errorp
+    (error "Early call to FIND-CLASS for ~S" name))
+  nil)
+
 (defvar *warm-llf-files*)
 
 (defvar *cold-start-start-time*)

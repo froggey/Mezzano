@@ -53,8 +53,8 @@
     invalid-101110             ; #b101110
     mezzano.simd:mmx-vector    ; #b101111
     symbol                     ; #b110000
-    structure-object           ; #b110001
-    std-instance               ; #b110010
+    instance                   ; #b110001
+    invalid-110010             ; #b110010
     mezzano.simd:sse-vector    ; #b110011
     thread                     ; #b110100
     unbound-value              ; #b110101
@@ -65,8 +65,8 @@
     weak-pointer               ; #b111010
     'mezzano.delimited-continuations:delimited-continuation ; #b111011
     function                   ; #b111100
-    closure                    ; #b111101
-    funcallable-instance       ; #b111110
+    funcallable-instance       ; #b111101
+    closure                    ; #b111110
     invalid-111111             ; #b111111
     )
   "Mapping from object tags to more friendly names.
@@ -264,12 +264,9 @@ FN will be called with the world stopped, it must not allocate."
                      (case tag
                        (#.+object-tag-freelist-entry+
                         (setf largest-free-space (max largest-free-space size)))
-                       (#.+object-tag-std-instance+
-                        (add-class (std-instance-class object)))
-                       (#.+object-tag-funcallable-instance+
-                        (add-class (funcallable-std-instance-class object)))
-                       (#.+object-tag-structure-object+
-                        (add-class (%struct-type object))))))))
+                       ((#.+object-tag-instance+
+                         #.+object-tag-funcallable-instance+)
+                        (add-class (layout-class (%instance-layout object)))))))))
     (values allocated-words total-words largest-free-space
             n-allocated-objects allocated-objects-sizes allocated-classes)))
 

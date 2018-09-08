@@ -468,7 +468,8 @@
     (mezzano.simd:sse-vector                       (find-class-cached 'mezzano.simd:sse-vector))
     (mezzano.runtime::symbol-value-cell            (find-class-cached 'mezzano.runtime::symbol-value-cell))
     (structure-object
-     (class-of-structure-definition (sys.int::%struct-type x)))
+     (class-of-structure-definition
+      (sys.int::layout-class (sys.int::%instance-layout x))))
     (t                                             (find-class-cached 't))))
 
 ;;; subclassp and sub-specializer-p

@@ -17,7 +17,7 @@
   (sb-mop:class-precedence-list class))
 
 (defstruct (structure-definition
-             (:constructor sys.int::make-struct-definition
+             (:constructor sys.int::%make-struct-definition
                            (name slots parent area size layout)))
   (name)
   (slots)
@@ -25,6 +25,27 @@
   (area)
   (size)
   (layout))
+
+(defstruct layout
+  class
+  obsolete
+  heap-size
+  heap-layout
+  area
+  instance-slots)
+
+(defun make-struct-definition (name slots parent area size layout)
+  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil))
+         (layout-object (make-layout
+                         :class def
+                         :obsolete nil
+                         :heap-size size
+                         :heap-layout layout
+                         :area area
+                         ;; ### Not currently supported for structs.
+                         :instance-slots nil)))
+    (setf (structure-definition-layout def) layout-object)
+    def))
 
 (defstruct (structure-slot-definition
              (:constructor sys.int::make-struct-slot-definition
@@ -37,15 +58,19 @@
   ref-fn
   index)
 
-(defstruct (structure-header
-             (:constructor mezzano.runtime::%make-structure-header
-                           (definition)))
-  definition)
+(defstruct (instance-header
+             (:constructor sys.c::%%make-instance-header
+                           (layout)))
+  layout)
 
 (in-package :sys.c)
 
-(defun mezzano.runtime::%unpack-structure-header (header)
-  (sys.int::structure-header-definition header))
+(defun mezzano.runtime::%make-instance-header (layout)
+  (assert (not (eql layout t)))
+  (sys.c::%%make-instance-header layout))
+
+(defun mezzano.runtime::%unpack-instance-header (header)
+  (sys.int::instance-header-layout header))
 
 (defun ldb (bytespec integer)
   (logand (ash integer (- (byte-position bytespec)))
@@ -626,9 +651,9 @@
 
 (defgeneric save-one-object (object object-map stream))
 
-(defmethod save-one-object ((object sys.int::structure-header) omap stream)
-  (save-object (mezzano.runtime::%unpack-structure-header object) omap stream)
-  (write-byte sys.int::+llf-structure-header+ stream))
+(defmethod save-one-object ((object sys.int::instance-header) omap stream)
+  (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object)) omap stream)
+  (write-byte sys.int::+llf-instance-header+ stream))
 
 (defmethod save-one-object ((object cross-fref) omap stream)
   (save-object (cross-fref-name object) omap stream)
@@ -717,7 +742,7 @@
   (save-object (sys.int::structure-definition-parent object) omap stream)
   (save-object (sys.int::structure-definition-area object) omap stream)
   (save-object (sys.int::structure-definition-size object) omap stream)
-  (save-object (sys.int::structure-definition-layout object) omap stream)
+  (save-object nil omap stream) ; layout
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)

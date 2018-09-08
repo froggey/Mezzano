@@ -403,7 +403,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (when (%value-has-tag-p object +tag-structure-header+)
     (save-object (mezzano.runtime::%unpack-structure-header object)
                  omap stream)
-    (write-byte +llf-structure-header+ stream)
+    (write-byte +llf-instance-header+ stream)
     (return-from save-one-object))
   (multiple-value-bind (creation-form initialization-form)
       (make-load-form object)

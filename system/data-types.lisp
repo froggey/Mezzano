@@ -22,9 +22,9 @@
 (defconstant +tag-immediate+        #b0101)
 (defconstant +tag-fixnum-011+       #b0110)
 ;; Low two bits of this one must be set, high two bits must match low
-;; two bits of +object-tag-structure-object+.
-;; See %FAST-STRUCTURE-TYPE-P.
-(defconstant +tag-structure-header+ #b0111) ; Low two bits must be set.
+;; two bits of +object-tag-instance+.
+;; See %FAST-INSTANCE-LAYOUT-EQ-P.
+(defconstant +tag-instance-header+  #b0111) ; Low two bits must be set.
 (defconstant +tag-fixnum-100+       #b1000)
 (defconstant +tag-object+           #b1001)
 (defconstant +tag-fixnum-101+       #b1010)
@@ -106,9 +106,9 @@
 (defconstant +object-tag-symbol-value-cell+       #b101110)
 (defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
-;; Low two bits must match high two bits of +tag-structure-header+.
-(defconstant +object-tag-structure-object+        #b110001)
-(defconstant +object-tag-std-instance+            #b110010)
+;; Low two bits must match high two bits of +tag-instance-header+.
+(defconstant +object-tag-instance+                #b110001)
+;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
 (defconstant +object-tag-thread+                  #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
@@ -125,10 +125,11 @@
 (defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
 (defconstant +object-tag-delimited-continuation+  #b111011)
 (defconstant +object-tag-function+                #b111100)
-(defconstant +object-tag-closure+                 #b111101)
-(defconstant +object-tag-funcallable-instance+    #b111110)
+;; Low two bits must match high two bits of +tag-instance-header+.
+(defconstant +object-tag-funcallable-instance+    #b111101)
+(defconstant +object-tag-closure+                 #b111110)
 (defconstant +first-function-object-tag+ +object-tag-delimited-continuation+)
-(defconstant +last-function-object-tag+ +object-tag-funcallable-instance+)
+(defconstant +last-function-object-tag+ +object-tag-closure+)
 ;;#b111111
 
 ;;; Layout of symbols.
@@ -174,9 +175,6 @@
 ;; Layout is important. Update (setf funcallable-std-instance-function) if
 ;; it changes.
 (defconstant +funcallable-instance-function+ 1)
-(defconstant +funcallable-instance-class+ 2)
-(defconstant +funcallable-instance-slots+ 3)
-(defconstant +funcallable-instance-layout+ 4)
 
 ;;; Delimited continuations.
 (defconstant +delimited-continuation-stack+ 1)
@@ -184,20 +182,13 @@
 (defconstant +delimited-continuation-state+ 3)
 (defconstant +delimited-continuation-prompt+ 4)
 
-;;; Standard instances.
-(defconstant +std-instance-class+ 0)
-(defconstant +std-instance-slots+ 1)
-(defconstant +std-instance-layout+ 2)
-
 ;;; Layout of function-references.
-
 (defconstant +fref-name+ 0)
 ;; Layout of these two slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
 (defconstant +fref-function+ 1)
 (defconstant +fref-entry-point+ 2)
 
 ;;; Layout of complex arrays.
-
 (defconstant +complex-array-storage+ 0)
 (defconstant +complex-array-fill-pointer+ 1)
 (defconstant +complex-array-info+ 2)
@@ -326,7 +317,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-complex-rational+          #x21)
 (defconstant +llf-complex-single-float+      #x22)
 (defconstant +llf-complex-double-float+      #x23)
-(defconstant +llf-structure-header+          #x24)
+(defconstant +llf-instance-header+           #x24)
 (defconstant +llf-symbol-global-value-cell+  #x25)
 
 ;;; Fields in the Unicode info tables.
