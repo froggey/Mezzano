@@ -13,7 +13,7 @@ Interesting GL initial state after subcontext creation:
 
 Actually that's not very interesting. the GL state is effectively 0, everything must be configured.
 
-Shaders are in TGSL text format, must be nul-terminated strings.
+Shaders are in TGSI text format, must be nul-terminated strings.
 
 Large shader sources can be sent over multiple create shader commands.
 
