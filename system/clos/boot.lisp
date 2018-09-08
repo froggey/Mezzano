@@ -625,6 +625,8 @@
           *standard-class-finalized-p-position* (position 'finalized-p s-c-layout)
           *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
           *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)
-          *standard-class-default-initargs-position* (position 'default-initargs s-c-layout))))
+          *standard-class-default-initargs-position* (position 'default-initargs s-c-layout)))
+  (let ((s-e-s-d-layout (primordial-slot-value (find-class 'standard-effective-slot-definition) 'slot-storage-layout)))
+    (setf *standard-effective-slot-definition-location-position* (position 'location s-e-s-d-layout))))
 
 (initialize-clos)

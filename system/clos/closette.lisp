@@ -93,24 +93,7 @@
 (sys.int::defglobal *standard-class-precedence-list-position*)
 (sys.int::defglobal *standard-class-direct-default-initargs-position*)
 (sys.int::defglobal *standard-class-default-initargs-position*)
-
-(defun slot-location (class slot-name)
-  (if (and (eq slot-name 'effective-slots)
-           (eq class *the-class-standard-class*))
-      *standard-class-effective-slots-position*
-      (let ((slot (find slot-name
-                        (class-slots class)
-                        :key #'slot-definition-name)))
-        (when (null slot)
-          (return-from slot-location
-            nil))
-        (case (slot-definition-allocation slot)
-          ((:instance :class)
-           (slot-definition-location slot))
-          (t
-           (error "The slot ~S is not an instance or class~@
-                           slot in the class ~S."
-                          slot-name class))))))
+(sys.int::defglobal *standard-effective-slot-definition-location-position*)
 
 (defun slot-contents (slots location)
   (if (consp location)
@@ -127,6 +110,24 @@
       (sys.int::cas (cdr location) old new)
       (sys.int::cas (svref slots location) old new)))
 
+(defun standard-instance-access (instance location)
+  (slot-contents (std-instance-slots instance) location))
+
+(defun (setf standard-instance-access) (value instance location)
+  (setf (slot-contents (std-instance-slots instance) location) value))
+
+(defun (sys.int::cas standard-instance-access) (old new instance location)
+  (sys.int::cas (slot-contents (std-instance-slots instance) location) old new))
+
+(defun funcallable-standard-instance-access (instance location)
+  (slot-contents (funcallable-std-instance-slots instance) location))
+
+(defun (setf funcallable-standard-instance-access) (value instance location)
+  (setf (slot-contents (funcallable-std-instance-slots instance) location) value))
+
+(defun (sys.int::cas funcallable-standard-instance-access) (old new instance location)
+  (sys.int::cas (slot-contents (funcallable-std-instance-slots instance) location) old new))
+
 (defun fast-sv-position (value simple-vector)
   (declare (optimize speed (safety 0) (debug 1))
            (type simple-vector simple-vector))
@@ -134,6 +135,7 @@
 
 (defun fast-slot-read (instance location)
   (multiple-value-bind (slots layout)
+      ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
     (declare (ignore layout))
     (let* ((val (slot-contents slots location)))
@@ -147,6 +149,7 @@
 
 (defun fast-slot-write (new-value instance location)
   (multiple-value-bind (slots layout)
+      ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
     (declare (ignore layout))
     (setf (slot-contents slots location) new-value)))
@@ -166,22 +169,25 @@
          (return (values slots instance-layout)))
        (update-instance-for-new-layout instance))))
 
+(defun find-effective-slot (object slot-name)
+  (find slot-name (class-slots (class-of object))
+        :key #'slot-definition-name))
+
 (defun slot-location-in-instance (instance slot-name)
-  (when (not (symbolp slot-name))
-    (setf slot-name (slot-definition-name slot-name)))
   (multiple-value-bind (slots layout)
       (fetch-up-to-date-instance-slots-and-layout instance)
     (let ((location (fast-sv-position slot-name layout)))
       (cond (location
              (values slots location))
             (t
-             ;; Unknown slot, fall back on SLOT-LOCATION.
-             (values slots
-                     (slot-location (class-of instance) slot-name)))))))
-
-(defun find-effective-slot (object slot-name)
-  (find slot-name (class-slots (class-of object))
-        :key #'slot-definition-name))
+             ;; Unknown slot, fall back on SLOT-DEFINITION-LOCATION.
+             ;; This can happen for class slots.
+             (let ((effective-slot (find-effective-slot instance slot-name)))
+               (cond (effective-slot
+                      (values slots (slot-definition-location effective-slot)))
+                     (t
+                      ;; No such slot, caller must call SLOT-MISSING.
+                      (values nil nil)))))))))
 
 (defun std-slot-value (instance slot-name)
   (multiple-value-bind (slots location)
@@ -746,7 +752,11 @@ Other arguments are included directly."
 
 (defun slot-definition-location (slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'location))
+  (let ((class-of-slot (class-of slot)))
+    (cond ((eq class-of-slot *the-class-standard-effective-slot-definition*)
+           (svref (std-instance-slots slot) *standard-effective-slot-definition-location-position*))
+          (t
+           (slot-value slot 'location)))))
 (defun (setf slot-definition-location) (new-value slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'location) new-value))
@@ -1522,15 +1532,17 @@ has only has class specializer."
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
-                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
-                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                         (assert location)
-                         (setf (single-dispatch-emf-entry emf-table class) location)
-                         (pushnew gf (class-dependents class))
-                         (fast-slot-read (first args) location)))
-                      (t
-                       ;; Slot not present, fall back on SLOT-VALUE.
-                       (slot-value (first args) (slot-value (first applicable-methods) 'slot-definition)))))
+                (let* ((instance (first args))
+                       (slot-name (slot-value (first applicable-methods) 'slot-definition))
+                       (effective-slot (find-effective-slot instance slot-name)))
+                  (cond (effective-slot
+                         (let ((location (slot-definition-location effective-slot)))
+                           (setf (single-dispatch-emf-entry emf-table class) location)
+                           (pushnew gf (class-dependents class))
+                           (fast-slot-read (first args) location)))
+                        (t
+                         ;; Slot not present, fall back on SLOT-VALUE.
+                         (slot-value instance slot-name)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:writer
@@ -1544,15 +1556,17 @@ has only has class specializer."
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
                      (std-class-p (class-of class)))
-                (cond ((slot-exists-in-class-p class (slot-value (first applicable-methods) 'slot-definition))
-                       (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                         (assert location)
-                         (setf (single-dispatch-emf-entry emf-table class) location)
-                         (pushnew gf (class-dependents class))
-                         (fast-slot-write (first args) (second args) location)))
-                      (t
-                       ;; Slot not present, fall back on SLOT-VALUE.
-                       (setf (slot-value (second args) (slot-value (first applicable-methods) 'slot-definition)) (first args)))))
+                (let* ((instance (second args))
+                       (slot-name (slot-value (first applicable-methods) 'slot-definition))
+                       (effective-slot (find-effective-slot instance slot-name)))
+                  (cond (effective-slot
+                         (let ((location (slot-definition-location effective-slot)))
+                           (setf (single-dispatch-emf-entry emf-table class) location)
+                           (pushnew gf (class-dependents class))
+                           (fast-slot-write (first args) instance location)))
+                        (t
+                         ;; Slot not present, fall back on SLOT-VALUE.
+                         (setf (slot-value instance slot-name) (first args))))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:never-called
