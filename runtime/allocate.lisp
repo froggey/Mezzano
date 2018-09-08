@@ -677,22 +677,22 @@
 (defun sys.int::make-function (machine-code constants gc-info &optional wired)
   (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
-(defun sys.int::allocate-instance (layout)
+(defun sys.int::%allocate-instance (layout)
   (%allocate-object sys.int::+object-tag-instance+
                     (sys.int::lisp-object-address layout)
                     (sys.int::layout-heap-size layout)
                     (sys.int::layout-area layout)))
 
-(defun sys.int::allocate-funcallable-instance (function layout)
+(defun sys.int::%allocate-funcallable-instance (function layout)
   "Allocate a funcallable instance."
   (check-type function function)
   ;; Layout heap size must be at least 2, to hold the entry point and function.
   ;; TODO: Verify that LAYOUT more thoroughly.
-  (assert (>= (layout-heap-size layout) 2))
+  (assert (>= (sys.int::layout-heap-size layout) 2))
   (let ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
-                                  (sys.int::lisp-object-address definition)
-                                  (sys.int::layout-heap-size definition)
-                                  (sys.int::layout-area definition)))
+                                  (sys.int::lisp-object-address layout)
+                                  (sys.int::layout-heap-size layout)
+                                  (sys.int::layout-area layout)))
         (entry-point (sys.int::%object-ref-unsigned-byte-64
                       (sys.int::%funcallable-instance-trampoline)
                       sys.int::+function-entry-point+)))

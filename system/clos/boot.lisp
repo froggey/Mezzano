@@ -88,12 +88,8 @@
                                                         (eql metaclass 'funcallable-standard-class))
                                                    '(funcallable-standard-object))
                                                   (t direct-superclasses))
-                       all-keys))
-         (class (allocate-std-instance 'primordial-class
-                                       name
-                                       nil)))
-    (setf (gethash name *primordial-class-table*) slots)
-    (setf (find-class name) class)))
+                       all-keys)))
+    (setf (gethash name *primordial-class-table*) slots)))
 
 (defun get-primordial-slot-definition (class-name slot-name)
   (let* ((class-def (gethash class-name *primordial-class-table*))
@@ -108,10 +104,7 @@
 
 (defun primordial-initialize-instance (class-name instance &rest initargs)
   (let* ((class-def (gethash class-name *primordial-class-table*))
-         (class-layout (getf class-def :layout))
-         (slots (make-array (length class-layout) :initial-element *secret-unbound-value*)))
-    (setf (std-instance-slots instance) slots
-          (std-instance-layout instance) class-layout)
+         (class-layout (getf class-def :layout)))
     ;; Add default initargs to the list.
     (let ((default-initargs '()))
       (labels ((frob (c)
@@ -126,40 +119,57 @@
         (frob class-name))
       (setf initargs (append initargs (nreverse default-initargs))))
     (loop
-       for slot-index from 0
        for slot-name across class-layout
        for slot-def = (get-primordial-slot-definition class-name slot-name)
        do
          (multiple-value-bind (init-key init-value foundp)
              (get-properties initargs (getf slot-def :initargs))
            (declare (ignore init-key))
-           (cond (foundp
-                  (setf (aref slots slot-index) init-value))
-                 ((getf slot-def :initfunction)
-                  (setf (aref slots slot-index) (funcall (getf slot-def :initfunction)))))))))
-
+           (setf (primordial-slot-value instance slot-name)
+                 (cond (foundp
+                        init-value)
+                       ((getf slot-def :initfunction)
+                        (funcall (getf slot-def :initfunction)))
+                       (t
+                        *secret-unbound-value*)))))))
 
 (defun primordial-make-instance (class-name &rest initargs)
-  (let ((instance (allocate-std-instance (find-class class-name) nil nil)))
+  (let* ((layout (getf (gethash class-name *primordial-class-table*) :instance-layout))
+         (instance (sys.int::%allocate-instance layout)))
     (apply #'primordial-initialize-instance class-name instance initargs)
     instance))
 
+(defun primordial-slot-location-in-layout (layout slot-name)
+  (loop
+     with instance-slots = (sys.int::layout-instance-slots layout)
+     for i below (length instance-slots) by 2
+     do
+       (when (eq (svref instance-slots i) slot-name)
+         (return (svref instance-slots (1+ i))))
+     finally
+       (return nil)))
+
+(defun primordial-slot-location (object slot-name)
+  (or (primordial-slot-location-in-layout
+       (sys.int::%instance-layout object) slot-name)
+      (error "Slot ~S missing from the object ~S" slot-name object)))
+
 (defun primordial-slot-value (object slot-name)
-  (let ((value (svref (std-instance-slots object)
-                      (position slot-name (std-instance-layout object)))))
+  (let ((value (sys.int::%object-ref-t object (primordial-slot-location object slot-name))))
     (when (eql value *secret-unbound-value*)
       (error "Slot ~S unbound in the object ~S." slot-name object))
     value))
 
 (defun (setf primordial-slot-value) (value object slot-name)
-  (setf (svref (std-instance-slots object)
-               (position slot-name (std-instance-layout object)))
+  (setf (sys.int::%object-ref-t object (primordial-slot-location object slot-name))
         value))
 
 (defun primordial-slot-boundp (object slot-name)
-  (not (eql (svref (std-instance-slots object)
-                   (position slot-name (std-instance-layout object)))
+  (not (eql (sys.int::%object-ref-t object (primordial-slot-location object slot-name))
             *secret-unbound-value*)))
+
+(defun primordial-class-of (object)
+  (sys.int::layout-class (sys.int::%instance-layout object)))
 
 ;;; Define the standard class hierarchy.
 ;;;
@@ -360,7 +370,8 @@
 
 (defun compute-primordial-slot-layout (class-name)
   (let* ((initargs (gethash class-name *primordial-class-table*))
-         (layout (getf initargs :layout)))
+         (layout (getf initargs :layout))
+         (metaclass (getf (gethash class-name *primordial-class-table*) :metaclass)))
     (when (not layout)
       (let ((direct-slots (getf initargs :direct-slots)))
         (setf layout (append (loop
@@ -377,7 +388,26 @@
         (assert (eql (length layout)
                      (length (remove-duplicates layout))))
         (setf layout (make-array (length layout) :initial-contents layout))
-        (setf (getf (gethash class-name *primordial-class-table*) :layout) layout)))
+        (setf (getf (gethash class-name *primordial-class-table*) :layout) layout)
+        ;; Built-in classes don't have layouts.
+        (when (not (eql metaclass 'built-in-class))
+          (let* ((funcallable-offset (if (eql metaclass 'funcallable-standard-class)
+                                         2 ; Skip the first two slots of funcallable instances, used for the function & entry point
+                                         0))
+                 (instance-slots (make-array (* (length layout) 2))))
+            (loop
+               for slot-index from funcallable-offset
+               for i from 0 by 2
+               for slot-name across layout
+               do (setf (aref instance-slots i) slot-name
+                        (aref instance-slots (1+ i)) slot-index))
+            (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
+                  (sys.int::make-layout :class nil ; Fixed up later.
+                                        :obsolete nil
+                                        :heap-size (length layout)
+                                        :heap-layout t
+                                        :area nil
+                                        :instance-slots instance-slots))))))
     layout))
 
 ;;; topological-sort implements the standard algorithm for topologically
@@ -486,9 +516,12 @@
                                      (remove name all-slots
                                              :key (lambda (def) (primordial-slot-value def 'name))
                                              :test-not #'eq)))
-                                  all-names)))
+                                  all-names))
+         (metaclass (primordial-slot-value (primordial-class-of class) 'name)))
     (loop
-       with next-instance-slot-index = 0
+       with next-instance-slot-index = (if (eql metaclass 'funcallable-standard-class)
+                                           2 ; Skip the first two slots of funcallable instances, used for the function & entry point
+                                           0)
        for slot in effective-slots
        do (case (primordial-slot-value slot 'allocation)
             (:instance
@@ -538,14 +571,18 @@
     (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x 'allocation) :instance))
                                          (primordial-slot-value class 'effective-slots)))
           (layout (primordial-slot-value class 'slot-storage-layout)))
-      (assert (eql (length instance-slots) (length layout)))
-      (loop
-         for slot-definition in instance-slots
-         for slot-name across layout
-         do
-           (when (not (eql (primordial-slot-value slot-definition 'name) slot-name))
-             (error "Instance slots and computed early layout mismatch in class ~S."
-                    (primordial-slot-value class 'name)))))
+      (cond (layout
+             (assert (eql (length instance-slots) (/ (length (sys.int::layout-instance-slots layout)) 2)))
+             (loop
+                for slot-definition in instance-slots
+                for slot-name = (primordial-slot-value slot-definition 'name)
+                for slot-location = (primordial-slot-location-in-layout layout slot-name)
+                do
+                  (when (not (eql (primordial-slot-value slot-definition 'location) slot-location))
+                    (error "Instance slots and computed early layout mismatch in class ~S."
+                           (primordial-slot-value class 'name)))))
+            (t
+             (assert (endp instance-slots)))))
     (setf (primordial-slot-value class 'finalized-p) t)))
 
 (defun convert-primordial-direct-slot (direct-slot-definition)
@@ -553,7 +590,7 @@
 
 (defun convert-primordial-class (name)
   (let ((class (find-class name)))
-    (destructuring-bind (&key name metaclass direct-superclasses direct-slots direct-default-initargs layout)
+    (destructuring-bind (&key name metaclass direct-superclasses direct-slots direct-default-initargs layout instance-layout)
         (gethash name *primordial-class-table*)
       #|
       (format t "Converting class ~S~%" name)
@@ -566,14 +603,13 @@
       (let ((converted-direct-slots (loop
                                        for direct-slot in direct-slots
                                        collect (convert-primordial-direct-slot direct-slot))))
-        (setf (std-instance-class class) (find-class metaclass))
         (primordial-initialize-instance metaclass
                                         class
                                         :name name
                                         :direct-superclasses (mapcar #'find-class direct-superclasses))
         (setf (primordial-slot-value class 'direct-slots) converted-direct-slots
               (primordial-slot-value class 'direct-default-initargs) direct-default-initargs
-              (primordial-slot-value class 'slot-storage-layout) layout)))))
+              (primordial-slot-value class 'slot-storage-layout) instance-layout)))))
 
 (defun initialize-clos ()
   ;; Compute slot layouts for each class.
@@ -581,6 +617,20 @@
   (maphash (lambda (name def)
              (declare (ignore def))
              (compute-primordial-slot-layout name))
+           *primordial-class-table*)
+  ;; Now that the layouts are known, the real class instances can be created.
+  (maphash (lambda (name def)
+             (let* ((mc-name (getf def :metaclass))
+                    (mc (gethash mc-name *primordial-class-table*))
+                    (mc-layout (getf mc :instance-layout)))
+               (setf (find-class name) (sys.int::%allocate-instance mc-layout))))
+           *primordial-class-table*)
+  ;; Instance layouts can now be properly associated with their classes.
+  (maphash (lambda (name def)
+             (let ((layout (getf def :instance-layout)))
+               (when layout
+                 ;; The class slot of LAYOUT is read-only, hack around it...
+                 (setf (sys.int::%object-ref-t layout 0) (find-class name)))))
            *primordial-class-table*)
   ;; Start defining real classes.
   ;;(format t "Transitioning to real class hierarchy.~%")
@@ -606,27 +656,17 @@
         *the-class-standard-gf* (find-class 'standard-generic-function)
         *the-class-standard-method* (find-class 'standard-method)
         *the-class-t* (find-class 't))
-  ;; Positions of various slots in standard-class and funcallable-standard-class.
+  ;; Locations of important slots in metaobjects.
   (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
-    ;; Verify that standard-class, funcallable-standard-class, and built-in-class have the same layout.
-    (when (not (equalp s-c-layout
-                       (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
-      (error (format nil "STANARD-CLASS and FUNCALLABLE-STANDARD-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
-                     s-c-layout
-                     (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout))))
-    (when (not (equalp s-c-layout
-                       (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
-      (error (format nil "STANARD-CLASS and BUILT-IN-CLASS have different layouts.~%S-C: ~S~%F-S-C: ~S~%"
-                     s-c-layout
-                     (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout))))
-    (setf *standard-class-effective-slots-position* (position 'effective-slots s-c-layout)
-          *standard-class-slot-storage-layout-position* (position 'slot-storage-layout s-c-layout)
-          *standard-class-hash-position* (position 'hash s-c-layout)
-          *standard-class-finalized-p-position* (position 'finalized-p s-c-layout)
-          *standard-class-precedence-list-position* (position 'class-precedence-list s-c-layout)
-          *standard-class-direct-default-initargs-position* (position 'direct-default-initargs s-c-layout)
-          *standard-class-default-initargs-position* (position 'default-initargs s-c-layout)))
+    (setf *standard-class-effective-slots-location* (primordial-slot-location-in-layout s-c-layout 'effective-slots)
+          *standard-class-slot-storage-layout-location* (primordial-slot-location-in-layout s-c-layout 'slot-storage-layout)
+          *standard-class-hash-location* (primordial-slot-location-in-layout s-c-layout 'hash)
+          *standard-class-finalized-p-location* (primordial-slot-location-in-layout s-c-layout 'finalized-p)
+          *standard-class-precedence-list-location* (primordial-slot-location-in-layout s-c-layout 'class-precedence-list)
+          *standard-class-direct-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'direct-default-initargs)
+          *standard-class-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'default-initargs)))
   (let ((s-e-s-d-layout (primordial-slot-value (find-class 'standard-effective-slot-definition) 'slot-storage-layout)))
-    (setf *standard-effective-slot-definition-location-position* (position 'location s-e-s-d-layout))))
+    (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name))
+    (setf *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
 
 (initialize-clos)

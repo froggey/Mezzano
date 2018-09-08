@@ -49,30 +49,29 @@
 
 (defun std-allocate-instance (class)
   (ensure-class-finalized class)
-  (allocate-std-instance
-    class
-    (allocate-slot-storage (length (class-slot-storage-layout class))
-                           *secret-unbound-value*)
-    (class-slot-storage-layout class)))
+  (let* ((layout (class-slot-storage-layout class))
+         (instance (sys.int::%allocate-instance layout)))
+    (loop
+       for i below (sys.int::layout-heap-size layout)
+       do (setf (sys.int::%object-ref-t instance i) *secret-unbound-value*))
+    instance))
 
 (defun fc-std-allocate-instance (class)
   (ensure-class-finalized class)
-  (allocate-funcallable-std-instance
-   (lambda (&rest x)
-     (declare (ignore x))
-     (error "The function of this funcallable instance has not been set."))
-    class
-    (allocate-slot-storage (length (class-slot-storage-layout class))
-                           *secret-unbound-value*)
-    (class-slot-storage-layout class)))
+  (let* ((layout (class-slot-storage-layout class))
+         (instance (sys.int::%allocate-funcallable-instance
+                    (lambda (&rest x)
+                      (declare (ignore x))
+                      (error "The function of this funcallable instance has not been set."))
+                    layout)))
+    (loop
+       ;; Leave the first two words alone. These hold the entry point & function.
+       for i from 2 below (sys.int::layout-heap-size layout)
+       do (setf (sys.int::%object-ref-t instance i) *secret-unbound-value*))
+    instance))
 
 (defun set-funcallable-instance-function (funcallable-instance function)
-  (setf (funcallable-std-instance-function funcallable-instance) function))
-
-;;; Simple vectors are used for slot storage.
-
-(defun allocate-slot-storage (size initial-value)
-  (make-array size :initial-element initial-value))
+  (setf (sys.int::funcallable-instance-function funcallable-instance) function))
 
 ;;; Standard instance slot access
 
@@ -86,59 +85,62 @@
 (sys.int::defglobal *the-class-standard-direct-slot-definition*)
 (sys.int::defglobal *the-class-standard-effective-slot-definition*)
 (sys.int::defglobal *the-class-t*)
-(sys.int::defglobal *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
-(sys.int::defglobal *standard-class-slot-storage-layout-position*)
-(sys.int::defglobal *standard-class-hash-position*)
-(sys.int::defglobal *standard-class-finalized-p-position*)
-(sys.int::defglobal *standard-class-precedence-list-position*)
-(sys.int::defglobal *standard-class-direct-default-initargs-position*)
-(sys.int::defglobal *standard-class-default-initargs-position*)
-(sys.int::defglobal *standard-effective-slot-definition-location-position*)
-
-(defun slot-contents (slots location)
-  (if (consp location)
-      (cdr location)
-      (svref slots location)))
-
-(defun (setf slot-contents) (new-value slots location)
-  (if (consp location)
-      (setf (cdr location) new-value)
-      (setf (svref slots location) new-value)))
-
-(defun (sys.int::cas slot-contents) (old new slots location)
-  (if (consp location)
-      (sys.int::cas (cdr location) old new)
-      (sys.int::cas (svref slots location) old new)))
+(sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
+(sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
+(sys.int::defglobal *standard-class-effective-slots-location*) ; Position of the effective-slots slot in standard-class.
+(sys.int::defglobal *standard-class-slot-storage-layout-location*)
+(sys.int::defglobal *standard-class-hash-location*)
+(sys.int::defglobal *standard-class-finalized-p-location*)
+(sys.int::defglobal *standard-class-precedence-list-location*)
+(sys.int::defglobal *standard-class-direct-default-initargs-location*)
+(sys.int::defglobal *standard-class-default-initargs-location*)
+(sys.int::defglobal *standard-effective-slot-definition-location-location*)
+(sys.int::defglobal *standard-effective-slot-definition-name-location*)
 
 (defun standard-instance-access (instance location)
-  (slot-contents (std-instance-slots instance) location))
+  (if (consp location)
+      (cdr location)
+      (sys.int::%object-ref-t instance location)))
 
-(defun (setf standard-instance-access) (value instance location)
-  (setf (slot-contents (std-instance-slots instance) location) value))
+(defun (setf standard-instance-access) (new-value instance location)
+  (if (consp location)
+      (setf (cdr location) new-value)
+      (setf (sys.int::%object-ref-t instance location) new-value)))
 
 (defun (sys.int::cas standard-instance-access) (old new instance location)
-  (sys.int::cas (slot-contents (std-instance-slots instance) location) old new))
+  (if (consp location)
+      (sys.int::cas (cdr location) old new)
+      (sys.int::cas (sys.int::%object-ref-t instance location) old new)))
 
+;; Instance and funcallable instances are accessed in the same way,
+;; these are provided for compatibility with other MOP implementations.
 (defun funcallable-standard-instance-access (instance location)
-  (slot-contents (funcallable-std-instance-slots instance) location))
+  (standard-instance-access instance location))
 
 (defun (setf funcallable-standard-instance-access) (value instance location)
-  (setf (slot-contents (funcallable-std-instance-slots instance) location) value))
+  (setf (standard-instance-access instance location) value))
 
 (defun (sys.int::cas funcallable-standard-instance-access) (old new instance location)
-  (sys.int::cas (slot-contents (funcallable-std-instance-slots instance) location) old new))
+  (sys.int::cas (standard-instance-access instance location) old new))
 
-(defun fast-sv-position (value simple-vector)
-  (declare (optimize speed (safety 0) (debug 1))
-           (type simple-vector simple-vector))
-  (position value simple-vector :test #'eq))
+(defun slot-location-using-layout (slot-name layout)
+  "If SLOT-NAME names an instance slot in LAYOUT, return the location otherwise NIL"
+  (loop
+     with instance-slots = (sys.int::layout-instance-slots layout)
+     for i from 0 below (length instance-slots) by 2
+     when (eq (svref instance-slots i) layout)
+     do (return (svref instance-slots (1+ i)))
+     finally (return nil)))
 
+;; TODO: This and FAST-SLOT-WRITE should use the correct slot access function.
+;; It doesn't really matter though, as instances and funcallable instances
+;; are all compatible.
 (defun fast-slot-read (instance location)
   (multiple-value-bind (slots layout)
       ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
     (declare (ignore layout))
-    (let* ((val (slot-contents slots location)))
+    (let* ((val (standard-instance-access slots location)))
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance)
                                 instance
@@ -152,12 +154,13 @@
       ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
     (declare (ignore layout))
-    (setf (slot-contents slots location) new-value)))
+    (setf (standard-instance-access slots location) new-value)))
 
+#+(or)
 (defun fetch-up-to-date-instance-slots-and-layout (instance)
   (loop
-     (let* ((storage-layout (slot-contents (std-instance-slots (class-of instance))
-                                           *standard-class-slot-storage-layout-position*))
+     (let* ((storage-layout (standard-instance-access (std-instance-slots (class-of instance))
+                                           *standard-class-slot-storage-layout-location*))
             (funcallable-instance-p (funcallable-std-instance-p instance))
             (instance-layout (if funcallable-instance-p
                                  (funcallable-std-instance-layout instance)
@@ -169,6 +172,12 @@
          (return (values slots instance-layout)))
        (update-instance-for-new-layout instance))))
 
+(defun fetch-up-to-date-instance-slots-and-layout (instance)
+  (let ((layout (sys.int::%instance-layout instance)))
+    (when (sys.int::layout-obsolete layout)
+      (error "TODO: Update instance for new layout"))
+    (values instance layout)))
+
 (defun find-effective-slot (object slot-name)
   (find slot-name (class-slots (class-of object))
         :key #'slot-definition-name))
@@ -176,7 +185,7 @@
 (defun slot-location-in-instance (instance slot-name)
   (multiple-value-bind (slots layout)
       (fetch-up-to-date-instance-slots-and-layout instance)
-    (let ((location (fast-sv-position slot-name layout)))
+    (let ((location (slot-location-using-layout slot-name layout)))
       (cond (location
              (values slots location))
             (t
@@ -196,7 +205,7 @@
       (return-from std-slot-value
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-value))))
-    (let ((val (slot-contents slots location)))
+    (let ((val (standard-instance-access slots location)))
       (if (eq *secret-unbound-value* val)
           (values (slot-unbound (class-of instance) instance slot-name))
           val))))
@@ -258,7 +267,7 @@
       (slot-missing (class-of instance) instance slot-name 'setf value)
       (return-from std-slot-value
         value))
-    (setf (slot-contents slots location) value)))
+    (setf (standard-instance-access slots location) value)))
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
          (setf (std-slot-value object slot-name) new-value))
@@ -316,7 +325,7 @@
     (when (not location)
       (return-from std-slot-value
         (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new))))
-    (sys.int::cas (slot-contents slots location) old new)))
+    (sys.int::cas (standard-instance-access slots location) old new)))
 (defun (sys.int::cas slot-value) (old new object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
          (sys.int::cas (std-slot-value object slot-name) old new))
@@ -334,7 +343,7 @@
       (return-from std-slot-boundp
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-boundp))))
-    (not (eq *secret-unbound-value* (slot-contents slots location)))))
+    (not (eq *secret-unbound-value* (standard-instance-access slots location)))))
 (defun slot-boundp (object slot-name)
   (let ((metaclass (class-of (class-of object))))
     (cond ((std-class-p metaclass)
@@ -352,7 +361,7 @@
       (return-from std-slot-makunbound
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-makunbound))))
-    (setf (slot-contents slots location) *secret-unbound-value*))
+    (setf (standard-instance-access slots location) *secret-unbound-value*))
   instance)
 (defun slot-makunbound (object slot-name)
   (let ((metaclass (class-of (class-of object))))
@@ -374,11 +383,14 @@
 ;;; class-of
 
 (defun class-of (x)
-  (cond ((std-instance-p x)
-         (sys.int::%object-ref-t x sys.int::+std-instance-class+))
-        ((funcallable-std-instance-p x)
-         (sys.int::%object-ref-t x sys.int::+funcallable-instance-class+))
-        (t (built-in-class-of x))))
+  (cond ((or (sys.int::instance-p x)
+             (sys.int::funcallable-instance-p x))
+         (let ((class (sys.int::layout-class (sys.int::%instance-layout x))))
+           (if (sys.int::structure-definition-p class)
+               (class-of-structure-definition x)
+               class)))
+        (t
+         (built-in-class-of x))))
 
 (defun canonicalize-struct-slot (slot)
   (list :name (sys.int::structure-slot-definition-name slot)
@@ -467,9 +479,8 @@
     (mezzano.simd:mmx-vector                       (find-class-cached 'mezzano.simd:mmx-vector))
     (mezzano.simd:sse-vector                       (find-class-cached 'mezzano.simd:sse-vector))
     (mezzano.runtime::symbol-value-cell            (find-class-cached 'mezzano.runtime::symbol-value-cell))
-    (structure-object
-     (class-of-structure-definition
-      (sys.int::layout-class (sys.int::%instance-layout x))))
+    ;; TODO: Replace this with an error. Every object in the system should
+    ;; have a sensible class.
     (t                                             (find-class-cached 't))))
 
 ;;; subclassp and sub-specializer-p
@@ -508,8 +519,8 @@
 (defun class-precedence-list (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((std-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-precedence-list-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-precedence-list-location*))
           (t
            (slot-value class 'class-precedence-list)))))
 (defun (setf class-precedence-list) (new-value class)
@@ -519,8 +530,8 @@
 (defun class-slots (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-effective-slots-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-effective-slots-location*))
           (t (slot-value class 'effective-slots)))))
 (defun (setf class-slots) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -529,8 +540,8 @@
 (defun class-slot-storage-layout (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-slot-storage-layout-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-slot-storage-layout-location*))
           (t (slot-value class 'slot-storage-layout)))))
 (defun (setf class-slot-storage-layout) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -553,8 +564,8 @@
 (defun class-direct-default-initargs (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-direct-default-initargs-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-direct-default-initargs-location*))
           (t (slot-value class 'direct-default-initargs)))))
 (defun (setf class-direct-default-initargs) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -570,8 +581,8 @@
 (defun class-hash (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-hash-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-hash-location*))
           (t (std-slot-value class 'hash)))))
 (defun (setf class-hash) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -580,8 +591,8 @@
 (defun class-finalized-p (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-finalized-p-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-finalized-p-location*))
           (t (std-slot-value class 'finalized-p)))))
 (defun (setf class-finalized-p) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -590,8 +601,8 @@
 (defun class-default-initargs (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-class (class-of class)))
-    (cond ((clos-class-p class-of-class)
-           (svref (std-instance-slots class) *standard-class-default-initargs-position*))
+    (cond ((standard-class-p class-of-class)
+           (standard-instance-access class *standard-class-default-initargs-location*))
           (t (slot-value class 'default-initargs)))))
 (defun (setf class-default-initargs) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -651,6 +662,11 @@ Other arguments are included directly."
   (or (eq metaclass *the-class-standard-class*)
       (eq metaclass *the-class-funcallable-standard-class*)))
 
+(defun standard-class-p (metaclass)
+  "Returns true if METACLASS is exactly STANDARD-CLASS."
+  (or (eq metaclass *the-class-standard-class*)
+      (eq metaclass *the-class-funcallable-standard-class*)))
+
 (defun clos-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS, or BUILT-IN-CLASS."
   (or (eq metaclass *the-class-standard-class*)
@@ -704,7 +720,11 @@ Other arguments are included directly."
 
 (defun slot-definition-name (slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'name))
+  (let ((class-of-slot (class-of slot)))
+    (cond ((eq class-of-slot *the-class-standard-effective-slot-definition*)
+           (standard-instance-access slot *standard-effective-slot-definition-name-location*))
+          (t
+           (slot-value slot 'name)))))
 (defun (setf slot-definition-name) (new-value slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'name) new-value))
@@ -755,7 +775,7 @@ Other arguments are included directly."
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-slot (class-of slot)))
     (cond ((eq class-of-slot *the-class-standard-effective-slot-definition*)
-           (svref (std-instance-slots slot) *standard-effective-slot-definition-location-position*))
+           (standard-instance-access slot *standard-effective-slot-definition-location-location*))
           (t
            (slot-value slot 'location)))))
 (defun (setf slot-definition-location) (new-value slot)
@@ -786,9 +806,27 @@ Other arguments are included directly."
   (setf (class-default-initargs class) (compute-default-initargs class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
                                         (class-slots class)))
-         (layout (make-array (length instance-slots))))
-    (dolist (slot instance-slots)
-      (setf (aref layout (slot-definition-location slot)) (slot-definition-name slot)))
+         (instance-slot-vector
+          (make-array (* (length instance-slots) 2)))
+         (layout (sys.int::make-layout
+                  :class class
+                  :obsolete nil
+                  :heap-size (loop
+                                ;; Using the effective slot locations
+                                ;; accounts for the FC instance offset.
+                                for slot in instance-slots
+                                for location = (slot-definition-location slot)
+                                maximize (1+ location))
+                  :heap-layout t
+                  :area nil
+                  :instance-slots instance-slot-vector)))
+    (loop
+       for i from 0 by 2
+       for slot in instance-slots
+       for slot-name = (slot-definition-name slot)
+       for location = (slot-definition-location slot)
+       do (setf (aref instance-slot-vector i) slot-name
+                (aref instance-slot-vector (1+ i)) location))
     (setf (class-slot-storage-layout class) layout))
   (setf (class-finalized-p class) t)
   (values))
@@ -863,7 +901,9 @@ Other arguments are included directly."
 
 (defun std-compute-slot-layouts (class effective-slots)
   (loop
-     with next-instance-slot-index = 0
+     with next-instance-slot-index = (if (subclassp (class-of class) *the-class-funcallable-standard-class*)
+                                         2
+                                         0)
      for slot in effective-slots
      do (case (slot-definition-allocation slot)
           (:instance
@@ -922,8 +962,6 @@ Other arguments are included directly."
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
 ;;;
-
-(sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
 
 (defun generic-function-name (gf)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -1014,8 +1052,6 @@ Other arguments are included directly."
 ;;;
 ;;; Method metaobjects and standard-method
 ;;;
-
-(sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
 
 (defun method-lambda-list (method)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -2469,7 +2505,7 @@ has only has class specializer."
                  (loop
                     for location from 0
                     for slot in new-layout-list
-                    do (setf (svref new-slots location) (svref old-slots (fast-sv-position slot old-layout))))
+                    do (setf (svref new-slots location) (svref old-slots (slot-location-using-layout slot old-layout))))
                  (if funcallable-instance-p
                      (setf (funcallable-std-instance-slots instance) new-slots)
                      (setf (std-instance-slots instance) new-slots))))
@@ -2482,12 +2518,12 @@ has only has class specializer."
                  ;; Copy slots that were not added/discarded.
                  (loop
                     for slot in (intersection new-layout-list old-layout-list)
-                    do (setf (svref new-slots (fast-sv-position slot new-layout))
-                             (svref old-slots (fast-sv-position slot old-layout))))
+                    do (setf (svref new-slots (slot-location-using-layout slot new-layout))
+                             (svref old-slots (slot-location-using-layout slot old-layout))))
                  ;; Assemble the list of discarded values.
                  (loop
                     for slot in discarded-slots
-                    do (let ((value (svref old-slots (fast-sv-position slot old-layout))))
+                    do (let ((value (svref old-slots (slot-location-using-layout slot old-layout))))
                          (when (not (eql value *secret-unbound-value*))
                            (setf property-list (list* slot value
                                                       property-list)))))

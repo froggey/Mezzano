@@ -5,8 +5,8 @@
 
 (in-package :mezzano.runtime)
 
-(sys.int::defglobal sys.int::*structure-type-type* nil)
-(sys.int::defglobal sys.int::*structure-slot-type* nil)
+(sys.int::defglobal sys.int::*structure-type-type*)
+(sys.int::defglobal sys.int::*structure-slot-type*)
 
 (sys.int::defglobal *structure-types*)
 
@@ -25,8 +25,11 @@
 
 (defun sys.int::structure-object-p (object)
   (and (sys.int::instance-p object)
-       (sys.int::structure-definition-p
-        (sys.int::layout-class (sys.int::%instance-layout)))))
+       (eq sys.int::*structure-type-type*
+           ;; If the object's metaclass is structure-defintion, then it's a structure object.
+           (sys.int::layout-class
+            (sys.int::%instance-layout
+             (sys.int::layout-class (sys.int::%instance-layout object)))))))
 
 (defun find-struct-slot (definition slot-name &optional (errorp t))
   (or (find slot-name (sys.int::structure-definition-slots definition)
@@ -83,7 +86,7 @@
 
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
-  (when (sys.int::instance-p object)
+  (when (sys.int::structure-object-p object)
     (do ((object-type (sys.int::layout-class (sys.int::%instance-layout object))
                       (sys.int::structure-definition-parent object-type)))
         ((not object-type)
@@ -92,7 +95,7 @@
         (return t)))))
 
 (defun sys.int::%make-struct (definition)
-  (sys.int::allocate-instance (sys.int::structure-definition-layout definition)))
+  (sys.int::%allocate-instance (sys.int::structure-definition-layout definition)))
 
 (defun copy-structure (structure)
   (assert (sys.int::instance-p structure) (structure)

@@ -336,7 +336,8 @@
            (imagpart (%integer-as-double-float (load-integer stream))))
        (complex realpart imagpart)))
     (#.+llf-instance-header+
-     (mezzano.runtime::%make-instance-header (vector-pop stack)))
+     (mezzano.runtime::%make-instance-header
+      (structure-definition-layout (vector-pop stack))))
     (#.+llf-symbol-global-value-cell+
      (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))))
 
