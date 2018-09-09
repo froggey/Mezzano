@@ -143,7 +143,9 @@ be generated instead.")
     (setf definition (or (when (symbolp name) (macro-function name))
                          (fdefinition name))))
   (when (functionp definition)
-    (when (compiled-function-p definition)
+    (when (or (compiled-function-p definition)
+              ;; ###: Should generic functions be compiled functions?
+              (typep definition 'generic-function))
       (return-from compile
         (values definition nil nil)))
     (multiple-value-bind (lambda-expression env)
