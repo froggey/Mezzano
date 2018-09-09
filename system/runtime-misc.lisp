@@ -19,7 +19,7 @@
 (defgeneric funcallable-instance-compiled-function-p (function)
   (:method ((function function))
     (declare (ignore function))
-    (compiled-function-p (funcallable-std-instance-function function))))
+    nil))
 
 (defgeneric make-load-form (object &optional environment))
 

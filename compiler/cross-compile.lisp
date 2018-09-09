@@ -16,6 +16,9 @@
 (defun mezzano.clos:class-precedence-list (class)
   (sb-mop:class-precedence-list class))
 
+(defun mezzano.clos::safe-class-precedence-list (class)
+  (sb-mop:class-precedence-list class))
+
 (defstruct (structure-definition
              (:constructor sys.int::%make-struct-definition
                            (name slots parent area size layout)))

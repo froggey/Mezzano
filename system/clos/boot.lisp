@@ -196,24 +196,24 @@
   (:metaclass funcallable-standard-class))
 
 (defclass standard-generic-function (generic-function)
-  ((name :initarg :name)      ; :accessor generic-function-name
-   (lambda-list               ; :accessor generic-function-lambda-list
+  ((name :initarg :name)      ; :reader generic-function-name
+   (lambda-list               ; :reader generic-function-lambda-list
     :initarg :lambda-list)
-   (methods :initform ())     ; :accessor generic-function-methods
-   (method-class              ; :accessor generic-function-method-class
+   (methods :initform ())     ; :reader generic-function-methods
+   (method-class              ; :reader generic-function-method-class
     :initarg :method-class)
-   (discriminating-function)  ; :accessor generic-function-
-                                        ;    -discriminating-function
-   (classes-to-emf-table      ; :accessor classes-to-emf-table
+   (discriminating-function)
+   (classes-to-emf-table
     :initform (make-hash-table :test #'equal))
-   (relevant-arguments)       ; :accessor generic-function-relevant-arguments
-   (weird-specializers-p)     ; :accessor generic-function-has-unusual-specializers
-   (method-combination        ; :accessor generic-function-method-combination
+   (relevant-arguments)
+   (weird-specializers-p)
+   (method-combination        ; :reader generic-function-method-combination
     :initarg :method-combination)
-   (argument-precedence-order
+   (argument-precedence-order ; :reader generic-function-argument-precedence-order
     :initarg :argument-precedence-order)
    (argument-reordering-table :initform nil)
-   (declarations :initarg :declarations :initform nil)
+   (declarations              ; :reader generic-function-declarations
+    :initarg :declarations :initform nil)
    )
   (:default-initargs
    :name nil
@@ -226,17 +226,18 @@
 (defclass method (metaobject) ())
 
 (defclass standard-method (method)
-  ((lambda-list :initarg :lambda-list)     ; :accessor method-lambda-list
-   (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
-   (specializers :initarg :specializers)   ; :accessor method-specializers
-   (generic-function :initform nil)        ; :accessor method-generic-function
-   (function :initarg :function))          ; :accessor method-function
+  ((lambda-list :initarg :lambda-list)     ; :reader method-lambda-list
+   (qualifiers :initarg :qualifiers)       ; :reader method-qualifiers
+   (specializers :initarg :specializers)   ; :reader method-specializers
+   (generic-function :initform nil)        ; :reader method-generic-function
+   (function :initarg :function))          ; :reader method-function
   (:default-initargs
    :qualifiers '()
     :specializers '()))
 
 (defclass standard-accessor-method (standard-method)
-  ((slot-definition :initarg :slot-definition)))
+  ((slot-definition                        ; :reader accessor-method-slot-definition
+    :initarg :slot-definition)))
 
 (defclass standard-reader-method (standard-accessor-method) ())
 (defclass standard-writer-method (standard-accessor-method) ())
@@ -250,12 +251,18 @@
 (defclass effective-slot-definition (slot-definition) ())
 
 (defclass standard-slot-definition (slot-definition)
-  ((name :initform nil :initarg :name)
-   (allocation :initform :instance :initarg :allocation)
-   (type :initform 't :initarg :type)
-   (initform :initform nil :initarg :initform)
-   (initfunction :initform nil :initarg :initfunction)
-   (initargs :initform '() :initarg :initargs)
+  ((name                                   ; :reader slot-definition-name
+    :initform nil :initarg :name)
+   (allocation                             ; :reader slot-definition-allocation
+    :initform :instance :initarg :allocation)
+   (type                                   ; :reader slot-definition-type
+    :initform 't :initarg :type)
+   (initform                               ; :reader slot-definition-initform
+    :initform nil :initarg :initform)
+   (initfunction                           ; :reader slot-definition-initfunction
+    :initform nil :initarg :initfunction)
+   (initargs                               ; :reader slot-definition-initargs
+    :initform '() :initarg :initargs)
    (documentation :initform nil :initarg :documentation)))
 
 (defclass standard-direct-slot-definition (standard-slot-definition direct-slot-definition)
@@ -271,25 +278,24 @@
 
 (defclass forward-referenced-class (class)
   ((name :initarg :name)
-   (direct-subclasses :initform '())
-   (finalized-p :initform nil)))
+   (direct-subclasses :initform '())))
 
 (defclass clos-class (class)
-  ((name :initarg :name)              ; :accessor class-name
-   (direct-superclasses               ; :accessor class-direct-superclasses
+  ((name :initarg :name)              ; :reader class-name
+   (direct-superclasses               ; :reader class-direct-superclasses
     :initarg :direct-superclasses)
-   (direct-slots :initform ())        ; :accessor class-direct-slots
-   (class-precedence-list)            ; :accessor class-precedence-list
-   (effective-slots :initform ())     ; :accessor class-slots
-   (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
-   (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
-   (direct-methods :initform ())      ; :accessor class-direct-methods
-   (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
+   (direct-slots :initform ())        ; :reader class-direct-slots
+   (class-precedence-list)            ; :reader class-precedence-list
+   (effective-slots :initform ())     ; :reader class-slots
+   (slot-storage-layout :initform ())
+   (direct-subclasses :initform ())   ; :reader class-direct-subclasses
+   (direct-methods :initform ())      ; :reader class-direct-methods
+   (direct-default-initargs :initform ()) ; :reader class-direct-default-initargs
    (dependents :initform '())
    (hash :initform (next-class-hash-value))
    (finalized-p :initform nil)
    (prototype)
-   (default-initargs)) ; :accessor class-default-initargs
+   (default-initargs))                ; :reader class-default-initargs
   (:default-initargs :name nil))
 
 (defclass built-in-class (clos-class) ())
@@ -650,11 +656,16 @@
   ;; Known important classes.
   (setf *the-class-standard-class* (find-class 'standard-class)
         *the-class-funcallable-standard-class* (find-class 'funcallable-standard-class)
+        *the-layout-funcallable-standard-class* (primordial-slot-value *the-class-funcallable-standard-class* 'slot-storage-layout)
         *the-class-built-in-class* (find-class 'built-in-class)
+        *the-layout-built-in-class* (primordial-slot-value *the-class-built-in-class* 'slot-storage-layout)
         *the-class-standard-direct-slot-definition* (find-class 'standard-direct-slot-definition)
+        *the-layout-standard-direct-slot-definition* (primordial-slot-value *the-class-standard-direct-slot-definition* 'slot-storage-layout)
         *the-class-standard-effective-slot-definition* (find-class 'standard-effective-slot-definition)
         *the-class-standard-gf* (find-class 'standard-generic-function)
+        *the-layout-standard-generic-function* (primordial-slot-value *the-class-standard-gf* 'slot-storage-layout)
         *the-class-standard-method* (find-class 'standard-method)
+        *the-layout-standard-method* (primordial-slot-value *the-class-standard-method* 'slot-storage-layout)
         *the-class-t* (find-class 't))
   ;; Locations of important slots in metaobjects.
   (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))

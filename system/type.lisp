@@ -651,14 +651,14 @@
   (let ((c1 (if (typep class-1 'class)
                 class-1
                 (find-class class-1 nil))))
-    (cond (c1 (values (member class-2 (mezzano.clos:class-precedence-list c1)) t))
+    (cond (c1 (values (member class-2 (mezzano.clos::safe-class-precedence-list c1)) t))
           (t (values nil nil)))))
 )
 
 (defun class-typep (object class)
   (let ((obj-class (class-of object)))
     (or (eq obj-class class)
-        (member class (mezzano.clos:class-precedence-list obj-class)
+        (member class (mezzano.clos::safe-class-precedence-list obj-class)
                 :test #'eq))))
 
 (defun typep (object type-specifier &optional environment)

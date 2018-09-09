@@ -45,11 +45,11 @@
 ;;; Standard instance allocation
 
 (defun instance-slot-p (slot)
-  (eq (slot-definition-allocation slot) ':instance))
+  (eq (safe-slot-definition-allocation slot) ':instance))
 
 (defun std-allocate-instance (class)
   (ensure-class-finalized class)
-  (let* ((layout (class-slot-storage-layout class))
+  (let* ((layout (safe-class-slot-storage-layout class))
          (instance (sys.int::%allocate-instance layout)))
     (loop
        for i below (sys.int::layout-heap-size layout)
@@ -58,7 +58,7 @@
 
 (defun fc-std-allocate-instance (class)
   (ensure-class-finalized class)
-  (let* ((layout (class-slot-storage-layout class))
+  (let* ((layout (safe-class-slot-storage-layout class))
          (instance (sys.int::%allocate-funcallable-instance
                     (lambda (&rest x)
                       (declare (ignore x))
@@ -82,13 +82,18 @@
 (sys.int::defglobal *the-class-standard-class*)    ;standard-class's class metaobject
 (sys.int::defglobal *the-layout-standard-class*)
 (sys.int::defglobal *the-class-funcallable-standard-class*)
+(sys.int::defglobal *the-layout-funcallable-standard-class*)
 (sys.int::defglobal *the-class-built-in-class*)
+(sys.int::defglobal *the-layout-built-in-class*)
 (sys.int::defglobal *the-class-standard-direct-slot-definition*)
+(sys.int::defglobal *the-layout-standard-direct-slot-definition*)
 (sys.int::defglobal *the-class-standard-effective-slot-definition*)
 (sys.int::defglobal *the-layout-standard-effective-slot-definition*)
 (sys.int::defglobal *the-class-t*)
 (sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
+(sys.int::defglobal *the-layout-standard-generic-function*)
 (sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
+(sys.int::defglobal *the-layout-standard-method*)
 (sys.int::defglobal *standard-class-effective-slots-location*) ; Position of the effective-slots slot in standard-class.
 (sys.int::defglobal *standard-class-slot-storage-layout-location*)
 (sys.int::defglobal *standard-class-hash-location*)
@@ -148,7 +153,7 @@
                                 instance
                                 (if (consp location)
                                     (car location)
-                                    (slot-definition-name (elt (class-slots (class-of instance)) location)))))
+                                    (safe-slot-definition-name (elt (safe-class-slots (class-of instance)) location)))))
           val))))
 
 (defun fast-slot-write (new-value instance location)
@@ -191,8 +196,8 @@
              (values real-instance real-layout))))))
 
 (defun find-effective-slot (object slot-name)
-  (find slot-name (class-slots (class-of object))
-        :key #'slot-definition-name))
+  (find slot-name (safe-class-slots (class-of object))
+        :key #'safe-slot-definition-name))
 
 (defun slot-location-in-instance (instance slot-name)
   (multiple-value-bind (slots layout)
@@ -205,7 +210,7 @@
              ;; This can happen for class slots.
              (let ((effective-slot (find-effective-slot instance slot-name)))
                (cond (effective-slot
-                      (values slots (slot-definition-location effective-slot)))
+                      (values slots (safe-slot-definition-location effective-slot)))
                      (t
                       ;; No such slot, caller must call SLOT-MISSING.
                       (values nil nil)))))))))
@@ -235,34 +240,39 @@
 (defun fast-slot-value-reader (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-readers*)))
     (when (not gf)
-      (setf gf (make-instance 'standard-generic-function
-                              :name `(slot-value ,slot-name)
-                              :lambda-list '(object)
-                              :method-class (find-class 'standard-method)))
-      ;; Add methods for both standard-object and structure-object to force
-      ;; the discriminator to take the 1-effective path instead of the
-      ;; unspecialized path.
-      (add-method gf
-                  (make-instance 'standard-reader-method
-                                 :lambda-list '(object)
-                                 :qualifiers ()
-                                 :specializers (list (find-class 'standard-object))
-                                 :function (lambda (method next-emfun)
-                                             (declare (ignore method next-emfun))
-                                             (lambda (object)
-                                               (slot-value object slot-name)))
-                                 :slot-definition slot-name))
-      (add-method gf
-                  (make-instance 'standard-reader-method
-                                 :lambda-list '(object)
-                                 :qualifiers ()
-                                 :specializers (list (find-class 'structure-object))
-                                 :function (lambda (method next-emfun)
-                                             (declare (ignore method next-emfun))
-                                             (lambda (object)
-                                               (slot-value object slot-name)))
-                                 :slot-definition slot-name))
-      (setf (gethash slot-name *fast-slot-value-readers*) gf))
+      ;; Slot readers/writers require a direct-slot-definition.
+      (let ((direct-slot (make-instance 'standard-direct-slot-definition
+                                        :name slot-name)))
+        (setf gf (make-instance 'standard-generic-function
+                                :name `(slot-value ,slot-name)
+                                :lambda-list '(object)
+                                :method-class (find-class 'standard-method)))
+        ;; Add methods for both standard-object and structure-object to force
+        ;; the discriminator to take the 1-effective path instead of the
+        ;; unspecialized path.
+        ;; Only the 1-effective path supports optimized access, the
+        ;; unspecialized path will end up calling slot-value again.
+        (add-method gf
+                    (make-instance 'standard-reader-method
+                                   :lambda-list '(object)
+                                   :qualifiers ()
+                                   :specializers (list (find-class 'standard-object))
+                                   :function (lambda (method next-emfun)
+                                               (declare (ignore method next-emfun))
+                                               (lambda (object)
+                                                 (slot-value object slot-name)))
+                                   :slot-definition direct-slot))
+        (add-method gf
+                    (make-instance 'standard-reader-method
+                                   :lambda-list '(object)
+                                   :qualifiers ()
+                                   :specializers (list (find-class 'structure-object))
+                                   :function (lambda (method next-emfun)
+                                               (declare (ignore method next-emfun))
+                                               (lambda (object)
+                                                 (slot-value object slot-name)))
+                                   :slot-definition direct-slot))
+        (setf (gethash slot-name *fast-slot-value-readers*) gf)))
     gf))
 
 (define-compiler-macro slot-value (&whole whole object slot-name)
@@ -296,31 +306,34 @@
 (defun fast-slot-value-writer (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-writers*)))
     (when (not gf)
-      (setf gf (make-instance 'standard-generic-function
-                              :name `((setf slot-value) ,slot-name)
-                              :lambda-list '(value object)
-                              :method-class (find-class 'standard-method)))
-      (add-method gf
-                  (make-instance 'standard-writer-method
-                                 :lambda-list '(value object)
-                                 :qualifiers ()
-                                 :specializers (list *the-class-t* (find-class 'standard-object))
-                                 :function (lambda (method next-emfun)
-                                             (declare (ignore method next-emfun))
-                                             (lambda (value object)
-                                               (setf (slot-value object slot-name) value)))
-                                 :slot-definition slot-name))
-      (add-method gf
-                  (make-instance 'standard-writer-method
-                                 :lambda-list '(value object)
-                                 :qualifiers ()
-                                 :specializers (list *the-class-t* (find-class 'structure-object))
-                                 :function (lambda (method next-emfun)
-                                             (declare (ignore method next-emfun))
-                                             (lambda (value object)
-                                               (setf (slot-value object slot-name) value)))
-                                 :slot-definition slot-name))
-      (setf (gethash slot-name *fast-slot-value-writers*) gf))
+      ;; Slot readers/writers require a direct-slot-definition.
+      (let ((direct-slot (make-instance 'standard-direct-slot-definition
+                                        :name slot-name)))
+        (setf gf (make-instance 'standard-generic-function
+                                :name `((setf slot-value) ,slot-name)
+                                :lambda-list '(value object)
+                                :method-class (find-class 'standard-method)))
+        (add-method gf
+                    (make-instance 'standard-writer-method
+                                   :lambda-list '(value object)
+                                   :qualifiers ()
+                                   :specializers (list *the-class-t* (find-class 'standard-object))
+                                   :function (lambda (method next-emfun)
+                                               (declare (ignore method next-emfun))
+                                               (lambda (value object)
+                                                 (setf (slot-value object slot-name) value)))
+                                   :slot-definition direct-slot))
+        (add-method gf
+                    (make-instance 'standard-writer-method
+                                   :lambda-list '(value object)
+                                   :qualifiers ()
+                                   :specializers (list *the-class-t* (find-class 'structure-object))
+                                   :function (lambda (method next-emfun)
+                                               (declare (ignore method next-emfun))
+                                               (lambda (value object)
+                                                 (setf (slot-value object slot-name) value)))
+                                   :slot-definition direct-slot))
+        (setf (gethash slot-name *fast-slot-value-writers*) gf)))
     gf))
 
 (define-compiler-macro (setf slot-value) (&whole whole value object slot-name)
@@ -389,8 +402,8 @@
   (not (null (find-effective-slot instance slot-name))))
 
 (defun slot-exists-in-class-p (class slot-name)
-  (not (null (find slot-name (class-slots class)
-                   :key #'slot-definition-name))))
+  (not (null (find slot-name (safe-class-slots class)
+                   :key #'safe-slot-definition-name))))
 
 ;;; class-of
 
@@ -506,120 +519,146 @@
 ;;; subclassp and sub-specializer-p
 
 (defun subclassp (c1 c2)
-  (not (null (find c2 (class-precedence-list c1)))))
+  (not (null (find c2 (safe-class-precedence-list c1)))))
 
 (defun sub-specializer-p (c1 c2 c-arg)
-  (let ((cpl (class-precedence-list c-arg)))
+  (let ((cpl (safe-class-precedence-list c-arg)))
     (not (null (find c2 (cdr (member c1 cpl)))))))
 
 ;;;
 ;;; Class metaobjects and standard-class
 ;;;
 
-(defun class-name (class)
-  (std-slot-value class 'name))
-(defun (setf class-name) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'name) new-value))
-
-(defun class-direct-superclasses (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value class 'direct-superclasses))
-(defun (setf class-direct-superclasses) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'direct-superclasses) new-value))
-
-(defun class-direct-slots (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value class 'direct-slots))
-(defun (setf class-direct-slots) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'direct-slots) new-value))
-
-(defun class-precedence-list (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-precedence-list-location*))
-        (t
-         (slot-value class 'class-precedence-list))))
-(defun (setf class-precedence-list) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'class-precedence-list) new-value))
-
-(defun class-slots (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-effective-slots-location*))
-        (t (slot-value class 'effective-slots))))
-(defun (setf class-slots) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'effective-slots) new-value))
-
-(defun class-slot-storage-layout (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-slot-storage-layout-location*))
-        (t (slot-value class 'slot-storage-layout))))
-(defun (setf class-slot-storage-layout) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'slot-storage-layout) new-value))
-
-(defun class-direct-subclasses (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value class 'direct-subclasses))
-(defun (setf class-direct-subclasses) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'direct-subclasses) new-value))
-
-(defun class-direct-methods (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value class 'direct-methods))
-(defun (setf class-direct-methods) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'direct-methods) new-value))
-
-(defun class-direct-default-initargs (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-direct-default-initargs-location*))
-        (t (slot-value class 'direct-default-initargs))))
-(defun (setf class-direct-default-initargs) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'direct-default-initargs) new-value))
-
-(defun class-dependents (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (std-slot-value class 'dependents))
-(defun (setf class-dependents) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'dependents) new-value))
-
-(defun class-hash (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-hash-location*))
-        (t (std-slot-value class 'hash))))
-(defun (setf class-hash) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'hash) new-value))
-
-(defun class-finalized-p (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-class-instance-p class)
-         (standard-instance-access class *standard-class-finalized-p-location*))
-        (t (std-slot-value class 'finalized-p))))
-(defun (setf class-finalized-p) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'finalized-p) new-value))
-
-(defun class-default-initargs (class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
+(defun safe-class-default-initargs (class)
   (cond ((standard-class-instance-p class)
          (standard-instance-access class *standard-class-default-initargs-location*))
-        (t (slot-value class 'default-initargs))))
-(defun (setf class-default-initargs) (new-value class)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value class 'default-initargs) new-value))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'default-initargs))
+        (t
+         (class-default-initargs class))))
+(defun (setf safe-class-default-initargs) (value class)
+  (setf (std-slot-value class 'default-initargs) value))
+
+(defun safe-class-direct-default-initargs (class)
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-direct-default-initargs-location*))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'direct-default-initargs))
+        (t
+         (class-direct-default-initargs class))))
+(defun (setf safe-class-direct-default-initargs) (value class)
+  (setf (std-slot-value class 'direct-default-initargs) value))
+
+(defun safe-class-direct-slots (class)
+  (cond ((standard-class-instance-p class)
+         (std-slot-value class 'direct-slots))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'direct-slots))
+        (t
+         (class-direct-slots class))))
+(defun (setf safe-class-direct-slots) (value class)
+  (setf (std-slot-value class 'direct-slots) value))
+
+(defun safe-class-direct-subclasses (class)
+  (cond ((standard-class-instance-p class)
+         (std-slot-value class 'direct-subclasses))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'direct-subclasses))
+        (t
+         (class-direct-subclasses class))))
+(defun (setf safe-class-direct-subclasses) (value class)
+  (setf (std-slot-value class 'direct-subclasses) value))
+
+(defun safe-class-direct-superclasses (class)
+  (cond ((standard-class-instance-p class)
+         (std-slot-value class 'direct-superclasses))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'direct-superclasses))
+        (t
+         (class-direct-superclasses class))))
+(defun (setf safe-class-direct-superclasses) (value class)
+  (setf (std-slot-value class 'direct-superclasses) value))
+
+(defun safe-class-finalized-p (class)
+  (cond ((standard-class-instance-p class)
+         (let ((val (standard-instance-access class *standard-class-finalized-p-location*)))
+           (and val
+                (not (eq val *secret-unbound-value*)))))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (and (std-slot-boundp class 'finalized-p)
+              (std-slot-value class 'finalized-p)))
+        (t
+         (class-finalized-p class))))
+(defun (setf safe-class-finalized-p) (value class)
+  (setf (std-slot-value class 'finalized-p) value))
+
+(defun safe-class-name (class)
+  (cond ((standard-class-instance-p class)
+         (std-slot-value class 'name))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'name))
+        (t
+         (class-name class))))
+(defun (setf safe-class-name) (value class)
+  (cond ((standard-class-instance-p class)
+         (setf (std-slot-value class 'name) value))
+        ((funcallable-standard-class-instance-p class)
+         (setf (std-slot-value class 'name) value))
+        (t
+         (setf (class-name class) value))))
+
+(defun safe-class-precedence-list (class)
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-precedence-list-location*))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'class-precedence-list))
+        (t
+         (class-precedence-list class))))
+(defun (setf safe-class-precedence-list) (value class)
+  (setf (std-slot-value class 'class-precedence-list) value))
+
+(defun safe-class-slots (class)
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-effective-slots-location*))
+        ((or (funcallable-standard-class-instance-p class)
+             (built-in-class-instance-p class))
+         (std-slot-value class 'effective-slots))
+        (t
+         (class-slots class))))
+(defun (setf safe-class-slots) (values class)
+  (setf (std-slot-value class 'effective-slots) values))
+
+(defun safe-class-slot-storage-layout (class)
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-slot-storage-layout-location*))
+        (t
+         (std-slot-value class 'slot-storage-layout))))
+(defun (setf safe-class-slot-storage-layout) (value class)
+  (setf (std-slot-value class 'slot-storage-layout) value))
+
+(defun safe-class-hash (class)
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-hash-location*))
+        (t
+         (std-slot-value class 'hash))))
+
+(defun safe-class-direct-methods (class)
+  (std-slot-value class 'direct-methods))
+(defun (setf safe-class-direct-methods) (value class)
+  (setf (std-slot-value class 'direct-methods) value))
+
+(defun safe-class-dependents (class)
+  (std-slot-value class 'dependents))
+(defun (setf safe-class-dependents) (value class)
+  (setf (std-slot-value class 'dependents) value))
 
 ;;; Ensure class
 
@@ -679,10 +718,30 @@ Other arguments are included directly."
   "Returns true if METACLASS is exactly STANDARD-CLASS."
   (eq metaclass *the-class-standard-class*))
 
-(defun standard-class-instance-p (class)
-  "Returns true if CLASS is an up-to-date instance of exactly STANDARD-CLASS."
-  (and (sys.int::instance-p class)
-       (eq (sys.int::%instance-layout class) *the-layout-standard-class*)))
+(defun standard-class-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-CLASS."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-standard-class*)))
+
+(defun funcallable-standard-class-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly FUNCALLABLE-STANDARD-CLASS."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-funcallable-standard-class*)))
+
+(defun built-in-class-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly BUILT-IN-CLASS."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-built-in-class*)))
+
+(defun standard-generic-function-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-GENERIC-FUNCTION."
+  (and (sys.int::funcallable-instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-standard-generic-function*)))
+
+(defun standard-method-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-METHOD."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-standard-method*)))
 
 (defun clos-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS, or BUILT-IN-CLASS."
@@ -690,10 +749,19 @@ Other arguments are included directly."
       (eq metaclass *the-class-funcallable-standard-class*)
       (eq metaclass *the-class-built-in-class*)))
 
-(defun standard-effective-slot-definition-instance-p (slot)
-  "Returns true if SLOT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
-  (and (sys.int::instance-p slot)
-       (eq (sys.int::%instance-layout slot) *the-layout-standard-effective-slot-definition*)))
+(defun standard-effective-slot-definition-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-standard-effective-slot-definition*)))
+
+(defun standard-direct-slot-definition-instance-p (object)
+  "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) *the-layout-standard-direct-slot-definition*)))
+
+(defun standard-slot-definition-instance-p (object)
+  (or (standard-effective-slot-definition-instance-p object)
+      (standard-direct-slot-definition-instance-p object)))
 
 (defun convert-to-direct-slot-definition (class canonicalized-slot)
   (apply #'make-instance
@@ -708,125 +776,121 @@ Other arguments are included directly."
   (dolist (superclass direct-superclasses)
     (when (not (validate-superclass class superclass))
       (error "Superclass ~S incompatible with class ~S." (class-of superclass) (class-of class))))
-  (setf (class-direct-superclasses class) direct-superclasses)
+  (setf (safe-class-direct-superclasses class) direct-superclasses)
   (dolist (superclass direct-superclasses)
-    (push class (class-direct-subclasses superclass)))
+    (push class (safe-class-direct-subclasses superclass)))
   (let ((slots (mapcar (lambda (direct-slot)
                          (convert-to-direct-slot-definition class direct-slot))
                        direct-slots)))
-    (setf (class-direct-slots class) slots)
+    (setf (safe-class-direct-slots class) slots)
     (dolist (direct-slot slots)
-      (dolist (reader (slot-definition-readers direct-slot))
-        (add-reader-method
-          class reader (slot-definition-name direct-slot)))
-      (dolist (writer (slot-definition-writers direct-slot))
-        (add-writer-method
-          class writer (slot-definition-name direct-slot)))))
-  (setf (class-direct-default-initargs class) direct-default-initargs)
+      (dolist (reader (safe-slot-definition-readers direct-slot))
+        (add-reader-method class reader direct-slot))
+      (dolist (writer (safe-slot-definition-writers direct-slot))
+        (add-writer-method class writer direct-slot))))
+  (setf (safe-class-direct-default-initargs class) direct-default-initargs)
   (maybe-finalize-inheritance class)
   (values))
 
 (defun maybe-finalize-inheritance (class)
   "If CLASS is not finalized and can be finalized, finalize it, otherwise do nothing."
-  (when (and (not (class-finalized-p class))
-             (every #'class-finalized-p
-                    (class-direct-superclasses class)))
+  (when (and (not (safe-class-finalized-p class))
+             (every #'safe-class-finalized-p
+                    (safe-class-direct-superclasses class)))
     (finalize-inheritance class)))
 
 (defun ensure-class-finalized (class)
   "If CLASS is not finalized, call FINALIZE-INHERITANCE on it."
-  (when (not (class-finalized-p class))
+  (when (not (safe-class-finalized-p class))
     (finalize-inheritance class)))
 
 ;;; Slot definition metaobjects
 
-(defun slot-definition-name (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (cond ((standard-effective-slot-definition-instance-p slot)
-         (standard-instance-access slot *standard-effective-slot-definition-name-location*))
+(defun safe-slot-definition-allocation (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'allocation)
+      (slot-definition-allocation slot-definition)))
+(defun (setf safe-slot-definition-allocation) (value slot-definition)
+  (setf (std-slot-value slot-definition 'allocation) value))
+
+(defun safe-slot-definition-initargs (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'initargs)
+      (slot-definition-initargs slot-definition)))
+(defun (setf safe-slot-definition-initargs) (value slot-definition)
+  (setf (std-slot-value slot-definition 'initargs) value))
+
+(defun safe-slot-definition-initform (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'initform)
+      (slot-definition-initform slot-definition)))
+(defun (setf safe-slot-definition-initform) (value slot-definition)
+  (setf (std-slot-value slot-definition 'initform) value))
+
+(defun safe-slot-definition-initfunction (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'initfunction)
+      (slot-definition-initfunction slot-definition)))
+(defun (setf safe-slot-definition-initfunction) (value slot-definition)
+  (setf (std-slot-value slot-definition 'initfunction) value))
+
+(defun safe-slot-definition-name (slot-definition)
+  (cond ((standard-effective-slot-definition-instance-p slot-definition)
+         (standard-instance-access slot-definition *standard-effective-slot-definition-name-location*))
+        ((standard-direct-slot-definition-instance-p slot-definition)
+         (std-slot-value slot-definition 'name))
         (t
-         (slot-value slot 'name))))
-(defun (setf slot-definition-name) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'name) new-value))
+         (slot-definition-name slot-definition))))
+(defun (setf safe-slot-definition-name) (value slot-definition)
+  (setf (std-slot-value slot-definition 'name) value))
 
-(defun slot-definition-initfunction (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'initfunction))
-(defun (setf slot-definition-initfunction) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'initfunction) new-value))
+(defun safe-slot-definition-type (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'type)
+      (slot-definition-type slot-definition)))
+(defun (setf safe-slot-definition-type) (value slot-definition)
+  (setf (std-slot-value slot-definition 'type) value))
 
-(defun slot-definition-initform (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'initform))
-(defun (setf slot-definition-initform) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'initform) new-value))
+(defun safe-slot-definition-readers (direct-slot-definition)
+  (if (standard-direct-slot-definition-instance-p direct-slot-definition)
+      (std-slot-value direct-slot-definition 'readers)
+      (slot-definition-readers direct-slot-definition)))
+(defun (setf safe-slot-definition-readers) (value direct-slot-definition)
+  (setf (std-slot-value direct-slot-definition 'readers) value))
 
-(defun slot-definition-initargs (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'initargs))
-(defun (setf slot-definition-initargs) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'initargs) new-value))
+(defun safe-slot-definition-writers (direct-slot-definition)
+  (if (standard-direct-slot-definition-instance-p direct-slot-definition)
+      (std-slot-value direct-slot-definition 'writers)
+      (slot-definition-writers direct-slot-definition)))
+(defun (setf safe-slot-definition-writers) (value direct-slot-definition)
+  (setf (std-slot-value direct-slot-definition 'writers) value))
 
-(defun slot-definition-readers (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'readers))
-(defun (setf slot-definition-readers) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'readers) new-value))
+(defun safe-slot-definition-location (effective-slot-definition)
+  (if (standard-effective-slot-definition-instance-p effective-slot-definition)
+      (standard-instance-access effective-slot-definition *standard-effective-slot-definition-location-location*)
+      (slot-definition-location effective-slot-definition)))
+(defun (setf safe-slot-definition-location) (value effective-slot-definition)
+  (setf (std-slot-value effective-slot-definition 'location) value))
 
-(defun slot-definition-writers (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'writers))
-(defun (setf slot-definition-writers) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'writers) new-value))
-
-(defun slot-definition-allocation (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'allocation))
-(defun (setf slot-definition-allocation) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'allocation) new-value))
-
-(defun slot-definition-location (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-slot (class-of slot)))
-    (cond ((standard-effective-slot-definition-instance-p slot)
-           (standard-instance-access slot *standard-effective-slot-definition-location-location*))
-          (t
-           (slot-value slot 'location)))))
-(defun (setf slot-definition-location) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'location) new-value))
-
-(defun slot-definition-type (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'type))
-(defun (setf slot-definition-type) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'type) new-value))
-
-(defun slot-definition-documentation (slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value slot 'documentation))
-(defun (setf slot-definition-documentation) (new-value slot)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value slot 'documentation) new-value))
+(defun safe-slot-definition-documentation (slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (std-slot-value slot-definition 'documentation)
+      (documentation slot-definition t)))
+(defun (setf safe-slot-definition-documentation) (value slot-definition)
+  (if (standard-slot-definition-instance-p slot-definition)
+      (setf (std-slot-value slot-definition 'documentation) value)
+      (setf (documentation slot-definition t) value)))
 
 ;;; finalize-inheritance
 
 (defun std-finalize-inheritance (class)
-  (dolist (super (class-direct-superclasses class))
+  (dolist (super (safe-class-direct-superclasses class))
     (ensure-class-finalized super))
-  (setf (class-precedence-list class) (compute-class-precedence-list class))
-  (setf (class-slots class) (compute-slots class))
-  (setf (class-default-initargs class) (compute-default-initargs class))
+  (setf (safe-class-precedence-list class) (compute-class-precedence-list class))
+  (setf (safe-class-slots class) (compute-slots class))
+  (setf (safe-class-default-initargs class) (compute-default-initargs class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
-                                        (class-slots class)))
+                                        (safe-class-slots class)))
          (instance-slot-vector
           (make-array (* (length instance-slots) 2)))
          (layout (sys.int::make-layout
@@ -836,7 +900,7 @@ Other arguments are included directly."
                                 ;; Using the effective slot locations
                                 ;; accounts for the FC instance offset.
                                 for slot in instance-slots
-                                for location = (slot-definition-location slot)
+                                for location = (safe-slot-definition-location slot)
                                 maximize (1+ location))
                   :heap-layout t
                   :area nil
@@ -844,12 +908,12 @@ Other arguments are included directly."
     (loop
        for i from 0 by 2
        for slot in instance-slots
-       for slot-name = (slot-definition-name slot)
-       for location = (slot-definition-location slot)
+       for slot-name = (safe-slot-definition-name slot)
+       for location = (safe-slot-definition-location slot)
        do (setf (aref instance-slot-vector i) slot-name
                 (aref instance-slot-vector (1+ i)) location))
-    (setf (class-slot-storage-layout class) layout))
-  (setf (class-finalized-p class) t)
+    (setf (safe-class-slot-storage-layout class) layout))
+  (setf (safe-class-finalized-p class) t)
   (values))
 
 ;;; Class precedence lists
@@ -872,7 +936,7 @@ Other arguments are included directly."
 
 (defun std-tie-breaker-rule (minimal-elements cpl-so-far)
   (dolist (cpl-constituent (reverse cpl-so-far))
-    (let* ((supers (class-direct-superclasses cpl-constituent))
+    (let* ((supers (safe-class-direct-superclasses cpl-constituent))
            (common (intersection minimal-elements supers)))
       (when (not (null common))
         (return-from std-tie-breaker-rule (car common))))))
@@ -890,7 +954,7 @@ Other arguments are included directly."
                              (car to-be-processed)))
                       (all-superclasses-loop
                         (cons class-to-process seen)
-                        (union (class-direct-superclasses
+                        (union (safe-class-direct-superclasses
                                  class-to-process)
                                superclasses)))))))
     (all-superclasses-loop () (list class))))
@@ -901,22 +965,22 @@ Other arguments are included directly."
 (defun local-precedence-ordering (class)
   (mapcar #'list
           (cons class
-                (butlast (class-direct-superclasses class)))
-          (class-direct-superclasses class)))
+                (butlast (safe-class-direct-superclasses class)))
+          (safe-class-direct-superclasses class)))
 
 ;;; Slot inheritance
 
 (defun std-compute-slots (class)
-  (let* ((all-slots (mapappend #'class-direct-slots
-                               (class-precedence-list class)))
+  (let* ((all-slots (mapappend #'safe-class-direct-slots
+                               (safe-class-precedence-list class)))
          (all-names (remove-duplicates
-                      (mapcar #'slot-definition-name all-slots))))
+                      (mapcar #'safe-slot-definition-name all-slots))))
     (mapcar #'(lambda (name)
                 (compute-effective-slot-definition
                  class
                  name
                  (remove name all-slots
-                         :key #'slot-definition-name
+                         :key #'safe-slot-definition-name
                          :test-not #'eq)))
             all-names)))
 
@@ -926,37 +990,37 @@ Other arguments are included directly."
                                          2
                                          0)
      for slot in effective-slots
-     do (case (slot-definition-allocation slot)
+     do (case (safe-slot-definition-allocation slot)
           (:instance
-           (setf (slot-definition-location slot) next-instance-slot-index)
+           (setf (safe-slot-definition-location slot) next-instance-slot-index)
            (incf next-instance-slot-index))
           (:class
            ;; Walk up the precedence list looking for the nearest class that defines this slot.
-           (dolist (super (class-precedence-list class)
+           (dolist (super (safe-class-precedence-list class)
                     (error "Unable to locate storage location for :class slot ~S in class ~S"
-                           (slot-definition-name slot) (class-name class)))
-             (let ((existing (find (slot-definition-name slot)
-                                   (class-direct-slots super)
-                                   :key #'slot-definition-name)))
+                           (safe-slot-definition-name slot) (safe-class-name class)))
+             (let ((existing (find (safe-slot-definition-name slot)
+                                   (safe-class-direct-slots super)
+                                   :key #'safe-slot-definition-name)))
                (when existing
-                 (let ((existing-effective (find (slot-definition-name slot)
-                                                 (class-slots super)
-                                                 :key #'slot-definition-name)))
+                 (let ((existing-effective (find (safe-slot-definition-name slot)
+                                                 (safe-class-slots super)
+                                                 :key #'safe-slot-definition-name)))
                    (cond ((eql super class)
                           ;; This class defines the direct
                           ;; slot. Create a new cell to hold the
                           ;; value, or preserve the existing one if
                           ;; the class is being redefined.
-                          (setf (slot-definition-location slot)
+                          (setf (safe-slot-definition-location slot)
                                 (if existing-effective
-                                    (slot-definition-location existing-effective)
-                                    (cons (slot-definition-name slot) *secret-unbound-value*))))
+                                    (safe-slot-definition-location existing-effective)
+                                    (cons (safe-slot-definition-name slot) *secret-unbound-value*))))
                          (t
-                          (assert (consp (slot-definition-location existing-effective)))
-                          (setf (slot-definition-location slot) (slot-definition-location existing-effective))))
+                          (assert (consp (safe-slot-definition-location existing-effective)))
+                          (setf (safe-slot-definition-location slot) (safe-slot-definition-location existing-effective))))
                    (return))))))
           (t
-           (setf (slot-definition-location slot) nil)))))
+           (setf (safe-slot-definition-location slot) nil)))))
 
 (defun make-effective-slot-definition (class &rest initargs)
   (apply #'make-instance
@@ -965,149 +1029,144 @@ Other arguments are included directly."
 
 (defun std-compute-effective-slot-definition (class name direct-slots)
   (let ((initer (find-if-not #'null direct-slots
-                             :key #'slot-definition-initfunction)))
+                             :key #'safe-slot-definition-initfunction)))
     (make-effective-slot-definition
      class
      :name name
      :initform (if initer
-                   (slot-definition-initform initer)
+                   (safe-slot-definition-initform initer)
                    nil)
      :initfunction (if initer
-                       (slot-definition-initfunction initer)
+                       (safe-slot-definition-initfunction initer)
                        nil)
      :initargs (remove-duplicates
-                (mapappend #'slot-definition-initargs
+                (mapappend #'safe-slot-definition-initargs
                            direct-slots))
-     :allocation (slot-definition-allocation (car direct-slots)))))
+     :allocation (safe-slot-definition-allocation (car direct-slots)))))
 
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
 ;;;
 
-(defun generic-function-name (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'name))
-(defun (setf generic-function-name) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'name) new-value))
+(defun safe-generic-function-argument-precedence-order (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'argument-precedence-order)
+      (generic-function-argument-precedence-order generic-function)))
+(defun (setf safe-generic-function-argument-precedence-order) (value generic-function)
+  (setf (std-slot-value generic-function 'argument-precedence-order) value))
 
-(defun generic-function-lambda-list (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'lambda-list))
-(defun (setf generic-function-lambda-list) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'lambda-list) new-value))
+(defun safe-generic-function-declarations (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'declarations)
+      (generic-function-declarations generic-function)))
+(defun (setf safe-generic-function-declarations) (value generic-function)
+  (setf (std-slot-value generic-function 'declarations) value))
 
-(defun generic-function-methods (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'methods))
-(defun (setf generic-function-methods) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'methods) new-value))
+(defun safe-generic-function-lambda-list (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'lambda-list)
+      (generic-function-lambda-list generic-function)))
+(defun (setf safe-generic-function-lambda-list) (value generic-function)
+  (setf (std-slot-value generic-function 'lambda-list) value))
 
-(defun generic-function-discriminating-function (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'discriminating-function))
-(defun (setf generic-function-discriminating-function) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'discriminating-function) new-value))
+(defun safe-generic-function-method-class (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'method-class)
+      (generic-function-method-class generic-function)))
+(defun (setf safe-generic-function-method-class) (value generic-function)
+  (setf (std-slot-value generic-function 'method-class) value))
 
-(defun generic-function-method-class (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'method-class))
-(defun (setf generic-function-method-class) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'method-class) new-value))
+(defun safe-generic-function-method-combination (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'method-combination)
+      (generic-function-method-combination generic-function)))
+(defun (setf safe-generic-function-method-combination) (value generic-function)
+  (setf (std-slot-value generic-function 'method-combination) value))
 
-(defun generic-function-relevant-arguments (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'relevant-arguments))
-(defun (setf generic-function-relevant-arguments) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'relevant-arguments) new-value))
+(defun safe-generic-function-methods (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'methods)
+      (generic-function-methods generic-function)))
+(defun (setf safe-generic-function-methods) (value generic-function)
+  (setf (std-slot-value generic-function 'methods) value))
 
-(defun generic-function-has-unusual-specializers (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'weird-specializers-p))
-(defun (setf generic-function-has-unusual-specializers) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'weird-specializers-p) new-value))
+(defun safe-generic-function-name (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'name)
+      (generic-function-name generic-function)))
+(defun (setf safe-generic-function-name) (value generic-function)
+  (setf (std-slot-value generic-function 'name) value))
 
-(defun generic-function-method-combination (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'method-combination))
-(defun (setf generic-function-method-combination) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'method-combination) new-value))
+(defun safe-generic-function-discriminating-function (generic-function)
+  (std-slot-value generic-function 'discriminating-function))
+(defun (setf safe-generic-function-discriminating-function) (value generic-function)
+  (setf (std-slot-value generic-function 'discriminating-function) value))
 
-(defun generic-function-argument-precedence-order (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'argument-precedence-order))
-(defun (setf generic-function-argument-precedence-order) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'argument-precedence-order) new-value))
+(defun safe-generic-function-relevant-arguments (generic-function)
+  (std-slot-value generic-function 'relevant-arguments))
+(defun (setf safe-generic-function-relevant-arguments) (value generic-function)
+  (setf (std-slot-value generic-function 'relevant-arguments) value))
 
-(defun generic-function-declarations (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'declarations))
-(defun (setf generic-function-declarations) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'declarations) new-value))
+(defun safe-generic-function-has-unusual-specializers (generic-function)
+  (std-slot-value generic-function 'weird-specializers-p))
+(defun (setf safe-generic-function-has-unusual-specializers) (value generic-function)
+  (setf (std-slot-value generic-function 'weird-specializers-p) value))
 
-;;; Internal accessor for effective method function table
+(defun classes-to-emf-table (generic-function)
+  (std-slot-value generic-function 'classes-to-emf-table))
+(defun (setf classes-to-emf-table) (new-value generic-function)
+  (setf (std-slot-value generic-function 'classes-to-emf-table) new-value))
 
-(defun classes-to-emf-table (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'classes-to-emf-table))
-(defun (setf classes-to-emf-table) (new-value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'classes-to-emf-table) new-value))
-
-(defun argument-reordering-table (gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value gf 'argument-reordering-table))
-(defun (setf argument-reordering-table) (value gf)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value gf 'argument-reordering-table) value))
+(defun argument-reordering-table (generic-function)
+  (std-slot-value generic-function 'argument-reordering-table))
+(defun (setf argument-reordering-table) (value generic-function)
+  (setf (std-slot-value generic-function 'argument-reordering-table) value))
 
 ;;;
 ;;; Method metaobjects and standard-method
 ;;;
 
-(defun method-lambda-list (method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value method 'lambda-list))
-(defun (setf method-lambda-list) (new-value method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value method 'lambda-list) new-value))
+(defun safe-method-function (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'function)
+      (method-function method)))
+(defun (setf safe-method-function) (value method)
+  (setf (std-slot-value method 'function) value))
 
-(defun method-qualifiers (method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value method 'qualifiers))
-(defun (setf method-qualifiers) (new-value method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value method 'qualifiers) new-value))
+(defun safe-method-generic-function (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'generic-function)
+      (method-generic-function method)))
+(defun (setf safe-method-generic-function) (value method)
+  (setf (std-slot-value method 'generic-function) value))
 
-(defun method-specializers (method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value method 'specializers))
-(defun (setf method-specializers) (new-value method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value method 'specializers) new-value))
+(defun safe-method-lambda-list (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'lambda-list)
+      (method-lambda-list method)))
+(defun (setf safe-method-lambda-list) (value method)
+  (setf (std-slot-value method 'lambda-list) value))
 
-(defun method-generic-function (method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value method 'generic-function))
-(defun (setf method-generic-function) (new-value method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value method 'generic-function) new-value))
+(defun safe-method-specializers (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'specializers)
+      (method-specializers method)))
+(defun (setf safe-method-specializers) (value method)
+  (setf (std-slot-value method 'specializers) value))
 
-(defun method-function (method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (slot-value method 'function))
-(defun (setf method-function) (new-value method)
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (setf (slot-value method 'function) new-value))
+(defun safe-method-qualifiers (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'qualifiers)
+      (method-qualifiers method)))
+(defun (setf safe-method-qualifiers) (value method)
+  (setf (std-slot-value method 'qualifiers) value))
+
+(defun safe-accessor-method-slot-definition (method)
+  (if (standard-method-instance-p method)
+      (std-slot-value method 'slot-definition)
+      (accessor-method-slot-definition method)))
+(defun (setf safe-accessor-method-slot-definition) (value method)
+  (setf (std-slot-value method 'slot-definition) value))
 
 ;;; ensure-generic-function
 
@@ -1158,16 +1217,16 @@ Other arguments are included directly."
        (every (lambda (method)
                 (every (lambda (spec)
                          (eql spec *the-class-t*))
-                       (method-specializers method)))
-              (generic-function-methods gf))))
+                       (safe-method-specializers method)))
+              (safe-generic-function-methods gf))))
 
 (defun generic-function-single-dispatch-p (gf)
   "Returns true when the generic function only one non-t specialized argument and
 has only has class specializer."
   (when (and (eq (class-of gf) *the-class-standard-gf*)
-             (or (not (generic-function-has-unusual-specializers gf))
-                 (eql (generic-function-has-unusual-specializers gf) :eql)))
-    (let ((specializers (generic-function-relevant-arguments gf))
+             (or (not (safe-generic-function-has-unusual-specializers gf))
+                 (eql (safe-generic-function-has-unusual-specializers gf) :eql)))
+    (let ((specializers (safe-generic-function-relevant-arguments gf))
           (count 0)
           (offset 0))
       (dotimes (i (length specializers))
@@ -1189,7 +1248,7 @@ has only has class specializer."
          (map-single-dispatch-emf-table
           (lambda (class fn)
             (declare (ignore fn))
-            (setf (class-dependents class) (remove gf (class-dependents class))))
+            (setf (safe-class-dependents class) (remove gf (safe-class-dependents class))))
           (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
         ((classes-to-emf-table gf)
@@ -1197,7 +1256,7 @@ has only has class specializer."
             for classes being the hash-keys in (classes-to-emf-table gf)
             do (loop
                   for class in classes
-                  do (setf (class-dependents class) (remove gf (class-dependents class)))))
+                  do (setf (safe-class-dependents class) (remove gf (safe-class-dependents class)))))
          (clrhash (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
@@ -1211,17 +1270,17 @@ has only has class specializer."
 (defun gf-required-arglist (gf)
   (let ((plist
           (analyze-lambda-list
-            (generic-function-lambda-list gf))))
+            (safe-generic-function-lambda-list gf))))
     (getf plist ':required-args)))
 
 (defun gf-optional-arglist (gf)
   (let ((plist
           (analyze-lambda-list
-            (generic-function-lambda-list gf))))
+            (safe-generic-function-lambda-list gf))))
     (getf plist ':optional-args)))
 
 (defun gf-rest-arg-p (gf)
-  (let ((ll (generic-function-lambda-list gf)))
+  (let ((ll (safe-generic-function-lambda-list gf)))
     (or (member '&rest ll)
         (member '&key ll))))
 
@@ -1231,15 +1290,15 @@ has only has class specializer."
                                     :element-type 'bit
                                     :initial-element 0))
          (class-t (find-class 't))
-         (argument-precedence (generic-function-argument-precedence-order gf)))
+         (argument-precedence (safe-generic-function-argument-precedence-order gf)))
     (when (not (eql (length required-args)
                     (length (remove-duplicates required-args))))
       (error "Generic function has duplicate required argument in its lambda list ~S."
-             (generic-function-lambda-list gf)))
+             (safe-generic-function-lambda-list gf)))
     ;; Verify that the argument-precedence order is correct.
     (when (endp argument-precedence)
       (setf argument-precedence (copy-list required-args)
-            (generic-function-argument-precedence-order gf) argument-precedence))
+            (safe-generic-function-argument-precedence-order gf) argument-precedence))
     (assert (eql (length required-args) (length argument-precedence)))
     (assert (endp (set-difference required-args argument-precedence)))
     (assert (endp (set-difference argument-precedence required-args)))
@@ -1256,33 +1315,33 @@ has only has class specializer."
                   do (setf (aref table i) (position arg required-args)))
              (setf (argument-reordering-table gf) table))))
     ;; Examine all methods and compute the relevant argument bit-vector.
-    (setf (generic-function-has-unusual-specializers gf) nil)
-    (dolist (m (generic-function-methods gf))
+    (setf (safe-generic-function-has-unusual-specializers gf) nil)
+    (dolist (m (safe-generic-function-methods gf))
       (do ((i 0 (1+ i))
-           (spec (method-specializers m) (rest spec)))
+           (spec (safe-method-specializers m) (rest spec)))
           ((null spec))
         (typecase (first spec)
           (class)
           (eql-specializer
-           (setf (generic-function-has-unusual-specializers gf) (or (generic-function-has-unusual-specializers gf)
+           (setf (safe-generic-function-has-unusual-specializers gf) (or (safe-generic-function-has-unusual-specializers gf)
                                                                     :eql)))
           (t
-           (setf (generic-function-has-unusual-specializers gf) t)))
+           (setf (safe-generic-function-has-unusual-specializers gf) t)))
         (unless (eql (first spec) class-t)
           (setf (bit relevant-args i) 1))))
-    (setf (generic-function-relevant-arguments gf) relevant-args))
+    (setf (safe-generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
   (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
                                          (make-single-dispatch-emf-table))
                                         ((generic-function-unspecialized-dispatch-p gf)
                                          nil)
                                         (t (make-hash-table :test #'equal))))
-  (setf (generic-function-discriminating-function gf)
+  (setf (safe-generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) *the-class-standard-gf*)
                      #'std-compute-discriminating-function
                      #'compute-discriminating-function)
                  gf))
-  (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+  (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
   (values))
 
 ;;; make-instance-standard-generic-function creates and initializes an
@@ -1300,14 +1359,14 @@ has only has class specializer."
                                  declarations)
   (declare (ignore generic-function-class))
   (let ((gf (fc-std-allocate-instance *the-class-standard-gf*)))
-    (setf (generic-function-name gf) name)
-    (setf (generic-function-lambda-list gf) lambda-list)
-    (setf (generic-function-methods gf) ())
-    (setf (generic-function-method-class gf) method-class)
-    (setf (generic-function-method-combination gf) method-combination)
-    (setf (generic-function-declarations gf) declarations)
+    (setf (safe-generic-function-name gf) name)
+    (setf (safe-generic-function-lambda-list gf) lambda-list)
+    (setf (safe-generic-function-methods gf) ())
+    (setf (safe-generic-function-method-class gf) method-class)
+    (setf (safe-generic-function-method-combination gf) method-combination)
+    (setf (safe-generic-function-declarations gf) declarations)
     (setf (classes-to-emf-table gf) (make-hash-table))
-    (setf (generic-function-argument-precedence-order gf) argument-precedence-order)
+    (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
     (finalize-generic-function gf)
     gf))
 
@@ -1325,11 +1384,11 @@ has only has class specializer."
 (defun ensure-method (gf &rest all-keys)
   (let ((new-method
            (apply
-              (if (eq (generic-function-method-class gf)
+              (if (eq (safe-generic-function-method-class gf)
                       *the-class-standard-method*)
                   #'make-instance-standard-method
                   #'make-instance)
-              (generic-function-method-class gf)
+              (safe-generic-function-method-class gf)
               all-keys)))
     (add-method gf new-method)
     new-method))
@@ -1343,17 +1402,17 @@ has only has class specializer."
                                            specializers function)
   (declare (ignore method-class))
   (let ((method (std-allocate-instance *the-class-standard-method*)))
-    (setf (method-lambda-list method) lambda-list)
-    (setf (method-qualifiers method) qualifiers)
-    (setf (method-specializers method) specializers)
-    (setf (method-generic-function method) nil)
-    (setf (method-function method) function)
+    (setf (safe-method-lambda-list method) lambda-list)
+    (setf (safe-method-qualifiers method) qualifiers)
+    (setf (safe-method-specializers method) specializers)
+    (setf (safe-method-generic-function method) nil)
+    (setf (safe-method-function method) function)
     method))
 
 (defun check-method-lambda-list-congruence (gf method)
   "Ensure that the lambda lists of GF and METHOD are compatible."
-  (let ((gf-ll (analyze-lambda-list (generic-function-lambda-list gf)))
-        (method-ll (analyze-lambda-list (method-lambda-list method))))
+  (let ((gf-ll (analyze-lambda-list (safe-generic-function-lambda-list gf)))
+        (method-ll (analyze-lambda-list (safe-method-lambda-list method))))
     (assert (eql (length (getf gf-ll :required-args))
                  (length (getf method-ll :required-args)))
             (gf method)
@@ -1365,9 +1424,9 @@ has only has class specializer."
             "Generic function ~S and method ~S have differing optional arguments."
             gf method)
     (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
-                                      (member '&key (generic-function-lambda-list gf))))
+                                      (member '&key (safe-generic-function-lambda-list gf))))
           (method-accepts-key-or-rest (or (getf method-ll :rest-var)
-                                          (member '&key (method-lambda-list method)))))
+                                          (member '&key (safe-method-lambda-list method)))))
       (assert (or (and gf-accepts-key-or-rest
                        method-accepts-key-or-rest)
                   (and (not gf-accepts-key-or-rest)
@@ -1385,31 +1444,31 @@ has only has class specializer."
 (defun add-method (gf method)
   ;; If the GF has no methods and an empty lambda-list, then it may have
   ;; been implicitly created via defmethod. Fill in the lambda-list.
-  (when (and (endp (generic-function-methods gf))
-             (endp (generic-function-lambda-list gf)))
-    (setf (generic-function-lambda-list gf) (method-lambda-list method)))
+  (when (and (endp (safe-generic-function-methods gf))
+             (endp (safe-generic-function-lambda-list gf)))
+    (setf (safe-generic-function-lambda-list gf) (safe-method-lambda-list method)))
   (check-method-lambda-list-congruence gf method)
-  (assert (not (method-generic-function method)))
+  (assert (not (safe-method-generic-function method)))
   (let ((old-method
-           (find-method gf (method-qualifiers method)
-                           (method-specializers method) nil)))
+           (find-method gf (safe-method-qualifiers method)
+                           (safe-method-specializers method) nil)))
     (when old-method (remove-method gf old-method)))
-  (setf (method-generic-function method) gf)
-  (push method (generic-function-methods gf))
-  (dolist (specializer (method-specializers method))
+  (setf (safe-method-generic-function method) gf)
+  (push method (safe-generic-function-methods gf))
+  (dolist (specializer (safe-method-specializers method))
     (when (typep specializer 'class)
-      (pushnew method (class-direct-methods specializer))))
+      (pushnew method (safe-class-direct-methods specializer))))
   (finalize-generic-function gf)
   gf)
 
 (defun remove-method (gf method)
-  (setf (generic-function-methods gf)
-        (remove method (generic-function-methods gf)))
-  (setf (method-generic-function method) nil)
-  (dolist (class (method-specializers method))
+  (setf (safe-generic-function-methods gf)
+        (remove method (safe-generic-function-methods gf)))
+  (setf (safe-method-generic-function method) nil)
+  (dolist (class (safe-method-specializers method))
     (when (typep class 'class)
-      (setf (class-direct-methods class)
-            (remove method (class-direct-methods class)))))
+      (setf (safe-class-direct-methods class)
+            (remove method (safe-class-direct-methods class)))))
   (finalize-generic-function gf)
   gf)
 
@@ -1426,40 +1485,46 @@ has only has class specializer."
   (let ((method
           (find-if #'(lambda (method)
                        (and (equal qualifiers
-                                   (method-qualifiers method))
+                                   (safe-method-qualifiers method))
                             (equal specializers
-                                   (method-specializers method))))
-                   (generic-function-methods gf))))
+                                   (safe-method-specializers method))))
+                   (safe-generic-function-methods gf))))
       (if (and (null method) errorp)
-          (error "No such method for ~S." (generic-function-name gf))
+          (error "No such method for ~S." (safe-generic-function-name gf))
           method)))
 
 ;;; Reader and write methods
 
-(defun add-reader-method (class fn-name slot-name)
+(defun add-reader-method (class fn-name direct-slot-definition)
   (add-method (ensure-generic-function fn-name :lambda-list '(object))
-              (make-instance (reader-method-class class slot-name :slot-definition slot-name)
-                             :lambda-list '(object)
-                             :qualifiers ()
-                             :specializers (list class)
-                             :function (lambda (method next-emfun)
-                                         (declare (ignore method next-emfun))
-                                         (lambda (object)
-                                           (slot-value object slot-name)))
-                             :slot-definition slot-name))
+              (let* ((slot-name (safe-slot-definition-name direct-slot-definition))
+                     (initargs (list :lambda-list '(object)
+                                     :qualifiers ()
+                                     :specializers (list class)
+                                     :function (lambda (method next-emfun)
+                                                 (declare (ignore method next-emfun))
+                                                 (lambda (object)
+                                                   (slot-value object slot-name)))
+                                     :slot-definition direct-slot-definition)))
+                (apply #'make-instance
+                       (apply #'reader-method-class class direct-slot-definition initargs)
+                       initargs)))
   (values))
 
-(defun add-writer-method (class fn-name slot-name)
+(defun add-writer-method (class fn-name direct-slot-definition)
   (add-method (ensure-generic-function fn-name :lambda-list '(new-value object))
-              (make-instance (writer-method-class class slot-name :slot-definition slot-name)
-                             :lambda-list '(new-value object)
-                             :qualifiers ()
-                             :specializers (list (find-class 't) class)
-                             :function (lambda (method next-emfun)
-                                         (declare (ignore method next-emfun))
-                                         (lambda (new-value object)
-                                           (setf (slot-value object slot-name) new-value)))
-                             :slot-definition slot-name))
+              (let* ((slot-name (safe-slot-definition-name direct-slot-definition))
+                    (initargs (list :lambda-list '(new-value object)
+                                    :qualifiers ()
+                                    :specializers (list (find-class 't) class)
+                                    :function (lambda (method next-emfun)
+                                                (declare (ignore method next-emfun))
+                                                (lambda (new-value object)
+                                                  (setf (slot-value object slot-name) new-value)))
+                                    :slot-definition direct-slot-definition)))
+                (apply #'make-instance
+                       (apply #'writer-method-class class direct-slot-definition initargs)
+                       initargs)))
   (values))
 
 ;;;
@@ -1564,8 +1629,8 @@ has only has class specializer."
 (defun compute-1-effective-eql-table (gf argument-offset)
   (loop
      with n-required = (length (gf-required-arglist gf))
-     for method in (generic-function-methods gf)
-     for spec = (elt (method-specializers method) argument-offset)
+     for method in (safe-generic-function-methods gf)
+     for spec = (elt (safe-method-specializers method) argument-offset)
      when (typep spec 'eql-specializer)
      collect (cons (eql-specializer-object spec)
                    (std-compute-effective-method-function
@@ -1591,12 +1656,12 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
                 (let* ((instance (first args))
-                       (slot-name (slot-value (first applicable-methods) 'slot-definition))
+                       (slot-name (slot-definition-name (accessor-method-slot-definition (first applicable-methods))))
                        (effective-slot (find-effective-slot instance slot-name)))
                   (cond (effective-slot
-                         (let ((location (slot-definition-location effective-slot)))
+                         (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (pushnew gf (class-dependents class))
+                           (pushnew gf (safe-class-dependents class))
                            (fast-slot-read (first args) location)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
@@ -1615,12 +1680,12 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-writer-method)
                      (std-class-p (class-of class)))
                 (let* ((instance (second args))
-                       (slot-name (slot-value (first applicable-methods) 'slot-definition))
+                       (slot-name (slot-definition-name (accessor-method-slot-definition (first applicable-methods))))
                        (effective-slot (find-effective-slot instance slot-name)))
                   (cond (effective-slot
-                         (let ((location (slot-definition-location effective-slot)))
+                         (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (pushnew gf (class-dependents class))
+                           (pushnew gf (safe-class-dependents class))
                            (fast-slot-write (first args) instance location)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
@@ -1639,23 +1704,23 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
                 ;; Switch to reader-method.
-                (setf (generic-function-discriminating-function gf)
+                (setf (safe-generic-function-discriminating-function gf)
                       (compute-reader-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
                 (apply gf args))
                ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
                      (std-class-p (class-of class)))
                 ;; Switch to writer-method.
-                (setf (generic-function-discriminating-function gf)
+                (setf (safe-generic-function-discriminating-function gf)
                       (compute-writer-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
                 (apply gf args))
                (t ;; Switch to 1-effective.
-                (setf (generic-function-discriminating-function gf)
+                (setf (safe-generic-function-discriminating-function gf)
                       (compute-1-effective-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
                 (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args))))))))))
 
 (defun std-compute-discriminating-function (gf)
@@ -1666,9 +1731,9 @@ has only has class specializer."
              (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
             ((generic-function-unspecialized-dispatch-p gf)
              (slow-unspecialized-dispatch-method-lookup gf args))
-            (t (setf (generic-function-discriminating-function gf)
+            (t (setf (safe-generic-function-discriminating-function gf)
                      (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
-               (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+               (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
                (apply gf args))))))
 
 (defun slow-method-lookup (gf args classes)
@@ -1693,7 +1758,7 @@ has only has class specializer."
       (when validp
         (setf (gethash classes (classes-to-emf-table gf)) emfun)
         (dolist (class classes)
-          (pushnew gf (class-dependents class))))
+          (pushnew gf (safe-class-dependents class))))
       (apply emfun args))))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
@@ -1715,7 +1780,7 @@ has only has class specializer."
         ;; Cache is only valid for non-eql methods.
         (when validp
           (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
-          (pushnew gf (class-dependents class)))
+          (pushnew gf (safe-class-dependents class)))
         (apply emfun args)))))
 
 (defun slow-unspecialized-dispatch-method-lookup (gf args)
@@ -1727,7 +1792,7 @@ has only has class specializer."
                         (std-compute-effective-method-function gf applicable-methods))
                        (t
                         (apply #'no-applicable-method gf args)))))
-    (setf (generic-function-discriminating-function gf) emfun)
+    (setf (safe-generic-function-discriminating-function gf) emfun)
     (set-funcallable-instance-function gf emfun)
     (apply emfun args)))
 
@@ -1745,8 +1810,8 @@ has only has class specializer."
                                           (class
                                            (subclassp class specializer))))
                                       required-classes
-                                      (method-specializers method)))
-                           (generic-function-methods gf)))
+                                      (safe-method-specializers method)))
+                           (safe-generic-function-methods gf)))
            #'(lambda (m1 m2)
                (method-more-specific-p gf m1 m2 required-classes)))
           t))
@@ -1762,8 +1827,8 @@ has only has class specializer."
                                   (class
                                    (subclassp (class-of arg) specializer))))
                               args
-                              (method-specializers method)))
-                   (generic-function-methods gf)))
+                              (safe-method-specializers method)))
+                   (safe-generic-function-methods gf)))
    #'(lambda (m1 m2)
        (method-more-specific-with-args-p gf m1 m2 args))))
 
@@ -1780,8 +1845,8 @@ has only has class specializer."
 
 (defun method-more-specific-p (gf method1 method2 required-classes)
   (loop
-     for spec1 in (reorder-method-specializers gf (method-specializers method1))
-     for spec2 in (reorder-method-specializers gf (method-specializers method2))
+     for spec1 in (reorder-method-specializers gf (safe-method-specializers method1))
+     for spec2 in (reorder-method-specializers gf (safe-method-specializers method2))
      for arg-class in (reorder-method-specializers gf required-classes)
      do (cond ((and (typep spec1 'eql-specializer)
                     (not (typep spec2 'eql-specializer)))
@@ -1795,8 +1860,8 @@ has only has class specializer."
 
 (defun method-more-specific-with-args-p (gf method1 method2 args)
   (loop
-     for spec1 in (reorder-method-specializers gf (method-specializers method1))
-     for spec2 in (reorder-method-specializers gf (method-specializers method2))
+     for spec1 in (reorder-method-specializers gf (safe-method-specializers method1))
+     for spec2 in (reorder-method-specializers gf (safe-method-specializers method2))
      for arg in (reorder-method-specializers gf args)
      do (cond ((and (typep spec1 'eql-specializer)
                     (not (typep spec2 'eql-specializer)))
@@ -1811,18 +1876,18 @@ has only has class specializer."
 ;;; compute-effective-method-function
 
 (defun primary-method-p (method)
-  (null (method-qualifiers method)))
+  (null (safe-method-qualifiers method)))
 (defun before-method-p (method)
-  (equal '(:before) (method-qualifiers method)))
+  (equal '(:before) (safe-method-qualifiers method)))
 (defun after-method-p (method)
-  (equal '(:after) (method-qualifiers method)))
+  (equal '(:after) (safe-method-qualifiers method)))
 (defun around-method-p (method)
-  (equal '(:around) (method-qualifiers method)))
+  (equal '(:around) (safe-method-qualifiers method)))
 
 ;;; compute an effective method function from a list of primary methods:
 
 (defun method-fast-function (method next-emfun)
-  (funcall (method-function method) method next-emfun))
+  (funcall (safe-method-function method) method next-emfun))
 
 (defun compute-primary-emfun (methods)
   (if (null methods)
@@ -1886,7 +1951,7 @@ has only has class specializer."
                            (assert (eql (length method) 2))
                            (second method))
                           (t
-                           `(apply (funcall ',(method-function method)
+                           `(apply (funcall ',(safe-method-function method)
                                             ',method
                                             ,(if next-method-list
                                                  `(lambda (&rest ,',method-args)
@@ -1899,29 +1964,29 @@ has only has class specializer."
          ,effective-method-body))))
 
 (defun generate-method-combination-effective-method-name (gf mc-object methods)
-  (list* (generic-function-name gf)
+  (list* (safe-generic-function-name gf)
          (method-combination-name mc-object)
          (mapcar (lambda (method)
-                   (list (method-qualifiers method)
+                   (list (safe-method-qualifiers method)
                          (mapcar (lambda (specializer)
                                    (typecase specializer
                                      (class
-                                      (class-name specializer))
+                                      (safe-class-name specializer))
                                      (t specializer)))
-                                 (method-specializers method))))
+                                 (safe-method-specializers method))))
                  methods)))
 
 (defun std-compute-effective-method-standard-method-combination (gf applicable-methods)
   (let (around before primary after)
     (dolist (method
               applicable-methods)
-      (cond ((match-qualifier-pattern '(:around) (method-qualifiers method))
+      (cond ((match-qualifier-pattern '(:around) (safe-method-qualifiers method))
              (push method around))
-            ((match-qualifier-pattern '(:before) (method-qualifiers method))
+            ((match-qualifier-pattern '(:before) (safe-method-qualifiers method))
              (push method before))
-            ((match-qualifier-pattern 'nil (method-qualifiers method))
+            ((match-qualifier-pattern 'nil (safe-method-qualifiers method))
              (push method primary))
-            ((match-qualifier-pattern '(:after) (method-qualifiers method))
+            ((match-qualifier-pattern '(:after) (safe-method-qualifiers method))
              (push method after))
             (t
              (invalid-method-error method "No specifiers matched."))))
@@ -1958,7 +2023,7 @@ has only has class specializer."
       (std-compute-effective-method-standard-method-combination gf methods)))
 
 (defun std-compute-effective-method-function (gf methods)
-  (let ((mc (generic-function-method-combination gf)))
+  (let ((mc (safe-generic-function-method-combination gf)))
     ;; FIXME: Still should call COMPUTE-EFFECTIVE-METHOD when
     ;; the generic function is not a standard-generic-function and mc is the standard method combination.
     (cond (mc
@@ -1976,8 +2041,8 @@ has only has class specializer."
 ;;;
 
 (when (and (fboundp 'print-object)
-           (not (typep (fdefinition 'print-object) 'standard-generic-function)))
-  ;; Print-object starts off as a normal object.
+           (compiled-function-p (fdefinition 'print-object)))
+  ;; Print-object starts off as a normal function.
   ;; Clobber it during bootstrap, but not after.
   (fmakunbound 'print-object))
 
@@ -1992,27 +2057,185 @@ has only has class specializer."
             (class-name (class-of instance))))
   instance)
 
+;;; TODO: The following reader function should use standard class readers
+;;; instead of open-coded methods.
+
+;;; Class metaobject readers
+;;; FIXME: CLASS-DEFAULT-INITARGS, CLASS-PRECEDENCE-LIST, and CLASS-SLOTS
+;;; must signal an error if the class has not been finalized, but doing
+;;; this causing issues during finalization.
+
+(defgeneric class-default-initargs (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'default-initargs)))
+(defgeneric class-direct-default-initargs (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-default-initargs))
+  (:method ((class forward-referenced-class))
+    '()))
+(defgeneric class-direct-slots (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-slots))
+  (:method ((class forward-referenced-class))
+    '()))
+(defgeneric class-direct-subclasses (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-subclasses))
+  (:method ((class forward-referenced-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-subclasses)))
+(defgeneric class-direct-superclasses (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-superclasses))
+  (:method ((class forward-referenced-class))
+    '()))
+(defgeneric class-finalized-p (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    ;; The slot may be unbound if the class has not been initialized yet.
+    (and (slot-boundp class 'finalized-p)
+         (slot-value class 'finalized-p)))
+  (:method ((class forward-referenced-class))
+    nil))
+(defgeneric class-name (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'name))
+  (:method ((class forward-referenced-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'name)))
+(defgeneric class-precedence-list (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'class-precedence-list)))
+(defgeneric class-slots (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'effective-slots)))
+
+;;; Slot definition metaobject readers
+
+(defgeneric slot-definition-allocation (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'allocation)))
+(defgeneric slot-definition-initargs (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'initargs)))
+(defgeneric slot-definition-initform (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'initform)))
+(defgeneric slot-definition-initfunction (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'initfunction)))
+(defgeneric slot-definition-name (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'name)))
+(defgeneric slot-definition-type (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'type)))
+(defgeneric slot-definition-readers (direct-slot-definition)
+  (:method ((direct-slot-definition standard-direct-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value direct-slot-definition 'readers)))
+(defgeneric slot-definition-writers (direct-slot-definition)
+  (:method ((direct-slot-definition standard-direct-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value direct-slot-definition 'writers)))
+(defgeneric slot-definition-location (effective-slot-definition)
+  (:method ((effective-slot-definition standard-effective-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value effective-slot-definition 'location)))
+
+;;; Generic function metaobject readers
+
+(defgeneric generic-function-argument-precedence-order (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'argument-precedence-order)))
+(defgeneric generic-function-declarations (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'declarations)))
+(defgeneric generic-function-lambda-list (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'lambda-list)))
+(defgeneric generic-function-method-class (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'method-class)))
+(defgeneric generic-function-method-combination (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'method-combination)))
+(defgeneric generic-function-methods (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'methods)))
+(defgeneric generic-function-name (generic-function)
+  (:method ((generic-function standard-generic-function))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value generic-function 'name)))
+
+;;; Method metaobject readers
+
+(defgeneric method-function (method)
+  (:method ((method standard-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value method 'function)))
+(defgeneric method-generic-function (method)
+  (:method ((method standard-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value method 'generic-function)))
+(defgeneric method-lambda-list (method)
+  (:method ((method standard-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value method 'lambda-list)))
+(defgeneric method-specializers (method)
+  (:method ((method standard-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value method 'specializers)))
+(defgeneric method-qualifiers (method)
+  (:method ((method standard-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value method 'qualifiers)))
+(defgeneric accessor-method-slot-definition (accessor-method)
+  (:method ((accessor-method standard-accessor-method))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value accessor-method 'slot-definition)))
+
 ;;; Slot access
 
 (defgeneric slot-value-using-class (class instance slot))
 (defmethod slot-value-using-class ((class std-class) instance (slot standard-effective-slot-definition))
-  (std-slot-value instance (slot-definition-name slot)))
+  (std-slot-value instance (safe-slot-definition-name slot)))
 
 (defgeneric (setf slot-value-using-class) (new-value class instance slot))
 (defmethod (setf slot-value-using-class) (new-value (class std-class) instance (slot standard-effective-slot-definition))
-  (setf (std-slot-value instance (slot-definition-name slot)) new-value))
+  (setf (std-slot-value instance (safe-slot-definition-name slot)) new-value))
 
 (defgeneric (sys.int::cas slot-value-using-class) (old new class instance slot))
 (defmethod (sys.int::cas slot-value-using-class) (old new (class std-class) instance (slot standard-effective-slot-definition))
-  (sys.int::cas (std-slot-value instance (slot-definition-name slot)) old new))
+  (sys.int::cas (std-slot-value instance (safe-slot-definition-name slot)) old new))
 
 (defgeneric slot-boundp-using-class (class instance slot))
 (defmethod slot-boundp-using-class ((class std-class) instance (slot standard-effective-slot-definition))
-  (std-slot-boundp instance (slot-definition-name slot)))
+  (std-slot-boundp instance (safe-slot-definition-name slot)))
 
 (defgeneric slot-makunbound-using-class (class instance slot))
 (defmethod slot-makunbound-using-class ((class std-class) instance (slot standard-effective-slot-definition))
-  (std-slot-makunbound instance (slot-definition-name slot)))
+  (std-slot-makunbound instance (safe-slot-definition-name slot)))
 
 ;;; Stuff...
 
@@ -2040,9 +2263,9 @@ has only has class specializer."
 
 (defun std-compute-default-initargs (class)
   (let ((default-initargs '()))
-    (dolist (c (class-precedence-list class))
+    (dolist (c (safe-class-precedence-list class))
       (loop
-         for (initarg form fn) in (class-direct-default-initargs c)
+         for (initarg form fn) in (safe-class-direct-default-initargs c)
          do (when (not (member initarg default-initargs :key #'first))
               (push (list initarg form fn) default-initargs))))
     (nreverse default-initargs)))
@@ -2050,7 +2273,7 @@ has only has class specializer."
 (defun std-compute-initargs (class initargs)
   (let ((default-initargs
          (loop
-            for (initarg form fn) in (class-default-initargs class)
+            for (initarg form fn) in (safe-class-default-initargs class)
             when (loop
                     for (key value) on initargs by #'cddr
                     when (eql key initarg)
@@ -2090,20 +2313,20 @@ has only has class specializer."
 (defgeneric shared-initialize (instance slot-names &key &allow-other-keys))
 (defmethod shared-initialize ((instance standard-object)
                               slot-names &rest all-keys)
-  (dolist (slot (class-slots (class-of instance)))
-    (let ((slot-name (slot-definition-name slot)))
+  (dolist (slot (safe-class-slots (class-of instance)))
+    (let ((slot-name (safe-slot-definition-name slot)))
       (multiple-value-bind (init-key init-value foundp)
             (get-properties
-              all-keys (slot-definition-initargs slot))
+              all-keys (safe-slot-definition-initargs slot))
          (declare (ignore init-key))
          (cond (foundp
                 (setf (slot-value instance slot-name) init-value))
                ((and (not (slot-boundp instance slot-name))
-                     (not (null (slot-definition-initfunction slot)))
+                     (not (null (safe-slot-definition-initfunction slot)))
                      (or (eq slot-names t)
                          (member slot-name slot-names)))
                 (setf (slot-value instance slot-name)
-                      (funcall (slot-definition-initfunction slot))))))))
+                      (funcall (safe-slot-definition-initfunction slot))))))))
   instance)
 
 ;;; change-class
@@ -2116,15 +2339,15 @@ has only has class specializer."
          (old-class (class-of old-instance))
          (old-copy (allocate-instance old-class)))
     ;; Make a copy of the old instance.
-    (dolist (old-slot (class-slots old-class))
-      (let ((slot-name (slot-definition-name old-slot)))
+    (dolist (old-slot (safe-class-slots old-class))
+      (let ((slot-name (safe-slot-definition-name old-slot)))
         (when (and (instance-slot-p old-slot)
                    (slot-boundp old-instance slot-name))
           (setf (slot-value old-copy slot-name)
                 (slot-value old-instance slot-name)))))
     ;; Initialize the new instance with the old slots.
-    (dolist (slot-name (mapcar #'slot-definition-name
-                               (class-slots new-class)))
+    (dolist (slot-name (mapcar #'safe-slot-definition-name
+                               (safe-class-slots new-class)))
       (when (and (slot-exists-p old-instance slot-name)
                  (slot-boundp old-instance slot-name))
         (setf (slot-value new-instance slot-name)
@@ -2146,8 +2369,8 @@ has only has class specializer."
   (let ((added-slots
           (remove-if #'(lambda (slot-name)
                          (slot-exists-p old slot-name))
-                     (mapcar #'slot-definition-name
-                             (class-slots (class-of new))))))
+                     (mapcar #'safe-slot-definition-name
+                             (safe-class-slots (class-of new))))))
     (apply #'shared-initialize new added-slots initargs)))
 
 ;;;
@@ -2157,26 +2380,24 @@ has only has class specializer."
 (defmethod print-object ((class class) stream)
   (print-unreadable-object (class stream :identity t)
     (format stream "~:(~S~) ~S"
-            (class-name (class-of class))
-            (class-name class)))
+            (safe-class-name (class-of class))
+            (safe-class-name class)))
   class)
 
 (defmethod print-object ((slot-definition standard-slot-definition) stream)
   (print-unreadable-object (slot-definition stream :type t :identity t)
-    (format stream "~S" (slot-definition-name slot-definition))))
+    (format stream "~S" (safe-slot-definition-name slot-definition))))
 
 (defmethod initialize-instance :after ((class std-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
-;; ### slot objects.
-(defmethod reader-method-class ((class std-class) direct-slot &rest initargs)
+(defmethod reader-method-class ((class std-class) (direct-slot standard-direct-slot-definition) &rest initargs)
   (find-class 'standard-reader-method))
 
 (defgeneric writer-method-class (class direct-slot &rest initargs))
-;; ### slot objects.
-(defmethod writer-method-class ((class std-class) direct-slot &rest initargs)
+(defmethod writer-method-class ((class std-class) (direct-slot standard-direct-slot-definition) &rest initargs)
   (find-class 'standard-writer-method))
 
 ;;; Finalize inheritance
@@ -2214,9 +2435,9 @@ has only has class specializer."
 (defmethod print-object ((gf standard-generic-function) stream)
   (print-unreadable-object (gf stream :identity t)
     (format stream "~:(~S~) ~S"
-            (class-name (class-of gf))
-            (generic-function-name gf))
-    (let ((mc (generic-function-method-combination gf)))
+            (safe-class-name (class-of gf))
+            (safe-generic-function-name gf))
+    (let ((mc (safe-generic-function-method-combination gf)))
       (when mc
         (format stream " ~S"
                 (method-combination-name
@@ -2233,15 +2454,15 @@ has only has class specializer."
 (defmethod print-object ((method standard-method) stream)
   (print-unreadable-object (method stream :identity t)
     (format stream "~:(~S~) ~S ~S ~S"
-	    (class-name (class-of method))
-	    (when (method-generic-function method)
-              (generic-function-name (method-generic-function method)))
-	    (method-qualifiers method)
+	    (safe-class-name (class-of method))
+	    (when (safe-method-generic-function method)
+              (safe-generic-function-name (safe-method-generic-function method)))
+	    (safe-method-qualifiers method)
 	    (mapcar (lambda (x) (typecase x
                                   (class
-                                   (class-name x))
+                                   (safe-class-name x))
                                   (t x)))
-                    (method-specializers method))))
+                    (safe-method-specializers method))))
   method)
 
 ;;;
@@ -2266,18 +2487,18 @@ has only has class specializer."
 
 (defmethod update-instance-for-different-class :before
            ((old forward-referenced-class) (new standard-class) &rest initargs)
-  (setf (class-direct-superclasses new) (list (find-class 'standard-class))))
+  (setf (safe-class-direct-superclasses new) (list (find-class 'standard-class))))
 
 (defmethod update-instance-for-different-class :before
            ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
-  (setf (class-direct-superclasses new) (list (find-class 'funcallable-standard-class))))
+  (setf (safe-class-direct-superclasses new) (list (find-class 'funcallable-standard-class))))
 
 (defgeneric ensure-class-using-class (class name &key &allow-other-keys))
 
 (defmethod ensure-class-using-class ((class class) name
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
-  (assert (eql name (class-name class)))
+  (assert (eql name (safe-class-name class)))
   (assert (eql (class-of class) (find-class metaclass)))
   (apply #'reinitialize-instance class (compute-class-initialization-arguments all-keys))
   (setf (find-class name) class)
@@ -2286,7 +2507,7 @@ has only has class specializer."
 (defmethod ensure-class-using-class ((class forward-referenced-class) name
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
-  (assert (eql name (class-name class)))
+  (assert (eql name (safe-class-name class)))
   (let ((initargs (compute-class-initialization-arguments all-keys)))
     (apply #'change-class class metaclass initargs)
     (apply #'reinitialize-instance class initargs))
@@ -2320,7 +2541,7 @@ has only has class specializer."
 (defmethod no-applicable-method ((generic-function t) &rest function-arguments)
   (restart-case
       (error "No applicable methods to generic function ~S (~S) when called with ~S."
-             generic-function (generic-function-name generic-function) function-arguments)
+             generic-function (safe-generic-function-name generic-function) function-arguments)
     (continue ()
       :report "Retry calling the generic function."
       (apply generic-function function-arguments))))
@@ -2361,9 +2582,9 @@ has only has class specializer."
 (defmethod slot-value-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((def (slot-value class 'structure-definition))
-        (slot-name (slot-definition-name slot)))
+        (slot-name (safe-slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
-      (error "Class for structure ~S or instance is outdated?" (class-name class)))
+      (error "Class for structure ~S or instance is outdated?" (safe-class-name class)))
     (dolist (slot (sys.int::structure-definition-slots def)
              (values (slot-missing class instance slot-name 'slot-value)))
       (when (eql (sys.int::structure-slot-definition-name slot) slot-name)
@@ -2372,16 +2593,16 @@ has only has class specializer."
 (defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot standard-effective-slot-definition))
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((def (slot-value class 'structure-definition))
-        (slot-name (slot-definition-name slot)))
+        (slot-name (safe-slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
-      (error "Class for structure ~S or instance is outdated?" (class-name class)))
+      (error "Class for structure ~S or instance is outdated?" (safe-class-name class)))
     (dolist (slot (sys.int::structure-definition-slots def)
              (progn
                (slot-missing class instance slot-name 'setf new-value)
                new-value))
       (when (eql (sys.int::structure-slot-definition-name slot) slot-name)
         (when (sys.int::structure-slot-definition-read-only slot)
-          (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
+          (error "The slot ~S in class ~S is read-only." slot-name (safe-class-name class)))
         (return (funcall (fdefinition `(setf ,(sys.int::structure-slot-definition-accessor slot))) new-value instance))))))
 
 (defmethod slot-boundp-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
@@ -2452,40 +2673,40 @@ has only has class specializer."
 ;;; Class redefinition.
 
 (defun convert-direct-slot-definition-to-canonical-direct-slot (direct-slot)
-  `(:name ,(slot-definition-name direct-slot)
-    :allocation ,(slot-definition-allocation direct-slot)
-    :type ,(slot-definition-type direct-slot)
-    :initform ,(slot-definition-initform direct-slot)
-    :initfunction ,(slot-definition-initfunction direct-slot)
-    :initargs ,(slot-definition-initargs direct-slot)
-    :documentation ,(slot-definition-documentation direct-slot)
-    :readers ,(slot-definition-readers direct-slot)
-    :writers ,(slot-definition-writers direct-slot)))
+  `(:name ,(safe-slot-definition-name direct-slot)
+    :allocation ,(safe-slot-definition-allocation direct-slot)
+    :type ,(safe-slot-definition-type direct-slot)
+    :initform ,(safe-slot-definition-initform direct-slot)
+    :initfunction ,(safe-slot-definition-initfunction direct-slot)
+    :initargs ,(safe-slot-definition-initargs direct-slot)
+    :documentation ,(safe-slot-definition-documentation direct-slot)
+    :readers ,(safe-slot-definition-readers direct-slot)
+    :writers ,(safe-slot-definition-writers direct-slot)))
 
 (defun std-after-reinitialization-for-classes (class &rest args &key &allow-other-keys)
   ;; Unfinalize the class.
-  (setf (class-finalized-p class) nil)
+  (setf (safe-class-finalized-p class) nil)
   ;; Remove the class as a subclass from all existing superclasses.
-  (dolist (superclass (class-direct-superclasses class))
-    (setf (class-direct-subclasses superclass) (remove class (class-direct-subclasses superclass))))
+  (dolist (superclass (safe-class-direct-superclasses class))
+    (setf (safe-class-direct-subclasses superclass) (remove class (safe-class-direct-subclasses superclass))))
   ;; Remove any slot reader/writer methods.
-  #+(or)(dolist (direct-slot (class-direct-slots class))
-    (dolist (reader (slot-definition-readers direct-slot))
-      (remove-reader-method class reader (slot-definition-name direct-slot)))
-    (dolist (writer (slot-definition-writers direct-slot))
-      (remove-writer-method class writer (slot-definition-name direct-slot))))
+  #+(or)(dolist (direct-slot (safe-class-direct-slots class))
+    (dolist (reader (safe-slot-definition-readers direct-slot))
+      (remove-reader-method class reader (safe-slot-definition-name direct-slot)))
+    (dolist (writer (safe-slot-definition-writers direct-slot))
+      (remove-writer-method class writer (safe-slot-definition-name direct-slot))))
   ;; Fall into the initialize-instance code.
   (apply #'std-after-initialization-for-classes
          class
          (append args
-                 (list :direct-superclasses (class-direct-superclasses class))
-                 (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (class-direct-slots class)))
-                 (list :direct-default-initargs (class-direct-default-initargs class))))
+                 (list :direct-superclasses (safe-class-direct-superclasses class))
+                 (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (safe-class-direct-slots class)))
+                 (list :direct-default-initargs (safe-class-direct-default-initargs class))))
   ;; Flush the EMF tables of generic functions.
-  (dolist (gf (class-dependents class))
+  (dolist (gf (safe-class-dependents class))
     (reset-gf-emf-table gf))
   ;; Refinalize any subclasses.
-  (dolist (subclass (class-direct-subclasses class))
+  (dolist (subclass (safe-class-direct-subclasses class))
     (std-after-reinitialization-for-classes subclass)))
 
 (defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses &allow-other-keys)
@@ -2514,7 +2735,7 @@ has only has class specializer."
          (old-layout (if funcallable-instance-p
                          (funcallable-std-instance-layout instance)
                          (std-instance-layout instance)))
-         (new-layout (class-slot-storage-layout class)))
+         (new-layout (safe-class-slot-storage-layout class)))
     (if funcallable-instance-p
         (setf (funcallable-std-instance-layout instance) new-layout)
         (setf (std-instance-layout instance) new-layout))
@@ -2586,9 +2807,9 @@ has only has class specializer."
     (setf (slot-value class 'prototype)
           (allocate-std-instance
            class
-           (allocate-slot-storage (length (class-slot-storage-layout class))
+           (allocate-slot-storage (length (safe-class-slot-storage-layout class))
                                   *secret-unbound-value*)
-           (class-slot-storage-layout class))))
+           (safe-class-slot-storage-layout class))))
   (slot-value class 'prototype))
 
 (defmethod class-prototype ((class clos-class))
@@ -2612,6 +2833,6 @@ has only has class specializer."
 (defgeneric function-keywords (method))
 
 (defmethod function-keywords ((method standard-method))
-  (let ((lambda-list-info (analyze-lambda-list (method-lambda-list method))))
+  (let ((lambda-list-info (analyze-lambda-list (safe-method-lambda-list method))))
     (values (getf lambda-list-info :keywords)
             (getf lambda-list-info :allow-other-keys))))

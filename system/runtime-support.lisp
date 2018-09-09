@@ -197,7 +197,7 @@
   (defun funcallable-instance-debug-info (function)
     nil)
   (defun funcallable-instance-compiled-function-p (function)
-    t)
+    nil)
   )
 
 ;;; Implementations of DEFUN/etc, the cross-compiler defines these as well.

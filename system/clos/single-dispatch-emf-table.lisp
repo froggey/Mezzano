@@ -30,7 +30,7 @@
            (locally
                (declare (type simple-vector storage))
              ;; Full hash table.
-             (do* ((hash (class-hash class))
+             (do* ((hash (safe-class-hash class))
                    (size (length storage))
                    (mask (1- size))
                    ;; This hash implementation is inspired by the Python dict implementation.
@@ -56,7 +56,7 @@
                    (return (cdr (the cons slot)))))))))))
 
 (defun get-single-dispatch-emf-table-slot-offset (storage class)
-  (do* ((hash (class-hash class))
+  (do* ((hash (safe-class-hash class))
         (size (sys.int::simple-vector-length storage))
         (free-slot nil)
         ;; This hash implementation is inspired by the Python dict implementation.
