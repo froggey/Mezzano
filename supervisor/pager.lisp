@@ -916,6 +916,7 @@ It will put the thread to sleep, while it waits for the page."
             (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
               (declare (dynamic-extent message))
               (panic-1 message (lambda ()
+                                 (dump-thread-saved-pc *pager-current-thread*)
                                  (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
                                  (debug-print-line "-------")))))
            (t
