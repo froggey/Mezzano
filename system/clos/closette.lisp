@@ -135,7 +135,7 @@
   (loop
      with instance-slots = (sys.int::layout-instance-slots layout)
      for i from 0 below (length instance-slots) by 2
-     when (eq (svref instance-slots i) layout)
+     when (eq (svref instance-slots i) slot-name)
      do (return (svref instance-slots (1+ i)))
      finally (return nil)))
 
