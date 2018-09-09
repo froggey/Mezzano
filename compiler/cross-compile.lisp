@@ -742,7 +742,8 @@
   (save-object (sys.int::structure-definition-parent object) omap stream)
   (save-object (sys.int::structure-definition-area object) omap stream)
   (save-object (sys.int::structure-definition-size object) omap stream)
-  (save-object nil omap stream) ; layout
+  (save-object (sys.int::layout-heap-layout (sys.int::structure-definition-layout object)) omap stream)
+  ;; TODO: Include layout-instance-slots
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)

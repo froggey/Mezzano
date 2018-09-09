@@ -404,7 +404,7 @@
             (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
                   (sys.int::make-layout :class nil ; Fixed up later.
                                         :obsolete nil
-                                        :heap-size (length layout)
+                                        :heap-size (+ funcallable-offset (length layout))
                                         :heap-layout t
                                         :area nil
                                         :instance-slots instance-slots))))))
@@ -658,6 +658,7 @@
         *the-class-t* (find-class 't))
   ;; Locations of important slots in metaobjects.
   (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
+    (setf *the-layout-standard-class* s-c-layout)
     (setf *standard-class-effective-slots-location* (primordial-slot-location-in-layout s-c-layout 'effective-slots)
           *standard-class-slot-storage-layout-location* (primordial-slot-location-in-layout s-c-layout 'slot-storage-layout)
           *standard-class-hash-location* (primordial-slot-location-in-layout s-c-layout 'hash)
@@ -666,7 +667,8 @@
           *standard-class-direct-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'direct-default-initargs)
           *standard-class-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'default-initargs)))
   (let ((s-e-s-d-layout (primordial-slot-value (find-class 'standard-effective-slot-definition) 'slot-storage-layout)))
-    (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name))
-    (setf *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
+    (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
+    (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
+          *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
 
 (initialize-clos)

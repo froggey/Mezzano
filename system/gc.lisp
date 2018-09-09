@@ -981,11 +981,32 @@ This is required to make the GC interrupt safe."
                             ;; 1+ to account for the header word.
                             (1+ heap-size)
                             cycle-kind))
-             (layout
+             (heap-layout
               ;; Bit vector of slot boxedness.
               (loop
                  for i below heap-size
-                 when (eql (aref layout i) 1)
+                 when (eql (aref heap-layout i) 1)
+                 do (scavengef (%object-ref-t object i) cycle-kind))))))
+    (#.+object-tag-obsolete-instance+
+     ;; Much like a regular instance, but the layout comes from the
+     ;; obsolete layout instead of directly from the object.
+     (let* ((obsolete-layout (%instance-layout object))
+            (layout (mezzano.runtime::obsolete-instance-layout-old-layout
+                     obsolete-layout))
+            (heap-layout (layout-heap-layout layout))
+            (heap-size (layout-heap-size layout)))
+       (scavenge-object obsolete-layout cycle-kind)
+       (cond ((eql heap-layout 't)
+              ;; All slots boxed
+              (scan-generic object
+                            ;; 1+ to account for the header word.
+                            (1+ heap-size)
+                            cycle-kind))
+             (heap-layout
+              ;; Bit vector of slot boxedness.
+              (loop
+                 for i below heap-size
+                 when (eql (aref heap-layout i) 1)
                  do (scavengef (%object-ref-t object i) cycle-kind))))))
     (#.+object-tag-function-reference+
      (scan-generic object 4 cycle-kind))
@@ -1097,6 +1118,22 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (return-from transport-object
         (%%assemble-value (ash (%pointer-field first-word) 4)
                           (%tag-field object))))
+    (when (obsolete-instance-p object)
+      ;; This is an obsolete instance. Don't transport it at all,
+      ;; instead replace it with the updated instance.
+      ;; FIXME: There's a race-condition here.
+      ;; If a one thread is accessing an obsolete instance (because it
+      ;; was superceded partway through the access) then this will
+      ;; update the old instance to point at the new instance and the
+      ;; thread will perform the access on the new instance with the old
+      ;; slot location. Such accesses should be performed in a GC restart
+      ;; region or similar. Or this could be turned off, it's just an
+      ;; optimization.
+      (return-from transport-object
+        (scavenge-object
+         (mezzano.runtime::obsolete-instance-layout-new-instance
+          (%instance-layout object))
+         cycle-kind)))
     (really-transport-object object cycle-kind)))
 
 (defun really-transport-object (object cycle-kind)
@@ -1249,6 +1286,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          ((#.+object-tag-instance+
            #.+object-tag-funcallable-instance+)
           (1+ (layout-heap-size (%instance-layout object))))
+         (#.+object-tag-obsolete-instance+
+          (let* ((obsolete-layout (%instance-layout object))
+                 (layout (mezzano.runtime::obsolete-instance-layout-old-layout
+                          obsolete-layout)))
+            (1+ (layout-heap-size layout))))
          (#.+object-tag-function-reference+
           4)
          (#.+object-tag-function+
@@ -1543,7 +1585,7 @@ Additionally update the card table offset fields."
       ;; layout will be scavenged.
       ;; This assumes that instance header only refer to pinned/wired objects
       ;; and don't need to move.
-      (verify-one (mezzano.runtime::%unpack-instance-header object) gen)
+      (verify-object (mezzano.runtime::%unpack-instance-header object) gen)
       (return-from verify-one object))
     (let ((object-address (ash (%pointer-field object) 4)))
       (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
@@ -1589,7 +1631,22 @@ Additionally update the card table offset fields."
        (cond ((eql heap-layout 't)
               ;; All slots boxed
               (verify-generic object (1+ heap-size) gen))
-             (layout
+             (heap-layout
+              ;; Bit vector of slot boxedness.
+              ;; TODO: Not implemented.
+              nil))))
+    (#.+object-tag-obsolete-instance+
+     ;; Much like a regular instance, but the layout comes from the
+     ;; obsolete layout instead of directly from the object.
+     (let* ((obsolete-layout (%instance-layout object))
+            (layout (mezzano.runtime::obsolete-instance-layout-old-layout
+                     obsolete-layout))
+            (heap-layout (layout-heap-layout layout))
+            (heap-size (layout-heap-size layout)))
+       (cond ((eql heap-layout 't)
+              ;; All slots boxed
+              (verify-generic object (1+ heap-size) gen))
+             (heap-layout
               ;; Bit vector of slot boxedness.
               ;; TODO: Not implemented.
               nil))))

@@ -300,7 +300,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (structure-definition-parent object) omap stream)
   (save-object (structure-definition-area object) omap stream)
   (save-object (structure-definition-size object) omap stream)
-  (save-object (structure-definition-layout object) omap stream)
+  (save-object (layout-heap-layout (structure-definition-layout object)) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object structure-slot-definition) omap stream)
@@ -400,8 +400,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
      ht))
 
 (defmethod save-one-object (object omap stream)
-  (when (%value-has-tag-p object +tag-structure-header+)
-    (save-object (mezzano.runtime::%unpack-structure-header object)
+  (when (%value-has-tag-p object +tag-instance-header+)
+    (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
                  omap stream)
     (write-byte +llf-instance-header+ stream)
     (return-from save-one-object))

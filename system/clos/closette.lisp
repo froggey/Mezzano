@@ -80,10 +80,12 @@
 ;;; references.
 
 (sys.int::defglobal *the-class-standard-class*)    ;standard-class's class metaobject
+(sys.int::defglobal *the-layout-standard-class*)
 (sys.int::defglobal *the-class-funcallable-standard-class*)
 (sys.int::defglobal *the-class-built-in-class*)
 (sys.int::defglobal *the-class-standard-direct-slot-definition*)
 (sys.int::defglobal *the-class-standard-effective-slot-definition*)
+(sys.int::defglobal *the-layout-standard-effective-slot-definition*)
 (sys.int::defglobal *the-class-t*)
 (sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
 (sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
@@ -174,9 +176,19 @@
 
 (defun fetch-up-to-date-instance-slots-and-layout (instance)
   (let ((layout (sys.int::%instance-layout instance)))
-    (when (sys.int::layout-obsolete layout)
-      (error "TODO: Update instance for new layout"))
-    (values instance layout)))
+    (cond ((sys.int::layout-p layout)
+           (when (sys.int::layout-obsolete layout)
+             (error "TODO: Update instance for new layout"))
+           (values instance layout))
+          (t
+           ;; Obsolete instance.
+           ;; There should never be nested layers of obsolete instances.
+           (let* ((real-instance (mezzano.runtime::obsolete-instance-layout-new-instance layout))
+                  (real-layout (sys.int::%instance-layout real-instance)))
+             ;; But it's possible that the layout of the new instance is obsolete
+             (when (sys.int::layout-obsolete real-layout)
+               (error "TODO: Update instance for new layout"))
+             (values real-instance real-layout))))))
 
 (defun find-effective-slot (object slot-name)
   (find slot-name (class-slots (class-of object))
@@ -384,11 +396,19 @@
 
 (defun class-of (x)
   (cond ((or (sys.int::instance-p x)
+             (sys.int::obsolete-instance-p x)
              (sys.int::funcallable-instance-p x))
-         (let ((class (sys.int::layout-class (sys.int::%instance-layout x))))
-           (if (sys.int::structure-definition-p class)
-               (class-of-structure-definition x)
-               class)))
+         (let ((layout (sys.int::%instance-layout x)))
+           (cond ((sys.int::layout-p layout)
+                  (let ((class (sys.int::layout-class layout)))
+                    (if (sys.int::structure-definition-p class)
+                        (class-of-structure-definition class)
+                        class)))
+                 (t
+                  ;; Obsolete instance.
+                  (class-of
+                   (mezzano.runtime::obsolete-instance-layout-new-instance
+                    layout))))))
         (t
          (built-in-class-of x))))
 
@@ -518,31 +538,28 @@
 
 (defun class-precedence-list (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-precedence-list-location*))
-          (t
-           (slot-value class 'class-precedence-list)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-precedence-list-location*))
+        (t
+         (slot-value class 'class-precedence-list))))
 (defun (setf class-precedence-list) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'class-precedence-list) new-value))
 
 (defun class-slots (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-effective-slots-location*))
-          (t (slot-value class 'effective-slots)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-effective-slots-location*))
+        (t (slot-value class 'effective-slots))))
 (defun (setf class-slots) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'effective-slots) new-value))
 
 (defun class-slot-storage-layout (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-slot-storage-layout-location*))
-          (t (slot-value class 'slot-storage-layout)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-slot-storage-layout-location*))
+        (t (slot-value class 'slot-storage-layout))))
 (defun (setf class-slot-storage-layout) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'slot-storage-layout) new-value))
@@ -563,10 +580,9 @@
 
 (defun class-direct-default-initargs (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-direct-default-initargs-location*))
-          (t (slot-value class 'direct-default-initargs)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-direct-default-initargs-location*))
+        (t (slot-value class 'direct-default-initargs))))
 (defun (setf class-direct-default-initargs) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'direct-default-initargs) new-value))
@@ -580,30 +596,27 @@
 
 (defun class-hash (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-hash-location*))
-          (t (std-slot-value class 'hash)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-hash-location*))
+        (t (std-slot-value class 'hash))))
 (defun (setf class-hash) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'hash) new-value))
 
 (defun class-finalized-p (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-finalized-p-location*))
-          (t (std-slot-value class 'finalized-p)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-finalized-p-location*))
+        (t (std-slot-value class 'finalized-p))))
 (defun (setf class-finalized-p) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'finalized-p) new-value))
 
 (defun class-default-initargs (class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-class (class-of class)))
-    (cond ((standard-class-p class-of-class)
-           (standard-instance-access class *standard-class-default-initargs-location*))
-          (t (slot-value class 'default-initargs)))))
+  (cond ((standard-class-instance-p class)
+         (standard-instance-access class *standard-class-default-initargs-location*))
+        (t (slot-value class 'default-initargs))))
 (defun (setf class-default-initargs) (new-value class)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value class 'default-initargs) new-value))
@@ -664,14 +677,23 @@ Other arguments are included directly."
 
 (defun standard-class-p (metaclass)
   "Returns true if METACLASS is exactly STANDARD-CLASS."
-  (or (eq metaclass *the-class-standard-class*)
-      (eq metaclass *the-class-funcallable-standard-class*)))
+  (eq metaclass *the-class-standard-class*))
+
+(defun standard-class-instance-p (class)
+  "Returns true if CLASS is an up-to-date instance of exactly STANDARD-CLASS."
+  (and (sys.int::instance-p class)
+       (eq (sys.int::%instance-layout class) *the-layout-standard-class*)))
 
 (defun clos-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS, or BUILT-IN-CLASS."
   (or (eq metaclass *the-class-standard-class*)
       (eq metaclass *the-class-funcallable-standard-class*)
       (eq metaclass *the-class-built-in-class*)))
+
+(defun standard-effective-slot-definition-instance-p (slot)
+  "Returns true if SLOT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
+  (and (sys.int::instance-p slot)
+       (eq (sys.int::%instance-layout slot) *the-layout-standard-effective-slot-definition*)))
 
 (defun convert-to-direct-slot-definition (class canonicalized-slot)
   (apply #'make-instance
@@ -720,11 +742,10 @@ Other arguments are included directly."
 
 (defun slot-definition-name (slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (let ((class-of-slot (class-of slot)))
-    (cond ((eq class-of-slot *the-class-standard-effective-slot-definition*)
-           (standard-instance-access slot *standard-effective-slot-definition-name-location*))
-          (t
-           (slot-value slot 'name)))))
+  (cond ((standard-effective-slot-definition-instance-p slot)
+         (standard-instance-access slot *standard-effective-slot-definition-name-location*))
+        (t
+         (slot-value slot 'name))))
 (defun (setf slot-definition-name) (new-value slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (setf (slot-value slot 'name) new-value))
@@ -774,7 +795,7 @@ Other arguments are included directly."
 (defun slot-definition-location (slot)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((class-of-slot (class-of slot)))
-    (cond ((eq class-of-slot *the-class-standard-effective-slot-definition*)
+    (cond ((standard-effective-slot-definition-instance-p slot)
            (standard-instance-access slot *standard-effective-slot-definition-location-location*))
           (t
            (slot-value slot 'location)))))
@@ -2075,38 +2096,43 @@ has only has class specializer."
             (get-properties
               all-keys (slot-definition-initargs slot))
          (declare (ignore init-key))
-         (if foundp
-             (setf (slot-value instance slot-name) init-value)
-	     (when (and (not (slot-boundp instance slot-name))
-                        (not (null (slot-definition-initfunction slot)))
-                        (or (eq slot-names t)
-                            (member slot-name slot-names)))
-               (setf (slot-value instance slot-name)
-                     (funcall (slot-definition-initfunction slot))))))))
+         (cond (foundp
+                (setf (slot-value instance slot-name) init-value))
+               ((and (not (slot-boundp instance slot-name))
+                     (not (null (slot-definition-initfunction slot)))
+                     (or (eq slot-names t)
+                         (member slot-name slot-names)))
+                (setf (slot-value instance slot-name)
+                      (funcall (slot-definition-initfunction slot))))))))
   instance)
 
 ;;; change-class
 
 (defgeneric change-class (instance new-class &key &allow-other-keys))
-(defmethod change-class
-           ((old-instance standard-object)
-            (new-class standard-class)
-            &rest initargs)
-  (let ((new-instance (allocate-instance new-class)))
+(defmethod change-class ((old-instance standard-object)
+                         (new-class standard-class)
+                         &rest initargs)
+  (let* ((new-instance (allocate-instance new-class))
+         (old-class (class-of old-instance))
+         (old-copy (allocate-instance old-class)))
+    ;; Make a copy of the old instance.
+    (dolist (old-slot (class-slots old-class))
+      (let ((slot-name (slot-definition-name old-slot)))
+        (when (and (instance-slot-p old-slot)
+                   (slot-boundp old-instance slot-name))
+          (setf (slot-value old-copy slot-name)
+                (slot-value old-instance slot-name)))))
+    ;; Initialize the new instance with the old slots.
     (dolist (slot-name (mapcar #'slot-definition-name
                                (class-slots new-class)))
       (when (and (slot-exists-p old-instance slot-name)
                  (slot-boundp old-instance slot-name))
         (setf (slot-value new-instance slot-name)
               (slot-value old-instance slot-name))))
-    (rotatef (std-instance-slots new-instance)
-             (std-instance-slots old-instance))
-    (rotatef (std-instance-class new-instance)
-             (std-instance-class old-instance))
-    (rotatef (std-instance-layout new-instance)
-             (std-instance-layout old-instance))
+    ;; Obsolete the old instance, replacing it with the new instance.
+    (mezzano.runtime::supercede-instance old-instance new-instance)
     (apply #'update-instance-for-different-class
-           new-instance old-instance initargs)
+           old-copy old-instance initargs)
     old-instance))
 
 (defmethod change-class
@@ -2114,8 +2140,9 @@ has only has class specializer."
   (apply #'change-class instance (find-class new-class) initargs))
 
 (defgeneric update-instance-for-different-class (old new &key &allow-other-keys))
-(defmethod update-instance-for-different-class
-           ((old standard-object) (new standard-object) &rest initargs)
+(defmethod update-instance-for-different-class ((old standard-object)
+                                                (new standard-object)
+                                                &rest initargs)
   (let ((added-slots
           (remove-if #'(lambda (slot-name)
                          (slot-exists-p old slot-name))

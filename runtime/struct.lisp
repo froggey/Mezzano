@@ -18,6 +18,9 @@
 (defun sys.int::instance-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-instance+))
 
+(defun sys.int::obsolete-instance-p (object)
+  (sys.int::%object-of-type-p object sys.int::+object-tag-obsolete-instance+))
+
 (defun sys.int::funcallable-instance-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-funcallable-instance+))
 
@@ -155,3 +158,35 @@
    (ash (sys.int::lisp-object-address instance-header)
         (- sys.int::+object-data-shift+))
    0))
+
+(defstruct (obsolete-instance-layout
+             ;; Pinned, as the GC needs to read it.
+             ;; Don't make it wired to avoid thrashing the wired area.
+             (:area :pinned))
+  new-instance
+  old-layout)
+
+(defun supercede-instance (old-instance replacement)
+  (let ((layout (sys.int::%instance-layout old-instance)))
+    (cond ((sys.int::layout-p layout)
+           ;; This really is a layout, not a superceded instance
+           (let ((new-layout (make-obsolete-instance-layout
+                              :old-layout layout
+                              :new-instance replacement)))
+             (with-live-objects (new-layout)
+               ;; ###: Should this be a CAS?
+               ;; FIXME: This needs to keep the GC bits intact.
+               ;; Not a problem for objects on the dynamic heap, but will
+               ;; be an issue when dealing wired/pinned objects.
+               (setf (sys.int::%object-ref-unsigned-byte-64 old-instance -1)
+                     ;; Construct a new obsolete-instance header containing
+                     ;; our new obsolete layout.
+                     (logior (ash (sys.int::lisp-object-address new-layout)
+                                  sys.int::+object-data-shift+)
+                             (ash sys.int::+object-tag-obsolete-instance+
+                                  sys.int::+object-type-shift+))))))
+          (t
+           ;; This instance has already been superceded, replace it in-place.
+           (setf (obsolete-instance-layout-new-instance layout)
+                 replacement))))
+  (values))

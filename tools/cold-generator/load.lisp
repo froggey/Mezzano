@@ -111,6 +111,9 @@
     seq))
 
 (defun load-structure-definition (name* slots* parent* area* size* layout*)
+  ;; TODO: Respect size & layout when loading new definitions.
+  ;; POPULATE-STRUCTURE-DEFINITION correctly reconstructs them for homogenous
+  ;; boxed structures, but won't work for other layouts.
   (declare (ignore size* layout*))
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))

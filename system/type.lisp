@@ -859,7 +859,7 @@
                   ((keywordp object) 'keyword)
                   (t 'symbol)))
            (#b110001 (class-name (class-of object)))
-           (#b110010 'object-tag-110010)
+           (#b110010 (class-name (class-of object)))
            (#b110011 'mezzano.simd:sse-vector)
            (#b110100 'mezzano.supervisor:thread)
            (#b110101 'unbound-value)

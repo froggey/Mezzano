@@ -372,7 +372,7 @@
        into slot-defs
        finally (return (values slot-defs
                                (cond ((every (lambda (x) (eql x 1)) layout) t)
-                                     ((every (lambda (x) (eql x 1)) layout) nil)
+                                     ((every (lambda (x) (eql x 0)) layout) nil)
                                      (t layout))
                                (length layout))))))
 
