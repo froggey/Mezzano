@@ -2742,13 +2742,14 @@ has only has class specializer."
 
 (defun update-instance-for-new-layout (instance)
   (let* ((class (class-of instance))
-         (old-layout (sys.int::%instance-layout instance))
-         (old-real-layout (if (sys.int::layout-p old-layout)
-                              old-layout
-                              (sys.int::%instance-layout
-                               (mezzano.runtime::obsolete-instance-layout-new-instance old-layout))))
+         (old-potentially-obsolete-layout (sys.int::%instance-layout instance))
+         (old-instance (if (sys.int::layout-p old-potentially-obsolete-layout)
+                           instance
+                           (mezzano.runtime::obsolete-instance-layout-new-instance
+                            old-potentially-obsolete-layout)))
+         (old-layout (sys.int::%instance-layout old-instance))
          (new-layout (safe-class-slot-storage-layout class))
-         (old-layout-slots (layout-instance-slots-list old-real-layout))
+         (old-layout-slots (layout-instance-slots-list old-layout))
          (new-layout-slots (layout-instance-slots-list new-layout))
          (added-slots (set-difference new-layout-slots old-layout-slots))
          (discarded-slots (set-difference old-layout-slots new-layout-slots))
@@ -2759,12 +2760,13 @@ has only has class specializer."
     ;; Copy slots that were not added/discarded.
     (loop
        for slot in (intersection new-layout-slots old-layout-slots)
-       do (setf (standard-instance-access new-instance (slot-location-using-layout slot new-layout))
-                (standard-instance-access instance (slot-location-using-layout slot old-real-layout))))
+       do
+         (setf (standard-instance-access new-instance (slot-location-using-layout slot new-layout))
+               (standard-instance-access old-instance (slot-location-using-layout slot old-layout))))
     ;; Assemble the list of discarded values.
     (loop
        for slot in discarded-slots
-       do (let ((value (standard-instance-access instance (slot-location-using-layout slot old-real-layout))))
+       do (let ((value (standard-instance-access old-instance (slot-location-using-layout slot old-layout))))
             (when (not (eql value *secret-unbound-value*))
               (setf property-list (list* slot value
                                          property-list)))))
