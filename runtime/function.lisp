@@ -292,6 +292,8 @@ Arguments to FUNCTION:
 (defun (setf funcallable-instance-function) (value funcallable-instance)
   (check-type value function)
   (%type-check funcallable-instance +object-tag-funcallable-instance+ 'funcallable-instance)
+  ;; FIXME: This needs to deal with obsolete instances properly.
+  ;; Both the old instance and the new must have the same function.
   ;; TODO: If the function is an +OBJECT-TAG-FUNCTION+, then the entry point could point directly at it.
   ;; Same as in ALLOCATE-FUNCALLABLE-INSTANCE.
   (setf (%object-ref-t funcallable-instance +funcallable-instance-function+) value))

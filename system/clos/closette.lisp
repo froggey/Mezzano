@@ -163,37 +163,24 @@
     (declare (ignore layout))
     (setf (standard-instance-access slots location) new-value)))
 
-#+(or)
 (defun fetch-up-to-date-instance-slots-and-layout (instance)
   (loop
-     (let* ((storage-layout (standard-instance-access (std-instance-slots (class-of instance))
-                                           *standard-class-slot-storage-layout-location*))
-            (funcallable-instance-p (funcallable-std-instance-p instance))
-            (instance-layout (if funcallable-instance-p
-                                 (funcallable-std-instance-layout instance)
-                                 (std-instance-layout instance)))
-            (slots (if funcallable-instance-p
-                       (funcallable-std-instance-slots instance)
-                       (std-instance-slots instance))))
-       (when (eql storage-layout instance-layout)
-         (return (values slots instance-layout)))
-       (update-instance-for-new-layout instance))))
-
-(defun fetch-up-to-date-instance-slots-and-layout (instance)
-  (let ((layout (sys.int::%instance-layout instance)))
-    (cond ((sys.int::layout-p layout)
-           (when (sys.int::layout-obsolete layout)
-             (error "TODO: Update instance for new layout"))
-           (values instance layout))
-          (t
-           ;; Obsolete instance.
-           ;; There should never be nested layers of obsolete instances.
-           (let* ((real-instance (mezzano.runtime::obsolete-instance-layout-new-instance layout))
-                  (real-layout (sys.int::%instance-layout real-instance)))
-             ;; But it's possible that the layout of the new instance is obsolete
-             (when (sys.int::layout-obsolete real-layout)
-               (error "TODO: Update instance for new layout"))
-             (values real-instance real-layout))))))
+     (let ((layout (sys.int::%instance-layout instance)))
+       (cond ((sys.int::layout-p layout)
+              (cond ((sys.int::layout-obsolete layout)
+                     (update-instance-for-new-layout instance))
+                    (t
+                     (return (values instance layout)))))
+             (t
+              ;; Obsolete instance.
+              ;; There should never be nested layers of obsolete instances.
+              (let* ((real-instance (mezzano.runtime::obsolete-instance-layout-new-instance layout))
+                     (real-layout (sys.int::%instance-layout real-instance)))
+                ;; But it's possible that the layout of the new instance is obsolete
+                (cond ((sys.int::layout-obsolete real-layout)
+                       (update-instance-for-new-layout instance))
+                      (t
+                       (return (values real-instance real-layout))))))))))
 
 (defun find-effective-slot (object slot-name)
   (find slot-name (safe-class-slots (class-of object))
@@ -883,6 +870,18 @@ Other arguments are included directly."
 
 ;;; finalize-inheritance
 
+(defun class-layouts-compatible-p (layout-a layout-b)
+  (and (eql (sys.int::layout-heap-size layout-a)
+            (sys.int::layout-heap-size layout-b))
+       (equal (sys.int::layout-heap-layout layout-a)
+              (sys.int::layout-heap-layout layout-b))
+       (equal (sys.int::layout-area layout-a)
+              (sys.int::layout-area layout-b))
+       ;; TODO: This could be less conservative.
+       ;; Only the slot-name/location pairs matter, not the ordering of the pairs.
+       (equal (sys.int::layout-instance-slots layout-a)
+              (sys.int::layout-instance-slots layout-b))))
+
 (defun std-finalize-inheritance (class)
   (dolist (super (safe-class-direct-superclasses class))
     (ensure-class-finalized super))
@@ -912,7 +911,15 @@ Other arguments are included directly."
        for location = (safe-slot-definition-location slot)
        do (setf (aref instance-slot-vector i) slot-name
                 (aref instance-slot-vector (1+ i)) location))
-    (setf (safe-class-slot-storage-layout class) layout))
+    ;; TODO: Should call MAKE-INSTANCES-OBSOLETE here and have that rebuild
+    ;; the layout.
+    (let ((prev-layout (safe-class-slot-storage-layout class)))
+      ;; Don't obsolete instances if the existing layout is compatible.
+      (cond ((not prev-layout)
+             (setf (safe-class-slot-storage-layout class) layout))
+            ((not (class-layouts-compatible-p prev-layout layout))
+             (setf (safe-class-slot-storage-layout class) layout
+                   (sys.int::layout-obsolete prev-layout) layout)))))
   (setf (safe-class-finalized-p class) t)
   (values))
 
@@ -2726,61 +2733,45 @@ has only has class specializer."
                               '()
                               (list (find-class 't) class))))
 
+(defun layout-instance-slots-list (layout)
+  "Return layout's instance-slots as a list of instance slot names."
+  (loop
+     with instance-slots = (sys.int::layout-instance-slots layout)
+     for i below (length instance-slots) by 2
+     collect (aref instance-slots i)))
+
 (defun update-instance-for-new-layout (instance)
   (let* ((class (class-of instance))
-         (funcallable-instance-p (funcallable-std-instance-p instance))
-         (old-slots (if funcallable-instance-p
-                        (funcallable-std-instance-slots instance)
-                        (std-instance-slots instance)))
-         (old-layout (if funcallable-instance-p
-                         (funcallable-std-instance-layout instance)
-                         (std-instance-layout instance)))
-         (new-layout (safe-class-slot-storage-layout class)))
-    (if funcallable-instance-p
-        (setf (funcallable-std-instance-layout instance) new-layout)
-        (setf (std-instance-layout instance) new-layout))
-    ;; Don't do anything if the layout hasn't really changed.
-    (when (not (equal old-layout new-layout))
-      (let* ((old-layout-list (coerce old-layout 'list))
-             (new-layout-list (coerce new-layout 'list))
-             (added-slots (set-difference new-layout-list old-layout-list))
-             (discarded-slots (set-difference old-layout-list new-layout-list)))
-        (cond ((and (endp added-slots)
-                    (endp discarded-slots))
-               ;; No slots added or removed, only the order changed.
-               ;; Just build a new slot vector with the correct layout.
-               (let ((new-slots (make-array (length new-layout))))
-                 (loop
-                    for location from 0
-                    for slot in new-layout-list
-                    do (setf (svref new-slots location) (svref old-slots (slot-location-using-layout slot old-layout))))
-                 (if funcallable-instance-p
-                     (setf (funcallable-std-instance-slots instance) new-slots)
-                     (setf (std-instance-slots instance) new-slots))))
-              (t
-               ;; The complicated bit.
-               ;; Slots have been added or removed.
-               (let ((new-slots (make-array (length new-layout)
-                                            :initial-element *secret-unbound-value*))
-                     (property-list '()))
-                 ;; Copy slots that were not added/discarded.
-                 (loop
-                    for slot in (intersection new-layout-list old-layout-list)
-                    do (setf (svref new-slots (slot-location-using-layout slot new-layout))
-                             (svref old-slots (slot-location-using-layout slot old-layout))))
-                 ;; Assemble the list of discarded values.
-                 (loop
-                    for slot in discarded-slots
-                    do (let ((value (svref old-slots (slot-location-using-layout slot old-layout))))
-                         (when (not (eql value *secret-unbound-value*))
-                           (setf property-list (list* slot value
-                                                      property-list)))))
-                 ;; New slots.
-                 (if funcallable-instance-p
-                     (setf (funcallable-std-instance-slots instance) new-slots)
-                     (setf (std-instance-slots instance) new-slots))
-                 ;; Magic.
-                 (update-instance-for-redefined-class instance added-slots discarded-slots property-list))))))))
+         (old-layout (sys.int::%instance-layout instance))
+         (old-real-layout (if (sys.int::layout-p old-layout)
+                              old-layout
+                              (sys.int::%instance-layout
+                               (mezzano.runtime::obsolete-instance-layout-new-instance old-layout))))
+         (new-layout (safe-class-slot-storage-layout class))
+         (old-layout-slots (layout-instance-slots-list old-real-layout))
+         (new-layout-slots (layout-instance-slots-list new-layout))
+         (added-slots (set-difference new-layout-slots old-layout-slots))
+         (discarded-slots (set-difference old-layout-slots new-layout-slots))
+         (new-instance (allocate-instance class))
+         (property-list '()))
+    ;; The complicated bit.
+    ;; Slots have been added or removed.
+    ;; Copy slots that were not added/discarded.
+    (loop
+       for slot in (intersection new-layout-slots old-layout-slots)
+       do (setf (standard-instance-access new-instance (slot-location-using-layout slot new-layout))
+                (standard-instance-access instance (slot-location-using-layout slot old-real-layout))))
+    ;; Assemble the list of discarded values.
+    (loop
+       for slot in discarded-slots
+       do (let ((value (standard-instance-access instance (slot-location-using-layout slot old-real-layout))))
+            (when (not (eql value *secret-unbound-value*))
+              (setf property-list (list* slot value
+                                         property-list)))))
+    ;; Obsolete the old instance, replacing it with the new instance.
+    (mezzano.runtime::supercede-instance instance new-instance)
+    ;; Magic.
+    (update-instance-for-redefined-class instance added-slots discarded-slots property-list)))
 
 (defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
 
