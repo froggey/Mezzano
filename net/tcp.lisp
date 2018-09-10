@@ -38,7 +38,7 @@
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
-(defun wait-for-input (listener)
+(defun wait-for-connections (listener)
   (loop :for connections := (tcp-listener-connection listener)
         :do (if connections
                 (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
