@@ -32,10 +32,3 @@
    (make-instance 'mezzano.gui.desktop::set-background-image :image-pathname image)
    sys.int::*desktop*))
 
-;;;; -------------------------------------------------
-;;;; SMP
-
-;; Detect and boot secondary cpus.
-;; This is an internal function, which is supposed to be called automatically during the boot process.
-;; SMP feature is currently experimental and is disabled by default, so you may call it by yourself.
-(mezzano.supervisor::boot-secondary-cpus)
