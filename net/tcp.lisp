@@ -126,9 +126,9 @@
                                         :s-next 0
                                         :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
                                         :window-size 8192)))
-         (mezzano.supervisor:condition-notify (tcp-listener-cvar listener))
          (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-           (push connection (tcp-listener-connection listener)))
+           (push connection (tcp-listener-connection listener))
+           (mezzano.supervisor:condition-notify (tcp-listener-cvar listener)))
          (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
            (push connection *tcp-connections*))))
       ((eql flags +tcp4-flag-syn+)
