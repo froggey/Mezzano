@@ -163,10 +163,10 @@
   new-instance
   old-layout)
 
-(defun supercede-instance (old-instance replacement)
+(defun supersede-instance (old-instance replacement)
   (let ((layout (sys.int::%instance-layout old-instance)))
     (cond ((sys.int::layout-p layout)
-           ;; This really is a layout, not a superceded instance
+           ;; This really is a layout, not a superseded instance
            (let ((new-layout (make-obsolete-instance-layout
                               :old-layout layout
                               :new-instance replacement)))
@@ -186,7 +186,7 @@
                                  (ash sys.int::+object-tag-instance+
                                       sys.int::+object-type-shift+)))))))
           (t
-           ;; This instance has already been superceded, replace it in-place.
+           ;; This instance has already been superseded, replace it in-place.
            ;; FIXME: Can race with the GC. It can snap the old instance away
            ;; from underneath us, losing the replacement.
            ;; Check if the old instance's layout matches after this?

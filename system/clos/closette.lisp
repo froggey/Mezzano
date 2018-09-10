@@ -2359,7 +2359,7 @@ has only has class specializer."
         (setf (slot-value new-instance slot-name)
               (slot-value old-instance slot-name))))
     ;; Obsolete the old instance, replacing it with the new instance.
-    (mezzano.runtime::supercede-instance old-instance new-instance)
+    (mezzano.runtime::supersede-instance old-instance new-instance)
     (apply #'update-instance-for-different-class
            old-copy old-instance initargs)
     old-instance))
@@ -2770,7 +2770,7 @@ has only has class specializer."
               (setf property-list (list* slot value
                                          property-list)))))
     ;; Obsolete the old instance, replacing it with the new instance.
-    (mezzano.runtime::supercede-instance instance new-instance)
+    (mezzano.runtime::supersede-instance instance new-instance)
     ;; Magic.
     (update-instance-for-redefined-class instance added-slots discarded-slots property-list)))
 

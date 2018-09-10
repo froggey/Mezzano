@@ -1126,7 +1126,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       ;; instead replace it with the updated instance.
       ;; FIXME: There's a race-condition here.
       ;; If a one thread is accessing an obsolete instance (because it
-      ;; was superceded partway through the access) then this will
+      ;; was superseded partway through the access) then this will
       ;; update the old instance to point at the new instance and the
       ;; thread will perform the access on the new instance with the old
       ;; slot location. Such accesses should be performed in a GC restart
