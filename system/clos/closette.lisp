@@ -878,8 +878,8 @@ Other arguments are included directly."
               (sys.int::layout-area layout-b))
        ;; TODO: This could be less conservative.
        ;; Only the slot-name/location pairs matter, not the ordering of the pairs.
-       (equal (sys.int::layout-instance-slots layout-a)
-              (sys.int::layout-instance-slots layout-b))))
+       (equalp (sys.int::layout-instance-slots layout-a)
+               (sys.int::layout-instance-slots layout-b))))
 
 (defun std-finalize-inheritance (class)
   (dolist (super (safe-class-direct-superclasses class))
