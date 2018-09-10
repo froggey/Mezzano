@@ -30,21 +30,25 @@
   ((local-port :accessor tcp-listener-local-port :initarg :local-port)
    (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
    (connection :accessor tcp-listener-connection :initarg :connection)
-   (lock :accessor tcp-listener-lock :initarg :lock))
+   (lock :accessor tcp-listener-lock :initarg :lock)
+   (cvar :accessor tcp-listener-cvar :initarg :cvar))
   (:default-initargs
-   :lock (mezzano.supervisor:make-mutex "TCP listener lock")))
+   :lock (mezzano.supervisor:make-mutex "TCP listener lock")
+   :cvar (mezzano.supervisor:make-condition-variable "TCP listener cvar")))
 
 (defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
 (defun wait-for-connections (listener)
-  (loop :for connections := (tcp-listener-connection listener)
-        :do (if connections
-                (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-                  (setf (tcp-listener-connection listener) nil)
-                  (return connections))
-                (sleep 1))))
+  (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
+    (let ((connections (tcp-listener-connection listener)))
+      (if connections
+          (progn
+            (setf (tcp-listener-connection listener) nil)
+            connections)
+          (mezzano.supervisor:condition-wait (tcp-listener-cvar listener)
+                                             (tcp-listener-lock listener))))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
@@ -122,6 +126,7 @@
                                         :s-next 0
                                         :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
                                         :window-size 8192)))
+         (mezzano.supervisor:condition-notify (tcp-listener-cvar listener))
          (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
            (push connection (tcp-listener-connection listener)))
          (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
