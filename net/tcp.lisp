@@ -146,7 +146,6 @@
     (make-instance 'tcp-stream :connection connection)))
 
 (defun tcp4-decline-connection (connection)
-  (close connection)
   (detach-tcp-connection connection))
 
 (defun tcp4-establish-connection (local-ip local-port remote-ip remote-port packet start end)
