@@ -396,7 +396,6 @@
 
 (defun class-of (x)
   (cond ((or (sys.int::instance-p x)
-             (sys.int::obsolete-instance-p x)
              (sys.int::funcallable-instance-p x))
          (let ((layout (sys.int::%instance-layout x)))
            (cond ((sys.int::layout-p layout)

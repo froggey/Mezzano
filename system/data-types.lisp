@@ -108,7 +108,7 @@
 (defconstant +object-tag-symbol+                  #b110000)
 ;; Low two bits must match high two bits of +tag-instance-header+.
 (defconstant +object-tag-instance+                #b110001)
-(defconstant +object-tag-obsolete-instance+       #b110010)
+;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
 (defconstant +object-tag-thread+                  #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)

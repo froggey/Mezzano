@@ -873,8 +873,8 @@
            (#b111101 (class-name (class-of object)))
            (#b111110 'closure)
            (#b111111 'object-tag-111111)))
-        ((%value-has-tag-p object +tag-structure-header+)
-         'structure-header)
+        ((%value-has-tag-p object +tag-instance-header+)
+         'instance-header)
         ;; Invalid objects, these shouldn't be seen in the machine.
         ((%value-has-tag-p object +tag-dx-root-object+)
          'dx-root)

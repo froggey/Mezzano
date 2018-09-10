@@ -18,9 +18,6 @@
 (defun sys.int::instance-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-instance+))
 
-(defun sys.int::obsolete-instance-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-obsolete-instance+))
-
 (defun sys.int::funcallable-instance-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-funcallable-instance+))
 
@@ -183,10 +180,16 @@
                      ;; our new obsolete layout.
                      (logior (ash (sys.int::lisp-object-address new-layout)
                                   sys.int::+object-data-shift+)
-                             (ash sys.int::+object-tag-obsolete-instance+
-                                  sys.int::+object-type-shift+))))))
+                             (if (sys.int::funcallable-instance-p old-instance)
+                                 (ash sys.int::+object-tag-funcallable-instance+
+                                      sys.int::+object-type-shift+)
+                                 (ash sys.int::+object-tag-instance+
+                                      sys.int::+object-type-shift+)))))))
           (t
            ;; This instance has already been superceded, replace it in-place.
+           ;; FIXME: Can race with the GC. It can snap the old instance away
+           ;; from underneath us, losing the replacement.
+           ;; Check if the old instance's layout matches after this?
            (setf (obsolete-instance-layout-new-instance layout)
                  replacement))))
   (values))

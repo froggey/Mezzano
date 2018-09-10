@@ -54,7 +54,7 @@
     mezzano.simd:mmx-vector    ; #b101111
     symbol                     ; #b110000
     instance                   ; #b110001
-    obsolete-instance          ; #b110010
+    invalid-110010             ; #b110010
     mezzano.simd:sse-vector    ; #b110011
     thread                     ; #b110100
     unbound-value              ; #b110101
@@ -266,9 +266,12 @@ FN will be called with the world stopped, it must not allocate."
                         (setf largest-free-space (max largest-free-space size)))
                        ((#.+object-tag-instance+
                          #.+object-tag-funcallable-instance+)
-                        (add-class (layout-class (%instance-layout object))))
-                       (#.+object-tag-obsolete-instance+
-                        (add-class (class-of object))))))))
+                        (let ((layout (%instance-layout object)))
+                          (add-class
+                           (layout-class
+                            (if (layout-p layout)
+                                layout
+                                (mezzano.runtime::obsolete-instance-layout-old-layout layout)))))))))))
     (values allocated-words total-words largest-free-space
             n-allocated-objects allocated-objects-sizes allocated-classes)))
 
