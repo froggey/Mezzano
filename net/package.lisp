@@ -73,6 +73,11 @@
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
   (:export #:tcp-stream-connect
+           #:tcp-listen
+           #:tcp4-accept-connection
+           #:tcp4-decline-connection
+           #:wait-for-connections
+           #:close-tcp-listener
            #:network-error
            #:connection-error
            #:connection-error-host
