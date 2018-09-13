@@ -21,6 +21,7 @@
   class)
 
 (defun class-reference (symbol)
+  (check-type symbol symbol)
   (or (gethash symbol *class-reference-table*)
       (setf (gethash symbol *class-reference-table*)
             (make-class-reference :name symbol))))
