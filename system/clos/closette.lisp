@@ -239,26 +239,26 @@
         ;; unspecialized path.
         ;; Only the 1-effective path supports optimized access, the
         ;; unspecialized path will end up calling slot-value again.
-        (add-method gf
-                    (make-instance 'standard-reader-method
-                                   :lambda-list '(object)
-                                   :qualifiers ()
-                                   :specializers (list (find-class 'standard-object))
-                                   :function (lambda (method next-emfun)
-                                               (declare (ignore method next-emfun))
-                                               (lambda (object)
-                                                 (slot-value object slot-name)))
-                                   :slot-definition direct-slot))
-        (add-method gf
-                    (make-instance 'standard-reader-method
-                                   :lambda-list '(object)
-                                   :qualifiers ()
-                                   :specializers (list (find-class 'structure-object))
-                                   :function (lambda (method next-emfun)
-                                               (declare (ignore method next-emfun))
-                                               (lambda (object)
-                                                 (slot-value object slot-name)))
-                                   :slot-definition direct-slot))
+        (std-add-method gf
+                        (make-instance 'standard-reader-method
+                                       :lambda-list '(object)
+                                       :qualifiers ()
+                                       :specializers (list (find-class 'standard-object))
+                                       :function (lambda (method next-emfun)
+                                                   (declare (ignore method next-emfun))
+                                                   (lambda (object)
+                                                     (slot-value object slot-name)))
+                                       :slot-definition direct-slot))
+        (std-add-method gf
+                        (make-instance 'standard-reader-method
+                                       :lambda-list '(object)
+                                       :qualifiers ()
+                                       :specializers (list (find-class 'structure-object))
+                                       :function (lambda (method next-emfun)
+                                                   (declare (ignore method next-emfun))
+                                                   (lambda (object)
+                                                     (slot-value object slot-name)))
+                                       :slot-definition direct-slot))
         (setf (gethash slot-name *fast-slot-value-readers*) gf)))
     gf))
 
@@ -300,26 +300,26 @@
                                 :name `((setf slot-value) ,slot-name)
                                 :lambda-list '(value object)
                                 :method-class (find-class 'standard-method)))
-        (add-method gf
-                    (make-instance 'standard-writer-method
-                                   :lambda-list '(value object)
-                                   :qualifiers ()
-                                   :specializers (list *the-class-t* (find-class 'standard-object))
-                                   :function (lambda (method next-emfun)
-                                               (declare (ignore method next-emfun))
-                                               (lambda (value object)
-                                                 (setf (slot-value object slot-name) value)))
-                                   :slot-definition direct-slot))
-        (add-method gf
-                    (make-instance 'standard-writer-method
-                                   :lambda-list '(value object)
-                                   :qualifiers ()
-                                   :specializers (list *the-class-t* (find-class 'structure-object))
-                                   :function (lambda (method next-emfun)
-                                               (declare (ignore method next-emfun))
-                                               (lambda (value object)
-                                                 (setf (slot-value object slot-name) value)))
-                                   :slot-definition direct-slot))
+        (std-add-method gf
+                        (make-instance 'standard-writer-method
+                                       :lambda-list '(value object)
+                                       :qualifiers ()
+                                       :specializers (list *the-class-t* (find-class 'standard-object))
+                                       :function (lambda (method next-emfun)
+                                                   (declare (ignore method next-emfun))
+                                                   (lambda (value object)
+                                                     (setf (slot-value object slot-name) value)))
+                                       :slot-definition direct-slot))
+        (std-add-method gf
+                        (make-instance 'standard-writer-method
+                                       :lambda-list '(value object)
+                                       :qualifiers ()
+                                       :specializers (list *the-class-t* (find-class 'structure-object))
+                                       :function (lambda (method next-emfun)
+                                                   (declare (ignore method next-emfun))
+                                                   (lambda (value object)
+                                                     (setf (slot-value object slot-name) value)))
+                                       :slot-definition direct-slot))
         (setf (gethash slot-name *fast-slot-value-writers*) gf)))
     gf))
 
@@ -1396,7 +1396,9 @@ has only has class specializer."
                   #'make-instance)
               (safe-generic-function-method-class gf)
               all-keys)))
-    (add-method gf new-method)
+    (if (standard-generic-function-instance-p gf)
+        (std-add-method gf new-method)
+        (add-method gf new-method))
     new-method))
 
 ;;; make-instance-standard-method creates and initializes an instance of
@@ -1447,7 +1449,7 @@ has only has class specializer."
 ;;; with the same qualifiers and specializers.  It's a pain to develop
 ;;; programs without this feature of full CLOS.
 
-(defun add-method (gf method)
+(defun std-add-method (gf method)
   ;; If the GF has no methods and an empty lambda-list, then it may have
   ;; been implicitly created via defmethod. Fill in the lambda-list.
   (when (and (endp (safe-generic-function-methods gf))
@@ -1467,7 +1469,7 @@ has only has class specializer."
   (finalize-generic-function gf)
   gf)
 
-(defun remove-method (gf method)
+(defun std-remove-method (gf method)
   (setf (safe-generic-function-methods gf)
         (remove method (safe-generic-function-methods gf)))
   (setf (safe-method-generic-function method) nil)
@@ -2220,6 +2222,21 @@ has only has class specializer."
   (:method ((accessor-method standard-accessor-method))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value accessor-method 'slot-definition)))
+
+;;; Method management
+;;;
+;;; ###: CLHS says these should be specialized on METHOD, MOP says
+;;; on STANDARD-METHOD. Which is right? STANDARD-METHOD seems more sensible.
+
+(defgeneric add-method (generic-function method))
+(defmethod add-method ((generic-function standard-generic-function)
+                       (method standard-method))
+  (std-add-method generic-function method))
+
+(defgeneric remove-method (generic-function method))
+(defmethod remove-method ((generic-function standard-generic-function)
+                          (method standard-method))
+  (std-remove-method generic-function method))
 
 ;;; Slot access
 
