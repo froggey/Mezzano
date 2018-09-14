@@ -32,7 +32,12 @@
                      for slot in (structure-definition-slots type)
                      for slot-name = (structure-slot-definition-name slot)
                      collect (intern (symbol-name slot-name) "KEYWORD")
-                     collect (%struct-slot object type slot-name)))
+                     collect (if (structure-slot-definition-fixed-vector slot)
+                                 (let ((vec (make-array (structure-slot-definition-fixed-vector slot))))
+                                   (dotimes (i (structure-slot-definition-fixed-vector slot))
+                                     (setf (aref vec i) (%struct-vector-slot object type slot-name i)))
+                                   vec)
+                                 (%struct-slot object type slot-name))))
            :stream stream)))
 
 (defmethod print-object ((object hash-table) stream)

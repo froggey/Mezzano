@@ -19,15 +19,27 @@
 (defun mezzano.clos::safe-class-precedence-list (class)
   (sb-mop:class-precedence-list class))
 
-(defstruct (structure-definition
-             (:constructor sys.int::%make-struct-definition
-                           (name slots parent area size layout)))
-  (name)
-  (slots)
-  (parent)
-  (area)
-  (size)
-  (layout))
+(defclass structure-definition ()
+  ((name :initarg :name :reader structure-definition-name)
+   (slots :initarg :slots :reader structure-definition-slots)
+   (parent :initarg :parent :reader structure-definition-parent)
+   (area :initarg :area :reader structure-definition-area)
+   (size :initarg :size :reader structure-definition-size)
+   (layout :initarg :layout :accessor structure-definition-layout)
+   (sealed :initarg :sealed :reader structure-definition-sealed)))
+
+(defun sys.int::%make-struct-definition (name slots parent area size layout sealed)
+  (make-instance 'structure-definition
+                 :name name
+                 :slots slots
+                 :parent parent
+                 :area area
+                 :size size
+                 :layout layout
+                 :sealed sealed))
+
+(defun sys.int::structure-definition-p (object)
+  (typep object 'structure-definition))
 
 (defstruct layout
   class
@@ -37,8 +49,8 @@
   area
   instance-slots)
 
-(defun make-struct-definition (name slots parent area size layout)
-  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil))
+(defun make-struct-definition (name slots parent area size layout sealed)
+  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed))
          (layout-object (make-layout
                          :class def
                          :obsolete nil
@@ -50,16 +62,28 @@
     (setf (structure-definition-layout def) layout-object)
     def))
 
-(defstruct (structure-slot-definition
-             (:constructor sys.int::make-struct-slot-definition
-                           (name accessor initform type read-only ref-fn index)))
-  name
-  accessor
-  initform
-  type
-  read-only
-  ref-fn
-  index)
+(defclass structure-slot-definition ()
+  ((name :initarg :name :reader structure-slot-definition-name)
+   (accessor :initarg :accessor :reader structure-slot-definition-accessor)
+   (initform :initarg :initform :reader structure-slot-definition-initform)
+   (type :initarg :type :reader structure-slot-definition-type)
+   (read-only :initarg :read-only :reader structure-slot-definition-read-only)
+   (ref-fn :initarg :ref-fn :reader structure-slot-definition-ref-fn)
+   (index :initarg :index :reader structure-slot-definition-index)
+   (fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
+   (align :initarg :align :reader structure-slot-definition-align)))
+
+(defun sys.int::make-struct-slot-definition (name accessor initform type read-only ref-fn index fixed-vector align)
+  (make-instance 'structure-slot-definition
+                 :name name
+                 :accessor accessor
+                 :initform initform
+                 :type type
+                 :read-only read-only
+                 :ref-fn ref-fn
+                 :index index
+                 :fixed-vector fixed-vector
+                 :align align))
 
 (defstruct (instance-header
              (:constructor sys.c::%%make-instance-header
@@ -747,6 +771,7 @@
   (save-object (sys.int::structure-definition-size object) omap stream)
   (save-object (sys.int::layout-heap-layout (sys.int::structure-definition-layout object)) omap stream)
   ;; TODO: Include layout-instance-slots
+  (save-object (sys.int::structure-definition-sealed object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)
@@ -757,6 +782,8 @@
   (save-object (sys.int::structure-slot-definition-read-only object) omap stream)
   (save-object (sys.int::structure-slot-definition-ref-fn object) omap stream)
   (save-object (sys.int::structure-slot-definition-index object) omap stream)
+  (save-object (sys.int::structure-slot-definition-fixed-vector object) omap stream)
+  (save-object (sys.int::structure-slot-definition-align object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
 (defun sys.int::%single-float-as-integer (value)

@@ -26,141 +26,138 @@
         (print-object-specializer nil)
         (type nil)
         (named nil)
-        (slot-offsets nil))
-    (if (symbolp name-and-options)
-        (setf name name-and-options)
-        (progn
-          (setf name (first name-and-options))
-          (dolist (option (rest name-and-options))
-            (cond
-              ;; :constructor or (:constructor)
-              ;; Empty option, ignored.
-              ((or (eq :constructor option)
-                   (and (consp option)
-                        (eq :constructor (first option))
-                        (null (rest option)))))
-              ;; (:constructor name)
-              ;; A constructor with an explicit name and default argument list.
-              ((and (consp option)
-                    (eq :constructor (first option))
-                    (cdr option)
-                    (null (cddr option)))
-               (if (eq (second option) 'nil)
-                   ;; Disable the constructor.
-                   (setf suppress-constructors t)
-                   (push (second option) constructors)))
-              ;; (:constructor name BOA-lambda-list)
-              ((and (consp option)
-                    (eq :constructor (first option))
-                    (cddr option)
-                    (null (cdddr option)))
-               (if (eq (second option) 'nil)
-                   (setf suppress-constructors t)
-                   (push (rest option) constructors)))
-              ;; :predicate or (:predicate)
-              ;; Empty option, ignored.
-              ((or (eq :predicate option)
-                   (and (consp option)
-                        (eq :predicate (first option))
-                        (null (cdr option)))))
-              ;; (:predicate name)
-              ((and (consp option)
-                    (eq :predicate (car option))
-                    (cdr option)
-                    (null (cddr option)))
-               (cond ((eq (second option) 'nil)
-                      (setf predicate-name nil))
-                     ((null predicate-name)
-                      (error "Predicate option ~S conflicts with (:predicate nil) used earlier." option))
-                     ((eq predicate-name t)
-                      (setf predicate-name (second option)))
-                     (t (error "Multiple predicate options supplied."))))
-              ;; :copier or (:copier)
-              ;; Empty option, ignored.
-              ((or (eq :copier option)
-                   (and (consp option)
-                        (eq :copier (first option))
-                        (null (rest option)))))
-              ;; (:copier name)
-              ((and (consp option)
-                    (eq :copier (first option))
-                    (cdr option)
-                    (null (cddr option)))
-               (cond ((eq (second option) 'nil)
-                      (setf copier-name nil))
-                     ((null copier-name)
-                      (error "Copier option ~S conflicts with (:copier nil) used earlier." option))
-                     ((eq copier-name t)
-                      (setf copier-name (second option)))
-                     (t (error "Multiple copier options supplied."))))
-              ;; (:area name)
-              ((and (consp option)
-                    (eq :area (first option))
-                    (cdr option)
-                    (null (cddr option)))
-               (setf area (second option)))
-              ;; :conc-name, same as (:conc-name nil). no prefix.
-              ((eql option :conc-name)
-               (setf conc-namep nil))
-              ;; (:conc-name &optional name)
-              ((and (consp option)
-                    (eql (first option) :conc-name)
-                    (null (cddr option)))
-               (if (second option)
-                   (setf conc-namep t
-                         conc-name (second option))
-                   (setf conc-namep nil)))
-              ((or (eql option :include)
-                   (and (consp option)
-                        (eql (first option) :include)
-                        (null (cdr option))))
-               (error "Malformed :INCLUDE option ~S." option))
-              ((and (consp option)
-                    (eql (first option) :include))
-               (when included-structure-name
-                 (error "Multiple :INCLUDE options in DEFSTRUCT."))
-               (setf included-structure-name (second option)
-                     included-slot-descriptions (cddr option)))
-              ;; (:print-object) or (:print-function)
-              ((and (consp option)
-                    (member (first option) '(:print-object :print-function))
-                    (null (cdr option)))
-               (when (or print-function print-object print-object-specializer)
-                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
-               (setf print-object-specializer t))
-              ;; (:print-object function-name)
-              ((and (consp option)
-                    (eql (first option) :print-object)
-                    (null (cddr option)))
-               (when (or print-function print-object print-object-specializer)
-                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
-               (setf print-object (second option)))
-              ;; (:print-function function-name)
-              ((and (consp option)
-                    (eql (first option) :print-function)
-                    (null (cddr option)))
-               (when (or print-function print-object print-object-specializer)
-                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
-               (setf print-function (second option)))
-              ;; :named
-              ((eql option :named)
-               (setf named t))
-              ;; (:type type)
-              ((and (consp option)
-                    (eql (first option) :type)
-                    (= (length option) 2))
-               (when type
-                 (error "Multiple :TYPE options specified."))
-               (setf type (second option))
-               (unless (or (eql type 'list) (eql type 'vector)
-                           (and (consp type)
-                                (eql (first type) 'vector)
-                                (= (length type) 2)))
-                 (error "Invalid :TYPE option ~S.%" option)))
-              ;; :slot-offsets
-              ((eql option :slot-offsets)
-               (setf slot-offsets t))
-              (t (error "Unsupported DEFSTRUCT option ~S" option))))))
+        (slot-offsets nil)
+        (sealed nil))
+    (when (not (listp name-and-options))
+      (setf name-and-options (list name-and-options)))
+    (setf name (first name-and-options))
+    (dolist (option (rest name-and-options))
+      (when (not (listp option))
+        (setf option (list option)))
+      (cond
+        ;; Standard options.
+        ;;
+        ;; (:constructor)
+        ;; Empty option, ignored.
+        ((and (eq :constructor (first option))
+              (null (rest option))))
+        ;; (:constructor name)
+        ;; A constructor with an explicit name and default argument list.
+        ((and (eq :constructor (first option))
+              (cdr option)
+              (null (cddr option)))
+         (if (eq (second option) 'nil)
+             ;; Disable the constructor.
+             (setf suppress-constructors t)
+             (push (second option) constructors)))
+        ;; (:constructor name BOA-lambda-list)
+        ((and (eq :constructor (first option))
+              (cddr option)
+              (null (cdddr option)))
+         (if (eq (second option) 'nil)
+             (setf suppress-constructors t)
+             (push (rest option) constructors)))
+        ;; (:predicate)
+        ;; Empty option, ignored.
+        ((and (consp option)
+              (eq :predicate (first option))
+              (null (cdr option))))
+        ;; (:predicate name)
+        ((and (eq :predicate (car option))
+              (cdr option)
+              (null (cddr option)))
+         (cond ((eq (second option) 'nil)
+                (setf predicate-name nil))
+               ((null predicate-name)
+                (error "Predicate option ~S conflicts with (:predicate nil) used earlier." option))
+               ((eq predicate-name t)
+                (setf predicate-name (second option)))
+               (t (error "Multiple predicate options supplied."))))
+        ;; (:copier)
+        ;; Empty option, ignored.
+        ((and (eq :copier (first option))
+              (null (rest option))))
+        ;; (:copier name)
+        ((and (eq :copier (first option))
+              (cdr option)
+              (null (cddr option)))
+         (cond ((eq (second option) 'nil)
+                (setf copier-name nil))
+               ((null copier-name)
+                (error "Copier option ~S conflicts with (:copier nil) used earlier." option))
+               ((eq copier-name t)
+                (setf copier-name (second option)))
+               (t (error "Multiple copier options supplied."))))
+        ;; (:conc-name &optional name)
+        ((and (eql (first option) :conc-name)
+              (null (cddr option)))
+         (if (second option)
+             (setf conc-namep t
+                   conc-name (second option))
+             (setf conc-namep nil)))
+        ((and (eql (first option) :include)
+              (null (cdr option)))
+         (error "Malformed :INCLUDE option ~S." option))
+        ((and (consp option)
+              (eql (first option) :include))
+         (when included-structure-name
+           (error "Multiple :INCLUDE options in DEFSTRUCT."))
+         (setf included-structure-name (second option)
+               included-slot-descriptions (cddr option)))
+        ;; (:print-object) or (:print-function)
+        ((and (member (first option) '(:print-object :print-function))
+              (null (cdr option)))
+         (when (or print-function print-object print-object-specializer)
+           (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+         (setf print-object-specializer t))
+        ;; (:print-object function-name)
+        ((and (eql (first option) :print-object)
+              (null (cddr option)))
+         (when (or print-function print-object print-object-specializer)
+           (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+         (setf print-object (second option)))
+        ;; (:print-function function-name)
+        ((and (eql (first option) :print-function)
+              (null (cddr option)))
+         (when (or print-function print-object print-object-specializer)
+           (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+         (setf print-function (second option)))
+        ;; (:named)
+        ((and (eql (first option) :named)
+              (null (rest option)))
+         (setf named t))
+        ;; (:type type)
+        ((and (eql (first option) :type)
+              (= (length option) 2))
+         (when type
+           (error "Multiple :TYPE options specified."))
+         (setf type (second option))
+         (unless (or (eql type 'list) (eql type 'vector)
+                     (and (consp type)
+                          (eql (first type) 'vector)
+                          (= (length type) 2)))
+           (error "Invalid :TYPE option ~S.%" option)))
+        ;; Mezzano options
+        ;;
+        ;; (:area name)
+        ;; Set the allocation area for the structure.
+        ;; Instances will be allocated in the specified area.
+        ((and (eq :area (first option))
+              (cdr option)
+              (null (cddr option)))
+         (setf area (second option)))
+        ;; (:slot-offsets)
+        ;; Generate constants of the form +conc-name-slot-name+
+        ;; that contain the byte offsets of the slots.
+        ((and (eql (first option) :slot-offsets)
+              (null (rest option)))
+         (setf slot-offsets t))
+        ;; (:sealed)
+        ;; Prevent this structure from being :included in other structures.
+        ((and (eql (first option) :sealed)
+              (null (rest option)))
+         (setf sealed t))
+        (t (error "Unsupported DEFSTRUCT option ~S" option))))
     (values name
             (if conc-namep
                 (intern (string (or conc-name
@@ -198,7 +195,7 @@
               (t copier-name))
             included-structure-name included-slot-descriptions
             print-object print-function print-object-specializer
-            named type slot-offsets)))
+            named type slot-offsets sealed)))
 
 (defun compute-struct-slot-accessor-and-size (type)
   (cond ((subtypep type '(unsigned-byte 8))
@@ -227,25 +224,34 @@
 
 ;; Parses slot-description and returns a struct slot definition
 (defun parse-defstruct-slot (conc-name slot current-index)
-  (multiple-value-bind (name accessor initform type read-only)
+  (destructuring-bind (name &optional initform &key (type 't) read-only fixed-vector align)
       (if (symbolp slot)
-          (values slot (concat-symbols conc-name slot) nil 't nil)
-          (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only)
-              slot
-            (values slot-name (concat-symbols conc-name slot-name) slot-initform type read-only)))
-    (multiple-value-bind (ref-fn element-size)
-        (compute-struct-slot-accessor-and-size type)
-      ;; Align current index to element size.
-      (incf current-index (1- element-size))
-      (setf current-index (- current-index (rem current-index element-size)))
-      (values (make-struct-slot-definition name accessor initform type read-only
-                                           (or ref-fn '%object-ref-t)
-                                           (if ref-fn
-                                               current-index
-                                               ;; %object-ref-t takes a scaled index.
-                                               (truncate current-index 8)))
-              (+ current-index element-size)
-              (not ref-fn)))))
+          (list slot)
+          slot)
+    (let ((accessor (concat-symbols conc-name name)))
+      (check-type fixed-vector (or null (integer 0)))
+      (check-type align (member nil 1 2 4 8 16))
+      (multiple-value-bind (ref-fn element-size)
+          (compute-struct-slot-accessor-and-size type)
+        ;; Align current index.
+        (let ((effective-alignment (or align element-size)))
+          (when (and (not ref-fn) (< effective-alignment element-size))
+            ;; Boxed slots must be at least naturally aligned.
+            (setf effective-alignment element-size))
+          (decf current-index 8) ; Object indices are +8 from the true start of the object, compute 16 byte alignments properly
+          (incf current-index (1- effective-alignment))
+          (setf current-index (- current-index (rem current-index effective-alignment)))
+          (incf current-index 8)
+          (values (make-struct-slot-definition name accessor initform type read-only
+                                               (or ref-fn '%object-ref-t)
+                                               (if ref-fn
+                                                   current-index
+                                                   ;; %object-ref-t takes a scaled index.
+                                                   (truncate current-index 8))
+                                               fixed-vector align)
+                  current-index
+                  (+ current-index (max 1 (* element-size (or fixed-vector 1))))
+                  (not ref-fn)))))))
 
 (defun generate-simple-defstruct-constructor (struct-type name area)
   (generate-defstruct-constructor struct-type
@@ -279,13 +285,25 @@
          (let ((,tmp (%make-struct ',struct-type)))
            ,@(loop
                 for s in (structure-definition-slots struct-type)
-                collect `(setf (%struct-slot ,tmp ',struct-type ',(structure-slot-definition-name s))
-                               ,(if (member (structure-slot-definition-name s) default-slots)
-                                    (let ((val (gensym (string (structure-slot-definition-name s)))))
-                                      `(let ((,val ,(structure-slot-definition-initform s)))
-                                         (check-type ,val ,(structure-slot-definition-type s))
-                                         ,val))
-                                    (structure-slot-definition-name s))))
+                collect (if (structure-slot-definition-fixed-vector s)
+                            (let ((itr (gensym))
+                                  (value (gensym)))
+                              `(let ((,value ,(if (member (structure-slot-definition-name s) default-slots)
+                                                  (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                                    `(let ((,val ,(structure-slot-definition-initform s)))
+                                                       (check-type ,val ,(structure-slot-definition-type s))
+                                                       ,val))
+                                                  (structure-slot-definition-name s))))
+                                 (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
+                                   (setf (%struct-vector-slot ,tmp ',struct-type ',(structure-slot-definition-name s) ,itr)
+                                         ,value))))
+                            `(setf (%struct-slot ,tmp ',struct-type ',(structure-slot-definition-name s))
+                                   ,(if (member (structure-slot-definition-name s) default-slots)
+                                        (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                          `(let ((,val ,(structure-slot-definition-initform s)))
+                                             (check-type ,val ,(structure-slot-definition-type s))
+                                             ,val))
+                                        (structure-slot-definition-name s)))))
            ,tmp)))))
 
 (defun generate-defstruct-list/vector-constructor (leader-name slots name lambda-list construction-function)
@@ -349,7 +367,9 @@
                                     (list (structure-slot-definition-name x)
                                           (structure-slot-definition-initform x)
                                           :type (structure-slot-definition-type x)
-                                          :read-only (structure-slot-definition-read-only x)))
+                                          :read-only (structure-slot-definition-read-only x)
+                                          :fixed-vector (structure-slot-definition-fixed-vector x)
+                                          :align (structure-slot-definition-align x)))
                                   (structure-definition-slots included-structure)))))
     (dolist (is included-slot-descriptions)
       (let* ((slot-name (first is))
@@ -363,10 +383,12 @@
        with layout = (make-array 0 :element-type 'bit :adjustable t)
        for s in (append included-slots
                         slot-descriptions)
-       collect (multiple-value-bind (def next-index boxedp)
+       collect (multiple-value-bind (def slot-index next-index boxedp)
                    (parse-defstruct-slot conc-name s current-index)
-                 (adjust-array layout (truncate (+ next-index 7) 8))
-                 (setf (bit layout (truncate current-index 8)) (if boxedp 1 0))
+                 (adjust-array layout (truncate (+ next-index 7) 8) :initial-element 0)
+                 (when boxedp
+                   (dotimes (i (ceiling (- next-index slot-index) 8))
+                     (setf (bit layout (+ (truncate slot-index 8) i)) 1)))
                  (setf current-index next-index)
                  def)
        into slot-defs
@@ -376,9 +398,40 @@
                                      (t layout))
                                (length layout))))))
 
+(defun generate-normal-defstruct-slot-accessor (struct-type slot-definition)
+  (let ((slot-name (structure-slot-definition-name slot-definition))
+        (accessor-name (structure-slot-definition-accessor slot-definition)))
+    `(progn
+       (declaim (inline ,accessor-name))
+       (defun ,accessor-name (object)
+         (%struct-slot object ',struct-type ',slot-name))
+       ,@(unless (structure-slot-definition-read-only slot-definition)
+           (list `(declaim (inline (setf ,accessor-name)))
+                 `(defun (setf ,accessor-name) (new-value object)
+                    (setf (%struct-slot object ',struct-type ',slot-name) new-value))
+                 `(declaim (inline (cas ,accessor-name)))
+                 `(defun (cas ,accessor-name) (old new object)
+                    (cas (%struct-slot object ',struct-type ',slot-name) old new)))))))
+
+(defun generate-normal-defstruct-slot-vector-accessor (struct-type slot-definition)
+  (let ((slot-name (structure-slot-definition-name slot-definition))
+        (accessor-name (structure-slot-definition-accessor slot-definition)))
+    `(progn
+       (declaim (inline ,accessor-name))
+       (defun ,accessor-name (object index)
+         (%struct-vector-slot object ',struct-type ',slot-name index))
+       ,@(unless (structure-slot-definition-read-only slot-definition)
+           (list `(declaim (inline (setf ,accessor-name)))
+                 `(defun (setf ,accessor-name) (new-value object index)
+                    (setf (%struct-vector-slot object ',struct-type ',slot-name index) new-value))
+                 `(declaim (inline (cas ,accessor-name)))
+                 `(defun (cas ,accessor-name) (old new object index)
+                    (cas (%struct-vector-slot object ',struct-type ',slot-name index) old new)))))))
+
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
-                                  print-object print-function print-object-specializer slot-offsets)
+                                  print-object print-function print-object-specializer
+                                  slot-offsets sealed)
   (let* ((included-structure (when included-structure-name
                                (get-structure-type included-structure-name))))
     (multiple-value-bind (slots layout size)
@@ -387,7 +440,7 @@
                                          included-structure
                                          included-slot-descriptions)
       (let ((struct-type (or (get-structure-type name nil)
-                             (make-struct-definition name slots included-structure area size layout))))
+                             (make-struct-definition name slots included-structure area size layout sealed))))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))
@@ -405,21 +458,13 @@
                (list `(defmethod print-object ((object ,name) stream)
                         (funcall (function ,print-function) object stream 0))))
            ,@(loop
-                for n from 0
                 for s in slots
-                collect `(progn
-                           (declaim (inline ,(structure-slot-definition-accessor s)))
-                           (defun ,(structure-slot-definition-accessor s) (object)
-                             (%struct-slot object ',struct-type ',(structure-slot-definition-name s)))
-                           ,@(unless (structure-slot-definition-read-only s)
-                               (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
-                                     `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
-                                        (setf (%struct-slot object ',struct-type ',(structure-slot-definition-name s)) new-value))
-                                     `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
-                                     `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
-                                        (cas (%struct-slot object ',struct-type ',(structure-slot-definition-name s)) old new))))
-                           ,@(when slot-offsets
-                               `((defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+") ',n)))))
+                collect (if (structure-slot-definition-fixed-vector s)
+                            (generate-normal-defstruct-slot-vector-accessor struct-type s)
+                            (generate-normal-defstruct-slot-accessor struct-type s))
+                when slot-offsets
+                collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
+                           ',(structure-slot-definition-index s)))
            ,@(loop
                 for x in constructors
                 collect (if (symbolp x)
@@ -430,9 +475,11 @@
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                 included-structure-name included-slot-descriptions
                                 print-object print-function print-object-specializer
-                                named slot-offsets)
+                                named slot-offsets sealed)
   (when slot-offsets
     (error ":SLOT-OFFSETS with LIST structures not supported yet."))
+  (when sealed
+    (error "Cannot use :SEALED on typed structures."))
   (when (or included-structure-name included-slot-descriptions)
     (error "Included LIST structures not supported yet."))
   (when (and predicate (not named))
@@ -474,9 +521,11 @@
 (defun generate-vector-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer
-                                  named inner-type slot-offsets)
+                                  named inner-type slot-offsets sealed)
   (when slot-offsets
     (error ":SLOT-OFFSETS with VECTOR structures not supported yet."))
+  (when sealed
+    (error "Cannot use :SEALED on typed structures."))
   (when (and named (not (eql inner-type 't)))
     (error "Named VECTOR struct with non-T type."))
   (when (or included-structure-name included-slot-descriptions)
@@ -532,7 +581,7 @@
   (multiple-value-bind (name conc-name constructors predicate area copier
                         included-structure-name included-slot-descriptions
                         print-object print-function print-object-specializer
-                        named type slot-offsets)
+                        named type slot-offsets sealed)
       (parse-defstruct-options name-and-options)
     (let ((docstring nil)) ; TODO: do something with this.
       (when (stringp (first slot-descriptions))
@@ -541,12 +590,13 @@
         ((null type)
          (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
                                     included-structure-name included-slot-descriptions
-                                    print-object print-function print-object-specializer slot-offsets))
+                                    print-object print-function print-object-specializer
+                                    slot-offsets sealed))
         ((eql type 'list)
          (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
                                    included-structure-name included-slot-descriptions
                                    print-object print-function print-object-specializer
-                                   named slot-offsets))
+                                   named slot-offsets sealed))
         ((or (eql type 'vector)
              (and (listp type)
                   (eql (first type) 'vector)))
@@ -556,5 +606,5 @@
                                     named (if (listp type)
                                               (second type)
                                               't)
-                                    slot-offsets))
+                                    slot-offsets sealed))
         (t (error "Currently unsupported defstruct type ~S." type))))))

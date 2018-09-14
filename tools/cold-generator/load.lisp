@@ -110,7 +110,7 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
-(defun load-structure-definition (name* slots* parent* area* size* layout*)
+(defun load-structure-definition (name* slots* parent* area* size* layout* sealed*)
   ;; TODO: Respect size & layout when loading new definitions.
   ;; POPULATE-STRUCTURE-DEFINITION correctly reconstructs them for homogenous
   ;; boxed structures, but won't work for other layouts.
@@ -122,7 +122,7 @@
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
           (t
-           (let ((address (allocate 8 :wired))
+           (let ((address (allocate 9 :wired))
                  (layout-address (allocate 8 :wired)))
              (populate-structure-definition
               address layout-address
@@ -133,9 +133,12 @@
                                (sys.int::structure-slot-definition-accessor slot-def)
                                (sys.int::structure-slot-definition-initform slot-def)
                                (sys.int::structure-slot-definition-type slot-def)
-                               (sys.int::structure-slot-definition-read-only slot-def)))
+                               (sys.int::structure-slot-definition-read-only slot-def)
+                               (sys.int::structure-slot-definition-fixed-vector slot-def)
+                               (sys.int::structure-slot-definition-align slot-def)))
               parent*
-              (extract-object area*))
+              (extract-object area*)
+              sealed*)
              (make-value address sys.int::+tag-object+))))))
 
 (defun cross-value-p (value)
@@ -256,9 +259,9 @@
       (setf (word (+ address 1 i)) (aref stack (+ (length stack) i))))
     (make-value address sys.int::+tag-object+)))
 
-(defun load-structure-slot-definition (name accessor initform type read-only ref-fn index)
-  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only ref-fn index))
-        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only ref-fn index)))
+(defun load-structure-slot-definition (name accessor initform type read-only ref-fn index fixed-vector align)
+  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only ref-fn index fixed-vector align))
+        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only ref-fn index fixed-vector align)))
     (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
     image-def))
 
@@ -332,22 +335,25 @@
                            0)
              sys.int::+tag-immediate+))
     (#.sys.int::+llf-structure-definition+
-     (let ((layout (stack-pop stack))
+     (let ((sealed (stack-pop stack))
+           (layout (stack-pop stack))
            (size (stack-pop stack))
            (area (stack-pop stack))
            (parent (stack-pop stack))
            (slots (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-definition name slots parent area size layout)))
+       (load-structure-definition name slots parent area size layout sealed)))
     (#.sys.int::+llf-structure-slot-definition+
-     (let ((index (stack-pop stack))
+     (let ((align (stack-pop stack))
+           (fixed-vector (stack-pop stack))
+           (index (stack-pop stack))
            (ref-fn (stack-pop stack))
            (read-only (stack-pop stack))
            (type (stack-pop stack))
            (initform (stack-pop stack))
            (accessor (stack-pop stack))
            (name (stack-pop stack)))
-       (load-structure-slot-definition name accessor initform type read-only ref-fn index)))
+       (load-structure-slot-definition name accessor initform type read-only ref-fn index fixed-vector align)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              (cross-cl:dpb sys.int::+immediate-tag-single-float+

@@ -81,6 +81,75 @@
       (declare (ignore successp))
       actual-value)))
 
+(defun check-vector-slot-bounds (slot index)
+  (check-type index fixnum)
+  (assert (<= 0 index (1- (sys.int::structure-slot-definition-fixed-vector slot)))))
+
+(defun accessor-element-scale (accessor)
+  (ecase accessor
+    (sys.int::%object-ref-t 1)
+    (sys.int::%object-ref-unsigned-byte-8-unscaled  1)
+    (sys.int::%object-ref-unsigned-byte-16-unscaled 2)
+    (sys.int::%object-ref-unsigned-byte-32-unscaled 4)
+    (sys.int::%object-ref-unsigned-byte-64-unscaled 8)
+    (sys.int::%object-ref-signed-byte-8-unscaled    1)
+    (sys.int::%object-ref-signed-byte-16-unscaled   2)
+    (sys.int::%object-ref-signed-byte-32-unscaled   4)
+    (sys.int::%object-ref-signed-byte-64-unscaled   8)
+    (sys.int::%object-ref-single-float-unscaled     4)
+    (sys.int::%object-ref-double-float-unscaled     8)))
+
+(defun sys.int::%struct-vector-slot (object definition slot-name index)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (check-vector-slot-bounds slot index)
+    (funcall (sys.int::structure-slot-definition-ref-fn slot)
+             object
+             (+ (sys.int::structure-slot-definition-index slot)
+                (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
+                   index)))))
+
+(defun (setf sys.int::%struct-vector-slot) (value object definition slot-name index)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (check-vector-slot-bounds slot index)
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep value (sys.int::structure-slot-definition-type slot))))
+    (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
+               (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
+               (t
+                (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
+             value
+             object
+             (+ (sys.int::structure-slot-definition-index slot)
+                (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
+                   index)))))
+
+(defun (sys.int::cas sys.int::%struct-vector-slot) (old new object definition slot-name index)
+  (when (not (sys.int::structure-type-p object definition))
+    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+    (sys.int::%%unreachable))
+  (let ((slot (find-struct-slot definition slot-name)))
+    (check-vector-slot-bounds slot index)
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep old (sys.int::structure-slot-definition-type slot))))
+    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
+      (assert (typep new (sys.int::structure-slot-definition-type slot))))
+    (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
+      (error "Can't cas unboxed slots"))
+    (multiple-value-bind (successp actual-value)
+        (sys.int::%cas-object object
+                              (+ (sys.int::structure-slot-definition-index slot)
+                                 (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
+                                    index))
+                              old new)
+      (declare (ignore successp))
+      actual-value)))
+
 (defun sys.int::%fast-structure-type-p (object structure-header)
   (sys.int::%fast-structure-type-p object structure-header))
 
@@ -114,14 +183,18 @@
                  (sys.int::%struct-slot structure struct-type slot-name)))
       new)))
 
-(defun sys.int::make-struct-definition (name slots parent area size layout)
+(defun sys.int::make-struct-definition (name slots parent area size layout sealed)
+  (when (and parent
+             (sys.int::structure-definition-sealed parent))
+    (error "Attempted to make structure definition that includes sealed structure ~S" parent))
   (let* ((def (sys.int::%make-struct-definition name
                                                 ;; Slots list must be wired.
                                                 (sys.int::copy-list-in-area slots :wired)
                                                 parent
                                                 area
                                                 size
-                                                nil))
+                                                nil
+                                                sealed))
          (layout-object (sys.int::make-layout
                          :class def
                          :obsolete nil
