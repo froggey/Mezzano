@@ -240,7 +240,7 @@
             (setf effective-alignment element-size))
           (decf current-index 8) ; Object indices are +8 from the true start of the object, compute 16 byte alignments properly
           (incf current-index (1- effective-alignment))
-          (setf current-index (- current-index (rem current-index effective-alignment)))
+          (setf current-index (- current-index (mod current-index effective-alignment)))
           (incf current-index 8)
           (values (make-struct-slot-definition name accessor initform type read-only
                                                (or ref-fn '%object-ref-t)
@@ -464,7 +464,9 @@
                             (generate-normal-defstruct-slot-accessor struct-type s))
                 when slot-offsets
                 collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
-                           ',(structure-slot-definition-index s)))
+                           ',(if (eql (structure-slot-definition-ref-fn s) '%object-ref-t)
+                                 (structure-slot-definition-index s)
+                                 (truncate (structure-slot-definition-index s) 8))))
            ,@(loop
                 for x in constructors
                 collect (if (symbolp x)
