@@ -249,11 +249,20 @@
                            (when (not (typep (first min) base))
                              (error "Bad type ~S (lower-limit is not of type ~S)."
                                     type base))
-                           `(> ,object ',(first min)))
-                          (t (when (not (typep min base))
-                               (error "Bad type ~S (lower-limit is not of type ~S)."
-                                      type base))
-                             `(>= ,object ',min)))
+                           (if (and (eql base 'integer)
+                                    (< (first min) most-negative-fixnum))
+                               `(or (fixnump ,object)
+                                    (> ,object ',(first min)))
+                               `(> ,object ',(first min))))
+                          (t
+                           (when (not (typep min base))
+                             (error "Bad type ~S (lower-limit is not of type ~S)."
+                                    type base))
+                           (if (and (eql base 'integer)
+                                    (<= min most-negative-fixnum))
+                               `(or (fixnump ,object)
+                                    (>= ,object ',min))
+                               `(>= ,object ',min))))
                    ,(cond ((eql max '*) 't)
                           ((consp max)
                            (unless (null (rest max))
@@ -261,11 +270,20 @@
                            (when (not (typep (first max) base))
                              (error "Bad type ~S (upper-limit is not of type ~S)."
                                     type base))
-                           `(< ,object ',(first max)))
-                          (t (when (not (typep max base))
-                               (error "Bad type ~S (lower-limit is not of type ~S)."
-                                      type base))
-                             `(<= ,object ',max))))))))
+                           (if (and (eql base 'integer)
+                                    (> (first max) most-positive-fixnum))
+                               `(or (fixnump ,object)
+                                    (< ,object ',(first max)))
+                               `(< ,object ',(first max))))
+                          (t
+                           (when (not (typep max base))
+                             (error "Bad type ~S (lower-limit is not of type ~S)."
+                                    type base))
+                           (if (and (eql base 'integer)
+                                    (>= max most-positive-fixnum))
+                               `(or (fixnump ,object)
+                                    (<= ,object ',max))
+                               `(<= ,object ',max)))))))))
 
 (%define-compound-type-optimizer 'real 'compile-rational-type)
 (%define-compound-type-optimizer 'rational 'compile-rational-type)
