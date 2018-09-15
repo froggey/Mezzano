@@ -85,6 +85,19 @@
                  :fixed-vector fixed-vector
                  :align align))
 
+(defmethod print-object ((object structure-slot-definition) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S"
+            (list :name (structure-slot-definition-name object)
+                  :accessor (structure-slot-definition-accessor object)
+                  :initform (structure-slot-definition-initform object)
+                  :type (structure-slot-definition-type object)
+                  :read-only (structure-slot-definition-read-only object)
+                  :ref-fn (structure-slot-definition-ref-fn object)
+                  :index (structure-slot-definition-index object)
+                  :fixed-vector (structure-slot-definition-fixed-vector object)
+                  :align (structure-slot-definition-align object)))))
+
 (defstruct (instance-header
              (:constructor sys.c::%%make-instance-header
                            (layout)))
