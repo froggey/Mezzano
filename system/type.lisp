@@ -768,6 +768,13 @@
             (return-from compile-typep-expression
               `(let ((,sym ,object))
                  ,code)))))))
+  (when (symbolp type-specifier)
+    (let ((struct-type (get-structure-type type-specifier nil))
+          (obj-sym (gensym "OBJECT")))
+      (when struct-type
+        (return-from compile-typep-expression
+          `(let ((,obj-sym ,object))
+             (structure-type-p ,obj-sym ',struct-type))))))
   (when (and (symbolp type-specifier)
              (get type-specifier 'sys.int::maybe-class nil))
     (return-from compile-typep-expression
@@ -778,13 +785,6 @@
            (if ,class
                (class-typep ,object ,class)
                nil)))))
-  (when (symbolp type-specifier)
-    (let ((struct-type (get-structure-type type-specifier nil))
-          (obj-sym (gensym "OBJECT")))
-      (when struct-type
-        (return-from compile-typep-expression
-          `(let ((,obj-sym ,object))
-             (structure-type-p ,obj-sym ',struct-type))))))
   nil)
 )
 
