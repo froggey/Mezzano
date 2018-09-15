@@ -1008,7 +1008,9 @@ This is required to make the GC interrupt safe."
                        (loop
                           for i below heap-size
                           when (eql (aref heap-layout i) 1)
-                          do (scavengef (%object-ref-t object i) cycle-kind)))))))))
+                          do (scavengef (%object-ref-t object i) cycle-kind))))))))
+     (when (mezzano.supervisor:threadp object)
+       (scan-thread object cycle-kind)))
     (#.+object-tag-function-reference+
      (scan-generic object 4 cycle-kind))
     (#.+object-tag-function+
@@ -1049,8 +1051,6 @@ This is required to make the GC interrupt safe."
       #.+object-tag-mmx-vector+
       #.+object-tag-sse-vector+
       #.+object-tag-unbound-value+))
-    (#.+object-tag-thread+
-     (scan-thread object cycle-kind))
     (#.+object-tag-weak-pointer+
      (scan-weak-pointer object cycle-kind))
     (#.+object-tag-delimited-continuation+
@@ -1314,8 +1314,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           (+ 4 length))
          (#.+object-tag-unbound-value+
           2)
-         (#.+object-tag-thread+
-          512)
          (#.+object-tag-weak-pointer+
           6)
          (#.+object-tag-delimited-continuation+
@@ -1700,9 +1698,6 @@ Additionally update the card table offset fields."
       #.+object-tag-mmx-vector+
       #.+object-tag-sse-vector+
       #.+object-tag-unbound-value+))
-    (#.+object-tag-thread+
-     ;; not implemented
-     nil)
     (#.+object-tag-weak-pointer+
      ;; not implemented
      nil)

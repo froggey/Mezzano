@@ -419,17 +419,17 @@
       (call-support-function 'mezzano.runtime::symbol-value-cell 1)
       ;; Log a cache miss.
       (emit `(sys.lap-x86:gs)
-            `(sys.lap-x86:add64 ,(object-ea nil :slot 23)
+            `(sys.lap-x86:add64 ,(object-ea nil :slot mezzano.supervisor::+thread-symbol-cache-miss-count+)
                                 ,(ash 1 sys.int::+n-fixnum-bits+)))
       ;; Recompute the hash.
       (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8
                                                 :slot sys.int::+symbol-value-cell-symbol+))
             `(sys.lap-x86:shr32 :eax 4)
-            `(sys.lap-x86:and32 :eax ,(1- 128)))
+            `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
       ;; Write the entry into the cache.
       (emit `(sys.lap-x86:gs)
             `(sys.lap-x86:mov64 ,(object-ea nil
-                                            :slot 128
+                                            :slot mezzano.supervisor::+thread-symbol-cache+
                                             :index '(:rax 8))
                                 :r8))
       ;; Done.
@@ -457,11 +457,11 @@
     ;; Ignore the low 4 bits.
     (emit `(sys.lap-x86:mov64 :rax :r9)
           `(sys.lap-x86:shr32 :eax 4)
-          `(sys.lap-x86:and32 :eax ,(1- 128)))
+          `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
     ;; Load cache entry.
     (emit `(sys.lap-x86:gs)
           `(sys.lap-x86:mov64 :r8 ,(object-ea nil
-                                              :slot 128
+                                              :slot mezzano.supervisor::+thread-symbol-cache+
                                               :index '(:rax 8))))
     ;; Do symbols match?
     ;; Be careful here. The entry may be 0.
@@ -471,7 +471,7 @@
           `(sys.lap-x86:jne ,cache-miss))
     ;; Cache hit. Log.
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:add64 ,(object-ea nil :slot 22)
+          `(sys.lap-x86:add64 ,(object-ea nil :slot mezzano.supervisor::+thread-symbol-cache-hit-count+)
                               ,(ash 1 sys.int::+n-fixnum-bits+)))
     (emit resume))
   (setf *r8-value* (list (gensym))))

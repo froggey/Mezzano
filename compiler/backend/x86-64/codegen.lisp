@@ -670,8 +670,7 @@
             ;; Copy values.
             `(lap:mov64 :rdi :rsp)
             `(lap:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                         ;; fixme. should be +thread-mv-slots-start+
-                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                 (* mezzano.supervisor::+thread-mv-slots+ 8))))
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
@@ -717,8 +716,7 @@
             ;; Copy values.
             `(lap:mov64 :rdi :rsp)
             `(lap:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                         ;; fixme. should be +thread-mv-slots-start+
-                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                 (* mezzano.supervisor::+thread-mv-slots+ 8))))
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
@@ -749,7 +747,7 @@
     (emit `(lap:lea64 :rax (:rip ,jump-table))
           `(lap:mov64 (:stack ,(+ control-info 3)) :rax)
           `(lap:gs)
-          `(lap:mov64 :rax (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
+          `(lap:mov64 :rax (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
           `(lap:mov64 (:stack ,(+ control-info 2)) :rax)
           `(lap:mov64 (:stack ,(+ control-info 1)) :rsp)
           `(lap:mov64 (:stack ,(+ control-info 0)) :rbp)
@@ -870,7 +868,7 @@
     ;; Save the values into a simple-vector.
     (emit save-loop-head)
     (emit `(lap:gs))
-    (emit `(lap:mov64 :rbx (:object nil 32 :rsi))) ; fixme. should be +thread-mv-slots-start+
+    (emit `(lap:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-mv-slots+ :rsi)))
     (emit `(lap:mov64 (:rdi) :rbx))
     (emit `(lap:add64 :rsi 1))
     (emit `(lap:add64 :rdi 8))
@@ -919,8 +917,7 @@
                     `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw i))
                     `(lap:gs)
                     `(lap:cmov64nle :r13 (,(+ (- 8 sys.int::+tag-object+)
-                                             (* (+ #+(or)sys.int::+stack-group-offset-mv-slots+
-                                                   32 ; fixme. should be +thread-mv-slots-start+
+                                             (* (+ mezzano.supervisor::+thread-mv-slots+
                                                    (- i 5))
                                                 8))))
                     `(lap:mov64 ,(effective-address value) :r13))))))
@@ -938,8 +935,7 @@
               (emit `(lap:mov64 :r13 ,(effective-address value))
                     `(lap:gs)
                     `(lap:mov64 (,(+ (- 8 sys.int::+tag-object+)
-                                     ;; fixme. should be +thread-mv-slots-start+
-                                     (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)
+                                     (* mezzano.supervisor::+thread-mv-slots+ 8)
                                      (* i 8)))
                                 :r13))
               (emit-gc-info :multiple-values 1)
@@ -964,14 +960,14 @@
           `(lap:mov64 (:stack ,(+ slots 0)) ,(ir:push-special-stack-b-value instruction)))
     ;; Store link. Misuses frame-reg slightly.
     (emit `(lap:gs)
-          `(lap:mov64 ,frame-reg (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
+          `(lap:mov64 ,frame-reg (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
           `(lap:mov64 (:stack ,(+ slots 2)) ,frame-reg))
     ;; Generate pointer.
     (emit `(lap:lea64 ,frame-reg (:rbp ,(+ (- (* (1+ (+ slots 3)) 8))
                                            sys.int::+tag-object+))))
     ;; Push.
     (emit `(lap:gs)
-          `(lap:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) ,frame-reg))))
+          `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) ,frame-reg))))
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:mov64 :rax ,(ir:flush-binding-cache-entry-symbol instruction))
@@ -985,11 +981,11 @@
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+)))
+        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+)))
   ;; Pop the stack.
   (emit `(sys.lap-x86:mov64 :r13 (:object :rbx 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) :r13))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r13))
   ;; Recompute the symbol hash.
   (emit `(sys.lap-x86:mov64 :rax (:object :rbx ,sys.int::+symbol-value-cell-symbol+))
         `(sys.lap-x86:shr32 :eax 4)
@@ -1008,25 +1004,25 @@
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
         `(sys.lap-x86:mov64 :r13 (:object :rbx 1))
         `(sys.lap-x86:mov64 :rax (:object :rbx 2))
         `(sys.lap-x86:mov64 (:object :r13 0 :rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) nil)
         `(sys.lap-x86:mov64 :rbx (:object :rbx 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) :rbx)))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :rbx)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-unwind-protect-instruction) uses defs)
   ;; Top entry in the binding stack is an unwind-protect entry.
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r8 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
         `(sys.lap-x86:mov64 :r13 (:object :r8 1))
         `(sys.lap-x86:mov64 :rbx (:object :r8 2))
         `(sys.lap-x86:mov64 :r8 (:object :r8 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,mezzano.compiler.codegen.x86-64::+binding-stack-gs-offset+) :r8)
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r8)
         `(sys.lap-x86:xor32 :ecx :ecx)
         `(sys.lap-x86:call (:object :r13 0))))
 

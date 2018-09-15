@@ -340,7 +340,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          (acquire-global-thread-lock)
          (setf (thread-state self) :pager-request
                (thread-wait-item self) fn
-               (thread-%next self) *pager-waiting-threads*
+               (thread-queue-next self) *pager-waiting-threads*
                *pager-waiting-threads* self)
          (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
                     (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
@@ -817,7 +817,7 @@ It will put the thread to sleep, while it waits for the page."
       (acquire-global-thread-lock)
       (setf (thread-state self) :waiting-for-page
             (thread-wait-item self) address
-            (thread-%next self) *pager-waiting-threads*
+            (thread-queue-next self) *pager-waiting-threads*
             *pager-waiting-threads* self)
       (when (and (eql (thread-state pager) :sleeping)
                  (eql (thread-wait-item pager) '*pager-waiting-threads*))
@@ -852,7 +852,7 @@ It will put the thread to sleep, while it waits for the page."
         *pager-fast-path-misses* 0)
   (when *pager-current-thread*
     ;; Push any current thread back on the waiting threads list.
-    (setf (thread-%next *pager-current-thread*) *pager-waiting-threads*
+    (setf (thread-queue-next *pager-current-thread*) *pager-waiting-threads*
           *pager-waiting-threads* *pager-current-thread*
           *pager-current-thread* nil))
   (setf *pager-disk-request* (make-disk-request))
@@ -891,7 +891,7 @@ It will put the thread to sleep, while it waits for the page."
          (loop
             (when *pager-waiting-threads*
               (setf *pager-current-thread* *pager-waiting-threads*
-                    *pager-waiting-threads* (thread-%next *pager-current-thread*))
+                    *pager-waiting-threads* (thread-queue-next *pager-current-thread*))
               (set-paging-light t)
               (return))
             (set-paging-light nil)

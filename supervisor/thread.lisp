@@ -36,35 +36,18 @@
 ;; The cold-generator creates an idle thread for the BSP.
 (sys.int::defglobal sys.int::*bsp-idle-thread*)
 
-(deftype thread ()
-  `(satisfies threadp))
+(defconstant +thread-mv-slots-size+ 96)
+;; Must be a power of two.
+(defconstant +thread-symbol-cache-size+ 128)
 
-(defun threadp (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-thread+))
-
-(macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%object-ref-t))
-             (let ((field-name (intern (format nil "+THREAD-~A+" (symbol-name name))
-                                       (symbol-package name)))
-                   (accessor-name (intern (format nil "THREAD-~A" (symbol-name name))
-                                          (symbol-package name))))
-               `(progn
-                  (defconstant ,field-name ,offset)
-                  (defun ,accessor-name (thread)
-                    (check-type thread thread)
-                    (,accessor thread ,field-name))
-                  (defun (setf ,accessor-name) (value thread)
-                    (check-type thread thread)
-                    ,@(when (not (eql type 't))
-                        `((check-type value ,type)))
-                    (setf (,accessor thread ,field-name) value)))))
-          (reg-field (name offset)
-            (let ((state-name (intern (format nil "STATE-~A" name) (symbol-package name)))
-                  (state-name-value (intern (format nil "STATE-~A-VALUE" name) (symbol-package name))))
-              `(progn
-                 (field ,state-name ,offset :accessor sys.int::%object-ref-signed-byte-64)
-                 (field ,state-name-value ,offset :accessor sys.int::%object-ref-t)))))
+(defstruct (thread
+             (:area :wired)
+             (:constructor %make-thread (name))
+             (:predicate threadp)
+             :slot-offsets
+             :sealed)
   ;; The name of the thread, a string.
-  (field name                     0 :type string)
+  (name nil :type (or string null) :read-only t)
   ;; Current state.
   ;;   :active    - the thread is currently running on a core.
   ;;   :runnable  - the thread can be run, but is not currently running.
@@ -73,95 +56,87 @@
   ;;   :waiting-for-page - the thread is waiting for memory to be paged in.
   ;;   :pager-request - the thread is waiting for a pager RPC call to complete.
   ;;   :stopped   - the thread has been stopped for inspection by a debugger.
-  (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request :stopped))
-  ;; 2 - free
+  ;;   0 - Thread has not been initialized completely
+  (state 0 :type (member :active :runnable :sleeping :dead
+                         :waiting-for-page :pager-request
+                         :stopped 0))
   ;; Stack object for the stack.
-  (field stack                    3)
-  ;; 4 - magic field used by bootloader.
+  stack
   ;; If a thread is sleeping, waiting for page or performing a pager-request, this will describe what it's waiting for.
   ;; When waiting for paging to complete, this will be the faulting address.
   ;; When waiting for a pager-request, this will be the called function.
-  (field wait-item                5)
+  (wait-item nil)
+  ;; Magic field used by the bootloader, must be the 4th slot
+  (magic-bootloader-field nil)
   ;; The thread's current special stack pointer.
-  ;; Note! The compiler must be updated if this changes and all code rebuilt.
-  (field special-stack-pointer    6)
+  (special-stack-pointer nil)
   ;; When true, all registers are saved in the the thread's state save area.
   ;; When false, only the stack pointer and frame pointer are valid.
-  (field full-save-p              7)
+  full-save-p
   ;; The thread object, used to make CURRENT-THREAD fast.
-  (field self                     8)
+  self
   ;; Next/previous links for run queues and wait queues.
-  (field %next                    9)
-  (field %prev                   10)
+  queue-next
+  queue-prev
   ;; A list of foothold functions that need to be run.
-  (field pending-footholds       11)
+  (pending-footholds '())
   ;; A non-negative fixnum, when 0 footholds are permitted to run.
   ;; When positive, they are deferred.
-  (field inhibit-footholds       12)
-  (field mutex-stack             13)
+  (inhibit-footholds 1)
   ;; Next/previous links for the *all-threads* list.
   ;; This only contains live (not state = :dead) threads.
-  (field global-next             14)
-  (field global-prev             15)
+  global-next
+  global-prev
   ;; Thread's priority, can be :supervisor, :high, :normal, or :low.
   ;; Threads at :supervisor have priority over all other threads.
-  (field priority                16 :type (member :low :normal :high :supervisor :idle))
+  (priority :normal :type (member :low :normal :high :supervisor :idle))
   ;; Arguments passed to the pager when performing an RPC.
-  (field pager-argument-1        17)
-  (field pager-argument-2        18)
-  (field pager-argument-3        19)
-  ;; Table of active breakpoints.
-  (field breakpoint-table        20)
-  ;; Sorted simple-vector of breakpoint addresses, used when the thread is running in software-breakpoint mode.
-  (field software-breakpoints    21)
-  ;; Symbol binding cache hit count.
-  (field symbol-cache-hit-count  22)
-  ;; Symbol binding cache miss count.
-  (field symbol-cache-miss-count 23)
+  pager-argument-1
+  pager-argument-2
+  pager-argument-3
+  ;; Symbol binding cache hit and miss counts.
+  (symbol-cache-hit-count 0)
+  (symbol-cache-miss-count 0)
   ;; Helper function UNSLEEP-THREAD.
-  (field unsleep-helper 24)
+  unsleep-helper
   ;; Argument for the unsleep helper.
-  (field unsleep-helper-argument 25)
-  ;; 26-32 - free
-  ;; 32-127 MV slots
-  ;;    Slots used as part of the multiple-value return convention.
-  ;;    Note! The compiler must be updated if this changes and all code rebuilt.
-  (defconstant +thread-mv-slots-start+ 32)
-  (defconstant +thread-mv-slots-end+ 128)
-  ;; 128-256 Symbol binding cell cache.
-  (defconstant +thread-symbol-cache-start+ 128)
-  (defconstant +thread-symbol-cache-end+ 256)
-  ;; 256-424 free
-  (field arm64-fpsr 425 :type (unsigned-byte 32) :accessor sys.int::%object-ref-unsigned-byte-32)
-  (field arm64-fpcr 426 :type (unsigned-byte 32) :accessor sys.int::%object-ref-unsigned-byte-32)
-  ;; 427-446 State save area.
-  ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
-  ;;    The registers are saved here, not on the stack, because the stack may not be paged in.
-  ;;    This has the same layout as an interrupt frame.
-  ;; 447-510 FXSAVE area
-  ;;    Unboxed area where the FPU/SSE state is saved.
-  (defconstant +thread-interrupt-save-area+ 427)
-  (defconstant +thread-fx-save-area+ 447)
-  (reg-field r15                427)
-  (reg-field r14                428)
-  (reg-field r13                429)
-  (reg-field r12                430)
-  (reg-field r11                431)
-  (reg-field r10                432)
-  (reg-field r9                 433)
-  (reg-field r8                 434)
-  (reg-field rdi                435)
-  (reg-field rsi                436)
-  (reg-field rbx                437)
-  (reg-field rdx                438)
-  (reg-field rcx                439)
-  (reg-field rax                440)
-  (reg-field rbp                441)
-  (reg-field rip                442)
-  (reg-field cs                 443)
-  (reg-field rflags             444)
-  (reg-field rsp                445)
-  (reg-field ss                 446))
+  unsleep-helper-argument
+  ;; Slots used as part of the multiple-value return convention.
+  ;; These contain lisp values, but need to be scanned specially by the GC,
+  ;; which is why they have type UB64 instead of T.
+  (mv-slots 0 :fixed-vector #.+thread-mv-slots-size+ :type (unsigned-byte 64))
+  ;; Symbol binding cell cache.
+  (symbol-cache 0 :fixed-vector #.+thread-symbol-cache-size+)
+  ;; Other saved machine state.
+  (arm64-fpsr 0 :type (unsigned-byte 32))
+  (arm64-fpcr 0 :type (unsigned-byte 32))
+  (fxsave-area 0 :type (unsigned-byte 8) :fixed-vector 512 :align 16)
+  ;; Interrupt save area.
+  ;; Used to save an interrupt frame when the thread has stopped to wait for a page.
+  ;; The registers are saved here, not on the stack, because the stack may not be paged in.
+  ;; This has the same layout as an interrupt frame.
+  (state-r15 0 :type (signed-byte 64))
+  (state-r14 0 :type (signed-byte 64))
+  (state-r13 0 :type (signed-byte 64))
+  (state-r12 0 :type (signed-byte 64))
+  (state-r11 0 :type (signed-byte 64))
+  (state-r10 0 :type (signed-byte 64))
+  (state-r9  0 :type (signed-byte 64))
+  (state-r8  0 :type (signed-byte 64))
+  (state-rdi 0 :type (signed-byte 64))
+  (state-rsi 0 :type (signed-byte 64))
+  (state-rbx 0 :type (signed-byte 64))
+  (state-rdx 0 :type (signed-byte 64))
+  (state-rcx 0 :type (signed-byte 64))
+  (state-rax 0 :type (signed-byte 64))
+  (state-rbp 0 :type (signed-byte 64))
+  (state-rip 0 :type (signed-byte 64))
+  (state-cs  0 :type (signed-byte 64))
+  (state-rflags 0 :type (signed-byte 64))
+  (state-rsp 0 :type (signed-byte 64))
+  (state-ss  0 :type (signed-byte 64)))
+
+(defconstant +thread-interrupt-save-area+ +thread-state-r15+)
 
 ;;; Aliases for a few registers.
 
@@ -176,6 +151,35 @@
 
 (defun (setf thread-stack-pointer) (value thread)
   (setf (thread-state-rsp thread) value))
+
+(macrolet ((reg-value (name field)
+             `(progn
+                (defun ,name (thread)
+                  (check-type thread thread)
+                  (sys.int::%object-ref-t thread ,field))
+                (defun (setf ,name) (value thread)
+                  (check-type thread thread)
+                  (setf (sys.int::%object-ref-t thread ,field) value)))))
+  (reg-value thread-state-r15-value +thread-state-r15+)
+  (reg-value thread-state-r14-value +thread-state-r14+)
+  (reg-value thread-state-r13-value +thread-state-r13+)
+  (reg-value thread-state-r12-value +thread-state-r12+)
+  (reg-value thread-state-r11-value +thread-state-r11+)
+  (reg-value thread-state-r10-value +thread-state-r10+)
+  (reg-value thread-state-r9-value  +thread-state-r9+)
+  (reg-value thread-state-r8-value  +thread-state-r8+)
+  (reg-value thread-state-rdi-value +thread-state-rdi+)
+  (reg-value thread-state-rsi-value +thread-state-rsi+)
+  (reg-value thread-state-rbx-value +thread-state-rbx+)
+  (reg-value thread-state-rdi-value +thread-state-rdx+)
+  (reg-value thread-state-rcx-value +thread-state-rcx+)
+  (reg-value thread-state-rax-value +thread-state-rax+)
+  (reg-value thread-state-rbp-value +thread-state-rbp+)
+  (reg-value thread-state-rip-value +thread-state-rip+)
+  (reg-value thread-state-cs-value  +thread-state-cs+)
+  (reg-value thread-state-rflags-value +thread-state-rflags+)
+  (reg-value thread-state-rsp-value +thread-state-rsp+)
+  (reg-value thread-state-ss-value  +thread-state-ss+))
 
 ;;; Locking.
 
@@ -205,12 +209,12 @@
   (cond ((null (run-queue-head rq))
          (setf (run-queue-head rq) thread
                (run-queue-tail rq) thread)
-         (setf (thread-%next thread) nil
-               (thread-%prev thread) nil))
+         (setf (thread-queue-next thread) nil
+               (thread-queue-prev thread) nil))
         (t
-         (setf (thread-%next (run-queue-tail rq)) thread
-               (thread-%prev thread) (run-queue-tail rq)
-               (thread-%next thread) nil
+         (setf (thread-queue-next (run-queue-tail rq)) thread
+               (thread-queue-prev thread) (run-queue-tail rq)
+               (thread-queue-next thread) nil
                (run-queue-tail rq) thread))))
 
 (defun push-run-queue (thread)
@@ -222,9 +226,9 @@
 (defun pop-run-queue-1 (rq)
   (let ((thread (run-queue-head rq)))
     (when thread
-      (cond ((thread-%next thread)
-             (setf (thread-%prev (thread-%next thread)) nil)
-             (setf (run-queue-head rq) (thread-%next thread)))
+      (cond ((thread-queue-next thread)
+             (setf (thread-queue-prev (thread-queue-next thread)) nil)
+             (setf (run-queue-head rq) (thread-queue-next thread)))
             (t
              (setf (run-queue-head rq) nil
                    (run-queue-tail rq) nil)))
@@ -238,7 +242,7 @@
 
 (defun dump-run-queue (rq)
   (debug-print-line "Run queue " rq "/" (run-queue-name rq) ":")
-  (do ((thread (run-queue-head rq) (thread-%next thread)))
+  (do ((thread (run-queue-head rq) (thread-queue-next thread)))
       ((null thread))
     (debug-print-line "  " thread "/" (thread-name thread))))
 
@@ -379,22 +383,11 @@ Interrupts must be off and the global thread lock must be held."
   (check-type priority (member :supervisor :high :normal :low))
   (when name
     (setf name (mezzano.runtime::copy-string-in-area name :wired)))
-  ;; Allocate-object will leave the thread's state variable initialized to 0.
-  ;; The GC detects this to know when it's scanning a partially-initialized thread.
-  (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
+  (let* ((thread (%make-thread name))
          (stack (%allocate-stack stack-size)))
-    (setf (sys.int::%object-ref-t thread +thread-name+) name
-          (sys.int::%object-ref-t thread +thread-stack+) stack
-          (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
-          (sys.int::%object-ref-t thread +thread-self+) thread
-          (sys.int::%object-ref-t thread +thread-wait-item+) nil
-          (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
-          (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
-          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
-          (sys.int::%object-ref-t thread +thread-priority+) priority
-          (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
-          (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
-          (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
+    (setf (thread-stack thread) stack
+          (thread-self thread) thread
+          (thread-priority thread) priority)
     ;; Perform initial bindings.
     (when initial-bindings
       (let ((symbols (mapcar #'first initial-bindings))
@@ -403,17 +396,6 @@ Interrupts must be off and the global thread lock must be held."
         (setf function (lambda ()
                          (progv symbols values
                            (funcall original-function))))))
-    ;; Initialize the FXSAVE area.
-    ;; All FPU/SSE interrupts masked, round to nearest,
-    ;; x87 using 80 bit precision (long-float).
-    (dotimes (i 64)
-      (setf (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
-    (setf (ldb (byte 16 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
-          #x037F) ; FCW
-    (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
-          #x00001F80) ; MXCSR
-    (setf (thread-arm64-fpsr thread) 0
-          (thread-arm64-fpcr thread) 0)
     ;; Set up the initial register state.
     (let ((stack-pointer (+ (stack-base stack) (stack-size stack)))
           (trampoline #'thread-entry-trampoline))
@@ -449,24 +431,6 @@ Interrupts must be off and the global thread lock must be held."
               (thread-global-next thread) *all-threads*
               (thread-global-prev thread) nil
               *all-threads* thread)))
-    thread))
-
-(defun make-ephemeral-thread (entry-point initial-state &key name (stack-size (* 256 1024)) (priority :normal))
-  (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
-         (stack (%allocate-stack stack-size t)))
-    (setf (sys.int::%object-ref-t thread +thread-name+) name
-          (sys.int::%object-ref-t thread +thread-stack+) stack
-          (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
-          (sys.int::%object-ref-t thread +thread-self+) thread
-          (sys.int::%object-ref-t thread +thread-wait-item+) nil
-          (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
-          (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
-          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
-          (sys.int::%object-ref-t thread +thread-priority+) priority
-          (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
-          (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
-          (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
-    (reset-ephemeral-thread thread entry-point initial-state priority)
     thread))
 
 ;; MAKE-THREAD arranges for new threads to call this function with the thread's
@@ -586,25 +550,24 @@ Interrupts must be off and the global thread lock must be held."
                    (run-queue-tail rq) nil))
             ((eql (run-queue-head rq) thread)
              ;; More than one thread, at head.
-             (setf (thread-%prev (thread-%next thread)) nil)
-             (setf (run-queue-head rq) (thread-%next thread)))
+             (setf (thread-queue-prev (thread-queue-next thread)) nil)
+             (setf (run-queue-head rq) (thread-queue-next thread)))
             ((eql (run-queue-tail rq) thread)
              ;; More than one thread, at tail.
-             (setf (thread-%next (thread-%prev thread)) nil)
-             (setf (run-queue-tail rq) (thread-%prev thread)))
-            ((thread-%next thread)
+             (setf (thread-queue-next (thread-queue-prev thread)) nil)
+             (setf (run-queue-tail rq) (thread-queue-prev thread)))
+            ((thread-queue-next thread)
              ;; Somewhere in the middle of the run queue.
-             (setf (thread-%next (thread-%prev thread)) (thread-%next thread)
-                   (thread-%prev (thread-%next thread)) (thread-%prev thread))
-             (setf (thread-%next thread) nil
-                   (thread-%prev thread) nil)))))
+             (setf (thread-queue-next (thread-queue-prev thread)) (thread-queue-next thread)
+                   (thread-queue-prev (thread-queue-next thread)) (thread-queue-prev thread))
+             (setf (thread-queue-next thread) nil
+                   (thread-queue-prev thread) nil)))))
   (setf (thread-state thread) state
         (thread-priority thread) (or priority :supervisor)
-        (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
-        (sys.int::%object-ref-t thread +thread-wait-item+) nil
-        (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
-        (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
-        (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
+        (thread-special-stack-pointer thread) nil
+        (thread-wait-item thread) nil
+        (thread-pending-footholds thread) '()
+        (thread-inhibit-footholds thread) 1
         (thread-full-save-p thread) t)
   (when (and (not (eql priority :idle))
              (eql state :runnable))
@@ -612,20 +575,9 @@ Interrupts must be off and the global thread lock must be held."
       (acquire-global-thread-lock)
       (push-run-queue thread)
       (release-global-thread-lock)))
-  ;; Initialize the FXSAVE area.
-  ;; All FPU/SSE interrupts masked, round to nearest,
-  ;; x87 using 80 bit precision (long-float).
-  (dotimes (i 64)
-    (setf (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
-  (setf (ldb (byte 16 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
-        #x037F) ; FCW
-  (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
-        #x00001F80) ; MXCSR
-  (setf (thread-arm64-fpsr thread) 0
-        (thread-arm64-fpcr thread) 0)
   ;; Flush the symbol cache.
-  (dotimes (i (- +thread-symbol-cache-end+ +thread-symbol-cache-start+))
-    (setf (sys.int::%object-ref-t thread (+ +thread-symbol-cache-start+ i)) 0)))
+  (dotimes (i +thread-symbol-cache-size+)
+    (setf (thread-symbol-cache thread i) 0)))
 
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))

@@ -17,8 +17,6 @@
 (defvar *active-nl-exits* nil)
 (defvar *last-gc-info* '())
 
-(defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
-
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (push i *code-accum*)
@@ -617,7 +615,7 @@
         (emit `(sys.lap-x86:lea64 :rax (:rip ,thunk-label))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
-              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:mov64 :rax (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rsp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :rbp)
@@ -956,8 +954,7 @@
                  (t (let ((register (cond ((integerp (first value-locations))
                                            (emit `(sys.lap-x86:gs)
                                                  `(sys.lap-x86:mov64 :r13 (,(+ (- 8 sys.int::+tag-object+)
-                                                                               (* (+ #+(or)sys.int::+stack-group-offset-mv-slots+
-                                                                                     32 ; fixme. should be +thread-mv-slots-start+
+                                                                               (* (+ mezzano.supervisor::+thread-mv-slots+
                                                                                      (pop value-locations))
                                                                                   8)))))
                                            :r13)
@@ -1012,8 +1009,7 @@ Returns an appropriate tag."
                    ;; Copy values.
                    `(sys.lap-x86:mov64 :rdi :rsp)
                    `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                                ;; fixme. should be +thread-mv-slots-start+
-                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                                (* mezzano.supervisor::+thread-mv-slots+ 8))))
              ;; Switch to the right GC mode.
              (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
              (emit loop-head
@@ -1101,8 +1097,7 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:lea64 :rdi (:rsp ,(* 6 8)))) ; skip header and registers.
            ;; Load from the MV area.
            (emit `(sys.lap-x86:mov64 :rsi ,(+ (- 8 sys.int::+tag-object+)
-                                              ;; fixme. should be +thread-mv-slots-start+
-                                              (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                              (* mezzano.supervisor::+thread-mv-slots+ 8))))
            ;; Save the values into a simple-vector.
            (emit save-loop-head)
            (emit `(sys.lap-x86:gs))
@@ -1236,7 +1231,7 @@ Returns an appropriate tag."
         (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
-              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:mov64 :rax (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rsp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :rbp)
@@ -1510,8 +1505,7 @@ Returns an appropriate tag."
                 (load-in-reg :r13 value t)
                 (emit `(sys.lap-x86:gs)
                       `(sys.lap-x86:mov64 (,(+ (- 8 sys.int::+tag-object+)
-                                               ;; fixme. should be +thread-mv-slots-start+
-                                               (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)
+                                               (* mezzano.supervisor::+thread-mv-slots+ 8)
                                                (* i 8)))
                                           :r13))
                 (emit-gc-info :multiple-values 1)

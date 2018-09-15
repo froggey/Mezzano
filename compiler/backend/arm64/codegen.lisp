@@ -721,8 +721,7 @@
             ;; Copy values.
             `(lap:add :x12 :sp :xzr)
             `(lap:movz :x11 ,(+ (- 8 sys.int::+tag-object+)
-                                ;; fixme. should be +thread-mv-slots-start+
-                                (* 32 8))))
+                                (* mezzano.supervisor::+thread-mv-slots+ 8))))
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
@@ -771,8 +770,7 @@
             ;; Copy values.
             `(lap:add :x12 :sp :xzr)
             `(lap:movz :x11 ,(+ (- 8 sys.int::+tag-object+)
-                                ;; fixme. should be +thread-mv-slots-start+
-                                (* 32 8))))
+                                (* mezzano.supervisor::+thread-mv-slots+ 8))))
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
@@ -804,7 +802,7 @@
     ;; Construct jump info.
     (emit `(lap:adr :x9 ,jump-table))
     (emit-stack-store :x9 (+ control-info 3))
-    (emit-object-load :x9 :x28 :slot 6) ; ### special-stack-pointer
+    (emit-object-load :x9 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
     (emit-stack-store :x9 (+ control-info 2))
     (emit `(lap:add :x9 :sp :xzr))
     (emit-stack-store :x9 (+ control-info 1))
@@ -924,8 +922,7 @@
     (emit `(lap:add :x12 :sp ,(* 6 8))) ; skip header and registers.
     ;; Load from the MV area.
     (emit `(lap:add :x11 :x28 ,(+ (- 8 sys.int::+tag-object+)
-                                  ;; fixme. should be +thread-mv-slots-start+
-                                  (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                  (* mezzano.supervisor::+thread-mv-slots+ 8))))
     ;; Save the values into a simple-vector.
     (emit save-loop-head)
     (emit `(lap:ldr :x6 (:post :x11 8)))
@@ -978,8 +975,7 @@
               (let ((over (gensym)))
                 (emit `(lap:b.le ,over))
                 (emit-object-load :x7 :x28
-                                  :slot (+ #+(or)sys.int::+stack-group-offset-mv-slots+
-                                           32 ; fixme. should be +thread-mv-slots-start+
+                                  :slot (+ mezzano.supervisor::+thread-mv-slots+
                                            (- i 5)))
                 (emit over)
                 (emit-stack-store :x7 (vreg-stack-slot value)))))))
@@ -995,7 +991,7 @@
             for i from 0
             do
               (emit-stack-load :x7 (vreg-stack-slot value))
-              (emit-object-store :x7 :x28 :slot (+ 32 i)) ; fixme. should be +thread-mv-slots-start+
+              (emit-object-store :x7 :x28 :slot (+ mezzano.supervisor::+thread-mv-slots+ i))
               (emit-gc-info :multiple-values 1)
               (emit `(lap:add :x5 :x5 ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
@@ -1013,14 +1009,14 @@
     (emit-stack-store (ir:push-special-stack-a-value instruction) (+ slots 1))
     (emit-stack-store (ir:push-special-stack-b-value instruction) (+ slots 0))
     ;; Store link. Misuses frame-reg slightly.
-    (emit-object-load frame-reg :x28 :slot 6) ; ### special-stack-pointer
+    (emit-object-load frame-reg :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
     (emit-stack-store frame-reg (+ slots 2))
     ;; Generate pointer.
     (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 3))
                          sys.int::+tag-object+))
     (emit `(lap:add ,frame-reg :x29 :x9))
     ;; Push.
-    (emit-object-store frame-reg :x28 :slot 6))) ; ### special-stack-pointer
+    (emit-object-store frame-reg :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)))
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:add :x9 :xzr ,(ir:flush-binding-cache-entry-symbol instruction) :lsr 1)
@@ -1032,10 +1028,10 @@
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
-  (emit-object-load :x6 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-load :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   ;; Pop the stack.
   (emit-object-load :x7 :x6 :slot 0)
-  (emit-object-store :x7 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-store :x7 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   ;; Recompute the symbol hash.
   (emit-object-load :x9 :x6 :slot sys.int::+symbol-value-cell-symbol+)
   (emit `(lap:add :x9 :xzr :x9 :lsr 1)
@@ -1053,25 +1049,25 @@
   ;; Top entry in the binding stack is a block or tagbody entry.
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
-  (emit-object-load :x6 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-load :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (emit-object-load :x7 :x6 :slot 1)
   (emit-object-load :x9 :x6 :slot 2)
   (emit `(lap:add :x9 :xzr :x9 :lsl 2)
         `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))
         `(lap:str :x26 (:x7 :x9)))
   (emit-object-load :x6 :x6 :slot 0)
-  (emit-object-store :x6 :x28 :slot 6)) ; ### special-stack-pointer
+  (emit-object-store :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-unwind-protect-instruction) uses defs)
   ;; Top entry in the binding stack is an unwind-protect entry.
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
-  (emit-object-load :x0 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-load :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (emit-object-load :x7 :x0 :slot 1) ; function
   (emit-object-load :x6 :x0 :slot 2) ; environment
   ;; Pop stack.
   (emit-object-load :x0 :x0 :slot 0) ; link
-  (emit-object-store :x0 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-store :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (load-literal :x5 0)
   (emit-object-load :x9 :x7 :slot sys.int::+function-entry-point+)
   (emit `(lap:blr :x9)))

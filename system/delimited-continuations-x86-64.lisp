@@ -156,9 +156,9 @@
   (lap:xor32 :ecx :ecx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache-start+ :rcx) 0)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rcx) 0)
   (lap:add64 :rcx 1)
-  (lap:cmp64 :rcx #.(- mezzano.supervisor::+thread-symbol-cache-end+ mezzano.supervisor::+thread-symbol-cache-start+))
+  (lap:cmp64 :rcx #.mezzano.supervisor::+thread-symbol-cache-size+)
   (lap:jne CLEAR-LOOP)
   ;; Switch back to the original stack.
   ;; There's a small moment here where the GC can scan both the continuation and the thread
@@ -270,7 +270,7 @@
   MV-UNPACK-LOOP
   (lap:mov64 :r13 (:rbp 16 (:rdx 8))) ; Load value from stack.
   (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-mv-slots-start+ :rdx) :r13)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-mv-slots+ :rdx) :r13)
   (:gc :frame :multiple-values 1 :incoming-arguments 0)
   (lap:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+))
   (:gc :frame :multiple-values 0 :incoming-arguments 0)
@@ -321,9 +321,9 @@
   (lap:xor32 :edx :edx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache-start+ :rdx) 0)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rdx) 0)
   (lap:add64 :rdx 1)
-  (lap:cmp64 :rdx #.(- mezzano.supervisor::+thread-symbol-cache-end+ mezzano.supervisor::+thread-symbol-cache-start+))
+  (lap:cmp64 :rdx #.mezzano.supervisor::+thread-symbol-cache-size+)
   (lap:jne CLEAR-LOOP)
   ;; Setup complete.
   ;; Hose the old continuation object so it doesn't keep old values live.

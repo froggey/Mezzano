@@ -72,13 +72,13 @@
                                 :outputs (list :rax)))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:and32
-                                :operands (list :eax (1- 128))
+                                :operands (list :eax (1- mezzano.supervisor::+thread-symbol-cache-size+))
                                 :inputs (list :rax)
                                 :outputs (list :rax)))
            ;; Load cache entry.
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:mov64
-                                :operands (list cache-temp `(:object nil 128 :rax 8))
+                                :operands (list cache-temp `(:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax 8))
                                 :inputs (list :rax)
                                 :outputs (list cache-temp)
                                 :prefix '(lap:gs)))
@@ -108,7 +108,7 @@
            (emit cache-hit)
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:add64
-                                :operands (list `(:object nil 22) (ash 1 sys.int::+n-fixnum-bits+))
+                                :operands (list `(:object nil ,mezzano.supervisor::+thread-symbol-cache-hit-count+) (ash 1 sys.int::+n-fixnum-bits+))
                                 :inputs (list)
                                 :outputs (list)
                                 :prefix '(lap:gs)))
@@ -124,7 +124,7 @@
            ;; Log a cache miss.
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:add64
-                                :operands (list `(:object nil 23) (ash 1 sys.int::+n-fixnum-bits+))
+                                :operands (list `(:object nil ,mezzano.supervisor::+thread-symbol-cache-miss-count+) (ash 1 sys.int::+n-fixnum-bits+))
                                 :inputs (list)
                                 :outputs (list)
                                 :prefix '(lap:gs)))
@@ -139,13 +139,13 @@
                                 :outputs (list :rax)))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:and32
-                                :operands (list :eax (1- 128))
+                                :operands (list :eax (1- mezzano.supervisor::+thread-symbol-cache-size+))
                                 :inputs (list :rax)
                                 :outputs (list :rax)))
            ;; Write the entry into the cache.
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:mov64
-                                :operands (list `(:object nil 128 :rax 8) miss-result)
+                                :operands (list `(:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax 8) miss-result)
                                 :inputs (list :rax miss-result)
                                 :outputs (list)
                                 :prefix '(lap:gs)))

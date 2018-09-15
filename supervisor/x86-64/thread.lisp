@@ -25,10 +25,10 @@
   (sys.lap-x86:ret))
 
 (defun save-fpu-state (thread)
-  (fxsave (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)))
+  (fxsave (mezzano.runtime::%object-slot-address thread +thread-fxsave-area+)))
 
 (defun restore-fpu-state (thread)
-  (fxrstor (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)))
+  (fxrstor (mezzano.runtime::%object-slot-address thread +thread-fxsave-area+)))
 
 (defun save-interrupted-state (thread interrupt-frame)
   ;; Copy the interrupt frame over to the save area.
@@ -95,6 +95,17 @@
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 (defun arch-initialize-thread-state (thread stack-pointer)
+  ;; Initialize the FXSAVE area.
+  ;; All FPU/SSE interrupts masked, round to nearest,
+  ;; x87 using 80 bit precision (long-float).
+  ;; FCW
+  (setf (thread-fxsave-area thread 0) #x7F
+        (thread-fxsave-area thread 1) #x03)
+  ;; MXCSR
+  (setf (thread-fxsave-area thread 24) #x80
+        (thread-fxsave-area thread 25) #x1F
+        (thread-fxsave-area thread 26) #x00
+        (thread-fxsave-area thread 27) #x00)
   ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
   (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
   (setf (thread-state-rsp thread) stack-pointer
@@ -129,11 +140,11 @@
 (sys.int::define-lap-function %%partial-save-return-thunk (())
   (:gc :frame :interrupt t)
   ;; Restore MV area.
-  (sys.lap-x86:mov64 :rcx #.(- +thread-mv-slots-end+ +thread-mv-slots-start+))
+  (sys.lap-x86:mov64 :rcx #.+thread-mv-slots-size+)
   (sys.lap-x86:lea64 :rsi (:rsp #.(+ (* 20 8) 512)))
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 :rdi (:object nil #.+thread-self+))
-  (sys.lap-x86:lea64 :rdi (:object :rdi #.+thread-mv-slots-start+))
+  (sys.lap-x86:lea64 :rdi (:object :rdi #.+thread-mv-slots+))
   (sys.lap-x86:rep)
   (sys.lap-x86:movs64)
   ;; Restore FPU state.
@@ -163,18 +174,18 @@
   (when (thread-full-save-p thread)
     ;; Push the current full save state on the stack and create an interrupt frame.
     (let ((sp (thread-state-rsp thread)))
-      (decf sp (+ (* (- +thread-mv-slots-end+ +thread-mv-slots-start+) 8)
+      (decf sp (+ (* +thread-mv-slots-size+ 8)
                   512
                   (* 20 8)))
       ;; Align the stack.
       (setf sp (logand sp (lognot 15)))
       ;; Save the MV area.
       (sys.int::%copy-words (+ sp 512 (* 20 8))
-                            (mezzano.runtime::%object-slot-address thread +thread-mv-slots-start+)
-                            (- +thread-mv-slots-end+ +thread-mv-slots-start+))
+                            (mezzano.runtime::%object-slot-address thread +thread-mv-slots+)
+                            +thread-mv-slots-size+)
       ;; Save the FPU state.
       (sys.int::%copy-words (+ sp (* 20 8))
-                            (mezzano.runtime::%object-slot-address thread +thread-fx-save-area+)
+                            (mezzano.runtime::%object-slot-address thread +thread-fxsave-area+)
                             (truncate 512 8))
       ;; Save the interrupt state, 20 elements.
       (sys.int::%copy-words sp

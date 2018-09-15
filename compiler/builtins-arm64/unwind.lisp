@@ -10,12 +10,12 @@
 
 (defbuiltin sys.int::%%special-stack-pointer () ()
   (smash-x0)
-  (emit-object-load :x0 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-load :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (setf *x0-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::%%special-stack-pointer) (value) ()
   (load-in-x0 value t)
-  (emit-object-store :x0 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-store :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   value)
 
 ;;; Examining non-local exit instances.
@@ -51,10 +51,10 @@
     (emit-stack-store object (+ slots 1))
     (emit-stack-store value (+ slots 0))
     ;; Store link.
-    (emit-object-load tmp2 :x28 :slot 6) ;; ### special-stack-pointer
+    (emit-object-load tmp2 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
     (emit-stack-store tmp2 (+ slots 2))
     ;; Push.
-    (emit-object-store tmp :x28 :slot 6))) ;; ### special-stack-pointer
+    (emit-object-store tmp :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)))
 
 (defbuiltin sys.int::%%bind (symbol value) (t nil)
   (load-in-reg :x1 symbol t)
@@ -80,10 +80,10 @@
 (defbuiltin sys.int::%%unbind () (t nil)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
-  (emit-object-load :x6 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-load :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   ;; Pop the stack.
   (emit-object-load :x2 :x6 :slot 0)
-  (emit-object-store :x2 :x28 :slot 6) ;; ### special-stack-pointer
+  (emit-object-store :x2 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   ;; Recompute the symbol hash.
   (emit-object-load :x9 :x6 :slot sys.int::+symbol-value-cell-symbol+)
   (emit `(lap:add :x9 :xzr :x9 :lsr 1)
@@ -103,14 +103,14 @@
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
   (smash-x0)
-  (emit-object-load :x6 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-load :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (emit-object-load :x0 :x6 :slot 1)
   (emit-object-load :x5 :x6 :slot 2)
   (emit `(lap:add :x5 :xzr :x5 :lsl 2)
         `(lap:sub :x5 :x5 ,(- (object-slot-displacement 0)))
         `(lap:str :x26 (:x0 :x5)))
   (emit-object-load :x6 :x6 :slot 0)
-  (emit-object-store :x6 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-store :x6 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   ''nil)
 
 (defbuiltin sys.int::%%disestablish-unwind-protect () (t nil)
@@ -118,11 +118,11 @@
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
   (smash-x0)
-  (emit-object-load :x0 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-load :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (emit-object-load :x7 :x0 :slot 1)
   (emit-object-load :x6 :x0 :slot 2)
   (emit-object-load :x0 :x0 :slot 0)
-  (emit-object-store :x0 :x28 :slot 6) ; ### special-stack-pointer
+  (emit-object-store :x0 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
   (load-constant :x5 0)
   (emit-object-load :x9 :x7 :slot sys.int::+function-entry-point+)
   (emit `(lap:blr :x9))

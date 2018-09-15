@@ -147,15 +147,15 @@
       (emit `(lap:orr :x0 :xzr :x1))
       (call-support-function 'mezzano.runtime::symbol-value-cell 1)
       ;; Log a cache miss.
-      (emit-object-load :x9 :x28 :slot 23) ; miss count
+      (emit-object-load :x9 :x28 :slot mezzano.supervisor::+thread-symbol-cache-miss-count+)
       (emit `(lap:add :x9 :x9 ,(ash 1 sys.int::+n-fixnum-bits+)))
-      (emit-object-store :x9 :x28 :slot 23) ; miss count
+      (emit-object-store :x9 :x28 :slot mezzano.supervisor::+thread-symbol-cache-miss-count+)
       ;; Recompute the hash.
       (emit-object-load :x9 :x0 :slot sys.int::+symbol-value-cell-symbol+)
       (emit `(lap:add :x9 :xzr :x9 :lsr 1)
-            `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
+            `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3)))
       ;; Write the entry into the cache.
-      (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
+      (emit `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+))
             `(lap:str :x0 (:x28 :x9)))
       ;; Done.
       (emit `(lap:b ,resume)))
@@ -163,9 +163,9 @@
     ;; Compute symbol hash. Symbols are wired, so use the address.
     ;; Ignore the low 4 bits, but scale by 8.
     (emit `(lap:add :x9 :xzr :x1 :lsr 1)
-          `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
+          `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3)))
     ;; Load cache entry.
-    (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
+    (emit `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+))
           `(lap:ldr :x0 (:x28 :x9)))
     ;; Do symbols match?
     ;; Be careful here. The entry may be 0.
@@ -174,9 +174,9 @@
     (emit `(lap:subs :xzr :x1 :x2)
           `(lap:b.ne ,cache-miss))
     ;; Cache hit. Log.
-    (emit-object-load :x9 :x28 :slot 22) ; miss count
+    (emit-object-load :x9 :x28 :slot mezzano.supervisor::+thread-symbol-cache-hit-count+)
     (emit `(lap:add :x9 :x9 ,(ash 1 sys.int::+n-fixnum-bits+)))
-    (emit-object-store :x9 :x28 :slot 22) ; miss count
+    (emit-object-store :x9 :x28 :slot mezzano.supervisor::+thread-symbol-cache-hit-count+)
     (emit resume))
   (setf *x0-value* (list (gensym))))
 

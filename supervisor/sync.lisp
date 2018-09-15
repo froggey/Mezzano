@@ -17,20 +17,20 @@
   (cond ((null (wait-queue-head wait-queue))
          (setf (wait-queue-head wait-queue) thread
                (wait-queue-tail wait-queue) thread)
-         (setf (thread-%next thread) nil
-               (thread-%prev thread) nil))
+         (setf (thread-queue-next thread) nil
+               (thread-queue-prev thread) nil))
         (t
-         (setf (thread-%next (wait-queue-tail wait-queue)) thread
-               (thread-%prev thread) (wait-queue-tail wait-queue)
-               (thread-%next thread) nil
+         (setf (thread-queue-next (wait-queue-tail wait-queue)) thread
+               (thread-queue-prev thread) (wait-queue-tail wait-queue)
+               (thread-queue-next thread) nil
                (wait-queue-tail wait-queue) thread))))
 
 (defun pop-wait-queue (wait-queue)
   (let ((thread (wait-queue-head wait-queue)))
     (when thread
-      (cond ((thread-%next thread)
-             (setf (thread-%prev (thread-%next thread)) nil)
-             (setf (wait-queue-head wait-queue) (thread-%next thread)))
+      (cond ((thread-queue-next thread)
+             (setf (thread-queue-prev (thread-queue-next thread)) nil)
+             (setf (wait-queue-head wait-queue) (thread-queue-next thread)))
             (t (setf (wait-queue-head wait-queue) nil
                      (wait-queue-tail wait-queue) nil)))
       thread)))
@@ -43,18 +43,18 @@
                (wait-queue-tail wait-queue) nil))
         ((eql (wait-queue-head wait-queue) thread)
          ;; More than one thread, at head.
-         (setf (thread-%prev (thread-%next thread)) nil)
-         (setf (wait-queue-head wait-queue) (thread-%next thread)))
+         (setf (thread-queue-prev (thread-queue-next thread)) nil)
+         (setf (wait-queue-head wait-queue) (thread-queue-next thread)))
         ((eql (wait-queue-tail wait-queue) thread)
          ;; More than one thread, at tail.
-         (setf (thread-%next (thread-%prev thread)) nil)
-         (setf (wait-queue-tail wait-queue) (thread-%prev thread)))
-        ((thread-%next thread)
+         (setf (thread-queue-next (thread-queue-prev thread)) nil)
+         (setf (wait-queue-tail wait-queue) (thread-queue-prev thread)))
+        ((thread-queue-next thread)
          ;; Somewhere in the middle of the wait queue.
-         (setf (thread-%next (thread-%prev thread)) (thread-%next thread)
-               (thread-%prev (thread-%next thread)) (thread-%prev thread))
-         (setf (thread-%next thread) nil
-               (thread-%prev thread) nil))))
+         (setf (thread-queue-next (thread-queue-prev thread)) (thread-queue-next thread)
+               (thread-queue-prev (thread-queue-next thread)) (thread-queue-prev thread))
+         (setf (thread-queue-next thread) nil
+               (thread-queue-prev thread) nil))))
 
 (defun lock-wait-queue (wait-queue)
   (acquire-place-spinlock (wait-queue-%lock wait-queue)))

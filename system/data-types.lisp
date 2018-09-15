@@ -110,7 +110,7 @@
 (defconstant +object-tag-instance+                #b110001)
 ;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
-(defconstant +object-tag-thread+                  #b110100)
+;;#b110100 (previously thread)
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)
 (defconstant +object-tag-interrupt-frame+         #b110111)

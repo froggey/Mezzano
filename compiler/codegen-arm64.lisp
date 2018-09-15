@@ -779,7 +779,7 @@
         ;; Construct jump info.
         (emit `(lap:adr :x9 ,thunk-label))
         (emit-stack-store :x9 (+ control-info 3))
-        (emit-object-load :x9 :x28 :slot 6) ;; ### special-stack-pointer
+        (emit-object-load :x9 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
         (emit-stack-store :x9 (+ control-info 2))
         (emit `(lap:add :x9 :sp :xzr))
         (emit-stack-store :x9 (+ control-info 1))
@@ -1032,8 +1032,7 @@
                   (pop value-locations))
                  (t (let ((register (cond ((integerp (first value-locations))
                                            (emit-object-load :x7 :x28
-                                                             :slot (+ #+(or)sys.int::+stack-group-offset-mv-slots+
-                                                                      32 ; fixme. should be +thread-mv-slots-start+
+                                                             :slot (+ mezzano.supervisor::+thread-mv-slots+
                                                                       (pop value-locations)))
                                            :x7)
                                           (t (pop value-locations)))))
@@ -1094,8 +1093,7 @@ Returns an appropriate tag."
                    ;; Copy values.
                    `(lap:add :x12 :sp :xzr)
                    `(lap:movz :x11 ,(+ (- 8 sys.int::+tag-object+)
-                                       ;; fixme. should be +thread-mv-slots-start+
-                                       (* 32 8))))
+                                       (* mezzano.supervisor::+thread-mv-slots+ 8))))
              ;; Switch to the right GC mode.
              (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
              (emit loop-head
@@ -1181,8 +1179,7 @@ Returns an appropriate tag."
            (emit `(lap:add :x12 :sp ,(* 6 8))) ; skip header and registers.
            ;; Load from the MV area.
            (emit `(lap:add :x11 :x28 ,(+ (- 8 sys.int::+tag-object+)
-                                         ;; fixme. should be +thread-mv-slots-start+
-                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+                                         (* mezzano.supervisor::+thread-mv-slots+ 8))))
            ;; Save the values into a simple-vector.
            (emit save-loop-head)
            (emit `(lap:ldr :x6 (:post :x11 8)))
@@ -1316,7 +1313,7 @@ Returns an appropriate tag."
         ;; Construct jump info.
         (emit `(lap:adr :x9 ,jump-table))
         (emit-stack-store :x9 (+ control-info 3))
-        (emit-object-load :x9 :x28 :slot 6) ;; ### special-stack-pointer
+        (emit-object-load :x9 :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
         (emit-stack-store :x9 (+ control-info 2))
         (emit `(lap:add :x9 :sp :xzr))
         (emit-stack-store :x9 (+ control-info 1))
@@ -1457,8 +1454,7 @@ Returns an appropriate tag."
            (loop for i from 0
               for value in (nthcdr 5 args) do
                 (load-in-reg :x7 value t)
-                ;; fixme. should be +thread-mv-slots-start+
-                (emit-object-store :x7 :x28 :slot (+ 32 i))
+                (emit-object-store :x7 :x28 :slot (+ mezzano.supervisor::+thread-mv-slots+ i))
                 (emit-gc-info :multiple-values 1)
                 (emit `(lap:add :x5 :x5 ,(fixnum-to-raw 1)))
                 (emit-gc-info :multiple-values 0))

@@ -76,7 +76,7 @@
   (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   ;; Registers are populated, now unpack into the MV-area
   (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
-                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
+                               (* mezzano.supervisor::+thread-mv-slots+ 8)))
   (:gc :frame :layout #*10 :multiple-values 0)
   unpack-loop
   (sys.lap-x86:cmp64 :rbx nil)
@@ -85,7 +85,7 @@
   (sys.lap-x86:and8 :al #b1111)
   (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
   (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5) sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash (+ mezzano.supervisor::+thread-mv-slots-size+ 5) sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jae too-many-values)
   (sys.lap-x86:mov64 :r13 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
@@ -148,7 +148,7 @@
   ;; Get number of values.
   (sys.lap-x86:shr64 :rax #.sys.int::+object-data-shift+)
   (sys.lap-x86:jz zero-values)
-  (sys.lap-x86:cmp64 :rax #.(+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
+  (sys.lap-x86:cmp64 :rax #.(+ mezzano.supervisor::+thread-mv-slots-size+ 5))
   (sys.lap-x86:jae too-many-values)
   ;; Set up. RBX = vector, RCX = number of values loaded so far, RAX = total number of values.
   (sys.lap-x86:mov64 :rbx :r8)
@@ -176,7 +176,7 @@
   (sys.lap-x86:je done)
   ;; Registers are populated, now unpack into the MV-area
   (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
-                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
+                               (* mezzano.supervisor::+thread-mv-slots+ 8)))
   (sys.lap-x86:mov32 :edx 5) ; Current value.
   (:gc :frame :multiple-values 0)
   unpack-loop

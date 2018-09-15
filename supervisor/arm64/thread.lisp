@@ -15,7 +15,7 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function save-fpu-state ((thread))
-  (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fx-save-area+))
+  (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fxsave-area+))
   (mezzano.lap.arm64:stp :q0 :q1 (:post :x12 32))
   (mezzano.lap.arm64:stp :q2 :q3 (:post :x12 32))
   (mezzano.lap.arm64:stp :q4 :q5 (:post :x12 32))
@@ -41,7 +41,7 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function restore-fpu-state ((thread))
-  (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fx-save-area+))
+  (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fxsave-area+))
   (mezzano.lap.arm64:ldp :q0 :q1 (:post :x12 32))
   (mezzano.lap.arm64:ldp :q2 :q3 (:post :x12 32))
   (mezzano.lap.arm64:ldp :q4 :q5 (:post :x12 32))
@@ -138,6 +138,8 @@
   (mezzano.lap.arm64:ret))
 
 (defun arch-initialize-thread-state (thread stack-pointer)
+  (setf (thread-arm64-fpsr thread) 0
+        (thread-arm64-fpcr thread) 0)
   (setf (thread-state-rsp thread) stack-pointer
         ;; Unused.
         (thread-state-ss thread) 0

@@ -11,13 +11,13 @@
 (defbuiltin sys.int::%%special-stack-pointer () ()
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+)))
+        `(sys.lap-x86:mov64 :r8 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+)))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::%%special-stack-pointer) (value) ()
   (load-in-r8 value t)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r8))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r8))
   value)
 
 ;;; Examining non-local exit instances.
@@ -52,11 +52,11 @@
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) ,value))
     ;; Store link.
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 ,tmp2 (,+binding-stack-gs-offset+))
+          `(sys.lap-x86:mov64 ,tmp2 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
           `(sys.lap-x86:mov64 (:stack ,(+ slots 2)) ,tmp2))
     ;; Push.
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) ,tmp))))
+          `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) ,tmp))))
 
 (defbuiltin sys.int::%%bind (symbol value) (t nil)
   (load-in-reg :r9 symbol t)
@@ -87,11 +87,11 @@
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+)))
+        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+)))
   ;; Pop the stack.
   (emit `(sys.lap-x86:mov64 :r10 ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r10))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r10))
   ;; Recompute the symbol hash.
   (emit `(sys.lap-x86:mov64 :rax ,(object-ea :rbx
                                              :slot sys.int::+symbol-value-cell-symbol+))
@@ -119,13 +119,13 @@
   ;; Pop the stack & set env[offset] = NIL.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
         `(sys.lap-x86:mov64 :r8 ,(object-ea :rbx :slot 1))
         `(sys.lap-x86:mov64 :rcx ,(object-ea :rbx :slot 2))
         `(sys.lap-x86:mov64 ,(object-ea :r8 :index `(:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))) nil)
         `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :rbx))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :rbx))
   ''nil)
 
 (defbuiltin sys.int::%%disestablish-unwind-protect () (t nil)
@@ -134,12 +134,12 @@
   ;; Pop the stack & call the function with the environment object.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
         `(sys.lap-x86:mov64 :r13 ,(object-ea :r8 :slot 1))
         `(sys.lap-x86:mov64 :rbx ,(object-ea :r8 :slot 2))
         `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r8)
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r8)
         `(sys.lap-x86:xor32 :ecx :ecx)
         `(sys.lap-x86:call ,(object-ea :r13 :slot 0)))
   ''nil)

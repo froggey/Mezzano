@@ -1015,45 +1015,42 @@
 
 (defun create-thread (name &key stack-size (initial-state :runnable))
   (check-type initial-state (member :active :runnable :sleeping :dead))
-  (let* ((address (allocate 512 :wired))
+  (let* ((thread (vmake-structure 'mezzano.supervisor:thread))
          (stack (create-stack (* stack-size 8)))
          (stack-object (let ((*default-cons-allocation-area* :wired))
                          (vcons (make-fixnum (stack-base stack))
                                 (make-fixnum (stack-size stack))))))
     (format t "~X ~X  ~X~%" (stack-base stack) (stack-size stack)
             (+ (stack-base stack) (stack-size stack)))
-    ;; Array tag.
-    (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
-    (setf (word (+ address 1)) (make-value (store-string name :wired)
-                                           sys.int::+tag-object+))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::name)
+          (make-value (store-string name :wired) sys.int::+tag-object+))
     ;; State.
-    (setf (word (+ address 2)) (vsym initial-state))
-    ;; Lock.
-    (setf (word (+ address 3)) (vsym :unlocked))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::state)
+          (vsym initial-state))
     ;; Stack.
-    (setf (word (+ address 4)) stack-object)
-    ;; Stack pointer.
-    (setf (word (+ address 5)) (+ (stack-base stack)
-                                  (stack-size stack)))
-    ;; +6, unused
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::stack)
+          stack-object)
+    ;; Initial stack pointer.
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::magic-bootloader-field)
+          (+ (stack-base stack)
+             (stack-size stack)))
     ;; Special stack pointer.
-    (setf (word (+ address 7)) (vsym 'nil))
-    ;; +8 self.
-    (setf (word (+ address 9)) (make-value address sys.int::+tag-object+))
-    ;; Next.
-    (setf (word (+ address 10)) (vsym 'nil))
-    ;; Prev.
-    (setf (word (+ address 11)) (vsym 'nil))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::special-stack-pointer)
+          (vsym 'nil))
+    ;; self.
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::self)
+          thread)
     ;; Pending footholds.
-    (setf (word (+ address 12)) (vsym 'nil))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::pending-footholds)
+          (vsym 'nil))
     ;; Inhibit footholds.
-    (setf (word (+ address 13)) (make-fixnum 1))
-    ;; mutex stack.
-    (setf (word (+ address 14)) (vsym 'nil))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::inhibit-footholds)
+          (make-fixnum 1))
     ;; Priority
-    (setf (word (+ address 17)) (vsym ':normal))
-    (make-value address sys.int::+tag-object+)))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::priority)
+          (vsym ':normal))
+    thread))
 
 (defun create-initial-thread ()
   (setf (cold-symbol-value 'sys.int::*initial-thread*)
@@ -1481,14 +1478,14 @@
             (cold-symbol-value 'sys.int::*irq-stack-size*) (make-fixnum (stack-size irq-stack)))
       (setf (cold-symbol-value 'sys.int::*bsp-wired-stack-base*) (make-fixnum (stack-base wired-stack))
             (cold-symbol-value 'sys.int::*bsp-wired-stack-size*) (make-fixnum (stack-size wired-stack)))
-      (setf initial-thread (create-initial-thread))
       ;; Load all cold source files, emitting the top-level forms into an array
       ;; FIXME: Top-level forms generally show up as functions in .LLF files,
       ;;        this should be a vector of callable functions, not evalable forms.
       (load-compiler-builtins)
       (load-source-files *supervisor-source-files* t t)
       (load-source-files *source-files* t)
-      (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*cold-toplevel-forms*))
+      (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*cold-toplevel-forms*)
+      (setf initial-thread (create-initial-thread)))
     ;; Certain cold LLF files are special and must be deferred until after the
     ;; cold load has done a bit of bootstrapping. Put those top-level forms
     ;; in a special symbol.

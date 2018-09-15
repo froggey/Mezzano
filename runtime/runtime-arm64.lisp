@@ -29,8 +29,7 @@
   ;; Get number of values.
   (mezzano.lap.arm64:adds :x9 :xzr :x9 :lsr #.sys.int::+object-data-shift+)
   (mezzano.lap.arm64:b.eq zero-values)
-  (mezzano.lap.arm64:subs :xzr :x9 #.(+ (- mezzano.supervisor::+thread-mv-slots-end+
-                                           mezzano.supervisor::+thread-mv-slots-start+)
+  (mezzano.lap.arm64:subs :xzr :x9 #.(+ mezzano.supervisor::+thread-mv-slots-size+
                                         5))
   (mezzano.lap.arm64:b.cs too-many-values)
   ;; Set up. X6(RBX) = vector, X5(RCX) = number of values loaded so far, X9(RAX) = total number of values.
@@ -59,7 +58,7 @@
   (mezzano.lap.arm64:b.eq done)
   ;; Registers are populated, now unpack into the MV-area
   (mezzano.lap.arm64:add :x12 :x28 #.(+ (- 8 sys.int::+tag-object+)
-                                        (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
+                                        (* mezzano.supervisor::+thread-mv-slots+ 8)))
   (mezzano.lap.arm64:movz :x10 #.(+ (- 8 sys.int::+tag-object+)
                                     (* 5 8))) ; Current index.
   (mezzano.lap.arm64:movz :x11 5)
