@@ -356,8 +356,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (dotimes (i (ceiling (length object) 8))
     (let ((octet 0))
       (dotimes (j 8)
-        (when (>= (+ (* i 8) j) (length object)) (return))
-        (setf (ldb (byte 1 j) octet) (bit object j)))
+        (let ((idx (+ (* i 8) j)))
+          (when (>= idx (length object)) (return))
+          (setf (ldb (byte 1 j) octet) (bit object idx))))
       (write-byte octet stream))))
 
 (defmethod save-one-object ((object function-reference) omap stream)
