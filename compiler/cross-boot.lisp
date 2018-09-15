@@ -194,21 +194,21 @@
   data)
 
 (defun sys.int::%defstruct (def)
-  (when (member (sys.int::structure-definition-name def)
-                '(sys.int::structure-definition
-                  sys.int::structure-slot-definition))
-    (return-from sys.int::%defstruct))
   (when (gethash (sys.int::structure-definition-name def) *structure-types*)
     (assert (eql (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
-  (let ((predicate (gensym (string (sys.int::structure-definition-name def)))))
-    (setf (symbol-function predicate) (lambda (x)
-                                        (sys.int::structure-type-p x def)))
-    (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
-                     (find-package "CL"))
-                (eql (symbol-package (sys.int::structure-definition-name def))
-                     (find-package "SYS.C")))
-      (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))
-    (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
+  (unless (member (sys.int::structure-definition-name def)
+                  '(sys.int::structure-definition
+                    sys.int::structure-slot-definition
+                    sys.int::layout))
+    (let ((predicate (gensym (string (sys.int::structure-definition-name def)))))
+      (setf (symbol-function predicate) (lambda (x)
+                                          (sys.int::structure-type-p x def)))
+      (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
+                       (find-package "CL"))
+                  (eql (symbol-package (sys.int::structure-definition-name def))
+                       (find-package "SYS.C")))
+        (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))))
+  (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def))
 
 (defun sys.int::%make-struct (definition)
   (make-cross-struct
