@@ -1077,6 +1077,11 @@
     ;; Priority
     (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::priority)
           (vsym ':normal))
+    ;; Symbol cache hit & miss counts
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::symbol-cache-hit-count)
+          (make-fixnum 0))
+    (setf (structure-slot thread 'mezzano.supervisor::thread 'mezzano.supervisor::symbol-cache-miss-count)
+          (make-fixnum 0))
     thread))
 
 (defun create-initial-thread ()

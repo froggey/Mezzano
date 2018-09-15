@@ -855,30 +855,6 @@ This is required to make the GC interrupt safe."
 
 (defun scan-thread (object cycle-kind)
   (when *gc-debug-scavenge-stack* (gc-log "Scav thread " object))
-  ;; Scavenge various parts of the thread.
-  (scavengef (mezzano.supervisor:thread-name object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-state object) cycle-kind)
-  ;; FIXME: Mark stack.
-  (scavengef (mezzano.supervisor:thread-stack object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-special-stack-pointer object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-wait-item object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-%next object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-%prev object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-pending-footholds object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-mutex-stack object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-global-next object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-global-prev object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-priority object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-pager-argument-1 object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-pager-argument-2 object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-pager-argument-3 object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-unsleep-helper object) cycle-kind)
-  (scavengef (mezzano.supervisor:thread-unsleep-helper-argument object) cycle-kind)
-  ;; Scavenge the binding cache to prevent stale symbol value cells from
-  ;; being reused.
-  (loop
-     for i from mezzano.supervisor::+thread-symbol-cache-start+ below mezzano.supervisor::+thread-symbol-cache-end+
-     do (scavengef (%object-ref-t object i) cycle-kind))
   ;; Only scan the thread's stack and MV area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.
