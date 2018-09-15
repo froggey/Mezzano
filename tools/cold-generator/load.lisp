@@ -111,35 +111,49 @@
     seq))
 
 (defun load-structure-definition (name* slots* parent* area* size* layout* sealed*)
-  ;; TODO: Respect size & layout when loading new definitions.
-  ;; POPULATE-STRUCTURE-DEFINITION correctly reconstructs them for homogenous
-  ;; boxed structures, but won't work for other layouts.
-  (declare (ignore size* layout*))
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))
+         (slots-list (extract-object slots* t))
          (definition (gethash name *struct-table*)))
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
-           (make-value (first definition) sys.int::+tag-object+))
+              (make-value (first definition) sys.int::+tag-object+))
           (t
-           (let ((address (allocate 9 :wired))
-                 (layout-address (allocate 8 :wired)))
-             (populate-structure-definition
-              address layout-address
-              name*
-              (loop
-                 for slot-def in slots
-                 collect (list (sys.int::structure-slot-definition-name slot-def)
-                               (sys.int::structure-slot-definition-accessor slot-def)
-                               (sys.int::structure-slot-definition-initform slot-def)
-                               (sys.int::structure-slot-definition-type slot-def)
-                               (sys.int::structure-slot-definition-read-only slot-def)
-                               (sys.int::structure-slot-definition-fixed-vector slot-def)
-                               (sys.int::structure-slot-definition-align slot-def)))
-              parent*
-              (extract-object area*)
-              sealed*)
-             (make-value address sys.int::+tag-object+))))))
+           (let ((sdef (vmake-structure 'sys.int::structure-definition))
+                 (layout (vmake-structure 'sys.int::layout)))
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::name)
+                   name*)
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::slots)
+                   ;; Copy slots list into the wired area.
+                   (let ((*default-cons-allocation-area* :wired))
+                     (apply #'vlist slots-list)))
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::parent)
+                   parent*)
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::area)
+                   area*)
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::size)
+                   size*)
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::layout)
+                   layout)
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::class)
+                   (vsym nil))
+             (setf (structure-slot sdef 'sys.int::structure-definition 'sys.int::sealed)
+                   sealed*)
+             (setf (structure-slot layout 'sys.int::layout 'sys.int::class)
+                   sdef)
+             (setf (structure-slot layout 'sys.int::layout 'sys.int::obsolete)
+                   (vsym nil))
+             (setf (structure-slot layout 'sys.int::layout 'sys.int::heap-size)
+                   size*)
+             ;; FIXME: Need to copy layout into the pinned area.
+             (setf (structure-slot layout 'sys.int::layout 'sys.int::heap-layout)
+                   layout*)
+             (setf (structure-slot layout 'sys.int::layout 'sys.int::area)
+                   area*)
+
+             (setf (gethash name *struct-table*) (list (pointer-part sdef) name slots))
+             (setf (gethash name *layout-table*) layout)
+             sdef)))))
 
 (defun cross-value-p (value)
   (and (consp value)

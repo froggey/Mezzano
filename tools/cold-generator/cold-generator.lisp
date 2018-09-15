@@ -232,6 +232,7 @@
 ;; Hash-table mapping function names to function references.
 (defvar *fref-table*)
 (defvar *struct-table*)
+(defvar *layout-table*)
 (defvar *unbound-value-address*)
 (defvar *undefined-function-address*)
 (defvar *closure-trampoline-address*)
@@ -550,12 +551,24 @@
                                         (loop
                                            for i from 0
                                            for def in slots
-                                           for (name accessor initform type read-only fixed-vector align) = (mapcar (lambda (x)
-                                                                                                                      (if (integerp x)
-                                                                                                                          x
-                                                                                                                          (vsym x)))
-                                                                                                                    def)
-                                           collect (vmake-struct-slot-def name accessor initform type read-only (vsym 'sys.int::%object-ref-t) (make-fixnum i) fixed-vector align))))
+                                           for (name accessor initform type read-only fixed-vector align ref-fn location)
+                                             = (mapcar (lambda (x)
+                                                         (if (integerp x)
+                                                             x
+                                                             (vsym x)))
+                                                       def)
+                                           collect (vmake-struct-slot-def name
+                                                                          accessor
+                                                                          initform
+                                                                          type
+                                                                          read-only
+                                                                          (if (eql ref-fn (vsym nil))
+                                                                              (vsym 'sys.int::%object-ref-t)
+                                                                              ref-fn)
+                                                                          (if (eql location (vsym nil))
+                                                                              (make-fixnum i)
+                                                                              location)
+                                                                          fixed-vector align))))
           ;; parent
           (word (+ address 3)) (or parent (vsym nil))
           ;; area
@@ -572,12 +585,26 @@
                                               (loop
                                                  for i from 0
                                                  for def in slots
-                                                 for (name accessor initform type read-only fixed-vector align) = (mapcar (lambda (x)
-                                                                                                                            (if (integerp x)
-                                                                                                                                x
-                                                                                                                                (vsym x)))
-                                                                                                                          def)
-                                                 collect (sys.int::make-struct-slot-definition name accessor initform type read-only (vsym 'sys.int::%object-ref-t) (make-fixnum i) fixed-vector align))))
+                                                 for (name accessor initform type read-only fixed-vector align ref-fn location) =
+                                                   (mapcar (lambda (x)
+                                                             (if (integerp x)
+                                                                 x
+                                                                 (vsym x)))
+                                                           def)
+                                                 collect (sys.int::make-struct-slot-definition
+                                                          name
+                                                          accessor
+                                                          initform
+                                                          type
+                                                          read-only
+                                                          (if (eql ref-fn (vsym nil))
+                                                              (vsym 'sys.int::%object-ref-t)
+                                                              ref-fn)
+                                                          (if (eql location (vsym nil))
+                                                              (make-fixnum i)
+                                                              location)
+                                                          fixed-vector
+                                                          align))))
     (setf (word (+ layout-address 0)) (structure-header (make-value *layout-layout* sys.int::+tag-object+))
           ;; class
           (word (+ layout-address 1)) (make-value address sys.int::+tag-object+)
@@ -590,7 +617,8 @@
           ;; area
           (word (+ layout-address 5)) (vsym area)
           ;; instance-slots. Not valid for structs
-          (word (+ layout-address 6)) (vsym nil))))
+          (word (+ layout-address 6)) (vsym nil))
+    (setf (gethash name *layout-table*) (make-value layout-address sys.int::+tag-object+))))
 
 (defun generate-defstruct (name slots &rest options)
   `(defstruct (,name ,@options)
@@ -633,30 +661,30 @@
                                                        :name 'sys.int::%%funcallable-instance-trampoline))
   (format t "UDF at word ~X~%" *undefined-function-address*)
   ;; And finally the initial structure definitions.
-  ;;                             name                       accessor          initform, type, read-only, fixed-vector, align
-  (let ((structure-def-layout  '((sys.int::name        sys.int::structure-definition-name           nil t t nil nil)
-                                 (sys.int::slots       sys.int::structure-definition-slots          nil list t nil nil)
-                                 (sys.int::parent      sys.int::structure-definition-parent         nil t t nil nil)
-                                 (sys.int::area        sys.int::structure-definition-area           nil t t nil nil)
-                                 (sys.int::size        sys.int::structure-definition-size           nil t t nil nil)
-                                 (sys.int::layout      sys.int::structure-definition-layout         nil t nil nil nil)
-                                 (sys.int::class       sys.int::structure-definition-class          nil t nil nil nil)
-                                 (sys.int::sealed      sys.int::structure-definition-sealed         nil t t nil nil)))
-        (structure-slot-layout '((sys.int::name        sys.int::structure-slot-definition-name      nil t t nil nil)
-                                 (sys.int::accessor    sys.int::structure-slot-definition-accessor  nil t t nil nil)
-                                 (sys.int::initform    sys.int::structure-slot-definition-initform  nil t t nil nil)
-                                 (sys.int::type        sys.int::structure-slot-definition-type      t   t t nil nil)
-                                 (sys.int::read-only   sys.int::structure-slot-definition-read-only nil t t nil nil)
-                                 (sys.int::ref-fn      sys.int::structure-slot-definition-ref-fn    nil t t nil nil)
-                                 (sys.int::index       sys.int::structure-slot-definition-index     nil t t nil nil)
-                                 (sys.int::fixed-vector sys.int::structure-slot-definition-fixed-vector nil t t nil nil)
-                                 (sys.int::align       sys.int::structure-slot-definition-align     nil t t nil nil)))
-        (layout-layout         '((sys.int::class       sys.int::layout-class                        nil t t nil nil)
-                                 (sys.int::obsolete    sys.int::layout-obsolete                     nil t nil nil nil)
-                                 (sys.int::heap-size   sys.int::layout-heap-size                    nil t t nil nil)
-                                 (sys.int::heap-layout sys.int::layout-heap-layout                  nil t t nil nil)
-                                 (sys.int::area        sys.int::layout-area                         nil t t nil nil)
-                                 (sys.int::instance-slots sys.int::layout-instance-slots            nil t t nil nil))))
+  ;;                             name                       accessor          initform, type, read-only, fixed-vector, align, index, ref-fn
+  (let ((structure-def-layout  '((sys.int::name        sys.int::structure-definition-name           nil t t nil nil nil nil)
+                                 (sys.int::slots       sys.int::structure-definition-slots          nil list t nil nil nil nil)
+                                 (sys.int::parent      sys.int::structure-definition-parent         nil t t nil nil nil nil)
+                                 (sys.int::area        sys.int::structure-definition-area           nil t t nil nil nil nil)
+                                 (sys.int::size        sys.int::structure-definition-size           nil t t nil nil nil nil)
+                                 (sys.int::layout      sys.int::structure-definition-layout         nil t nil nil nil nil nil)
+                                 (sys.int::class       sys.int::structure-definition-class          nil t nil nil nil nil nil)
+                                 (sys.int::sealed      sys.int::structure-definition-sealed         nil t t nil nil nil nil)))
+        (structure-slot-layout '((sys.int::name        sys.int::structure-slot-definition-name      nil t t nil nil nil nil)
+                                 (sys.int::accessor    sys.int::structure-slot-definition-accessor  nil t t nil nil nil nil)
+                                 (sys.int::initform    sys.int::structure-slot-definition-initform  nil t t nil nil nil nil)
+                                 (sys.int::type        sys.int::structure-slot-definition-type      t   t t nil nil nil nil)
+                                 (sys.int::read-only   sys.int::structure-slot-definition-read-only nil t t nil nil nil nil)
+                                 (sys.int::ref-fn      sys.int::structure-slot-definition-ref-fn    nil t t nil nil nil nil)
+                                 (sys.int::index       sys.int::structure-slot-definition-index     nil t t nil nil nil nil)
+                                 (sys.int::fixed-vector sys.int::structure-slot-definition-fixed-vector nil t t nil nil nil nil)
+                                 (sys.int::align       sys.int::structure-slot-definition-align     nil t t nil nil nil nil)))
+        (layout-layout         '((sys.int::class       sys.int::layout-class                        nil t t nil nil nil nil)
+                                 (sys.int::obsolete    sys.int::layout-obsolete                     nil t nil nil nil nil nil)
+                                 (sys.int::heap-size   sys.int::layout-heap-size                    nil t t nil nil nil nil)
+                                 (sys.int::heap-layout sys.int::layout-heap-layout                  nil t t nil nil nil nil)
+                                 (sys.int::area        sys.int::layout-area                         nil t t nil nil nil nil)
+                                 (sys.int::instance-slots sys.int::layout-instance-slots            nil t t nil nil nil nil))))
     (setf *structure-definition-definition* (allocate (1+ (length structure-def-layout)) :wired)
           *structure-slot-definition-definition* (allocate (1+ (length structure-def-layout)) :wired)
           *layout-definition* (allocate (1+ (length structure-def-layout)) :wired))
@@ -740,15 +768,11 @@
   ;; Look up the associated structure definition.
   ;; FIXME: Use the layout for some of this
   (let* ((def (sys.int::get-structure-type type))
-         (n-slots (length (sys.int::structure-definition-slots def)))
+         (n-slots (sys.int::structure-definition-size def))
          (address (allocate (+ 1 n-slots) ; header + slots
                             (sys.int::structure-definition-area def))))
     ;; header
-    (setf (word (+ address 0)) (structure-header
-                                (make-value (word (+ (first (or (gethash type *struct-table*)
-                                                                (error "Missing structure ~S?" type)))
-                                                     6)) ; layout
-                                            sys.int::+tag-object+)))
+    (setf (word (+ address 0)) (structure-header (gethash type *layout-table*)))
     ;; Initialize slots to NIL.
     (loop
        for i from 1
@@ -769,20 +793,23 @@
          (setf (word (+ address 1 loc)) value))
     (make-value address sys.int::+tag-object+)))
 
-(defun structure-slot (object type slot)
+(defun structure-slot (object type slot-name)
   (let* ((def (sys.int::get-structure-type type))
-         (index (or (position slot (sys.int::structure-definition-slots def)
-                              :key #'sys.int::structure-definition-name)
-                    (error "Unknown slot ~S in structure ~S" slot type))))
-    (word (+ (pointer-part object) 2 index))))
+         (slot (or (find slot-name (sys.int::structure-definition-slots def)
+                         :key #'sys.int::structure-slot-definition-name)
+                   (error "Unknown slot ~S in structure ~S" slot-name type)))
+         (index (sys.int::structure-slot-definition-index slot)))
+    (format t "Position of slot ~S in ~S is ~S @ ~X~%" slot type index (+ (+ (pointer-part object) 1 index) index))
+    (word (+ (pointer-part object) 1 index))))
 
-(defun (setf structure-slot) (value object type slot)
+(defun (setf structure-slot) (value object type slot-name)
   (let* ((def (sys.int::get-structure-type type))
-         (index (or (position slot (sys.int::structure-definition-slots def)
-                              :key #'sys.int::structure-slot-definition-name)
-                    (error "Unknown slot ~S in structure ~S" slot type))))
-    (format t "Position of slot ~S in ~S is ~S (setf) @ ~X~%" slot type index (+ (truncate object 8) 2 index))
-    (setf (word (+ (pointer-part object) 2 index)) value)))
+         (slot (or (find slot-name (sys.int::structure-definition-slots def)
+                         :key #'sys.int::structure-slot-definition-name)
+                   (error "Unknown slot ~S in structure ~S" slot-name type)))
+         (index (sys.int::structure-slot-definition-index slot)))
+    (format t "Position of slot ~S in ~S is ~S (setf) @ ~X~%" slot type index (+ (+ (pointer-part object) 1 index) index))
+    (setf (word (+ (pointer-part object) 1 index)) value)))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))
@@ -1447,6 +1474,7 @@
          (*reverse-symbol-table* (make-hash-table))
          (*fref-table* (make-hash-table :test 'equal))
          (*struct-table* (make-hash-table))
+         (*layout-table* (make-hash-table))
          (*undefined-function-address* nil)
          (*closure-trampoline-address* nil)
          (*f-i-trampoline-address* nil)
@@ -1685,6 +1713,21 @@
   (let ((definition-slots (third definition)))
     (unless (and (eql (length definition-slots) (length slots))
                  (every #'structure-slot-equal slots definition-slots))
+      (loop
+         for def-slot in definition-slots
+         for slot in slots
+         do
+           (when (not (structure-slot-equal def-slot slot))
+             (format t "Structure slot mismatch~%~S~%~S~%"
+                     def-slot slot)
+             (format t "def  ref-fn: ~S  type: ~S  index: ~S~%"
+                     (extract-object (sys.int::structure-slot-definition-ref-fn def-slot))
+                     (extract-object (sys.int::structure-slot-definition-type def-slot))
+                     (extract-object (sys.int::structure-slot-definition-index def-slot)))
+             (format t "new  ref-fn: ~S  type: ~S  index: ~S~%"
+                     (extract-object (sys.int::structure-slot-definition-ref-fn slot))
+                     (extract-object (sys.int::structure-slot-definition-type slot))
+                     (extract-object (sys.int::structure-slot-definition-index slot)))))
       (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))))
 
 (defun extract-array (address element-width)
