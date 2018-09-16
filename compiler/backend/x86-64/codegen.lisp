@@ -972,10 +972,10 @@
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:mov64 :rax ,(ir:flush-binding-cache-entry-symbol instruction))
         `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- 128)))
+        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   ;; Store the new binding stack entry into the cache entry.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil 128 :rax) ,(ir:flush-binding-cache-entry-new-value instruction))))
+        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) ,(ir:flush-binding-cache-entry-new-value instruction))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
@@ -989,14 +989,14 @@
   ;; Recompute the symbol hash.
   (emit `(sys.lap-x86:mov64 :rax (:object :rbx ,sys.int::+symbol-value-cell-symbol+))
         `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- 128)))
+        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   ;; Flush the binding cell cache for this entry.
   (let ((after-flush (sys.lap:make-label)))
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 (:object nil 128 :rax) :rbx))
+          `(sys.lap-x86:cmp64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :rbx))
     (emit `(sys.lap-x86:jne ,after-flush))
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (:object nil 128 :rax) 0))
+          `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) 0))
     (emit after-flush)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-block-or-tagbody-instruction) uses defs)

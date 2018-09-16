@@ -1020,9 +1020,9 @@
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:add :x9 :xzr ,(ir:flush-binding-cache-entry-symbol instruction) :lsr 1)
-        `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
+        `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3)))
   ;; Store the new binding stack entry into the cache entry.
-  (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
+  (emit `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+))
         `(lap:str ,(ir:flush-binding-cache-entry-new-value instruction) (:x28 :x9))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
@@ -1035,8 +1035,8 @@
   ;; Recompute the symbol hash.
   (emit-object-load :x9 :x6 :slot sys.int::+symbol-value-cell-symbol+)
   (emit `(lap:add :x9 :xzr :x9 :lsr 1)
-        `(lap:and :x9 :x9 ,(ash (1- 128) 3))
-        `(lap:add :x9 :x9 ,(object-slot-displacement 128)))
+        `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3))
+        `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+)))
   ;; Flush the binding cell cache for this entry.
   (let ((after-flush (gensym)))
     (emit `(lap:ldr :x10 (:x28 :x9))

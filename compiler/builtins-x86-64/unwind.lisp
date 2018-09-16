@@ -69,10 +69,10 @@
   ;; Recompute the symbol hash.
   (emit `(sys.lap-x86:mov64 :rax :r9)
         `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- 128)))
+        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   (emit `(sys.lap-x86:gs)
         `(sys.lap-x86:mov64 ,(object-ea nil
-                                        :slot 128
+                                        :slot mezzano.supervisor::+thread-symbol-cache+
                                         :index '(:rax 8))
                             :r8))
   (setf *r8-value* (list (gensym))))
@@ -96,18 +96,18 @@
   (emit `(sys.lap-x86:mov64 :rax ,(object-ea :rbx
                                              :slot sys.int::+symbol-value-cell-symbol+))
         `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- 128)))
+        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   ;; Flush the binding cell cache for this entry.
   (let ((after-flush (gensym)))
     (emit `(sys.lap-x86:gs)
           `(sys.lap-x86:cmp64 ,(object-ea nil
-                                          :slot 128
+                                          :slot mezzano.supervisor::+thread-symbol-cache+
                                           :index '(:rax 8))
                               :rbx))
     (emit `(sys.lap-x86:jne ,after-flush))
     (emit `(sys.lap-x86:gs)
           `(sys.lap-x86:mov64 ,(object-ea nil
-                                          :slot 128
+                                          :slot mezzano.supervisor::+thread-symbol-cache+
                                           :index '(:rax 8))
                               0))
     (emit after-flush))

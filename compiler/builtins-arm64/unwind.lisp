@@ -87,8 +87,8 @@
   ;; Recompute the symbol hash.
   (emit-object-load :x9 :x6 :slot sys.int::+symbol-value-cell-symbol+)
   (emit `(lap:add :x9 :xzr :x9 :lsr 1)
-        `(lap:and :x9 :x9 ,(ash (1- 128) 3))
-        `(lap:add :x9 :x9 ,(object-slot-displacement 128)))
+        `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3))
+        `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+)))
   ;; Flush the binding cell cache for this entry.
   (let ((after-flush (gensym)))
     (emit `(lap:ldr :x10 (:x28 :x9))
