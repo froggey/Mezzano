@@ -445,8 +445,9 @@
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))
            ,@(when predicate
-               (list `(defun ,predicate (object)
-                        (structure-type-p object ',struct-type))))
+               (list `(declaim (inline ,predicate))
+                     `(defun ,predicate (object)
+                        (typep object ',name))))
            ,@(when copier
                (list `(defun ,copier (object)
                         (check-type object ,name)

@@ -770,11 +770,17 @@
                  ,code)))))))
   (when (symbolp type-specifier)
     (let ((struct-type (get-structure-type type-specifier nil))
-          (obj-sym (gensym "OBJECT")))
+          (object-sym (gensym "OBJECT")))
       (when struct-type
         (return-from compile-typep-expression
-          `(let ((,obj-sym ,object))
-             (structure-type-p ,obj-sym ',struct-type))))))
+          (if (structure-definition-sealed struct-type)
+              `(let ((,object-sym ,object))
+                 (and (%value-has-tag-p ,object-sym ,+tag-object+)
+                      (%fast-instance-layout-eq-p
+                       ,object-sym
+                       ',(mezzano.runtime::%make-instance-header
+                          (sys.int::structure-definition-layout struct-type)))))
+              `(structure-type-p ,object ',struct-type))))))
   (when (and (symbolp type-specifier)
              (get type-specifier 'sys.int::maybe-class nil))
     (return-from compile-typep-expression

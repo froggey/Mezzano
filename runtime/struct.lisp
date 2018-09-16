@@ -156,8 +156,8 @@
       (declare (ignore successp))
       actual-value)))
 
-(defun sys.int::%fast-structure-type-p (object structure-header)
-  (sys.int::%fast-structure-type-p object structure-header))
+(defun sys.int::%fast-instance-layout-eq-p (object instance-header)
+  (sys.int::%fast-instance-layout-eq-p object instance-header))
 
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
