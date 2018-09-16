@@ -100,7 +100,13 @@
                (*print-length* 5))
            (format stream "  ~S: ~S~%"
                    slot-name
-                   (%struct-slot object type slot-name))))))
+                   (cond ((structure-slot-definition-fixed-vector slot)
+                          (let ((vec (make-array (structure-slot-definition-fixed-vector slot))))
+                            (dotimes (i (structure-slot-definition-fixed-vector slot))
+                              (setf (aref vec i) (%struct-vector-slot object type slot-name i)))
+                            vec))
+                         (t
+                          (%struct-slot object type slot-name))))))))
 
 (defmethod describe-object ((object function-reference) stream)
   (format stream "~S is a function reference named ~S, with address ~X~%"
