@@ -430,7 +430,7 @@ This is required to make the GC interrupt safe."
                                      (truncate 512 8))
                (sys.int::%copy-words (+ interrupt-stack-pointer (* 20 8) 512)
                                      (+ stack-pointer (* 20 8) 512)
-                                     (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
+                                     mezzano.supervisor::+thread-mv-slots-size+))
               (t
                ;; Only the iret frame remains on the stack.
                (sys.int::%copy-words (+ interrupt-stack-pointer (* 15 8))
@@ -736,12 +736,12 @@ This is required to make the GC interrupt safe."
                (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
                                      stack-pointer
                                      20)
-               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-fx-save-area+)
+               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-fxsave-area+)
                                      (+ stack-pointer (* 20 8))
                                      (truncate 512 8))
-               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-mv-slots-start+)
+               (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread mezzano.supervisor::+thread-mv-slots+)
                                      (+ stack-pointer (* 20 8) 512)
-                                     (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+)))
+                                     mezzano.supervisor::+thread-mv-slots-size+))
               (t
                ;; Only the iret frame remains on the stack.
                (sys.int::%copy-words (+ (mezzano.supervisor::%object-slot-address thread mezzano.supervisor::+thread-interrupt-save-area+)
