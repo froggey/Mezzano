@@ -507,9 +507,74 @@
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
   (mezzano.lap.arm64:br :x9))
 
+(defun sys.int::%%object-ref-unsigned-byte-8-unscaled (object index)
+  (sys.int::%%object-ref-unsigned-byte-8-unscaled object index))
+
+(defun (setf sys.int::%%object-ref-unsigned-byte-8-unscaled) (value object index)
+  (setf (sys.int::%%object-ref-unsigned-byte-8-unscaled object index) value))
+
+(defun sys.int::%%object-ref-unsigned-byte-32-unscaled (object index)
+  (sys.int::%%object-ref-unsigned-byte-32-unscaled object index))
+
+(defun (setf sys.int::%%object-ref-unsigned-byte-32-unscaled) (value object index)
+  (setf (sys.int::%%object-ref-unsigned-byte-32-unscaled object index) value))
+
+(defun sys.int::%object-ref-unsigned-byte-64-unscaled (object index)
+  (sys.int::%object-ref-unsigned-byte-64-unscaled object index))
+
+(defun (setf sys.int::%object-ref-unsigned-byte-64-unscaled) (value object index)
+  (setf (sys.int::%object-ref-unsigned-byte-64-unscaled object index) value))
+
+(defun sys.int::%object-ref-signed-byte-64-unscaled (object index)
+  (sys.int::%object-ref-signed-byte-64-unscaled object index))
+
+(defun (setf sys.int::%object-ref-signed-byte-64-unscaled) (value object index)
+  (setf (sys.int::%object-ref-signed-byte-64-unscaled object index) value))
+
 (defun (sys.int::cas sys.int::%memref-unsigned-byte-32) (old-value new-value address index)
   ;; FIXME.
   (let ((value (sys.int::%memref-unsigned-byte-32 address index)))
     (when (eq value old-value)
       (setf (sys.int::%memref-unsigned-byte-32 address index) new-value))
     value))
+
+(sys.int::define-lap-function %%make-signed-byte-64-x10 ()
+  (:gc :no-frame :layout #*)
+  ;; Convert to fixnum & check for unsigned overflow.
+  ;; Assumes fixnum size of 1!
+  (mezzano.lap.arm64:adds :x0 :x10 :x10)
+  (mezzano.lap.arm64:b.vs OVERFLOW)
+  ;; It's a fixnum.
+  ;; Single-value return.
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:ret)
+  OVERFLOW
+  ;; Call out to bignum builder.
+  ;; Build bignum.
+  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%%make-bignum-64-x10))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))
+
+(sys.int::define-lap-function %%make-unsigned-byte-64-x10 ()
+  (:gc :no-frame :layout #*)
+  ;; Convert to fixnum & check for unsigned overflow.
+  ;; Assumes fixnum size of 1!
+  (mezzano.lap.arm64:adds :x0 :x10 :x10)
+  (mezzano.lap.arm64:b.cs OVERFLOW)
+  (mezzano.lap.arm64:b.vs OVERFLOW)
+  ;; It's a fixnum.
+  ;; Single-value return.
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:ret)
+  OVERFLOW
+  ;; Call out to bignum builder.
+  ;; Prod the sign flag.
+  (mezzano.lap.arm64:ands :xzr :x10 :x10)
+  ;; Build bignum.
+  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%%make-bignum-64-x10))
+  ;; Result needs a 128-bit bignum when the high bit is set.
+  (mezzano.lap.arm64:ldr :x6 (:function sys.int::%%make-bignum-128-x10-x11))
+  (mezzano.lap.arm64:csel.mi :x7 :x6 :x7)
+  (mezzano.lap.arm64:orr :x11 :xzr :xzr)
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))

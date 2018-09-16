@@ -70,17 +70,17 @@
     (multiple-value-bind (box-function box-register)
         (typecase inst
           (ir:box-unsigned-byte-64-instruction
-           (values 'mezzano.runtime::%%make-unsigned-byte-64-x0 :x0))
+           (values 'mezzano.runtime::%%make-unsigned-byte-64-x10 :x10))
           (ir:box-signed-byte-64-instruction
-           (values 'mezzano.runtime::%%make-signed-byte-64-x0 :x0))
+           (values 'mezzano.runtime::%%make-signed-byte-64-x10 :x10))
           (ir:box-double-float-instruction
-           (values 'sys.int::%%make-double-float-x0 :x0)))
+           (values 'sys.int::%%make-double-float-x10 :x10)))
       (when box-function
         (let* ((value (ir:box-source inst))
                (result (ir:box-destination inst)))
           (ir:insert-before
            backend-function inst
-           (make-instance 'move-instruction
+           (make-instance 'ir:move-instruction
                           :destination box-register
                           :source value))
           (ir:insert-before
@@ -116,7 +116,7 @@
                                       :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31)))
           (ir:insert-before
            backend-function inst
-           (make-instance 'move-instruction
+           (make-instance 'ir:move-instruction
                           :destination result
                           :source :x0))
           (ir:remove-instruction backend-function inst))))))

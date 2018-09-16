@@ -1122,16 +1122,16 @@
     (emit `(lap:add ,(ir:make-dx-closure-result instruction) :x29 :x9))))
 
 (defmethod emit-lap (backend-function (instruction ir:box-fixnum-instruction) uses defs)
-  (emit `(lap:add ,(ir:box-destination instruction) :xzr ,(ir:box-source instruction) :lsl sys.int::+n-fixnum-bits+)))
+  (emit `(lap:add ,(ir:box-destination instruction) :xzr ,(ir:box-source instruction) :lsl ,sys.int::+n-fixnum-bits+)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-fixnum-instruction) uses defs)
-  (emit `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr sys.int::+n-fixnum-bits+)))
+  (emit `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr ,sys.int::+n-fixnum-bits+)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-unsigned-byte-64-instruction) uses defs)
   (let ((bignum-path (gensym))
         (out (gensym)))
     (emit `(lap:tbnz ,(ir:unbox-source instruction) 0 ,bignum-path)
-          `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr sys.int::+n-fixnum-bits+)
+          `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr ,sys.int::+n-fixnum-bits+)
           `(lap:b ,out)
           bignum-path)
     (emit-object-load (ir:unbox-destination instruction) (ir:unbox-source instruction) :slot 0)
@@ -1141,7 +1141,7 @@
   (let ((bignum-path (gensym))
         (out (gensym)))
     (emit `(lap:tbnz ,(ir:unbox-source instruction) 0 ,bignum-path)
-          `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr sys.int::+n-fixnum-bits+)
+          `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :asr ,sys.int::+n-fixnum-bits+)
           `(lap:b ,out)
           bignum-path)
     (emit-object-load (ir:unbox-destination instruction) (ir:unbox-source instruction) :slot 0)
@@ -1173,4 +1173,7 @@
                     (ir:unbox-source instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:debug-instruction) uses defs)
+  nil)
+
+(defmethod emit-lap (backend-function (instruction ir:spice-instruction) uses defs)
   nil)
