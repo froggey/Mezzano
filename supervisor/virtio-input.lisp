@@ -101,7 +101,7 @@
   (virtio-input-event-processing input)
   (virtio-input-status-processing input))
 
-(defun virtio-input-register (device)
+(defun virtio::virtio-input-register (device)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
   (sup:debug-print-line "Detected virtio input device " device)

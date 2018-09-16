@@ -139,8 +139,6 @@
                          256
                          'virtio-block-read 'virtio-block-write 'virtio-block-flush
                          nil))
-    ;; Enable IRQ handler.
-    (setf (virtio:virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.
     (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                        virtio:+virtio-status-driver+

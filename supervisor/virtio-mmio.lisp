@@ -53,41 +53,67 @@
 
 (defconstant +virtio-mmio-magic-value+ #x74726976)
 
-(defun virtio-mmio-device-specific-header/8 (device offset)
+(defun virtio-legacy-mmio-transport-device-feature (device bit)
+  (setf (virtio-mmio-host-features-sel device) (truncate bit 32))
+  (logbitp (rem bit 32) (virtio-mmio-host-features device)))
+
+(defun virtio-legacy-mmio-transport-driver-feature (device bit)
+  (setf (virtio-mmio-guest-features-sel device) (truncate bit 32))
+  (logbitp (rem bit 32) (virtio-mmio-guest-features device)))
+
+(defun (setf virtio-legacy-mmio-transport-driver-feature) (value device bit)
+  (setf (virtio-mmio-guest-features-sel device) (truncate bit 32))
+  (setf (ldb (byte 1 (rem bit 32)) (virtio-mmio-guest-features device))
+        (if value 1 0))
+  value)
+
+(defun virtio-legacy-mmio-transport-device-specific-header/8 (device offset)
   (sup::physical-memref-unsigned-byte-8 (+ (virtio-legacy-mmio-device-mmio device)
                                            +virtio-mmio-config0+
                                            offset)))
 
-(defun (setf virtio-mmio-device-specific-header/8) (value device offset)
+(defun (setf virtio-legacy-mmio-transport-device-specific-header/8) (value device offset)
   (setf (sup::physical-memref-unsigned-byte-8 (+ (virtio-legacy-mmio-device-mmio device)
                                                  +virtio-mmio-config0+
                                                  offset))
         value))
 
-(defun virtio-mmio-device-specific-header/16 (device offset)
+(defun virtio-legacy-mmio-transport-device-specific-header/16 (device offset)
   (sup::physical-memref-unsigned-byte-16 (+ (virtio-legacy-mmio-device-mmio device)
                                             +virtio-mmio-config0+
                                             offset)))
 
-(defun (setf virtio-mmio-device-specific-header/16) (value device offset)
+(defun (setf virtio-legacy-mmio-transport-device-specific-header/16) (value device offset)
   (setf (sup::physical-memref-unsigned-byte-16 (+ (virtio-legacy-mmio-device-mmio device)
                                                   +virtio-mmio-config0+
                                                   offset))
         value))
 
-(defun virtio-mmio-device-specific-header/32 (device offset)
+(defun virtio-legacy-mmio-transport-device-specific-header/32 (device offset)
   (sup::physical-memref-unsigned-byte-32 (+ (virtio-legacy-mmio-device-mmio device)
                                             +virtio-mmio-config0+
                                             offset)))
 
-(defun (setf virtio-mmio-device-specific-header/32) (value device offset)
+(defun (setf virtio-legacy-mmio-transport-device-specific-header/32) (value device offset)
   (setf (sup::physical-memref-unsigned-byte-32 (+ (virtio-legacy-mmio-device-mmio device)
                                                   +virtio-mmio-config0+
                                                   offset))
         value))
 
-(defun virtio-legacy-mmio-transport-virtio-ack-irq (device status)
+(defun virtio-legacy-mmio-transport-isr-status (device)
+  (virtio-mmio-interrupt-status device))
+
+(defun virtio-legacy-mmio-transport-ack-irq (device status)
   (setf (virtio-mmio-interrupt-ack device) status))
+
+(defun virtio-legacy-mmio-transport-device-status (device)
+  (virtio-mmio-status device))
+
+(defun (setf virtio-legacy-mmio-transport-device-status) (value device)
+  (setf (virtio-mmio-status device) value))
+
+(defun virtio-legacy-mmio-transport-device-irq (device)
+  (virtio-legacy-mmio-device-mmio-irq device))
 
 (defun virtio-mmio-register (address irq)
   (let* ((dev (make-virtio-legacy-mmio-device
@@ -105,7 +131,7 @@
                     (not (eql did virtio:+virtio-dev-id-invalid+))))
       (return-from virtio-mmio-register nil))
     (sup:debug-print-line "mmio virtio device at " address " did: " did " vid: " vid)
-    (sup::virtio-device-register dev)))
+    (virtio:virtio-device-register dev)))
 
 (defun sup::virtio-mmio-fdt-register (fdt-node address-cells size-cells)
   (let* ((reg (sup::fdt-get-property fdt-node "reg"))
@@ -115,11 +141,11 @@
     ;; FIXME: IRQ routing.
     (virtio-mmio-register address (+ 32 irq))))
 
-(defun virtio-mmio-kick (dev vq-id)
+(defun virtio-legacy-mmio-transport-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-mmio-queue-notify dev) vq-id))
 
-(defun virtio-mmio-configure-virtqueues (device n-queues)
+(defun virtio-legacy-mmio-transport-configure-virtqueues (device n-queues)
   (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
   (dotimes (queue n-queues)
     ;; 1. Write the virtqueue index to the queue select field.
@@ -133,7 +159,7 @@
         ;; Must be 4k aligned and contiguous in physical memory.
         (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
                           (progn (sup::debug-print-line "Virtqueue allocation failed")
-                                 (return-from virtio-mmio-configure-virtqueues nil))))
+                                 (return-from virtio-legacy-mmio-transport-configure-virtqueues nil))))
                (phys (* frame sup::+4k-page-size+))
                (virt (sup::convert-to-pmap-address phys)))
           (sup::debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
