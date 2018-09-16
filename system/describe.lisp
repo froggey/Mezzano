@@ -102,13 +102,6 @@
                    slot-name
                    (%struct-slot object type slot-name))))))
 
-(defmethod describe-object ((object mezzano.supervisor:thread) stream)
-  (format stream "~S is a thread with address ~X~%"
-          object (lisp-object-address object))
-  (format stream "  It is named ~S~%" (mezzano.supervisor:thread-name object))
-  (format stream "  It is in the ~S state~%" (mezzano.supervisor:thread-state object))
-  (format stream "  It has priority ~S~%" (mezzano.supervisor:thread-priority object)))
-
 (defmethod describe-object ((object function-reference) stream)
   (format stream "~S is a function reference named ~S, with address ~X~%"
           object (function-reference-name object) (lisp-object-address object))
