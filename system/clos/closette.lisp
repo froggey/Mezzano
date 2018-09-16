@@ -489,7 +489,6 @@
     (sys.int::closure                              (find-class-cached 'sys.int::closure))
     (compiled-function                             (find-class-cached 'compiled-function))
     (function                                      (find-class-cached 'function))
-    (mezzano.supervisor:thread                     (find-class-cached 'mezzano.supervisor:thread))
     (sys.int::function-reference                   (find-class-cached 'sys.int::function-reference))
     (sys.int::weak-pointer                         (find-class-cached 'sys.int::weak-pointer))
     ;; FIXME: Should return LARGE-BYTE for large bytes.
