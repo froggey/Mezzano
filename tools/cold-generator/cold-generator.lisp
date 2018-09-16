@@ -789,7 +789,6 @@
                                :key #'sys.int::structure-definition-name)
                      (error "Unknown slot ~S in structure ~S" name type))
        do
-         (format t "Position of slot ~S in ~S is ~S @ ~X~%" name type loc (+ address 1 loc))
          (setf (word (+ address 1 loc)) value))
     (make-value address sys.int::+tag-object+)))
 
@@ -799,7 +798,6 @@
                          :key #'sys.int::structure-slot-definition-name)
                    (error "Unknown slot ~S in structure ~S" slot-name type)))
          (index (sys.int::structure-slot-definition-index slot)))
-    (format t "Position of slot ~S in ~S is ~S @ ~X~%" slot type index (+ (+ (pointer-part object) 1 index) index))
     (word (+ (pointer-part object) 1 index))))
 
 (defun (setf structure-slot) (value object type slot-name)
@@ -808,7 +806,6 @@
                          :key #'sys.int::structure-slot-definition-name)
                    (error "Unknown slot ~S in structure ~S" slot-name type)))
          (index (sys.int::structure-slot-definition-index slot)))
-    (format t "Position of slot ~S in ~S is ~S (setf) @ ~X~%" slot type index (+ (+ (pointer-part object) 1 index) index))
     (setf (word (+ (pointer-part object) 1 index)) value)))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
