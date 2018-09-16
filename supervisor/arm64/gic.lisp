@@ -41,7 +41,7 @@
 
 (sys.int::defglobal *gic-distributor-base*)
 (sys.int::defglobal *gic-cpu-interface-base*)
-(sys.int::defglobal *gic-handlers*)
+(sys.int::defglobal *gic-irqs*)
 
 (defun gic-dist-reg (index)
   (physical-memref-unsigned-byte-32 (+ *gic-distributor-base* index)))
@@ -64,10 +64,10 @@
 (defun initialize-gic (distributor-address cpu-address)
   (setf *gic-distributor-base* distributor-address
         *gic-cpu-interface-base* cpu-address)
-  (when (not (boundp '*gic-handlers*))
-    (setf *gic-handlers* (sys.int::make-simple-vector 1024 :wired)))
+  (when (not (boundp '*gic-irqs*))
+    (setf *gic-irqs* (sys.int::make-simple-vector 1024 :wired)))
   (dotimes (i 1024)
-    (setf (svref *gic-handlers* i) nil))
+    (setf (svref *gic-irqs* i) nil))
   (configure-gic))
 
 (defun initialize-fdt-gic-400 (fdt-node address-cells size-cells)
@@ -93,7 +93,9 @@
          for i from 32 below n-interrupts by 32
          for reg from 8 by 4
          do
-           (setf (gic-dist-reg (+ +gicd-itargetsr0+ reg)) #x01010101))))
+           (setf (gic-dist-reg (+ +gicd-itargetsr0+ reg)) #x01010101)))
+    (dotimes (i n-interrupts)
+      (setf (svref *gic-irqs* i) (make-irq :platform-number i))))
   ;; Enable the distributor and local CPU.
   (setf (gic-dist-reg +gicd-ctlr+) 1)
   (setf (gic-cpui-reg +gicc-ctlr+) 1)
@@ -112,18 +114,30 @@
       (truncate vector 32)
     (setf (gic-dist-reg (+ +gicd-isenabler0+ (* reg 4))) (ash 1 index))))
 
-(defun gic-hook-interrupt (vector handler)
-  (check-type handler (or function symbol))
-  (push-wired handler (svref *gic-handlers* vector)))
-
 (defun gic-handle-interrupt (interrupt-frame)
   (let* ((iar (gic-cpui-reg +gicc-iar+))
          (vector (ldb (byte 9 0) iar)))
     (when (eql vector 1023)
       ;; Spurious interrupt.
       (return-from gic-handle-interrupt))
-    (dolist (handler (svref *gic-handlers* vector))
-      (funcall handler interrupt-frame vector))
+    (irq-deliver interrupt-frame (svref *gic-irqs* vector))
     ;; Send EOI.
     (setf (gic-cpui-reg +gicc-eoir+) iar)
     (maybe-preempt-via-interrupt interrupt-frame)))
+
+(defun platform-irq (number)
+  (cond ((<= 0 number 1023)
+         (svref *gic-irqs* number))
+        (t nil)))
+
+(defun map-platform-irqs (fn)
+  (dotimes (i 1024)
+    (let ((irq (svref *gic-irqs* i)))
+      (when irq
+        (funcall fn irq)))))
+
+(defun platform-mask-irq (vector)
+  (gic-mask-interrupt vector))
+
+(defun platform-unmask-irq (vector)
+  (gic-unmask-interrupt vector))

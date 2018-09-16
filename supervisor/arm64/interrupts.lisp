@@ -223,12 +223,3 @@
 
 (defun %serror-elx-handler (interrupt-frame)
   (unhandled-interrupt interrupt-frame "serror-elx"))
-
-(defun platform-mask-irq (vector)
-  (gic-mask-interrupt vector))
-
-(defun platform-unmask-irq (vector)
-  (gic-unmask-interrupt vector))
-
-(defun platform-attach-irq (vector handler)
-  (gic-hook-interrupt vector handler))
