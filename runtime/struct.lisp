@@ -24,12 +24,18 @@
 (declaim (inline sys.int::structure-object-p))
 
 (defun sys.int::structure-object-p (object)
-  (and (sys.int::instance-p object)
-       (eq sys.int::*structure-type-type*
-           ;; If the object's metaclass is structure-defintion, then it's a structure object.
-           (sys.int::layout-class
-            (sys.int::%instance-layout
-             (sys.int::layout-class (sys.int::%instance-layout object)))))))
+  ;; If the object's metaclass is structure-defintion,
+  ;; then it's a structure object.
+  (when (sys.int::instance-p object)
+    (let ((layout (sys.int::%instance-layout object)))
+      ;; Be careful around obsolete instances
+      (and (sys.int::layout-p layout)
+           (eq sys.int::*structure-type-type*
+               ;; Classes should never be obsolete. Class metaobjects must not
+               ;; be redefined.
+               (sys.int::layout-class
+                (sys.int::%instance-layout
+                 (sys.int::layout-class layout))))))))
 
 (defun find-struct-slot (definition slot-name &optional (errorp t))
   (or (find slot-name (sys.int::structure-definition-slots definition)
