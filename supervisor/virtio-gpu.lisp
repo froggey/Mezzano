@@ -509,7 +509,9 @@
         (let ((framebuffer-phys (* framebuffer-frames sup::+4k-page-size+)))
           (sup:debug-print-line "virtio-gpu: Framebuffer at " framebuffer-phys)
           ;; Clear framebuffer.
-          (sys.int::%fill-words (sup::convert-to-pmap-address framebuffer-phys) 0 (truncate framebuffer-size 2))
+          (sys.int::%fill-words (sup::convert-to-pmap-address framebuffer-phys)
+                                0
+                                (truncate framebuffer-size 8))
           ;; Attach backing store to framebuffer resource.
           (multiple-value-bind (successp error)
               (virtio-gpu-resource-attach-backing gpu +virtio-gpu-framebuffer-resource-id+ 1 framebuffer-phys framebuffer-size)
@@ -521,7 +523,7 @@
               (virtio-gpu-set-scanout gpu 0 0 width height pmode +virtio-gpu-framebuffer-resource-id+)
             (when (not successp)
               (sup:debug-print-line "virtio-gpu: Unable to set scanout: " error)
-            (return-from virtio::virtio-gpu-register nil)))
+              (return-from virtio::virtio-gpu-register nil)))
           (setf (virtio-gpu-scanout gpu) pmode
                 (virtio-gpu-width gpu) width
                 (virtio-gpu-height gpu) height)
