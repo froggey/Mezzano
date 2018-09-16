@@ -318,7 +318,7 @@
            (debug-write "resolving element: ")
            (dotimes (i name-len)
              (debug-write-char
-              (sys.int::%%make-charater
+              (sys.int::%%make-character
                (sys.int::memref-unsigned-byte-8 (+ (fdt-property-data prop) path-element-start) i))))
            (debug-print-line)
            (setf current (fdt-get-named-child-node-internal current
