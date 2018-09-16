@@ -141,13 +141,63 @@
          (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate shootdown-in-progress))))
     (and ttl3 (+ ttl3 (* 8 (address-l1-bits address))))))
 
+(defun map-ptes-ttl2 (ttl2 ttl2e start end fn)
+  (let ((entry (page-table-entry ttl2 ttl2e)))
+    (when (logtest entry +arm64-tte-present+)
+      (loop
+         with ttl3 = (convert-to-pmap-address (logand entry +arm64-tte-address-mask+))
+         for i from (align-down start #x0000000000001000) below (align-up end #x0000000000001000) by #x0000000000001000
+         for ttl3e = (ldb (byte 9 12) i)
+         do
+           (funcall fn i (+ ttl3 (* ttl3e 8)))))))
+
+(defun map-ptes-ttl1 (ttl1 ttl1e start end fn)
+  (let ((entry (page-table-entry ttl1 ttl1e)))
+    (when (logtest entry +arm64-tte-present+)
+      (loop
+         with ttl2 = (convert-to-pmap-address (logand entry +arm64-tte-address-mask+))
+         for i from (align-down start #x0000000000200000) below (align-up end #x0000000000200000) by #x0000000000200000
+         for ttl2e = (ldb (byte 9 21) i)
+         do
+           (map-ptes-ttl2 ttl2 ttl2e
+                          (max start i)
+                          (min end (+ i #x0000000000200000))
+                          fn)))))
+
+(defun map-ptes-ttl0 (ttl0 ttl0e start end fn)
+  (let ((entry (page-table-entry ttl0 ttl0e)))
+    (when (logtest entry +arm64-tte-present+)
+      (loop
+         with ttl1 = (convert-to-pmap-address (logand entry +arm64-tte-address-mask+))
+         for i from (align-down start #x0000000040000000) below (align-up end #x0000000040000000) by #x0000000040000000
+         for ttl1e = (ldb (byte 9 30) i)
+         do
+           (map-ptes-ttl1 ttl1 ttl1e
+                          (max start i)
+                          (min end (+ i #x0000000040000000))
+                          fn)))))
+
 (defun map-ptes (start end fn &key sparse)
   "Visit all visible page table entries from START to END.
 If SPARSE is true, then PTEs that don't exist in the range won't be visited;
 otherwise FN will be called with a NIL PTE for those entries."
-  ;; TOOD: When sparse is true, skip over entire table levels.
-  (loop
-     for page from start below end by #x1000
-     for pte = (get-pte-for-address page nil)
-     when (or (not sparse) pte)
-     do (funcall fn page pte)))
+  (cond (sparse
+         (loop
+            with start-ttl0e = (ldb (byte 9 39) (align-down start #x0000008000000000))
+            with end-ttl0e = (ldb (byte 9 39) (align-up end #x0000008000000000))
+            with ttl0 = (convert-to-pmap-address (if (logbitp 63 start)
+                                                     (%ttbr1)
+                                                     (%ttbr0)))
+            for ttl0e from start-ttl0e below end-ttl0e
+            for address from (align-down start #x0000008000000000) by #x0000008000000000
+            do
+              (map-ptes-ttl0 ttl0 ttl0e
+                             (max start address)
+                             (min end (+ address #x0000008000000000))
+                             fn)))
+        (t
+         (loop
+            for page from start below end by #x1000
+            for pte = (get-pte-for-address page nil)
+            when (or (not sparse) pte)
+            do (funcall fn page pte)))))
