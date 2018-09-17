@@ -115,31 +115,20 @@
                        (t (sys.net:buffered-format stream "HTTP/1.0 404 Not Found~%~%"))))
                 (t (sys.net:buffered-format stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
-(defun http-server (connection-queue)
+(defvar *http-server-thread* nil)
+(defvar *http-server-listener* nil)
+
+(defun http-server ()
   (loop
-     (let ((connection (mezzano.supervisor:fifo-pop connection-queue)))
-       (ignore-errors (serve-request connection)))))
+    (loop :for connection :in (mezzano.network.tcp:wait-for-connections *http-server-listener*) :do
+          (let ((stream (mezzano.network.tcp:tcp4-accept-connection connection)))
+            (ignore-errors (serve-request stream))))))
 
 (defun start-http-server (&optional (port 80))
-  (let* ((connection-queue (mezzano.supervisor:make-fifo 50))
-         (server-thread (mezzano.supervisor:make-thread (lambda () (http-server connection-queue))
-                                                        :name "HTTP server"))
-         (listen-function (lambda (connection)
-                            (when (not (mezzano.supervisor:fifo-push
-                                        (make-instance 'mezzano.network.tcp::tcp-stream :connection connection)
-                                        connection-queue
-                                        nil))
-                              ;; Drop connections when they can't be handled.
-                              (close connection)))))
-    (setf mezzano.network.tcp::*server-alist* (remove port mezzano.network.tcp::*server-alist*
-                                                      :key #'first))
-    (push (list port listen-function) mezzano.network.tcp::*server-alist*)
-    (values server-thread listen-function connection-queue)))
+  (setf *http-server-listener* (mezzano.network.tcp:tcp-listen (mezzano.network.ip:make-ipv4-address "0.0.0.0")
+                                                               port)
+        *http-server-thread* (mezzano.supervisor:make-thread (lambda () (http-server))
+                                                             :name "HTTP server")))
 
-(defvar *http-server-thread* nil)
-(defvar *http-server-listen-function* nil)
-(defvar *http-server-connection-queue* nil)
-
-(when (not *http-server-thread*)
-  (multiple-value-setq (*http-server-thread* *http-server-function* *http-server-connection-queue*)
-    (start-http-server)))
+(unless *http-server-thread*
+  (start-http-server))
