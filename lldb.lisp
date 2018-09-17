@@ -34,7 +34,7 @@
       (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
       (return-from fetch-thread-return-values '(:thread-in-strange-state)))
     (dotimes (i (max 0 (- count 5)))
-      (push (%object-ref-t thread (+ mezzano.supervisor::+thread-mv-slots-start+ i)) vals))
+      (push (%object-ref-t thread (+ mezzano.supervisor::+thread-mv-slots+ i)) vals))
     (subseq (reverse vals) 0 count)))
 
 (defparameter *step-special-functions*

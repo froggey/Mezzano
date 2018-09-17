@@ -787,7 +787,7 @@ This is required to make the GC interrupt safe."
                (n-mv-area-values (max 0 (- n-values 5))))
           (scavenge-many (+ (ash (%pointer-field thread) 4)
                             8
-                            (* mezzano.supervisor::+thread-mv-slots-start+ 8))
+                            (* mezzano.supervisor::+thread-mv-slots+ 8))
                          n-mv-area-values
                          cycle-kind)))
       (when (eql incoming-arguments :rcx)
