@@ -89,6 +89,7 @@
      with result = (env:make-array environment 0 :adjustable t :fill-pointer 0 :area :pinned)
      for file in (filter-files-by-architecture cold-generator::*warm-source-files* (env:environment-target environment))
      for compiled-file = (let ((sys.c::*target-architecture* (env:environment-target environment))
+                               (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*))
                                ;; HACK! Force use of the new compiler building the SIMD/float functions.
                                (sys.c::*use-new-compiler* (if (member file '("runtime/simd.lisp"
                                                                              "runtime/float-x86-64.lisp"))
