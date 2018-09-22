@@ -163,7 +163,8 @@ Must not call SERIALIZE-OBJECT."))
   ;; TODO: Include symbol mode.
   (initialize-object-header image value sys.int::+object-tag-symbol+ 0)
   (setf (object-slot image value sys.int::+symbol-name+)
-        (serialize-object (symbol-name object) image environment))
+        (serialize-object (env:cross-symbol-name environment object) image environment))
+  (assert (eql (env:object-area environment (env:cross-symbol-name environment object)) :wired))
   (setf (object-slot image value sys.int::+symbol-package+)
         (serialize-object (env:cross-symbol-package environment object) image environment))
   (setf (object-slot image value sys.int::+symbol-value+)
@@ -206,13 +207,12 @@ Must not call SERIALIZE-OBJECT."))
   (let* ((fn (env:function-reference-function object))
          (fn-value (serialize-object fn image environment)))
     (setf (object-slot image value sys.int::+fref-function+) fn-value)
-    (cond (fn
-           (setf (object-slot image value sys.int::+fref-entry-point+)
-                 (object-slot image fn-value sys.int::+function-entry-point+)))
-          (t
-           (let ((undef-fn (serialize-object (env:find-special environment :undefined-function)
-                                             image environment)))
-             (setf (object-slot image value sys.int::+fref-entry-point+)
+    (setf (object-slot image value sys.int::+fref-entry-point+)
+          (cond (fn
+                 (object-slot image fn-value sys.int::+function-entry-point+))
+                (t
+                 (let ((undef-fn (serialize-object (env:find-special environment :undefined-function)
+                                                   image environment)))
                    (object-slot image undef-fn sys.int::+function-entry-point+)))))))
 
 (defmethod allocate-object ((object env:cross-compiled-function) image environment)
@@ -504,7 +504,8 @@ Must not call SERIALIZE-OBJECT."))
   (let* ((header-object (env:instance-header-object object))
          (layout (structure-definition-layout header-object image environment)))
     (logior (ash layout sys.int::+object-data-shift+)
-            (ash sys.int::+tag-instance-header+ sys.int::+object-type-shift+))))
+            (ash sys.int::+object-tag-instance+ sys.int::+object-type-shift+)
+            sys.int::+tag-instance-header+)))
 
 (defmethod allocate-object ((object env:structure-definition) image environment)
   ;; Must allocate the associated layout up-front.

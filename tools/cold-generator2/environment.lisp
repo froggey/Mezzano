@@ -28,6 +28,7 @@
            #:symbol-global-value
            #:symbol-global-boundp
            #:symbol-global-makunbound
+           #:cross-symbol-name
            #:cross-symbol-package
            #:cross-symbol-plist
            #:cross-symbol-type
@@ -124,6 +125,10 @@
   ((%name :initarg :name :reader function-reference-name)
    (%function :initarg :function :accessor function-reference-function))
   (:default-initargs :function nil))
+
+(defmethod print-object ((object function-reference) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (function-reference-name object))))
 
 (defclass symbol-value-cell ()
   ((%symbol :initarg :symbol :reader symbol-value-cell-symbol)
@@ -301,6 +306,8 @@
       (setf (gethash (cons (symbol-name symbol) :common-lisp) (environment-package-symbol-table env)) symbol
             (gethash symbol (environment-symbol-package-table env)) :common-lisp
             (gethash (symbol-name symbol) (environment-object-area-table env)) :wired))
+    (setf (cross-symbol-value env 'nil) 'nil)
+    (setf (cross-symbol-value env 't) 't)
     env))
 
 (defgeneric object-area (environment object))
@@ -313,7 +320,9 @@
   (let ((cell (gethash symbol (environment-symbol-global-value-cell-table environment))))
     (when (not cell)
       (setf cell (make-instance 'symbol-value-cell :symbol symbol)
-            (gethash symbol (environment-symbol-global-value-cell-table environment)) cell))
+            (gethash symbol (environment-symbol-global-value-cell-table environment)) cell)
+      (when (keywordp symbol)
+        (setf (symbol-global-value environment symbol) symbol)))
     cell))
 
 (defun symbol-global-value (environment symbol)
@@ -327,6 +336,12 @@
 
 (defun symbol-global-makunbound (environment symbol)
   (slot-makunbound (symbol-global-value-cell environment symbol) '%value))
+
+(defun cross-symbol-name (environment symbol)
+  ;; Make sure symbol names are in the wired area.
+  (let ((name (symbol-name symbol)))
+    (setf (gethash name (environment-object-area-table environment)) :wired)
+    name))
 
 (defun cross-symbol-package (environment symbol)
   (values (gethash symbol (environment-symbol-package-table environment))))
@@ -403,9 +418,7 @@
                          (cl:make-symbol name-string))
               (gethash key (environment-package-symbol-table environment)) symbol
               (gethash symbol (environment-symbol-package-table environment)) pkg-keyword
-              (gethash (symbol-name symbol) (environment-object-area-table environment)) :wired)
-        (when (eql pkg-keyword :keyword)
-          (setf (symbol-global-value environment symbol) symbol)))
+              (gethash (symbol-name symbol) (environment-object-area-table environment)) :wired))
       symbol)))
 
 (defun function-boundp (environment name)

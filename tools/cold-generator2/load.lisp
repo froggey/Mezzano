@@ -152,7 +152,12 @@
      ;; This is used for values of uninterned symbols, which no longer support specifying the value.
      '"Unbound marker, should not be seen outside the compiled-file loader")
     (#.sys.int::+llf-string+
-     (load-string loader))
+     (let ((str (load-string loader)))
+       (env:make-array (loader-environment loader)
+                       (length str)
+                       :element-type 'character
+                       :area (loader-allocation-area loader)
+                       :initial-contents str)))
     (#.sys.int::+llf-integer+
      (load-integer loader))
     (#.sys.int::+llf-simple-vector+
