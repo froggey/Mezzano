@@ -16,6 +16,8 @@
 (defvar *noisy-load* nil)
 (defvar *load-wired* nil "When true, allocate objects in the wired area.")
 
+(defvar *load-if-stack*)
+
 (defun llf-command-name (command)
   (ecase command
     (#.+llf-end-of-load+ 'end-of-load)
@@ -50,7 +52,10 @@
     (#.+llf-complex-single-float+ 'complex-single-float)
     (#.+llf-complex-double-float+ 'complex-double-float)
     (#.+llf-instance-header+ 'instance-header)
-    (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)))
+    (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)
+    (#.+llf-if+ 'if)
+    (#.+llf-else+ 'else)
+    (#.+llf-fi+ 'fi)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -227,6 +232,11 @@
 
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
+(defun load-inhibited ()
+  (and *load-if-stack*
+       (or (not (first *load-if-stack*))
+           (eql (first *load-if-stack*) :inhibit))))
+
 (defun load-one-object (command stream stack)
   (ecase command
     (#.+llf-function+
@@ -315,10 +325,13 @@
             (args (reverse (loop
                               repeat n-args
                               collect (vector-pop stack)))))
-       (values (apply (if (functionp fn)
-                          fn
-                          (fdefinition fn))
-                      args))))
+       (cond ((load-inhibited)
+              :inhibited-funcall)
+             (t
+              (values (apply (if (functionp fn)
+                                 fn
+                                 (fdefinition fn))
+                             args))))))
     (#.+llf-drop+
      (vector-pop stack)
      (values))
@@ -342,11 +355,34 @@
      (mezzano.runtime::%make-instance-header
       (structure-definition-layout (vector-pop stack))))
     (#.+llf-symbol-global-value-cell+
-     (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))))
+     (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))
+    (#.+llf-if+
+     ;; Deal with nested IFs properly
+     (cond ((load-inhibited)
+            (vector-pop stack)
+            (push :inhibit *load-if-stack*))
+           (t
+            (push (not (not (vector-pop stack))) *load-if-stack*)))
+     (values))
+    (#.+llf-else+
+     (when (load-inhibited)
+       ;; Drop the then value
+       (vector-pop stack))
+     (when (not (eql (first *load-if-stack*) :inhibit))
+       (setf (first *load-if-stack*) (not (first *load-if-stack*))))
+     (values))
+    (#.+llf-fi+
+     (when (and (load-inhibited)
+                (not (eql (first *load-if-stack*) :inhibit)))
+       ;; Drop the else value unless then value was also dropped.
+       (vector-pop stack))
+     (pop *load-if-stack*)
+     (values))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
   (let ((*package* *package*)
+        (*load-if-stack* '())
         (omap (make-hash-table))
         (stack (make-array 64 :adjustable t :fill-pointer 0)))
     (loop (let ((command (%read-byte stream)))
