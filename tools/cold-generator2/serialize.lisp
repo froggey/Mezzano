@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.cold-generator.serialize
   (:use :cl)
-  (:local-nicknames (#:env #:mezzano.cold-generator.environment))
+  (:local-nicknames (#:env #:mezzano.cold-generator.environment)
+                    (#:util #:mezzano.cold-generator.util))
   (:export #:make-image
            #:serialize-image
            #:serialize-object
@@ -21,6 +22,20 @@
            ))
 
 (in-package :mezzano.cold-generator.serialize)
+
+;; Wired area starts near 0.
+(defconstant +wired-area-base+ sys.int::+allocation-minimum-alignment+)
+;; Pinned at 512G.
+(defconstant +pinned-area-base+ (* 512 1024 1024 1024))
+;; Wired area stops at 2G, below the pinned area.
+(defconstant +wired-area-limit+ (* 2 1024 1024 1024))
+
+;; Wired stack area starts at the bottom of the stack area.
+(defconstant +wired-stack-area-base+ 0)
+;; Not set to 512GB because bootloader is slow & dumb.
+(defconstant +wired-stack-area-limit+ (* 2 1024 1024 1024))
+;; Leave a gap, for future expansion.
+(defconstant +stack-area-base+ (* 512 1024 1024 1024))
 
 (defclass area ()
   ((%name :initarg :name :reader area-name)
@@ -195,9 +210,6 @@ Must not call SERIALIZE-OBJECT."))
   (setf (object-slot image value 3) ; actual symbol
         (serialize-object (env:symbol-value-cell-symbol object) image environment)))
 
-(defmethod allocate-object ((object env:unbound-marker) image environment)
-  (allocate 2 image :wired sys.int::+tag-object+))
-
 (defmethod allocate-object ((object env:function-reference) image environment)
   (allocate 4 image :wired sys.int::+tag-object+))
 
@@ -228,6 +240,16 @@ Must not call SERIALIZE-OBJECT."))
     (setf (object-slot image value sys.int::+function-entry-point+)
           (+ (- value sys.int::+tag-object+) 16))
     value))
+
+(defun function-header (code-length pool-length metadata-length &optional (tag sys.int::+object-tag-function+))
+  (assert (< (ceiling (+ code-length 16) 16) (expt 2 (cross-cl:byte-size sys.int::+function-header-code-size+))))
+  (assert (< pool-length (expt 2 (cross-cl:byte-size sys.int::+function-header-pool-size+))))
+  (assert (< metadata-length (expt 2 (cross-cl:byte-size sys.int::+function-header-metadata-size+))))
+  (logior (ash tag sys.int::+object-type-shift+)
+          (ash (logior (cross-cl:dpb (ceiling (+ code-length 16) 16) sys.int::+function-header-code-size+ 0)
+                       (cross-cl:dpb pool-length sys.int::+function-header-pool-size+ 0)
+                       (cross-cl:dpb metadata-length sys.int::+function-header-metadata-size+ 0))
+               sys.int::+object-data-shift+)))
 
 (defmethod initialize-object ((object env:cross-compiled-function) object-value image environment)
   ;; Copy machine code.
@@ -264,9 +286,9 @@ Must not call SERIALIZE-OBJECT."))
         (setf (object-slot image object-value (+ origin i)) value))))
   ;; Initialize header.
   (setf (object-slot image object-value -1)
-        (cold-generator::function-header (length (env:function-machine-code object))
-                                         (length (env:function-constants object))
-                                         (length (env:function-gc-metadata object))))
+        (function-header (length (env:function-machine-code object))
+                         (length (env:function-constants object))
+                         (length (env:function-gc-metadata object))))
   ;; Apply fixups.
   (loop
      for (symbol . byte-offset) in (env:function-fixups object)
@@ -646,7 +668,7 @@ Must not call SERIALIZE-OBJECT."))
                               sys.int::+address-tag-shift+)
                          (image-stack-bump image))))
     (incf (image-stack-bump image) (env:stack-size object))
-    (setf (image-stack-bump image) (cold-generator::align-up (image-stack-bump image) #x200000))
+    (setf (image-stack-bump image) (util:align-up (image-stack-bump image) #x200000))
     (setf (gethash object (image-stack-bases image)) address))
   (incf (image-stack-total image) (env:stack-size object))
   ;; A wired cons.
@@ -712,7 +734,7 @@ Must not call SERIALIZE-OBJECT."))
     ;; Align the area sizes up to the minimum alignment.
     (flet ((align (area)
              (let* ((bump (length (area-data area)))
-                    (aligned (cold-generator::align-up
+                    (aligned (util:align-up
                               bump sys.int::+allocation-minimum-alignment+)))
                (adjust-array (area-data area) aligned :fill-pointer t))))
       (align (image-wired-area image))
@@ -774,7 +796,7 @@ Must not call SERIALIZE-OBJECT."))
           (serialize-object (image-stack-bump image)
                             image environment))
     (setf (image-symbol-value image environment 'sys.int::*stack-area-bump*)
-          (serialize-object cold-generator::+stack-area-base+
+          (serialize-object +stack-area-base+
                             image environment))
     (setf (image-symbol-value image environment 'sys.int::*bytes-allocated-to-stacks*)
           (serialize-object (image-stack-total image)
@@ -795,12 +817,8 @@ Must not call SERIALIZE-OBJECT."))
   (declare (ignore environment))
   (make-instance
    'image
-   :wired-area (make-area
-                :wired
-                cold-generator::+wired-area-base+)
-   :pinned-area (make-area
-                 :pinned
-                 cold-generator::+pinned-area-base+)
+   :wired-area (make-area :wired +wired-area-base+)
+   :pinned-area (make-area :pinned +pinned-area-base+)
    :general-area (make-area
                   :general
                   (logior (cross-cl:dpb sys.int::+address-tag-general+

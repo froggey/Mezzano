@@ -3,8 +3,12 @@
 
 (defpackage :mezzano.cold-generator.load
   (:use :cl)
-  (:local-nicknames (#:env #:mezzano.cold-generator.environment))
-  (:export #:load-compiled-file))
+  (:local-nicknames (#:env #:mezzano.cold-generator.environment)
+                    (#:util #:mezzano.cold-generator.util))
+  (:export #:load-compiled-file
+           #:invalid-llf
+           #:validate-llf-header
+           ))
 
 (in-package :mezzano.cold-generator.load)
 
@@ -17,23 +21,48 @@
    (%if-depth :initform nil :accessor loader-if-depth)
    (%load-time-forms :initform '() :accessor loader-load-time-forms)))
 
+(define-condition invalid-llf (simple-error) ())
+
+(defun validate-llf-header (stream target)
+  ;; Check the header.
+  (when (not (and (eql (read-byte stream) #x4C)
+                  (eql (read-byte stream) #x4C)
+                  (eql (read-byte stream) #x46)
+                  (eql (read-byte stream) #x01)))
+    (error 'invalid-llf
+           :format-control "Bad LLF magic."))
+  (let ((version (read-byte stream)))
+    (when (not (eql version sys.int::*llf-version*))
+      (error 'invalid-llf
+             :format-control "Bad LLF version ~D, wanted version ~D."
+             :format-arguments (list version sys.int::*llf-version*))))
+  (let ((arch (case (read-byte stream)
+                (#.sys.int::+llf-arch-x86-64+ :x86-64)
+                (#.sys.int::+llf-arch-arm64+ :arm64)
+                (t :unknown))))
+    (when (not (eql arch target))
+      (error 'invalid-llf
+             :format-control "LLF compiled for wrong architecture ~S. Wanted ~S."
+             :format-arguments (list arch target)))))
+
 (defun load-byte (loader)
   (read-byte (loader-stream loader)))
 
 (defun load-integer (loader)
-  (cold-generator::load-integer (loader-stream loader)))
-
-(defun load-string (loader)
-  (cold-generator::load-string* (loader-stream loader)))
-
-(defun load-byte-vector (loader length)
-  (let ((vec (make-array length :element-type '(unsigned-byte 8))))
-    (read-sequence vec (loader-stream loader))
-    vec))
+  (let ((value 0) (shift 0))
+    (loop
+       (let ((b (load-byte loader)))
+         (when (not (logtest b #x80))
+           (setf value (logior value (ash (logand b #x3F) shift)))
+           (if (logtest b #x40)
+               (return (- value))
+               (return value)))
+         (setf value (logior value (ash (logand b #x7F) shift)))
+         (incf shift 7)))))
 
 (defun load-character (loader)
   (multiple-value-bind (length value)
-      (cold-generator::utf8-sequence-length (load-byte loader))
+      (util:utf-8-sequence-length (load-byte loader))
     ;; Read remaining bytes. They must all be continuation bytes.
     (dotimes (i (1- length))
       (let ((byte (load-byte loader)))
@@ -42,6 +71,18 @@
         (setf value (logior (ash value 6) (logand byte #x3F)))))
     (or (code-char value)
         (error "Implementation missing character U+~X" value))))
+
+(defun load-string (loader)
+  (let* ((len (load-integer loader))
+         (seq (make-array len :element-type 'character)))
+    (dotimes (i len)
+      (setf (aref seq i) (load-character loader)))
+    seq))
+
+(defun load-byte-vector (loader length)
+  (let ((vec (make-array length :element-type '(unsigned-byte 8))))
+    (read-sequence vec (loader-stream loader))
+    vec))
 
 (defun load-single-float (loader)
   (let ((bits (load-integer loader)))
@@ -285,8 +326,7 @@
 (defun load-compiled-file (environment filespec &key wired)
   (format t ";; Loading ~S~%" filespec)
   (with-open-file (stream filespec :element-type '(unsigned-byte 8))
-    (cold-generator::validate-llf-header stream
-                                         :target (env:environment-target environment))
+    (validate-llf-header stream (env:environment-target environment))
     (let ((loader (make-instance 'loader
                                  :allocation-area (if wired :wired nil)
                                  :environment environment

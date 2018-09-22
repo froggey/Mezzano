@@ -3,9 +3,8 @@
 
 (defpackage :mezzano.cold-generator.eval
   (:use :cl)
-  (:shadow #:eval)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment))
-  (:export #:eval #:eval-toplevel #:eval-toplevel-list))
+  (:export #:eval-toplevel #:eval-toplevel-list))
 
 (in-package :mezzano.cold-generator.eval)
 

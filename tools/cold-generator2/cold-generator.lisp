@@ -7,9 +7,232 @@
                     (#:load #:mezzano.cold-generator.load)
                     (#:eval #:mezzano.cold-generator.eval)
                     (#:ser #:mezzano.cold-generator.serialize)
-                    (#:write #:mezzano.cold-generator.write)))
+                    (#:write #:mezzano.cold-generator.write)
+                    (#:util #:mezzano.cold-generator.util))
+  (:export #:make-image
+           #:set-up-cross-compiler))
 
 (in-package :mezzano.cold-generator)
+
+(defparameter *supervisor-source-files*
+  '("supervisor/entry.lisp"
+    ("supervisor/x86-64/cpu.lisp" :x86-64)
+    ("supervisor/arm64/cpu.lisp" :arm64)
+    "supervisor/interrupts.lisp"
+    ("supervisor/x86-64/interrupts.lisp" :x86-64)
+    ("supervisor/arm64/interrupts.lisp" :arm64)
+    ("supervisor/arm64/gic.lisp" :arm64)
+    "supervisor/debug.lisp"
+    "supervisor/serial.lisp"
+    ("supervisor/uart.lisp" :arm64)
+    "supervisor/disk.lisp"
+    "supervisor/partition.lisp"
+    "supervisor/thread.lisp"
+    ("supervisor/x86-64/thread.lisp" :x86-64)
+    ("supervisor/arm64/thread.lisp" :arm64)
+    "supervisor/sync.lisp"
+    "supervisor/physical.lisp"
+    "supervisor/snapshot.lisp"
+    ("supervisor/x86-64/snapshot.lisp" :x86-64)
+    ("supervisor/arm64/snapshot.lisp" :arm64)
+    "supervisor/store.lisp"
+    "supervisor/pager.lisp"
+    ("supervisor/x86-64/pager.lisp" :x86-64)
+    ("supervisor/arm64/pager.lisp" :arm64)
+    "supervisor/time.lisp"
+    ("supervisor/x86-64/time.lisp" :x86-64)
+    ("supervisor/arm64/time.lisp" :arm64)
+    "supervisor/ps2.lisp"
+    "supervisor/video.lisp"
+    "supervisor/pci.lisp"
+    "supervisor/cdrom.lisp"
+    "supervisor/ata.lisp"
+    "supervisor/ahci.lisp"
+    "supervisor/virtio.lisp"
+    "supervisor/virtio-pci.lisp"
+    "supervisor/virtio-mmio.lisp"
+    "supervisor/virtio-block.lisp"
+    "supervisor/virtio-input.lisp"
+    "supervisor/virtio-gpu.lisp"
+    "supervisor/virtualbox.lisp"
+    "supervisor/profiler.lisp"
+    "supervisor/support.lisp"
+    "supervisor/acpi.lisp"
+    "supervisor/efi.lisp"
+    ("supervisor/x86-64/platform.lisp" :x86-64)
+    ("supervisor/arm64/platform.lisp" :arm64)
+    "runtime/runtime.lisp"
+    ("runtime/runtime-x86-64.lisp" :x86-64)
+    ("runtime/runtime-arm64.lisp" :arm64)
+    "system/data-types.lisp"
+    "runtime/allocate.lisp"
+    "runtime/cons.lisp"
+    "runtime/numbers.lisp"
+    ("runtime/float-x86-64.lisp" :x86-64)
+    ("runtime/float-arm64.lisp" :arm64)
+    "runtime/string.lisp"
+    "runtime/array.lisp"
+    "runtime/struct.lisp"
+    "runtime/symbol.lisp"
+    "runtime/function.lisp"
+    "supervisor/fdt.lisp"))
+
+(defparameter *source-files*
+  '("system/cold-start.lisp"
+    "system/defstruct.lisp"
+    "system/cons.lisp"
+    "system/sequence.lisp"
+    "system/runtime-array.lisp"
+    "system/array.lisp"
+    "system/printer.lisp"
+    "system/stuff.lisp"
+    "system/runtime-support.lisp"
+    "system/type.lisp"
+    "system/setf.lisp"
+    "system/cas.lisp"
+    "system/string.lisp"
+    "system/hash-table.lisp"
+    "system/runtime-numbers.lisp"
+    ("system/bignum-x86-64.lisp" :x86-64)
+    ("system/bignum-arm64.lisp" :arm64)
+    "system/numbers.lisp"
+    "system/gc.lisp"
+    "system/room.lisp"
+    "system/reader.lisp"
+    "system/character.lisp"
+    "system/backquote.lisp"
+    "system/format.lisp"
+    "system/defmacro.lisp"
+    "system/basic-macros.lisp"
+    "system/parse.lisp"
+    "system/load.lisp"
+    "system/time.lisp"
+    "system/delimited-continuations.lisp"
+    ("system/delimited-continuations-x86-64.lisp" :x86-64)
+))
+
+(defparameter *warm-source-files*
+  '("system/clos/package.lisp"
+    "system/clos/macros.lisp"
+    "system/clos/single-dispatch-emf-table.lisp"
+    "system/clos/boot.lisp"
+    "system/clos/closette.lisp"
+    "system/clos/method-combination.lisp"
+    "system/describe.lisp"
+    "system/runtime-misc.lisp"
+    "system/condition.lisp"
+    "system/restarts.lisp"
+    "system/error.lisp"
+    "system/coerce.lisp"
+    "system/debug.lisp"
+    "system/full-eval.lisp"
+    "system/fast-eval.lisp"
+    "system/eval.lisp"
+    "system/gray-streams.lisp"
+    "system/standard-streams.lisp"
+    "system/stream.lisp"
+    "system/ansi-loop.lisp"
+    "system/environment.lisp"
+    "compiler/package.lisp"
+    "compiler/compiler.lisp"
+    "compiler/lap.lisp"
+    "compiler/lap-x86.lisp"
+    "compiler/lap-arm64.lisp"
+    "compiler/environment.lisp"
+    "compiler/global-environment.lisp"
+    "compiler/ast.lisp"
+    "compiler/ast-generator.lisp"
+    "compiler/pass1.lisp"
+    "compiler/constprop.lisp"
+    "compiler/simplify.lisp"
+    "compiler/lift.lisp"
+    "compiler/inline.lisp"
+    "compiler/kill-temps.lisp"
+    "compiler/keyword-arguments.lisp"
+    "compiler/simplify-arguments.lisp"
+    "compiler/dynamic-extent.lisp"
+    "compiler/codegen-x86-64.lisp"
+    "compiler/builtins-x86-64/builtins.lisp"
+    "compiler/builtins-x86-64/array.lisp"
+    "compiler/builtins-x86-64/cons.lisp"
+    "compiler/builtins-x86-64/memory.lisp"
+    "compiler/builtins-x86-64/misc.lisp"
+    "compiler/builtins-x86-64/numbers.lisp"
+    "compiler/builtins-x86-64/objects.lisp"
+    "compiler/builtins-x86-64/unwind.lisp"
+    "compiler/branch-tension.lisp"
+    "compiler/codegen-arm64.lisp"
+    "compiler/builtins-arm64/builtins.lisp"
+    "compiler/builtins-arm64/cons.lisp"
+    "compiler/builtins-arm64/memory.lisp"
+    "compiler/builtins-arm64/misc.lisp"
+    "compiler/builtins-arm64/numbers.lisp"
+    "compiler/builtins-arm64/objects.lisp"
+    "compiler/builtins-arm64/unwind.lisp"
+    "compiler/lower-environment.lisp"
+    "compiler/lower-special-bindings.lisp"
+    "compiler/value-aware-lowering.lisp"
+    "compiler/simplify-control-flow.lisp"
+    "compiler/blexit.lisp"
+    "compiler/transforms.lisp"
+    "compiler/backend/backend.lisp"
+    "compiler/backend/instructions.lisp"
+    "compiler/backend/cfg.lisp"
+    "compiler/backend/analysis.lisp"
+    "compiler/backend/dominance.lisp"
+    "compiler/backend/convert-ast.lisp"
+    "compiler/backend/multiple-values.lisp"
+    "compiler/backend/ssa.lisp"
+    "compiler/backend/passes.lisp"
+    "compiler/backend/debug.lisp"
+    "compiler/backend/register-allocation.lisp"
+    "compiler/backend/canon.lisp"
+    "compiler/backend/x86-64/x86-64.lisp"
+    "compiler/backend/x86-64/target.lisp"
+    "compiler/backend/x86-64/codegen.lisp"
+    "compiler/backend/x86-64/builtin.lisp"
+    "compiler/backend/x86-64/misc.lisp"
+    "compiler/backend/x86-64/object.lisp"
+    "compiler/backend/x86-64/memory.lisp"
+    "compiler/backend/x86-64/number.lisp"
+    "compiler/backend/x86-64/simd.lisp"
+    "compiler/backend/arm64/arm64.lisp"
+    "compiler/backend/arm64/target.lisp"
+    "compiler/backend/arm64/codegen.lisp"
+    "compiler/backend/arm64/builtin.lisp"
+    "compiler/backend/arm64/misc.lisp"
+    "compiler/backend/arm64/object.lisp"
+    "compiler/backend/arm64/number.lisp"
+    ("runtime/simd.lisp" :x86-64)
+    "system/file-compiler.lisp"
+    "system/xp-package.lisp"
+    "system/xp.lisp"
+    "system/xp-format.lisp"
+    "system/xp-printers.lisp"
+    "system/profiler.lisp"
+    "drivers/network-card.lisp"
+    "drivers/virtio-net.lisp"
+    ("drivers/rtl8168.lisp" :x86-64)
+    "drivers/sound.lisp"
+    ("drivers/intel-hda.lisp" :x86-64)
+    "net/package.lisp"
+    "net/network.lisp"
+    "net/ethernet.lisp"
+    "net/arp.lisp"
+    "net/ip.lisp"
+    "net/udp.lisp"
+    "net/tcp.lisp"
+    "net/dns.lisp"
+    "net/network-setup.lisp"
+    "file/fs.lisp"
+    "file/remote.lisp"
+    "config.lisp"
+    "ipl.lisp"))
+
+(defparameter *8x8-debug-font* "tools/font8x8.lisp-expr")
+(defparameter *unifont* "tools/unifont-5.1.20080820.hex")
+(defparameter *unicode-data* "tools/UnicodeData.txt")
+(defparameter *pci-ids* "tools/pci.ids")
 
 (defun build-directory (environment)
   (merge-pathnames (make-pathname :directory `(:relative ,(format nil "~(build-~A~)" (env:environment-target environment))))))
@@ -35,6 +258,27 @@
           (t
            forms))))
 
+(defun maybe-compile-file (path environment &key force)
+  (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults path)
+                                   (build-directory environment))))
+    (ensure-directories-exist llf-path)
+    (with-open-file (s llf-path
+                       :element-type '(unsigned-byte 8)
+                       :if-does-not-exist nil)
+      (when s
+        (handler-case (load:validate-llf-header s (env:environment-target environment))
+          (load:invalid-llf (c)
+            (format t "Rebuilding ~A: ~A~%" llf-path c)
+            (delete-file s)))))
+    (when (or force
+              (not (probe-file llf-path))
+              (<= (file-write-date llf-path) (file-write-date path)))
+      (format t "~A is out of date will be recompiled.~%" llf-path)
+      (let ((sys.c::*target-architecture* (env:environment-target environment))
+            (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
+        (sys.c::cross-compile-file path :output-file llf-path)))
+    llf-path))
+
 ;; Ugh.
 (defun load-compiler-builtins (environment)
   (let ((llf-path (merge-pathnames "%%compiler-builtins.llf"
@@ -43,12 +287,10 @@
     (sys.c::save-compiler-builtins llf-path (env:environment-target environment))
     (load-compiled-file environment llf-path :eval t :wired t)))
 
-(defun load-source-file (environment file &key eval wired)
+(defun load-source-file (environment file &key eval wired force-recompile)
   (load-compiled-file
    environment
-   (let ((sys.c::*target-architecture* (env:environment-target environment))
-         (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
-     (cold-generator::maybe-compile-file file))
+   (maybe-compile-file file environment :force force-recompile)
    :eval eval
    :wired wired))
 
@@ -74,8 +316,8 @@
         (concatenate
          'vector
          (load-compiler-builtins environment)
-         (load-source-files environment cold-generator::*supervisor-source-files* :eval t :wired t)
-         (load-source-files environment cold-generator::*source-files* :eval t))))
+         (load-source-files environment *supervisor-source-files* :eval t :wired t)
+         (load-source-files environment *source-files* :eval t))))
 
 (defun save-package-system (environment)
   (setf (env:cross-symbol-value environment 'sys.int::*package-system*)
@@ -87,15 +329,13 @@
   ;; Bake the compiled files directly into the image.
   (loop
      with result = (env:make-array environment 0 :adjustable t :fill-pointer 0 :area :pinned)
-     for file in (filter-files-by-architecture cold-generator::*warm-source-files* (env:environment-target environment))
-     for compiled-file = (let ((sys.c::*target-architecture* (env:environment-target environment))
-                               (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*))
-                               ;; HACK! Force use of the new compiler building the SIMD/float functions.
-                               (sys.c::*use-new-compiler* (if (member file '("runtime/simd.lisp"
+     for file in (filter-files-by-architecture *warm-source-files* (env:environment-target environment))
+     ;; HACK! Force use of the new compiler building the SIMD/float functions.
+     for compiled-file = (let ((sys.c::*use-new-compiler* (if (member file '("runtime/simd.lisp"
                                                                              "runtime/float-x86-64.lisp"))
                                                               t
                                                               sys.c::*use-new-compiler*)))
-                           (cold-generator::maybe-compile-file file))
+                           (maybe-compile-file file environment))
      do
        (format t ";; Warm loading ~A.~%" compiled-file)
        (with-open-file (stream compiled-file :element-type '(unsigned-byte 8))
@@ -107,7 +347,7 @@
 
 (defun save-debug-8x8-font (environment)
   (format t ";; Saving 8x8 debug font.~%")
-  (let* ((font-data (with-open-file (s cold-generator::*8x8-debug-font*)
+  (let* ((font-data (with-open-file (s *8x8-debug-font*)
                       (read s)))
          (font-array (env:make-array environment 128 :initial-element nil :area :wired)))
     (assert (eql (array-dimension font-data 0) 128))
@@ -125,7 +365,7 @@
 (defun save-unifont-data (environment)
   (format t ";; Saving Unifont.~%")
   (multiple-value-bind (tree data)
-      (with-open-file (s cold-generator::*unifont*)
+      (with-open-file (s *unifont*)
         (build-unicode:generate-unifont-table s))
     (env:set-object-graph-area environment tree :pinned)
     (env:set-object-graph-area environment data :pinned)
@@ -135,7 +375,7 @@
 (defun save-unicode (environment)
   (format t ";; Saving Unicode data.~%")
   (multiple-value-bind (planes name-store encoding-table name-trie)
-      (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data cold-generator::*unicode-data*))
+      (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data *unicode-data*))
     (env:set-object-graph-area environment planes :pinned)
     (env:set-object-graph-area environment name-store :pinned)
     (env:set-object-graph-area environment encoding-table :pinned)
@@ -147,12 +387,12 @@
 
 (defun save-pci-ids (environment)
   (format t ";; Saving PCI IDs.~%")
-  (let ((pci-ids (build-pci-ids:build-pci-ids cold-generator::*pci-ids*)))
+  (let ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*)))
     (env:set-object-graph-area environment pci-ids :wired)
     (setf (env:cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
 
 (defun save-git-rev (environment)
-  (let ((git-rev (cold-generator::git-revision)))
+  (let ((git-rev (util:git-revision)))
     (setf (env:cross-symbol-value environment 'sys.int::*git-revision*) git-rev)))
 
 (defgeneric configure-system-for-target (environment target))
@@ -257,8 +497,8 @@
         (format t ";; Writing map file to ~S.~%" map-file-path)
         (ser:write-map-file map-file-path image))
       (let ((image-header (make-instance 'write:image-header
-                                         :uuid (cond ((stringp uuid) (cold-generator::parse-uuid uuid))
-                                                     ((not uuid) (cold-generator::generate-uuid))
+                                         :uuid (cond ((stringp uuid) (util:parse-uuid uuid))
+                                                     ((not uuid) (util:generate-uuid))
                                                      (uuid))
                                          :entry-fref (ser:serialize-object
                                                       (env:function-reference
@@ -270,7 +510,7 @@
                                                           image environment)
                                          :nil (ser:serialize-object nil image environment)
                                          :architecture architecture)))
-        (format t ";; Writing image with UUID ~/cold-generator::format-uuid/.~%"
+        (format t ";; Writing image with UUID ~/mezzano.cold-generator.util:format-uuid/.~%"
                 (write:image-header-uuid image-header))
         (format t ";; Nil at ~X~%" (write:image-header-nil image-header))
         (format t ";; Entry-Fref at ~X~%" (write:image-header-entry-fref image-header))
@@ -290,3 +530,61 @@
                                    :disk-header-path header-path
                                    :image-size image-size)
                  (truename stream))))))))
+
+(defparameter *cross-source-files*
+  '("system/basic-macros.lisp"
+    "system/defmacro.lisp"
+    "system/backquote.lisp"
+    "system/setf.lisp"
+    "system/cas.lisp"
+    "system/defstruct.lisp"
+    "system/condition.lisp"
+    "system/type.lisp"
+    "system/error.lisp"
+    "system/restarts.lisp"
+    "system/runtime-array.lisp"
+    "system/array.lisp"
+    "system/sequence.lisp"
+    "system/hash-table.lisp"
+    "system/packages.lisp"
+    "system/gray-streams.lisp"
+    "system/stream.lisp"
+    "system/reader.lisp"
+    "system/printer.lisp"
+    "system/numbers.lisp"
+    "system/character.lisp"
+    "system/clos/package.lisp"
+    "system/clos/macros.lisp"
+    "system/clos/closette.lisp"
+    "system/data-types.lisp"
+    "system/gc.lisp"
+    "system/cold-start.lisp"
+    "system/cons.lisp"
+    "system/runtime-numbers.lisp"
+    "supervisor/thread.lisp"
+    "supervisor/interrupts.lisp"
+    "supervisor/entry.lisp"
+    "supervisor/physical.lisp"
+    "supervisor/x86-64/cpu.lisp"
+    "supervisor/arm64/cpu.lisp"
+    "supervisor/support.lisp"
+    "runtime/struct.lisp"
+    "runtime/array.lisp"
+    "runtime/symbol.lisp"
+    "system/stuff.lisp"
+)
+  "These files are loaded into the compiler environment so other source
+files will be compiled correctly.")
+
+(defun set-up-cross-compiler ()
+  (with-compilation-unit ()
+    (flet ((load-files (file-list)
+             (dolist (f file-list)
+               (cond ((consp f)
+                      (sys.c::load-for-cross-compiler (first f)))
+                     (t
+                      (sys.c::load-for-cross-compiler f))))))
+      (load-files *cross-source-files*)
+      (load-files *supervisor-source-files*)
+      (load-files *source-files*)
+      (load-files *warm-source-files*))))

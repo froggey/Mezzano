@@ -88,6 +88,21 @@
 
 (in-package :mezzano.cold-generator.environment)
 
+;; FIXME: The names in this package could really do with some work.
+;; There are 3 broad classes of functions here:
+;; * Functions that operate on host objects.
+;;   (MAKE-STANDARD-ENVIRONMENT, STRUCTURE-DEFINITION-NAME)
+;; * Functions that look like CL functions but operate
+;;   on environment objects (INTERN, CROSS-SYMBOL-NAME)
+;; * Functions that operate on environment objects using
+;;   host objects (TRANSLATE-SYMBOL, CROSS-SYMBOL-VALUE)
+;; There's no consistency withing classes and some naming
+;; schemes are used for multiple classes, such as
+;; CROSS-SYMBOL-VALUE and CROSS-SYMBOL-NAME.
+;; The classes aren't hard & fast but coming up with a
+;; consistent naming scheme would avoid some usage screws
+;; like passing a host symbol to CROSS-SYMBOL-NAME.
+
 (defclass environment ()
   ((%target :initarg :target :reader environment-target)
    ;; (package-keyword . symbol-name) => symbol

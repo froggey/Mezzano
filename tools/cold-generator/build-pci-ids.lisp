@@ -18,6 +18,10 @@
 ;;;; left by 16 bits and ORing it with the subsystem device id.
 ;;;; All arrays are sorted by id, allowing fast lookup using a binary search.
 
+(defpackage :build-pci-ids
+  (:export :build-pci-ids)
+  (:use :cl :iter))
+
 (in-package :build-pci-ids)
 
 (defvar *vendor-regex* (cl-ppcre:create-scanner "^([0123456789ABCDEFabcdef]{4})\\s+(.*)$"))

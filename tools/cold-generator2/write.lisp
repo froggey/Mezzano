@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.write
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:ser #:mezzano.cold-generator.serialize))
+                    (#:ser #:mezzano.cold-generator.serialize)
+                    (#:util #:mezzano.cold-generator.util))
   (:export #:image-header
            #:image-header-uuid
            #:image-header-entry-fref
@@ -28,7 +29,7 @@
 (defun write-image-disk-header (stream header-path image-size)
   "Write the disk header, if any, and size the image appropriately."
   (let* ((image-header-data (when header-path
-                              (cold-generator::load-image-header header-path)))
+                              (util:load-binary-file header-path)))
          (image-offset (if image-header-data
                            (length image-header-data)
                            0)))
@@ -87,6 +88,28 @@
     (file-position stream image-offset)
     (write-sequence encoded-header stream)))
 
+(defun add-page-to-block-map (bml4 block virtual-address flags)
+  (let ((bml4e (ldb (byte 9 39) virtual-address))
+        (bml3e (ldb (byte 9 30) virtual-address))
+        (bml2e (ldb (byte 9 21) virtual-address))
+        (bml1e (ldb (byte 9 12) virtual-address)))
+    (unless (aref bml4 bml4e)
+      (setf (aref bml4 bml4e) (make-array 512 :initial-element nil)))
+    (let ((bml3 (aref bml4 bml4e)))
+      (unless (aref bml3 bml3e)
+        (setf (aref bml3 bml3e) (make-array 512 :initial-element nil)))
+      (let ((bml2 (aref bml3 bml3e)))
+        (unless (aref bml2 bml2e)
+          (setf (aref bml2 bml2e) (make-array 512 :initial-element nil)))
+        (let ((bml1 (aref bml2 bml2e)))
+          (assert (not (aref bml1 bml1e)))
+          (setf (aref bml1 bml1e) (logior (ash block sys.int::+block-map-id-shift+)
+                                          flags)))))))
+
+(defun add-region-to-block-map (bml4 store-base virtual-base size flags)
+  (dotimes (i size)
+    (add-page-to-block-map bml4 (+ store-base i) (+ virtual-base (* i #x1000)) flags)))
+
 (defun write-areas (image stream image-offset bml4)
   "Save areas to the file and update the block map"
   (flet ((save (area flags)
@@ -94,7 +117,7 @@
              (incf *store-bump* (ser:area-size (ser:image-wired-area image)))
              (file-position stream (+ image-offset store-position))
              (write-sequence (ser:area-data area) stream)
-             (cold-generator::add-region-to-block-map
+             (add-region-to-block-map
               bml4
               (/ store-position #x1000)
               (ser:area-base area)
@@ -111,7 +134,7 @@
   (ser:do-image-stacks (base size image)
     (let ((store-position *store-bump*))
       (incf *store-bump* size)
-      (cold-generator::add-region-to-block-map
+      (add-region-to-block-map
        bml4
        (/ store-position #x1000)
        base
@@ -161,7 +184,7 @@
              (file-position stream (+ image-offset store-base))
              (write-sequence table stream)
              (incf *store-bump* (length table))
-             (cold-generator::add-region-to-block-map
+             (add-region-to-block-map
               bml4
               (/ store-base #x1000)
               (+ sys.int::+card-table-base+
