@@ -1025,8 +1025,7 @@ This is required to make the GC interrupt safe."
       #.+object-tag-complex-short-float+
       #.+object-tag-complex-long-float+
       #.+object-tag-mmx-vector+
-      #.+object-tag-sse-vector+
-      #.+object-tag-unbound-value+))
+      #.+object-tag-sse-vector+))
     (#.+object-tag-weak-pointer+
      (scan-weak-pointer object cycle-kind))
     (#.+object-tag-delimited-continuation+
@@ -1288,8 +1287,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            #.+object-tag-simple-array+
            #.+object-tag-array+)
           (+ 4 length))
-         (#.+object-tag-unbound-value+
-          2)
          (#.+object-tag-weak-pointer+
           6)
          (#.+object-tag-delimited-continuation+
@@ -1672,8 +1669,7 @@ Additionally update the card table offset fields."
       #.+object-tag-complex-short-float+
       #.+object-tag-complex-long-float+
       #.+object-tag-mmx-vector+
-      #.+object-tag-sse-vector+
-      #.+object-tag-unbound-value+))
+      #.+object-tag-sse-vector+))
     (#.+object-tag-weak-pointer+
      ;; not implemented
      nil)
