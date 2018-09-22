@@ -46,7 +46,8 @@
 (defun load-source-file (environment file &key eval wired)
   (load-compiled-file
    environment
-   (let ((sys.c::*target-architecture* (env:environment-target environment)))
+   (let ((sys.c::*target-architecture* (env:environment-target environment))
+         (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
      (cold-generator::maybe-compile-file file))
    :eval eval
    :wired wired))
