@@ -180,7 +180,7 @@ Must not call SERIALIZE-OBJECT."))
   (allocate 6 image :wired sys.int::+tag-object+))
 
 (defmethod initialize-object ((object env:symbol-value-cell) value image environment)
-  (initialize-object-header image value sys.int::+object-tag-symbol-value-cell+ 0)
+  (initialize-object-header image value sys.int::+object-tag-symbol-value-cell+ 4)
   (setf (object-slot image value 0) ; link
         (serialize-object nil image environment))
   (setf (object-slot image value sys.int::+symbol-value-cell-symbol+)
@@ -648,7 +648,9 @@ Must not call SERIALIZE-OBJECT."))
     (setf (gethash object (image-stack-bases image)) address))
   (incf (image-stack-total image) (env:stack-size object))
   ;; A wired cons.
-  (+ (allocate 4 image :wired 0) 16 sys.int::+tag-cons+))
+  (let ((value (allocate 4 image :wired sys.int::+tag-object+)))
+    (initialize-object-header image value sys.int::+object-tag-cons+ 0)
+    (+ (- value sys.int::+tag-object+) 16 sys.int::+tag-cons+)))
 
 (defmethod initialize-object ((object env:stack) value image environment)
   (setf (object-car image value)

@@ -78,7 +78,9 @@
 
 (defun save-package-system (environment)
   (setf (env:cross-symbol-value environment 'sys.int::*package-system*)
-        (load-source-file environment "system/packages.lisp")))
+        (coerce
+         (load-source-file environment "system/packages.lisp")
+         'vector)))
 
 (defun save-warm-files (environment)
   ;; Bake the compiled files directly into the image.
@@ -176,6 +178,7 @@
 (defun configure-system (environment)
   (save-cold-files environment)
   (save-package-system environment)
+  (setf (env:cross-symbol-value environment 'sys.int::*additional-cold-toplevel-forms*) #())
   (save-warm-files environment)
   (save-debug-8x8-font environment)
   (save-unifont-data environment)

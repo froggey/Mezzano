@@ -563,6 +563,9 @@
                  ((or integer symbol))
                  (vector
                   (setf (gethash object (environment-object-area-table environment)) area)
+                  ;; Try to get element types correct too.
+                  (when (not (eql (array-element-type object) 't))
+                    (setf (gethash object (environment-array-element-type-table environment)) (array-element-type object)))
                   ;; Avoid visiting integers in numeric/character vectors
                   (when (typep object '(vector t))
                     (loop

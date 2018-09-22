@@ -308,9 +308,10 @@ Interrupts must be off and the global thread lock must be held."
       (release-global-thread-lock)
       (%%return-to-same-thread sp fp)
       (panic "unreachable"))
-    (when (<= sys.int::*exception-stack-base*
+    (when (<= (car sys.int::*exception-stack*)
               (thread-stack-pointer next)
-              (1- sys.int::*exception-stack-size*))
+              (1- (+ (car sys.int::*exception-stack*)
+                     (cdr sys.int::*exception-stack*))))
       (panic "Other thread " next " stopped on exception stack!!!"))
     (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next))
     (setf (thread-state next) :active)
