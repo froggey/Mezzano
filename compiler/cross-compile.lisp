@@ -810,6 +810,22 @@
                  (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
   #-(or sbcl) (error "Not implemented on this platform!"))
 
+(defun sys.int::%integer-as-single-float (value)
+  (check-type value (unsigned-byte 32))
+  #+sbcl (sb-kernel:make-single-float (if (logbitp 31 value)
+                                          (logior value (ash -1 32))
+                                          value))
+  #-(or sbcl) (error "Not implemented on this platform!"))
+
+(defun sys.int::%integer-as-double-float (value)
+  (check-type value (unsigned-byte 64))
+  #+sbcl (let ((ext (if (logbitp 63 value)
+                        (logior value (ash -1 64))
+                        value)))
+           (sb-kernel:make-double-float (ash ext -32)
+                                        (ldb (byte 32 0) ext)))
+  #-(or sbcl) (error "Not implemented on this platform!"))
+
 (defmethod save-one-object ((object float) omap stream)
   (etypecase object
     (single-float
