@@ -319,6 +319,9 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-complex-double-float+      #x23)
 (defconstant +llf-instance-header+           #x24)
 (defconstant +llf-symbol-global-value-cell+  #x25)
+(defconstant +llf-if+                        #x26)
+(defconstant +llf-else+                      #x27)
+(defconstant +llf-fi+                        #x28)
 
 ;;; Fields in the Unicode info tables.
 
