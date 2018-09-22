@@ -452,8 +452,11 @@
 (defun compile-lap (environment code &key (area :pinned) name)
   "Compile a list of LAP code as a function."
   (multiple-value-bind (mc constants fixups symbols gc-info)
-      (let ((sys.lap:*function-reference-resolver* (lambda (name)
-                                                     (function-reference environment name))))
+      (let ((sys.lap:*function-reference-resolver*
+             (lambda (name)
+               ;; Translate function-reference names from host names to
+               ;; names in the environment.
+               (function-reference environment (translate-symbol environment name)))))
         (sys.lap:perform-assembly-using-target
          (sys.c::canonicalize-target (environment-target environment))
          code
