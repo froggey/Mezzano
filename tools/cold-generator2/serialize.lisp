@@ -367,9 +367,9 @@ Must not call SERIALIZE-OBJECT."))
 
 (defmethod initialize-object ((object array) value image environment)
   (when (eql (env:cross-array-element-type environment object) 't)
-    (dotimes (i (array-total-size object))
+    (dotimes (i (length object))
       (setf (object-slot image value i)
-            (serialize-object (row-major-aref object i) image environment)))))
+            (serialize-object (aref object i) image environment)))))
 
 (defmethod serialize-object :around ((object array) image environment)
   ;; Deduplicate strings & bit-vectors in the image.
