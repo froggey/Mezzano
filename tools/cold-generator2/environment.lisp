@@ -17,6 +17,7 @@
            #:intern
            #:make-symbol
            #:translate-symbol
+           #:cross-symbol-value
            #:do-all-environment-symbols
            #:do-all-environment-frefs
            #:do-all-environment-structs
@@ -374,6 +375,17 @@
           (symbol-name symbol)
           (package-name (symbol-package symbol))))
 
+(defun cross-symbol-value (environment symbol)
+  (symbol-global-value
+   environment
+   (translate-symbol environment symbol)))
+
+(defun (setf cross-symbol-value) (value environment symbol)
+  (setf (symbol-global-value
+         environment
+         (translate-symbol environment symbol))
+        value))
+
 (defun make-symbol (environment name)
   (let ((symbol (cl:make-symbol name)))
     (setf (gethash (symbol-name symbol) (environment-object-area-table environment)) :wired)
@@ -432,9 +444,12 @@
         (sys.lap:perform-assembly-using-target
          (sys.c::canonicalize-target (environment-target environment))
          code
+         :initial-symbols (list '(nil . :fixup)
+                                '(t . :fixup))
          :info (list name nil)))
-    (declare (ignore symbols))
-    (make-function environment mc gc-info constants fixups area)))
+    (values
+     (make-function environment mc gc-info constants fixups area)
+     symbols)))
 
 (defun cons-in-area (car cdr environment area)
   (let ((c (cons car cdr)))

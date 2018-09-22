@@ -216,13 +216,17 @@ Must not call SERIALIZE-OBJECT."))
                    (object-slot image undef-fn sys.int::+function-entry-point+)))))))
 
 (defmethod allocate-object ((object env:cross-compiled-function) image environment)
-  (let ((total-size (+ (* (ceiling (+ (length (env:function-machine-code object)) 16) 16) 2)
-                       (length (env:function-constants object))
-                       (ceiling (length (env:function-gc-metadata object)) 8))))
-    (allocate total-size image
-              (or (env:object-area environment object)
-                  :pinned)
-              sys.int::+tag-object+)))
+  (let* ((total-size (+ (* (ceiling (+ (length (env:function-machine-code object)) 16) 16) 2)
+                        (length (env:function-constants object))
+                        (ceiling (length (env:function-gc-metadata object)) 8)))
+         (value (allocate total-size image
+                          (or (env:object-area environment object)
+                              :pinned)
+                          sys.int::+tag-object+)))
+    ;; Always set the entry point, gets read by other functions.
+    (setf (object-slot image value sys.int::+function-entry-point+)
+          (+ (- value sys.int::+tag-object+) 16))
+    value))
 
 (defmethod initialize-object ((object env:cross-compiled-function) object-value image environment)
   ;; Copy machine code.
@@ -262,9 +266,6 @@ Must not call SERIALIZE-OBJECT."))
         (cold-generator::function-header (length (env:function-machine-code object))
                                          (length (env:function-constants object))
                                          (length (env:function-gc-metadata object))))
-  ;; And entry point.
-  (setf (object-slot image object-value sys.int::+function-entry-point+)
-        (+ (- object-value sys.int::+tag-object+) 16))
   ;; Apply fixups.
   (loop
      for (symbol . byte-offset) in (env:function-fixups object)
@@ -351,7 +352,7 @@ Must not call SERIALIZE-OBJECT."))
       (let* ((elements-per-word (/ 64 element-size))
              (total-data-words (ceiling (* n-elements element-size) 64))
              (image-array (allocate (1+ total-data-words) image area sys.int::+tag-object+)))
-        (initialize-object-header image value object-type n-elements)
+        (initialize-object-header image image-array object-type n-elements)
         (when (not (eql element-type 't))
           ;; Numeric array. write the data directly.
           (dotimes (i total-data-words)

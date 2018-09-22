@@ -49,13 +49,10 @@
 ;; Cold generator provided objects.
 (sys.int::defglobal sys.int::*interrupt-service-routines*)
 
-(sys.int::defglobal sys.int::*bsp-wired-stack-base*)
-(sys.int::defglobal sys.int::*bsp-wired-stack-size*)
+(sys.int::defglobal sys.int::*bsp-wired-stack*)
+(sys.int::defglobal sys.int::*exception-stack*)
+(sys.int::defglobal sys.int::*irq-stack*)
 (sys.int::defglobal sys.int::*bsp-info-vector*)
-(sys.int::defglobal sys.int::*exception-stack-base*)
-(sys.int::defglobal sys.int::*exception-stack-size*)
-(sys.int::defglobal sys.int::*irq-stack-base*)
-(sys.int::defglobal sys.int::*irq-stack-size*)
 
 (defconstant +cpu-info-self-offset+ 0)
 (defconstant +cpu-info-wired-stack-offset+ 1)
@@ -340,20 +337,21 @@ TLB shootdown must be protected by the VM lock."
 
 (defun populate-idt (vector)
   ;; IDT completely fills the second page (256 * 16)
-  (dotimes (i 256)
-    (multiple-value-bind (lo hi)
-        (if (svref sys.int::*interrupt-service-routines* i)
-            (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
-                                     (svref sys.int::*interrupt-service-routines* i)
-                                     sys.int::+function-entry-point+)
-                            ;; Take CPU interrupts on the exception stack
-                            ;; and IRQs on the interrupt stack.
-                            :ist (if (< i 32)
-                                     1
-                                     2))
-            (values 0 0))
-      (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
-            (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
+  (let ((isr-base (sys.int::%object-ref-signed-byte-64
+                   #'sys.int::%%interrupt-service-routines
+                   sys.int::+function-entry-point+)))
+    (dotimes (i 256)
+      (multiple-value-bind (lo hi)
+          (if (svref sys.int::*interrupt-service-routines* i)
+              (make-idt-entry :offset (+ isr-base (svref sys.int::*interrupt-service-routines* i))
+                              ;; Take CPU interrupts on the exception stack
+                              ;; and IRQs on the interrupt stack.
+                              :ist (if (< i 32)
+                                       1
+                                       2))
+              (values 0 0))
+        (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
+              (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi)))))
 
 (defun populate-gdt (vector tss-base)
   ;; GDT.
@@ -402,9 +400,9 @@ TLB shootdown must be protected by the VM lock."
     (setf *cpus* '()))
   (setf *tlb-shootdown-in-progress* nil)
   (populate-cpu-info-vector sys.int::*bsp-info-vector*
-                            (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
-                            (+ sys.int::*exception-stack-base* sys.int::*exception-stack-size*)
-                            (+ sys.int::*irq-stack-base* sys.int::*irq-stack-size*)
+                            (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
+                            (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))
+                            (+ (car sys.int::*irq-stack*) (cdr sys.int::*irq-stack*))
                             sys.int::*bsp-idle-thread*)
   ;; Load various bits.
   (setf (sys.int::msr +msr-ia32-fs-base+)

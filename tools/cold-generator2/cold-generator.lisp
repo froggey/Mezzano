@@ -68,19 +68,8 @@
                               :eval eval
                               :wired wired)))
 
-(defun cross-symbol-value (environment symbol)
-  (env:symbol-global-value
-   environment
-   (env:translate-symbol environment symbol)))
-
-(defun (setf cross-symbol-value) (value environment symbol)
-  (setf (env:symbol-global-value
-         environment
-         (env:translate-symbol environment symbol))
-        value))
-
 (defun save-cold-files (environment)
-  (setf (cross-symbol-value environment 'sys.int::*cold-toplevel-forms*)
+  (setf (env:cross-symbol-value environment 'sys.int::*cold-toplevel-forms*)
         (concatenate
          'vector
          (load-compiler-builtins environment)
@@ -88,7 +77,7 @@
          (load-source-files environment cold-generator::*source-files* :eval t))))
 
 (defun save-package-system (environment)
-  (setf (cross-symbol-value environment 'sys.int::*package-system*)
+  (setf (env:cross-symbol-value environment 'sys.int::*package-system*)
         (load-source-file environment "system/packages.lisp")))
 
 (defun save-warm-files (environment)
@@ -110,7 +99,7 @@
            (read-sequence vec stream)
            (vector-push-extend (env:cons-in-area (pathname-name compiled-file) vec environment :pinned) result)))
      finally
-       (setf (cross-symbol-value environment 'sys.int::*warm-llf-files*) result)))
+       (setf (env:cross-symbol-value environment 'sys.int::*warm-llf-files*) result)))
 
 (defun save-debug-8x8-font (environment)
   (format t ";; Saving 8x8 debug font.~%")
@@ -127,7 +116,7 @@
               (setf (aref array (+ (* y 8) x)) (if (logbitp x line)
                                                    #xFF000000
                                                    #xFFFFFFFF)))))))
-    (setf (cross-symbol-value environment 'sys.int::*debug-8x8-font*) font-array)))
+    (setf (env:cross-symbol-value environment 'sys.int::*debug-8x8-font*) font-array)))
 
 (defun save-unifont-data (environment)
   (format t ";; Saving Unifont.~%")
@@ -135,28 +124,28 @@
   (multiple-value-bind (tree data)
       (with-open-file (s cold-generator::*unifont*)
         (build-unicode:generate-unifont-table s))
-    (setf (cross-symbol-value environment 'sys.int::*unifont-bmp*) tree)
-    (setf (cross-symbol-value environment 'sys.int::*unifont-bmp-data*) data)))
+    (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp*) tree)
+    (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp-data*) data)))
 
 (defun save-unicode (environment)
   (format t ";; Saving Unicode data.~%")
   ;; TODO: Put this back in the pinned area.
   (multiple-value-bind (planes name-store encoding-table name-trie)
       (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data cold-generator::*unicode-data*))
-    (setf (cross-symbol-value environment 'sys.int::*unicode-info*) planes)
-    (setf (cross-symbol-value environment 'sys.int::*unicode-name-store*) name-store)
-    (setf (cross-symbol-value environment 'sys.int::*unicode-encoding-table*) encoding-table)
-    (setf (cross-symbol-value environment 'sys.int::*unicode-name-trie*) name-trie)))
+    (setf (env:cross-symbol-value environment 'sys.int::*unicode-info*) planes)
+    (setf (env:cross-symbol-value environment 'sys.int::*unicode-name-store*) name-store)
+    (setf (env:cross-symbol-value environment 'sys.int::*unicode-encoding-table*) encoding-table)
+    (setf (env:cross-symbol-value environment 'sys.int::*unicode-name-trie*) name-trie)))
 
 (defun save-pci-ids (environment)
   (format t ";; Saving PCI IDs.~%")
   ;; TODO: Put this back in the wired area!
   (let ((pci-ids (build-pci-ids:build-pci-ids cold-generator::*pci-ids*)))
-    (setf (cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
+    (setf (env:cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
 
 (defun save-git-rev (environment)
   (let ((git-rev (cold-generator::git-revision)))
-    (setf (cross-symbol-value environment 'sys.int::*git-revision*) git-rev)))
+    (setf (env:cross-symbol-value environment 'sys.int::*git-revision*) git-rev)))
 
 (defgeneric configure-system-for-target (environment target))
 
@@ -165,20 +154,20 @@
     (env:do-all-environment-frefs (fref environment)
       (when (not (symbolp (env:function-reference-name fref)))
         (vector-push-extend fref fref-table)))
-    (setf (cross-symbol-value environment 'sys.int::*initial-fref-obarray*) fref-table))
+    (setf (env:cross-symbol-value environment 'sys.int::*initial-fref-obarray*) fref-table))
   (let ((struct-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     (env:do-all-environment-structs (sdef environment)
       (vector-push-extend sdef struct-table))
-    (setf (cross-symbol-value environment 'sys.int::*initial-structure-obarray*) struct-table))
+    (setf (env:cross-symbol-value environment 'sys.int::*initial-structure-obarray*) struct-table))
   ;; Do this last, no symbols can be added after it.
   (let ((symbol-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     ;; Prod symbol to make sure it gets included.
-    (setf (cross-symbol-value environment 'sys.int::*initial-obarray*) nil)
+    (setf (env:cross-symbol-value environment 'sys.int::*initial-obarray*) nil)
     (env:do-all-environment-symbols (symbol environment)
       (let ((package (env:cross-symbol-package environment symbol)))
         (check-type package keyword)
         (vector-push-extend symbol symbol-table)))
-    (setf (cross-symbol-value environment 'sys.int::*initial-obarray*) symbol-table)))
+    (setf (env:cross-symbol-value environment 'sys.int::*initial-obarray*) symbol-table)))
 
 (defun configure-system (environment)
   (save-cold-files environment)
@@ -189,40 +178,40 @@
   (save-unicode environment)
   (save-pci-ids environment)
   (save-git-rev environment)
-  (setf (cross-symbol-value environment 'sys.int::*supervisor-log-buffer*)
+  (setf (env:cross-symbol-value environment 'sys.int::*supervisor-log-buffer*)
                     (env:make-array environment (* 1024 1024)
                                     :element-type '(unsigned-byte 8)
                                     :initial-element 0
                                     :area :wired))
-  (setf (cross-symbol-value environment 'sys.int::*exception-stack*)
+  (setf (env:cross-symbol-value environment 'sys.int::*exception-stack*)
         (env:make-stack environment (* 128 1024)))
-  (setf (cross-symbol-value environment 'sys.int::*irq-stack*)
+  (setf (env:cross-symbol-value environment 'sys.int::*irq-stack*)
         (env:make-stack environment (* 128 1024)))
-  (setf (cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
+  (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
-  (setf (cross-symbol-value environment 'sys.int::*bsp-info-vector*)
+  (setf (env:cross-symbol-value environment 'sys.int::*bsp-info-vector*)
         (env:make-array environment (1- (/ (* 2 #x1000) 8))
                         :element-type '(unsigned-byte 64)
                         :initial-element 0
                         :area :wired))
   ;; Initial thread will have the initial stack field set by serialize.
-  (setf (cross-symbol-value environment 'sys.int::*initial-thread*)
+  (setf (env:cross-symbol-value environment 'sys.int::*initial-thread*)
         (create-thread environment "Initial thread"
                        :stack-size (* 128 1024)
                        :initial-state :active))
-  (setf (cross-symbol-value environment 'sys.int::*bsp-idle-thread*)
+  (setf (env:cross-symbol-value environment 'sys.int::*bsp-idle-thread*)
         (create-thread environment "BSP idle thread"
                        :stack-size (* 128 1024)
                        :initial-state :runnable))
-  (setf (cross-symbol-value environment 'sys.int::*snapshot-thread*)
+  (setf (env:cross-symbol-value environment 'sys.int::*snapshot-thread*)
         (create-thread environment "Snapshot thread"
                        :stack-size (* 1024 1024)
                        :initial-state :sleeping))
-  (setf (cross-symbol-value environment 'sys.int::*pager-thread*)
+  (setf (env:cross-symbol-value environment 'sys.int::*pager-thread*)
         (create-thread environment "Pager thread"
                        :stack-size (* 1024 1024)
                        :initial-state :sleeping))
-  (setf (cross-symbol-value environment 'sys.int::*disk-io-thread*)
+  (setf (env:cross-symbol-value environment 'sys.int::*disk-io-thread*)
         (create-thread environment "Disk IO thread"
                        :stack-size (* 1024 1024)
                        :initial-state :sleeping))
@@ -230,12 +219,12 @@
   (env:add-special environment t t)
   (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value))
   (configure-system-for-target environment (env:environment-target environment))
-  (setf (cross-symbol-value environment
+  (setf (env:cross-symbol-value environment
                             'sys.int::*structure-type-type*)
         (env:find-structure-definition
          environment
          (env:translate-symbol environment 'sys.int::structure-definition)))
-  (setf (cross-symbol-value environment
+  (setf (env:cross-symbol-value environment
                             'sys.int::*structure-slot-type*)
         (env:find-structure-definition
          environment
@@ -268,7 +257,7 @@
                                                        (env:translate-symbol environment 'sys.int::bootloader-entry-point))
                                                       image environment)
                                          :initial-thread (ser:serialize-object
-                                                          (cross-symbol-value environment 'sys.int::*initial-thread*)
+                                                          (env:cross-symbol-value environment 'sys.int::*initial-thread*)
                                                           image environment)
                                          :nil (ser:serialize-object nil image environment)
                                          :architecture architecture)))
