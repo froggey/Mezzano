@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.serialize
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment))
-  (:export #:serialize-image
+  (:export #:make-image
+           #:serialize-image
            #:serialize-object
            #:area-name
            #:area-base
@@ -789,32 +790,40 @@ Must not call SERIALIZE-OBJECT."))
 (defun make-area (name base)
   (make-instance 'area :name name :base base))
 
+(defun make-image (environment)
+  (declare (ignore environment))
+  (make-instance
+   'image
+   :wired-area (make-area
+                :wired
+                cold-generator::+wired-area-base+)
+   :pinned-area (make-area
+                 :pinned
+                 cold-generator::+pinned-area-base+)
+   :general-area (make-area
+                  :general
+                  (logior (cross-cl:dpb sys.int::+address-tag-general+
+                                        sys.int::+address-tag+ 0)
+                          (cross-cl:dpb sys.int::+address-generation-2-a+
+                                        sys.int::+address-generation+ 0)))
+   :cons-area (make-area
+               :cons
+               (logior (cross-cl:dpb sys.int::+address-tag-cons+
+                                     sys.int::+address-tag+ 0)
+                       (cross-cl:dpb sys.int::+address-generation-2-a+
+                                     sys.int::+address-generation+ 0)))))
+
 (defun serialize-image (environment)
   "Create a new image from ENVIRONMENT"
-  (let ((image (make-instance
-                'image
-                :wired-area (make-area
-                             :wired
-                             cold-generator::+wired-area-base+)
-                :pinned-area (make-area
-                              :pinned
-                               cold-generator::+pinned-area-base+)
-                :general-area (make-area
-                               :general
-                               (logior (cross-cl:dpb sys.int::+address-tag-general+
-                                                     sys.int::+address-tag+ 0)
-                                       (cross-cl:dpb sys.int::+address-generation-2-a+
-                                                     sys.int::+address-generation+ 0)))
-                :cons-area (make-area
-                            :cons
-                            (logior (cross-cl:dpb sys.int::+address-tag-cons+
-                                                  sys.int::+address-tag+ 0)
-                                    (cross-cl:dpb sys.int::+address-generation-2-a+
-                                                  sys.int::+address-generation+ 0))))))
+  (let ((image (make-image environment)))
     ;; Serialize NIL as the very first thing, this gives it a reasonably stable
     ;; value across images. Helps with debugging.
     (serialize-object 'nil image environment)
     ;; Main part: Serialize all symbols & objects reachable from them.
+    ;; TODO: This traverses the object graph in depth-first order, leading
+    ;; to functions being scattered over the image randomly. It'd be nice
+    ;; to traverse in load order which would cluster functions from the same
+    ;; file together.
     (env:do-all-environment-symbols (symbol environment)
       (serialize-object symbol image environment))
     ;; Tell the GC the area sizes.
