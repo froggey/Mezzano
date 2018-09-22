@@ -83,6 +83,7 @@
            #:make-stack
            #:stack
            #:stack-size
+           #:set-object-graph-area
 ))
 
 (in-package :mezzano.cold-generator.environment)
@@ -550,3 +551,26 @@
 (defun make-stack (environment size)
   (declare (ignore environment))
   (make-instance 'stack :size size))
+
+(defun set-object-graph-area (environment root area)
+  "Traverse an object graph and set the area for each object."
+  (let ((visited (make-hash-table)))
+    (labels ((visit (object)
+               (when (gethash object visited)
+                 (return-from visit))
+               (setf (gethash object visited) t)
+               (etypecase object
+                 ((or integer symbol))
+                 (vector
+                  (setf (gethash object (environment-object-area-table environment)) area)
+                  ;; Avoid visiting integers in numeric/character vectors
+                  (when (typep object '(vector t))
+                    (loop
+                       for subvalue across object
+                       do (visit subvalue))))
+                 (cons
+                  (setf (gethash object (environment-object-area-table environment)) area)
+                  (visit (car object))
+                  (visit (cdr object)))
+                  )))
+      (visit root))))

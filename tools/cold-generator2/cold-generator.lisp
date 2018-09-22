@@ -120,18 +120,22 @@
 
 (defun save-unifont-data (environment)
   (format t ";; Saving Unifont.~%")
-  ;; TODO: Put this back in the pinned area.
   (multiple-value-bind (tree data)
       (with-open-file (s cold-generator::*unifont*)
         (build-unicode:generate-unifont-table s))
+    (env:set-object-graph-area environment tree :pinned)
+    (env:set-object-graph-area environment data :pinned)
     (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp*) tree)
     (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp-data*) data)))
 
 (defun save-unicode (environment)
   (format t ";; Saving Unicode data.~%")
-  ;; TODO: Put this back in the pinned area.
   (multiple-value-bind (planes name-store encoding-table name-trie)
       (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data cold-generator::*unicode-data*))
+    (env:set-object-graph-area environment planes :pinned)
+    (env:set-object-graph-area environment name-store :pinned)
+    (env:set-object-graph-area environment encoding-table :pinned)
+    (env:set-object-graph-area environment name-trie :pinned)
     (setf (env:cross-symbol-value environment 'sys.int::*unicode-info*) planes)
     (setf (env:cross-symbol-value environment 'sys.int::*unicode-name-store*) name-store)
     (setf (env:cross-symbol-value environment 'sys.int::*unicode-encoding-table*) encoding-table)
@@ -139,8 +143,8 @@
 
 (defun save-pci-ids (environment)
   (format t ";; Saving PCI IDs.~%")
-  ;; TODO: Put this back in the wired area!
   (let ((pci-ids (build-pci-ids:build-pci-ids cold-generator::*pci-ids*)))
+    (env:set-object-graph-area environment pci-ids :wired)
     (setf (env:cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
 
 (defun save-git-rev (environment)
