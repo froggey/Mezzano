@@ -976,7 +976,9 @@
   (let ((expansion (macroexpand form env)))
     (cond
       ((symbolp expansion)
-       (add-to-llf sys.int::+llf-funcall-n+ expansion 'symbol-value 1))
+       (if (or (keywordp expansion) (member expansion '(nil t)))
+           (add-to-llf nil expansion)
+           (add-to-llf sys.int::+llf-funcall-n+ expansion 'symbol-value 1)))
       ((not (consp expansion))
        ;; Self-evaluating form.
        (add-to-llf nil expansion))
