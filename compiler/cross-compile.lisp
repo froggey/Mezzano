@@ -740,16 +740,9 @@
            (save-integer (length (package-name package)) stream)
            (dotimes (i (length (package-name package)))
              (save-character (char (package-name package) i) stream))))
-        (t (save-object (symbol-name object) omap stream)
-           ;; Should save flags?
-           (if (boundp object)
-               (save-object (symbol-value object) omap stream)
-               (write-byte sys.int::+llf-unbound+ stream))
-           (if (fboundp object)
-               (save-object (symbol-function object) omap stream)
-               (write-byte sys.int::+llf-unbound+ stream))
-           (save-object (symbol-plist object) omap stream)
-           (write-byte sys.int::+llf-uninterned-symbol+ stream))))
+        (t
+         (save-object (symbol-name object) omap stream)
+         (write-byte sys.int::+llf-uninterned-symbol+ stream))))
 
 (defmethod save-one-object ((object string) omap stream)
   (write-byte sys.int::+llf-string+ stream)

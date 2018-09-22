@@ -141,16 +141,8 @@
             (package (load-string loader)))
        (env:intern (loader-environment loader) name package)))
     (#.sys.int::+llf-uninterned-symbol+
-     (let ((plist (stack-pop loader))
-           (fn (stack-pop loader))
-           (value (stack-pop loader))
-           (name (stack-pop loader)))
-       ;; Including these is kind of nonsense.
-       (declare (ignore value fn plist))
+     (let ((name (stack-pop loader)))
        (env:make-symbol (loader-environment loader) name)))
-    (#.sys.int::+llf-unbound+
-     ;; This is used for values of uninterned symbols, which no longer support specifying the value.
-     '"Unbound marker, should not be seen outside the compiled-file loader")
     (#.sys.int::+llf-string+
      (let ((str (load-string loader)))
        (env:make-array (loader-environment loader)

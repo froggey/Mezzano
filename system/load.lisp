@@ -26,7 +26,6 @@
     (#.+llf-cons+ 'cons)
     (#.+llf-symbol+ 'symbol)
     (#.+llf-uninterned-symbol+ 'uninterned-symbol)
-    (#.+llf-unbound+ 'unbound)
     (#.+llf-string+ 'string)
     (#.+llf-integer+ 'integer)
     (#.+llf-simple-vector+ 'simple-vector)
@@ -230,8 +229,6 @@
     (decf (fill-pointer stack) n-elements)
     array))
 
-(defvar *magic-unbound-value* (cons "Magic unbound value" nil))
-
 (defun load-inhibited ()
   (and *load-if-stack*
        (or (not (first *load-if-stack*))
@@ -250,18 +247,8 @@
             (package (load-string stream)))
        (intern name package)))
     (#.+llf-uninterned-symbol+
-     (let* ((plist (vector-pop stack))
-            (fn (vector-pop stack))
-            (value (vector-pop stack))
-            (name (vector-pop stack))
-            (symbol (make-symbol name)))
-       (setf (symbol-plist symbol) plist)
-       (unless (eql fn *magic-unbound-value*)
-         (setf (symbol-function symbol) fn))
-       (unless (eql value *magic-unbound-value*)
-         (setf (symbol-value symbol) value))
-       symbol))
-    (#.+llf-unbound+ *magic-unbound-value*)
+     (let ((name (vector-pop stack)))
+       (make-symbol name)))
     (#.+llf-string+ (load-string stream))
     (#.+llf-integer+ (load-integer stream))
     (#.+llf-simple-vector+
