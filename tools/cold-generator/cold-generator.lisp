@@ -1186,7 +1186,7 @@
                                    sys.c::*target-architecture*)
     (load-source-file llf-path t t)))
 
-(defun maybe-compile-file (path)
+(defun maybe-compile-file (path &key force)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults path)
                                    (build-directory))))
     (ensure-directories-exist llf-path)
@@ -1198,7 +1198,8 @@
           (invalid-llf (c)
             (format t "Rebuilding ~A: ~A~%" llf-path c)
             (delete-file s)))))
-    (when (or (not (probe-file llf-path))
+    (when (or force
+              (not (probe-file llf-path))
               (<= (file-write-date llf-path) (file-write-date path)))
       (format t "~A is out of date will be recompiled.~%" llf-path)
       (sys.c::cross-compile-file path :output-file llf-path))

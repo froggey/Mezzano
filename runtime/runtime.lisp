@@ -3,6 +3,9 @@
 
 (in-package :mezzano.runtime)
 
+;; There is a single instance of this used as the unbound value marker by symbols.
+(defstruct (unbound-value (:area :wired)))
+
 (defun sys.int::%%unwind-to (target-special-stack-pointer)
   (declare (sys.int::suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (sys.int::%%special-stack-pointer))

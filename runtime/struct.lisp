@@ -272,3 +272,44 @@
            (setf (obsolete-instance-layout-new-instance layout)
                  replacement))))
   (values))
+
+(in-package :sys.int)
+
+(defstruct (structure-definition
+             (:area :wired)
+             (:constructor %make-struct-definition
+                           (name slots parent area size layout sealed))
+             :sealed)
+  (name nil :read-only t)
+  (slots nil :read-only t :type list)
+  (parent nil :read-only t)
+  (area nil :read-only t)
+  (size nil :read-only t)
+  (layout nil :read-only t)
+  (class nil)
+  (sealed nil :read-only t))
+
+(defstruct (structure-slot-definition
+             (:area :wired)
+             (:constructor make-struct-slot-definition
+                           (name accessor initform type read-only ref-fn index fixed-vector align))
+             :sealed)
+  (name nil :read-only t)
+  (accessor nil :read-only t)
+  (initform nil :read-only t)
+  (type t :read-only t)
+  (read-only nil :read-only t)
+  (ref-fn nil :read-only t)
+  (index nil :read-only t)
+  (fixed-vector nil :read-only t)
+  (align nil :read-only t))
+
+(defstruct (layout
+             (:area :wired)
+             :sealed)
+  (class nil :read-only t)
+  (obsolete nil)
+  (heap-size nil)
+  (heap-layout nl)
+  (area nil)
+  (instance-slots nil))

@@ -7,7 +7,7 @@
 
 (define-condition invalid-llf (simple-error) ())
 
-(defun validate-llf-header (stream)
+(defun validate-llf-header (stream &key (target sys.c::*target-architecture*))
   ;; Check the header.
   (when (not (and (eql (read-byte stream) #x4C)
                   (eql (read-byte stream) #x4C)
@@ -24,7 +24,7 @@
                 (#.sys.int::+llf-arch-x86-64+ :x86-64)
                 (#.sys.int::+llf-arch-arm64+ :arm64)
                 (t :unknown))))
-    (when (not (eql arch sys.c::*target-architecture*))
+    (when (not (eql arch target))
       (error 'invalid-llf
              :format-control "LLF compiled for wrong architecture ~S. Wanted ~S."
              :format-arguments (list arch sys.c::*target-architecture*)))))
