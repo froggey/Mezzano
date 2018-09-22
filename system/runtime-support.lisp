@@ -263,7 +263,7 @@
 (defglobal *cas-fref-table*)
 
 (defun make-function-reference (name)
-  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 4 :wired)))
+  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 3 :wired)))
     (setf (%object-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
