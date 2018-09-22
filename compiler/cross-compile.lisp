@@ -1148,7 +1148,8 @@
   (let* ((builtins (ecase target-architecture
                      (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
                      (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
-         (*use-new-compiler* nil))
+         (*use-new-compiler* nil)
+         (*target-architecture* target-architecture))
     (save-custom-compiled-file path
                                (lambda ()
                                  (if builtins
