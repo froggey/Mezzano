@@ -68,7 +68,11 @@ Only supports the compiled-file subset."
                 ;; Bail out.
                 (return-from eval-toplevel
                   (values nil
-                          `(funcall ,(fix-up-funcall-function fn) ,@(reverse args) ,@unevaluated-args))))
+                          `(funcall ,(fix-up-funcall-function fn)
+                                    ,@(loop
+                                         for a in (reverse args)
+                                         collect `',a)
+                                    ,@unevaluated-args))))
               (pop unevaluated-args)
               (push arg args)))
          (apply-toplevel fn (reverse args) env))))))
