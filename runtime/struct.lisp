@@ -285,7 +285,7 @@
   (parent nil :read-only t)
   (area nil :read-only t)
   (size nil :read-only t)
-  (layout nil :read-only t)
+  (layout nil)
   (class nil)
   (sealed nil :read-only t))
 
