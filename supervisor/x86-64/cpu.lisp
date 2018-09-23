@@ -335,23 +335,26 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:wbinvd)
   (sys.lap-x86:ret))
 
+(defun isr-thunk-address (vector)
+  (+ (sys.int::%object-ref-signed-byte-64
+      #'sys.int::%%interrupt-service-routines
+      sys.int::+function-entry-point+)
+     (svref sys.int::*interrupt-service-routines* vector)))
+
 (defun populate-idt (vector)
   ;; IDT completely fills the second page (256 * 16)
-  (let ((isr-base (sys.int::%object-ref-signed-byte-64
-                   #'sys.int::%%interrupt-service-routines
-                   sys.int::+function-entry-point+)))
-    (dotimes (i 256)
-      (multiple-value-bind (lo hi)
-          (if (svref sys.int::*interrupt-service-routines* i)
-              (make-idt-entry :offset (+ isr-base (svref sys.int::*interrupt-service-routines* i))
-                              ;; Take CPU interrupts on the exception stack
-                              ;; and IRQs on the interrupt stack.
-                              :ist (if (< i 32)
-                                       1
-                                       2))
-              (values 0 0))
-        (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
-              (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi)))))
+  (dotimes (i 256)
+    (multiple-value-bind (lo hi)
+        (if (svref sys.int::*interrupt-service-routines* i)
+            (make-idt-entry :offset (isr-thunk-address i)
+                            ;; Take CPU interrupts on the exception stack
+                            ;; and IRQs on the interrupt stack.
+                            :ist (if (< i 32)
+                                     1
+                                     2))
+            (values 0 0))
+      (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
+            (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
 
 (defun populate-gdt (vector tss-base)
   ;; GDT.
@@ -692,9 +695,7 @@ TLB shootdown must be protected by the VM lock."
 (defun disable-page-fault-ist ()
   (let ((cpu-vec (local-cpu-info)))
     (multiple-value-bind (lo hi)
-        (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
-                                 (svref (sys.int::symbol-global-value 'sys.int::*interrupt-service-routines*) 14)
-                                 sys.int::+function-entry-point+)
+        (make-idt-entry :offset (isr-thunk-address 14)
                         :ist 0)
       (setf (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2))) lo
             (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2) 1)) hi))))
