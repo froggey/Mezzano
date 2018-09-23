@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.cold-generator
   (:use :cl)
+  (:nicknames #:cold-generator) ; For backwards compatibility
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
                     (#:load #:mezzano.cold-generator.load)
                     (#:eval #:mezzano.cold-generator.eval)
