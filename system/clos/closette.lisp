@@ -591,13 +591,6 @@
          (std-slot-value class 'name))
         (t
          (class-name class))))
-(defun (setf safe-class-name) (value class)
-  (cond ((standard-class-instance-p class)
-         (setf (std-slot-value class 'name) value))
-        ((funcallable-standard-class-instance-p class)
-         (setf (std-slot-value class 'name) value))
-        (t
-         (setf (class-name class) value))))
 
 (defun safe-class-precedence-list (class)
   (cond ((standard-class-instance-p class)
@@ -2071,6 +2064,8 @@ has only has class specializer."
 ;;; FIXME: CLASS-DEFAULT-INITARGS, CLASS-PRECEDENCE-LIST, and CLASS-SLOTS
 ;;; must signal an error if the class has not been finalized, but doing
 ;;; this causing issues during finalization.
+;;; I guess making the appropriate slots unbound if the class is not finalized,
+;;; then filling them in during finalization would work.
 
 (defgeneric class-default-initargs (class)
   (:method ((class clos-class))
@@ -2221,6 +2216,18 @@ has only has class specializer."
   (:method ((accessor-method standard-accessor-method))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value accessor-method 'slot-definition)))
+
+;;; Metaobject writer methods
+
+(defgeneric (setf class-name) (new-name class)
+  (:method (new-name (class class))
+    (reinitialize-instance class :name new-name)
+    new-name))
+
+(defgeneric (setf generic-function-name) (new-name generic-function)
+  (:method (new-name (generic-function generic-function))
+    (reinitialize-instance generic-function :name new-name)
+    new-name))
 
 ;;; Method management
 ;;;
