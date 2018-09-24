@@ -332,7 +332,7 @@
     (cond ((lexical-variable-p fn)
            ;; Lexical function.
            (make-instance 'ast-call
-                          :environemnt env
+                          :environment env
                           :name 'funcall
                           :arguments (list* fn args)))
           (t ;; Top-level function.

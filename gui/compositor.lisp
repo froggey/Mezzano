@@ -598,8 +598,6 @@ A passive drag sends no drag events to the window.")
 
 (defun make-window (fifo width height &key layer initial-z-order kind)
   (let ((window (make-instance 'window
-                               :width width
-                               :height height
                                :fifo fifo
                                :thread (mezzano.supervisor:current-thread)
                                :buffer (mezzano.gui:make-surface width height)
