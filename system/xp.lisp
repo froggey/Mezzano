@@ -561,7 +561,7 @@
                    (non-blank-prefix-ptr xp) (section-start-line xp))
         (pop-prefix-stack xp)))))
 
-(defmethod initialize-instance :after ((xp xp-structure) &key &allow-other-keys)
+(defmethod initialize-instance :after ((xp xp-structure) &key)
   (setf (linel xp) (max 0 (cond (*print-right-margin*)
                                 ((output-width (base-stream xp)))
                                 (T *default-right-margin*))))

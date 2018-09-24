@@ -35,7 +35,7 @@
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
 
-(defmethod initialize-instance :after ((instance popup-io-stream) &key (width 640) (height 480) title &allow-other-keys)
+(defmethod initialize-instance :after ((instance popup-io-stream) &key (width 640) (height 480) title)
   ;; Do this early so the initial text-widget damage even won't open the window.
   (setf (window-closed instance) nil
         (slot-value instance '%fifo) (mezzano.supervisor:make-fifo 50)

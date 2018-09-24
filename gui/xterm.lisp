@@ -212,7 +212,7 @@ Calls FN with each output character."
            (ldb (byte 8 0) colour))) ; Blue
         *xterm-default-background-colour*)))
 
-(defmethod initialize-instance :after ((term xterm-terminal) &key width height font &allow-other-keys)
+(defmethod initialize-instance :after ((term xterm-terminal) &key width height font)
   (let* ((fb (terminal-framebuffer term)))
     (setf (slot-value term 'width) (truncate width (cell-pixel-width term))
           (slot-value term 'height) (truncate height (cell-pixel-height term)))

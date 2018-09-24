@@ -10,7 +10,7 @@
    (%inline-declarations :initarg :inline-declarations :accessor ast-inline-declarations))
   (:default-initargs :optimize '() :inline-declarations '()))
 
-(defmethod initialize-instance :after ((instance ast-node) &key inherit environment &allow-other-keys)
+(defmethod initialize-instance :after ((instance ast-node) &key inherit environment)
   (when inherit
     (loop
        for (quality value) on (ast-optimize inherit) by #'cddr

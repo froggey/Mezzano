@@ -39,7 +39,7 @@
   ((%vector :initarg :vector :reader memory-file-stream-vector)
    (%fpos :initform 0)))
 
-(defmethod initialize-instance :after ((stream memory-file-stream) &key vector &allow-other-keys)
+(defmethod initialize-instance :after ((stream memory-file-stream) &key vector)
   (check-type vector (array (unsigned-byte 8))))
 
 (defmethod sys.gray:stream-element-type ((stream memory-file-stream))
@@ -70,7 +70,7 @@
    (%name :initarg :name :reader name)
    (%lock :reader typeface-lock)))
 
-(defmethod initialize-instance :after ((instance typeface) &key &allow-other-keys)
+(defmethod initialize-instance :after ((instance typeface) &key)
   (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
 
 (defclass font ()
@@ -203,7 +203,7 @@
                            (aref cell-cache cell) glyph)))))))
       glyph)))
 
-(defmethod initialize-instance :after ((font font) &key typeface size &allow-other-keys)
+(defmethod initialize-instance :after ((font font) &key typeface size)
   (let ((loader (font-loader typeface)))
     (setf (slot-value font '%font-scale) (/ size (float (zpb-ttf:units/em loader)))
           (slot-value font '%line-height) (round (* (+ (zpb-ttf:ascender loader)

@@ -36,7 +36,7 @@
   ((%lock :initform (mezzano.supervisor:make-mutex "History table lock") :reader lock)
    (%history-data)))
 
-(defmethod initialize-instance :after ((instance history-table) &key &allow-other-keys)
+(defmethod initialize-instance :after ((instance history-table) &key)
   (history-reset instance))
 
 (defmethod history-reset ((history history-table))

@@ -19,7 +19,7 @@
    (%lock :initarg :lock :reader local-host-lock))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
-(defmethod initialize-instance :after ((instance local-file-host) &key &allow-other-keys)
+(defmethod initialize-instance :after ((instance local-file-host) &key)
   (let* ((time (get-universal-time))
          (file (make-instance 'local-file
                               :truename (make-pathname :host instance

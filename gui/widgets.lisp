@@ -186,7 +186,7 @@
               (title-origin frame) (- (truncate win-width 2) (truncate width 2))
               (title-vert frame) (truncate (/ (- top-border (line-height *frame-title-font*)) 2)))))))
 
-(defmethod initialize-instance :after ((frame frame) &key &allow-other-keys)
+(defmethod initialize-instance :after ((frame frame) &key)
   (when (framebuffer frame)
     (set-frame-draw-enables frame)))
 
@@ -409,7 +409,7 @@
   (:default-initargs :foreground-colour mezzano.gui:*default-foreground-colour*
                      :background-colour mezzano.gui:*default-background-colour*))
 
-(defmethod initialize-instance :after ((widget text-widget) &key &allow-other-keys)
+(defmethod initialize-instance :after ((widget text-widget) &key)
   (reset widget))
 
 (defgeneric (setf cursor-visible) (value object))
