@@ -1899,18 +1899,57 @@ has only has class specializer."
       (let ((next-emfun (compute-primary-emfun (cdr methods))))
         (method-fast-function (car methods) next-emfun))))
 
+(defun applicable-methods-keywords (gf methods)
+  (let* ((gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
+         (any-has-keys (member '&key (safe-generic-function-lambda-list gf)))
+         (keys (getf gf-lambda-list-info :keywords)))
+    (when (getf gf-lambda-list-info :allow-other-keys)
+      (return-from applicable-methods-keywords (values nil t)))
+    (dolist (method methods)
+      (when (member '&key (safe-method-lambda-list method))
+        (multiple-value-bind (method-keys method-aok)
+            (function-keywords method)
+          (when method-aok
+            (return-from applicable-methods-keywords (values nil t)))
+          (setf keys (union keys method-keys))
+          (setf any-has-keys t))))
+    (values keys (not any-has-keys))))
+
+(defun check-method-keyword-arguments (generic-function keyword-args valid-keywords)
+  (when (getf keyword-args :allow-other-keys)
+    (return-from check-method-keyword-arguments))
+  (loop
+     for key in keyword-args by #'cddr
+     when (and (not (eql key :allow-other-keys))
+               (not (member key valid-keywords)))
+     do (error 'sys.int::simple-program-error
+               :format-control "Unknown &KEY argument ~S when calling ~S. Expected one of ~:S."
+               :format-arguments (list key generic-function valid-keywords))))
+
 (defun std-compute-effective-method-function-with-standard-method-combination (gf methods)
+  (multiple-value-bind (keywords suppress-keyword-checking)
+      (applicable-methods-keywords gf methods)
+    (let ((inner-fn (std-compute-effective-method-function-with-standard-method-combination-1 gf methods)))
+      (cond (suppress-keyword-checking
+             inner-fn)
+            (t
+             (let* ((gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
+                    (key-arg-index (+ (length (getf gf-lambda-list-info :required-names))
+                                      (length (getf gf-lambda-list-info :optional-args)))))
+               (lambda (&rest args)
+                 (declare (dynamic-extent args))
+                 (check-method-keyword-arguments gf (nthcdr key-arg-index args) keywords)
+                 (apply inner-fn args))))))))
+
+(defun std-compute-effective-method-function-with-standard-method-combination-1 (gf methods)
   (let ((primaries (remove-if-not #'primary-method-p methods))
         (around (find-if #'around-method-p methods)))
     (when (null primaries)
       (error "No applicable primary methods for the generic function ~S." gf))
     (if around
         (let ((next-emfun
-                (funcall
-                   (if (eq (class-of gf) *the-class-standard-gf*)
-                       #'std-compute-effective-method-function
-                       #'compute-effective-method-function)
-                   gf (remove around methods))))
+                (std-compute-effective-method-function-with-standard-method-combination-1
+                 gf (remove around methods))))
           (method-fast-function around next-emfun))
         (let ((primary (compute-primary-emfun primaries))
               (befores (mapcar (lambda (m) (method-fast-function m nil))
@@ -1942,30 +1981,38 @@ has only has class specializer."
                 (t
                  primary))))))
 
-(defun generate-method-combination-effective-method (name effective-method-body)
-  (let ((method-args (gensym "ARGS"))
-        (next-emfun (gensym "NEXT-EMFUN")))
-    `(lambda (&rest ,method-args)
-       (declare (sys.int::lambda-name (effective-method ,@name)))
-       (macrolet ((call-method (method &optional next-method-list)
-                    (when (listp method)
-                      (assert (eql (first method) 'make-method)))
-                    (cond ((listp method)
-                           (assert (eql (first method) 'make-method))
-                           (assert (eql (length method) 2))
-                           (second method))
-                          (t
-                           `(apply (funcall ',(safe-method-function method)
-                                            ',method
-                                            ,(if next-method-list
-                                                 `(lambda (&rest ,',method-args)
-                                                    (call-method ,(first next-method-list)
-                                                                 ,(rest next-method-list)))
-                                                 nil))
-                                   ,',method-args))))
-                  (make-method (form)
-                    (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
-         ,effective-method-body))))
+(defun generate-method-combination-effective-method (name effective-method-body gf methods)
+  (multiple-value-bind (keywords suppress-keyword-checking)
+      (applicable-methods-keywords gf methods)
+    (let* ((method-args (gensym "ARGS"))
+           (next-emfun (gensym "NEXT-EMFUN"))
+           (gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
+           (key-arg-index (+ (length (getf gf-lambda-list-info :required-names))
+                             (length (getf gf-lambda-list-info :optional-args)))))
+      ;; TODO: make the lambda-list here refect the actual lambda list more accurately.
+      `(lambda (&rest ,method-args)
+         (declare (sys.int::lambda-name (effective-method ,@name)))
+         ,@(when (not suppress-keyword-checking)
+             `(check-method-keyword-arguments ',gf (nthcdr ',key-arg-index ,method-args) ',keywords))
+         (macrolet ((call-method (method &optional next-method-list)
+                      (when (listp method)
+                        (assert (eql (first method) 'make-method)))
+                      (cond ((listp method)
+                             (assert (eql (first method) 'make-method))
+                             (assert (eql (length method) 2))
+                             (second method))
+                            (t
+                             `(apply (funcall ',(safe-method-function method)
+                                              ',method
+                                              ,(if next-method-list
+                                                   `(lambda (&rest ,',method-args)
+                                                      (call-method ,(first next-method-list)
+                                                                   ,(rest next-method-list)))
+                                                   nil))
+                                     ,',method-args))))
+                    (make-method (form)
+                      (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
+           ,effective-method-body)))))
 
 (defun generate-method-combination-effective-method-name (gf mc-object methods)
   (list* (safe-generic-function-name gf)
@@ -2035,7 +2082,7 @@ has only has class specializer."
                   (mc-args (method-combination-object-arguments mc))
                   (effective-method-body (compute-effective-method gf mc methods))
                   (name (generate-method-combination-effective-method-name gf mc-object methods)))
-             (eval (generate-method-combination-effective-method name effective-method-body))))
+             (eval (generate-method-combination-effective-method name effective-method-body gf methods))))
           (t
            (std-compute-effective-method-function-with-standard-method-combination
             gf methods)))))
