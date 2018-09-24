@@ -107,17 +107,17 @@
 (defun standard-instance-access (instance location)
   (if (consp location)
       (cdr location)
-      (sys.int::%object-ref-t instance location)))
+      (mezzano.runtime::instance-access instance location)))
 
 (defun (setf standard-instance-access) (new-value instance location)
   (if (consp location)
       (setf (cdr location) new-value)
-      (setf (sys.int::%object-ref-t instance location) new-value)))
+      (setf (mezzano.runtime::instance-access instance location) new-value)))
 
 (defun (sys.int::cas standard-instance-access) (old new instance location)
   (if (consp location)
       (sys.int::cas (cdr location) old new)
-      (sys.int::cas (sys.int::%object-ref-t instance location) old new)))
+      (sys.int::cas (mezzano.runtime::instance-access instance location) old new)))
 
 ;; Instance and funcallable instances are accessed in the same way,
 ;; these are provided for compatibility with other MOP implementations.
@@ -890,7 +890,8 @@ Other arguments are included directly."
                                 ;; Using the effective slot locations
                                 ;; accounts for the FC instance offset.
                                 for slot in instance-slots
-                                for location = (safe-slot-definition-location slot)
+                                for location = (mezzano.runtime::location-offset-t
+                                                (safe-slot-definition-location slot))
                                 maximize (1+ location))
                   :heap-layout t
                   :area nil
@@ -985,13 +986,16 @@ Other arguments are included directly."
 (defun std-compute-slot-layouts (class effective-slots)
   (loop
      with next-instance-slot-index = (if (subclassp (class-of class) *the-class-funcallable-standard-class*)
-                                         2
+                                         16
                                          0)
      for slot in effective-slots
      do (case (safe-slot-definition-allocation slot)
           (:instance
-           (setf (safe-slot-definition-location slot) next-instance-slot-index)
-           (incf next-instance-slot-index))
+           (setf (safe-slot-definition-location slot)
+                 (mezzano.runtime::make-location
+                  mezzano.runtime::+location-type-t+
+                  next-instance-slot-index))
+           (incf next-instance-slot-index 8))
           (:class
            ;; Walk up the precedence list looking for the nearest class that defines this slot.
            (dolist (super (safe-class-precedence-list class)

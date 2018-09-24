@@ -65,8 +65,7 @@
            #:structure-slot-definition-initform
            #:structure-slot-definition-type
            #:structure-slot-definition-read-only
-           #:structure-slot-definition-ref-fn
-           #:structure-slot-definition-index
+           #:structure-slot-definition-location
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align
            #:make-instance-header
@@ -212,10 +211,8 @@
                  (structure-slot-definition-type new-slot)))
   (assert (eql (structure-slot-definition-read-only existing-slot)
                (structure-slot-definition-read-only new-slot)))
-  (assert (eql (structure-slot-definition-ref-fn existing-slot)
-               (structure-slot-definition-ref-fn new-slot)))
-  (assert (eql (structure-slot-definition-index existing-slot)
-               (structure-slot-definition-index new-slot)))
+  (assert (eql (structure-slot-definition-location existing-slot)
+               (structure-slot-definition-location new-slot)))
   (assert (eql (structure-slot-definition-fixed-vector existing-slot)
                (structure-slot-definition-fixed-vector new-slot)))
   (assert (eql (structure-slot-definition-align existing-slot)
@@ -262,12 +259,11 @@
    (%initform :initarg :initform :reader structure-slot-definition-initform)
    (%type :initarg :type :reader structure-slot-definition-type)
    (%read-only :initarg :read-only :reader structure-slot-definition-read-only)
-   (%ref-fn :initarg :ref-fn :reader structure-slot-definition-ref-fn)
-   (%index :initarg :index :reader structure-slot-definition-index)
+   (%location :initarg :location :reader structure-slot-definition-location)
    (%fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
    (%align :initarg :align :reader structure-slot-definition-align)))
 
-(defun make-structure-slot-definition (environment name accessor initform type read-only ref-fn index fixed-vector align)
+(defun make-structure-slot-definition (environment name accessor initform type read-only location fixed-vector align)
   (declare (ignore environment))
   (make-instance 'structure-slot-definition
                  :name name
@@ -275,8 +271,7 @@
                  :initform initform
                  :type type
                  :read-only read-only
-                 :ref-fn ref-fn
-                 :index index
+                 :location location
                  :fixed-vector fixed-vector
                  :align align))
 
@@ -288,8 +283,7 @@
                   :initform (structure-slot-definition-initform object)
                   :type (structure-slot-definition-type object)
                   :read-only (structure-slot-definition-read-only object)
-                  :ref-fn (structure-slot-definition-ref-fn object)
-                  :index (structure-slot-definition-index object)
+                  :location (structure-slot-definition-location object)
                   :fixed-vector (structure-slot-definition-fixed-vector object)
                   :align (structure-slot-definition-align object)))))
 

@@ -800,16 +800,36 @@ First return value is a list of elements, second is the final dotted component (
   ;; This call can be inlined it has not been locally declared notline.
   (not (eql (second (assoc (ast-name form) (ast-inline-declarations form) :test #'equal)) 'notinline)))
 
+(defun struct-slot-accessor-name (slot-def fn-namespace)
+  (if fn-namespace
+      (list fn-namespace (mezzano.runtime::location-type-accessor
+                          (mezzano.runtime::location-type
+                           (sys.int::structure-slot-definition-location slot-def))))
+      (mezzano.runtime::location-type-accessor
+       (mezzano.runtime::location-type
+        (sys.int::structure-slot-definition-location slot-def)))))
+
+(defun struct-slot-accessor-index (slot-def)
+  (if (eql (mezzano.runtime::location-type
+            (sys.int::structure-slot-definition-location slot-def))
+           mezzano.runtime::+location-type-t+)
+      (mezzano.runtime::location-offset-t (sys.int::structure-slot-definition-location slot-def))
+      (mezzano.runtime::location-offset (sys.int::structure-slot-definition-location slot-def))))
+
+(defun struct-slot-access-form (slot-def object fn-namespace &rest additional-args)
+  `(the ,(sys.int::structure-slot-definition-type slot-def)
+        (call ,(struct-slot-accessor-name slot-def fn-namespace)
+              ,@additional-args
+              ,object
+              ',(struct-slot-accessor-index slot-def))))
+
 (defun simplify-struct-slot (form)
   (change-made)
   (let ((slot-def (find (ast-value (third (arguments form)))
                         (sys.int::structure-definition-slots (ast-value (second (arguments form))))
                         :key #'sys.int::structure-slot-definition-name)))
     (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-           (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                      (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
-                            ,(first (arguments form))
-                            ',(sys.int::structure-slot-definition-index slot-def)))
+           (ast (struct-slot-access-form slot-def (first (arguments form)) nil)
                 form))
           (t
            (ast `(let ((obj ,(first (arguments form))))
@@ -821,10 +841,7 @@ First return value is a list of elements, second is the final dotted component (
                                't
                                (call sys.int::structure-type-p obj ',(ast-value (second (arguments form)))))
                            'nil)
-                       (the ,(sys.int::structure-slot-definition-type slot-def)
-                            (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
-                                  obj
-                                  ',(sys.int::structure-slot-definition-index slot-def)))
+                       ,(struct-slot-access-form slot-def 'obj nil)
                        (notinline-call sys.int::%struct-slot
                                        obj
                                        ',(ast-value (second (arguments form)))
@@ -837,11 +854,7 @@ First return value is a list of elements, second is the final dotted component (
                         (sys.int::structure-definition-slots (ast-value (third (arguments form))))
                         :key #'sys.int::structure-slot-definition-name)))
     (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-           (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                      (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
-                            ,(first (arguments form))
-                            ,(second (arguments form))
-                            ',(sys.int::structure-slot-definition-index slot-def)))
+           (ast (struct-slot-access-form slot-def (second (arguments form)) 'setf (first (arguments form)))
                 form))
           (t
            (ast `(let ((val ,(first (arguments form)))
@@ -860,11 +873,7 @@ First return value is a list of elements, second is the final dotted component (
                              (progn
                                (call sys.int::raise-type-error val ',(sys.int::structure-slot-definition-type slot-def))
                                (call sys.int::%%unreachable)))
-                         (the ,(sys.int::structure-slot-definition-type slot-def)
-                              (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
-                                    val
-                                    obj
-                                    ',(sys.int::structure-slot-definition-index slot-def))))
+                         ,(struct-slot-access-form slot-def 'obj 'setf 'val))
                        (notinline-call (setf sys.int::%struct-slot)
                                        val
                                        obj
@@ -878,17 +887,10 @@ First return value is a list of elements, second is the final dotted component (
                         (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
                         :key #'sys.int::structure-slot-definition-name)))
     (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-           (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                      (let ((old ,(first (arguments form)))
-                            (new ,(second (arguments form)))
-                            (obj ,(third (arguments form))))
-                        (multiple-value-bind (successp actual-value)
-                            (call sys.int::%cas-object
-                                  obj
-                                  ',(sys.int::structure-slot-definition-index slot-def)
-                                  old
-                                  new)
-                          actual-value)))
+           (ast `(let ((old ,(first (arguments form)))
+                       (new ,(second (arguments form)))
+                       (obj ,(third (arguments form))))
+                   ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new))
                 form))
           (t
            (ast `(let ((old ,(first (arguments form)))
@@ -913,14 +915,7 @@ First return value is a list of elements, second is the final dotted component (
                              (progn
                                (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type slot-def))
                                (call sys.int::%%unreachable)))
-                         (the ,(sys.int::structure-slot-definition-type slot-def)
-                              (multiple-value-bind (successp actual-value)
-                                  (call sys.int::%cas-object
-                                        obj
-                                        ',(sys.int::structure-slot-definition-index slot-def)
-                                        old
-                                        new)
-                                actual-value)))
+                         ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new))
                        (notinline-call (sys.int::cas sys.int::%struct-slot)
                                        old
                                        new
@@ -928,20 +923,6 @@ First return value is a list of elements, second is the final dotted component (
                                        ',(ast-value (fourth (arguments form)))
                                        ',(ast-value (fifth (arguments form))))))
                 form)))))
-
-(defun accessor-element-scale (accessor)
-  (ecase accessor
-    (sys.int::%object-ref-t 1)
-    (sys.int::%object-ref-unsigned-byte-8-unscaled  1)
-    (sys.int::%object-ref-unsigned-byte-16-unscaled 2)
-    (sys.int::%object-ref-unsigned-byte-32-unscaled 4)
-    (sys.int::%object-ref-unsigned-byte-64-unscaled 8)
-    (sys.int::%object-ref-signed-byte-8-unscaled    1)
-    (sys.int::%object-ref-signed-byte-16-unscaled   2)
-    (sys.int::%object-ref-signed-byte-32-unscaled   4)
-    (sys.int::%object-ref-signed-byte-64-unscaled   8)
-    (sys.int::%object-ref-single-float-unscaled     4)
-    (sys.int::%object-ref-double-float-unscaled     8)))
 
 (defun simplify-struct-vector-slot-check-bounds (index slot-def)
   `(tagbody foo
@@ -957,18 +938,31 @@ First return value is a list of elements, second is the final dotted component (
 
 (defun struct-vector-slot-index-fast (slot-def index)
   `(call sys.int::binary-+
-         (the fixnum ',(sys.int::structure-slot-definition-index slot-def))
+         (the fixnum ',(struct-slot-accessor-index slot-def))
          (the fixnum
               (call sys.int::binary-*
                     (the fixnum ,index)
-                    ',(accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot-def))))))
+                    ',(mezzano.runtime::location-type-scale
+                       (mezzano.runtime::location-type
+                        (sys.int::structure-slot-definition-location slot-def)))))))
 
 (defun struct-vector-slot-index (slot-def index)
   `(call sys.int::binary-+
-         ',(sys.int::structure-slot-definition-index slot-def)
+         ',(struct-slot-accessor-index slot-def)
          (call sys.int::binary-*
                ,index
-               ',(accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot-def)))))
+               ',(mezzano.runtime::location-type-scale
+                  (mezzano.runtime::location-type
+                   (sys.int::structure-slot-definition-location slot-def))))))
+
+(defun struct-vector-slot-access-form (slot-def object fn-namespace index fastp &rest additional-args)
+  `(the ,(sys.int::structure-slot-definition-type slot-def)
+        (call ,(struct-slot-accessor-name slot-def fn-namespace)
+              ,@additional-args
+              ,object
+              ,(if fastp
+                   (struct-vector-slot-index-fast slot-def index)
+                   (struct-vector-slot-index slot-def index)))))
 
 (defun simplify-struct-vector-slot (form)
   (change-made)
@@ -978,10 +972,7 @@ First return value is a list of elements, second is the final dotted component (
                           (sys.int::structure-definition-slots (ast-value struct-def))
                           :key #'sys.int::structure-slot-definition-name)))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-             (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                        (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
-                              ,object
-                              ,(struct-vector-slot-index-fast slot-def index)))
+             (ast (struct-vector-slot-access-form slot-def object nil index t)
                   form))
             (t
              (ast `(let ((obj ,object)
@@ -996,10 +987,7 @@ First return value is a list of elements, second is the final dotted component (
                                    't
                                    (call sys.int::structure-type-p obj ',(ast-value struct-def)))
                                'nil)
-                           (the ,(sys.int::structure-slot-definition-type slot-def)
-                                (call ,(sys.int::structure-slot-definition-ref-fn slot-def)
-                                      obj
-                                      ,(struct-vector-slot-index slot-def 'ind)))
+                           ,(struct-vector-slot-access-form slot-def 'obj nil 'ind nil)
                            (notinline-call sys.int::%struct-vector-slot
                                            obj
                                            ',(ast-value struct-def)
@@ -1015,11 +1003,7 @@ First return value is a list of elements, second is the final dotted component (
                           (sys.int::structure-definition-slots (ast-value struct-def))
                           :key #'sys.int::structure-slot-definition-name)))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-             (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                        (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
-                              ,value
-                              ,object
-                              ,(struct-vector-slot-index-fast slot-def index)))
+             (ast (struct-vector-slot-access-form slot-def object 'setf index t value)
                   form))
             (t
              (ast `(let ((val ,value)
@@ -1041,11 +1025,7 @@ First return value is a list of elements, second is the final dotted component (
                                  (progn
                                    (call sys.int::raise-type-error val ',(sys.int::structure-slot-definition-type slot-def))
                                    (call sys.int::%%unreachable)))
-                             (the ,(sys.int::structure-slot-definition-type slot-def)
-                                  (call (setf ,(sys.int::structure-slot-definition-ref-fn slot-def))
-                                        val
-                                        obj
-                                        ,(struct-vector-slot-index slot-def 'ind))))
+                             ,(struct-vector-slot-access-form slot-def 'obj 'setf 'ind nil 'val))
                            (notinline-call (setf sys.int::%struct-vector-slot)
                                            val
                                            obj
@@ -1062,18 +1042,11 @@ First return value is a list of elements, second is the final dotted component (
                           (sys.int::structure-definition-slots (ast-value struct-def))
                           :key #'sys.int::structure-slot-definition-name)))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
-             (ast `(the ,(sys.int::structure-slot-definition-type slot-def)
-                        (let ((old ,old)
-                              (new ,new)
-                              (obj ,object)
-                              (ind ,index))
-                          (multiple-value-bind (successp actual-value)
-                              (call sys.int::%cas-object
-                                    obj
-                                    ,(struct-vector-slot-index-fast slot-def 'ind)
-                                    old
-                                    new)
-                          actual-value)))
+             (ast `(let ((old ,old)
+                         (new ,new)
+                         (obj ,object)
+                         (ind ,index))
+                     ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind t 'old 'new))
                 form))
           (t
            (ast `(let ((old ,old)
@@ -1101,14 +1074,7 @@ First return value is a list of elements, second is the final dotted component (
                                (progn
                                  (call sys.int::raise-type-error new ',(sys.int::structure-slot-definition-type slot-def))
                                  (call sys.int::%%unreachable)))
-                           (the ,(sys.int::structure-slot-definition-type slot-def)
-                                (multiple-value-bind (successp actual-value)
-                                    (call sys.int::%cas-object
-                                          obj
-                                          ,(struct-vector-slot-index slot-def 'ind)
-                                          old
-                                          new)
-                                  actual-value)))
+                           ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind nil 'old 'new))
                          (notinline-call (sys.int::cas sys.int::%struct-vector-slot)
                                          old
                                          new
@@ -1238,11 +1204,7 @@ First return value is a list of elements, second is the final dotted component (
               (typep (fifth (arguments form)) 'ast-quote)
               (find (ast-value (fifth (arguments form)))
                     (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
-                    :key #'sys.int::structure-slot-definition-name)
-              (eql (sys.int::structure-slot-definition-ref-fn (find (ast-value (fifth (arguments form)))
-                                                                    (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
-                                                                    :key #'sys.int::structure-slot-definition-name))
-                   'sys.int::%object-ref-t))
+                    :key #'sys.int::structure-slot-definition-name))
          (simplify-cas-struct-slot form))
         ;; (%struct-vector-slot s 'def 'slot index) => fast-reader
         ((and (eql (name form) 'sys.int::%struct-vector-slot)
@@ -1275,11 +1237,7 @@ First return value is a list of elements, second is the final dotted component (
               (typep (fifth (arguments form)) 'ast-quote)
               (find (ast-value (fifth (arguments form)))
                     (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
-                    :key #'sys.int::structure-slot-definition-name)
-              (eql (sys.int::structure-slot-definition-ref-fn (find (ast-value (fifth (arguments form)))
-                                                                    (sys.int::structure-definition-slots (ast-value (fourth (arguments form))))
-                                                                    :key #'sys.int::structure-slot-definition-name))
-                   'sys.int::%object-ref-t))
+                    :key #'sys.int::structure-slot-definition-name))
          (simplify-cas-struct-vector-slot form))
         (t
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.

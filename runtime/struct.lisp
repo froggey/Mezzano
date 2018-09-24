@@ -10,17 +10,6 @@
 
 (sys.int::defglobal *structure-types*)
 
-(declaim (inline sys.int::instance-p sys.int::funcallable-instance-p))
-
-(defun sys.int::%instance-layout (object)
-  (sys.int::%instance-layout object))
-
-(defun sys.int::instance-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-instance+))
-
-(defun sys.int::funcallable-instance-p (object)
-  (sys.int::%object-of-type-p object sys.int::+object-tag-funcallable-instance+))
-
 (declaim (inline sys.int::structure-object-p))
 
 (defun sys.int::structure-object-p (object)
@@ -49,10 +38,9 @@
   (when (not (sys.int::structure-type-p object definition))
     (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
-    (funcall (sys.int::structure-slot-definition-ref-fn slot)
-             object
-             (sys.int::structure-slot-definition-index slot))))
+  (instance-access object
+                   (sys.int::structure-slot-definition-location
+                    (find-struct-slot definition slot-name))))
 
 (defun (setf sys.int::%struct-slot) (value object definition slot-name)
   (when (not (sys.int::structure-type-p object definition))
@@ -61,13 +49,9 @@
   (let ((slot (find-struct-slot definition slot-name)))
     (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
       (assert (typep value (sys.int::structure-slot-definition-type slot))))
-    (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
-               (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
-               (t
-                (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
-             value
-             object
-             (sys.int::structure-slot-definition-index slot))))
+    (setf (instance-access object
+                           (sys.int::structure-slot-definition-location slot))
+          value)))
 
 (defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot-name)
   (when (not (sys.int::structure-type-p object definition))
@@ -78,32 +62,13 @@
       (assert (typep old (sys.int::structure-slot-definition-type slot))))
     (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
       (assert (typep new (sys.int::structure-slot-definition-type slot))))
-    (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
-      (error "Can't cas unboxed slots"))
-    (multiple-value-bind (successp actual-value)
-        (sys.int::%cas-object object
-                              (sys.int::structure-slot-definition-index slot)
-                              old new)
-      (declare (ignore successp))
-      actual-value)))
+    (sys.int::cas (instance-access object
+                                   (sys.int::structure-slot-definition-location slot))
+                  old new)))
 
 (defun check-vector-slot-bounds (slot index)
   (check-type index fixnum)
   (assert (<= 0 index (1- (sys.int::structure-slot-definition-fixed-vector slot)))))
-
-(defun accessor-element-scale (accessor)
-  (ecase accessor
-    (sys.int::%object-ref-t 1)
-    (sys.int::%object-ref-unsigned-byte-8-unscaled  1)
-    (sys.int::%object-ref-unsigned-byte-16-unscaled 2)
-    (sys.int::%object-ref-unsigned-byte-32-unscaled 4)
-    (sys.int::%object-ref-unsigned-byte-64-unscaled 8)
-    (sys.int::%object-ref-signed-byte-8-unscaled    1)
-    (sys.int::%object-ref-signed-byte-16-unscaled   2)
-    (sys.int::%object-ref-signed-byte-32-unscaled   4)
-    (sys.int::%object-ref-signed-byte-64-unscaled   8)
-    (sys.int::%object-ref-single-float-unscaled     4)
-    (sys.int::%object-ref-double-float-unscaled     8)))
 
 (defun sys.int::%struct-vector-slot (object definition slot-name index)
   (when (not (sys.int::structure-type-p object definition))
@@ -111,11 +76,9 @@
     (sys.int::%%unreachable))
   (let ((slot (find-struct-slot definition slot-name)))
     (check-vector-slot-bounds slot index)
-    (funcall (sys.int::structure-slot-definition-ref-fn slot)
-             object
-             (+ (sys.int::structure-slot-definition-index slot)
-                (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
-                   index)))))
+    (instance-access object
+                     (sys.int::structure-slot-definition-location slot)
+                     index)))
 
 (defun (setf sys.int::%struct-vector-slot) (value object definition slot-name index)
   (when (not (sys.int::structure-type-p object definition))
@@ -125,15 +88,10 @@
     (check-vector-slot-bounds slot index)
     (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
       (assert (typep value (sys.int::structure-slot-definition-type slot))))
-    (funcall (case (sys.int::structure-slot-definition-ref-fn slot)
-               (sys.int::%object-ref-t #'(setf sys.int::%object-ref-t))
-               (t
-                (fdefinition `(setf ,(sys.int::structure-slot-definition-ref-fn slot)))))
-             value
-             object
-             (+ (sys.int::structure-slot-definition-index slot)
-                (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
-                   index)))))
+    (setf (instance-access object
+                           (sys.int::structure-slot-definition-location slot)
+                           index)
+          value)))
 
 (defun (sys.int::cas sys.int::%struct-vector-slot) (old new object definition slot-name index)
   (when (not (sys.int::structure-type-p object definition))
@@ -145,19 +103,10 @@
       (assert (typep old (sys.int::structure-slot-definition-type slot))))
     (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
       (assert (typep new (sys.int::structure-slot-definition-type slot))))
-    (when (not (eql (sys.int::structure-slot-definition-ref-fn slot) 'sys.int::%object-ref-t))
-      (error "Can't cas unboxed slots"))
-    (multiple-value-bind (successp actual-value)
-        (sys.int::%cas-object object
-                              (+ (sys.int::structure-slot-definition-index slot)
-                                 (* (accessor-element-scale (sys.int::structure-slot-definition-ref-fn slot))
-                                    index))
-                              old new)
-      (declare (ignore successp))
-      actual-value)))
-
-(defun sys.int::%fast-instance-layout-eq-p (object instance-header)
-  (sys.int::%fast-instance-layout-eq-p object instance-header))
+    (sys.int::cas (instance-access object
+                                   (sys.int::structure-slot-definition-location slot)
+                                   index)
+                  old new)))
 
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
@@ -219,60 +168,6 @@
     (setf (sys.int::structure-definition-layout def) layout-object)
     def))
 
-(defun %make-instance-header (layout)
-  (check-type layout sys.int::layout)
-  (with-live-objects (layout)
-    (sys.int::%%assemble-value
-     (logior (ash (sys.int::lisp-object-address layout)
-                  sys.int::+object-data-shift+)
-             (ash sys.int::+object-tag-instance+
-                  sys.int::+object-type-shift+))
-     sys.int::+tag-instance-header+)))
-
-(defun %unpack-instance-header (instance-header)
-  (sys.int::%%assemble-value
-   (ash (sys.int::lisp-object-address instance-header)
-        (- sys.int::+object-data-shift+))
-   0))
-
-(defstruct (obsolete-instance-layout
-             ;; Pinned, as the GC needs to read it.
-             ;; Don't make it wired to avoid thrashing the wired area.
-             (:area :pinned))
-  new-instance
-  old-layout)
-
-(defun supersede-instance (old-instance replacement)
-  (let ((layout (sys.int::%instance-layout old-instance)))
-    (cond ((sys.int::layout-p layout)
-           ;; This really is a layout, not a superseded instance
-           (let ((new-layout (make-obsolete-instance-layout
-                              :old-layout layout
-                              :new-instance replacement)))
-             (with-live-objects (new-layout)
-               ;; ###: Should this be a CAS?
-               ;; FIXME: This needs to keep the GC bits intact.
-               ;; Not a problem for objects on the dynamic heap, but will
-               ;; be an issue when dealing wired/pinned objects.
-               (setf (sys.int::%object-ref-unsigned-byte-64 old-instance -1)
-                     ;; Construct a new obsolete-instance header containing
-                     ;; our new obsolete layout.
-                     (logior (ash (sys.int::lisp-object-address new-layout)
-                                  sys.int::+object-data-shift+)
-                             (if (sys.int::funcallable-instance-p old-instance)
-                                 (ash sys.int::+object-tag-funcallable-instance+
-                                      sys.int::+object-type-shift+)
-                                 (ash sys.int::+object-tag-instance+
-                                      sys.int::+object-type-shift+)))))))
-          (t
-           ;; This instance has already been superseded, replace it in-place.
-           ;; FIXME: Can race with the GC. It can snap the old instance away
-           ;; from underneath us, losing the replacement.
-           ;; Check if the old instance's layout matches after this?
-           (setf (obsolete-instance-layout-new-instance layout)
-                 replacement))))
-  (values))
-
 (in-package :sys.int)
 
 (defstruct (structure-definition
@@ -292,24 +187,13 @@
 (defstruct (structure-slot-definition
              (:area :wired)
              (:constructor make-struct-slot-definition
-                           (name accessor initform type read-only ref-fn index fixed-vector align))
+                           (name accessor initform type read-only location fixed-vector align))
              :sealed)
   (name nil :read-only t)
   (accessor nil :read-only t)
   (initform nil :read-only t)
   (type t :read-only t)
   (read-only nil :read-only t)
-  (ref-fn nil :read-only t)
-  (index nil :read-only t)
+  (location nil :read-only t)
   (fixed-vector nil :read-only t)
   (align nil :read-only t))
-
-(defstruct (layout
-             (:area :wired)
-             :sealed)
-  (class nil :read-only t)
-  (obsolete nil)
-  (heap-size nil)
-  (heap-layout nl)
-  (area nil)
-  (instance-slots nil))

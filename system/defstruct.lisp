@@ -199,28 +199,28 @@
 
 (defun compute-struct-slot-accessor-and-size (type)
   (cond ((subtypep type '(unsigned-byte 8))
-         (values '%object-ref-unsigned-byte-8-unscaled 1))
+         (values mezzano.runtime::+location-type-unsigned-byte-8+ 1))
         ((subtypep type '(unsigned-byte 16))
-         (values '%object-ref-unsigned-byte-16-unscaled 2))
+         (values mezzano.runtime::+location-type-unsigned-byte-16+ 2))
         ((subtypep type '(unsigned-byte 32))
-         (values '%object-ref-unsigned-byte-32-unscaled 4))
+         (values mezzano.runtime::+location-type-unsigned-byte-32+ 4))
         ((subtypep type '(unsigned-byte 64))
-         (values '%object-ref-unsigned-byte-64-unscaled 8))
+         (values mezzano.runtime::+location-type-unsigned-byte-64+ 8))
         ((subtypep type '(signed-byte 8))
-         (values '%object-ref-signed-byte-8-unscaled 1))
+         (values mezzano.runtime::+location-type-signed-byte-8+ 1))
         ((subtypep type '(signed-byte 16))
-         (values '%object-ref-signed-byte-16-unscaled 2))
+         (values mezzano.runtime::+location-type-signed-byte-16+ 2))
         ((subtypep type '(signed-byte 32))
-         (values '%object-ref-signed-byte-32-unscaled 4))
+         (values mezzano.runtime::+location-type-signed-byte-32+ 4))
         ((and (subtypep type '(signed-byte 64))
               (not (subtypep type 'fixnum)))
-         (values '%object-ref-signed-byte-64-unscaled 8))
+         (values mezzano.runtime::+location-type-signed-byte-64+ 8))
         ((subtypep type 'single-float)
-         (values '%object-ref-single-float-unscaled 4))
+         (values mezzano.runtime::+location-type-single-float+ 4))
         ((subtypep type 'double-float)
-         (values '%object-ref-double-float-unscaled 8))
+         (values mezzano.runtime::+location-type-single-float+ 8))
         (t
-         (values nil 8))))
+         (values mezzano.runtime::+location-type-t+ 8))))
 
 ;; Parses slot-description and returns a struct slot definition
 (defun parse-defstruct-slot (conc-name slot current-index)
@@ -231,11 +231,12 @@
     (let ((accessor (concat-symbols conc-name name)))
       (check-type fixed-vector (or null (integer 0)))
       (check-type align (member nil 1 2 4 8 16))
-      (multiple-value-bind (ref-fn element-size)
+      (multiple-value-bind (location-type element-size)
           (compute-struct-slot-accessor-and-size type)
         ;; Align current index.
         (let ((effective-alignment (or align element-size)))
-          (when (and (not ref-fn) (< effective-alignment element-size))
+          (when (and (eql location-type mezzano.runtime::+location-type-t+)
+                     (< effective-alignment element-size))
             ;; Boxed slots must be at least naturally aligned.
             (setf effective-alignment element-size))
           (decf current-index 8) ; Object indices are +8 from the true start of the object, compute 16 byte alignments properly
@@ -243,15 +244,11 @@
           (setf current-index (- current-index (mod current-index effective-alignment)))
           (incf current-index 8)
           (values (make-struct-slot-definition name accessor initform type read-only
-                                               (or ref-fn '%object-ref-t)
-                                               (if ref-fn
-                                                   current-index
-                                                   ;; %object-ref-t takes a scaled index.
-                                                   (truncate current-index 8))
+                                               (mezzano.runtime::make-location location-type current-index)
                                                fixed-vector align)
                   current-index
-                  (+ current-index (max 1 (* element-size (or fixed-vector 1))))
-                  (not ref-fn)))))))
+                  (+ current-index (* element-size (max (or fixed-vector 1) 1)))
+                  (eql location-type mezzano.runtime::+location-type-t+)))))))
 
 (defun generate-simple-defstruct-constructor (struct-type name area)
   (generate-defstruct-constructor struct-type
@@ -465,9 +462,7 @@
                             (generate-normal-defstruct-slot-accessor struct-type s))
                 when slot-offsets
                 collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
-                           ',(if (eql (structure-slot-definition-ref-fn s) '%object-ref-t)
-                                 (structure-slot-definition-index s)
-                                 (truncate (structure-slot-definition-index s) 8))))
+                           ',(mezzano.runtime::location-offset-t (structure-slot-definition-location s))))
            ,@(loop
                 for x in constructors
                 collect (if (symbolp x)

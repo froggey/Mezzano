@@ -76,6 +76,7 @@
     "runtime/struct.lisp"
     "runtime/symbol.lisp"
     "runtime/function.lisp"
+    "runtime/instance.lisp"
     "supervisor/fdt.lisp"))
 
 (defparameter *source-files*
@@ -538,6 +539,7 @@
     "system/backquote.lisp"
     "system/setf.lisp"
     "system/cas.lisp"
+    "runtime/instance.lisp"
     "system/defstruct.lisp"
     "system/condition.lisp"
     "system/type.lisp"

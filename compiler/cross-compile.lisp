@@ -68,20 +68,18 @@
    (initform :initarg :initform :reader structure-slot-definition-initform)
    (type :initarg :type :reader structure-slot-definition-type)
    (read-only :initarg :read-only :reader structure-slot-definition-read-only)
-   (ref-fn :initarg :ref-fn :reader structure-slot-definition-ref-fn)
-   (index :initarg :index :reader structure-slot-definition-index)
+   (location :initarg :location :reader structure-slot-definition-location)
    (fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
    (align :initarg :align :reader structure-slot-definition-align)))
 
-(defun sys.int::make-struct-slot-definition (name accessor initform type read-only ref-fn index fixed-vector align)
+(defun sys.int::make-struct-slot-definition (name accessor initform type read-only location fixed-vector align)
   (make-instance 'structure-slot-definition
                  :name name
                  :accessor accessor
                  :initform initform
                  :type type
                  :read-only read-only
-                 :ref-fn ref-fn
-                 :index index
+                 :location location
                  :fixed-vector fixed-vector
                  :align align))
 
@@ -93,8 +91,7 @@
                   :initform (structure-slot-definition-initform object)
                   :type (structure-slot-definition-type object)
                   :read-only (structure-slot-definition-read-only object)
-                  :ref-fn (structure-slot-definition-ref-fn object)
-                  :index (structure-slot-definition-index object)
+                  :location (structure-slot-definition-location object)
                   :fixed-vector (structure-slot-definition-fixed-vector object)
                   :align (structure-slot-definition-align object)))))
 
@@ -786,8 +783,7 @@
   (save-object (sys.int::structure-slot-definition-initform object) omap stream)
   (save-object (sys.int::structure-slot-definition-type object) omap stream)
   (save-object (sys.int::structure-slot-definition-read-only object) omap stream)
-  (save-object (sys.int::structure-slot-definition-ref-fn object) omap stream)
-  (save-object (sys.int::structure-slot-definition-index object) omap stream)
+  (save-object (sys.int::structure-slot-definition-location object) omap stream)
   (save-object (sys.int::structure-slot-definition-fixed-vector object) omap stream)
   (save-object (sys.int::structure-slot-definition-align object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))

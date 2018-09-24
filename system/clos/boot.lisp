@@ -156,17 +156,17 @@
       (error "Slot ~S missing from the object ~S" slot-name object)))
 
 (defun primordial-slot-value (object slot-name)
-  (let ((value (sys.int::%object-ref-t object (primordial-slot-location object slot-name))))
+  (let ((value (mezzano.runtime::instance-access object (primordial-slot-location object slot-name))))
     (when (eql value *secret-unbound-value*)
       (error "Slot ~S unbound in the object ~S." slot-name object))
     value))
 
 (defun (setf primordial-slot-value) (value object slot-name)
-  (setf (sys.int::%object-ref-t object (primordial-slot-location object slot-name))
+  (setf (mezzano.runtime::instance-access object (primordial-slot-location object slot-name))
         value))
 
 (defun primordial-slot-boundp (object slot-name)
-  (not (eql (sys.int::%object-ref-t object (primordial-slot-location object slot-name))
+  (not (eql (mezzano.runtime::instance-access object (primordial-slot-location object slot-name))
             *secret-unbound-value*)))
 
 (defun primordial-class-of (object)
@@ -402,11 +402,11 @@
                                          0))
                  (instance-slots (make-array (* (length layout) 2))))
             (loop
-               for slot-index from funcallable-offset
+               for slot-index from (* funcallable-offset 8) by 8
                for i from 0 by 2
                for slot-name across layout
                do (setf (aref instance-slots i) slot-name
-                        (aref instance-slots (1+ i)) slot-index))
+                        (aref instance-slots (1+ i)) (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ slot-index)))
             (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
                   (sys.int::make-layout :class nil ; Fixed up later.
                                         :obsolete nil
@@ -526,13 +526,14 @@
          (metaclass (primordial-slot-value (primordial-class-of class) 'name)))
     (loop
        with next-instance-slot-index = (if (eql metaclass 'funcallable-standard-class)
-                                           2 ; Skip the first two slots of funcallable instances, used for the function & entry point
+                                           16 ; Skip the first two slots of funcallable instances, used for the function & entry point
                                            0)
        for slot in effective-slots
        do (case (primordial-slot-value slot 'allocation)
             (:instance
-             (setf (primordial-slot-value slot 'location) next-instance-slot-index)
-             (incf next-instance-slot-index))
+             (setf (primordial-slot-value slot 'location)
+                   (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ next-instance-slot-index))
+             (incf next-instance-slot-index 8))
             (:class
              ;; Search through the precedence list looking for an existing effective slot.
              (dolist (super (rest (primordial-slot-value class 'class-precedence-list))

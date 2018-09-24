@@ -247,6 +247,13 @@ thread's stack if this function is called from normal code."
 (defun (cas memref-signed-byte-64) (old new base &optional (index 0))
   (cas (%memref-signed-byte-64 base index) old new))
 
+(declaim (inline (sys.int::cas %object-ref-t)))
+(defun (sys.int::cas %object-ref-t) (old new object index)
+  (multiple-value-bind (successp actual-value)
+      (sys.int::%cas-object object index old new)
+    (declare (ignore successp))
+    actual-value))
+
 (declaim (inline %object-ref-unsigned-byte-8 (setf %object-ref-unsigned-byte-8)))
 (defun %object-ref-unsigned-byte-8 (object index)
   (%%object-ref-unsigned-byte-8 object index))
