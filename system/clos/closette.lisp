@@ -2360,32 +2360,40 @@ has only has class specializer."
           (pushnew key initargs))))
     (values initargs nil)))
 
-(defun valid-make-instance-initargs (class)
-  (multiple-value-bind (allocate-instance-keys allocate-instance-aok)
-      (applicable-method-initargs #'allocate-instance (list class))
-    (multiple-value-bind (initialize-instance-keys initialize-instance-aok)
-        (applicable-method-initargs #'initialize-instance (list (class-prototype class)))
-      (multiple-value-bind (shared-initialize-keys shared-initialize-aok)
-          (applicable-method-initargs #'shared-initialize (list (class-prototype class) t))
-        (cond ((or allocate-instance-aok
-                   initialize-instance-aok
-                   shared-initialize-aok)
-               (values nil t))
-              (t
-               (values (union (class-slot-initargs class)
-                              (union allocate-instance-keys
-                                     (union initialize-instance-keys
-                                            shared-initialize-keys)))
-                       nil)))))))
+(defun valid-initargs (class functions)
+  (let ((initargs (class-slot-initargs class)))
+    (loop
+       for (fn . args) in functions
+       do (multiple-value-bind (keys aok)
+              (applicable-method-initargs fn args)
+            (when aok
+              (return-from valid-initargs
+                (values nil t)))
+            (dolist (key keys)
+              (pushnew key initargs))))
+    initargs))
+
+(defun check-initargs (class functions initargs error-fn)
+  (multiple-value-bind (valid-initargs inhibit-checking)
+      (valid-initargs class functions)
+    (when (not inhibit-checking)
+      (let ((invalid-initargs (loop
+                                 for initarg in initargs by #'cddr
+                                 when (not (member initarg valid-initargs))
+                                 collect initarg)))
+        (when invalid-initargs
+          (funcall error-fn valid-initargs invalid-initargs))))))
 
 (defun check-make-instance-initargs (class initargs)
-  (multiple-value-bind (valid-initargs inhibit-checking)
-      (valid-make-instance-initargs class)
-    (when (not inhibit-checking)
-      (loop
-         for initarg in initargs by #'cddr
-         when (not (member initarg valid-initargs))
-         do (error "Invalid initarg ~S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S" initarg class (class-name class) initargs valid-initargs)))))
+  (check-initargs
+   class
+   (list (list #'allocate-instance class)
+         (list #'initialize-instance (class-prototype class))
+         (list #'shared-initialize (class-prototype class) t))
+   initargs
+   (lambda (valid-initargs invalid-initargs)
+     (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S"
+            invalid-initargs class (class-name class) initargs valid-initargs))))
 
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
@@ -2409,9 +2417,19 @@ has only has class specializer."
 (defmethod initialize-instance ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance t initargs))
 
+(defun check-reinitialize-instance-initargs (object initargs)
+  (check-initargs
+   (class-of object)
+   (list (list #'reinitialize-instance object)
+         (list #'shared-initialize object t))
+   initargs
+   (lambda (valid-initargs invalid-initargs)
+     (error "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid:~:S"
+            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+
 (defgeneric reinitialize-instance (instance &key &allow-other-keys))
-(defmethod reinitialize-instance
-           ((instance standard-object) &rest initargs)
+(defmethod reinitialize-instance ((instance standard-object) &rest initargs)
+  (check-reinitialize-instance-initargs instance initargs)
   (apply #'shared-initialize instance () initargs))
 
 (defgeneric shared-initialize (instance slot-names &key &allow-other-keys))
@@ -2466,10 +2484,21 @@ has only has class specializer."
            ((instance standard-object) (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
 
+(defun check-update-instance-for-different-class-initargs (old new initargs)
+  (check-initargs
+   (class-of new)
+   (list (list #'update-instance-for-different-class old new)
+         (list #'shared-initialize new t))
+   initargs
+   (lambda (valid-initargs invalid-initargs)
+     (error "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid:~:S"
+            invalid-initargs new (class-name (class-of new)) initargs valid-initargs))))
+
 (defgeneric update-instance-for-different-class (old new &key &allow-other-keys))
 (defmethod update-instance-for-different-class ((old standard-object)
                                                 (new standard-object)
                                                 &rest initargs)
+  (check-update-instance-for-different-class-initargs old new initargs)
   (let ((added-slots
           (remove-if #'(lambda (slot-name)
                          (slot-exists-p old slot-name))
@@ -2589,6 +2618,11 @@ has only has class specializer."
 (format t "Closette is a Knights of the Lambda Calculus production.~%")
 
 ;;; Metaclasses.
+
+(defmethod update-instance-for-different-class :after ((old forward-referenced-class) (new std-class)
+                                                       &rest initargs
+                                                       &key direct-superclasses direct-slots direct-default-initargs documentation)
+  nil)
 
 (defmethod update-instance-for-different-class :before
            ((old forward-referenced-class) (new standard-class) &rest initargs)
@@ -2819,7 +2853,8 @@ has only has class specializer."
   (dolist (subclass (safe-class-direct-subclasses class))
     (std-after-reinitialization-for-classes subclass)))
 
-(defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses &allow-other-keys)
+(defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
   (apply #'std-after-reinitialization-for-classes class args))
 
 (defun remove-reader-method (class reader slot-name)
@@ -2878,10 +2913,20 @@ has only has class specializer."
     ;; Magic.
     (update-instance-for-redefined-class instance added-slots discarded-slots property-list)))
 
+(defun check-update-instance-for-redefined-class-initargs (object added-slots discarded-slots property-list initargs)
+  (check-initargs
+   (class-of object)
+   (list (list #'update-instance-for-redefined-class object added-slots discarded-slots property-list)
+         (list #'shared-initialize object added-slots))
+   initargs
+   (lambda (valid-initargs invalid-initargs)
+     (error "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid:~:S"
+            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+
 (defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
 
-(defmethod update-instance-for-redefined-class ((instance standard-object) added-slots discarded-slots property-list &rest initargs &key &allow-other-keys)
-  (declare (ignore discarded-slots property-list))
+(defmethod update-instance-for-redefined-class ((instance standard-object) added-slots discarded-slots property-list &rest initargs)
+  (check-update-instance-for-redefined-class-initargs instance initargs)
   (apply #'shared-initialize instance added-slots initargs))
 
 (defgeneric slot-unbound (class instance slot-name))
