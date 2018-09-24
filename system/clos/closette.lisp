@@ -2376,10 +2376,12 @@ has only has class specializer."
 (defun check-initargs (class functions initargs error-fn)
   (multiple-value-bind (valid-initargs inhibit-checking)
       (valid-initargs class functions)
-    (when (not inhibit-checking)
+    (when (and (not inhibit-checking)
+               (not (getf initargs :allow-other-keys)))
       (let ((invalid-initargs (loop
                                  for initarg in initargs by #'cddr
-                                 when (not (member initarg valid-initargs))
+                                 when (and (not (eql initarg :allow-other-keys))
+                                           (not (member initarg valid-initargs)))
                                  collect initarg)))
         (when invalid-initargs
           (funcall error-fn valid-initargs invalid-initargs))))))
