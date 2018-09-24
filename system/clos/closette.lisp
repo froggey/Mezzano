@@ -913,6 +913,8 @@ Other arguments are included directly."
              (setf (safe-class-slot-storage-layout class) layout
                    (sys.int::layout-obsolete prev-layout) layout)))))
   (setf (safe-class-finalized-p class) t)
+  (when (not (eql (safe-class-name class) 'structure-object)) ; fixme
+    (setf (std-slot-value class 'prototype) (allocate-instance class)))
   (values))
 
 ;;; Class precedence lists

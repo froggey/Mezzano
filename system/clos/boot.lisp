@@ -574,10 +574,10 @@
     ;;(format t "  Slots: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'effective-slots)))
     (setf (primordial-slot-value class 'default-initargs)
           (primordial-compute-default-initargs class))
-    ;; Check that the early layout and computed layout match up.
     (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x 'allocation) :instance))
                                          (primordial-slot-value class 'effective-slots)))
           (layout (primordial-slot-value class 'slot-storage-layout)))
+      ;; Check that the early layout and computed layout match up.
       (cond (layout
              (assert (eql (length instance-slots) (/ (length (sys.int::layout-instance-slots layout)) 2)))
              (loop
@@ -589,7 +589,12 @@
                     (error "Instance slots and computed early layout mismatch in class ~S."
                            (primordial-slot-value class 'name)))))
             (t
-             (assert (endp instance-slots)))))
+             (assert (endp instance-slots))))
+      ;; TODO: Prototypes for built-in classes
+      (when (not (eql (primordial-class-of class) (find-class 'built-in-class)))
+        ;; TODO: This should do something different for funcallable-standard-classes
+        (setf (primordial-slot-value class 'prototype)
+              (sys.int::%allocate-instance layout))))
     (setf (primordial-slot-value class 'finalized-p) t)))
 
 (defun convert-primordial-direct-slot (direct-slot-definition)
