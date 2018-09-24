@@ -215,6 +215,7 @@
    (argument-reordering-table :initform nil)
    (declarations              ; :reader generic-function-declarations
     :initarg :declarations :initform nil)
+   (documentation :initform nil :initarg :documentation)
    )
   (:default-initargs
    :name nil
@@ -231,7 +232,8 @@
    (qualifiers :initarg :qualifiers)       ; :reader method-qualifiers
    (specializers :initarg :specializers)   ; :reader method-specializers
    (generic-function :initform nil)        ; :reader method-generic-function
-   (function :initarg :function))          ; :reader method-function
+   (function :initarg :function)           ; :reader method-function
+   (documentation :initform nil :initarg :documentation))
   (:default-initargs
    :qualifiers '()
     :specializers '()))

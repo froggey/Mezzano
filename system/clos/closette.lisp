@@ -413,9 +413,7 @@
 
 (defun canonicalize-struct-slot (slot)
   (list :name (sys.int::structure-slot-definition-name slot)
-        :accessor-name (sys.int::structure-slot-definition-accessor slot)
-        :type (sys.int::structure-slot-definition-type slot)
-        :read-only-p (sys.int::structure-slot-definition-read-only slot)))
+        :type (sys.int::structure-slot-definition-type slot)))
 
 (defun canonicalize-struct-slots (struct-def)
   (mapcar 'canonicalize-struct-slot (sys.int::structure-definition-slots struct-def)))
@@ -2125,6 +2123,10 @@ has only has class specializer."
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value class 'effective-slots)))
+(defgeneric class-prototype (class)
+  (:method ((class std-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'prototype)))
 
 ;;; Slot definition metaobject readers
 
@@ -2282,6 +2284,20 @@ has only has class specializer."
 (defmethod effective-slot-definition-class ((class std-class) &rest initargs)
   *the-class-standard-effective-slot-definition*)
 
+(defgeneric function-keywords (method))
+(defmethod function-keywords ((method standard-method))
+  (let ((lambda-list-info (analyze-lambda-list (safe-method-lambda-list method))))
+    (values (getf lambda-list-info :keywords)
+            (getf lambda-list-info :allow-other-keys))))
+
+(defgeneric compute-applicable-methods-using-classes (generic-function classes))
+(defmethod compute-applicable-methods-using-classes ((generic-function standard-generic-function) classes)
+  (std-compute-applicable-methods-using-classes generic-function classes))
+
+(defgeneric compute-applicable-methods (generic-function arguments))
+(defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
+  (std-compute-applicable-methods generic-function arguments))
+
 ;;; Instance creation and initialization
 
 (defgeneric allocate-instance (class &rest initargs &key &allow-other-keys))
@@ -2320,12 +2336,65 @@ has only has class specializer."
         (append initargs default-initargs)
         initargs)))
 
+(defun class-slot-initargs (class)
+  "Return a list of initargs accepted by CLASS's slots."
+  (loop
+     with result = '()
+     for slot in (safe-class-slots class)
+     do
+       (loop
+          for initarg in (safe-slot-definition-initargs slot)
+          do (pushnew initarg result))
+     finally
+       (return result)))
+
+(defun applicable-method-initargs (generic-function arguments)
+  (let ((initargs '()))
+    (dolist (method (compute-applicable-methods generic-function arguments))
+      (multiple-value-bind (keys aok)
+          (function-keywords method)
+        (when aok
+          (return-from applicable-method-initargs
+            (values nil t)))
+        (dolist (key keys)
+          (pushnew key initargs))))
+    (values initargs nil)))
+
+(defun valid-make-instance-initargs (class)
+  (multiple-value-bind (allocate-instance-keys allocate-instance-aok)
+      (applicable-method-initargs #'allocate-instance (list class))
+    (multiple-value-bind (initialize-instance-keys initialize-instance-aok)
+        (applicable-method-initargs #'initialize-instance (list (class-prototype class)))
+      (multiple-value-bind (shared-initialize-keys shared-initialize-aok)
+          (applicable-method-initargs #'shared-initialize (list (class-prototype class) t))
+        (cond ((or allocate-instance-aok
+                   initialize-instance-aok
+                   shared-initialize-aok)
+               (values nil t))
+              (t
+               (values (union (class-slot-initargs class)
+                              (union allocate-instance-keys
+                                     (union initialize-instance-keys
+                                            shared-initialize-keys)))
+                       nil)))))))
+
+(defun check-make-instance-initargs (class initargs)
+  (multiple-value-bind (valid-initargs inhibit-checking)
+      (valid-make-instance-initargs class)
+    (when (not inhibit-checking)
+      (loop
+         for initarg in initargs by #'cddr
+         when (not (member initarg valid-initargs))
+         do (error "Invalid initarg ~S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S" initarg class (class-name class) initargs valid-initargs)))))
+
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
-  (let* ((true-initargs (std-compute-initargs class initargs))
-         (instance (apply #'allocate-instance class true-initargs)))
-    (apply #'initialize-instance instance true-initargs)
-    instance))
+  (let ((true-initargs (std-compute-initargs class initargs)))
+    (check-make-instance-initargs class true-initargs)
+    (let ((instance (apply #'allocate-instance class true-initargs)))
+      (apply #'initialize-instance instance true-initargs)
+      instance)))
+
 (defmethod make-instance ((class symbol) &rest initargs)
   (apply #'make-instance (find-class class) initargs))
 
@@ -2423,7 +2492,8 @@ has only has class specializer."
   (print-unreadable-object (slot-definition stream :type t :identity t)
     (format stream "~S" (safe-slot-definition-name slot-definition))))
 
-(defmethod initialize-instance :after ((class std-class) &rest args)
+(defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
   (apply #'std-after-initialization-for-classes class args))
 
 
@@ -2608,7 +2678,8 @@ has only has class specializer."
 (defmethod effective-slot-definition-class ((class structure-class) &rest initargs)
   *the-class-standard-effective-slot-definition*)
 
-(defmethod initialize-instance :after ((class structure-class) &rest args)
+(defmethod initialize-instance :after ((class structure-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
   (apply #'std-after-initialization-for-classes class args))
 
 (defmethod reinitialize-instance :before ((class structure-class) &rest args)
@@ -2820,44 +2891,6 @@ has only has class specializer."
          :name slot-name
          :instance instance))
 
-(defgeneric class-prototype (class))
-
-(defmethod class-prototype :before ((class class))
-  (when (not (class-finalized-p class))
-    (error "Class ~S has not been finalized." class)))
-
-(defmethod class-prototype ((class built-in-class))
-  (when (not (slot-boundp class 'prototype))
-    ;; This isn't really right...
-    (setf (slot-value class 'prototype)
-          (allocate-std-instance
-           class
-           (allocate-slot-storage (length (safe-class-slot-storage-layout class))
-                                  *secret-unbound-value*)
-           (safe-class-slot-storage-layout class))))
-  (slot-value class 'prototype))
-
-(defmethod class-prototype ((class clos-class))
-  (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
-  (when (not (slot-boundp class 'prototype))
-    (setf (slot-value class 'prototype) (allocate-instance class)))
-  (slot-value class 'prototype))
-
-(defgeneric compute-applicable-methods-using-classes (generic-function classes))
-(defmethod compute-applicable-methods-using-classes ((generic-function standard-generic-function) classes)
-  (std-compute-applicable-methods-using-classes generic-function classes))
-
-(defgeneric compute-applicable-methods (generic-function arguments))
-(defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
-  (std-compute-applicable-methods generic-function arguments))
-
 (defgeneric slot-missing (class object slot-name operation &optional new-value))
 (defmethod slot-missing ((class t) object slot-name operation &optional new-value)
   (error "Slot ~S missing from class ~S when performing ~S." slot-name class operation))
-
-(defgeneric function-keywords (method))
-
-(defmethod function-keywords ((method standard-method))
-  (let ((lambda-list-info (analyze-lambda-list (safe-method-lambda-list method))))
-    (values (getf lambda-list-info :keywords)
-            (getf lambda-list-info :allow-other-keys))))
