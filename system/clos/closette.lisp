@@ -2544,22 +2544,33 @@ has only has class specializer."
           (pushnew key initargs))))
     (values initargs nil)))
 
-(defun valid-initargs (class functions)
-  (let ((initargs (class-slot-initargs class)))
-    (loop
-       for (fn . args) in functions
-       do (multiple-value-bind (keys aok)
-              (applicable-method-initargs fn args)
-            (when aok
-              (return-from valid-initargs
-                (values nil t)))
-            (dolist (key keys)
-              (pushnew key initargs))))
-    initargs))
+(defun valid-initargs (class cache functions)
+  (multiple-value-bind (cached-initargs cache-validp)
+      (gethash class cache)
+    ;; FIXME: This must take EQL specializers into account.
+    (cond (cache-validp
+           (if (eql cached-initargs 't)
+               (values nil t)
+               (values cached-initargs nil)))
+          (t
+           (let ((initargs (class-slot-initargs class)))
+             (loop
+                for (fn . args) in functions
+                do (multiple-value-bind (keys aok)
+                       (applicable-method-initargs fn args)
+                     (when aok
+                       (setf (gethash class cache) t)
+                       (return-from valid-initargs
+                         (values nil t)))
+                     (dolist (key keys)
+                       (pushnew key initargs))))
+             (when cache
+               (setf (gethash class cache) initargs))
+             initargs)))))
 
-(defun check-initargs (class functions initargs error-fn)
+(defun check-initargs (class cache functions initargs error-fn)
   (multiple-value-bind (valid-initargs inhibit-checking)
-      (valid-initargs class functions)
+      (valid-initargs class cache functions)
     (when (and (not inhibit-checking)
                (not (getf initargs :allow-other-keys)))
       (let ((invalid-initargs (loop
@@ -2570,9 +2581,11 @@ has only has class specializer."
         (when invalid-initargs
           (funcall error-fn valid-initargs invalid-initargs))))))
 
+(sys.int::defglobal *make-instance-initargs-cache* (make-hash-table))
+
 (defun check-make-instance-initargs (class initargs)
   (check-initargs
-   class
+   class *make-instance-initargs-cache*
    (list (list #'allocate-instance class)
          (list #'initialize-instance (class-prototype class))
          (list #'shared-initialize (class-prototype class) t))
@@ -2603,9 +2616,11 @@ has only has class specializer."
 (defmethod initialize-instance ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance t initargs))
 
+(sys.int::defglobal *reinitialize-instance-initargs-cache* (make-hash-table))
+
 (defun check-reinitialize-instance-initargs (object initargs)
   (check-initargs
-   (class-of object)
+   (class-of object) *reinitialize-instance-initargs-cache*
    (list (list #'reinitialize-instance object)
          (list #'shared-initialize object t))
    initargs
@@ -2670,9 +2685,11 @@ has only has class specializer."
            ((instance standard-object) (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
 
+(sys.int::defglobal *u-i-f-d-c-initargs-cache* (make-hash-table))
+
 (defun check-update-instance-for-different-class-initargs (old new initargs)
   (check-initargs
-   (class-of new)
+   (class-of new) *u-i-f-d-c-initargs-cache*
    (list (list #'update-instance-for-different-class old new)
          (list #'shared-initialize new t))
    initargs
@@ -3057,6 +3074,8 @@ has only has class specializer."
   ;; Refinalize any subclasses.
   (dolist (subclass (safe-class-direct-subclasses class))
     (std-after-reinitialization-for-classes subclass))
+  ;; Flush the initarg caches for this class.
+  (flush-initarg-caches class)
   ;; Update dependents
   (safe-map-dependents class (lambda (dep)
                                (apply #'update-dependent class dep args))))
@@ -3121,9 +3140,11 @@ has only has class specializer."
     ;; Magic.
     (update-instance-for-redefined-class instance added-slots discarded-slots property-list)))
 
+(sys.int::defglobal *u-i-f-r-c-initargs-cache* (make-hash-table))
+
 (defun check-update-instance-for-redefined-class-initargs (object added-slots discarded-slots property-list initargs)
   (check-initargs
-   (class-of object)
+   (class-of object) *u-i-f-r-c-initargs-cache*
    (list (list #'update-instance-for-redefined-class object added-slots discarded-slots property-list)
          (list #'shared-initialize object added-slots))
    initargs
@@ -3147,3 +3168,50 @@ has only has class specializer."
 (defgeneric slot-missing (class object slot-name operation &optional new-value))
 (defmethod slot-missing ((class t) object slot-name operation &optional new-value)
   (error "Slot ~S missing from class ~S when performing ~S." slot-name class operation))
+
+;;; Initarg cache maintenance
+
+(defclass initarg-cache-flusher ()
+  ((%cache :initarg :cache :reader initarg-cache-flusher-cache)
+   (%purge :initarg :purge :initform nil :reader initarg-cache-flusher-purge)))
+
+(defun flush-initarg-caches (class)
+  "Remove the entries for CLASS from each cache.
+Does not handle subclasses."
+  (remhash class *make-instance-initargs-cache*)
+  (remhash class *reinitialize-instance-initargs-cache*)
+  (remhash class *u-i-f-d-c-initargs-cache*)
+  (remhash class *u-i-f-r-c-initargs-cache*))
+
+(defun flush-initarg-cache-recursively (cache class)
+  "Remove CLASS and all subclasses from CACHE."
+  (remhash class cache)
+  (dolist (subclass (class-direct-subclasses class))
+    (flush-initarg-cache-recursively cache subclass)))
+
+(defmethod update-dependent (metaobject (dependent initarg-cache-flusher) &key ((add-method added-method)) ((remove-method removed-method)) &allow-other-keys)
+  (flet ((doit (method)
+           (flush-initarg-cache-recursively (initarg-cache-flusher-cache dependent)
+                                            (first (method-specializers method)))))
+    (cond ((initarg-cache-flusher-purge dependent)
+           (clrhash (initarg-cache-flusher-cache dependent)))
+          (t
+           (when added-method (doit added-method))
+           (when removed-method (doit removed-method))))))
+
+;; Make-instance
+(safe-add-dependent #'allocate-instance (make-instance 'initarg-cache-flusher :cache *make-instance-initargs-cache* :purge t))
+(safe-add-dependent #'initialize-instance (make-instance 'initarg-cache-flusher :cache *make-instance-initargs-cache*))
+(safe-add-dependent #'shared-initialize (make-instance 'initarg-cache-flusher :cache *make-instance-initargs-cache*))
+
+;; Reinitialize-instance
+(safe-add-dependent #'reinitialize-instance (make-instance 'initarg-cache-flusher :cache *reinitialize-instance-initargs-cache*))
+(safe-add-dependent #'shared-initialize (make-instance 'initarg-cache-flusher :cache *reinitialize-instance-initargs-cache*))
+
+;; Update-instance-for-different-class
+(safe-add-dependent #'update-instance-for-different-class (make-instance 'initarg-cache-flusher :cache *u-i-f-d-c-initargs-cache*))
+(safe-add-dependent #'shared-initialize (make-instance 'initarg-cache-flusher :cache *u-i-f-d-c-initargs-cache*))
+
+;; Update-instance-for-redefined-class
+(safe-add-dependent #'update-instance-for-redefined-class (make-instance 'initarg-cache-flusher :cache *u-i-f-r-c-initargs-cache*))
+(safe-add-dependent #'shared-initialize (make-instance 'initarg-cache-flusher :cache *u-i-f-r-c-initargs-cache*))
