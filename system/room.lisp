@@ -79,10 +79,21 @@ Should be kept in sync with data-types.")
               (aref *object-tags-to-basic-types* i)
               (aref n-allocated-objects i)
               (aref allocated-object-sizes i))))
-  (loop for i below (length allocated-classes) by 2 do
-       (let ((class (aref allocated-classes i))
-             (count (aref allocated-classes (1+ i))))
-         (format t "  ~A: ~:D objects.~%" class count))))
+  (let ((classes-and-counts
+         (sort (loop
+                  for i below (length allocated-classes) by 2
+                  collect (cons (aref allocated-classes i)
+                                (aref allocated-classes (1+ i))))
+               #'>
+               :key #'cdr)))
+    (loop
+       for (class . count) in classes-and-counts
+       do (format t "  ~A: ~:D objects. ~:D words.~%"
+                  class count
+                  (* count (1+ (layout-heap-size
+                                (if (structure-definition-p class)
+                                    (structure-definition-layout class)
+                                    (mezzano.clos::safe-class-slot-storage-layout class)))))))))
 
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
