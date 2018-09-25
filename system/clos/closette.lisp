@@ -546,15 +546,33 @@
   (setf (std-slot-value class 'direct-slots) value))
 
 (defun safe-class-direct-subclasses (class)
-  (cond ((standard-class-instance-p class)
-         (std-slot-value class 'direct-subclasses))
-        ((or (funcallable-standard-class-instance-p class)
-             (built-in-class-instance-p class))
+  (cond ((clos-class-instance-p class)
          (std-slot-value class 'direct-subclasses))
         (t
          (class-direct-subclasses class))))
-(defun (setf safe-class-direct-subclasses) (value class)
-  (setf (std-slot-value class 'direct-subclasses) value))
+
+(defun std-add-direct-subclass (superclass subclass)
+  (push subclass (std-slot-value superclass 'direct-subclasses))
+  (values))
+
+(defun safe-add-direct-subclass (superclass subclass)
+  (cond ((and (clos-class-instance-p superclass)
+              (clos-class-instance-p subclass))
+         (std-add-direct-subclass superclass subclass))
+        (t
+         (add-direct-subclass superclass subclass))))
+
+(defun std-remove-direct-subclass (superclass subclass)
+  (setf (std-slot-value superclass 'direct-subclasses)
+        (remove subclass (std-slot-value superclass 'direct-subclasses)))
+  (values))
+
+(defun safe-remove-direct-subclass (superclass subclass)
+  (cond ((and (clos-class-instance-p superclass)
+              (clos-class-instance-p subclass))
+         (std-remove-direct-subclass superclass subclass))
+        (t
+         (remove-direct-subclass superclass subclass))))
 
 (defun safe-class-direct-superclasses (class)
   (cond ((standard-class-instance-p class)
@@ -625,16 +643,6 @@
          (standard-instance-access class *standard-class-hash-location*))
         (t
          (std-slot-value class 'hash))))
-
-(defun safe-class-direct-methods (class)
-  (std-slot-value class 'direct-methods))
-(defun (setf safe-class-direct-methods) (value class)
-  (setf (std-slot-value class 'direct-methods) value))
-
-(defun safe-class-dependents (class)
-  (std-slot-value class 'dependents))
-(defun (setf safe-class-dependents) (value class)
-  (setf (std-slot-value class 'dependents) value))
 
 ;;; Ensure class
 
@@ -725,6 +733,10 @@ Other arguments are included directly."
       (eq metaclass *the-class-funcallable-standard-class*)
       (eq metaclass *the-class-built-in-class*)))
 
+(defun clos-class-instance-p (object)
+  "Returns true if OBJECT is a direct instance of one of the clos classes."
+  (clos-class-p (class-of object)))
+
 (defun standard-effective-slot-definition-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
   (and (sys.int::instance-p object)
@@ -754,7 +766,7 @@ Other arguments are included directly."
       (error "Superclass ~S incompatible with class ~S." (class-of superclass) (class-of class))))
   (setf (safe-class-direct-superclasses class) direct-superclasses)
   (dolist (superclass direct-superclasses)
-    (push class (safe-class-direct-subclasses superclass)))
+    (safe-add-direct-subclass superclass class))
   (let ((slots (mapcar (lambda (direct-slot)
                          (convert-to-direct-slot-definition class direct-slot))
                        direct-slots)))
@@ -1247,18 +1259,8 @@ has only has class specializer."
 
 (defun reset-gf-emf-table (gf)
   (cond ((single-dispatch-emf-table-p (classes-to-emf-table gf))
-         (map-single-dispatch-emf-table
-          (lambda (class fn)
-            (declare (ignore fn))
-            (setf (safe-class-dependents class) (remove gf (safe-class-dependents class))))
-          (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
         ((classes-to-emf-table gf)
-         (loop
-            for classes being the hash-keys in (classes-to-emf-table gf)
-            do (loop
-                  for class in classes
-                  do (setf (safe-class-dependents class) (remove gf (safe-class-dependents class)))))
          (clrhash (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
@@ -1460,8 +1462,7 @@ has only has class specializer."
   (setf (safe-method-generic-function method) gf)
   (push method (safe-generic-function-methods gf))
   (dolist (specializer (safe-method-specializers method))
-    (when (typep specializer 'class)
-      (pushnew method (safe-class-direct-methods specializer))))
+    (safe-add-direct-method specializer method))
   (finalize-generic-function gf)
   gf)
 
@@ -1469,10 +1470,8 @@ has only has class specializer."
   (setf (safe-generic-function-methods gf)
         (remove method (safe-generic-function-methods gf)))
   (setf (safe-method-generic-function method) nil)
-  (dolist (class (safe-method-specializers method))
-    (when (typep class 'class)
-      (setf (safe-class-direct-methods class)
-            (remove method (safe-class-direct-methods class)))))
+  (dolist (specializer (safe-method-specializers method))
+    (safe-remove-direct-method specializer method))
   (finalize-generic-function gf)
   gf)
 
@@ -1496,6 +1495,55 @@ has only has class specializer."
       (if (and (null method) errorp)
           (error "No such method for ~S." (safe-generic-function-name gf))
           method)))
+
+;;; Standard specializer direct methods.
+
+(defun std-add-direct-method (specializer method)
+  (pushnew method (std-slot-value specializer 'direct-methods))
+  (values))
+
+(defun safe-add-direct-method (specializer method)
+  (cond ((and (clos-class-instance-p specializer)
+              (standard-method-instance-p method))
+         (std-add-direct-method specializer method))
+        (t
+         (add-direct-method specializer method))))
+
+(defun std-remove-direct-method (specializer method)
+  (setf (std-slot-value specializer 'direct-methods)
+        (remove method (std-slot-value specializer 'direct-methods)))
+  (values))
+
+(defun safe-remove-direct-method (specializer method)
+  (cond ((and (clos-class-instance-p specializer)
+              (standard-method-instance-p method))
+         (std-remove-direct-method specializer method))
+        (t
+         (add-direct-method specializer method))))
+
+(defun std-specializer-direct-generic-functions (specializer)
+  (loop
+     with result = '()
+     for method in (std-specializer-direct-methods specializer)
+     for gf = (safe-method-generic-function method)
+     when gf
+     do (pushnew gf result)
+     finally (return result)))
+
+(defun safe-specializer-direct-generic-functions (specializer)
+  (cond ((clos-class-instance-p specializer)
+         (std-specializer-direct-generic-functions specializer))
+        (t
+         (specializer-direct-generic-functions specializer))))
+
+(defun std-specializer-direct-methods (specializer)
+  (std-slot-value specializer 'direct-methods))
+
+(defun safe-specializer-direct-methods (specializer)
+  (cond ((clos-class-instance-p specializer)
+         (std-specializer-direct-methods specializer))
+        (t
+         (specializer-direct-methods specializer))))
 
 ;;; Reader and write methods
 
@@ -1665,7 +1713,6 @@ has only has class specializer."
                   (cond (effective-slot
                          (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (pushnew gf (safe-class-dependents class))
                            (fast-slot-read (first args) location)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
@@ -1689,7 +1736,6 @@ has only has class specializer."
                   (cond (effective-slot
                          (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (pushnew gf (safe-class-dependents class))
                            (fast-slot-write (first args) instance location)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
@@ -1760,9 +1806,7 @@ has only has class specializer."
                           (apply #'no-applicable-method gf args))))))
       ;; Cache is only valid for non-eql methods.
       (when validp
-        (setf (gethash classes (classes-to-emf-table gf)) emfun)
-        (dolist (class classes)
-          (pushnew gf (safe-class-dependents class))))
+        (setf (gethash classes (classes-to-emf-table gf)) emfun))
       (apply emfun args))))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
@@ -1783,8 +1827,7 @@ has only has class specializer."
                             (apply #'no-applicable-method gf args))))))
         ;; Cache is only valid for non-eql methods.
         (when validp
-          (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
-          (pushnew gf (safe-class-dependents class)))
+          (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun))
         (apply emfun args)))))
 
 (defun slow-unspecialized-dispatch-method-lookup (gf args)
@@ -2134,13 +2177,6 @@ has only has class specializer."
     (slot-value class 'direct-slots))
   (:method ((class forward-referenced-class))
     '()))
-(defgeneric class-direct-subclasses (class)
-  (:method ((class clos-class))
-    (declare (notinline slot-value)) ; bootstrap hack
-    (slot-value class 'direct-subclasses))
-  (:method ((class forward-referenced-class))
-    (declare (notinline slot-value)) ; bootstrap hack
-    (slot-value class 'direct-subclasses)))
 (defgeneric class-direct-superclasses (class)
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
@@ -2272,6 +2308,16 @@ has only has class specializer."
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value accessor-method 'slot-definition)))
 
+;;; Specializer metaobject readers
+
+(defgeneric specializer-direct-generic-functions (specializer))
+(defmethod specializer-direct-generic-functions ((specializer class))
+  (std-specializer-direct-generic-functions specializer))
+
+(defgeneric specializer-direct-methods (specializer))
+(defmethod specializer-direct-methods ((specializer class))
+  (std-specializer-direct-methods specializer))
+
 ;;; Metaobject writer methods
 
 (defgeneric (setf class-name) (new-name class)
@@ -2283,6 +2329,21 @@ has only has class specializer."
   (:method (new-name (generic-function generic-function))
     (reinitialize-instance generic-function :name new-name)
     new-name))
+
+;;; Subclass management
+
+(defgeneric class-direct-subclasses (class)
+  (:method ((class class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'direct-subclasses)))
+
+(defgeneric add-direct-subclass (superclass subclass)
+  (:method ((superclass class) (subclass class))
+    (std-add-direct-subclass superclass subclass)))
+
+(defgeneric remove-direct-subclass (superclass subclass)
+  (:method ((superclass class) (subclass class))
+    (std-remove-direct-subclass superclass subclass)))
 
 ;;; Method management
 ;;;
@@ -2298,6 +2359,14 @@ has only has class specializer."
 (defmethod remove-method ((generic-function standard-generic-function)
                           (method standard-method))
   (std-remove-method generic-function method))
+
+(defgeneric add-direct-method (specializer method))
+(defmethod add-direct-method ((specializer class) (method method))
+  (std-add-direct-method specializer method))
+
+(defgeneric remove-direct-method (specializer method))
+(defmethod remove-direct-method ((specializer class) (method method))
+  (std-remove-direct-method specializer method))
 
 ;;; Slot access
 
@@ -2863,6 +2932,18 @@ has only has class specializer."
                                       `(,variable-name (,accessor-name ,instance))))
          ,@body))))
 
+(defmethod add-direct-method ((specializer eql-specializer) (method method))
+  (std-add-direct-method specializer method))
+
+(defmethod remove-direct-method ((specializer eql-specializer) (method method))
+  (std-remove-direct-method specializer method))
+
+(defmethod specializer-direct-generic-functions ((specializer eql-specializer))
+  (std-specializer-direct-generic-functions specializer))
+
+(defmethod specializer-direct-methods ((specializer eql-specializer))
+  (std-specializer-direct-methods specializer))
+
 ;;; Class redefinition.
 
 (defun convert-direct-slot-definition-to-canonical-direct-slot (direct-slot)
@@ -2881,7 +2962,7 @@ has only has class specializer."
   (setf (safe-class-finalized-p class) nil)
   ;; Remove the class as a subclass from all existing superclasses.
   (dolist (superclass (safe-class-direct-superclasses class))
-    (setf (safe-class-direct-subclasses superclass) (remove class (safe-class-direct-subclasses superclass))))
+    (safe-remove-direct-subclass superclass class))
   ;; Remove any slot reader/writer methods.
   #+(or)(dolist (direct-slot (safe-class-direct-slots class))
     (dolist (reader (safe-slot-definition-readers direct-slot))
@@ -2896,7 +2977,7 @@ has only has class specializer."
                  (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (safe-class-direct-slots class)))
                  (list :direct-default-initargs (safe-class-direct-default-initargs class))))
   ;; Flush the EMF tables of generic functions.
-  (dolist (gf (safe-class-dependents class))
+  (dolist (gf (safe-specializer-direct-generic-functions class))
     (reset-gf-emf-table gf))
   ;; Refinalize any subclasses.
   (dolist (subclass (safe-class-direct-subclasses class))

@@ -275,13 +275,14 @@
 (defclass standard-effective-slot-definition (standard-slot-definition effective-slot-definition)
   ((location :initarg :location)))
 
-(defclass specializer (metaobject) ())
+(defclass specializer (metaobject)
+  ((direct-methods :initform ())))
 
-(defclass class (specializer) ())
+(defclass class (specializer)
+  ((direct-subclasses :initform '())))
 
 (defclass forward-referenced-class (class)
-  ((name :initarg :name)
-   (direct-subclasses :initform '())))
+  ((name :initarg :name)))
 
 (defclass clos-class (class)
   ((name :initarg :name)              ; :reader class-name
@@ -291,10 +292,7 @@
    (class-precedence-list)            ; :reader class-precedence-list
    (effective-slots :initform ())     ; :reader class-slots
    (slot-storage-layout :initform ())
-   (direct-subclasses :initform ())   ; :reader class-direct-subclasses
-   (direct-methods :initform ())      ; :reader class-direct-methods
    (direct-default-initargs :initform ()) ; :reader class-direct-default-initargs
-   (dependents :initform '())
    (hash :initform (next-class-hash-value))
    (finalized-p :initform nil)
    (prototype)
