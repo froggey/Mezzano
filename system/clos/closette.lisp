@@ -737,6 +737,15 @@ Other arguments are included directly."
   "Returns true if OBJECT is a direct instance of one of the clos classes."
   (clos-class-p (class-of object)))
 
+(defun std-class-p (metaclass)
+  "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS."
+  (or (eq metaclass *the-class-standard-class*)
+      (eq metaclass *the-class-funcallable-standard-class*)))
+
+(defun std-class-instance-p (object)
+  "Returns true if OBJECT is a direct instance of one of either STANDARD-CLASS or FUNCALLABLE-STANDARD-CLASS."
+  (std-class-p (class-of object)))
+
 (defun standard-effective-slot-definition-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
   (and (sys.int::instance-p object)
@@ -1369,6 +1378,7 @@ has only has class specializer."
     (setf (safe-generic-function-method-class gf) method-class)
     (setf (safe-generic-function-method-combination gf) method-combination)
     (setf (safe-generic-function-declarations gf) declarations)
+    (setf (std-slot-value gf 'dependents) '())
     (setf (classes-to-emf-table gf) (make-hash-table))
     (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
     (finalize-generic-function gf)
@@ -1464,6 +1474,8 @@ has only has class specializer."
   (dolist (specializer (safe-method-specializers method))
     (safe-add-direct-method specializer method))
   (finalize-generic-function gf)
+  (safe-map-dependents gf (lambda (dep)
+                            (update-dependent gf dep 'add-method method)))
   gf)
 
 (defun std-remove-method (gf method)
@@ -1473,6 +1485,8 @@ has only has class specializer."
   (dolist (specializer (safe-method-specializers method))
     (safe-remove-direct-method specializer method))
   (finalize-generic-function gf)
+  (safe-map-dependents gf (lambda (dep)
+                            (update-dependent gf dep 'remove-method method)))
   gf)
 
 (defun find-method (gf qualifiers specializers
@@ -1544,6 +1558,32 @@ has only has class specializer."
          (std-specializer-direct-methods specializer))
         (t
          (specializer-direct-methods specializer))))
+
+(defun std-add-dependent (metaobject dependent)
+  (pushnew dependent (std-slot-value metaobject 'dependents))
+  (values))
+
+(defun safe-add-dependent (metaobject dependent)
+  (add-dependent metaobject dependent))
+
+(defun std-remove-dependent (metaobject dependent)
+  (setf (std-slot-value metaobject 'dependents)
+        (remove dependent (std-slot-value metaobject 'dependents)))
+  (values))
+
+(defun safe-remove-dependent (metaobject dependent)
+  (remove-dependent metaobject dependent))
+
+(defun std-map-dependents (metaobject function)
+  (mapc function (std-slot-value metaobject 'dependents))
+  (values))
+
+(defun safe-map-dependents (metaobject function)
+  (cond ((or (std-class-instance-p metaobject)
+             (standard-generic-function-instance-p metaobject))
+         (std-map-dependents metaobject function))
+        (t
+         (map-dependents metaobject function))))
 
 ;;; Reader and write methods
 
@@ -2414,6 +2454,34 @@ has only has class specializer."
 (defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
   (std-compute-applicable-methods generic-function arguments))
 
+;;; Dependent maintenance protocol
+
+(defgeneric add-dependent (metaobject dependent))
+(defmethod add-dependent ((metaobject std-class) dependent)
+  (std-add-dependent metaobject dependent)
+  (values))
+(defmethod add-dependent ((metaobject standard-generic-function) dependent)
+  (std-add-dependent metaobject dependent)
+  (values))
+
+(defgeneric remove-dependent (metaobject dependent))
+(defmethod remove-dependent ((metaobject std-class) dependent)
+  (std-remove-dependent metaobject dependent)
+  (values))
+(defmethod remove-dependent ((metaobject standard-generic-function) dependent)
+  (std-remove-dependent metaobject dependent)
+  (values))
+
+(defgeneric map-dependents (metaobject function))
+(defmethod map-dependents ((metaobject std-class) function)
+  (std-map-dependents metaobject function)
+  (values))
+(defmethod map-dependents ((metaobject standard-generic-function) function)
+  (std-map-dependents metaobject function)
+  (values))
+
+(defgeneric update-dependent (metaobject dependent &rest initargs))
+
 ;;; Instance creation and initialization
 
 (defgeneric allocate-instance (class &rest initargs &key &allow-other-keys))
@@ -2699,6 +2767,13 @@ has only has class specializer."
 (defmethod initialize-instance :after ((gf standard-generic-function) &key)
   (finalize-generic-function gf))
 
+(defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key)
+  (finalize-generic-function generic-function)
+  ;; Update dependents
+  (safe-map-dependents generic-function
+                       (lambda (dep)
+                         (apply #'update-dependent generic-function dep initargs))))
+
 ;;;
 ;;; Methods having to do with method metaobjects.
 ;;;
@@ -2981,7 +3056,10 @@ has only has class specializer."
     (reset-gf-emf-table gf))
   ;; Refinalize any subclasses.
   (dolist (subclass (safe-class-direct-subclasses class))
-    (std-after-reinitialization-for-classes subclass)))
+    (std-after-reinitialization-for-classes subclass))
+  ;; Update dependents
+  (safe-map-dependents class (lambda (dep)
+                               (apply #'update-dependent class dep args))))
 
 (defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
   (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))

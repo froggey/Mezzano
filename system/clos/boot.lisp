@@ -216,6 +216,7 @@
    (declarations              ; :reader generic-function-declarations
     :initarg :declarations :initform nil)
    (documentation :initform nil :initarg :documentation)
+   (dependents :initform '())
    )
   (:default-initargs
    :name nil
@@ -301,7 +302,8 @@
 
 (defclass built-in-class (clos-class) ())
 
-(defclass std-class (clos-class) ())
+(defclass std-class (clos-class)
+  ((dependents :initform '())))
 (defclass standard-class (std-class) ())
 (defclass funcallable-standard-class (std-class) ())
 
