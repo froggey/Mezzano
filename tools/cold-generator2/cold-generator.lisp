@@ -260,7 +260,7 @@
           (t
            forms))))
 
-(defun maybe-compile-file (path environment &key force)
+(defun maybe-compile-file (path environment &key force package)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults path)
                                    (build-directory environment))))
     (ensure-directories-exist llf-path)
@@ -278,7 +278,7 @@
       (format t "~A is out of date will be recompiled.~%" llf-path)
       (let ((sys.c::*target-architecture* (env:environment-target environment))
             (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
-        (sys.c::cross-compile-file path :output-file llf-path)))
+        (sys.c::cross-compile-file path :output-file llf-path :package package)))
     llf-path))
 
 ;; Ugh.
@@ -289,10 +289,10 @@
     (sys.c::save-compiler-builtins llf-path (env:environment-target environment))
     (load-compiled-file environment llf-path :eval t :wired t)))
 
-(defun load-source-file (environment file &key eval wired force-recompile)
+(defun load-source-file (environment file &key eval wired force-recompile package)
   (load-compiled-file
    environment
-   (maybe-compile-file file environment :force force-recompile)
+   (maybe-compile-file file environment :force force-recompile :package package)
    :eval eval
    :wired wired))
 
@@ -480,15 +480,19 @@
         (env:find-structure-definition
          environment
          (env:translate-symbol environment 'sys.int::structure-slot-definition)))
-  ;; Generate tables containing all packaged symbols, non-symbol frefs, and structure definitions.
-  ;; Once this is complete further objects should not be added as these tables will not be
-  ;; updated.
+  (values))
+
+(defun finalize-system (environment)
+  ;; Generate tables containing all packaged symbols, non-symbol frefs,
+  ;; and structure definitions. Once this is complete further objects
+  ;; should not be added as these tables will not be updated.
   (save-tables environment)
   (values))
 
 (defun make-image (image-name &key header-path image-size map-file (architecture :x86-64) uuid)
   (let ((environment (env:make-standard-environment :target architecture)))
     (configure-system environment)
+    (finalize-system environment)
     (format t ";; Serializing image. This may take a while...")
     (finish-output)
     (let ((image (ser:serialize-image environment)))

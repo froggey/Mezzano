@@ -1033,11 +1033,13 @@
            (x-compile-for-value arg env))
          (add-to-llf sys.int::+llf-funcall-n+ name (length args)))))))
 
-(defun cross-compile-file (input-file &key
-                           (output-file (make-pathname :type "llf" :defaults input-file))
-                           (verbose *compile-verbose*)
-                           (print *compile-print*)
-                           (external-format :default))
+(defun cross-compile-file (input-file
+                           &key
+                             (output-file (make-pathname :type "llf" :defaults input-file))
+                             (verbose *compile-verbose*)
+                             (print *compile-print*)
+                             (external-format :default)
+                             package)
   (with-open-file (input input-file :external-format external-format)
     (with-open-file (*output-fasl* output-file
                      :element-type '(unsigned-byte 8)
@@ -1047,7 +1049,8 @@
       (let* ((*readtable* (copy-readtable *cross-readtable*))
              (*output-map* (make-hash-table))
              (*pending-llf-commands* nil)
-             (*package* (find-package "CROSS-CL-USER"))
+             (*package* (or (find-package (or package "CROSS-CL-USER"))
+                            (error "Unknown package ~S" package)))
              (*compile-print* print)
              (*compile-verbose* verbose)
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
