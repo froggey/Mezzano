@@ -556,7 +556,6 @@ Must not call SERIALIZE-OBJECT."))
 (defmethod allocate-object ((object env:structure-definition) image environment)
   ;; Must allocate the associated layout up-front.
   ;; See STRUCTURE-DEFINITION-LAYOUT & callers.
-  ;; FIXME: Don't hard-code the sizes here.
   (let* ((sdef-sdef (env:find-structure-definition
                      environment
                      (env:translate-symbol environment 'sys.int::structure-definition)))
@@ -578,7 +577,13 @@ Must not call SERIALIZE-OBJECT."))
         (layout-sdef (env:find-structure-definition
                       environment
                       (env:translate-symbol environment 'sys.int::layout)))
-        (layout (structure-definition-layout object image environment))) ; layout was created in allocate-object
+        (layout (structure-definition-layout object image environment)) ; layout was created in allocate-object
+        (instance-slots (env:make-array environment (* (length (env:structure-definition-slots object)) 2)
+                                        :initial-contents (loop
+                                                             for slot in (env:structure-definition-slots object)
+                                                             collect (env:structure-slot-definition-name slot)
+                                                             collect (env:structure-slot-definition-location slot))
+                                        :area :wired)))
     (initialize-instance-header image environment value 'sys.int::structure-definition)
     (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::name)
           (serialize-object (env:structure-definition-name object) image environment))
@@ -606,7 +611,8 @@ Must not call SERIALIZE-OBJECT."))
     (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::area)
           (serialize-object (env:structure-definition-area object) image environment))
     (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::instance-slots)
-          (serialize-object nil image environment))))
+          (serialize-object instance-slots image environment))))
+
 
 (defmethod allocate-object ((object env:structure-slot-definition) image environment)
   (let ((slot-sdef (env:find-structure-definition

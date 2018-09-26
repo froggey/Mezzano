@@ -163,8 +163,12 @@
                                                       :area :wired)
                                           layout)
                          :area area
-                         ;; ### Not currently supported for structs.
-                         :instance-slots nil)))
+                         :instance-slots (make-array (* (length slots) 2)
+                                                     :initial-contents (loop
+                                                                          for slot in slots
+                                                                          collect (sys.int::structure-slot-definition-name slot)
+                                                                          collect (sys.int::structure-slot-definition-location slot))
+                                                     :area :wired))))
     (setf (sys.int::structure-definition-layout def) layout-object)
     def))
 
