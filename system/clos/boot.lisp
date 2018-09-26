@@ -197,30 +197,24 @@
   (:metaclass funcallable-standard-class))
 
 (defclass standard-generic-function (generic-function)
-  ((name :initarg :name)      ; :reader generic-function-name
-   (lambda-list               ; :reader generic-function-lambda-list
-    :initarg :lambda-list)
-   (methods :initform ())     ; :reader generic-function-methods
-   (method-class              ; :reader generic-function-method-class
-    :initarg :method-class)
-   (classes-to-emf-table
-    :initform (make-hash-table :test #'equal))
+  ((name :initarg :name)
+   (lambda-list :initarg :lambda-list)
+   (methods :initform ())
+   (method-class)
+   (discriminating-function)
+   (classes-to-emf-table :initform nil)
    (relevant-arguments)
    (weird-specializers-p)
-   (method-combination        ; :reader generic-function-method-combination
-    :initarg :method-combination)
-   (argument-precedence-order ; :reader generic-function-argument-precedence-order
-    :initarg :argument-precedence-order)
+   (method-combination :initarg :method-combination)
+   (argument-precedence-order :initarg :argument-precedence-order)
    (argument-reordering-table :initform nil)
-   (declarations              ; :reader generic-function-declarations
-    :initarg :declarations :initform nil)
+   (declarations :initarg :declarations :initform nil)
    (documentation :initform nil :initarg :documentation)
-   (dependents :initform '())
-   )
+   (dependents :initform '()))
   (:default-initargs
    :name nil
     :lambda-list '()
-    :method-class (find-class 'standard-method)
+    :method-class 'standard-method
     :method-combination nil
     :argument-precedence-order '())
   (:metaclass funcallable-standard-class))

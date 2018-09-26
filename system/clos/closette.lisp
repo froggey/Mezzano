@@ -1354,27 +1354,43 @@ has only has class specializer."
 ;;; instance of standard-generic-function without falling into method lookup.
 ;;; However, it cannot be called until standard-generic-function exists.
 
+(defun initialize-instance-standard-generic-function (gf &rest initargs &key
+                                                                          name
+                                                                          lambda-list
+                                                                          method-class
+                                                                          documentation
+                                                                          method-combination
+                                                                          argument-precedence-order
+                                                                          declarations)
+  (setf (safe-generic-function-name gf) name)
+  (setf (safe-generic-function-lambda-list gf) lambda-list)
+  (setf (safe-generic-function-methods gf) ())
+  (setf (safe-generic-function-method-combination gf) method-combination)
+  (setf (safe-generic-function-declarations gf) declarations)
+  (setf (std-slot-value gf 'dependents) '())
+  (setf (classes-to-emf-table gf) nil)
+  (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
+  (apply #'initialize-instance-after-standard-generic-function gf initargs))
+
+(defun initialize-instance-after-standard-generic-function (gf &key
+                                                                 name
+                                                                 lambda-list
+                                                                 method-class
+                                                                 documentation
+                                                                 method-combination
+                                                                 argument-precedence-order
+                                                                 declarations)
+  (setf (safe-generic-function-method-class gf) (if (typep method-class 'class)
+                                                    method-class
+                                                    (find-class method-class)))
+  (finalize-generic-function gf))
+
 (defun make-instance-standard-generic-function
-       (generic-function-class &key
-                                 name
-                                 lambda-list
-                                 method-class
-                                 documentation
-                                 method-combination
-                                 argument-precedence-order
-                                 declarations)
+       (generic-function-class &rest initargs)
   (declare (ignore generic-function-class))
   (let ((gf (fc-std-allocate-instance *the-class-standard-gf*)))
-    (setf (safe-generic-function-name gf) name)
-    (setf (safe-generic-function-lambda-list gf) lambda-list)
-    (setf (safe-generic-function-methods gf) ())
-    (setf (safe-generic-function-method-class gf) method-class)
-    (setf (safe-generic-function-method-combination gf) method-combination)
-    (setf (safe-generic-function-declarations gf) declarations)
-    (setf (std-slot-value gf 'dependents) '())
-    (setf (classes-to-emf-table gf) (make-hash-table))
-    (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
-    (finalize-generic-function gf)
+    (apply #'initialize-instance-standard-generic-function
+           gf initargs)
     gf))
 
 ;;; defmethod
@@ -2777,8 +2793,8 @@ has only has class specializer."
                  (method-combination-object-method-combination mc))))))
   gf)
 
-(defmethod initialize-instance :after ((gf standard-generic-function) &key)
-  (finalize-generic-function gf))
+(defmethod initialize-instance :after ((gf standard-generic-function) &rest initargs &key method-class)
+  (apply #'initialize-instance-after-standard-generic-function gf initargs))
 
 (defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key)
   (finalize-generic-function generic-function)
