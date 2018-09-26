@@ -283,7 +283,7 @@
    (direct-superclasses               ; :reader class-direct-superclasses
     :initarg :direct-superclasses)
    (direct-slots :initform ())        ; :reader class-direct-slots
-   (class-precedence-list)            ; :reader class-precedence-list
+   (precedence-list)                  ; :reader class-precedence-list
    (effective-slots :initform ())     ; :reader class-slots
    (slot-storage-layout :initform ())
    (direct-default-initargs :initform ()) ; :reader class-direct-default-initargs
@@ -510,7 +510,7 @@
 
 (defun primordial-compute-slots (class)
   (let* ((all-slots (mapappend (lambda (c) (primordial-slot-value c 'direct-slots))
-                               (primordial-slot-value class 'class-precedence-list)))
+                               (primordial-slot-value class 'precedence-list)))
          (all-names (remove-duplicates
                      (mapcar (lambda (def) (primordial-slot-value def 'name)) all-slots)))
          (effective-slots (mapcar (lambda (name)
@@ -533,7 +533,7 @@
              (incf next-instance-slot-index 8))
             (:class
              ;; Search through the precedence list looking for an existing effective slot.
-             (dolist (super (rest (primordial-slot-value class 'class-precedence-list))
+             (dolist (super (rest (primordial-slot-value class 'precedence-list))
                       ;; None found, create a new slot.
                       (setf (primordial-slot-value slot 'location) (cons (primordial-slot-value slot 'name)
                                                                          *secret-unbound-value*)))
@@ -550,7 +550,7 @@
 
 (defun primordial-compute-default-initargs (class)
   (let ((default-initargs '()))
-    (dolist (c (primordial-slot-value class 'class-precedence-list))
+    (dolist (c (primordial-slot-value class 'precedence-list))
       (loop
          for (initarg form fn) in (primordial-slot-value class 'direct-default-initargs)
          do (when (not (member initarg default-initargs :key #'first))
@@ -563,9 +563,9 @@
       (push class (primordial-slot-value super 'direct-subclasses))
       (finalize-primordial-class super))
     ;;(format t "Finalizing class ~S.~%" (primordial-slot-value class 'name))
-    (setf (primordial-slot-value class 'class-precedence-list)
+    (setf (primordial-slot-value class 'precedence-list)
           (primordial-compute-class-precedence-list class))
-    ;;(format t "  Class-Precedence-List: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'class-precedence-list)))
+    ;;(format t "  Class-Precedence-List: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'precedence-list)))
     (setf (primordial-slot-value class 'effective-slots)
           (primordial-compute-slots class))
     ;;(format t "  Slots: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'effective-slots)))
@@ -676,7 +676,7 @@
           *standard-class-slot-storage-layout-location* (primordial-slot-location-in-layout s-c-layout 'slot-storage-layout)
           *standard-class-hash-location* (primordial-slot-location-in-layout s-c-layout 'hash)
           *standard-class-finalized-p-location* (primordial-slot-location-in-layout s-c-layout 'finalized-p)
-          *standard-class-precedence-list-location* (primordial-slot-location-in-layout s-c-layout 'class-precedence-list)
+          *standard-class-precedence-list-location* (primordial-slot-location-in-layout s-c-layout 'precedence-list)
           *standard-class-direct-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'direct-default-initargs)
           *standard-class-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'default-initargs)))
   (let ((s-e-s-d-layout (primordial-slot-value (find-class 'standard-effective-slot-definition) 'slot-storage-layout)))

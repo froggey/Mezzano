@@ -613,11 +613,11 @@
          (standard-instance-access class *standard-class-precedence-list-location*))
         ((or (funcallable-standard-class-instance-p class)
              (built-in-class-instance-p class))
-         (std-slot-value class 'class-precedence-list))
+         (std-slot-value class 'precedence-list))
         (t
          (class-precedence-list class))))
 (defun (setf safe-class-precedence-list) (value class)
-  (setf (std-slot-value class 'class-precedence-list) value))
+  (setf (std-slot-value class 'precedence-list) value))
 
 (defun safe-class-slots (class)
   (cond ((standard-class-instance-p class)
@@ -2258,7 +2258,7 @@ has only has class specializer."
 (defgeneric class-precedence-list (class)
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
-    (slot-value class 'class-precedence-list)))
+    (slot-value class 'precedence-list)))
 (defgeneric class-slots (class)
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
