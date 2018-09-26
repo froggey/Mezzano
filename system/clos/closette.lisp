@@ -932,8 +932,6 @@ Other arguments are included directly."
              (setf (safe-class-slot-storage-layout class) layout
                    (sys.int::layout-obsolete prev-layout) layout)))))
   (setf (safe-class-finalized-p class) t)
-  (when (not (eql (safe-class-name class) 'structure-object)) ; fixme
-    (setf (std-slot-value class 'prototype) (allocate-instance class)))
   (values))
 
 ;;; Class precedence lists
@@ -2246,9 +2244,12 @@ has only has class specializer."
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value class 'effective-slots)))
+;; TODO: Prototypes for built-in classes
 (defgeneric class-prototype (class)
   (:method ((class std-class))
-    (declare (notinline slot-value)) ; bootstrap hack
+    (declare (notinline slot-boundp slot-value (setf slot-value))) ; bootstrap hack
+    (when (not (slot-boundp class 'prototype))
+      (setf (slot-value class 'prototype) (allocate-instance class)))
     (slot-value class 'prototype)))
 
 ;;; Slot definition metaobject readers

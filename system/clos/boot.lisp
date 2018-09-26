@@ -591,12 +591,7 @@
                     (error "Instance slots and computed early layout mismatch in class ~S."
                            (primordial-slot-value class 'name)))))
             (t
-             (assert (endp instance-slots))))
-      ;; TODO: Prototypes for built-in classes
-      (when (not (eql (primordial-class-of class) (find-class 'built-in-class)))
-        ;; TODO: This should do something different for funcallable-standard-classes
-        (setf (primordial-slot-value class 'prototype)
-              (sys.int::%allocate-instance layout))))
+             (assert (endp instance-slots)))))
     (setf (primordial-slot-value class 'finalized-p) t)))
 
 (defun convert-primordial-direct-slot (direct-slot-definition)
