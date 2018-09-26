@@ -155,9 +155,15 @@
   (dolist (sn (mapcar #'mezzano.clos:slot-definition-name
                       (mezzano.clos:class-slots (class-of object))))
     (if (slot-boundp object sn)
-        (format stream "    ~S <- ~S~%"
+        (format stream "    ~S <- ~A~%"
                 sn
-                (slot-value object sn))
+                (let ((value (slot-value object sn)))
+                  (handler-case
+                      (format nil "~S" value)
+                    (error ()
+                      (with-output-to-string (s)
+                        (print-unreadable-object (value s :type t :identity t)
+                          (format s "<<error printing object>>")))))))
         (format stream "    ~S <- not bound~%" sn))))
 
 (defun describe (object &optional stream)
