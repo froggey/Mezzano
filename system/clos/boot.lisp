@@ -290,7 +290,9 @@
    (hash :initform (next-class-hash-value))
    (finalized-p :initform nil)
    (prototype)
-   (default-initargs))                ; :reader class-default-initargs
+   (default-initargs)                 ; :reader class-default-initargs
+   (sealed :initform nil)
+   (allocation-area :initform nil))
   (:default-initargs :name nil))
 
 (defclass built-in-class (clos-class) ())
@@ -407,7 +409,7 @@
                                         :obsolete nil
                                         :heap-size (+ funcallable-offset (length layout))
                                         :heap-layout t
-                                        :area nil
+                                        :area (first (getf (gethash class-name *primordial-class-table*) :area))
                                         :instance-slots instance-slots))))))
     layout))
 
@@ -592,8 +594,10 @@
 
 (defun convert-primordial-class (name)
   (let ((class (find-class name)))
-    (destructuring-bind (&key name metaclass direct-superclasses direct-slots direct-default-initargs layout instance-layout)
+    (destructuring-bind (&key name metaclass direct-superclasses direct-slots direct-default-initargs layout instance-layout area sealed)
         (gethash name *primordial-class-table*)
+      (check-type area (or null (cons symbol null)))
+      (check-type sealed (or null (cons boolean null)))
       #|
       (format t "Converting class ~S~%" name)
       (format t "  Metaclass: ~S~%" metaclass)
@@ -611,7 +615,9 @@
                                         :direct-superclasses (mapcar #'find-class direct-superclasses))
         (setf (primordial-slot-value class 'direct-slots) converted-direct-slots
               (primordial-slot-value class 'direct-default-initargs) direct-default-initargs
-              (primordial-slot-value class 'slot-storage-layout) instance-layout)))))
+              (primordial-slot-value class 'slot-storage-layout) instance-layout
+              (primordial-slot-value class 'allocation-area) (first area)
+              (primordial-slot-value class 'sealed) (first sealed))))))
 
 (defun initialize-clos ()
   ;; Compute slot layouts for each class.

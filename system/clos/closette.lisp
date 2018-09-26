@@ -767,7 +767,9 @@ Other arguments are included directly."
          canonicalized-slot))
 
 (defun std-after-initialization-for-classes
-       (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
+    (class &key direct-superclasses direct-slots direct-default-initargs area sealed &allow-other-keys)
+  (check-type area (or null (cons symbol null)))
+  (check-type sealed (or null (cons boolean null)))
   (when (endp direct-superclasses)
     (setf direct-superclasses (default-direct-superclasses (class-of class))))
   (dolist (superclass direct-superclasses)
@@ -786,6 +788,8 @@ Other arguments are included directly."
       (dolist (writer (safe-slot-definition-writers direct-slot))
         (add-writer-method class writer direct-slot))))
   (setf (safe-class-direct-default-initargs class) direct-default-initargs)
+  (setf (std-slot-value class 'allocation-area) (first area))
+  (setf (std-slot-value class 'sealed) (first sealed))
   (maybe-finalize-inheritance class)
   (values))
 
@@ -894,7 +898,11 @@ Other arguments are included directly."
 
 (defun std-finalize-inheritance (class)
   (dolist (super (safe-class-direct-superclasses class))
-    (ensure-class-finalized super))
+    (ensure-class-finalized super)
+    (when (and (typep super 'std-class)
+               (std-slot-value super 'sealed))
+      (error "Superclass ~S of ~S is sealed and cannot be inherited from."
+             super class)))
   (setf (safe-class-precedence-list class) (compute-class-precedence-list class))
   (setf (safe-class-slots class) (compute-slots class))
   (setf (safe-class-default-initargs class) (compute-default-initargs class))
@@ -913,7 +921,7 @@ Other arguments are included directly."
                                                 (safe-slot-definition-location slot))
                                 maximize (1+ location))
                   :heap-layout t
-                  :area nil
+                  :area (std-slot-value class 'allocation-area)
                   :instance-slots instance-slot-vector)))
     (loop
        for i from 0 by 2
@@ -2736,8 +2744,8 @@ has only has class specializer."
   (print-unreadable-object (slot-definition stream :type t :identity t)
     (format stream "~S" (safe-slot-definition-name slot-definition))))
 
-(defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
-  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
+(defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
+  (declare (ignore direct-superclasses direct-slots direcet-default-initargs documentation))
   (apply #'std-after-initialization-for-classes class args))
 
 
@@ -3092,7 +3100,11 @@ has only has class specializer."
   (safe-map-dependents class (lambda (dep)
                                (apply #'update-dependent class dep args))))
 
-(defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation)
+(defmethod reinitialize-instance :before ((class std-class) &key)
+  (when (std-slot-value class 'sealed)
+    (error "Cannot reinitialize sealed classes.")))
+
+(defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
   (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
   (apply #'std-after-reinitialization-for-classes class args))
 
