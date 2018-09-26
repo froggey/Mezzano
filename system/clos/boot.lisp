@@ -203,7 +203,6 @@
    (methods :initform ())     ; :reader generic-function-methods
    (method-class              ; :reader generic-function-method-class
     :initarg :method-class)
-   (discriminating-function)
    (classes-to-emf-table
     :initform (make-hash-table :test #'equal))
    (relevant-arguments)

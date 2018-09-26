@@ -1118,11 +1118,6 @@ Other arguments are included directly."
 (defun (setf safe-generic-function-name) (value generic-function)
   (setf (std-slot-value generic-function 'name) value))
 
-(defun safe-generic-function-discriminating-function (generic-function)
-  (std-slot-value generic-function 'discriminating-function))
-(defun (setf safe-generic-function-discriminating-function) (value generic-function)
-  (setf (std-slot-value generic-function 'discriminating-function) value))
-
 (defun safe-generic-function-relevant-arguments (generic-function)
   (std-slot-value generic-function 'relevant-arguments))
 (defun (setf safe-generic-function-relevant-arguments) (value generic-function)
@@ -1347,12 +1342,12 @@ has only has class specializer."
                                         ((generic-function-unspecialized-dispatch-p gf)
                                          nil)
                                         (t (make-hash-table :test #'equal))))
-  (setf (safe-generic-function-discriminating-function gf)
-        (funcall (if (eq (class-of gf) *the-class-standard-gf*)
-                     #'std-compute-discriminating-function
-                     #'compute-discriminating-function)
-                 gf))
-  (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
+  (set-funcallable-instance-function
+   gf
+   (funcall (if (standard-generic-function-instance-p gf)
+                #'std-compute-discriminating-function
+                #'compute-discriminating-function)
+            gf))
   (values))
 
 ;;; make-instance-standard-generic-function creates and initializes an
@@ -1792,23 +1787,23 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
                 ;; Switch to reader-method.
-                (setf (safe-generic-function-discriminating-function gf)
-                      (compute-reader-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
+                (set-funcallable-instance-function
+                 gf
+                 (compute-reader-discriminator gf emf-table argument-offset))
                 (apply gf args))
                ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
                      (std-class-p (class-of class)))
                 ;; Switch to writer-method.
-                (setf (safe-generic-function-discriminating-function gf)
-                      (compute-writer-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
+                (set-funcallable-instance-function
+                 gf
+                 (compute-writer-discriminator gf emf-table argument-offset))
                 (apply gf args))
                (t ;; Switch to 1-effective.
-                (setf (safe-generic-function-discriminating-function gf)
-                      (compute-1-effective-discriminator gf emf-table argument-offset))
-                (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
+                (set-funcallable-instance-function
+                 gf
+                 (compute-1-effective-discriminator gf emf-table argument-offset))
                 (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args))))))))))
 
 (defun std-compute-discriminating-function (gf)
@@ -1819,10 +1814,11 @@ has only has class specializer."
              (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
             ((generic-function-unspecialized-dispatch-p gf)
              (slow-unspecialized-dispatch-method-lookup gf args))
-            (t (setf (safe-generic-function-discriminating-function gf)
-                     (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
-               (set-funcallable-instance-function gf (safe-generic-function-discriminating-function gf))
-               (apply gf args))))))
+            (t
+             (set-funcallable-instance-function
+              gf
+              (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
+             (apply gf args))))))
 
 (defun slow-method-lookup (gf args classes)
   (multiple-value-bind (applicable-methods validp)
@@ -1877,7 +1873,6 @@ has only has class specializer."
                         (std-compute-effective-method-function gf applicable-methods))
                        (t
                         (apply #'no-applicable-method gf args)))))
-    (setf (safe-generic-function-discriminating-function gf) emfun)
     (set-funcallable-instance-function gf emfun)
     (apply emfun args)))
 
