@@ -4,9 +4,12 @@
 (defpackage :mezzano.cold-generator.eval
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment))
-  (:export #:eval-toplevel #:eval-toplevel-list))
+  (:export #:eval-toplevel #:eval-toplevel-list
+           #:*ensure-class-handler*))
 
 (in-package :mezzano.cold-generator.eval)
+
+(defparameter *ensure-class-handler* nil)
 
 (defun fix-up-funcall-function (fn)
   ;; When creating a new deferred funcall form, the function object must
@@ -18,6 +21,11 @@
 (defun apply-toplevel (fn args env)
   (cond ((eql fn (env:translate-symbol env 'sys.int::%defun))
          (apply #'env:%defun env args))
+        ((eql fn (env:translate-symbol env 'list))
+         args)
+        ((and *ensure-class-handler*
+              (eql fn (env:translate-symbol env 'mezzano.clos:ensure-class)))
+         (apply *ensure-class-handler* env args))
         (t
          ;; Bail on everything else.
          (values nil `(funcall ,(fix-up-funcall-function fn)
@@ -26,6 +34,12 @@
 (defun eval-toplevel (form env)
   "Evaluate FORM in ENV for value.
 Only supports the compiled-file subset."
+  (when (symbolp form)
+    (cond ((or (keywordp form)
+               (member form '(nil t)))
+           (return-from eval-toplevel (values form nil)))
+          (t
+           (error "Cannot eval symbol ~S" form))))
   (ecase (first form)
     ((if)
      (multiple-value-bind (value deferred)

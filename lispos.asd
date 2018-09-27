@@ -94,6 +94,7 @@
                (:file "tools/cold-generator2/eval")
                (:file "tools/cold-generator2/serialize")
                (:file "tools/cold-generator2/write")
+               (:file "tools/cold-generator2/clos")
                (:file "tools/cold-generator2/cold-generator")
                (:file "tools/cold-generator2/x86-64")
                (:file "tools/cold-generator2/arm64")))

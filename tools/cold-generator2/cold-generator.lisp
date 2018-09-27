@@ -468,8 +468,9 @@
                        :initial-state :sleeping))
   (env:add-special environment nil nil)
   (env:add-special environment t t)
-  (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value))
+  (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value :tag :unbound-symbol))
   (configure-system-for-target environment (env:environment-target environment))
+  (configure-clos environment)
   (setf (env:cross-symbol-value environment
                             'sys.int::*structure-type-type*)
         (env:find-structure-definition

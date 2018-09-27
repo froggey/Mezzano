@@ -790,6 +790,8 @@ Other arguments are included directly."
   (setf (safe-class-direct-default-initargs class) direct-default-initargs)
   (setf (std-slot-value class 'allocation-area) (first area))
   (setf (std-slot-value class 'sealed) (first sealed))
+  (when (not (std-slot-boundp class 'hash))
+    (setf (std-slot-value class 'hash) (next-class-hash-value)))
   (maybe-finalize-inheritance class)
   (values))
 
@@ -2747,7 +2749,6 @@ has only has class specializer."
 (defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
   (declare (ignore direct-superclasses direct-slots direcet-default-initargs documentation))
   (apply #'std-after-initialization-for-classes class args))
-
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
 (defmethod reader-method-class ((class std-class) (direct-slot standard-direct-slot-definition) &rest initargs)

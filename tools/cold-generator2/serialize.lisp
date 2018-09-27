@@ -651,9 +651,8 @@ Must not call SERIALIZE-OBJECT."))
               (env:structure-definition-area sdef)
               sys.int::+tag-object+)))
 
-(defun initialize-instance-slot (instance-value slot-value slot index image environment)
-  (let* ((location (env:structure-slot-definition-location slot))
-         (loc-type (mezzano.runtime::location-type location)))
+(defun initialize-instance-slot-by-location (instance-value slot-value location index image environment)
+  (let ((loc-type (mezzano.runtime::location-type location)))
     (cond ((eql loc-type mezzano.runtime::+location-type-t+)
            (setf (object-slot image instance-value (+ (mezzano.runtime::location-offset-t location) index))
                  (serialize-object slot-value image environment)))
@@ -667,6 +666,14 @@ Must not call SERIALIZE-OBJECT."))
                (setf (ldb (byte loc-element-bit-size (* slot-offset loc-element-bit-size))
                           (object-slot image instance-value (/ slot-index loc-element-size)))
                      (ldb (byte 0 loc-element-bit-size) slot-value))))))))
+
+(defun initialize-instance-slot (instance-value slot-value slot index image environment)
+  (initialize-instance-slot-by-location instance-value
+                                        slot-value
+                                        (env:structure-slot-definition-location slot)
+                                        index
+                                        image
+                                        environment))
 
 (defmethod initialize-object ((object env:instance-object) value image environment)
   (let ((sdef (env:instance-structure-definition object)))
@@ -707,6 +714,53 @@ Must not call SERIALIZE-OBJECT."))
   (setf (object-cdr image value)
         (serialize-object (env:stack-size object)
                           image environment)))
+
+(defmethod allocate-object ((object sys.int::layout) image environment)
+  (let ((layout-sdef (env:find-structure-definition
+                      environment
+                      (env:translate-symbol environment 'sys.int::layout))))
+    (allocate (1+ (env:structure-definition-size layout-sdef))
+              image :wired sys.int::+tag-object+)))
+
+(defmethod initialize-object ((object sys.int::layout) value image environment)
+  (let ((layout-sdef (env:find-structure-definition
+                      environment
+                      (env:translate-symbol environment 'sys.int::layout))))
+    (initialize-instance-header image environment value 'sys.int::layout)
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::class)
+          (serialize-object (sys.int::layout-class object) image environment))
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::obsolete)
+          (serialize-object (sys.int::layout-obsolete object) image environment))
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::heap-size)
+          (serialize-object (sys.int::layout-heap-size object) image environment))
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::heap-layout)
+          (serialize-object (sys.int::layout-heap-layout object) image environment))
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::area)
+          (serialize-object (sys.int::layout-area object) image environment))
+    (setf (object-slot-by-name image environment layout-sdef value 'sys.int::instance-slots)
+          (serialize-object (sys.int::layout-instance-slots object) image environment))))
+
+(defmethod allocate-object ((object env:cross-class-instance) image environment)
+  (let ((layout (env:cross-class-instance-layout object)))
+    (allocate (1+ (sys.int::layout-heap-size layout))
+              image
+              (or (sys.int::layout-area layout) :general)
+              sys.int::+tag-object+)))
+
+(defmethod initialize-object ((object env:cross-class-instance) value image environment)
+  (let ((layout (env:cross-class-instance-layout object)))
+    (initialize-object-header image value sys.int::+object-tag-instance+
+                              (serialize-object layout image environment))
+    (loop
+       for i below (length (sys.int::layout-instance-slots layout)) by 2
+       for slot-name = (svref (sys.int::layout-instance-slots layout) i)
+       for slot-location = (svref (sys.int::layout-instance-slots layout) (1+ i))
+       do (initialize-instance-slot-by-location value
+                                                (if (env:cross-class-instance-slot-boundp object slot-name)
+                                                    (env:cross-class-instance-slot-value object slot-name)
+                                                    (env:find-special environment :unbound-slot-value))
+                                                slot-location 0
+                                                image environment))))
 
 (defun image-symbol-value (image environment symbol)
   (let ((cell (serialize-object

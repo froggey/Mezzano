@@ -83,6 +83,12 @@
            #:stack
            #:stack-size
            #:set-object-graph-area
+           #:cross-class-instance
+           #:cross-class-instance-layout
+           #:cross-class-instance-slots
+           #:allocate-cross-class-instance
+           #:cross-class-instance-slot-value
+           #:cross-class-instance-slot-boundp
 ))
 
 (in-package :mezzano.cold-generator.environment)
@@ -586,3 +592,32 @@
                   (visit (cdr object)))
                   )))
       (visit root))))
+
+(defclass cross-class-instance ()
+  ((%layout :initarg :layout :reader cross-class-instance-layout)
+   (%slots :initarg :slots :reader cross-class-instance-slots)))
+
+(defun allocate-cross-class-instance (layout)
+  (make-instance 'cross-class-instance
+                 :layout layout
+                 :slots (cl:make-array (/ (length (sys.int::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%)))
+
+(defun cross-class-instance-slot-location (object slot-name)
+  (let ((layout (cross-class-instance-layout object)))
+    (/ (or (position slot-name (sys.int::layout-instance-slots layout))
+           (error "Slot ~S missing from the object ~S" slot-name object))
+       2)))
+
+(defun cross-class-instance-slot-value (object slot-name)
+  (let ((value (svref (cross-class-instance-slots object) (cross-class-instance-slot-location object slot-name))))
+    (when (eql value '%unbound-marker%)
+      (error "Slot ~S unbound in the object ~S." slot-name object))
+    value))
+
+(defun (setf cross-class-instance-slot-value) (value object slot-name)
+  (setf (svref (cross-class-instance-slots object) (cross-class-instance-slot-location object slot-name))
+        value))
+
+(defun cross-class-instance-slot-boundp (object slot-name)
+  (not (eql (svref (cross-class-instance-slots object) (cross-class-instance-slot-location object slot-name))
+            '%unbound-marker%)))
