@@ -4,8 +4,7 @@
 (defpackage :mezzano.cold-generator.clos
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:eval #:mezzano.cold-generator.eval)
-                    (#:comp #:mezzano.cold-generator.compile))
+                    (#:eval #:mezzano.cold-generator.eval))
   (:export #:configure-clos))
 
 (in-package :mezzano.cold-generator.clos)
@@ -350,13 +349,14 @@
             (primordial-slot-value real-class (env:translate-symbol environment 'mezzano.clos::sealed)) (first sealed)
             (primordial-slot-value real-class (env:translate-symbol environment 'mezzano.clos::hash)) hash))))
 
-(defun configure-clos (environment)
+(defun configure-clos (environment load-source-file)
   (let* ((*primordial-class-table* (make-hash-table))
          (eval:*ensure-class-handler* #'primordial-ensure-class)
-         (forms (comp:load-source-file environment
-                                       "tools/cold-generator2/class-definitions.lisp"
-                                       :package :mezzano.clos
-                                       :eval t)))
+         (forms (funcall load-source-file ; hack, need to sort out how files are compiled
+                         environment
+                         "tools/cold-generator2/class-definitions.lisp"
+                         :package :mezzano.clos
+                         :eval t)))
     (assert (endp forms) () "Failed to load class definitions")
     ;; Compute slot layouts for each class.
     (maphash (lambda (name def)

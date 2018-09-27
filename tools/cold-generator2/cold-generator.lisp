@@ -9,7 +9,8 @@
                     (#:eval #:mezzano.cold-generator.eval)
                     (#:ser #:mezzano.cold-generator.serialize)
                     (#:write #:mezzano.cold-generator.write)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:clos #:mezzano.cold-generator.clos))
   (:export #:make-image
            #:set-up-cross-compiler))
 
@@ -470,7 +471,7 @@
   (env:add-special environment t t)
   (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value :tag :unbound-symbol))
   (configure-system-for-target environment (env:environment-target environment))
-  (configure-clos environment)
+  (clos:configure-clos environment #'load-source-file)
   (setf (env:cross-symbol-value environment
                             'sys.int::*structure-type-type*)
         (env:find-structure-definition
