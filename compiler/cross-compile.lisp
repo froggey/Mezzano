@@ -1202,6 +1202,10 @@
   (values (gethash name cross-support::*inline-modes*)
           (gethash name cross-support::*inline-forms*)))
 
+(defun sys.int::convert-structure-class-to-structure-definition (def)
+  (check-type def sys.int::structure-definition)
+  def)
+
 (defgeneric mezzano.clos:class-sealed (class)
   (:method ((class sys.int::structure-definition))
     (sys.int::structure-definition-sealed class)))

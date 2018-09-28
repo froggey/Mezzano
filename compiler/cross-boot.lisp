@@ -195,7 +195,8 @@
 
 (defun sys.int::%defstruct (def)
   (when (gethash (sys.int::structure-definition-name def) *structure-types*)
-    (assert (eql (gethash (sys.int::structure-definition-name def) *structure-types*) def)))
+    ;; FIXME: Check compatibility here.
+    (return-from sys.int::%defstruct def))
   (unless (member (sys.int::structure-definition-name def)
                   '(sys.int::structure-definition
                     sys.int::structure-slot-definition
@@ -236,7 +237,9 @@
                       (sys.int::structure-definition-parent object-type)))
         ((not (sys.int::structure-definition-p object-type))
          nil)
-      (when (eq object-type struct-type)
+      ;; Work by name as defstruct isn't unifying struct definitions any more.
+      (when (eq (sys.int::structure-definition-name object-type)
+                (sys.int::structure-definition-name struct-type))
         (return t)))))
 
 (defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))

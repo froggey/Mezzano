@@ -8,8 +8,7 @@
                   *additional-cold-toplevel-forms*
                   *initial-obarray*
                   *initial-keyword-obarray*
-                  *initial-fref-obarray*
-                  *initial-structure-obarray*)
+                  *initial-fref-obarray*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
@@ -299,7 +298,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*additional-cold-toplevel-forms*)
   (makunbound '*cold-toplevel-forms*)
   (makunbound '*initial-fref-obarray*)
-  (makunbound '*initial-structure-obarray*)
   (write-line "First GC.")
   (room)
   (gc :full t)

@@ -430,14 +430,14 @@
                                   print-object print-function print-object-specializer
                                   slot-offsets sealed)
   (let* ((included-structure (when included-structure-name
-                               (get-structure-type included-structure-name))))
+                               (convert-structure-class-to-structure-definition
+                                (get-structure-type included-structure-name)))))
     (multiple-value-bind (slots layout size)
         (compute-defstruct-slots conc-name
-                                         slot-descriptions
-                                         included-structure
-                                         included-slot-descriptions)
-      (let ((struct-type (or (get-structure-type name nil)
-                             (make-struct-definition name slots included-structure area size layout sealed))))
+                                 slot-descriptions
+                                 included-structure
+                                 included-slot-descriptions)
+      (let ((struct-type (make-struct-definition name slots included-structure area size layout sealed)))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))
