@@ -89,6 +89,7 @@
            #:allocate-cross-class-instance
            #:cross-class-instance-slot-value
            #:cross-class-instance-slot-boundp
+           #:find-environment-class
 ))
 
 (in-package :mezzano.cold-generator.environment)
@@ -130,6 +131,8 @@
                            :reader environment-structure-definition-table)
    ;; Special named values.
    (%specials :initform (make-hash-table) :reader environment-specials)
+   ;; Class table.
+   (%class-table :initform (make-hash-table) :reader environment-class-table)
    ))
 
 (defun add-special (environment name value)
@@ -597,10 +600,13 @@
   ((%layout :initarg :layout :reader cross-class-instance-layout)
    (%slots :initarg :slots :reader cross-class-instance-slots)))
 
-(defun allocate-cross-class-instance (layout)
-  (make-instance 'cross-class-instance
-                 :layout layout
-                 :slots (cl:make-array (/ (length (sys.int::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%)))
+(defun allocate-cross-class-instance (environment layout)
+  (let ((instance (make-instance 'cross-class-instance
+                                 :layout layout
+                                 :slots (cl:make-array (/ (length (sys.int::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%))))
+    (setf (gethash instance (environment-object-area-table environment))
+          (sys.int::layout-area layout))
+    instance))
 
 (defun cross-class-instance-slot-location (object slot-name)
   (let ((layout (cross-class-instance-layout object)))
@@ -621,3 +627,14 @@
 (defun cross-class-instance-slot-boundp (object slot-name)
   (not (eql (svref (cross-class-instance-slots object) (cross-class-instance-slot-location object slot-name))
             '%unbound-marker%)))
+
+(defun find-environment-class (environment symbol &optional (errorp t))
+  (check-type symbol symbol)
+  (or (gethash symbol (environment-class-table environment))
+      (and errorp
+           (error "Missing class ~S" symbol))))
+
+(defun (setf find-environment-class) (value environment symbol &optional (errorp t))
+  (declare (ignore errorp))
+  (check-type symbol symbol)
+  (setf (gethash symbol (environment-class-table environment)) value))

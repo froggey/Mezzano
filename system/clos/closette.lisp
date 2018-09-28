@@ -38,10 +38,6 @@
 ;;; Standard instances
 ;;;
 
-(defun print-std-instance (instance stream depth)
-  (declare (ignore depth))
-  (print-object instance stream))
-
 ;;; Standard instance allocation
 
 (defun instance-slot-p (slot)
@@ -2272,6 +2268,18 @@ has only has class specializer."
     (when (not (slot-boundp class 'prototype))
       (setf (slot-value class 'prototype) (allocate-instance class)))
     (slot-value class 'prototype)))
+(defgeneric class-sealed (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'sealed)))
+(defgeneric class-allocation-area (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'allocation-area)))
+(defgeneric class-layout (class)
+  (:method ((class clos-class))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value class 'slot-storage-layout)))
 
 ;;; Slot definition metaobject readers
 
@@ -2929,8 +2937,41 @@ has only has class specializer."
 
 ;;; Structure-class.
 
-(defclass structure-class (clos-class)
-  ((structure-definition :initarg :definition)))
+(defmethod slot-definition-allocation ((slot-definition structure-slot-definition))
+  :instance)
+(defmethod slot-definition-initargs ((slot-definition structure-slot-definition))
+  '())
+(defmethod slot-definition-initform ((slot-definition structure-slot-definition))
+  (declare (notinline slot-value)) ; bootstrap hack
+  (slot-value slot-definition 'initform))
+(defmethod slot-definition-initfunction ((slot-definition structure-slot-definition))
+  nil)
+(defmethod slot-definition-name ((slot-definition structure-slot-definition))
+  (declare (notinline slot-value)) ; bootstrap hack
+  (slot-value slot-definition 'name))
+(defmethod slot-definition-type ((slot-definition structure-slot-definition))
+  (declare (notinline slot-value)) ; bootstrap hack
+  (slot-value slot-definition 'type))
+(defmethod slot-definition-readers ((direct-slot-definition structure-direct-slot-definition))
+  '())
+(defmethod slot-definition-writers ((direct-slot-definition structure-direct-slot-definition))
+  '())
+(defmethod slot-definition-location ((effective-slot-definition structure-effective-slot-definition))
+  (declare (notinline slot-value)) ; bootstrap hack
+  (slot-value effective-slot-definition 'location))
+
+(defgeneric structure-slot-definition-read-only (slot-definition)
+  (:method ((slot-definition structure-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'read-only)))
+(defgeneric structure-slot-definition-fixed-vector (slot-definition)
+  (:method ((slot-definition structure-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'fixed-vector)))
+(defgeneric structure-slot-definition-align (slot-definition)
+  (:method ((slot-definition structure-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'align)))
 
 (defmethod allocate-instance ((class structure-class) &rest initargs)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
@@ -3005,10 +3046,6 @@ has only has class specializer."
 
 (defmethod compute-default-initargs ((class structure-class))
   (std-compute-default-initargs class))
-
-(defclass structure-object (t)
-  ()
-  (:metaclass structure-class))
 
 ;;; eql specializers.
 

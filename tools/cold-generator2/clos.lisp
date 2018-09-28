@@ -73,7 +73,7 @@
 
 (defun primordial-make-instance (environment class-name &rest initargs)
   (let* ((layout (getf (gethash class-name *primordial-class-table*) :instance-layout))
-         (instance (env:allocate-cross-class-instance layout)))
+         (instance (env:allocate-cross-class-instance environment layout)))
     (apply #'primordial-initialize-instance environment class-name instance initargs)
     instance))
 
@@ -125,24 +125,41 @@
         (setf layout (make-array (length layout) :initial-contents layout))
         (setf (getf (gethash class-name *primordial-class-table*) :layout) layout)
         ;; Built-in classes don't have layouts.
-        (when (not (eql metaclass (env:translate-symbol environment 'mezzano.clos::built-in-class)))
-          (let* ((funcallable-offset (if (eql metaclass (env:translate-symbol environment 'mezzano.clos::funcallable-standard-class))
-                                         2 ; Skip the first two slots of funcallable instances, used for the function & entry point
-                                         0))
-                 (instance-slots (env:make-array environment (* (length layout) 2) :area :wired)))
-            (loop
-               for slot-index from (* funcallable-offset 8) by 8
-               for i from 0 by 2
-               for slot-name across layout
-               do (setf (aref instance-slots i) slot-name
-                        (aref instance-slots (1+ i)) (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ slot-index)))
-            (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
-                  (sys.int::make-layout :class nil ; Fixed up later.
-                                        :obsolete nil
-                                        :heap-size (+ funcallable-offset (length layout))
-                                        :heap-layout t
-                                        :area (first (getf (gethash class-name *primordial-class-table*) :area))
-                                        :instance-slots instance-slots))))))
+        (cond ((or (eql metaclass (env:translate-symbol environment 'mezzano.clos:standard-class))
+                   (eql metaclass (env:translate-symbol environment 'mezzano.clos:funcallable-standard-class)))
+               (let* ((funcallable-offset (if (eql metaclass (env:translate-symbol environment 'mezzano.clos::funcallable-standard-class))
+                                              2 ; Skip the first two slots of funcallable instances, used for the function & entry point
+                                              0))
+                      (instance-slots (env:make-array environment (* (length layout) 2) :area :wired)))
+                 (loop
+                    for slot-index from (* funcallable-offset 8) by 8
+                    for i from 0 by 2
+                    for slot-name across layout
+                    do (setf (aref instance-slots i) slot-name
+                             (aref instance-slots (1+ i)) (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ slot-index)))
+                 (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
+                       (sys.int::make-layout :class nil ; Fixed up later.
+                                             :obsolete nil
+                                             :heap-size (+ funcallable-offset (length layout))
+                                             :heap-layout t
+                                             :area (first (getf initargs :area))
+                                             :instance-slots instance-slots))))
+              ((eql metaclass (env:translate-symbol environment 'structure-class))
+               ;; Hacks for structure-object, which has no associated structure-definition.
+               (let* ((sdef (getf initargs :structure-definition))
+                      (instance-slots (env:make-array environment (if sdef (* (length (env:structure-definition-slots sdef)) 2) 0))))
+                 (loop
+                    for slot in (if sdef (env:structure-definition-slots sdef) '())
+                    for i from 0 by 2
+                    do (setf (aref instance-slots i) (env:structure-slot-definition-name slot)
+                             (aref instance-slots (1+ i)) (env:structure-slot-definition-location slot)))
+                 (setf (getf (gethash class-name *primordial-class-table*) :instance-layout)
+                       (sys.int::make-layout :class nil ; Fixed up later.
+                                             :obsolete nil
+                                             :heap-size (getf initargs :structure-heap-size)
+                                             :heap-layout (getf initargs :structure-heap-layout)
+                                             :area (first (getf initargs :area))
+                                             :instance-slots instance-slots)))))))
     layout))
 
 ;;; topological-sort implements the standard algorithm for topologically
@@ -221,27 +238,46 @@
                         (primordial-tie-breaker-rule environment minimal-elements cpl-so-far)))))
 
 (defun primordial-compute-effective-slot-definition (environment class direct-slots)
-  (declare (ignore class))
-  (let ((initer (find-if-not #'null direct-slots
-                             :key (lambda (def) (primordial-slot-value def (env:translate-symbol environment 'mezzano.clos::initfunction))))))
-    (primordial-make-instance environment
-                              (env:translate-symbol environment 'mezzano.clos::standard-effective-slot-definition)
-                              :name (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::name))
-                              :initform (if initer
-                                            (primordial-slot-value initer (env:translate-symbol environment 'mezzano.clos::initform))
-                                            nil)
-                              :initfunction (if initer
-                                                (primordial-slot-value initer (env:translate-symbol environment 'mezzano.clos::initfunction))
-                                                nil)
-                              ;; TODO: Should make sure type is consistent across direct slots.
-                              :type (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::type))
-                              :initargs (remove-duplicates
-                                         (loop
-                                            for direct-slot in direct-slots
-                                            append (primordial-slot-value direct-slot (env:translate-symbol environment 'mezzano.clos::initargs))))
-                              ;; TODO: Should make sure allocation is consistent across direct slots.
-                              :allocation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::allocation))
-                              :documentation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::documentation)))))
+  (let ((metaclass (primordial-slot-value (sys.int::layout-class (env:cross-class-instance-layout class))
+                                          (env:translate-symbol environment 'mezzano.clos::name))))
+    (cond ((eql metaclass 'structure-class)
+           (let* ((class-name (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name)))
+                  (class-initargs (gethash class-name *primordial-class-table*))
+                  (sdef (getf class-initargs :structure-definition))
+                  (slot-def (find (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::name))
+                                  (env:structure-definition-slots sdef)
+                                  :key #'env:structure-slot-definition-name)))
+             (primordial-make-instance environment
+                                       (env:translate-symbol environment 'mezzano.clos::structure-effective-slot-definition)
+                                       :name (env:structure-slot-definition-name slot-def)
+                                       :initform (env:structure-slot-definition-initform slot-def)
+                                       :type (env:structure-slot-definition-type slot-def)
+                                       :read-only (env:structure-slot-definition-read-only slot-def)
+                                       :fixed-vector (env:structure-slot-definition-fixed-vector slot-def)
+                                       :align (env:structure-slot-definition-align slot-def)
+                                       :location (env:structure-slot-definition-location slot-def)
+                                       :documentation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::documentation)))))
+          (t
+           (let ((initer (find-if-not #'null direct-slots
+                                      :key (lambda (def) (primordial-slot-value def (env:translate-symbol environment 'mezzano.clos::initfunction))))))
+             (primordial-make-instance environment
+                                       (env:translate-symbol environment 'mezzano.clos::standard-effective-slot-definition)
+                                       :name (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::name))
+                                       :initform (if initer
+                                                     (primordial-slot-value initer (env:translate-symbol environment 'mezzano.clos::initform))
+                                                     nil)
+                                       :initfunction (if initer
+                                                         (primordial-slot-value initer (env:translate-symbol environment 'mezzano.clos::initfunction))
+                                                         nil)
+                                       ;; TODO: Should make sure type is consistent across direct slots.
+                                       :type (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::type))
+                                       :initargs (remove-duplicates
+                                                  (loop
+                                                     for direct-slot in direct-slots
+                                                     append (primordial-slot-value direct-slot (env:translate-symbol environment 'mezzano.clos::initargs))))
+                                       ;; TODO: Should make sure allocation is consistent across direct slots.
+                                       :allocation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::allocation))
+                                       :documentation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::documentation))))))))
 
 (defun primordial-compute-slots (environment class)
   (let* ((all-slots (loop
@@ -258,17 +294,18 @@
                                              :test-not #'eq)))
                                   all-names))
          (metaclass (primordial-slot-value (primordial-class-of class) (env:translate-symbol environment 'mezzano.clos::name))))
-    (loop
-       with next-instance-slot-index = (if (eql metaclass (env:translate-symbol environment 'mezzano.clos:funcallable-standard-class))
-                                           16 ; Skip the first two slots of funcallable instances, used for the function & entry point
-                                           0)
-       for slot in effective-slots
-       do
-         (when (not (eql (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
-           (error "Non-instances slots not supported"))
-         (setf (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::location))
-               (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ next-instance-slot-index))
-         (incf next-instance-slot-index 8))
+    (when (not (eql metaclass 'structure-class))
+      (loop
+         with next-instance-slot-index = (if (eql metaclass (env:translate-symbol environment 'mezzano.clos:funcallable-standard-class))
+                                             16 ; Skip the first two slots of funcallable instances, used for the function & entry point
+                                             0)
+         for slot in effective-slots
+         do
+           (when (not (eql (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
+             (error "Non-instances slots not supported"))
+           (setf (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::location))
+                 (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ next-instance-slot-index))
+           (incf next-instance-slot-index 8)))
     effective-slots))
 
 (defun primordial-compute-default-initargs (environment class)
@@ -294,47 +331,61 @@
     ;;(format t "  Slots: ~:S~%" (mapcar (lambda (x) (primordial-slot-value x 'name)) (primordial-slot-value class 'effective-slots)))
     (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::default-initargs))
           (primordial-compute-default-initargs environment class))
-    (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
-                                         (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::effective-slots))))
-          (layout (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::slot-storage-layout))))
-      ;; Check that the early layout and computed layout match up.
-      (cond (layout
-             (assert (eql (length instance-slots) (/ (length (sys.int::layout-instance-slots layout)) 2)))
-             (loop
-                for slot-definition in instance-slots
-                for slot-name = (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::name))
-                for slot-location = (primordial-slot-location-in-layout layout slot-name)
-                do
-                  (when (not (eql (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::location)) slot-location))
-                    (error "Instance slots and computed early layout mismatch in class ~S."
-                           (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name))))))
-            (t
-             (assert (endp instance-slots)))))
+    (cond ((eql (primordial-slot-value (primordial-class-of class) (env:translate-symbol environment 'mezzano.clos::name)) 'structure-class)
+           (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent))
+                 (if (eql (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name)) 'structure-object)
+                     nil
+                     (second (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list))))))
+          (t
+           (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
+                                                (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::effective-slots))))
+                 (layout (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::slot-storage-layout))))
+             ;; Check that the early layout and computed layout match up.
+             (cond (layout
+                    (assert (eql (length instance-slots) (/ (length (sys.int::layout-instance-slots layout)) 2)))
+                    (loop
+                       for slot-definition in instance-slots
+                       for slot-name = (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::name))
+                       for slot-location = (primordial-slot-location-in-layout layout slot-name)
+                       do
+                         (when (not (eql (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::location)) slot-location))
+                           (error "Instance slots and computed early layout mismatch in class ~S."
+                                  (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name))))))
+                   (t
+                    (assert (endp instance-slots)))))))
     (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::finalized-p)) t)))
 
-(defun convert-primordial-direct-slot (environment direct-slot-definition)
+(defun convert-primordial-direct-slot (environment metaclass direct-slot-definition)
   (apply #'primordial-make-instance
          environment
-         (env:translate-symbol environment 'mezzano.clos:standard-direct-slot-definition)
+         (if (eql metaclass (env:translate-symbol environment 'structure-class))
+             (env:translate-symbol environment 'mezzano.clos::structure-direct-slot-definition)
+             (env:translate-symbol environment 'mezzano.clos:standard-direct-slot-definition))
          direct-slot-definition))
 
 (defun convert-primordial-class (environment class-name)
-  (destructuring-bind (&key real-class name hash metaclass direct-superclasses direct-slots direct-default-initargs layout instance-layout area sealed)
+  (destructuring-bind (&key real-class name hash metaclass direct-superclasses
+                            direct-slots direct-default-initargs layout
+                            instance-layout area sealed
+                            structure-heap-layout structure-heap-size
+                            structure-definition)
       (gethash class-name *primordial-class-table*)
-    (declare (ignore layout))
+    (declare (ignore layout
+                     structure-heap-layout structure-heap-size
+                     structure-definition))
     (check-type area (or null (cons symbol null)))
     (check-type sealed (or null (cons boolean null)))
-    #|
+#|
     (format t "Converting class ~S~%" name)
     (format t "  Metaclass: ~S~%" metaclass)
     (format t "  Direct-Superclasses: ~:S~%" direct-superclasses)
     (format t "  Direct-Slots: ~:S~%" direct-slots)
     (format t "  Direct-Default-Initargs: ~:S~%" direct-default-initargs)
     ;(format t "  Layout: ~:S~%" layout)
-    |#
+|#
     (let ((converted-direct-slots (loop
                                      for direct-slot in direct-slots
-                                     collect (convert-primordial-direct-slot environment direct-slot))))
+                                     collect (convert-primordial-direct-slot environment metaclass direct-slot))))
       (primordial-initialize-instance environment
                                       metaclass
                                       real-class
@@ -349,6 +400,39 @@
             (primordial-slot-value real-class (env:translate-symbol environment 'mezzano.clos::sealed)) (first sealed)
             (primordial-slot-value real-class (env:translate-symbol environment 'mezzano.clos::hash)) hash))))
 
+(defun convert-sdef (environment sdef)
+  (declare (ignore environment))
+  (let ((name (env:structure-definition-name sdef)))
+    (setf (gethash name *primordial-class-table*)
+          (list :name name
+                :hash (1+ (hash-table-count *primordial-class-table*))
+                :metaclass 'structure-class
+                :area (list (env:structure-definition-area sdef))
+                :sealed (list (env:structure-definition-sealed sdef))
+                :structure-heap-layout (env:structure-definition-layout sdef)
+                :structure-heap-size (env:structure-definition-size sdef)
+                :structure-definition sdef
+                :direct-superclasses (list
+                                      (cond ((env:structure-definition-parent sdef)
+                                             (env:structure-definition-name (env:structure-definition-parent sdef)))
+                                            (t
+                                             'structure-object)))
+                :direct-slots (loop
+                                 for slot in (remove-if (lambda (slot)
+                                                          (and (env:structure-definition-parent sdef)
+                                                               (find (env:structure-slot-definition-name slot)
+                                                                     (env:structure-definition-slots (env:structure-definition-parent sdef))
+                                                                     :key 'env:structure-slot-definition-name)))
+                                                        (env:structure-definition-slots sdef))
+                                 collect (list :name (env:structure-slot-definition-name slot)
+                                               :type (env:structure-slot-definition-type slot)
+                                               :read-only (env:structure-slot-definition-read-only slot)
+                                               :structure-slot-location (env:structure-slot-definition-location slot)
+                                               ;; FIXME: Need to include an initfunction
+                                               :initform (env:structure-slot-definition-initform slot)
+                                               :fixed-vector (env:structure-slot-definition-fixed-vector slot)
+                                               :align (env:structure-slot-definition-align slot)))))))
+
 (defun configure-clos (environment load-source-file)
   (let* ((*primordial-class-table* (make-hash-table))
          (eval:*ensure-class-handler* #'primordial-ensure-class)
@@ -358,6 +442,9 @@
                          :package :mezzano.clos
                          :eval t)))
     (assert (endp forms) () "Failed to load class definitions")
+    ;; Register structure definitions as primordial classes too.
+    (env:do-all-environment-structs (sdef environment)
+      (convert-sdef environment sdef))
     ;; Compute slot layouts for each class.
     (maphash (lambda (name def)
                (declare (ignore def))
@@ -370,14 +457,13 @@
                       (mc (gethash mc-name *primordial-class-table*))
                       (mc-layout (getf mc :instance-layout)))
                  (setf (getf (gethash name *primordial-class-table*) :real-class)
-                       (env:allocate-cross-class-instance mc-layout))))
+                       (env:allocate-cross-class-instance environment mc-layout))))
              *primordial-class-table*)
     ;; Instance layouts can now be properly associated with their classes.
     (maphash (lambda (name def)
                (declare (ignore name))
                (let ((layout (getf def :instance-layout)))
                  (when layout
-                   ;; The class slot of LAYOUT is read-only, hack around it...
                    (setf (sys.int::layout-class layout)
                          (getf def :real-class)))))
              *primordial-class-table*)
@@ -394,12 +480,19 @@
                (declare (ignore name))
                (finalize-primordial-class environment (getf def :real-class)))
              *primordial-class-table*)
+    ;; Add classes to the environment's class table.
+    (maphash (lambda (name def)
+               (setf (env:find-environment-class environment name) (getf def :real-class)))
+             *primordial-class-table*)
     ;; Save the initial class table.
     (let ((class-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
       (maphash (lambda (name def)
                  (vector-push-extend (cons name (getf def :real-class)) class-table))
                *primordial-class-table*)
       (setf (env:cross-symbol-value environment 'mezzano.clos::*initial-class-table*) class-table))
+    (setf (env:cross-symbol-value environment 'mezzano.runtime::*structure-class-layout*)
+          (primordial-slot-value (env:find-environment-class environment 'structure-class)
+                                 (env:translate-symbol environment 'mezzano.clos::slot-storage-layout)))
     (let ((unbound (env:make-structure environment 'mezzano.runtime::unbound-value :tag :unbound-slot)))
       (setf (env:cross-symbol-value environment 'mezzano.clos::*secret-unbound-value*)
             unbound)

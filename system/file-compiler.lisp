@@ -286,6 +286,35 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          (save-character (code-char (char-code object)) stream)
          (save-integer (char-bits object) stream))))
 
+(defun convert-structure-class-to-structure-definition (class)
+  (make-struct-definition
+   (class-name class)
+   (loop
+      for slot in (mezzano.clos:class-slots class)
+      collect (make-struct-slot-definition
+               (mezzano.clos:slot-definition-name slot)
+               nil
+               (mezzano.clos:slot-definition-initform slot)
+               (mezzano.clos:slot-definition-type slot)
+               (mezzano.clos:structure-slot-definition-read-only slot)
+               (mezzano.clos:slot-definition-location slot)
+               (mezzano.clos:structure-slot-definition-fixed-vector slot)
+               (mezzano.clos:structure-slot-definition-align slot)))
+   (if (eql class (find-class 'structure-object))
+       nil
+       (let ((parent (second (mezzano.clos:class-precedence-list class))))
+         (if (eql parent (find-class 'structure-object))
+             nil
+             parent)))
+   (mezzano.clos:class-allocation-area class)
+   (layout-heap-size (mezzano.clos:class-layout class))
+   (layout-heap-layout (mezzano.clos:class-layout class))
+   (mezzano.clos:class-sealed class)))
+
+(defmethod save-one-object ((object structure-class) omap stream)
+  (save-one-object (convert-structure-class-to-structure-definition object)
+                   omap stream))
+
 (defmethod save-one-object ((object structure-definition) omap stream)
   (save-object (structure-definition-name object) omap stream)
   (save-object (structure-definition-slots object) omap stream)

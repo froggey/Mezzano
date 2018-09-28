@@ -113,9 +113,33 @@
 
 (defclass built-in-class (clos-class) ())
 
-(defclass std-class (clos-class) ())
+(defclass instance-class (clos-class) ())
+
+(defclass std-class (instance-class) ())
 (defclass standard-class (std-class) ())
 (defclass funcallable-standard-class (std-class) ())
+
+(defclass structure-class (instance-class)
+  ((parent))
+  (:area :wired)
+  (:sealed t))
+
+(defclass structure-slot-definition (slot-definition)
+  ((name :initform nil :initarg :name)
+   (type :initform 't :initarg :type)
+   (read-only :initform nil :initarg :read-only)
+   (initform :initform nil :initarg :initform)
+   (fixed-vector :initform nil :initarg :fixed-vector)
+   (align :initform nil :initarg :align)
+   (documentation :initform nil :initarg :documentation)))
+
+(defclass structure-direct-slot-definition (structure-slot-definition direct-slot-definition)
+  ())
+
+(defclass structure-effective-slot-definition (structure-slot-definition effective-slot-definition)
+  ((location :initarg :location)))
+
+(defclass structure-object (t) () (:metaclass structure-class))
 
 (defclass function (t) () (:metaclass built-in-class))
 (defclass compiled-function (function) () (:metaclass built-in-class))

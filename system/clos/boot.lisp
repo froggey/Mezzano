@@ -14,7 +14,7 @@
 ;;; Primordial class objects installed in the class table during boot will
 ;;; be converted in-place to real classes after boot.
 
-(sys.int::defglobal *class-reference-table* (make-hash-table :test #'eq))
+(sys.int::defglobal *class-reference-table*)
 
 (defstruct class-reference
   name
@@ -39,15 +39,9 @@
       whole))
 
 (defun find-class-in-reference (reference &optional (errorp t))
-  (let ((class (class-reference-class reference))
-        (symbol (class-reference-name reference)))
-    (when (not class)
-      (let ((struct (sys.int::get-structure-type symbol nil)))
-        (when struct
-          (setf class (class-of-structure-definition struct)))))
-    (if (and (null class) errorp)
-        (error "No class named ~S." symbol)
-        class)))
+  (or (class-reference-class reference)
+      (and errorp
+           (error "No class named ~S." (class-reference-name reference)))))
 
 (defun find-class (symbol &optional (errorp t) environment)
   (declare (ignore environment))
@@ -125,10 +119,6 @@
        (error "Slot ~S missing from ~S?" slot-name object))))
 
 (defun initialize-clos ()
-  ;; Put initial classes into the class table.
-  (loop
-     for (name . class) across *initial-class-table*
-     do (setf (find-class name) class))
   ;; Known important classes.
   (setf *the-class-standard-class* (find-class 'standard-class)
         *the-class-funcallable-standard-class* (find-class 'funcallable-standard-class)
@@ -157,5 +147,3 @@
     (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
     (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
           *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
-
-(initialize-clos)

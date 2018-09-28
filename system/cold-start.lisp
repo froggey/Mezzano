@@ -252,13 +252,11 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *hash-table-unbound-value* (list "unbound hash-table entry")
         *hash-table-tombstone* (list "hash-table tombstone")
         *deferred-%defpackage-calls* '())
-  ;; Wire up all the structure types.
-  (setf mezzano.runtime::*structure-types* (make-hash-table))
-  (%defstruct sys.int::*structure-type-type*)
-  (%defstruct sys.int::*structure-slot-type*)
-  (dotimes (i (length *initial-structure-obarray*))
-    (let ((defn (svref *initial-structure-obarray* i)))
-      (%defstruct defn)))
+  ;; Put initial classes into the class table.
+  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq))
+  (loop
+     for (name . class) across mezzano.clos::*initial-class-table*
+     do (setf (find-class name) class))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.
   (setf *setf-fref-table* (make-hash-table))
@@ -282,6 +280,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
       (setf (symbol-mode (aref *initial-obarray* i)) :constant)))
   (dolist (sym '(nil t most-positive-fixnum most-negative-fixnum))
     (setf (symbol-mode sym) :constant))
+  (mezzano.clos::initialize-clos)
   ;; Pull in the real package system.
   ;; If anything goes wrong before init-package-sys finishes then things
   ;; break in terrible ways.

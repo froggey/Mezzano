@@ -159,6 +159,7 @@
            #:class-finalized-p
            #:class-prototype
            #:class-default-initargs #:class-direct-default-initargs
+           #:class-layout #:class-sealed #:class-allocation-area
            #:generic-function-name #:generic-function-lambda-list
            #:generic-function-methods #:generic-function-discriminating-function
            #:generic-function-method-class
@@ -172,6 +173,7 @@
            #:slot-definition-allocation
            #:slot-definition-documentation
            #:slot-definition-type
+           #:slot-definition-location
            ;;
            ;; Class-related metaobject protocol
            ;;
@@ -207,6 +209,10 @@
 
            #:ensure-class
            #:ensure-class-using-class
+
+           #:structure-slot-definition-read-only
+           #:structure-slot-definition-fixed-vector
+           #:structure-slot-definition-align
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.

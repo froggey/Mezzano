@@ -133,16 +133,21 @@
                      x)
             t)))
     (structure-object
-     (and (typep y 'structure-object)
-          (eq (%instance-layout x) (%instance-layout y))
+     (and (eq (class-of x) (class-of y))
           (loop
-             with ty = (layout-class (%instance-layout x))
-             for slot in (structure-definition-slots ty)
-             for slot-name = (structure-slot-definition-name slot)
+             with ty = (class-of x)
+             for slot in (mezzano.clos:class-slots ty)
+             for slot-name = (mezzano.clos:slot-definition-name slot)
+             for fixed-vector = (mezzano.clos:structure-slot-definition-fixed-vector slot)
              do
-               (when (not (equalp (%struct-slot x ty slot-name)
-                                  (%struct-slot y ty slot-name)))
-                 (return nil))
+               (if fixed-vector
+                   (dotimes (i fixed-vector)
+                     (when (not (equalp (%struct-vector-slot x ty slot-name i)
+                                        (%struct-vector-slot y ty slot-name i)))
+                       (return nil)))
+                   (when (not (equalp (%struct-slot x ty slot-name)
+                                      (%struct-slot y ty slot-name)))
+                     (return nil)))
              finally
                (return t))))
     (t (equal x y))))

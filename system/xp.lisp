@@ -85,7 +85,7 @@
 
 (defun structure-type-p (x)
   (and (symbolp x)
-       (sys.int::get-structure-type x nil)))
+       (typep (find-class x nil) 'structure-class)))
 (defun output-width (&optional (s *standard-output*))
   (sys.gray:stream-line-length s))
 (defun output-position (&optional (s *standard-output*))

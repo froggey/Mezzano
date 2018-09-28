@@ -171,23 +171,15 @@
        (eql (structure-slot-definition-location x) (structure-slot-definition-location y))))
 
 (defun load-llf-structure-definition (stream stack)
-  (let* ((sealed (vector-pop stack))
-         (layout (vector-pop stack))
-         (size (vector-pop stack))
-         (area (vector-pop stack))
-         (parent (vector-pop stack))
-         (slots (vector-pop stack))
-         (name (vector-pop stack))
-         (definition (get-structure-type name nil)))
-    (cond (definition
-           (unless (and (eql (length (structure-definition-slots definition)) (length slots))
-                        (every #'structure-slot-definition-compatible (structure-definition-slots definition) slots))
-             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-definition-slots definition) slots))
-           definition)
-          (t
-           (let ((def (make-struct-definition name slots parent area size layout sealed)))
-             (%defstruct def)
-             def)))))
+  (let ((sealed (vector-pop stack))
+        (layout (vector-pop stack))
+        (size (vector-pop stack))
+        (area (vector-pop stack))
+        (parent (vector-pop stack))
+        (slots (vector-pop stack))
+        (name (vector-pop stack)))
+    ;; Defstruct converts structure definitions to structure classes.
+    (%defstruct (make-struct-definition name slots parent area size layout sealed))))
 
 (defun load-llf-structure-slot-definition (stream stack)
   (let* ((align (vector-pop stack))
@@ -337,8 +329,9 @@
            (imagpart (%integer-as-double-float (load-integer stream))))
        (complex realpart imagpart)))
     (#.+llf-instance-header+
-     (mezzano.runtime::%make-instance-header
-      (structure-definition-layout (vector-pop stack))))
+     (let ((structure-class (vector-pop stack)))
+       (mezzano.runtime::%make-instance-header
+        (mezzano.runtime::instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout))))
     (#.+llf-symbol-global-value-cell+
      (mezzano.runtime::symbol-global-value-cell (vector-pop stack)))
     (#.+llf-if+

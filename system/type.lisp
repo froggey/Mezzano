@@ -695,14 +695,12 @@
         (when test
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
-    (let ((struct-type (get-structure-type type-specifier nil)))
-      (when struct-type
-        (return-from typep
-          (structure-type-p object struct-type))))
     (let ((class (find-class type-specifier nil)))
       (when (and class
-                 (class-typep object class))
-          (return-from typep t))))
+                 (if (mezzano.runtime::structure-class-p class)
+                     (structure-type-p object class)
+                     (class-typep object class)))
+        (return-from typep t))))
   (let ((compound-test (get (if (symbolp type-specifier)
                                 type-specifier
                                 (first type-specifier))
@@ -773,13 +771,13 @@
           (object-sym (gensym "OBJECT")))
       (when struct-type
         (return-from compile-typep-expression
-          (if (structure-definition-sealed struct-type)
+          (if (mezzano.clos:class-sealed struct-type)
               `(let ((,object-sym ,object))
                  (and (%value-has-tag-p ,object-sym ,+tag-object+)
                       (%fast-instance-layout-eq-p
                        ,object-sym
                        ',(mezzano.runtime::%make-instance-header
-                          (sys.int::structure-definition-layout struct-type)))))
+                          (mezzano.clos:class-layout struct-type)))))
               `(structure-type-p ,object ',struct-type))))))
   (when (and (symbolp type-specifier)
              (get type-specifier 'sys.int::maybe-class nil))

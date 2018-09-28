@@ -112,13 +112,13 @@
     "system/time.lisp"
     "system/delimited-continuations.lisp"
     ("system/delimited-continuations-x86-64.lisp" :x86-64)
+    "system/clos/boot.lisp"
 ))
 
 (defparameter *warm-source-files*
   '("system/clos/package.lisp"
     "system/clos/macros.lisp"
     "system/clos/single-dispatch-emf-table.lisp"
-    "system/clos/boot.lisp"
     "system/clos/closette.lisp"
     "system/clos/method-combination.lisp"
     "system/describe.lisp"
@@ -406,10 +406,6 @@
       (when (not (symbolp (env:function-reference-name fref)))
         (vector-push-extend fref fref-table)))
     (setf (env:cross-symbol-value environment 'sys.int::*initial-fref-obarray*) fref-table))
-  (let ((struct-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
-    (env:do-all-environment-structs (sdef environment)
-      (vector-push-extend sdef struct-table))
-    (setf (env:cross-symbol-value environment 'sys.int::*initial-structure-obarray*) struct-table))
   ;; Do this last, no symbols can be added after it.
   (let ((symbol-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     ;; Prod symbol to make sure it gets included.
@@ -472,16 +468,6 @@
   (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value :tag :unbound-symbol))
   (configure-system-for-target environment (env:environment-target environment))
   (clos:configure-clos environment #'load-source-file)
-  (setf (env:cross-symbol-value environment
-                            'sys.int::*structure-type-type*)
-        (env:find-structure-definition
-         environment
-         (env:translate-symbol environment 'sys.int::structure-definition)))
-  (setf (env:cross-symbol-value environment
-                            'sys.int::*structure-slot-type*)
-        (env:find-structure-definition
-         environment
-         (env:translate-symbol environment 'sys.int::structure-slot-definition)))
   (values))
 
 (defun finalize-system (environment)

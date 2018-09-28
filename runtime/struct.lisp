@@ -5,142 +5,142 @@
 
 (in-package :mezzano.runtime)
 
-(sys.int::defglobal sys.int::*structure-type-type*)
-(sys.int::defglobal sys.int::*structure-slot-type*)
+(sys.int::defglobal *structure-class-layout*) ; layout of structure-class instances
 
-(sys.int::defglobal *structure-types*)
-
-(declaim (inline sys.int::structure-object-p))
+(defun structure-class-p (object)
+  ;; If the object's layout is structure-class's slot layout,
+  ;; then it's a structure class.
+  (and (sys.int::instance-p object)
+       ;; The structure-class class can never be reinitialized, so this
+       ;; layout is permanent. There will never be obsolete instances of it.
+       (eq (sys.int::%instance-layout object) *structure-class-layout*)))
 
 (defun sys.int::structure-object-p (object)
-  ;; If the object's metaclass is structure-defintion,
-  ;; then it's a structure object.
-  (when (sys.int::instance-p object)
-    (let ((layout (sys.int::%instance-layout object)))
-      ;; Be careful around obsolete instances
-      (and (sys.int::layout-p layout)
-           (eq sys.int::*structure-type-type*
-               ;; Classes should never be obsolete. Class metaobjects must not
-               ;; be redefined.
-               (sys.int::layout-class
-                (sys.int::%instance-layout
-                 (sys.int::layout-class layout))))))))
+  (structure-object-class object))
 
-(defun find-struct-slot (definition slot-name &optional (errorp t))
-  (or (find slot-name (sys.int::structure-definition-slots definition)
-            :key #'sys.int::structure-slot-definition-name)
+(defun find-struct-slot (class slot-name &optional (errorp t))
+  (or (find slot-name (mezzano.clos:class-slots class)
+            :key #'mezzano.clos:slot-definition-name)
       (if errorp
           (error "Slot ~S missing from structure definition ~S."
                  slot-name definition)
           nil)))
 
-(defun sys.int::%struct-slot (object definition slot-name)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun sys.int::%struct-slot (object class slot-name)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (instance-access object
-                   (sys.int::structure-slot-definition-location
-                    (find-struct-slot definition slot-name))))
+  (instance-access-by-name object slot-name))
 
-(defun (setf sys.int::%struct-slot) (value object definition slot-name)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun (setf sys.int::%struct-slot) (value object class slot-name)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep value (sys.int::structure-slot-definition-type slot))))
-    (setf (instance-access object
-                           (sys.int::structure-slot-definition-location slot))
-          value)))
+  (let* ((slot (find-struct-slot class slot-name))
+         (type (mezzano.clos:slot-definition-type slot))
+         (loc (mezzano.clos:slot-definition-location slot)))
+    (when (not (eq type 't))
+      (assert (typep value type)))
+    (setf (instance-access object loc) value)))
 
-(defun (sys.int::cas sys.int::%struct-slot) (old new object definition slot-name)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun (sys.int::cas sys.int::%struct-slot) (old new object class slot-name)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep old (sys.int::structure-slot-definition-type slot))))
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep new (sys.int::structure-slot-definition-type slot))))
-    (sys.int::cas (instance-access object
-                                   (sys.int::structure-slot-definition-location slot))
+  (let* ((slot (find-struct-slot class slot-name))
+         (type (mezzano.clos:slot-definition-type slot))
+         (loc (mezzano.clos:slot-definition-location slot)))
+    (when (not (eq type 't))
+      (assert (typep old type))
+      (assert (typep new type)))
+    (sys.int::cas (instance-access object loc)
                   old new)))
 
 (defun check-vector-slot-bounds (slot index)
   (check-type index fixnum)
   (assert (<= 0 index (1- (sys.int::structure-slot-definition-fixed-vector slot)))))
 
-(defun sys.int::%struct-vector-slot (object definition slot-name index)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun sys.int::%struct-vector-slot (object class slot-name index)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
+  (let* ((slot (find-struct-slot definition slot-name))
+         (loc (mezzano.clos:slot-definition-location slot)))
     (check-vector-slot-bounds slot index)
-    (instance-access object
-                     (sys.int::structure-slot-definition-location slot)
-                     index)))
+    (instance-access object loc index)))
 
-(defun (setf sys.int::%struct-vector-slot) (value object definition slot-name index)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun (setf sys.int::%struct-vector-slot) (value object class slot-name index)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
+  (let* ((slot (find-struct-slot class slot-name))
+         (type (mezzano.clos:slot-definition-type slot))
+         (loc (mezzano.clos:slot-definition-location slot)))
     (check-vector-slot-bounds slot index)
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep value (sys.int::structure-slot-definition-type slot))))
-    (setf (instance-access object
-                           (sys.int::structure-slot-definition-location slot)
-                           index)
-          value)))
+    (when (not (eq type 't))
+      (assert (typep value type)))
+    (setf (instance-access object loc index) value)))
 
-(defun (sys.int::cas sys.int::%struct-vector-slot) (old new object definition slot-name index)
-  (when (not (sys.int::structure-type-p object definition))
-    (sys.int::raise-type-error object (sys.int::structure-definition-name definition))
+(defun (sys.int::cas sys.int::%struct-vector-slot) (old new object class slot-name index)
+  (when (not (sys.int::structure-type-p object class))
+    (sys.int::raise-type-error object class)
     (sys.int::%%unreachable))
-  (let ((slot (find-struct-slot definition slot-name)))
+  (let* ((slot (find-struct-slot class slot-name))
+         (type (mezzano.clos:slot-definition-type slot))
+         (loc (mezzano.clos:slot-definition-location slot)))
     (check-vector-slot-bounds slot index)
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep old (sys.int::structure-slot-definition-type slot))))
-    (when (not (eq (sys.int::structure-slot-definition-type slot) 't))
-      (assert (typep new (sys.int::structure-slot-definition-type slot))))
-    (sys.int::cas (instance-access object
-                                   (sys.int::structure-slot-definition-location slot)
-                                   index)
-                  old new)))
+    (when (not (eq type 't))
+      (assert (typep old type))
+      (assert (typep new type)))
+    (sys.int::cas (instance-access object loc index) old new)))
 
-(defun sys.int::structure-type-p (object struct-type)
-  "Test if OBJECT is a structure object of type STRUCT-TYPE."
-  (when (sys.int::structure-object-p object)
-    (do ((object-type (sys.int::layout-class (sys.int::%instance-layout object))
-                      (sys.int::structure-definition-parent object-type)))
-        ((not object-type)
-         nil)
-      (when (eq object-type struct-type)
-        (return t)))))
+(defun structure-object-class (object)
+  "If OBJECT is a structure object, return the object's class. Otherwise return NIL."
+  (when (sys.int::instance-p object)
+    (let ((layout (sys.int::%instance-layout object)))
+      (when (sys.int::layout-p layout)
+        (let ((class (sys.int::layout-class layout)))
+          (when (structure-class-p class)
+            class))))))
 
-(defun sys.int::%make-struct (definition)
-  (sys.int::%allocate-instance (sys.int::structure-definition-layout definition)))
+(defun sys.int::structure-type-p (object structure-class)
+  "Test if OBJECT is a structure object of type STRUCTURE-CLASS."
+  (do ((object-class (structure-object-class object)
+                     ;; The parent field is used instead of the CPL as
+                     ;; the CPL might not be in wired memory.
+                     (instance-access-by-name object-class 'mezzano.clos::parent)))
+      ((not object-class)
+       nil)
+    (when (eq object-class structure-class)
+      (return t))))
+
+(defun sys.int::%make-struct (structure-class)
+  (assert (structure-class-p structure-class))
+  (let ((layout (instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout)))
+    (sys.int::%allocate-instance layout)))
 
 (defun copy-structure (structure)
-  (assert (sys.int::instance-p structure) (structure)
-          "STRUCTURE is not an instance!")
-  (let* ((layout (sys.int::%instance-layout structure))
-         (struct-type (sys.int::layout-class layout)))
-    (assert (typep struct-type 'sys.int::structure-definition)
-            (structure)
-            "STRUCTURE is not a structure!")
-    (let ((new (sys.int::%make-struct struct-type)))
-      (loop
-         for slot in (sys.int::structure-definition-slots struct-type)
-         for slot-name = (sys.int::structure-slot-definition-name slot)
-         do
-           (setf (sys.int::%struct-slot new struct-type slot-name)
-                 (sys.int::%struct-slot structure struct-type slot-name)))
-      new)))
+  (check-type structure structure-object)
+  (let* ((class (class-of structure))
+         (new (sys.int::%make-struct class)))
+    (loop
+       for slot in (mezzano.clos:class-slots class)
+       for slot-name = (mezzano.clos:slot-definition-name slot)
+       for fixed-vector = (mezzano.clos:structure-slot-definition-fixed-vector slot)
+       do
+         (if fixed-vector
+             (dotimes (i fixed-vector)
+               (setf (sys.int::%struct-vector-slot new class slot-name i)
+                     (sys.int::%struct-vector-slot structure class slot-name i)))
+             (setf (sys.int::%struct-slot new class slot-name)
+                   (sys.int::%struct-slot structure class slot-name))))
+    new))
 
 (defun sys.int::make-struct-definition (name slots parent area size layout sealed)
   (when (and parent
-             (sys.int::structure-definition-sealed parent))
+             (if (structure-class-p parent)
+                 (mezzano.runtime::instance-access-by-name parent 'mezzano.clos::sealed)
+                 (sys.int::structure-definition-sealed parent)))
     (error "Attempted to make structure definition that includes sealed structure ~S" parent))
   (let* ((def (sys.int::%make-struct-definition name
                                                 ;; Slots list must be wired.

@@ -508,14 +508,13 @@ Must not call SERIALIZE-OBJECT."))
 (defun structure-definition-layout (structure-definition image environment)
   "Return the layout associated with STRUCTURE-DEFINITION."
   (check-type structure-definition env:structure-definition)
-  (let ((sdef-value (serialize-object structure-definition image environment)))
-    ;; Fetch the serialized layout straight out of the structure-definition.
-    (object-slot-by-name image environment
-                         (env:find-structure-definition
-                          environment
-                          (env:translate-symbol environment 'sys.int::structure-definition))
-                         sdef-value
-                         'sys.int::layout)))
+  (let ((class (env:find-environment-class environment
+                                           (env:structure-definition-name structure-definition))))
+    (serialize-object (env:cross-class-instance-slot-value
+                       class
+                       (env:translate-symbol environment 'mezzano.clos::slot-storage-layout))
+                      image
+                      environment)))
 
 (defun resolve-structure-definition (environment instance-type)
   (etypecase instance-type
@@ -553,96 +552,12 @@ Must not call SERIALIZE-OBJECT."))
                              :key 'env:structure-slot-definition-name))))
         value))
 
-(defmethod allocate-object ((object env:structure-definition) image environment)
-  ;; Must allocate the associated layout up-front.
-  ;; See STRUCTURE-DEFINITION-LAYOUT & callers.
-  (let* ((sdef-sdef (env:find-structure-definition
+(defmethod serialize-object ((object env:structure-definition) image environment)
+  (serialize-object (env:find-environment-class
                      environment
-                     (env:translate-symbol environment 'sys.int::structure-definition)))
-         (layout-sdef (env:find-structure-definition
-                       environment
-                       (env:translate-symbol environment 'sys.int::layout)))
-         (sdef (allocate (1+ (env:structure-definition-size sdef-sdef))
-                         image :wired sys.int::+tag-object+))
-         (layout (allocate (1+ (env:structure-definition-size layout-sdef))
-                           image :wired sys.int::+tag-object+)))
-    (setf (object-slot-by-name image environment sdef-sdef sdef 'sys.int::layout)
-          layout)
-    sdef))
-
-(defmethod initialize-object ((object env:structure-definition) value image environment)
-  (let ((sdef-sdef (env:find-structure-definition
-                    environment
-                    (env:translate-symbol environment 'sys.int::structure-definition)))
-        (layout-sdef (env:find-structure-definition
-                      environment
-                      (env:translate-symbol environment 'sys.int::layout)))
-        (layout (structure-definition-layout object image environment)) ; layout was created in allocate-object
-        (instance-slots (env:make-array environment (* (length (env:structure-definition-slots object)) 2)
-                                        :initial-contents (loop
-                                                             for slot in (env:structure-definition-slots object)
-                                                             collect (env:structure-slot-definition-name slot)
-                                                             collect (env:structure-slot-definition-location slot))
-                                        :area :wired)))
-    (initialize-instance-header image environment value 'sys.int::structure-definition)
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::name)
-          (serialize-object (env:structure-definition-name object) image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::slots)
-          (serialize-object (env:structure-definition-slots object) image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::parent)
-          (serialize-object (env:structure-definition-parent object) image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::area)
-          (serialize-object (env:structure-definition-area object) image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::size)
-          (serialize-object (env:structure-definition-size object) image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::class)
-          (serialize-object nil image environment))
-    (setf (object-slot-by-name image environment sdef-sdef value 'sys.int::sealed)
-          (serialize-object (env:structure-definition-sealed object) image environment))
-    (initialize-instance-header image environment layout 'sys.int::layout)
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::class)
-          value)
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::obsolete)
-          (serialize-object nil image environment))
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::heap-size)
-          (serialize-object (env:structure-definition-size object) image environment))
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::heap-layout)
-          (serialize-object (env:structure-definition-layout object) image environment))
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::area)
-          (serialize-object (env:structure-definition-area object) image environment))
-    (setf (object-slot-by-name image environment layout-sdef layout 'sys.int::instance-slots)
-          (serialize-object instance-slots image environment))))
-
-
-(defmethod allocate-object ((object env:structure-slot-definition) image environment)
-  (let ((slot-sdef (env:find-structure-definition
-                    environment
-                    (env:translate-symbol environment 'sys.int::structure-slot-definition))))
-    (allocate (1+ (env:structure-definition-size slot-sdef))
-              image :wired
-              sys.int::+tag-object+)))
-
-(defmethod initialize-object ((object env:structure-slot-definition) value image environment)
-  (let ((slot-sdef (env:find-structure-definition
-                    environment
-                    (env:translate-symbol environment 'sys.int::structure-slot-definition))))
-    (initialize-instance-header image environment value 'sys.int::structure-slot-definition)
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::name)
-          (serialize-object (env:structure-slot-definition-name object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::accessor)
-          (serialize-object (env:structure-slot-definition-accessor object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::initform)
-          (serialize-object (env:structure-slot-definition-initform object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::type)
-          (serialize-object (env:structure-slot-definition-type object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::read-only)
-          (serialize-object (env:structure-slot-definition-read-only object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::location)
-          (serialize-object (env:structure-slot-definition-location object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::fixed-vector)
-          (serialize-object (env:structure-slot-definition-fixed-vector object) image environment))
-    (setf (object-slot-by-name image environment slot-sdef value 'sys.int::align)
-          (serialize-object (env:structure-slot-definition-align object) image environment))))
+                     (env:structure-definition-name object))
+                    image
+                    environment))
 
 (defmethod allocate-object ((object env:instance-object) image environment)
   (let ((sdef (env:instance-structure-definition object)))

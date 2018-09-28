@@ -130,6 +130,27 @@
   (def setf (value))
   (def sys.int::cas (new old)))
 
+(defun slot-location-in-layout (layout slot-name)
+  (let ((instance-slots (sys.int::layout-instance-slots layout)))
+    (loop
+       for i below (sys.int::%object-header-data instance-slots) by 2 ; avoid calling length on the slot vector, it's a simple-vector.
+       when (eql slot-name (sys.int::%object-ref-t instance-slots i))
+       do (return (sys.int::%object-ref-t instance-slots (1+ i)))
+       finally (error "Instance slot ~S missing from layout ~S" slot-name layout))))
+
+(defun instance-slot-location (object slot-name)
+  (slot-location-in-layout (sys.int::%instance-layout object)
+                           slot-name))
+
+(defun instance-access-by-name (object slot-name &optional (index 0))
+  (instance-access object (instance-slot-location object slot-name) index))
+
+(defun (setf instance-access-by-name) (value object slot-name &optional (index 0))
+  (setf (instance-access object (instance-slot-location object slot-name) index) value))
+
+(defun (sys.int::cas instance-access-by-name) (old new object slot-name &optional (index 0))
+  (sys.int::cas (instance-access object (instance-slot-location object slot-name) index) old new))
+
 (defun %make-instance-header (layout &optional (tag sys.int::+object-tag-instance+))
   (check-type layout sys.int::layout)
   (with-live-objects (layout)

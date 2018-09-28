@@ -1201,3 +1201,11 @@
 (defun function-inline-info (name)
   (values (gethash name cross-support::*inline-modes*)
           (gethash name cross-support::*inline-forms*)))
+
+(defgeneric mezzano.clos:class-sealed (class)
+  (:method ((class sys.int::structure-definition))
+    (sys.int::structure-definition-sealed class)))
+
+(defgeneric mezzano.clos:class-layout (class)
+  (:method ((class sys.int::structure-definition))
+    (sys.int::structure-definition-layout class)))
