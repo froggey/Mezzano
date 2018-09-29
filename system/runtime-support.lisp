@@ -342,6 +342,44 @@
     (push new-class (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::direct-subclasses))
     new-class))
 
+(defun check-structure-compatibility (existing-structure-class sdef)
+  (let* ((parent (structure-definition-parent sdef))
+         (parent-class (or (and parent (%defstruct parent))
+                           (find-class 'structure-object))))
+    (assert (eql (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::name)
+                 (structure-definition-name sdef)))
+    (assert (eql (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::parent)
+                 parent-class))
+    (assert (eql (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::allocation-area)
+                 (structure-definition-area sdef)))
+    (assert (eql (sys.int::layout-heap-size (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::slot-storage-layout))
+                 (structure-definition-size sdef)))
+    (assert (equal (sys.int::layout-heap-layout (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::slot-storage-layout))
+                   (sys.int::layout-heap-layout (structure-definition-layout sdef))))
+    (assert (eql (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::sealed)
+                 (structure-definition-sealed sdef)))
+    (assert (eql (length (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::effective-slots))
+                 (length (sys.int::structure-definition-slots sdef))))
+    (dolist (new-slot (sys.int::structure-definition-slots sdef))
+      (let ((existing-slot (or (find (sys.int::structure-slot-definition-name new-slot)
+                                     (mezzano.runtime::instance-access-by-name existing-structure-class 'mezzano.clos::effective-slots)
+                                     :key (lambda (slot)
+                                            (mezzano.runtime::instance-access-by-name slot 'mezzano.clos::name)))
+                               (error "Slot ~S added to struct ~S"
+                                      (sys.int::structure-slot-definition-name new-slot)
+                                      (structure-definition-name sdef)))))
+        ;; FIXME: Should be a type= check.
+        (assert (equal (sys.int::structure-slot-definition-type new-slot)
+                       (mezzano.runtime::instance-access-by-name existing-slot 'mezzano.clos::type)))
+        (assert (eql (sys.int::structure-slot-definition-read-only new-slot)
+                     (mezzano.runtime::instance-access-by-name existing-slot 'mezzano.clos::read-only)))
+        (assert (eql (sys.int::structure-slot-definition-location new-slot)
+                     (mezzano.runtime::instance-access-by-name existing-slot 'mezzano.clos::location)))
+        (assert (eql (sys.int::structure-slot-definition-fixed-vector new-slot)
+                     (mezzano.runtime::instance-access-by-name existing-slot 'mezzano.clos::fixed-vector)))
+        (assert (eql (sys.int::structure-slot-definition-align new-slot)
+                     (mezzano.runtime::instance-access-by-name existing-slot 'mezzano.clos::align)))))))
+
 (defun %defstruct (structure-type)
   (when (mezzano.runtime::structure-class-p structure-type)
     ;; Happens during cold load.
@@ -350,6 +388,7 @@
          (existing (find-class name nil)))
     (cond (existing
            ;; Check compatibility.
+           (check-structure-compatibility existing structure-type)
            existing)
           (t
            (setf (find-class name) (convert-structure-definition-to-class structure-type))))))
