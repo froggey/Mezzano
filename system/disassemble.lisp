@@ -140,42 +140,35 @@
       context))
 
 (defun slot-to-thread-slot-name (slot)
-  (let* ((thread-struct (sys.int::get-structure-type 'mezzano.supervisor:thread))
-         (thread-slots (sys.int::structure-definition-slots thread-struct)))
+  (let* ((thread-struct (find-class 'mezzano.supervisor:thread))
+         (thread-slots (mezzano.clos:class-slots thread-struct)))
     (dolist (slot-def thread-slots)
-      (cond ((sys.int::structure-slot-definition-fixed-vector slot-def)
-             (cond ((eql (sys.int::structure-slot-definition-ref-fn slot-def) 'sys.int::%object-ref-t)
-                    (when (and (zerop (rem slot 8))
-                               (<= (sys.int::structure-slot-definition-index slot-def)
-                                   (/ slot 8)
-                                   (+ (sys.int::structure-slot-definition-index slot-def)
-                                      (sys.int::structure-slot-definition-fixed-vector slot-def)
-                                      -1)))
-                      (return
-                        (format nil "thread-~(~A~)+~D" (sys.int::structure-slot-definition-name slot-def)
-                                (- (truncate slot 8)
-                                   (sys.int::structure-slot-definition-index slot-def))))))
-                   (t
-                    (when (and (zerop (rem slot (mezzano.runtime::accessor-element-scale
-                                                 (sys.int::structure-slot-definition-ref-fn slot-def))))
-                               (<= (sys.int::structure-slot-definition-index slot-def)
-                                   slot
-                                   (+ (sys.int::structure-slot-definition-index slot-def)
-                                      (* (sys.int::structure-slot-definition-fixed-vector slot-def)
-                                         (mezzano.runtime::accessor-element-scale
-                                          (sys.int::structure-slot-definition-ref-fn slot-def)))
-                                      -1)))
-                      (return
-                        (format nil "thread-~(~A~)+~D" (sys.int::structure-slot-definition-name slot-def)
-                                (truncate (- slot (sys.int::structure-slot-definition-index slot-def))
-                                          (mezzano.runtime::accessor-element-scale
-                                           (sys.int::structure-slot-definition-ref-fn slot-def)))))))))
-            (t
-             (when (if (eql (sys.int::structure-slot-definition-ref-fn slot-def) 'sys.int::%object-ref-t)
-                       (= (sys.int::structure-slot-definition-index slot-def) (/ slot 8))
-                       (eql (sys.int::structure-slot-definition-index slot-def) slot))
-               (return
-                 (format nil "thread-~(~A~)" (sys.int::structure-slot-definition-name slot-def)))))))))
+      (let* ((location (mezzano.clos:slot-definition-location slot-def))
+             (offset (mezzano.runtime::location-offset location))
+             (type (mezzano.runtime::location-type location))
+             (size (if (eql type mezzano.runtime::+location-type-t+)
+                       8
+                       (mezzano.runtime::location-type-scale type)))
+             (fv (mezzano.clos:structure-slot-definition-fixed-vector slot-def))
+             (end-offset (+ offset (* size (or fv 1)))))
+        (cond (fv
+               (cond ((eql type mezzano.runtime::+location-type-t+)
+                      (when (and (zerop (rem slot 8))
+                                 (<= offset slot (1- end-offset)))
+                        (return
+                          (format nil "thread-~(~A~)+~D"
+                                  (mezzano.clos:slot-definition-name slot-def)
+                                  (- (truncate slot 8) (mezzano.runtime::location-offset-t location))))))
+                     (t
+                      (when (<= offset slot (1- end-offset))
+                        (return
+                          (format nil "thread-~(~A~)+~D"
+                                  (mezzano.clos:slot-definition-name slot-def)
+                                  (truncate (- slot offset) size)))))))
+              (t
+               (when (<= offset slot (1- end-offset))
+                 (return
+                   (format nil "thread-~(~A~)" (mezzano.clos:slot-definition-name slot-def))))))))))
 
 (defun type-tag-to-name (tag)
   (when (zerop (ldb (byte 2 0) tag))

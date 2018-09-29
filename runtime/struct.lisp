@@ -19,6 +19,8 @@
   (structure-object-class object))
 
 (defun find-struct-slot (class slot-name &optional (errorp t))
+  (when (typep slot-name 'mezzano.clos:structure-effective-slot-definition)
+    (return-from find-struct-slot slot-name))
   (or (find slot-name (mezzano.clos:class-slots class)
             :key #'mezzano.clos:slot-definition-name)
       (if errorp
@@ -31,7 +33,9 @@
     (when (not (sys.int::structure-type-p object class))
       (sys.int::raise-type-error object class)
       (sys.int::%%unreachable))
-    (instance-access-by-name object slot-name)))
+    (let* ((slot (find-struct-slot class slot-name))
+           (loc (mezzano.clos:slot-definition-location slot)))
+      (instance-access object loc))))
 
 (defun (setf sys.int::%struct-slot) (value object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))

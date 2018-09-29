@@ -210,6 +210,9 @@
            #:ensure-class
            #:ensure-class-using-class
 
+           #:structure-slot-definition
+           #:structure-effective-slot-definition
+           #:structure-direct-slot-definition
            #:structure-slot-definition-read-only
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align

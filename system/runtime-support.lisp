@@ -296,6 +296,10 @@
          (s-c (find-class 'structure-class))
          (s-c-layout (mezzano.runtime::instance-access-by-name s-c 'mezzano.clos::slot-storage-layout))
          (new-class (sys.int::%allocate-instance s-c-layout)))
+    (when (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::sealed)
+      (error "Attempted to make structure class ~S that includes sealed structure ~S"
+             (structure-definition-name sdef)
+             (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::name)))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::name)
           (structure-definition-name sdef))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::direct-superclasses)
