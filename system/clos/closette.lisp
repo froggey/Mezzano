@@ -2560,7 +2560,7 @@ has only has class specializer."
              (loop
                 for (fn . args) in functions
                 do (multiple-value-bind (keys aok)
-                       (applicable-method-initargs fn args)
+                       (applicable-method-initargs (fdefinition fn) args)
                      (when aok
                        (setf (gethash class cache) t)
                        (return-from valid-initargs
@@ -2589,9 +2589,9 @@ has only has class specializer."
 (defun check-make-instance-initargs (class initargs)
   (check-initargs
    class *make-instance-initargs-cache*
-   (list (list #'allocate-instance class)
-         (list #'initialize-instance (class-prototype class))
-         (list #'shared-initialize (class-prototype class) t))
+   (list (list 'allocate-instance class)
+         (list 'initialize-instance (class-prototype class))
+         (list 'shared-initialize (class-prototype class) t))
    initargs
    (lambda (valid-initargs invalid-initargs)
      (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S"
@@ -2624,8 +2624,8 @@ has only has class specializer."
 (defun check-reinitialize-instance-initargs (object initargs)
   (check-initargs
    (class-of object) *reinitialize-instance-initargs-cache*
-   (list (list #'reinitialize-instance object)
-         (list #'shared-initialize object t))
+   (list (list 'reinitialize-instance object)
+         (list 'shared-initialize object t))
    initargs
    (lambda (valid-initargs invalid-initargs)
      (error "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid:~:S"
@@ -2693,8 +2693,8 @@ has only has class specializer."
 (defun check-update-instance-for-different-class-initargs (old new initargs)
   (check-initargs
    (class-of new) *u-i-f-d-c-initargs-cache*
-   (list (list #'update-instance-for-different-class old new)
-         (list #'shared-initialize new t))
+   (list (list 'update-instance-for-different-class old new)
+         (list 'shared-initialize new t))
    initargs
    (lambda (valid-initargs invalid-initargs)
      (error "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid:~:S"
@@ -3068,8 +3068,8 @@ has only has class specializer."
 (defun check-update-instance-for-redefined-class-initargs (object added-slots discarded-slots property-list initargs)
   (check-initargs
    (class-of object) *u-i-f-r-c-initargs-cache*
-   (list (list #'update-instance-for-redefined-class object added-slots discarded-slots property-list)
-         (list #'shared-initialize object added-slots))
+   (list (list 'update-instance-for-redefined-class object added-slots discarded-slots property-list)
+         (list 'shared-initialize object added-slots))
    initargs
    (lambda (valid-initargs invalid-initargs)
      (error "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid:~:S"
