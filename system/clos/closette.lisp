@@ -395,10 +395,7 @@
              (sys.int::funcallable-instance-p x))
          (let ((layout (sys.int::%instance-layout x)))
            (cond ((sys.int::layout-p layout)
-                  (let ((class (sys.int::layout-class layout)))
-                    (if (sys.int::structure-definition-p class)
-                        (class-of-structure-definition class)
-                        class)))
+                  (sys.int::layout-class layout))
                  (t
                   ;; Obsolete instance.
                   (class-of

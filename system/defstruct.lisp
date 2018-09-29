@@ -250,15 +250,16 @@
                   (+ current-index (* element-size (max (or fixed-vector 1) 1)))
                   (eql location-type mezzano.runtime::+location-type-t+)))))))
 
-(defun generate-simple-defstruct-constructor (struct-type name area)
-  (generate-defstruct-constructor struct-type
+(defun generate-simple-defstruct-constructor (struct-name struct-type name area)
+  (generate-defstruct-constructor struct-name
+                                  struct-type
                                   name
                                   (list* '&key (mapcar (lambda (slot)
                                                          (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
                                                        (structure-definition-slots struct-type)))
                                   area))
 
-(defun generate-defstruct-constructor (struct-type name lambda-list area)
+(defun generate-defstruct-constructor (struct-name struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
       (parse-ordinary-lambda-list lambda-list)
     (declare (ignore enable-keys allow-other-keys))
@@ -279,7 +280,7 @@
               for s in (structure-definition-slots struct-type)
               when (not (member (structure-slot-definition-name s) default-slots))
               collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
-         (let ((,tmp (%make-struct ',struct-type)))
+         (let ((,tmp (%allocate-struct ',struct-name)))
            ,@(loop
                 for s in (structure-definition-slots struct-type)
                 collect (if (structure-slot-definition-fixed-vector s)
@@ -292,9 +293,9 @@
                                                        ,val))
                                                   (structure-slot-definition-name s))))
                                  (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
-                                   (setf (%struct-vector-slot ,tmp ',struct-type ',(structure-slot-definition-name s) ,itr)
+                                   (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
                                          ,value))))
-                            `(setf (%struct-slot ,tmp ',struct-type ',(structure-slot-definition-name s))
+                            `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
                                    ,(if (member (structure-slot-definition-name s) default-slots)
                                         (let ((val (gensym (string (structure-slot-definition-name s)))))
                                           `(let ((,val ,(structure-slot-definition-initform s)))
@@ -395,35 +396,35 @@
                                      (t layout))
                                (length layout))))))
 
-(defun generate-normal-defstruct-slot-accessor (struct-type slot-definition)
+(defun generate-normal-defstruct-slot-accessor (struct-name struct-type slot-definition)
   (let ((slot-name (structure-slot-definition-name slot-definition))
         (accessor-name (structure-slot-definition-accessor slot-definition)))
     `(progn
        (declaim (inline ,accessor-name))
        (defun ,accessor-name (object)
-         (%struct-slot object ',struct-type ',slot-name))
+         (%struct-slot object ',struct-name ',slot-name))
        ,@(unless (structure-slot-definition-read-only slot-definition)
            (list `(declaim (inline (setf ,accessor-name)))
                  `(defun (setf ,accessor-name) (new-value object)
-                    (setf (%struct-slot object ',struct-type ',slot-name) new-value))
+                    (setf (%struct-slot object ',struct-name ',slot-name) new-value))
                  `(declaim (inline (cas ,accessor-name)))
                  `(defun (cas ,accessor-name) (old new object)
-                    (cas (%struct-slot object ',struct-type ',slot-name) old new)))))))
+                    (cas (%struct-slot object ',struct-name ',slot-name) old new)))))))
 
-(defun generate-normal-defstruct-slot-vector-accessor (struct-type slot-definition)
+(defun generate-normal-defstruct-slot-vector-accessor (struct-name struct-type slot-definition)
   (let ((slot-name (structure-slot-definition-name slot-definition))
         (accessor-name (structure-slot-definition-accessor slot-definition)))
     `(progn
        (declaim (inline ,accessor-name))
        (defun ,accessor-name (object index)
-         (%struct-vector-slot object ',struct-type ',slot-name index))
+         (%struct-vector-slot object ',struct-name ',slot-name index))
        ,@(unless (structure-slot-definition-read-only slot-definition)
            (list `(declaim (inline (setf ,accessor-name)))
                  `(defun (setf ,accessor-name) (new-value object index)
-                    (setf (%struct-vector-slot object ',struct-type ',slot-name index) new-value))
+                    (setf (%struct-vector-slot object ',struct-name ',slot-name index) new-value))
                  `(declaim (inline (cas ,accessor-name)))
                  `(defun (cas ,accessor-name) (old new object index)
-                    (cas (%struct-vector-slot object ',struct-type ',slot-name index) old new)))))))
+                    (cas (%struct-vector-slot object ',struct-name ',slot-name index) old new)))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
@@ -458,16 +459,16 @@
            ,@(loop
                 for s in slots
                 collect (if (structure-slot-definition-fixed-vector s)
-                            (generate-normal-defstruct-slot-vector-accessor struct-type s)
-                            (generate-normal-defstruct-slot-accessor struct-type s))
+                            (generate-normal-defstruct-slot-vector-accessor name struct-type s)
+                            (generate-normal-defstruct-slot-accessor name struct-type s))
                 when slot-offsets
                 collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
                            ',(mezzano.runtime::location-offset-t (structure-slot-definition-location s))))
            ,@(loop
                 for x in constructors
                 collect (if (symbolp x)
-                            (generate-simple-defstruct-constructor struct-type x area)
-                            (generate-defstruct-constructor struct-type (first x) (second x) area)))
+                            (generate-simple-defstruct-constructor name struct-type x area)
+                            (generate-defstruct-constructor name struct-type (first x) (second x) area)))
            ',name)))))
 
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier

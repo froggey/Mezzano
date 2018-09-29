@@ -211,14 +211,16 @@
         (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))))
   (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def))
 
-(defun sys.int::%make-struct (definition)
+(defun sys.int::%allocate-struct (definition)
+  (when (symbolp definition)
+    (setf definition (sys.int::get-structure-type definition)))
   (make-cross-struct
    :type definition
    :data (make-array (length (sys.int::structure-definition-slots definition)))))
 
 (defun sys.int::structure-slot-index (def slot-name)
   (position slot-name
-            (sys.int::structure-definition-slots def)
+            (sys.int::structure-definition-slots (sys.int::get-structure-type def))
             :key #'sys.int::structure-slot-definition-name))
 
 (defun sys.int::%struct-slot (struct def slot-name)

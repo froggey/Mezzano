@@ -574,11 +574,14 @@ VALUE may be nil to make the fref unbound."
     (t t)))
 
 (defun get-structure-type (name &optional (errorp t))
-  (let ((class (find-class name nil)))
-    (cond ((typep class 'structure-class)
-           class)
-          (errorp
-           (error "Unknown structure type ~S." name)))))
+  (cond ((typep name 'structure-class)
+         name)
+        (t
+         (let ((class (find-class name nil)))
+           (cond ((typep class 'structure-class)
+                  class)
+                 (errorp
+                  (error "Unknown structure type ~S." name)))))))
 
 (defun concat-symbols (&rest symbols)
   (intern (apply 'concatenate 'string (mapcar 'string symbols))))

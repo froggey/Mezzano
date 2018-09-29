@@ -91,9 +91,7 @@ Should be kept in sync with data-types.")
        do (format t "  ~A: ~:D objects. ~:D words.~%"
                   class count
                   (* count (1+ (layout-heap-size
-                                (if (structure-definition-p class)
-                                    (structure-definition-layout class)
-                                    (mezzano.clos::safe-class-slot-storage-layout class)))))))))
+                                (mezzano.clos:class-layout class))))))))
 
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)

@@ -1206,6 +1206,10 @@
   (check-type def sys.int::structure-definition)
   def)
 
+(defgeneric mezzano.clos:class-slots (class)
+  (:method ((class sys.int::structure-definition))
+    (sys.int::structure-definition-slots class)))
+
 (defgeneric mezzano.clos:class-sealed (class)
   (:method ((class sys.int::structure-definition))
     (sys.int::structure-definition-sealed class)))
@@ -1213,3 +1217,19 @@
 (defgeneric mezzano.clos:class-layout (class)
   (:method ((class sys.int::structure-definition))
     (sys.int::structure-definition-layout class)))
+
+(defgeneric mezzano.clos:slot-definition-name (slot-definition)
+  (:method ((slot-definition sys.int::structure-slot-definition))
+    (sys.int::structure-slot-definition-name slot-definition)))
+
+(defgeneric mezzano.clos:slot-definition-type (slot-definition)
+  (:method ((slot-definition sys.int::structure-slot-definition))
+    (sys.int::structure-slot-definition-type slot-definition)))
+
+(defgeneric mezzano.clos:slot-definition-location (slot-definition)
+  (:method ((slot-definition sys.int::structure-slot-definition))
+    (sys.int::structure-slot-definition-location slot-definition)))
+
+(defgeneric mezzano.clos:structure-slot-definition-fixed-vector (slot-definition)
+  (:method ((slot-definition sys.int::structure-slot-definition))
+    (sys.int::structure-slot-definition-fixed-vector slot-definition)))
