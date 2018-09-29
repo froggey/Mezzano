@@ -320,6 +320,9 @@
        (setf (fourth (first (loader-if-depth loader))) else))
      (stack-push (pop (loader-if-depth loader)) loader :lazy)
      (values nil t))
+    (#.sys.int::+llf-layout+
+     (let ((sdef (stack-pop loader)))
+       (env:make-layout-proxy sdef)))
 ))
 
 (defun load-compiled-file (environment filespec &key wired)

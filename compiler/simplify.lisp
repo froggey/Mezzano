@@ -832,14 +832,28 @@ First return value is a list of elements, second is the final dotted component (
                  :key #'mezzano.clos:slot-definition-name)))))
 
 (defun struct-type-test-form (object struct)
-  `(if (call sys.int::%value-has-tag-p ,object ',sys.int::+tag-object+)
-       (if (call sys.int::%fast-instance-layout-eq-p
+  (if (mezzano.clos:class-sealed struct)
+      `(if (call sys.int::%value-has-tag-p ,object ',sys.int::+tag-object+)
+           (call sys.int::%fast-instance-layout-eq-p
                  ,object
                  ',(mezzano.runtime::%make-instance-header
                     (mezzano.clos:class-layout struct)))
-           't
-           (call sys.int::structure-type-p ,object ',struct))
-       'nil))
+           'nil)
+      `(if ,(struct-slot-access-form (find 'sys.int::obsolete
+                                           (mezzano.clos:class-slots
+                                            (sys.int::get-structure-type 'sys.int::layout))
+                                           :key #'mezzano.clos:slot-definition-name)
+                                     `',(mezzano.clos:class-layout struct)
+                                     nil)
+           'nil
+           (if (call sys.int::%value-has-tag-p ,object ',sys.int::+tag-object+)
+               (if (call sys.int::%fast-instance-layout-eq-p
+                         ,object
+                         ',(mezzano.runtime::%make-instance-header
+                            (mezzano.clos:class-layout struct)))
+                   't
+                   (call sys.int::structure-type-p ,object ',struct))
+               'nil))))
 
 (defun simplify-struct-slot (form)
   (change-made)

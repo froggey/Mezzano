@@ -90,6 +90,9 @@
            #:cross-class-instance-slot-value
            #:cross-class-instance-slot-boundp
            #:find-environment-class
+           #:layout-proxy
+           #:make-layout-proxy
+           #:layout-proxy-structure-definition
 ))
 
 (in-package :mezzano.cold-generator.environment)
@@ -638,3 +641,10 @@
   (declare (ignore errorp))
   (check-type symbol symbol)
   (setf (gethash symbol (environment-class-table environment)) value))
+
+(defclass layout-proxy ()
+  ((%structure-definition :initarg :structure-definition :reader layout-proxy-structure-definition)))
+
+(defun make-layout-proxy (structure-definition)
+  (make-instance 'layout-proxy
+                 :structure-definition structure-definition))

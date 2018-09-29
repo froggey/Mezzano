@@ -40,6 +40,12 @@
                                  (%struct-slot object class slot-name))))
            :stream stream)))
 
+(defmethod print-object ((object layout) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (class-name (layout-class object)))
+    (when (layout-obsolete object)
+      (format stream " [obsolete]"))))
+
 (defmethod print-object ((object hash-table) stream)
   (print-unreadable-object (object stream :type t :identity t)))
 

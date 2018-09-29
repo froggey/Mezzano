@@ -35,7 +35,7 @@
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (loc (mezzano.clos:slot-definition-location slot)))
-      (instance-access object loc))))
+      (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc))))
 
 (defun (setf sys.int::%struct-slot) (value object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
@@ -47,7 +47,7 @@
            (loc (mezzano.clos:slot-definition-location slot)))
       (when (not (eq type 't))
         (assert (typep value type)))
-      (setf (instance-access object loc) value))))
+      (setf (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc) value))))
 
 (defun (sys.int::cas sys.int::%struct-slot) (old new object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
@@ -60,7 +60,7 @@
       (when (not (eq type 't))
         (assert (typep old type))
         (assert (typep new type)))
-      (sys.int::cas (instance-access object loc)
+      (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc)
                     old new))))
 
 (defun check-vector-slot-bounds (slot index)
@@ -75,7 +75,7 @@
     (let* ((slot (find-struct-slot class slot-name))
            (loc (mezzano.clos:slot-definition-location slot)))
       (check-vector-slot-bounds slot index)
-      (instance-access object loc index))))
+      (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index))))
 
 (defun (setf sys.int::%struct-vector-slot) (value object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
@@ -88,7 +88,7 @@
       (check-vector-slot-bounds slot index)
       (when (not (eq type 't))
         (assert (typep value type)))
-      (setf (instance-access object loc index) value))))
+      (setf (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index) value))))
 
 (defun (sys.int::cas sys.int::%struct-vector-slot) (old new object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
@@ -102,16 +102,18 @@
       (when (not (eq type 't))
         (assert (typep old type))
         (assert (typep new type)))
-      (sys.int::cas (instance-access object loc index) old new))))
+      (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index) old new))))
 
 (defun structure-object-class (object)
   "If OBJECT is a structure object, return the object's class. Otherwise return NIL."
   (when (sys.int::instance-p object)
-    (let ((layout (sys.int::%instance-layout object)))
-      (when (sys.int::layout-p layout)
-        (let ((class (sys.int::layout-class layout)))
-          (when (structure-class-p class)
-            class))))))
+    (let* ((layout (sys.int::%instance-layout object))
+           (class (sys.int::layout-class
+                   (if (sys.int::layout-p layout)
+                       layout
+                       (obsolete-instance-layout-old-layout layout)))))
+      (when (structure-class-p class)
+        class))))
 
 (defun sys.int::structure-type-p (object structure-class)
   "Test if OBJECT is a structure object of type STRUCTURE-CLASS."

@@ -56,7 +56,8 @@
   (declare (ignore initargs))
   (error "Cannot reinitialize structure classes."))
 
-(defmethod reinitialize-instance :before ((class structure-class) &rest args)
+(defmethod reinitialize-instance :before ((class structure-class) &rest initargs)
+  (declare (ignore initargs))
   (error "Cannot reinitialize structure classes."))
 
 (defmethod slot-value-using-class ((class structure-class) instance (slot structure-effective-slot-definition))
@@ -70,7 +71,7 @@
           (t
            (sys.int::%struct-slot instance class slot)))))
 
-(defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot standard-effective-slot-definition))
+(defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot structure-effective-slot-definition))
   (when (structure-slot-definition-read-only slot)
     (error "The slot ~S in class ~S is read-only."
            (slot-definition-name slot)
@@ -84,7 +85,7 @@
           (t
            (setf (sys.int::%struct-slot instance class slot) new-value)))))
 
-(defmethod (sys.int::cas slot-value-using-class) (old new (class structure-class) instance (slot standard-effective-slot-definition))
+(defmethod (sys.int::cas slot-value-using-class) (old new (class structure-class) instance (slot structure-effective-slot-definition))
   (when (structure-slot-definition-read-only slot)
     (error "The slot ~S in class ~S is read-only."
            (slot-definition-name slot)
@@ -100,3 +101,40 @@
 
 (defmethod slot-makunbound-using-class ((class structure-class) instance (slot structure-effective-slot-definition))
   (error "Cannot make structure slots unbound."))
+
+;;; Structure redefinition.
+
+;; This does not use the normal REINITIALIZE-INSTANCE machinery as
+;; the new structure definition has a specific layout that it is expecting
+;; the redefined class to follow.
+(defun redefine-structure-type (existing-class sdef)
+  (assert (not (eql existing-class (find-class 'structure-object)))) ; Can't redefine structure-object.
+  (assert (not (class-sealed existing-class)) () "Cannot redefined sealed struct ~S" existing-class)
+  (let ((new-layout (sys.int::make-layout :class existing-class
+                                          :obsolete nil
+                                          :heap-size (sys.int::structure-definition-size sdef)
+                                          :heap-layout (sys.int::layout-heap-layout (sys.int::structure-definition-layout sdef))
+                                          :area (sys.int::structure-definition-area sdef)
+                                          :instance-slots (sys.int::convert-structure-definition-instance-slots sdef)))
+        (prev-layout (class-layout existing-class)))
+    ;; FIXME: If the parent class changes, call add-/remove-direct-subclass
+    (sys.int::populate-struct-class-from-structure-defintion existing-class sdef)
+    (when (not (class-layouts-compatible-p prev-layout new-layout))
+      ;; Make instances obsolete if the layout changes.
+      (setf (mezzano.runtime::instance-access-by-name existing-class 'mezzano.clos::slot-storage-layout)
+            new-layout)
+      (setf (sys.int::layout-obsolete prev-layout) new-layout)))
+  existing-class)
+
+(defmethod update-instance-for-redefined-class ((instance structure-object) added-slots discarded-slots property-list &rest initargs)
+  (check-update-instance-for-redefined-class-initargs instance added-slots discarded-slots property-list initargs)
+  (apply #'shared-initialize instance added-slots initargs))
+
+(defmethod shared-initialize ((instance structure-object) slot-names &rest initargs)
+  (declare (ignore initargs))
+  (dolist (slot (class-slots (class-of instance)))
+    (let ((slot-name (slot-definition-name slot)))
+      (when (or (eq slot-names t)
+                (member slot-name slot-names))
+        (setf (slot-value instance slot-name) (eval (slot-definition-initform slot))))))
+  instance)

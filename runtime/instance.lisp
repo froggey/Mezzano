@@ -174,13 +174,22 @@
   new-instance
   old-layout)
 
+(defstruct (wired-obsolete-instance-layout
+             (:include obsolete-instance-layout)
+             (:area :wired))
+  old-layout)
+
 (defun supersede-instance (old-instance replacement)
   (let ((layout (sys.int::%instance-layout old-instance)))
     (cond ((sys.int::layout-p layout)
            ;; This really is a layout, not a superseded instance
-           (let ((new-layout (make-obsolete-instance-layout
-                              :old-layout layout
-                              :new-instance replacement)))
+           (let ((new-layout (if (eql (sys.int::layout-area layout) :wired)
+                                 (make-wired-obsolete-instance-layout
+                                  :old-layout layout
+                                  :new-instance replacement)
+                                 (make-obsolete-instance-layout
+                                  :old-layout layout
+                                  :new-instance replacement))))
              (with-live-objects (new-layout)
                ;; ###: Should this be a CAS?
                ;; FIXME: This needs to keep the GC bits intact.

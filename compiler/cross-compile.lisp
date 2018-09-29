@@ -777,6 +777,10 @@
   (save-object (sys.int::structure-definition-sealed object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
+(defmethod save-one-object ((object sys.int::layout) omap stream)
+  (save-one-object (sys.int::layout-class object) omap stream)
+  (write-byte sys.int::+llf-layout+ stream))
+
 (defmethod save-one-object ((object sys.int::structure-slot-definition) omap stream)
   (save-object (sys.int::structure-slot-definition-name object) omap stream)
   (save-object (sys.int::structure-slot-definition-accessor object) omap stream)

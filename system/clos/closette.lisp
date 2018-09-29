@@ -3049,12 +3049,12 @@ has only has class specializer."
     (loop
        for slot in (intersection new-layout-slots old-layout-slots)
        do
-         (setf (standard-instance-access new-instance (slot-location-using-layout slot new-layout))
-               (standard-instance-access old-instance (slot-location-using-layout slot old-layout))))
+         (setf (mezzano.runtime::instance-access new-instance (slot-location-using-layout slot new-layout))
+               (mezzano.runtime::instance-access old-instance (slot-location-using-layout slot old-layout))))
     ;; Assemble the list of discarded values.
     (loop
        for slot in discarded-slots
-       do (let ((value (standard-instance-access old-instance (slot-location-using-layout slot old-layout))))
+       do (let ((value (mezzano.runtime::instance-access old-instance (slot-location-using-layout slot old-layout))))
             (when (not (eql value *secret-unbound-value*))
               (setf property-list (list* slot value
                                          property-list)))))
@@ -3078,7 +3078,7 @@ has only has class specializer."
 (defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
 
 (defmethod update-instance-for-redefined-class ((instance standard-object) added-slots discarded-slots property-list &rest initargs)
-  (check-update-instance-for-redefined-class-initargs instance initargs)
+  (check-update-instance-for-redefined-class-initargs instance added-slots discarded-slots property-list initargs)
   (apply #'shared-initialize instance added-slots initargs))
 
 (defgeneric slot-unbound (class instance slot-name))

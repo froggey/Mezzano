@@ -315,6 +315,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-one-object (convert-structure-class-to-structure-definition object)
                    omap stream))
 
+(defmethod save-one-object ((object layout) omap stream)
+  (save-one-object (layout-class object) omap stream)
+  (write-byte +llf-layout+ stream))
+
 (defmethod save-one-object ((object structure-definition) omap stream)
   (save-object (structure-definition-name object) omap stream)
   (save-object (structure-definition-slots object) omap stream)

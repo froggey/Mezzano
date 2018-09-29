@@ -677,6 +677,10 @@ Must not call SERIALIZE-OBJECT."))
                                                 slot-location 0
                                                 image environment))))
 
+(defmethod serialize-object ((object env:layout-proxy) image environment)
+  (structure-definition-layout (env:layout-proxy-structure-definition object)
+                               image environment))
+
 (defun image-symbol-value (image environment symbol)
   (let ((cell (serialize-object
                (env:symbol-global-value-cell

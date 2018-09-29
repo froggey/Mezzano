@@ -355,7 +355,10 @@
        ;; Drop the else value unless then value was also dropped.
        (vector-pop stack))
      (pop *load-if-stack*)
-     (values))))
+     (values))
+    (#.sys.int::+llf-layout+
+     (let ((structure-class (vector-pop stack)))
+       (mezzano.runtime::instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
