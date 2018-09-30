@@ -482,6 +482,7 @@
         (sys.lap:perform-assembly-using-target
          (sys.c::canonicalize-target (environment-target environment))
          code
+         :base-address 16
          :initial-symbols (list '(nil . :fixup)
                                 '(t . :fixup))
          :info (list name nil)))

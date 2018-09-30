@@ -223,7 +223,7 @@
          for (name . value) in symbols
          for pos = (position name syms)
          when pos
-         do (setf (aref isr-table pos) value))
+         do (setf (aref isr-table pos) (- value 16))) ; symbols are from the start of the function, not from the entry point.
       (env:%defun environment (env:translate-symbol environment 'sys.int::%%interrupt-service-routines) fn)
       (setf (env:cross-symbol-value environment 'sys.int::*interrupt-service-routines*) isr-table)
       (values))))
