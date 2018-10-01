@@ -138,7 +138,7 @@
 ;; TODO: This and FAST-SLOT-WRITE should use the correct slot access function.
 ;; It doesn't really matter though, as instances and funcallable instances
 ;; are all compatible.
-(defun fast-slot-read (instance location)
+(defun fast-slot-read (instance location slot-definition)
   (multiple-value-bind (slots layout)
       ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
@@ -149,10 +149,11 @@
                                 instance
                                 (if (consp location)
                                     (car location)
-                                    (safe-slot-definition-name (elt (safe-class-slots (class-of instance)) location)))))
+                                    (safe-slot-definition-name slot-definition))))
           val))))
 
-(defun fast-slot-write (new-value instance location)
+(defun fast-slot-write (new-value instance location slot-definition)
+  (declare (ignore slot-definition))
   (multiple-value-bind (slots layout)
       ;; This is required in case the instance is obsolete.
       (fetch-up-to-date-instance-slots-and-layout instance)
@@ -1613,20 +1614,20 @@ has only has class specializer."
 
 ;;; compute-discriminating-function
 
-(defun compute-reader-discriminator (gf emf-table argument-offset)
+(defun compute-reader-discriminator (gf emf-table argument-offset slot-definition)
   (lambda (object)
     (let* ((class (class-of object))
            (location (single-dispatch-emf-entry emf-table class)))
       (if location
-          (fast-slot-read object location)
+          (fast-slot-read object location slot-definition)
           (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
 
-(defun compute-writer-discriminator (gf emf-table argument-offset)
+(defun compute-writer-discriminator (gf emf-table argument-offset slot-definition)
   (lambda (new-value object)
     (let* ((class (class-of object))
            (location (single-dispatch-emf-entry emf-table class)))
       (if location
-          (fast-slot-write new-value object location)
+          (fast-slot-write new-value object location slot-definition)
           (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
 
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
@@ -1736,12 +1737,13 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
                 (let* ((instance (first args))
-                       (slot-name (slot-definition-name (accessor-method-slot-definition (first applicable-methods))))
+                       (slot-def (accessor-method-slot-definition (first applicable-methods)))
+                       (slot-name (slot-definition-name slot-def))
                        (effective-slot (find-effective-slot instance slot-name)))
                   (cond (effective-slot
                          (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (fast-slot-read (first args) location)))
+                           (fast-slot-read (first args) location slot-def)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
                          (slot-value instance slot-name)))))
@@ -1759,12 +1761,13 @@ has only has class specializer."
                      (typep (first applicable-methods) 'standard-writer-method)
                      (std-class-p (class-of class)))
                 (let* ((instance (second args))
-                       (slot-name (slot-definition-name (accessor-method-slot-definition (first applicable-methods))))
+                       (slot-def (accessor-method-slot-definition (first applicable-methods)))
+                       (slot-name (slot-definition-name slot-def))
                        (effective-slot (find-effective-slot instance slot-name)))
                   (cond (effective-slot
                          (let ((location (safe-slot-definition-location effective-slot)))
                            (setf (single-dispatch-emf-entry emf-table class) location)
-                           (fast-slot-write (first args) instance location)))
+                           (fast-slot-write (first args) instance location slot-def)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
                          (setf (slot-value instance slot-name) (first args))))))
@@ -1784,7 +1787,8 @@ has only has class specializer."
                 ;; Switch to reader-method.
                 (set-funcallable-instance-function
                  gf
-                 (compute-reader-discriminator gf emf-table argument-offset))
+                 (compute-reader-discriminator gf emf-table argument-offset
+                                               (accessor-method-slot-definition (first applicable-methods))))
                 (apply gf args))
                ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
@@ -1793,7 +1797,8 @@ has only has class specializer."
                 ;; Switch to writer-method.
                 (set-funcallable-instance-function
                  gf
-                 (compute-writer-discriminator gf emf-table argument-offset))
+                 (compute-writer-discriminator gf emf-table argument-offset
+                                               (accessor-method-slot-definition (first applicable-methods))))
                 (apply gf args))
                (t ;; Switch to 1-effective.
                 (set-funcallable-instance-function
