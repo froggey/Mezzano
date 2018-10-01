@@ -2552,9 +2552,7 @@ has only has class specializer."
       (gethash class cache)
     ;; FIXME: This must take EQL specializers into account.
     (cond (cache-validp
-           (if (eql cached-initargs 't)
-               (values nil t)
-               (values cached-initargs nil)))
+           cached-initargs)
           (t
            (let ((initargs (class-slot-initargs class)))
              (loop
@@ -2564,25 +2562,38 @@ has only has class specializer."
                      (when aok
                        (setf (gethash class cache) t)
                        (return-from valid-initargs
-                         (values nil t)))
+                         t))
                      (dolist (key keys)
                        (pushnew key initargs))))
              (when cache
                (setf (gethash class cache) initargs))
              initargs)))))
 
-(defun check-initargs (class cache functions initargs error-fn)
-  (multiple-value-bind (valid-initargs inhibit-checking)
-      (valid-initargs class cache functions)
-    (when (and (not inhibit-checking)
-               (not (getf initargs :allow-other-keys)))
-      (let ((invalid-initargs (loop
-                                 for initarg in initargs by #'cddr
-                                 when (and (not (eql initarg :allow-other-keys))
-                                           (not (member initarg valid-initargs)))
-                                 collect initarg)))
-        (when invalid-initargs
-          (funcall error-fn valid-initargs invalid-initargs))))))
+;; Avoid evaluating functions & error-fn until as late as possible.
+(defmacro check-initargs (class cache functions initargs error-fn)
+  (let ((valid-initargs (gensym "VALID-INITARGS"))
+        (invalid-initargs (gensym "INVALID-INITARGS"))
+        (initarg (gensym "INITARG"))
+        (cache-validp (gensym "CACHE-VALIDP"))
+        (class-sym (gensym "CLASS"))
+        (cache-sym (gensym "CACHE"))
+        (initargs-sym (gensym "INITARGS")))
+    `(let ((,class-sym ,class)
+           (,cache-sym ,cache)
+           (,initargs-sym ,initargs))
+       (multiple-value-bind (,valid-initargs ,cache-validp)
+           (gethash ,class-sym ,cache-sym)
+         (when (not ,cache-validp)
+           (setf ,valid-initargs (valid-initargs ,class-sym ,cache-sym ,functions)))
+         (when (and (not (eql ,valid-initargs 't))
+                    (not (getf ,initargs-sym :allow-other-keys)))
+           (let ((,invalid-initargs (loop
+                                       for ,initarg in ,initargs-sym by #'cddr
+                                       when (and (not (eql ,initarg :allow-other-keys))
+                                                 (not (member ,initarg ,valid-initargs)))
+                                       collect ,initarg)))
+             (when ,invalid-initargs
+               (funcall ,error-fn ,valid-initargs ,invalid-initargs))))))))
 
 (sys.int::defglobal *make-instance-initargs-cache* (make-hash-table))
 
