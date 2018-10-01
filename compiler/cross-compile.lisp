@@ -1237,3 +1237,6 @@
 (defgeneric mezzano.clos:structure-slot-definition-fixed-vector (slot-definition)
   (:method ((slot-definition sys.int::structure-slot-definition))
     (sys.int::structure-slot-definition-fixed-vector slot-definition)))
+
+(defun mezzano.clos:ensure-class (name &rest initargs)
+  (apply #'sb-mop:ensure-class name initargs))
