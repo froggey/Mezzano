@@ -64,8 +64,6 @@
                             (make-method ,form)))
            form))))
 
-;; To be reinstated when CLOS is usable in the cross-compilation environment.
-#+(or)
 (defclass method-group-specifier ()
   ((%name :initarg :name :reader method-group-specifier-name)
    (%qualifier-patterns :initarg :qualifier-patterns :reader method-group-specifier-qualifier-patterns)
@@ -73,14 +71,6 @@
    (%description :initarg :description :reader method-group-specifier-description)
    (%order-form :initarg :order-form :reader method-group-specifier-order-form)
    (%required :initarg :required :reader method-group-specifier-required)))
-
-(defstruct method-group-specifier
-  name
-  qualifier-patterns
-  predicate
-  description
-  order-form
-  required)
 
 (defun parse-method-group-specifier (specifier)
   (let ((name (first specifier))
@@ -107,7 +97,7 @@
              (assert (or (eql pattern '*) (listp pattern))))))
     (destructuring-bind (&key description order required)
         remaining-specifier
-      (make-method-group-specifier
+      (make-instance 'method-group-specifier
        :name name
        :qualifier-patterns qualifier-patterns
        :predicate predicate
