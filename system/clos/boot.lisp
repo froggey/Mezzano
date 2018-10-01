@@ -147,3 +147,8 @@
     (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
     (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
           *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
+
+;; Initial version of class-constructor, replaced after the compiler is loaded.
+(defun safe-class-constructor (class)
+  (declare (ignore class))
+  nil)

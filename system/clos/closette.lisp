@@ -52,13 +52,15 @@
        do (setf (sys.int::%object-ref-t instance i) *secret-unbound-value*))
     instance))
 
+(defun uninitialized-standard-funcallable-instance-function (&rest x)
+  (declare (ignore x))
+  (error "The function of this funcallable instance has not been set."))
+
 (defun fc-std-allocate-instance (class)
   (ensure-class-finalized class)
   (let* ((layout (safe-class-slot-storage-layout class))
          (instance (sys.int::%allocate-funcallable-instance
-                    (lambda (&rest x)
-                      (declare (ignore x))
-                      (error "The function of this funcallable instance has not been set."))
+                    #'uninitialized-standard-funcallable-instance-function
                     layout)))
     (loop
        ;; Leave the first two words alone. These hold the entry point & function.
@@ -2540,17 +2542,20 @@ has only has class specializer."
      finally
        (return result)))
 
-(defun applicable-method-initargs (generic-function arguments)
+(defun applicable-methods-initargs (applicable-methods)
   (let ((initargs '()))
-    (dolist (method (compute-applicable-methods generic-function arguments))
+    (dolist (method applicable-methods)
       (multiple-value-bind (keys aok)
           (function-keywords method)
         (when aok
-          (return-from applicable-method-initargs
+          (return-from applicable-methods-initargs
             (values nil t)))
         (dolist (key keys)
           (pushnew key initargs))))
     (values initargs nil)))
+
+(defun applicable-method-initargs (generic-function arguments)
+  (applicable-methods-initargs (compute-applicable-methods generic-function arguments)))
 
 (defun valid-initargs (class cache functions)
   (multiple-value-bind (cached-initargs cache-validp)
@@ -2615,6 +2620,10 @@ has only has class specializer."
 
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
+  (let ((ctor (safe-class-constructor class)))
+    (when ctor
+      (return-from make-instance
+        (funcall ctor initargs))))
   (let ((true-initargs (std-compute-initargs class initargs)))
     (check-make-instance-initargs class true-initargs)
     (let ((instance (apply #'allocate-instance class true-initargs)))
@@ -2996,6 +3005,8 @@ has only has class specializer."
       (remove-reader-method class reader (safe-slot-definition-name direct-slot)))
     (dolist (writer (safe-slot-definition-writers direct-slot))
       (remove-writer-method class writer (safe-slot-definition-name direct-slot))))
+  ;; Flush the constructor function.
+  (setf (std-slot-value class 'constructor) nil)
   ;; Fall into the initialize-instance code.
   (apply #'std-after-initialization-for-classes
          class

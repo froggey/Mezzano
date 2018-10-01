@@ -209,6 +209,7 @@
     "compiler/backend/arm64/number.lisp"
     ("runtime/simd.lisp" :x86-64)
     "system/file-compiler.lisp"
+    "system/clos/constructor.lisp"
     "system/xp-package.lisp"
     "system/xp.lisp"
     "system/xp-format.lisp"
