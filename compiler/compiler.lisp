@@ -82,9 +82,10 @@ be generated instead.")
       #+arm64 :arm64))
 
 (defun compile-lambda (lambda &optional env target-architecture)
-  (log-event :compile-lambda)
-  (let ((target (canonicalize-target target-architecture)))
-    (codegen-lambda (compile-lambda-1 lambda env target) target)))
+  (let ((*print-readably* nil))
+    (log-event :compile-lambda)
+    (let ((target (canonicalize-target target-architecture)))
+      (codegen-lambda (compile-lambda-1 lambda env target) target))))
 
 (defun compile-ast (ast &optional target-architecture)
   (let ((target (canonicalize-target target-architecture)))
