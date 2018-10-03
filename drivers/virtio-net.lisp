@@ -102,7 +102,7 @@ and then some alignment.")
     (sup:debug-print-line "virtio-net device " nic " removed. Old boot: "
                           (virtio-net-boot-id nic)
                           " Current boot: "
-                          (current-boot-id))
+                          (sup:current-boot-id))
     (throw 'nic-detached nil)))
 
 (defun virtio-net-receive-processing (nic)
