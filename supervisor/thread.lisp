@@ -510,6 +510,15 @@ Interrupts must be off and the global thread lock must be held."
       ;; GUI screen updates.
       (clear-light *light-run*))))
 
+(defun make-ephemeral-thread (entry-point initial-state &key name (stack-size (* 256 1024)) (priority :normal))
+  (let* ((thread (%make-thread name))
+         (stack (%allocate-stack stack-size t)))
+    (setf (thread-stack thread) stack
+          (thread-self thread) thread
+          (thread-priority thread) priority)
+    (reset-ephemeral-thread thread entry-point initial-state priority)
+    thread))
+
 (defun reset-ephemeral-thread (thread entry-point state priority)
   ;; Threads created by the cold-generator have conses instead of real stack
   ;; objects. Work around this.
