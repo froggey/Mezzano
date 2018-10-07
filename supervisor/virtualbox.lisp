@@ -209,15 +209,15 @@
   :virtualbox-graphics)
 
 (defun virtualbox-graphics-update-framebuffer ()
-  (incf *snapshot-inhibit*)
-  (when (eql *virtualbox-graphics-boot-id* (current-boot-id))
-    (map-physical-memory *virtualbox-graphics-fb-address*
-                         (align-up (* *vbox-screen-xres* *vbox-screen-yres* 4)
-                                   #x1000)
-                         "Framebuffer")
-    (video-set-framebuffer *virtualbox-graphics-fb-address*
-                           *vbox-screen-xres*
-                           *vbox-screen-yres*
-                           (* *vbox-screen-xres* 4)
-                           :x8r8g8b8))
-  (decf *snapshot-inhibit*))
+  (sup:with-snapshot-inhibited ()
+    (when (eql *virtualbox-graphics-boot-id* (sup:current-boot-id))
+      (sup:map-physical-memory *virtualbox-graphics-fb-address*
+                               (sup::align-up
+                                (* *vbox-screen-xres* *vbox-screen-yres* 4)
+                                #x1000)
+                           "Framebuffer")
+      (sup::video-set-framebuffer *virtualbox-graphics-fb-address*
+                                  *vbox-screen-xres*
+                                  *vbox-screen-yres*
+                                  (* *vbox-screen-xres* 4)
+                                  :x8r8g8b8))))
