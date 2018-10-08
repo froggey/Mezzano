@@ -464,11 +464,11 @@ Must not call SERIALIZE-OBJECT."))
 (defmethod allocate-object ((object complex) image environment)
   (etypecase (realpart object)
     (rational
-     (allocate 4 image :wired sys.int::+tag-object+))
+     (allocate 4 image :general sys.int::+tag-object+))
     (single-float
-     (allocate 2 image :wired sys.int::+tag-object+))
+     (allocate 2 image :general sys.int::+tag-object+))
     (double-float
-     (allocate 4 image :wired sys.int::+tag-object+))))
+     (allocate 4 image :general sys.int::+tag-object+))))
 
 (defmethod initialize-object ((object complex) value image environment)
   (etypecase (realpart object)
