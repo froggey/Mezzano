@@ -933,9 +933,9 @@
     nil
     nil
     nil
-    nil
-    nil
-    nil
+    (decode-pq-qd sys.lap-x86:pcmpeqb sys.lap-x86:pcmpeqb nil nil)
+    (decode-pq-qd sys.lap-x86:pcmpeqw sys.lap-x86:pcmpeqw nil nil)
+    (decode-pq-qd sys.lap-x86:pcmpeqd sys.lap-x86:pcmpeqd nil nil)
     nil
     nil ; 78
     nil
