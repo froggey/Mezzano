@@ -20,10 +20,10 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
   (check-type green (real 0 1))
   (check-type blue  (real 0 1))
   (check-type alpha (real 0 1))
-  (setf red   (float red   0.0s0))
-  (setf green (float green 0.0s0))
-  (setf blue  (float blue  0.0s0))
-  (setf alpha (float alpha 0.0s0))
+  (setf red   (float red   0.0f0))
+  (setf green (float green 0.0f0))
+  (setf blue  (float blue  0.0f0))
+  (setf alpha (float alpha 0.0f0))
   (when (not premultiplied)
     ;; Convert to premultiplied alpha.
     (setf red   (* red alpha)
@@ -52,7 +52,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 
 (defun colour-alpha (colour)
   "Return the alpha component of COLOUR as a single float in [0,1]."
-  (/ (colour-alpha-as-octet colour) 255.0s0))
+  (/ (colour-alpha-as-octet colour) 255.0f0))
 
 (defun colour-alpha-as-octet (colour)
   "Return the alpha component of COLOUR as an octet."
@@ -61,7 +61,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 
 (defun colour-red (colour)
   "Return the red component of COLOUR as a single float in [0,1]."
-  (/ (colour-red-as-octet colour) 255.0s0))
+  (/ (colour-red-as-octet colour) 255.0f0))
 
 (defun colour-red-as-octet (colour)
   "Return the red component of COLOUR as an octet."
@@ -70,7 +70,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 
 (defun colour-green (colour)
   "Return the green component of COLOUR as a single float in [0,1]."
-  (/ (colour-green-as-octet colour) 255.0s0))
+  (/ (colour-green-as-octet colour) 255.0f0))
 
 (defun colour-green-as-octet (colour)
   "Return the green component of COLOUR as an octet."
@@ -79,7 +79,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 
 (defun colour-blue (colour)
   "Return the blue component of COLOUR as a single float in [0,1]."
-  (/ (colour-blue-as-octet colour) 255.0s0))
+  (/ (colour-blue-as-octet colour) 255.0f0))
 
 (defun colour-blue-as-octet (colour)
   "Return the blue component of COLOUR as an octet."

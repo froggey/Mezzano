@@ -38,8 +38,8 @@
            result))
         ((or (typep realpart 'single-float)
              (typep imagpart 'single-float))
-         (let ((r (%single-float-as-integer (float realpart 0.0s0)))
-               (i (%single-float-as-integer (float imagpart 0.0s0)))
+         (let ((r (%single-float-as-integer (float realpart 0.0f0)))
+               (i (%single-float-as-integer (float imagpart 0.0f0)))
                (result (mezzano.runtime::%allocate-object +object-tag-complex-single-float+ 0 1 nil)))
            (setf (%object-ref-unsigned-byte-32 result sys.int::+complex-realpart+) r
                  (%object-ref-unsigned-byte-32 result sys.int::+complex-imagpart+) i)

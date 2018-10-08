@@ -52,7 +52,7 @@
         ((eql alpha-octet 255)
          colour)
         (t
-         (let ((alpha (/ alpha-octet 255.0s0)))
+         (let ((alpha (/ alpha-octet 255.0f0)))
            (make-colour (* (colour-red colour) alpha)
                         (* (colour-green colour) alpha)
                         (* (colour-blue colour) alpha)

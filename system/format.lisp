@@ -413,7 +413,7 @@
 (define-format-interpreter #\$ (at-sign colon &optional (d 2) (n 1) (w 0) (padchar #\Space))
   (let ((arg (consume-argument)))
     (when (realp arg)
-      (setf arg (float 0.0s0)))
+      (setf arg (float 0.0f0)))
     (format t "~D" arg)))
 
 ;;;; 22.3.4 FORMAT Printer Operations.
