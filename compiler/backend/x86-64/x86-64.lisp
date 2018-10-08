@@ -247,6 +247,64 @@
                           :source :r8))
           (ir:remove-instruction backend-function inst))))))
 
+(defun lower-simd-literal-loads (backend-function)
+  (multiple-value-bind (uses defs)
+      (ir::build-use/def-maps backend-function)
+    (declare (ignore uses))
+    (do* ((inst (ir:first-instruction backend-function) next-inst)
+          (next-inst (ir:next-instruction backend-function inst) (if inst (ir:next-instruction backend-function inst))))
+         ((null inst))
+      ;; Transform unboxing of constant vectors into literal loads.
+      ;; Saves one memory load & reduces the number of loose SIMD vectors.
+      (when (and (typep inst 'unbox-sse-vector-instruction)
+                 (typep (first (gethash (ir:unbox-source inst) defs))
+                        'ir:constant-instruction)
+                 (typep (ir:constant-value
+                         (first (gethash (ir:unbox-source inst) defs)))
+                        'mezzano.simd:sse-vector))
+        (let ((value (mezzano.simd:sse-vector-value
+                      (ir:constant-value
+                       (first (gethash (ir:unbox-source inst) defs)))))
+              (dest (ir:unbox-destination inst)))
+          (ir:insert-before
+           backend-function inst
+           (if (zerop value)
+               (make-instance 'x86-instruction
+                              :opcode 'lap:pxor
+                              :operands (list dest dest)
+                              :inputs (list)
+                              :outputs (list dest))
+               (make-instance 'x86-instruction
+                              :opcode 'lap:movdqa
+                              :operands (list dest `(:literal/128 ,value))
+                              :inputs (list)
+                              :outputs (list dest))))
+          (ir:remove-instruction backend-function inst)))
+      (when (and (typep inst 'unbox-mmx-vector-instruction)
+                 (typep (first (gethash (ir:unbox-source inst) defs))
+                        'ir:constant-instruction)
+                 (typep (ir:constant-value
+                         (first (gethash (ir:unbox-source inst) defs)))
+                        'mezzano.simd:mmx-vector))
+        (let ((value (mezzano.simd:mmx-vector-value
+                      (ir:constant-value
+                       (first (gethash (ir:unbox-source inst) defs)))))
+              (dest (ir:unbox-destination inst)))
+          (ir:insert-before
+           backend-function inst
+           (if (zerop value)
+               (make-instance 'x86-instruction
+                              :opcode 'lap:pxor
+                              :operands (list dest dest)
+                              :inputs (list)
+                              :outputs (list dest))
+               (make-instance 'x86-instruction
+                              :opcode 'lap:movq
+                              :operands (list dest `(:literal ,value))
+                              :inputs (list)
+                              :outputs (list dest))))
+          (ir:remove-instruction backend-function inst))))))
+
 (defun lower-fake-three-operand-instructions (backend-function)
   "Lower x86-fake-three-operand-instructions to a move & x86-instruction.
 The resulting code is not in SSA form so this pass must be late in the compiler."
@@ -281,7 +339,8 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                     :early-clobber nil))))
 
 (defmethod ir:perform-target-lowering (backend-function (target sys.c:x86-64-target))
-  (lower-builtins backend-function))
+  (lower-builtins backend-function)
+  (lower-simd-literal-loads backend-function))
 
 (defmethod ir:perform-target-lowering-post-ssa (backend-function (target sys.c:x86-64-target))
   (lower-complicated-box-instructions backend-function)
