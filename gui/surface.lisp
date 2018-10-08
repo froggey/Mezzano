@@ -4,7 +4,8 @@
 (in-package :mezzano.gui)
 
 (defstruct (surface
-             (:constructor %make-surface))
+             (:constructor %make-surface)
+             (:copier nil))
   (pixels (error "Pixel data not specified."))
   (format (error "Format not specified.")))
 
@@ -15,20 +16,34 @@
 (defun make-surface (width height &key (format :argb32) (initial-colour 0))
   "Create a new surface of the specified WIDTH, HEIGHT and FORMAT.
 The surface will be filled with INITIAL-COLOUR, which defaults to fully transparent."
-  (check-type format (member :argb32 :a8 :a1))
-  (%make-surface :pixels (make-array (list height width)
+  (check-type format (member :argb32 :a8 :a1 :argb64f))
+  (%make-surface :pixels (if (eql format :argb64f)
+                             (let ((pixels (make-array (list height width 4)
+                                                       :element-type 'short-float))
+                                   (a (float (colour-alpha initial-colour) 0.0s0))
+                                   (r (float (colour-red initial-colour) 0.0s0))
+                                   (g (float (colour-green initial-colour) 0.0s0))
+                                   (b (float (colour-blue initial-colour) 0.0s0)))
+                               (dotimes (y height)
+                                 (dotimes (x height)
+                                   (setf (aref pixels y x 0) b
+                                         (aref pixels y x 1) g
+                                         (aref pixels y x 2) r
+                                         (aref pixels y x 3) a)))
+                               pixels)
+                             (make-array (list height width)
                                      :element-type (ecase format
                                                      (:argb32 '(unsigned-byte 32))
                                                      (:a8 '(unsigned-byte 8))
                                                      (:a1 'bit))
-                                     :initial-element initial-colour)
+                                     :initial-element initial-colour))
                  :format format))
 
 (defun make-surface-from-array (array &key (format :argb32) premultiplied)
   "Create a new surface with the same dimensions as ARRAY.
 If the surface format contains colour components, they will be converted to
 premultiplied alpha unless PREMULTIPLIED is true."
-  (check-type format (member :argb32 :a8 :a1))
+  (check-type format (member :argb32 :a8 :a1 :argb64f))
   (let ((pixels (ecase format
                   (:argb32
                    (check-type array (array (unsigned-byte 32) (* *)))
@@ -59,9 +74,35 @@ premultiplied alpha unless PREMULTIPLIED is true."
                                           :element-type '(unsigned-byte 1))))
                      (dotimes (i (array-total-size array))
                        (setf (row-major-aref new i) (row-major-aref array i)))
-                     new)))))
+                     new))
+                  (:argb64f
+                   (check-type array (array short-float (* * 4)))
+                   (let ((pixels (make-array (array-dimensions array)
+                                             :element-type 'short-float)))
+                     ;; Fill pixels with premultiplied colour.
+                     (cond (premultiplied
+                            (dotimes (i (array-total-size array))
+                              (setf (row-major-aref pixels i) (row-major-aref array i))))
+                           (t
+                            (dotimes (y (array-dimension array 0))
+                              (dotimes (x (array-dimension array 1))
+                                (let* ((alpha (aref array y x 3))
+                                       (red   (aref array y x 2))
+                                       (green (aref array y x 1))
+                                       (blue  (aref array y x 0)))
+                                  (setf (aref pixels y x 3) alpha
+                                        (aref pixels y x 2) (* red alpha)
+                                        (aref pixels y x 1) (* green alpha)
+                                        (aref pixels y x 0) (* blue alpha)))))))
+                     pixels)))))
     (%make-surface :pixels pixels
                    :format format)))
+
+(defun copy-surface (surface)
+  (%make-surface :pixels (make-array (array-dimensions (surface-pixels surface))
+                                     :element-type (array-element-type (surface-pixels surface))
+                                     :initial-contents (surface-pixels surface))
+                 :format (surface-format surface)))
 
 (defun surface-width (surface)
   "Return the width of SURFACE in pixels."
@@ -73,11 +114,24 @@ premultiplied alpha unless PREMULTIPLIED is true."
 
 (defun surface-pixel (surface x y)
   "Get the pixel in SURFACE at (X,Y)."
-  (aref (surface-pixels surface) y x))
+  (if (eql (surface-pixels surface) :argb64f)
+      (make-colour (aref (surface-pixels surface) y x 3)
+                   (aref (surface-pixels surface) y x 2)
+                   (aref (surface-pixels surface) y x 1)
+                   (aref (surface-pixels surface) y x 0)
+                   t)
+      (aref (surface-pixels surface) y x)))
 
 (defun (setf surface-pixel) (value surface x y)
   "Set the pixel in SURFACE at (X,Y)."
-  (setf (aref (surface-pixels surface) y x) value))
+  (cond ((eql (surface-pixels surface) :argb64f)
+         (setf (aref (surface-pixels surface) y x 0) (float (colour-blue value) 0.0s0)
+               (aref (surface-pixels surface) y x 1) (float (colour-green value) 0.0s0)
+               (aref (surface-pixels surface) y x 2) (float (colour-red value) 0.0s0)
+               (aref (surface-pixels surface) y x 3) (float (colour-alpha value) 0.0s0))
+         value)
+        (t
+         (setf (aref (surface-pixels surface) y x) value))))
 
 (defun bitblt (mode width height source-surface source-x source-y dest-surface dest-x dest-y)
   "Copy a WIDTHxHEIGHT rectangle of pixels from SOURCE-SURFACE to DEST-SURFACE.
