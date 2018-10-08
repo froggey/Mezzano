@@ -85,6 +85,10 @@
     (read-sequence vec (loader-stream loader))
     vec))
 
+(defun load-short-float (loader)
+  (let ((bits (load-integer loader)))
+    (sys.int::%integer-as-short-float bits)))
+
 (defun load-single-float (loader)
   (let ((bits (load-integer loader)))
     (sys.int::%integer-as-single-float bits)))
@@ -218,6 +222,8 @@
      (load-structure-definition loader))
     (#.sys.int::+llf-structure-slot-definition+
      (load-structure-slot-definition loader))
+    (#.sys.int::+llf-short-float+
+     (load-short-float loader))
     (#.sys.int::+llf-single-float+
      (load-single-float loader))
     (#.sys.int::+llf-double-float+
@@ -289,6 +295,10 @@
             (imagpart-denominator (load-integer loader)))
        (complex (/ realpart-numerator realpart-denominator)
                 (/ imagpart-numerator imagpart-denominator))))
+    (#.sys.int::+llf-complex-short-float+
+     (let* ((realpart (load-short-float loader))
+            (imagpart (load-short-float loader)))
+       (sys.c::make-cross-complex-short-float :realpart realpart :imagpart imagpart)))
     (#.sys.int::+llf-complex-single-float+
      (let* ((realpart (load-single-float loader))
             (imagpart (load-single-float loader)))

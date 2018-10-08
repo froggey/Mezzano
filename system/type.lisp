@@ -109,8 +109,6 @@
     (error 'type-error :expected-type '(integer 1) :datum n))
   `(integer 0 (,n)))
 
-(deftype short-float (&optional min max)
-  `(single-float ,min ,max))
 (deftype long-float (&optional min max)
   `(double-float ,min ,max))
 
@@ -164,6 +162,7 @@
                     (or (null (rest type))
                         (eql (second type) '*))))
            '(or (complex rational)
+                (complex short-float)
                 (complex single-float)
                 (complex double-float)))
           (t (values type nil)))))
@@ -251,6 +250,16 @@
          (or (eql max '*)
              (<= object max)))))
 (%define-compound-type 'float 'float-type-p)
+
+(defun short-float-type-p (object type)
+  (multiple-value-bind (min max)
+      (canonicalize-real-type type 'short-float)
+    (and (short-float-p object)
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
+(%define-compound-type 'short-float 'short-float-type-p)
 
 (defun single-float-type-p (object type)
   (multiple-value-bind (min max)
@@ -383,6 +392,7 @@
 (%define-type-symbol 'integer 'integerp)
 (%define-type-symbol 'ratio 'ratiop)
 (%define-type-symbol 'rational 'rationalp)
+(%define-type-symbol 'short-float 'short-float-p)
 (%define-type-symbol 'single-float 'single-float-p)
 (%define-type-symbol 'double-float 'double-float-p)
 (%define-type-symbol 'float 'floatp)
@@ -951,6 +961,8 @@
          (if (standard-char-p object)
              'standard-char
              'character))
+        ((short-float-p object)
+         'short-float)
         ((single-float-p object)
          'single-float)
         ((small-byte-p object)
@@ -1028,8 +1040,6 @@
             'ratio)
            (#.+object-tag-double-float+
             'double-float)
-           (#.+object-tag-short-float+
-            'short-float)
            (#.+object-tag-long-float+
             'long-float)
            (#.+object-tag-complex-rational+

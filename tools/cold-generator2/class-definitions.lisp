@@ -207,6 +207,7 @@
 (defclass bignum (integer) () (:metaclass built-in-class))
 (defclass ratio (rational) () (:metaclass built-in-class))
 (defclass float (real) () (:metaclass built-in-class))
+(defclass short-float (float) () (:metaclass built-in-class))
 (defclass single-float (float) () (:metaclass built-in-class))
 (defclass double-float (float) () (:metaclass built-in-class))
 (defclass complex (number) () (:metaclass built-in-class))

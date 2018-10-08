@@ -39,7 +39,7 @@
     bignum                     ; #b100000
     ratio                      ; #b100001
     double-float               ; #b100010
-    short-float                ; #b100011
+    invalid-100011             ; #b100011
     long-float                 ; #b100100
     complex-rational           ; #b100101
     complex-single-float       ; #b100110

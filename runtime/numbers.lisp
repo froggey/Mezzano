@@ -8,16 +8,20 @@
   (or (sys.int::fixnump object)
       (sys.int::bignump object)))
 
-(declaim (inline sys.int::single-float-p sys.int::double-float-p))
+(declaim (inline sys.int::single-float-p sys.int::double-float-p sys.int::short-float-p))
 (defun sys.int::single-float-p (object)
   (sys.int::%value-has-immediate-tag-p object sys.int::+immediate-tag-single-float+))
 
 (defun sys.int::double-float-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-double-float+))
 
+(defun sys.int::short-float-p (value)
+  (sys.int::%value-has-immediate-tag-p value sys.int::+immediate-tag-short-float+))
+
 (declaim (inline floatp))
 (defun floatp (object)
   (or (sys.int::single-float-p object)
+      (sys.int::short-float-p object)
       (sys.int::%object-of-type-range-p
        object
        sys.int::+first-float-object-tag+
@@ -53,33 +57,56 @@
        ((or null single-float)
         number)
        (double-float
-        (%%coerce-single-float-to-double-float number))))
+        (%%coerce-single-float-to-double-float number))
+       (short-float
+        (%%coerce-single-float-to-short-float number))))
     (double-float
      (etypecase prototype
        (single-float
         (%%coerce-double-float-to-single-float number))
        ((or null double-float)
-        number)))
+        number)
+       (short-float
+        (%%coerce-double-float-to-short-float number))))
     (fixnum
      (etypecase prototype
        ((or null single-float)
         (%%coerce-fixnum-to-single-float number))
        (double-float
-        (%%coerce-fixnum-to-double-float number))))
+        (%%coerce-fixnum-to-double-float number))
+       (short-float
+        (%%coerce-fixnum-to-short-float number))))
     (bignum
      (etypecase prototype
        ((or null single-float)
         (%%coerce-bignum-to-single-float number))
        (double-float
-        (%%coerce-bignum-to-double-float number))))
+        (%%coerce-bignum-to-double-float number))
+       (short-float
+        (%%coerce-bignum-to-short-float number))))
+    (short-float
+     (etypecase prototype
+       ((or null short-float)
+        number)
+       (single-float
+        (%%coerce-short-float-to-single-float number))
+       (double-float
+        (%%coerce-short-float-to-double-float number))))
     (ratio
      (sys.int::ratio-to-float number (etypecase prototype
                                        ((or null single-float) 'single-float)
-                                       (double-float 'double-float))))))
+                                       (double-float 'double-float)
+                                       (short-float 'short-float))))))
 
 (defun sys.int::float-nan-p (float)
   "Returns true if FLOAT is a trapping NaN or a quiet NaN."
   (etypecase float
+    (short-float
+     (let* ((bits (sys.int::%short-float-as-integer float))
+            (exp (ldb (byte 5 10) bits))
+            (sig (ldb (byte 10 0) bits)))
+       (and (eql exp #x1F)
+            (not (zerop sig)))))
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))
             (exp (ldb (byte 8 23) bits))
@@ -96,6 +123,13 @@
 (defun sys.int::float-trapping-nan-p (float)
   "Returns true if FLOAT is a trapping NaN."
   (etypecase float
+    (short-float
+     (let* ((bits (sys.int::%short-float-as-integer float))
+            (exp (ldb (byte 5 10) bits))
+            (sig (ldb (byte 10 0) bits)))
+       (and (eql exp #x1F)
+            (not (zerop sig))
+            (not (logbitp 9 sig)))))
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))
             (exp (ldb (byte 8 23) bits))
@@ -114,6 +148,12 @@
 (defun sys.int::float-infinity-p (float)
   "Returns true if FLOAT is positive or negative infinity."
   (etypecase float
+    (short-float
+     (let* ((bits (sys.int::%short-float-as-integer float))
+            (exp (ldb (byte 5 10) bits))
+            (sig (ldb (byte 10 0) bits)))
+       (and (eql exp #x1F)
+            (zerop sig))))
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))
             (exp (ldb (byte 8 23) bits))
@@ -196,6 +236,14 @@
   (multiple-value-bind (float< float= truncate-float fix-to-float float-zero m-p-f-float m-n-f-float)
       (ecase float-type
         (single-float
+         (values 'sys.int::%%short-float-<
+                 'sys.int::%%short-float-=
+                 'sys.int::%%truncate-short-float
+                 '%%coerce-fixnum-to-short-float
+                 0.0s0
+                 sys.int::most-positive-fixnum-short-float
+                 sys.int::most-negative-fixnum-short-float))
+        (single-float
          (values 'sys.int::%%single-float-<
                  'sys.int::%%single-float-=
                  'sys.int::%%truncate-single-float
@@ -274,6 +322,12 @@
 (defmacro bignum-float-compare (the-bignum the-float float-type swap-args)
   (multiple-value-bind (float< float= truncate-float m-p-f-float m-n-f-float p-inf n-inf)
       (ecase float-type
+        (short-float
+         (values 'sys.int::%%short-float-<
+                 'sys.int::%%short-float-=
+                 '%%truncate-short-float-to-integer
+                 sys.int::most-positive-fixnum-short-float
+                 sys.int::most-negative-fixnum-short-float))
         (single-float
          (values 'sys.int::%%single-float-<
                  'sys.int::%%single-float-=
@@ -307,6 +361,8 @@
        (fixnum (%fixnum-< x y))
        (bignum (not (sys.int::%bignum-negative-p y)))
        (ratio (ratio-< x y))
+       (short-float
+        (fixnum-float-compare x y short-float nil))
        (single-float
         (fixnum-float-compare x y single-float nil))
        (double-float
@@ -316,6 +372,8 @@
        (fixnum (sys.int::%bignum-negative-p x))
        (bignum (sys.int::%%bignum-< x y))
        (ratio (ratio-< x y))
+       (short-float
+        (bignum-float-compare x y short-float nil))
        (single-float
         (bignum-float-compare x y single-float nil))
        (double-float
@@ -323,8 +381,22 @@
     (ratio
      (number-dispatch (y :expected-type 'real)
        ((fixnum bignum ratio) (ratio-< x y))
-       ((single-float double-float)
+       ((short-float single-float double-float)
         (ratio-< x (rational y)))))
+    (short-float
+     (number-dispatch (y :expected-type 'real)
+       (fixnum
+        (fixnum-float-compare y x short-float t))
+       (bignum
+        (bignum-float-compare y x short-float t))
+       (ratio
+        (ratio-< (rational x) y))
+       (short-float
+        (sys.int::%%short-float-< x y))
+       (single-float
+        (sys.int::%%single-float-< (float x 0.0f0) y))
+       (double-float
+        (sys.int::%%double-float-< (float x 0.0d0) y))))
     (single-float
      (number-dispatch (y :expected-type 'real)
        (fixnum
@@ -333,6 +405,8 @@
         (bignum-float-compare y x single-float t))
        (ratio
         (ratio-< (rational x) y))
+       (short-float
+        (sys.int::%%single-float-< x (float y 0.0f0)))
        (single-float
         (sys.int::%%single-float-< x y))
        (double-float
@@ -345,6 +419,8 @@
         (bignum-float-compare y x double-float t))
        (ratio
         (ratio-< (rational x) y))
+       (short-float
+        (sys.int::%%double-float-< x (float y 0.0d0)))
        (single-float
         (sys.int::%%double-float-< x (float y 0.0d0)))
        (double-float
@@ -495,6 +571,17 @@
     ((sys.int::complex-single-float
       sys.int::complex-double-float)
      (complex-= x y))))
+
+(defun %truncate-short-float (number)
+  (if (<= sys.int::most-negative-fixnum-short-float
+          number
+          sys.int::most-positive-fixnum-short-float)
+      ;; Fits in a fixnum, convert quickly.
+      (sys.int::%%truncate-short-float number)
+      ;; Grovel inside the float
+      (multiple-value-bind (significand exponent sign)
+          (integer-decode-float number)
+        (* (ash significand exponent) sign))))
 
 (defun %truncate-single-float (number)
   (if (<= sys.int::most-negative-fixnum-single-float

@@ -561,7 +561,8 @@
 (defun eq-comparable-p (value)
   (or (not (numberp value))
       (fixnump value) ;; Use fixnump, not the type fixnum to avoid x-compiler problems.
-      (typep value 'single-float)))
+      (typep value 'single-float)
+      (typep value 'short-float)))
 
 (defun simp-eql (form)
   (simp-form-list (arguments form))

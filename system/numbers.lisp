@@ -41,23 +41,23 @@
 (defconstant most-negative-fixnum-double-float (%integer-as-double-float #xC3D0000000000000)
   "The smallest fixnum that can be represented exactly by a double-float, as a double-float.")
 
-(defconstant most-negative-short-float most-negative-single-float)
-(defconstant least-negative-short-float least-negative-single-float)
-(defconstant least-negative-normalized-short-float least-negative-normalized-single-float)
-(defconstant most-positive-short-float most-positive-single-float)
-(defconstant least-positive-short-float least-positive-single-float)
-(defconstant least-positive-normalized-short-float least-positive-normalized-single-float)
-(defconstant short-float-epsilon single-float-epsilon)
-(defconstant short-float-negative-epsilon single-float-negative-epsilon)
-(defconstant short-float-negative-infinity single-float-negative-infinity)
-(defconstant short-float-positive-infinity single-float-positive-infinity)
-(defconstant short-float-nan single-float-nan
+(defconstant most-negative-short-float (%integer-as-short-float #xFBFF))
+(defconstant least-negative-short-float (%integer-as-short-float #x8001))
+(defconstant least-negative-normalized-short-float (%integer-as-short-float #x8400))
+(defconstant most-positive-short-float (%integer-as-short-float #x7BFF))
+(defconstant least-positive-short-float (%integer-as-short-float #x0001))
+(defconstant least-positive-normalized-short-float (%integer-as-short-float #x0400))
+(defconstant short-float-epsilon (%integer-as-short-float #x6801))
+(defconstant short-float-negative-epsilon (%integer-as-short-float #x6001))
+(defconstant short-float-negative-infinity (%integer-as-short-float #xFC00))
+(defconstant short-float-positive-infinity (%integer-as-short-float #x7C00))
+(defconstant short-float-nan (%integer-as-short-float #x7E00)
   "A short-float quiet NaN value.")
-(defconstant short-float-trapping-nan single-float-trapping-nan
+(defconstant short-float-trapping-nan (%integer-as-short-float #x7C01)
   "A short-float trapping NaN value.")
-(defconstant most-positive-fixnum-short-float most-positive-fixnum-single-float
+(defconstant most-positive-fixnum-short-float (%integer-as-short-float #x7BFF)
   "The largest fixnum that can be represented exactly by a short-float, as a short-float.")
-(defconstant most-negative-fixnum-short-float most-negative-fixnum-single-float
+(defconstant most-negative-fixnum-short-float (%integer-as-short-float #xFBFF)
   "The smallest fixnum that can be represented exactly by a short-float, as a short-float.")
 
 (defconstant most-negative-long-float most-negative-double-float)

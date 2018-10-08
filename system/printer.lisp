@@ -92,12 +92,14 @@
     (return-from write-float))
   (when (float-infinity-p float)
     (if (minusp float)
-        (format stream "#.~S" (if (single-float-p float)
-                                  'single-float-negative-infinity
-                                  'double-float-negative-infinity))
-        (format stream "#.~S" (if (single-float-p float)
-                                  'single-float-positive-infinity
-                                  'double-float-positive-infinity)))
+        (format stream "#.~S" (etypecase float
+                                (single-float 'single-float-negative-infinity)
+                                (double-float 'double-float-negative-infinity)
+                                (short-float 'short-float-negative-infinity)))
+        (format stream "#.~S" (etypecase float
+                                (single-float 'single-float-positive-infinity)
+                                (double-float 'double-float-positive-infinity)
+                                (short-float 'short-float-positive-infinity))))
     (return-from write-float))
   (when (or (< float 0.0)
             (eql (float -0.0 float) float))
@@ -136,7 +138,9 @@
       (single-float
        (write-string "F0" stream))
       (double-float
-       (write-string "D0" stream)))))
+       (write-string "D0" stream))
+      (short-float
+       (write-string "S0" stream)))))
 
 (defun write-line (string &optional stream &key (start 0) end)
   (write-string string stream :start start :end end)

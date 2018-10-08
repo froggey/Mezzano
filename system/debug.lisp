@@ -104,6 +104,7 @@ Returns NIL if the function captures no variables."
                       (repr (read-vu32))
                       (real-repr (ecase repr
                                    (#.+debug-repr-value+ :value)
+                                   (#.+debug-repr-short-float+ 'short-float)
                                    (#.+debug-repr-single-float+ 'single-float)
                                    (#.+debug-repr-double-float+ 'double-float)
                                    (#.+debug-repr-mmx-vector+ 'mezzano.simd:mmx-vector)
@@ -184,6 +185,8 @@ Returns NIL if the function captures no variables."
           (memref-unsigned-byte-64 address))
          (:signed-byte-64
           (memref-signed-byte-64 address))
+         (short-float
+          (%integer-as-short-float (memref-unsigned-byte-16 address)))
          (single-float
           (%integer-as-single-float (memref-unsigned-byte-32 address)))
          (double-float
@@ -226,6 +229,8 @@ Returns NIL if the function captures no variables."
           (setf (memref-unsigned-byte-64 address) value))
          (:signed-byte-64
           (setf (memref-signed-byte-64 address) value))
+         (short-float
+          (setf (memref-unsigned-byte-16 address) (%short-float-as-integer value)))
          (single-float
           (setf (memref-unsigned-byte-32 address) (%single-float-as-integer value)))
          (double-float

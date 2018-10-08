@@ -43,6 +43,10 @@
 
 (defmethod describe-object ((object float) stream)
   (etypecase object
+    (short-float
+     (format stream "~D is a half-precision floating-point number.~%" object)
+     (format stream "  It's representation is ~X.~%"
+             (%short-float-as-integer object)))
     (single-float
      (format stream "~D is a single-precision floating-point number.~%" object)
      (format stream "  It's representation is ~X.~%"

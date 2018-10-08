@@ -272,7 +272,14 @@
          (if (= rs 1.0f0)
              (random limit random-state)
              (* limit rs))))
-      (double-float (* limit rd)))))
+      (double-float (* limit rd))
+      ;; 32-bits is too big for half precision so try again if rd
+      ;; rounds up to 1.0f0
+      (short-float
+       (let ((rs (float rd 1.0s0)))
+         (if (= rs 1.0s0)
+             (random limit random-state)
+             (* limit rs)))))))
 
 ;;; Heap grovelling
 

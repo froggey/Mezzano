@@ -98,6 +98,7 @@
     "system/hash-table.lisp"
     "system/runtime-numbers.lisp"
     "system/bignum.lisp"
+    "system/float.lisp"
     ("system/bignum-x86-64.lisp" :x86-64)
     ;;("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"

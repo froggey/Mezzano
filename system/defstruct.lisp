@@ -228,6 +228,8 @@
         ((and (subtypep type '(signed-byte 64))
               (not (subtypep type 'fixnum)))
          (values mezzano.runtime::+location-type-signed-byte-64+ 8))
+        ((subtypep type 'short-float)
+         (values mezzano.runtime::+location-type-short-float+ 2))
         ((subtypep type 'single-float)
          (values mezzano.runtime::+location-type-single-float+ 4))
         ((subtypep type 'double-float)

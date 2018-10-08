@@ -55,7 +55,9 @@
     (#.+llf-else+ 'else)
     (#.+llf-fi+ 'fi)
     (#.+llf-layout+ 'layout)
-    (#.+llf-initialize-array+ 'initialize-array)))
+    (#.+llf-initialize-array+ 'initialize-array)
+    (#.+llf-short-float+ 'short-float)
+    (#.+llf-complex-short-float+ 'complex-short-float)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -263,6 +265,8 @@
      (load-llf-structure-definition stream stack))
     (#.+llf-structure-slot-definition+
      (load-llf-structure-slot-definition stream stack))
+    (#.+llf-short-float+
+     (%integer-as-short-float (load-integer stream)))
     (#.+llf-single-float+
      (%integer-as-single-float (load-integer stream)))
     (#.+llf-double-float+
@@ -330,6 +334,10 @@
             (imagpart-numerator (load-integer stream))
             (imagpart-denominator (load-integer stream))
             (imagpart (/ imagpart-numerator imagpart-denominator)))
+       (complex realpart imagpart)))
+    (#.+llf-complex-short-float+
+     (let ((realpart (%integer-as-short-float (load-integer stream)))
+           (imagpart (%integer-as-short-float (load-integer stream))))
        (complex realpart imagpart)))
     (#.+llf-complex-single-float+
      (let ((realpart (%integer-as-single-float (load-integer stream)))

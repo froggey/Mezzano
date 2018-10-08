@@ -45,6 +45,14 @@
            (setf (%object-ref-unsigned-byte-32 result sys.int::+complex-realpart+) r
                  (%object-ref-unsigned-byte-32 result sys.int::+complex-imagpart+) i)
            result))
+        ((or (typep realpart 'short-float)
+             (typep imagpart 'short-float))
+         (let ((r (%short-float-as-integer (float realpart 0.0s0)))
+               (i (%short-float-as-integer (float imagpart 0.0s0)))
+               (result (mezzano.runtime::%allocate-object +object-tag-complex-short-float+ 0 1 nil)))
+           (setf (%object-ref-unsigned-byte-16 result sys.int::+complex-realpart+) r
+                 (%object-ref-unsigned-byte-16 result sys.int::+complex-imagpart+) i)
+           result))
         ((not (zerop imagpart))
          (let ((result (mezzano.runtime::%allocate-object +object-tag-complex-rational+ 0 2 nil)))
            (setf (%object-ref-t result sys.int::+complex-realpart+) realpart
@@ -57,6 +65,8 @@
   (cond
     ((%object-of-type-p number +object-tag-complex-rational+)
      (%object-ref-t number +complex-realpart+))
+    ((%object-of-type-p number +object-tag-complex-short-float+)
+     (%integer-as-short-float (%object-ref-unsigned-byte-16 number +complex-realpart+)))
     ((%object-of-type-p number +object-tag-complex-single-float+)
      (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-realpart+)))
     ((%object-of-type-p number +object-tag-complex-double-float+)
@@ -69,6 +79,8 @@
   (cond
     ((%object-of-type-p number +object-tag-complex-rational+)
      (%object-ref-t number +complex-imagpart+))
+    ((%object-of-type-p number +object-tag-complex-short-float+)
+     (%integer-as-short-float (%object-ref-unsigned-byte-16 number +complex-imagpart+)))
     ((%object-of-type-p number +object-tag-complex-single-float+)
      (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-imagpart+)))
     ((%object-of-type-p number +object-tag-complex-double-float+)
@@ -81,6 +93,8 @@
   (cond
     ((subtypep typespec 'nil environment)
      nil)
+    ((subtypep typespec 'short-float environment)
+     'short-float)
     ((subtypep typespec 'single-float environment)
      'single-float)
     ((subtypep typespec 'double-float environment)
@@ -206,15 +220,21 @@
     result))
 
 (declaim (inline call-with-float-contagion))
-(defun call-with-float-contagion (x y single-fn double-fn)
-  (if (or (double-float-p x)
-          (double-float-p y))
-      (funcall double-fn
-               (float x 1.0d0)
-               (float y 1.0d0))
-      (funcall single-fn
-               (float x 1.0f0)
-               (float y 1.0f0))))
+(defun call-with-float-contagion (x y single-fn double-fn short-fn)
+  (cond ((or (double-float-p x)
+             (double-float-p y))
+         (funcall double-fn
+                  (float x 1.0d0)
+                  (float y 1.0d0)))
+        ((or (single-float-p x)
+             (single-float-p y))
+         (funcall single-fn
+                  (float x 1.0f0)
+                  (float y 1.0f0)))
+        (t
+         (funcall short-fn
+                  (float x 1.0s0)
+                  (float y 1.0s0)))))
 
 (defun sys.int::full-truncate (number divisor)
   (check-type number real)
@@ -236,6 +256,8 @@
              (floatp divisor))
          (let* ((val (/ number divisor))
                 (integer-part (etypecase val
+                                (short-float
+                                 (mezzano.runtime::%truncate-short-float val))
                                 (single-float
                                  (mezzano.runtime::%truncate-single-float val))
                                 (double-float
@@ -285,7 +307,7 @@
                         (expt (imagpart y) 2)))))
         ((or (floatp x)
              (floatp y))
-         (call-with-float-contagion x y #'%%single-float-/ #'%%double-float-/))
+         (call-with-float-contagion x y #'%%single-float-/ #'%%double-float-/ #'%%short-float-/))
         ((or (sys.int::ratiop x) (sys.int::ratiop y))
          (/ (* (numerator x) (denominator y))
             (* (denominator x) (numerator y))))
@@ -312,7 +334,7 @@
                   (+ (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
-         (call-with-float-contagion x y #'%%single-float-+ #'%%double-float-+))
+         (call-with-float-contagion x y #'%%single-float-+ #'%%double-float-+ #'%%short-float-+))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (+ (* (numerator x) (denominator y))
@@ -341,7 +363,7 @@
                   (- (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
-         (call-with-float-contagion x y #'%%single-float-- #'%%double-float--))
+         (call-with-float-contagion x y #'%%single-float-- #'%%double-float-- #'%%short-float--))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (- (* (numerator x) (denominator y))
@@ -372,7 +394,7 @@
                      (* (realpart x) (imagpart y)))))
         ((or (floatp x)
              (floatp y))
-         (call-with-float-contagion x y #'%%single-float-* #'%%double-float-*))
+         (call-with-float-contagion x y #'%%single-float-* #'%%double-float-* #'%%short-float-*))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (* (numerator x) (numerator y))
@@ -405,6 +427,8 @@
   (etypecase number
     (double-float
      (%%double-float-sqrt (float number 0.0d0)))
+    (short-float
+     (float (%%single-float-sqrt (float number 0.0f0)) 0.0s0))
     (real
      (%%single-float-sqrt (float number 0.0f0)))
     (complex
@@ -1024,8 +1048,49 @@
                     lo)
             biased sign)))))
 
+(defconstant +short-float-significand-byte+ (byte 10 0))
+(defconstant +short-float-exponent-byte+ (byte 5 10))
+(defconstant +short-float-hidden-bit+ #x0400)
+(defconstant +short-float-bias+ 14)
+(defconstant +short-float-digits+ 11)
+(defconstant +short-float-normal-exponent-max+ 30)
+(defconstant +short-float-normal-exponent-min+ 1)
+
+;;; like INTEGER-DECODE-SINGLE-DENORM, only half as much so
+(defun integer-decode-short-denorm (x)
+  (let* ((bits (%short-float-as-integer (abs x)))
+         (sig (ash (ldb +short-float-significand-byte+ bits) 1))
+         (extra-bias 0))
+    (loop
+      (unless (zerop (logand sig +short-float-hidden-bit+))
+        (return))
+      (setq sig (ash sig 1))
+      (incf extra-bias))
+    (values sig
+            (- (- +short-float-bias+)
+               +short-float-digits+
+               extra-bias)
+            (if (minusp (float-sign x)) -1 1))))
+
+;;; like INTEGER-DECODE-SINGLE-FLOAT, only doubly so
+(defun integer-decode-short-float (x)
+  (let* ((bits (%short-float-as-integer (abs x)))
+         (exp (ldb +short-float-exponent-byte+ bits))
+         (sig (ldb +short-float-significand-byte+ bits))
+         (sign (if (minusp (float-sign x)) -1 1))
+         (biased (- exp +short-float-bias+ +short-float-digits+)))
+    (unless (<= exp +short-float-normal-exponent-max+)
+      (error "can't decode NaN or infinity: ~S" x))
+    (cond ((and (zerop exp) (zerop sig))
+           (values 0 biased sign))
+          ((< exp +short-float-normal-exponent-min+)
+           (integer-decode-short-denorm x))
+          (t
+           (values (logior sig +short-float-hidden-bit+) biased sign)))))
+
 (defun integer-decode-float (float)
   (etypecase float
+    (short-float (integer-decode-short-float float))
     (single-float (integer-decode-single-float float))
     (double-float (integer-decode-double-float float))))
 
@@ -1036,6 +1101,7 @@
   (check-type float1 float)
   (check-type float2 float)
   (* (if (etypecase float1
+           (short-float (logbitp 15 (%short-float-as-integer float1)))
            (single-float (logbitp 31 (%single-float-as-integer float1)))
            (double-float (logbitp 63 (%double-float-as-integer float1))))
          (float -1 float1)
@@ -1045,6 +1111,7 @@
 (defun float-digits (f)
   (check-type f float)
   (etypecase f
+    (short-float +short-float-digits+)
     (single-float +single-float-digits+)
     (double-float +double-float-digits+)))
 
@@ -1057,6 +1124,9 @@
   "Return true if the float X is denormalized."
   (check-type x float)
   (etypecase x
+    (short-float
+     (and (zerop (ldb +short-float-exponent-byte+ (%short-float-as-integer x)))
+          (not (zerop x))))
     (single-float
      (and (zerop (ldb +single-float-exponent-byte+ (%single-float-as-integer x)))
           (not (zerop x))))
@@ -1079,6 +1149,9 @@
                       (t
                        ,digits))))
     (etypecase f
+      (short-float
+       (frob +short-float-digits+ +short-float-bias+
+         integer-decode-short-denorm))
       (single-float
        (frob +single-float-digits+ +single-float-bias+
          integer-decode-single-denorm))
@@ -1166,6 +1239,41 @@
                      lo))
                    biased sign)))))
 
+;;; Handle the denormalized case of DECODE-SHORT-FLOAT. We call
+;;; INTEGER-DECODE-SHORT-DENORM and then make the result into a float.
+(defun decode-short-denorm (x)
+  (check-type x short-float)
+  (multiple-value-bind (sig exp sign)
+      (integer-decode-short-denorm x)
+    (values (%integer-as-short-float
+             (dpb sig +short-float-significand-byte+
+                  (dpb +short-float-bias+
+                       +short-float-exponent-byte+
+                       0)))
+            (+ exp +short-float-digits+)
+            (float sign x))))
+
+;;; Handle the short-float case of DECODE-FLOAT. If an infinity or NaN,
+;;; error. If a denorm, call d-s-DENORM to handle it.
+(defun decode-short-float (x)
+  (check-type x short-float)
+  (let* ((bits (%short-float-as-integer (abs x)))
+         (exp (ldb +short-float-exponent-byte+ bits))
+         (sign (float-sign x))
+         (biased (- exp +short-float-bias+)))
+    (unless (<= exp +short-float-normal-exponent-max+)
+      (error "can't decode NaN or infinity: ~S" x))
+    (cond ((zerop x)
+           (values 0.0f0 biased sign))
+          ((< exp +short-float-normal-exponent-min+)
+           (decode-short-denorm x))
+          (t
+           (values (%integer-as-short-float
+                    (dpb +short-float-bias+
+                         +short-float-exponent-byte+
+                         bits))
+                   biased sign)))))
+
 ;;; Dispatch to the appropriate type-specific function.
 (defun decode-float (f)
   "Return three values:
@@ -1178,7 +1286,9 @@
     (single-float
      (decode-single-float f))
     (double-float
-     (decode-double-float f))))
+     (decode-double-float f))
+    (short-float
+     (decode-short-float f))))
 
 ;;; These functions let us create floats from bits with the
 ;;; significand uniformly represented as an integer. This is less
@@ -1201,6 +1311,13 @@
                           (if (zerop sign) 0 -1)))
                 32)
            (ldb (byte 32 0) sig))))
+(defun short-from-bits (sign exp sig)
+  (declare (type bit sign) (type (unsigned-byte 11) sig)
+           (type (unsigned-byte 5) exp))
+  (%integer-as-short-float
+   (dpb exp +short-float-exponent-byte+
+        (dpb sig +short-float-significand-byte+
+             (if (zerop sign) 0 -1)))))
 
 ;;; Ratio to float conversion from SBCL 1.4.2
 
@@ -1215,6 +1332,7 @@
          (num (if plusp signed-num (- signed-num)))
          (den (denominator x))
          (digits (ecase format
+                   (short-float +short-float-digits+)
                    (single-float +single-float-digits+)
                    (double-float +double-float-digits+)))
          (scale 0))
@@ -1245,6 +1363,8 @@
                (floatit (bits)
                  (let ((sign (if plusp 0 1)))
                    (case format
+                     (short-float
+                      (short-from-bits sign +short-float-bias+ bits))
                      (single-float
                       (single-from-bits sign +single-float-bias+ bits))
                      (double-float

@@ -42,7 +42,7 @@
 (defconstant +immediate-tag-character+ #b00)
 (defconstant +immediate-tag-single-float+ #b01)
 (defconstant +immediate-tag-byte-specifier+ #b10)
-;; #b11
+(defconstant +immediate-tag-short-float+ #b11)
 
 ;;; Simple 1D arrays.
 ;; Array type T == simple vector.
@@ -97,7 +97,7 @@
 (defconstant +object-tag-bignum+                  #b100000)
 (defconstant +object-tag-ratio+                   #b100001)
 (defconstant +object-tag-double-float+            #b100010)
-(defconstant +object-tag-short-float+             #b100011)
+;;#b100011
 (defconstant +object-tag-long-float+              #b100100)
 (defconstant +object-tag-complex-rational+        #b100101)
 (defconstant +object-tag-complex-single-float+    #b100110)
@@ -355,6 +355,8 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-fi+                        #x28)
 (defconstant +llf-layout+                    #x29)
 (defconstant +llf-initialize-array+          #x2A)
+(defconstant +llf-short-float+               #x2B)
+(defconstant +llf-complex-short-float+       #x2C)
 
 ;;; Fields in the Unicode info tables.
 
@@ -452,6 +454,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +debug-repr-fixnum+ 5)
 (defconstant +debug-repr-unsigned-byte-64+ 6)
 (defconstant +debug-repr-signed-byte-64+ 7)
+(defconstant +debug-repr-short-float+ 8)
 
 (defvar *debug-x86-64-register-encodings* #(:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi
                                             :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15

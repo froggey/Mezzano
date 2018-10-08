@@ -65,11 +65,11 @@
                ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil 0)
                (single-float           #.+object-tag-array-single-float+          32 t   0.0f0)
                (double-float           #.+object-tag-array-double-float+          64 t   0.0d0)
-               (short-float            #.+object-tag-array-short-float+           16 t   0.0s0)
+               (short-float            #.+object-tag-array-short-float+           16 t   #.(xshort-float 0.0s0))
                (long-float             #.+object-tag-array-long-float+           128 t   0.0l0)
                ((complex single-float) #.+object-tag-array-complex-single-float+  64 t   #C(0.0f0 0.0f0))
                ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t   #C(0.0d0 0.0d0))
-               ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #C(0.0s0 0.0s0))
+               ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t   #.(xcomplex-short-float 0.0s0 0.0s0))
                ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t   #C(0.0l0 0.0l0))
                (character)
                (t))
@@ -181,10 +181,16 @@
      (%object-ref-signed-byte-32 array index))
     (#.+object-tag-array-signed-byte-64+
      (%object-ref-signed-byte-64 array index))
+    (#.+object-tag-array-short-float+
+     (%integer-as-short-float (%object-ref-unsigned-byte-16 array index)))
     (#.+object-tag-array-single-float+
      (%object-ref-single-float array index))
     (#.+object-tag-array-double-float+
      (%object-ref-double-float array index))
+    (#.+object-tag-array-complex-short-float+
+     (complex
+      (%integer-as-short-float (%object-ref-unsigned-byte-16 array (* index 2)))
+      (%integer-as-short-float (%object-ref-unsigned-byte-16 array (1+ (* index 2))))))
     (#.+object-tag-array-complex-single-float+
      (complex
       (%object-ref-single-float array (* index 2))
@@ -267,12 +273,22 @@
     (#.+object-tag-array-signed-byte-64+
      (setf (%object-ref-signed-byte-64 array index)
            value))
+    (#.+object-tag-array-short-float+
+     (check-type value short-float)
+     (setf (%object-ref-unsigned-byte-16 array index)
+           (%short-float-as-integer value)))
     (#.+object-tag-array-single-float+
      (setf (%object-ref-single-float array index)
            value))
     (#.+object-tag-array-double-float+
      (setf (%object-ref-double-float array index)
            value))
+    (#.+object-tag-array-complex-short-float+
+     (check-type value (complex short-float))
+     (let ((realpart (%short-float-as-integer (realpart value)))
+           (imagpart (%short-float-as-integer (imagpart value))))
+       (setf (%object-ref-unsigned-byte-16 array (* index 2)) realpart
+             (%object-ref-unsigned-byte-16 array (1+ (* index 2))) imagpart)))
     (#.+object-tag-array-complex-single-float+
      (setf (%object-ref-single-float array (* index 2)) (realpart value)
            (%object-ref-single-float array (1+ (* index 2))) (imagpart value)))
@@ -313,11 +329,19 @@
      (cas (%object-ref-signed-byte-32 array index) old new))
     (#.+object-tag-array-signed-byte-64+
      (cas (%object-ref-signed-byte-64 array index) old new))
+    (#.+object-tag-array-short-float+
+     (check-type old short-float)
+     (check-type new short-float)
+     (%integer-as-short-float
+      (cas (%object-ref-unsigned-byte-16 array index)
+           (%short-float-as-integer old)
+           (%short-float-as-integer new))))
     (#.+object-tag-array-single-float+
      (cas (%object-ref-single-float array index) old new))
     (#.+object-tag-array-double-float+
      (cas (%object-ref-double-float array index) old new))
-    ((#.+object-tag-array-complex-single-float+
+    ((#.+object-tag-array-complex-short-float+
+      #.+object-tag-array-complex-single-float+
       #.+object-tag-array-complex-double-float+)
      ;; ### (complex single) needs to do a 64-bit CAS, (complex double) needs 128-bit.
      (error "CAS not supported on complex float arrays"))))
@@ -377,10 +401,19 @@
        (memref-signed-byte-32 address index))
       (#.+object-tag-array-signed-byte-64+
        (memref-signed-byte-64 address index))
+      (#.+object-tag-array-short-float+
+       (%integer-as-short-float
+        (memref-unsigned-byte-16 index)))
       (#.+object-tag-array-single-float+
        (memref-single-float address index))
       (#.+object-tag-array-double-float+
        (memref-double-float address index))
+      (#.+object-tag-array-complex-short-float+
+       (complex
+        (%integer-as-short-float
+         (memref-unsigned-byte-16 address (* index 2)))
+        (%integer-as-short-float
+         (memref-unsigned-byte-16 address (1+ (* index 2))))))
       (#.+object-tag-array-complex-single-float+
        (complex
         (memref-single-float address (* index 2))
@@ -464,12 +497,22 @@
       (#.+object-tag-array-signed-byte-64+
        (setf (memref-signed-byte-64 address index)
              value))
+      (#.+object-tag-array-short-float+
+       (check-type value short-float)
+       (setf (memref-unsigned-byte-16 array index)
+             (%short-float-as-integer value)))
       (#.+object-tag-array-single-float+
        (setf (memref-single-float address index)
              value))
       (#.+object-tag-array-double-float+
        (setf (memref-double-float address index)
              value))
+      (#.+object-tag-array-complex-short-float+
+       (check-type value (complex short-float))
+       (let ((realpart (%short-float-as-integer (realpart value)))
+             (imagpart (%short-float-as-integer (imagpart value))))
+         (setf (memref-unsigned-byte-16 array (* index 2)) realpart
+               (memref-unsigned-byte-16 array (1+ (* index 2))) imagpart)))
       (#.+object-tag-array-complex-single-float+
        (setf (memref-single-float address (* index 2)) (realpart value)
              (memref-single-float address (1+ (* index 2))) (imagpart value)))
@@ -511,11 +554,19 @@
        (cas (memref-signed-byte-32 address index) old new))
       (#.+object-tag-array-signed-byte-64+
        (cas (memref-signed-byte-64 address index) old new))
+      (#.+object-tag-array-short-float+
+       (check-type old short-float)
+       (check-type new short-float)
+       (%integer-as-short-float
+        (cas (memref-unsigned-byte-16 array index)
+             (%short-float-as-integer old)
+             (%short-float-as-integer new))))
       (#.+object-tag-array-single-float+
        (cas (memref-single-float address index) old new))
       (#.+object-tag-array-double-float+
        (cas (memref-double-float address index) old new))
-      ((#.+object-tag-array-complex-single-float+
+      ((#.+object-tag-array-complex-short-float+
+        #.+object-tag-array-complex-single-float+
         #.+object-tag-array-complex-double-float+)
        ;; ### (complex single) needs to do a 64-bit CAS, (complex double) needs 128-bit.
        (error "CAS not supported on complex float arrays")))))

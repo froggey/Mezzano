@@ -379,6 +379,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmethod save-one-object ((object float) omap stream)
   (declare (ignore omap))
   (etypecase object
+    (short-float
+     (write-byte +llf-short-float+ stream)
+     (save-integer (%short-float-as-integer object) stream))
     (single-float
      (write-byte +llf-single-float+ stream)
      (save-integer (%single-float-as-integer object) stream))
@@ -443,6 +446,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
      (save-integer (denominator (realpart object)) stream)
      (save-integer (numerator (imagpart object)) stream)
      (save-integer (denominator (imagpart object)) stream))
+    (short-float
+     (write-byte sys.int::+llf-complex-short-float+ stream)
+     (save-integer (%short-float-as-integer (realpart object)) stream)
+     (save-integer (%short-float-as-integer (imagpart object)) stream))
     (single-float
      (write-byte sys.int::+llf-complex-single-float+ stream)
      (save-integer (%single-float-as-integer (realpart object)) stream)
