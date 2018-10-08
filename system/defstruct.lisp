@@ -218,7 +218,7 @@
         ((subtypep type 'single-float)
          (values mezzano.runtime::+location-type-single-float+ 4))
         ((subtypep type 'double-float)
-         (values mezzano.runtime::+location-type-single-float+ 8))
+         (values mezzano.runtime::+location-type-double-float+ 8))
         (t
          (values mezzano.runtime::+location-type-t+ 8))))
 
