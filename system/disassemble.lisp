@@ -1011,7 +1011,7 @@
     (decode-movsx16)
     (decode-eb-gb sys.lap-x86:xadd8) ; C0
     (decode-ev-gv sys.lap-x86:xadd16 sys.lap-x86:xadd32 sys.lap-x86:xadd64)
-    nil
+    (decode-sse-cmp)
     nil
     nil
     nil
@@ -1821,6 +1821,53 @@
            (make-instruction 'sys.lap-x86:cvtps2pi
                              (decode-mmx reg (rex-r info))
                              (decode-xmm-or-mem r/m (rex-b info)))))))
+
+(defun decode-sse-cmp (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (let ((imm (consume-ub8 context)))
+      (flet ((doit (instructions)
+               (if (>= imm 8)
+                   nil
+                   (make-instruction (elt instructions imm)
+                                     (decode-xmm reg (rex-r info))
+                                     (decode-xmm-or-mem r/m (rex-b info))))))
+        (cond ((getf info :osize) ; packed double
+               (doit '(sys.lap-x86:cmpeqpd
+                       sys.lap-x86:cmpltpd
+                       sys.lap-x86:cmplepd
+                       sys.lap-x86:cmpunordpd
+                       sys.lap-x86:cmpnewpd
+                       sys.lap-x86:cmpnltpd
+                       sys.lap-x86:cmpnlepd
+                       sys.lap-x86:cmpordpd)))
+              ((eql (getf info :rep) #xF2) ; scalar double
+               (doit '(sys.lap-x86:cmpeqsd
+                       sys.lap-x86:cmpltsd
+                       sys.lap-x86:cmplesd
+                       sys.lap-x86:cmpunordsd
+                       sys.lap-x86:cmpnewsd
+                       sys.lap-x86:cmpnltsd
+                       sys.lap-x86:cmpnlesd
+                       sys.lap-x86:cmpordsd)))
+              ((eql (getf info :rep) #xF3) ; scalar single
+               (doit '(sys.lap-x86:cmpeqss
+                       sys.lap-x86:cmpltss
+                       sys.lap-x86:cmpless
+                       sys.lap-x86:cmpunordss
+                       sys.lap-x86:cmpnewss
+                       sys.lap-x86:cmpnltss
+                       sys.lap-x86:cmpnless
+                       sys.lap-x86:cmpordss)))
+              (t ; packed single
+               (doit '(sys.lap-x86:cmpeqps
+                       sys.lap-x86:cmpltps
+                       sys.lap-x86:cmpleps
+                       sys.lap-x86:cmpunordps
+                       sys.lap-x86:cmpnewps
+                       sys.lap-x86:cmpnltps
+                       sys.lap-x86:cmpnleps
+                       sys.lap-x86:cmpordps))))))))
 
 (defun decode-io (context info opcode16 opcode32 port-is-dx)
   (let ((port (if port-is-dx

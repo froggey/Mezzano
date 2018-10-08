@@ -1188,28 +1188,36 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (emit #x66)
   (modrm :xmm rhs lhs '(#x0F #x2E)))
 
-(defmacro define-sse-float-op (name opcode &key (scalar t) (packed t) (single t) (double t))
+(defmacro define-sse-float-op (name opcode &key (scalar t) (packed t) (single t) (double t) imm)
   (let ((result '()))
     (when scalar
       (when single
         (push `(define-instruction ,(intern (format nil "~ASS" name)) (lhs rhs)
                  (emit #xF3)
-                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+                 ,(if imm
+                      `(modrm-imm8 :xmm rhs lhs ,imm '(#x0F ,opcode))
+                      `(modrm :xmm rhs lhs '(#x0F ,opcode))))
               result))
       (when double
         (push `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
                  (emit #xF2)
-                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+                 ,(if imm
+                      `(modrm-imm8 :xmm rhs lhs ,imm '(#x0F ,opcode))
+                      `(modrm :xmm rhs lhs '(#x0F ,opcode))))
               result)))
     (when packed
       (when single
         (push `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
-                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+                 ,(if imm
+                      `(modrm-imm8 :xmm rhs lhs ,imm '(#x0F ,opcode))
+                      `(modrm :xmm rhs lhs '(#x0F ,opcode))))
               result))
       (when double
         (push `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
                  (emit #x66)
-                 (modrm :xmm rhs lhs '(#x0F ,opcode)))
+                 ,(if imm
+                      `(modrm-imm8 :xmm rhs lhs ,imm '(#x0F ,opcode))
+                      `(modrm :xmm rhs lhs '(#x0F ,opcode))))
               result)))
     `(progn ,@result)))
 
@@ -1232,6 +1240,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-sse-float-op unpckh #x15 :scalar nil)
 (define-sse-float-op unpckl #x14 :scalar nil)
 (define-sse-float-op xor #x57 :scalar nil)
+
+(define-sse-float-op cmpeq #xC2 :imm 0)
+(define-sse-float-op cmplt #xC2 :imm 1)
+(define-sse-float-op cmple #xC2 :imm 2)
+(define-sse-float-op cmpunord #xC2 :imm 3)
+(define-sse-float-op cmpnew #xC2 :imm 4)
+(define-sse-float-op cmpnlt #xC2 :imm 5)
+(define-sse-float-op cmpnle #xC2 :imm 6)
+(define-sse-float-op cmpord #xC2 :imm 7)
 
 (define-instruction cvtpd2ps (lhs rhs)
   (emit #x66)
