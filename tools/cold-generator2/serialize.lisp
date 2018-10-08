@@ -509,7 +509,7 @@ Must not call SERIALIZE-OBJECT."))
                    (gethash key (image-dedup-table image)) existing))
            existing))))
 
-(defmethod serialize-object ((object sys.c::cross-short-float) image environment)
+(defmethod serialize-object ((object cross-support::cross-short-float) image environment)
   (logior (ash (sys.int::%short-float-as-integer object) 16)
           (cross-cl:dpb sys.int::+immediate-tag-short-float+
                         sys.int::+immediate-tag+
@@ -539,14 +539,14 @@ Must not call SERIALIZE-OBJECT."))
             (gethash key (image-dedup-table image)) existing))
     existing))
 
-(defmethod allocate-object ((object sys.c::cross-complex-short-float) image environment)
+(defmethod allocate-object ((object cross-support::cross-complex-short-float) image environment)
   (allocate 2 image :general sys.int::+tag-object+))
 
-(defmethod initialize-object ((object sys.c::cross-complex-short-float) value image environment)
+(defmethod initialize-object ((object cross-support::cross-complex-short-float) value image environment)
   (initialize-object-header image value sys.int::+object-tag-complex-short-float+ 0)
   (setf (object-slot image value 0)
-        (logior (sys.int::%short-float-as-integer (sys.c::cross-complex-short-float-realpart object))
-                (ash (sys.int::%short-float-as-integer (sys.c::cross-complex-short-float-imagpart object)) 16))))
+        (logior (sys.int::%short-float-as-integer (cross-support::cross-complex-short-float-realpart object))
+                (ash (sys.int::%short-float-as-integer (cross-support::cross-complex-short-float-imagpart object)) 16))))
 
 (defmethod allocate-object ((object complex) image environment)
   (etypecase (realpart object)

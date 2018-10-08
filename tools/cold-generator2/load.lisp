@@ -298,7 +298,7 @@
     (#.sys.int::+llf-complex-short-float+
      (let* ((realpart (load-short-float loader))
             (imagpart (load-short-float loader)))
-       (sys.c::make-cross-complex-short-float :realpart realpart :imagpart imagpart)))
+       (cross-support::make-cross-complex-short-float :realpart realpart :imagpart imagpart)))
     (#.sys.int::+llf-complex-single-float+
      (let* ((realpart (load-single-float loader))
             (imagpart (load-single-float loader)))

@@ -133,12 +133,30 @@
   (declare (ignore environment))
   `(byte ',(byte-size object) ',(byte-position object)))
 
+(defstruct cross-short-float value)
+
+(defun sys.int::xshort-float (value)
+  (check-type value single-float)
+  (ecase value
+    (0.0 (make-cross-short-float :value #x0000))
+    (1.0 (make-cross-short-float :value #x3C00))))
+
+(defstruct cross-complex-short-float realpart imagpart)
+
+(defun sys.int::xcomplex-short-float (realpart imagpart)
+  (make-cross-complex-short-float :realpart (sys.int::xshort-float realpart)
+                                  :imagpart (sys.int::xshort-float imagpart)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun loose-constant-equal (x y)
   (or (eql x y)
       (and (typep x 'byte)
            (typep y 'byte)
-           (equalp x y))))
+           (equalp x y))
+      (and (typep x 'cross-short-float)
+           (typep y 'cross-short-float)
+           (eql (cross-short-float-value x)
+                (cross-short-float-value y)))))
 )
 
 ;; Super early definition until the real DEFCONSTANT is loaded.

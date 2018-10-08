@@ -764,26 +764,12 @@
     (setf (nibbles:ub64ref/le tmp 0) value)
     (nibbles:ieee-double-ref/le tmp 0)))
 
-(defstruct cross-short-float value)
-
 (defun sys.int::%short-float-as-integer (value)
-  (cross-short-float-value value))
+  (cross-support::cross-short-float-value value))
 
 (defun sys.int::%integer-as-short-float (value)
   (check-type value (unsigned-byte 16))
-  (make-cross-short-float :value value))
-
-(defun sys.int::xshort-float (value)
-  (check-type value single-float)
-  (ecase value
-    (0.0 (make-cross-short-float :value #x0000))
-    (1.0 (make-cross-short-float :value #x3C00))))
-
-(defstruct cross-complex-short-float realpart imagpart)
-
-(defun sys.int::xcomplex-short-float (realpart imagpart)
-  (make-cross-complex-short-float :realpart (sys.int::xshort-float realpart)
-                                  :imagpart (sys.int::xshort-float imagpart)))
+  (cross-support::make-cross-short-float :value value))
 
 (defmethod save-one-object ((object float) omap stream)
   (etypecase object
@@ -794,7 +780,7 @@
      (write-byte sys.int::+llf-double-float+ stream)
      (save-integer (sys.int::%double-float-as-integer object) stream))))
 
-(defmethod save-one-object ((object cross-short-float) omap stream)
+(defmethod save-one-object ((object cross-support::cross-short-float) omap stream)
   (write-byte sys.int::+llf-short-float+ stream)
   (save-integer (sys.int::%short-float-as-integer object) stream))
 
@@ -844,10 +830,10 @@
      (save-integer (sys.int::%double-float-as-integer (realpart object)) stream)
      (save-integer (sys.int::%double-float-as-integer (imagpart object)) stream))))
 
-(defmethod save-one-object ((object cross-complex-short-float) omap stream)
+(defmethod save-one-object ((object cross-support::cross-complex-short-float) omap stream)
   (write-byte sys.int::+llf-complex-short-float+ stream)
-  (save-integer (sys.int::%short-float-as-integer (cross-complex-short-float-realpart object)) stream)
-  (save-integer (sys.int::%short-float-as-integer (cross-complex-short-float-imagpart object)) stream))
+  (save-integer (sys.int::%short-float-as-integer (cross-support::cross-complex-short-float-realpart object)) stream)
+  (save-integer (sys.int::%short-float-as-integer (cross-support::cross-complex-short-float-imagpart object)) stream))
 
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
