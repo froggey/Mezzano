@@ -107,6 +107,7 @@
     (setf float (- float)))
   (multiple-value-bind (integer-part decimal-part)
       (truncate float)
+    (setf decimal-part (float decimal-part 0.0l0)) ; work in maximum precision
     (write integer-part :stream stream :base 10 :radix nil)
     (write-char #\. stream)
     ;; Print the decimal part number-by-number to ensure

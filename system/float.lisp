@@ -16,29 +16,27 @@
   (check-type value short-float)
   (ash (lisp-object-address value) -16))
 
-
-(in-package :mezzano.runtime)
-
-(defun %%coerce-fixnum-to-short-float (value)
-  (%%coerce-single-float-to-short-float (%%coerce-fixnum-to-single-float value)))
+(defun mezzano.runtime::%%coerce-fixnum-to-short-float (value)
+  (mezzano.runtime::%%coerce-single-float-to-short-float
+   (mezzano.runtime::%%coerce-fixnum-to-single-float value)))
 
 ;; see https://gist.github.com/rygorous/2156668
 
 ;; float_to_half_fast3_rtne
-(defun %%coerce-single-float-to-short-float (value)
-  (let* ((f32infty (sys.int::%single-float-as-integer
-                    sys.int::single-float-positive-infinity))
+(defun mezzano.runtime::%%coerce-single-float-to-short-float (value)
+  (let* ((f32infty (%single-float-as-integer
+                    single-float-positive-infinity))
          (f16max (ash (+ 127 16) 23))
          (denorm-magicu (ash (+ (- 127 15) (- 23 10) 1) 23))
-         (denorm-magic (sys.int::%integer-as-single-float
+         (denorm-magic (%integer-as-single-float
                         denorm-magicu))
          (sign-mask #x80000000)
          (o nil)
-         (fu (sys.int::%single-float-as-integer value))
+         (fu (%single-float-as-integer value))
          (ff value)
          (sign (logand fu sign-mask)))
     (setf fu (logxor fu sign)
-          ff (sys.int::%integer-as-single-float fu))
+          ff (%integer-as-single-float fu))
     (cond ((>= fu f16max)
            ;; result is Inf or NaN (all exponent bits set)
            (setf o (if (> fu f32infty) ; NaN->qNaN and Inf->Inf
@@ -49,7 +47,7 @@
            ;; the float. as long as FP addition is round-to-nearest-even this
            ;; just works.
            (incf ff denorm-magic)
-           (setf fu (sys.int::%single-float-as-integer ff))
+           (setf fu (%single-float-as-integer ff))
            ;; and one integer subtract of the bias later, we have our final float!
            (setf o (- fu denorm-magicu)))
           (t
@@ -60,13 +58,13 @@
              (incf fu mant-odd)
              ;; take the bits!
              (setf o (ash fu -13)))))
-    (sys.int::%integer-as-short-float (logior (ash sign -16) o))))
+    (%integer-as-short-float (logior (ash sign -16) o))))
 
 ;; half_to_float
-(defun %%coerce-short-float-to-single-float (value)
-  (let* ((magic (sys.int::%integer-as-single-float (ash 113 23)))
+(defun mezzano.runtime::%%coerce-short-float-to-single-float (value)
+  (let* ((magic (%integer-as-single-float (ash 113 23)))
          (shifted-exp (ash #x7C00 13)) ; exponent mask after shift
-         (hu (sys.int::%short-float-as-integer value))
+         (hu (%short-float-as-integer value))
          (o nil))
     (setf o (ash (logand hu #x7FFF) 13)) ; exponent/mantissa bits
     (let ((exp (logand shifted-exp o))) ; just the exponent
@@ -76,16 +74,40 @@
              (incf o (ash (- 128 16) 23))) ; extra exp adjust
             ((eql exp 0) ; Zero/Denormal?
              (incf o (ash 1 23)) ; extra exp adjust
-             (let ((of (sys.int::%integer-as-single-float o)))
+             (let ((of (%integer-as-single-float o)))
                (decf of magic) ; renormalize
-               (setf o (sys.int::%single-float-as-integer of)))))
-      (setf o (ash (logand hu #x8000) 16)) ; sign bit
-      (sys.int::%integer-as-single-float o))))
+               (setf o (%single-float-as-integer of)))))
+      (setf o (logior o (ash (logand hu #x8000) 16))) ; sign bit
+      (%integer-as-single-float o))))
 
-(defun %%coerce-double-float-to-short-float (value)
-  (%%coerce-single-float-to-short-float
-   (%%coerce-double-float-to-single-float value)))
+(defun mezzano.runtime::%%coerce-double-float-to-short-float (value)
+  (mezzano.runtime::%%coerce-single-float-to-short-float
+   (mezzano.runtime::%%coerce-double-float-to-single-float value)))
 
-(defun %%coerce-short-float-to-double-float (value)
-  (%%coerce-single-float-to-double-float
-   (%%coerce-short-float-to-single-float value)))
+(defun mezzano.runtime::%%coerce-short-float-to-double-float (value)
+  (mezzano.runtime::%%coerce-single-float-to-double-float
+   (mezzano.runtime::%%coerce-short-float-to-single-float value)))
+
+(macrolet ((def (name op)
+             `(defun ,name (x y)
+                (float (,op (float x 0.0f0)
+                            (float y 0.0f0))
+                       0.0s0)))
+           (def-pred (name op)
+             `(defun ,name (x y)
+                (,op (float x 0.0f0)
+                     (float y 0.0f0)))))
+  (def-pred %%short-float-< <)
+  (def-pred %%short-float-= =)
+  (def %%short-float-+ +)
+  (def %%short-float-- -)
+  (def %%short-float-* *)
+  (def %%short-float-/ /))
+
+(defun %%truncate-short-float (val)
+  (multiple-value-bind (quot rem)
+      (truncate (float val 0.0f0))
+    (values quot (float rem 0.0s0))))
+
+(defun %%short-float-sqrt (value)
+  (float (sqrt (float value 0.0f0)) 0.0s0))

@@ -426,9 +426,9 @@
   (check-type number number)
   (etypecase number
     (double-float
-     (%%double-float-sqrt (float number 0.0d0)))
+     (%%double-float-sqrt number))
     (short-float
-     (float (%%single-float-sqrt (float number 0.0f0)) 0.0s0))
+     (%%short-float-sqrt number))
     (real
      (%%single-float-sqrt (float number 0.0f0)))
     (complex
