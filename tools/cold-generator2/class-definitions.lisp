@@ -194,8 +194,10 @@
 (defclass sys.int::simple-array-signed-byte-16 (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-signed-byte-32 (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-signed-byte-64 (vector simple-array) () (:metaclass built-in-class))
+(defclass sys.int::simple-array-short-float (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-single-float (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-double-float (vector simple-array) () (:metaclass built-in-class))
+(defclass sys.int::simple-array-complex-short-float (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-complex-single-float (vector simple-array) () (:metaclass built-in-class))
 (defclass sys.int::simple-array-complex-double-float (vector simple-array) () (:metaclass built-in-class))
 
@@ -212,6 +214,7 @@
 (defclass double-float (float) () (:metaclass built-in-class))
 (defclass complex (number) () (:metaclass built-in-class))
 (defclass sys.int::complex-rational (complex) () (:metaclass built-in-class))
+(defclass sys.int::complex-short-float (complex) () (:metaclass built-in-class))
 (defclass sys.int::complex-single-float (complex) () (:metaclass built-in-class))
 (defclass sys.int::complex-double-float (complex) () (:metaclass built-in-class))
 
