@@ -907,6 +907,10 @@
            #:sse-vector-single-float-1-ref
            #:sse-vector-single-float-2-ref
            #:sse-vector-single-float-4-ref
+           #:sse-vector-short-float-1-ref
+           #:sse-vector-short-float-2-ref
+           #:sse-vector-short-float-4-ref
+           #:sse-vector-short-float-8-ref
            #:make-sse-vector-double-float
            #:sse-vector-double-float-element
            #:sse-vector-double-float-ref

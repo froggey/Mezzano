@@ -482,6 +482,113 @@ The values in the other lanes of the vector are indeterminate and may not be zer
                        ,(c::insert-bounds-check vector array-type index index-type :adjust 3)
                        (c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '4))))))
 
+(defun sse-vector-short-float-1-ref (vector index)
+  "Read 1 short-float from the simple 1D short-float array VECTOR into lane 0 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array short-float (*)))
+  (make-sse-vector (sys.int::%short-float-as-integer (aref vector index))))
+
+(defun (setf sse-vector-short-float-1-ref) (sse-vector vector index)
+  "Store lane 0 of SSE-VECTOR into the simple 1D short-float array VECTOR."
+  (check-type vector (simple-array short-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sys.int::%integer-as-short-float (ldb (byte 16 0) (sse-vector-value sse-vector))))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-short-float-1-ref ((vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %make-sse-vector
+                                  (sys.c::call sys.int::%%object-ref-unsigned-byte-16-unscaled
+                                               ,vector
+                                               (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+  (sys.c::define-transform (setf sse-vector-short-float-1-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf sys.int::%%object-ref-unsigned-byte-16-unscaled)
+                                  (sys.c::call sys.c::%fast-fixnum-logand (sys.c::call %sse-vector-value/fixnum ,sse-vector) '#xFFFF)
+                                  ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+
+(defun sse-vector-short-float-2-ref (vector index)
+  "Read 2 short-floats from the simple 1D short-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
+  (check-type vector (simple-array short-float (*)))
+  (make-sse-vector (logior (sys.int::%short-float-as-integer (aref vector index))
+                           (ash (sys.int::%short-float-as-integer (aref vector (1+ index))) 16))))
+
+(defun (setf sse-vector-short-float-2-ref) (sse-vector vector index)
+  "Store lanes 0 and 1 of SSE-VECTOR into the simple 1D short-float array VECTOR."
+  (check-type vector (simple-array short-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector index) (sys.int::%integer-as-short-float (ldb (byte 16 0) (sse-vector-value sse-vector)))
+        (aref vector (1+ index)) (sys.int::%integer-as-short-float (ldb (byte 16 16) (sse-vector-value sse-vector))))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-short-float-2-ref ((vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+  (sys.c::define-transform (setf sse-vector-short-float-2-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+
+(defun sse-vector-short-float-4-ref (vector index)
+  "Read 4 short-floats from the simple 1D short-float array VECTOR into an sse-vector."
+  (check-type vector (simple-array short-float (*)))
+  (make-sse-vector (logior (sys.int::%short-float-as-integer (aref vector index))
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 1))) 16)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 2))) 32)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 3))) 48))))
+
+(defun (setf sse-vector-short-float-4-ref) (sse-vector vector index)
+  "Store SSE-VECTOR into the simple 1D short-float array VECTOR."
+  (check-type vector (simple-array short-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector (+ index 0)) (sys.int::%integer-as-short-float (ldb (byte 16 0) (sse-vector-value sse-vector)))
+        (aref vector (+ index 1)) (sys.int::%integer-as-short-float (ldb (byte 16 16) (sse-vector-value sse-vector)))
+        (aref vector (+ index 2)) (sys.int::%integer-as-short-float (ldb (byte 16 32) (sse-vector-value sse-vector)))
+        (aref vector (+ index 3)) (sys.int::%integer-as-short-float (ldb (byte 16 48) (sse-vector-value sse-vector))))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-short-float-4-ref ((vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+  (sys.c::define-transform (setf sse-vector-short-float-4-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+
+(defun sse-vector-short-float-8-ref (vector index)
+  "Read 4 short-floats from the simple 1D short-float array VECTOR into an sse-vector."
+  (check-type vector (simple-array short-float (*)))
+  (make-sse-vector (logior (sys.int::%short-float-as-integer (aref vector index))
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 1))) 16)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 2))) 32)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 3))) 48)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 4))) 64)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 5))) 80)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 6))) 96)
+                           (ash (sys.int::%short-float-as-integer (aref vector (+ index 7))) 112))))
+
+(defun (setf sse-vector-short-float-8-ref) (sse-vector vector index)
+  "Store SSE-VECTOR into the simple 1D short-float array VECTOR."
+  (check-type vector (simple-array short-float (*)))
+  (check-type sse-vector sse-vector)
+  (setf (aref vector (+ index 0)) (sys.int::%integer-as-short-float (ldb (byte 16 0) (sse-vector-value sse-vector)))
+        (aref vector (+ index 1)) (sys.int::%integer-as-short-float (ldb (byte 16 16) (sse-vector-value sse-vector)))
+        (aref vector (+ index 2)) (sys.int::%integer-as-short-float (ldb (byte 16 32) (sse-vector-value sse-vector)))
+        (aref vector (+ index 3)) (sys.int::%integer-as-short-float (ldb (byte 16 48) (sse-vector-value sse-vector)))
+        (aref vector (+ index 4)) (sys.int::%integer-as-short-float (ldb (byte 16 64) (sse-vector-value sse-vector)))
+        (aref vector (+ index 5)) (sys.int::%integer-as-short-float (ldb (byte 16 80) (sse-vector-value sse-vector)))
+        (aref vector (+ index 6)) (sys.int::%integer-as-short-float (ldb (byte 16 96) (sse-vector-value sse-vector)))
+        (aref vector (+ index 7)) (sys.int::%integer-as-short-float (ldb (byte 16 112) (sse-vector-value sse-vector))))
+  sse-vector)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.c::define-transform sse-vector-short-float-8-ref ((vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+  (sys.c::define-transform (setf sse-vector-short-float-8-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+
 (declaim (inline make-sse-vector-double-float))
 (defun make-sse-vector-double-float (&optional (a 0.0d0) (b 0.0d0))
   "Construct an SSE-VECTOR from 2 DOUBLE-FLOAT values.
