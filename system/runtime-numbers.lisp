@@ -47,8 +47,8 @@
            result))
         ((or (typep realpart 'short-float)
              (typep imagpart 'short-float))
-         (let ((r (%short-float-as-integer (float realpart 0.0s0)))
-               (i (%short-float-as-integer (float imagpart 0.0s0)))
+         (let ((r (%short-float-as-integer (float realpart #.(xshort-float 0.0s0))))
+               (i (%short-float-as-integer (float imagpart #.(xshort-float 0.0s0))))
                (result (mezzano.runtime::%allocate-object +object-tag-complex-short-float+ 0 1 nil)))
            (setf (%object-ref-unsigned-byte-16 result sys.int::+complex-realpart+) r
                  (%object-ref-unsigned-byte-16 result sys.int::+complex-imagpart+) i)
@@ -233,8 +233,8 @@
                   (float y 1.0f0)))
         (t
          (funcall short-fn
-                  (float x 1.0s0)
-                  (float y 1.0s0)))))
+                  (float x #.(xshort-float 1.0s0))
+                  (float y #.(xshort-float 1.0s0))))))
 
 (defun sys.int::full-truncate (number divisor)
   (check-type number real)

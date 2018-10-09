@@ -92,7 +92,7 @@
              `(defun ,name (x y)
                 (float (,op (float x 0.0f0)
                             (float y 0.0f0))
-                       0.0s0)))
+                       #.(xshort-float 0.0s0))))
            (def-pred (name op)
              `(defun ,name (x y)
                 (,op (float x 0.0f0)
@@ -107,7 +107,16 @@
 (defun %%truncate-short-float (val)
   (multiple-value-bind (quot rem)
       (truncate (float val 0.0f0))
-    (values quot (float rem 0.0s0))))
+    (values quot (float rem #.(xshort-float 0.0s0)))))
 
 (defun %%short-float-sqrt (value)
-  (float (sqrt (float value 0.0f0)) 0.0s0))
+  (float (sqrt (float value 0.0f0)) #.(xshort-float 0.0s0)))
+
+(defun xshort-float (value)
+  (check-type value short-float)
+  value)
+
+(defun xcomplex-short-float (realpart imagpart)
+  (check-type realpart short-float)
+  (check-type imagpart short-float)
+  (complex realpart imagpart))

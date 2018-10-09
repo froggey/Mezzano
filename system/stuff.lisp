@@ -276,8 +276,8 @@
       ;; 32-bits is too big for half precision so try again if rd
       ;; rounds up to 1.0f0
       (short-float
-       (let ((rs (float rd 1.0s0)))
-         (if (= rs 1.0s0)
+       (let ((rs (float rd #.(xshort-float 1.0s0))))
+         (if (= rs #.(xshort-float 1.0s0))
              (random limit random-state)
              (* limit rs)))))))
 
