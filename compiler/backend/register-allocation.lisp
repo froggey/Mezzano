@@ -494,9 +494,9 @@
                              (ir::instruction-outputs inst))
               spilled-vregs available-regs))
     (dolist (vreg spilled-vregs)
-      (let ((truely-available-regs (intersection available-regs
-                                                 (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
-                                                                                    (allocator-architecture allocator)))))
+      (let* ((valid-pregs (valid-physical-registers-for-kind (ir:virtual-register-kind vreg)
+                                                             (allocator-architecture allocator)))
+             (truely-available-regs (intersection available-regs valid-pregs)))
         (cond ((allow-memory-operand-p inst vreg (allocator-architecture allocator))
                ;; Do nothing.
                (setf (gethash (cons instruction-index vreg) (allocator-instantaneous-allocations allocator)) :memory))
@@ -509,7 +509,10 @@
                                                        (member (live-range-vreg spill-interval) vregs)
                                                        ;; Or any pregs.
                                                        (member (gethash spill-interval (allocator-range-allocations allocator))
-                                                               used-pregs)))
+                                                               used-pregs)
+                                                       ;; Or anything that's not valid for this kind.
+                                                       (not (member (gethash spill-interval (allocator-range-allocations allocator))
+                                                                    valid-pregs))))
                                                     (allocator-active-ranges allocator))))))
                  (assert spill ()
                          "Internal error: Ran out of registers when allocating instant ~S for instruction ~S."
