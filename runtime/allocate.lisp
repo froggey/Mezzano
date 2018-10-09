@@ -816,7 +816,10 @@
              (setf (stack-base stack) addr
                    ;; Notify the finalizer that the stack has been allocated & should be freed.
                    stack-address addr)
-             (return-from %allocate-stack stack))))
+             ;; Flush the stack object so it doesn't get held live by the finalizer closure.
+             (let ((s stack))
+               (setf stack nil)
+               (return-from %allocate-stack s)))))
      DO-GC
        (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
          (error 'storage-condition))
