@@ -908,7 +908,7 @@
     (decode-v-w sys.lap-x86:addps sys.lap-x86:addpd sys.lap-x86:addsd sys.lap-x86:addss) ; 58
     (decode-v-w sys.lap-x86:mulps sys.lap-x86:mulpd sys.lap-x86:mulsd sys.lap-x86:mulss)
     (decode-v-w sys.lap-x86:cvtps2pd sys.lap-x86:cvtpd2ps sys.lap-x86:cvtsd2ss sys.lap-x86:cvtss2sd)
-    nil
+    (decode-v-w sys.lap-x86:cvtdq2ps sys.lap-x86:cvtps2dq nil sys.lap-x86:cvttps2dq)
     (decode-v-w sys.lap-x86:subps sys.lap-x86:subpd sys.lap-x86:subsd sys.lap-x86:subss)
     (decode-v-w sys.lap-x86:minps sys.lap-x86:minpd sys.lap-x86:minsd sys.lap-x86:minss)
     (decode-v-w sys.lap-x86:divps sys.lap-x86:divpd sys.lap-x86:divsd sys.lap-x86:divss)
