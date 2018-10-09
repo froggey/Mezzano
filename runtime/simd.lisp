@@ -533,10 +533,10 @@ The values in the other lanes of the vector are indeterminate and may not be zer
               (,sse-function lhs (make-sse-vector rhs))))
            (etypecase lhs
              (mmx-vector
-              (check-type rhs mmx-vector)
+              (check-type rhs (or mmx-vector (unsigned-byte 8)))
               (,mmx-function lhs rhs))
              (sse-vector
-              (check-type rhs sse-vector)
+              (check-type rhs (or sse-vector (unsigned-byte 8)))
               (,sse-function lhs rhs)))))
      (defun ,mmx-function (lhs rhs)
        (,mmx-function lhs rhs))
