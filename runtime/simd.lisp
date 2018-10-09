@@ -497,15 +497,19 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform sse-vector-short-float-1-ref ((vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %make-sse-vector
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       (sys.c::call %make-sse-vector
                                   (sys.c::call sys.int::%%object-ref-unsigned-byte-16-unscaled
                                                ,vector
-                                               (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+                                               (sys.c::call sys.c::%fast-fixnum-* ,index '2))))))
   (sys.c::define-transform (setf sse-vector-short-float-1-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call (setf sys.int::%%object-ref-unsigned-byte-16-unscaled)
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       (sys.c::call (setf sys.int::%%object-ref-unsigned-byte-16-unscaled)
                                   (sys.c::call sys.c::%fast-fixnum-logand (sys.c::call %sse-vector-value/fixnum ,sse-vector) '#xFFFF)
-                                  ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+                                  ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))))
 
 (defun sse-vector-short-float-2-ref (vector index)
   "Read 2 short-floats from the simple 1D short-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
@@ -524,10 +528,14 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform sse-vector-short-float-2-ref ((vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
   (sys.c::define-transform (setf sse-vector-short-float-2-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))))
 
 (defun sse-vector-short-float-4-ref (vector index)
   "Read 4 short-floats from the simple 1D short-float array VECTOR into an sse-vector."
@@ -550,10 +558,14 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform sse-vector-short-float-4-ref ((vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '3))
+                       (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
   (sys.c::define-transform (setf sse-vector-short-float-4-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '3))
+                       (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))))
 
 (defun sse-vector-short-float-8-ref (vector index)
   "Read 4 short-floats from the simple 1D short-float array VECTOR into an sse-vector."
@@ -584,10 +596,14 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (sys.c::define-transform sse-vector-short-float-8-ref ((vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '7))
+                       (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
   (sys.c::define-transform (setf sse-vector-short-float-8-ref) ((sse-vector sse-vector) (vector (simple-array short-float (*))) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2)))))
+    `(the sse-vector (progn
+                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '7))
+                       (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '2))))))
 
 (declaim (inline make-sse-vector-double-float))
 (defun make-sse-vector-double-float (&optional (a 0.0d0) (b 0.0d0))
