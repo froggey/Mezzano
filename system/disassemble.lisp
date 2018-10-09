@@ -930,9 +930,9 @@
     (decode-pd-ed/q sys.lap-x86:movd sys.lap-x86:movq)
     (decode-pq-qq sys.lap-x86:movq sys.lap-x86:movdqa nil sys.lap-x86:movdqu)
     nil ; 70
-    nil
-    nil
-    nil
+    (decode-simd-shift #(nil nil sys.lap-x86:psrlw nil sys.lap-x86:psraw nil sys.lap-x86:psllw nil))
+    (decode-simd-shift #(nil nil sys.lap-x86:psrld nil sys.lap-x86:psrad nil sys.lap-x86:pslld nil))
+    (decode-simd-shift #(nil nil sys.lap-x86:psrlq nil nil nil sys.lap-x86:psllq nil))
     (decode-pq-qd sys.lap-x86:pcmpeqb sys.lap-x86:pcmpeqb nil nil)
     (decode-pq-qd sys.lap-x86:pcmpeqw sys.lap-x86:pcmpeqw nil nil)
     (decode-pq-qd sys.lap-x86:pcmpeqd sys.lap-x86:pcmpeqd nil nil)
@@ -1412,6 +1412,18 @@
            (make-instruction 'sys.lap-x86:cmpxchg8b
                              (decode-gpr64-or-mem r/m (rex-b info)))))
       (t nil))))
+
+(defun decode-simd-shift (context info insts)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (let ((imm (consume-ub8 context)))
+      (let ((decoded-reg (if (getf info :osize)
+                             (decode-xmm r/m (rex-b info))
+                             (decode-mmx r/m)))
+            (inst (elt insts reg)))
+        (if inst
+            (make-instruction inst decoded-reg imm)
+            nil)))))
 
 (defun decode-mov-r-c (context info)
   (multiple-value-bind (reg r/m)

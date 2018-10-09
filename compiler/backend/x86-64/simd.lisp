@@ -74,6 +74,54 @@
                                               :rhs rhs-unboxed))
                          (emit (make-instance 'box-mmx-vector-instruction
                                               :source result-unboxed
+                                              :destination result)))))))
+           (defshift (fn inst)
+             `(define-builtin ,fn ((lhs rhs) result)
+                (cond ((constant-value-p rhs 'mezzano.simd:mmx-vector)
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :mmx))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :mmx)))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs `(:literal ,(mezzano.simd:mmx-vector-value (fetch-constant-value rhs)))))
+                         (emit (make-instance 'box-mmx-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      ((constant-value-p rhs '(unsigned-byte 8))
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :mmx))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :mmx)))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs (fetch-constant-value rhs)))
+                         (emit (make-instance 'box-mmx-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      (t
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :mmx))
+                             (rhs-unboxed (make-instance 'ir:virtual-register :kind :mmx))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :mmx)))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'unbox-mmx-vector-instruction
+                                              :source rhs
+                                              :destination rhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs rhs-unboxed))
+                         (emit (make-instance 'box-mmx-vector-instruction
+                                              :source result-unboxed
                                               :destination result))))))))
   ;; MMX
   (frob mezzano.simd::%packssdw/mmx lap:packssdw)
@@ -99,14 +147,14 @@
   (frob mezzano.simd::%pmulhw/mmx lap:pmulhw)
   (frob mezzano.simd::%pmullw/mmx lap:pmullw)
   (frob mezzano.simd::%por/mmx lap:por)
-  (frob mezzano.simd::%psllw/mmx lap:psllw)
-  (frob mezzano.simd::%pslld/mmx lap:pslld)
-  (frob mezzano.simd::%psllq/mmx lap:psllq)
-  (frob mezzano.simd::%psraw/mmx lap:psraw)
-  (frob mezzano.simd::%psrad/mmx lap:psrad)
-  (frob mezzano.simd::%psrlw/mmx lap:psrlw)
-  (frob mezzano.simd::%psrld/mmx lap:psrld)
-  (frob mezzano.simd::%psrlq/mmx lap:psrlq)
+  (defshift mezzano.simd::%psllw/mmx lap:psllw)
+  (defshift mezzano.simd::%pslld/mmx lap:pslld)
+  (defshift mezzano.simd::%psllq/mmx lap:psllq)
+  (defshift mezzano.simd::%psraw/mmx lap:psraw)
+  (defshift mezzano.simd::%psrad/mmx lap:psrad)
+  (defshift mezzano.simd::%psrlw/mmx lap:psrlw)
+  (defshift mezzano.simd::%psrld/mmx lap:psrld)
+  (defshift mezzano.simd::%psrlq/mmx lap:psrlq)
   (frob mezzano.simd::%psubb/mmx lap:psubb)
   (frob mezzano.simd::%psubw/mmx lap:psubw)
   (frob mezzano.simd::%psubd/mmx lap:psubd)
@@ -435,6 +483,54 @@
                                               :rhs rhs-unboxed))
                          (emit (make-instance 'box-sse-vector-instruction
                                               :source result-unboxed
+                                              :destination result)))))))
+           (defshift (fn inst)
+             `(define-builtin ,fn ((lhs rhs) result)
+                (cond ((constant-value-p rhs 'mezzano.simd:sse-vector)
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs `(:literal/128 ,(mezzano.simd:sse-vector-value (fetch-constant-value rhs)))))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      ((constant-value-p rhs '(unsigned-byte 8))
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs (fetch-constant-value rhs)))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
+                                              :destination result))))
+                      (t
+                       (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :sse))
+                             (rhs-unboxed (make-instance 'ir:virtual-register :kind :sse))
+                             (result-unboxed (make-instance 'ir:virtual-register :kind :sse)))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source lhs
+                                              :destination lhs-unboxed))
+                         (emit (make-instance 'unbox-sse-vector-instruction
+                                              :source rhs
+                                              :destination rhs-unboxed))
+                         (emit (make-instance 'x86-fake-three-operand-instruction
+                                              :opcode ',inst
+                                              :result result-unboxed
+                                              :lhs lhs-unboxed
+                                              :rhs rhs-unboxed))
+                         (emit (make-instance 'box-sse-vector-instruction
+                                              :source result-unboxed
                                               :destination result))))))))
   ;; MMX
   (def2 mezzano.simd::%packssdw/sse lap:packssdw)
@@ -460,14 +556,14 @@
   (def2 mezzano.simd::%pmulhw/sse lap:pmulhw)
   (def2 mezzano.simd::%pmullw/sse lap:pmullw)
   (def2 mezzano.simd::%por/sse lap:por)
-  (def2 mezzano.simd::%psllw/sse lap:psllw)
-  (def2 mezzano.simd::%pslld/sse lap:pslld)
-  (def2 mezzano.simd::%psllq/sse lap:psllq)
-  (def2 mezzano.simd::%psraw/sse lap:psraw)
-  (def2 mezzano.simd::%psrad/sse lap:psrad)
-  (def2 mezzano.simd::%psrlw/sse lap:psrlw)
-  (def2 mezzano.simd::%psrld/sse lap:psrld)
-  (def2 mezzano.simd::%psrlq/sse lap:psrlq)
+  (defshift mezzano.simd::%psllw/sse lap:psllw)
+  (defshift mezzano.simd::%pslld/sse lap:pslld)
+  (defshift mezzano.simd::%psllq/sse lap:psllq)
+  (defshift mezzano.simd::%psraw/sse lap:psraw)
+  (defshift mezzano.simd::%psrad/sse lap:psrad)
+  (defshift mezzano.simd::%psrlw/sse lap:psrlw)
+  (defshift mezzano.simd::%psrld/sse lap:psrld)
+  (defshift mezzano.simd::%psrlq/sse lap:psrlq)
   (def2 mezzano.simd::%psubb/sse lap:psubb)
   (def2 mezzano.simd::%psubw/sse lap:psubw)
   (def2 mezzano.simd::%psubd/sse lap:psubd)

@@ -1382,6 +1382,24 @@ Remaining values describe the effective address: base index scale disp rip-relat
      (mmx-integer-op lhs rhs (#x0F ,opcode))
      (xmm-integer-op lhs rhs (#x0F ,opcode))))
 
+(defmacro define-simd-shift-op (name opcode imm-opcode imm-reg)
+  `(define-instruction ,name (lhs rhs)
+     (when (and (eql (reg-class lhs) :mm)
+                (immediatep rhs))
+       (let ((*following-immediate-bytes* 1))
+         (generate-modrm :mm lhs ,imm-reg '(#x0F ,imm-opcode)))
+       (emit-imm-with-relocation 1 rhs)
+       (return-from instruction t))
+     (when (and (eql (reg-class lhs) :xmm)
+                (immediatep rhs))
+       (emit #x66)
+       (let ((*following-immediate-bytes* 1))
+         (generate-modrm :xmm lhs ,imm-reg '(#x0F ,imm-opcode)))
+       (emit-imm-with-relocation 1 rhs)
+       (return-from instruction t))
+     (mmx-integer-op lhs rhs (#x0F ,opcode))
+     (xmm-integer-op lhs rhs (#x0F ,opcode))))
+
 ;; MMX
 (define-simd-integer-op packsswb #x63)
 (define-simd-integer-op packssdw #x6B)
@@ -1406,14 +1424,14 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simd-integer-op pmulhw #xE5)
 (define-simd-integer-op pmullw #xD5)
 (define-simd-integer-op por #xEB)
-(define-simd-integer-op psllw #xF1) ; imm form not implemented
-(define-simd-integer-op pslld #xF2) ; imm form not implemented
-(define-simd-integer-op psllq #xF3) ; imm form not implemented
-(define-simd-integer-op psraw #xE1) ; imm form not implemented
-(define-simd-integer-op psrad #xE2) ; imm form not implemented
-(define-simd-integer-op psrlw #xD1) ; imm form not implemented
-(define-simd-integer-op psrld #xD2) ; imm form not implemented
-(define-simd-integer-op psrlq #xD3) ; imm form not implemented
+(define-simd-shift-op psllw #xF1 #x71 6)
+(define-simd-shift-op pslld #xF2 #x72 6)
+(define-simd-shift-op psllq #xF3 #x73 6)
+(define-simd-shift-op psraw #xE1 #x71 4)
+(define-simd-shift-op psrad #xE2 #x72 4)
+(define-simd-shift-op psrlw #xD1 #x71 2)
+(define-simd-shift-op psrld #xD2 #x72 2)
+(define-simd-shift-op psrlq #xD3 #x73 2)
 (define-simd-integer-op psubb #xF8)
 (define-simd-integer-op psubw #xF9)
 (define-simd-integer-op psubd #xFA)
