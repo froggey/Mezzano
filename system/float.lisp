@@ -7,14 +7,14 @@
 
 (defun %integer-as-short-float (value)
   (check-type value (unsigned-byte 16))
-  (%%assemble-value (logior (ash value 16)
-                            (dpb +immediate-tag-short-float+ +immediate-tag+ 0)
-                            +tag-immediate+)
-                    0))
+  (let ((result (mezzano.runtime::%allocate-object
+                 sys.int::+object-tag-short-float+ 0 1 nil)))
+    (setf (%object-ref-unsigned-byte-16 result 0) value)
+    result))
 
 (defun %short-float-as-integer (value)
   (check-type value short-float)
-  (ash (lisp-object-address value) -16))
+  (%object-ref-unsigned-byte-16 value 0))
 
 (defun mezzano.runtime::%%coerce-fixnum-to-short-float (value)
   (mezzano.runtime::%%coerce-single-float-to-short-float

@@ -15,13 +15,12 @@
 (defun sys.int::double-float-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-double-float+))
 
-(defun sys.int::short-float-p (value)
-  (sys.int::%value-has-immediate-tag-p value sys.int::+immediate-tag-short-float+))
+(defun sys.int::short-float-p (object)
+  (sys.int::%object-of-type-p object sys.int::+object-tag-short-float+))
 
 (declaim (inline floatp))
 (defun floatp (object)
   (or (sys.int::single-float-p object)
-      (sys.int::short-float-p object)
       (sys.int::%object-of-type-range-p
        object
        sys.int::+first-float-object-tag+

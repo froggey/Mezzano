@@ -42,7 +42,7 @@
 (defconstant +immediate-tag-character+ #b00)
 (defconstant +immediate-tag-single-float+ #b01)
 (defconstant +immediate-tag-byte-specifier+ #b10)
-(defconstant +immediate-tag-short-float+ #b11)
+;;#b11
 
 ;;; Simple 1D arrays.
 ;; Array type T == simple vector.
@@ -97,7 +97,7 @@
 (defconstant +object-tag-bignum+                  #b100000)
 (defconstant +object-tag-ratio+                   #b100001)
 (defconstant +object-tag-double-float+            #b100010)
-;;#b100011
+(defconstant +object-tag-short-float+             #b100011)
 (defconstant +object-tag-long-float+              #b100100)
 (defconstant +object-tag-complex-rational+        #b100101)
 (defconstant +object-tag-complex-single-float+    #b100110)

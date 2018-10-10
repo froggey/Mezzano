@@ -1070,6 +1070,7 @@ This is required to make the GC interrupt safe."
       #.+object-tag-array-complex-long-float+
       #.+object-tag-bignum+
       #.+object-tag-double-float+
+      #.+object-tag-short-float+
       #.+object-tag-long-float+
       ;; not complex-rational or ratio, they may hold other numbers.
       #.+object-tag-complex-single-float+
@@ -1283,6 +1284,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          ((#.+object-tag-array-complex-long-float+)
           (1+ (* length 4)))
          (#.+object-tag-double-float+
+          2)
+         (#.+object-tag-short-float+
           2)
          (#.+object-tag-long-float+
           4)
@@ -1733,6 +1736,7 @@ Additionally update the card table offset fields and clear the mark bits."
       #.+object-tag-array-complex-long-float+
       #.+object-tag-bignum+
       #.+object-tag-double-float+
+      #.+object-tag-short-float+
       #.+object-tag-long-float+
       ;; not complex-rational or ratio, they may hold other numbers.
       #.+object-tag-complex-single-float+

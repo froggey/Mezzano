@@ -980,8 +980,6 @@
          (if (standard-char-p object)
              'standard-char
              'character))
-        ((short-float-p object)
-         'short-float)
         ((single-float-p object)
          'single-float)
         ((small-byte-p object)
@@ -1059,6 +1057,8 @@
             'ratio)
            (#.+object-tag-double-float+
             'double-float)
+           (#.+object-tag-short-float+
+            'short-float)
            (#.+object-tag-long-float+
             'long-float)
            (#.+object-tag-complex-rational+
