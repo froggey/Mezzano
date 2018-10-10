@@ -50,7 +50,7 @@
     invalid-101011             ; #b101011
     invalid-101100             ; #b101100
     invalid-101101             ; #b101101
-    invalid-101110             ; #b101110
+    mezzano.runtime::symbol-value-cell ; #b101110
     mezzano.simd:mmx-vector    ; #b101111
     symbol                     ; #b110000
     instance                   ; #b110001
