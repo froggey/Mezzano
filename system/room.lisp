@@ -37,15 +37,15 @@
     simple-array               ; #b011110
     array                      ; #b011111
     bignum                     ; #b100000
-    double-float               ; #b100001
-    short-float                ; #b100010
-    long-float                 ; #b100011
-    complex-rational           ; #b100100
-    complex-single-float       ; #b100101
-    complex-double-float       ; #b100110
-    complex-short-float        ; #b100111
-    complex-long-float         ; #b101000
-    ratio                      ; #b101001
+    ratio                      ; #b100001
+    double-float               ; #b100010
+    short-float                ; #b100011
+    long-float                 ; #b100100
+    complex-rational           ; #b100101
+    complex-single-float       ; #b100110
+    complex-double-float       ; #b100111
+    complex-short-float        ; #b101000
+    complex-long-float         ; #b101001
     invalid-101010             ; #b101010
     invalid-101011             ; #b101011
     invalid-101100             ; #b101100

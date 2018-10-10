@@ -8,36 +8,32 @@
 (defun sys.int::simple-character-array-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+))
 
-(defun %%simple-1d-array-p (object)
-  (<= (sys.int::%object-tag object) sys.int::+last-simple-1d-array-object-tag+))
-
 (declaim (inline sys.int::%simple-1d-array-p))
 (defun sys.int::%simple-1d-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (%%simple-1d-array-p object)))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+first-simple-1d-array-object-tag+
+   sys.int::+last-simple-1d-array-object-tag+))
 
 (declaim (inline sys.int::character-array-p))
 (defun sys.int::character-array-p (object)
-  (or (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+)
-      (sys.int::%object-of-type-p object sys.int::+object-tag-string+)))
-
-(defun %%arrayp (object)
-  (<= (sys.int::%object-tag object) sys.int::+last-complex-array-object-tag+))
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (or (%%object-of-type-p object sys.int::+object-tag-simple-string+)
+           (%%object-of-type-p object sys.int::+object-tag-string+))))
 
 (declaim (inline arrayp))
 (defun arrayp (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (%%arrayp object)))
-
-(defun %%complex-array-p (object)
-  (<= sys.int::+first-complex-array-object-tag+
-      (sys.int::%object-tag object)
-      sys.int::+last-complex-array-object-tag+))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+first-array-object-tag+
+   sys.int::+last-array-object-tag+))
 
 (declaim (inline sys.int::complex-array-p))
 (defun sys.int::complex-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (%%complex-array-p object)))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+first-complex-array-object-tag+
+   sys.int::+last-complex-array-object-tag+))
 
 ;;; Access to complex array slots.
 

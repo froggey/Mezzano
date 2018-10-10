@@ -67,6 +67,7 @@
 (defconstant +object-tag-array-complex-double-float+ #b010101)
 (defconstant +object-tag-array-complex-short-float+  #b010110)
 (defconstant +object-tag-array-complex-long-float+   #b010111)
+(defconstant +first-simple-1d-array-object-tag+ +object-tag-array-t+)
 (defconstant +last-simple-1d-array-object-tag+ +object-tag-array-complex-long-float+)
 ;;#b011000
 ;;#b011001
@@ -81,6 +82,8 @@
 (defconstant +object-tag-array+                   #b011111)
 (defconstant +first-complex-array-object-tag+ +object-tag-simple-string+)
 (defconstant +last-complex-array-object-tag+ +object-tag-array+)
+(defconstant +first-array-object-tag+ +object-tag-array-t+)
+(defconstant +last-array-object-tag+ +object-tag-array+)
 
 ;; When set, the array or string is not simple.
 ;; Only valid on object with +object-tag(-simple)-{string/array}+ tags.
@@ -88,17 +91,25 @@
 
 ;;; All these object tags, along with immediate fixnums and single-floats are numbers.
 (defconstant +object-tag-bignum+                  #b100000)
-(defconstant +object-tag-double-float+            #b100001)
-(defconstant +object-tag-short-float+             #b100010)
-(defconstant +object-tag-long-float+              #b100011)
-(defconstant +object-tag-complex-rational+        #b100100)
-(defconstant +object-tag-complex-single-float+    #b100101)
-(defconstant +object-tag-complex-double-float+    #b100110)
-(defconstant +object-tag-complex-short-float+     #b100111)
-(defconstant +object-tag-complex-long-float+      #b101000)
-(defconstant +object-tag-ratio+                   #b101001)
-(defconstant +first-numeric-object-tag+ +object-tag-bignum+)
-(defconstant +last-numeric-object-tag+ +object-tag-ratio+)
+(defconstant +object-tag-ratio+                   #b100001)
+(defconstant +object-tag-double-float+            #b100010)
+(defconstant +object-tag-short-float+             #b100011)
+(defconstant +object-tag-long-float+              #b100100)
+(defconstant +object-tag-complex-rational+        #b100101)
+(defconstant +object-tag-complex-single-float+    #b100110)
+(defconstant +object-tag-complex-double-float+    #b100111)
+(defconstant +object-tag-complex-short-float+     #b101000)
+(defconstant +object-tag-complex-long-float+      #b101001)
+(defconstant +first-rational-object-tag+ +object-tag-bignum+) ; plus fixnum
+(defconstant +last-rational-object-tag+ +object-tag-ratio+)
+(defconstant +first-float-object-tag+ +object-tag-double-float+) ; plus single-float
+(defconstant +last-float-object-tag+ +object-tag-long-float+)
+(defconstant +first-real-object-tag+ +object-tag-bignum+) ; plus fixnum & single-float
+(defconstant +last-real-object-tag+ +object-tag-long-float+)
+(defconstant +first-complex-object-tag+ +object-tag-complex-rational+)
+(defconstant +last-complex-object-tag+ +object-tag-complex-long-float+)
+(defconstant +first-numeric-object-tag+ +object-tag-bignum+) ; plus fixnum & single-float
+(defconstant +last-numeric-object-tag+ +object-tag-complex-long-float+)
 ;;#b101010
 ;;#b101011
 ;;#b101100

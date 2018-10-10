@@ -98,6 +98,16 @@
   (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
        (%%object-of-type-p object object-tag)))
 
+(defun %%object-of-type-range-p (object first-object-tag last-object-tag)
+  (<= first-object-tag
+      (sys.int::%object-tag object)
+      last-object-tag))
+
+(declaim (inline sys.int::%object-of-type-p))
+(defun sys.int::%object-of-type-range-p (object first-object-tag last-object-tag)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (%%object-of-type-range-p object first-object-tag last-object-tag)))
+
 (declaim (inline sys.int::%type-check))
 (defun sys.int::%type-check (object object-tag expected-type)
   (unless (sys.int::%object-of-type-p object object-tag)
@@ -113,15 +123,12 @@
 (defun characterp (object)
   (sys.int::%value-has-immediate-tag-p object sys.int::+immediate-tag-character+))
 
-(defun %functionp (object)
-  (<= sys.int::+first-function-object-tag+
-      (sys.int::%object-tag object)
-      sys.int::+last-function-object-tag+))
-
 (declaim (inline functionp))
 (defun functionp (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (%functionp object)))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+first-function-object-tag+
+   sys.int::+last-function-object-tag+))
 
 (in-package :sys.int)
 

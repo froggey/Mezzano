@@ -51,12 +51,49 @@
                          :outputs '()))))
 
 (define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
+  (cond ((eql object-tag 0)
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:test8
+                              :operands (list `(:object ,object -1) (ash (1- (ash 1 sys.int::+object-type-size+))
+                                                                         sys.int::+object-type-shift+))
+                              :inputs (list object)
+                              :outputs (list))))
+        (t
+         ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:mov8
+                              :operands (list :al `(:object ,object -1))
+                              :inputs (list object)
+                              :outputs (list :rax)))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:and8
+                              :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
+                                                       sys.int::+object-type-shift+))
+                              :inputs (list :rax)
+                              :outputs (list :rax)))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp8
+                              :operands (list :al (ash object-tag sys.int::+object-type-shift+))
+                              :inputs (list :rax)
+                              :outputs '())))))
+
+(define-builtin mezzano.runtime::%%object-of-type-range-p ((object
+                                                            (:constant first-tag (typep first-tag '(unsigned-byte 6)))
+                                                            (:constant last-tag (typep last-tag '(unsigned-byte 6))))
+                                                           :be)
   ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov8
                        :operands (list :al `(:object ,object -1))
                        :inputs (list object)
                        :outputs (list :rax)))
+  (when (not (eql first-tag 0))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:sub8
+                         :operands (list :al (ash first-tag
+                                                  sys.int::+object-type-shift+))
+                         :inputs (list :rax)
+                         :outputs (list :rax))))
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:and8
                        :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
@@ -65,96 +102,7 @@
                        :outputs (list :rax)))
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:cmp8
-                       :operands (list :al (ash object-tag sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs '())))
-
-(define-builtin mezzano.runtime::%functionp ((object) :be)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov8
-                       :operands (list :al `(:object ,object -1))
-                       :inputs (list object)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:sub8
-                       :operands (list :al (ash sys.int::+first-function-object-tag+
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:and8
-                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp8
-                       :operands (list :al (ash (- sys.int::+last-function-object-tag+
-                                                   sys.int::+first-function-object-tag+)
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs '())))
-
-(define-builtin mezzano.runtime::%%simple-1d-array-p ((object) :be)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov8
-                       :operands (list :al `(:object ,object -1))
-                       :inputs (list object)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:and8
-                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp8
-                       :operands (list :al (ash sys.int::+last-simple-1d-array-object-tag+
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs '())))
-
-(define-builtin mezzano.runtime::%%arrayp ((object) :be)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov8
-                       :operands (list :al `(:object ,object -1))
-                       :inputs (list object)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:and8
-                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp8
-                       :operands (list :al (ash sys.int::+last-complex-array-object-tag+
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs '())))
-
-(define-builtin mezzano.runtime::%%complex-array-p ((object) :be)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov8
-                       :operands (list :al `(:object ,object -1))
-                       :inputs (list object)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:sub8
-                       :operands (list :al (ash sys.int::+first-complex-array-object-tag+
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:and8
-                       :operands (list :al (ash (1- (ash 1 sys.int::+object-type-size+))
-                                                sys.int::+object-type-shift+))
-                       :inputs (list :rax)
-                       :outputs (list :rax)))
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp8
-                       :operands (list :al (ash (- sys.int::+last-complex-array-object-tag+
-                                                   sys.int::+first-complex-array-object-tag+)
+                       :operands (list :al (ash (- last-tag first-tag)
                                                 sys.int::+object-type-shift+))
                        :inputs (list :rax)
                        :outputs '())))

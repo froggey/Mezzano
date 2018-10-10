@@ -18,19 +18,33 @@
 (declaim (inline floatp))
 (defun floatp (object)
   (or (sys.int::single-float-p object)
-      (sys.int::double-float-p object)))
+      (sys.int::%object-of-type-range-p
+       object
+       sys.int::+first-float-object-tag+
+       sys.int::+last-float-object-tag+)))
 
 (defun rationalp (object)
-  (or (integerp object)
-      (sys.int::ratiop object)))
+  (or (sys.int::fixnump object)
+      (sys.int::%object-of-type-range-p
+       object
+       sys.int::+first-rational-object-tag+
+       sys.int::+last-rational-object-tag+)))
 
 (defun realp (object)
-  (or (rationalp object)
-      (floatp object)))
+  (or (sys.int::fixnump object)
+      (sys.int::single-float-p object)
+      (sys.int::%object-of-type-range-p
+       object
+       sys.int::+first-real-object-tag+
+       sys.int::+last-real-object-tag+)))
 
 (defun numberp (object)
-  (or (realp object)
-      (complexp object)))
+  (or (sys.int::fixnump object)
+      (sys.int::single-float-p object)
+      (sys.int::%object-of-type-range-p
+       object
+       sys.int::+first-numeric-object-tag+
+       sys.int::+last-numeric-object-tag+)))
 
 (defun float (number &optional prototype)
   (etypecase number

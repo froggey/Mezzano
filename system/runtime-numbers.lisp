@@ -19,9 +19,10 @@
 
 (declaim (inline complexp))
 (defun complexp (object)
-  (or (%object-of-type-p object +object-tag-complex-rational+)
-      (%object-of-type-p object +object-tag-complex-single-float+)
-      (%object-of-type-p object +object-tag-complex-double-float+)))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+first-complex-object-tag+
+   sys.int::+last-complex-object-tag+))
 
 (defun complex (realpart &optional imagpart)
   (check-type realpart real)
