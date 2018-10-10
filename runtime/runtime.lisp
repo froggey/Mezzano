@@ -103,7 +103,7 @@
       (sys.int::%object-tag object)
       last-object-tag))
 
-(declaim (inline sys.int::%object-of-type-p))
+(declaim (inline sys.int::%object-of-type-range-p))
 (defun sys.int::%object-of-type-range-p (object first-object-tag last-object-tag)
   (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
        (%%object-of-type-range-p object first-object-tag last-object-tag)))
