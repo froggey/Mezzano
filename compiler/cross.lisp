@@ -102,7 +102,7 @@
            :name-char
            :make-hash-table
            :with-compilation-unit
-)
+           :upgraded-complex-part-type)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

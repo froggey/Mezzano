@@ -89,23 +89,6 @@
      (check-type number number)
      (* 0 number))))
 
-(defun upgraded-complex-part-type (typespec &optional environment)
-  (cond
-    ((subtypep typespec 'nil environment)
-     nil)
-    ((subtypep typespec 'short-float environment)
-     'short-float)
-    ((subtypep typespec 'single-float environment)
-     'single-float)
-    ((subtypep typespec 'double-float environment)
-     'double-float)
-    ((subtypep typespec 'rational environment)
-     'rational)
-    ((subtypep typespec 'real environment)
-     'real)
-    (t
-     (error "Type specifier ~S is not a subtype of REAL." typespec))))
-
 (defun expt (base power)
   (etypecase power
     (integer

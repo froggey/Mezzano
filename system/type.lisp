@@ -408,6 +408,25 @@
   (declare (ignore object))
   t)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun upgraded-complex-part-type (typespec &optional environment)
+  (cond
+    ((subtypep typespec 'nil environment)
+     nil)
+    ((subtypep typespec 'short-float environment)
+     'short-float)
+    ((subtypep typespec 'single-float environment)
+     'single-float)
+    ((subtypep typespec 'double-float environment)
+     'double-float)
+    ((subtypep typespec 'rational environment)
+     'rational)
+    ((subtypep typespec 'real environment)
+     'real)
+    (t
+     (error "Type specifier ~S is not a subtype of REAL." typespec))))
+)
+
 (defun complex-type (object type)
   (destructuring-bind (&optional (typespec '*))
       (if (listp type)
