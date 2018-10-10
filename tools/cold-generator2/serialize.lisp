@@ -446,7 +446,7 @@ Must not call SERIALIZE-OBJECT."))
           sys.int::+tag-immediate+))
 
 (defmethod allocate-object ((object double-float) image environment)
-  (allocate 2 image :wired sys.int::+tag-object+))
+  (allocate 2 image :general sys.int::+tag-object+))
 
 (defmethod initialize-object ((object double-float) value image environment)
   (initialize-object-header image value sys.int::+object-tag-double-float+ 0)
