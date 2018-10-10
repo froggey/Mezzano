@@ -671,6 +671,8 @@
                 (* (cos real) (sinh imag)))))
     (double-float
      (sin-double-float x))
+    (short-float
+     (float (sin-single-float (float x 0.0f0)) #.(xshort-float 0.0s0)))
     (real
      (sin-single-float (float x 0.0f0)))))
 
@@ -683,6 +685,8 @@
                 (- (* (sin real) (sinh imag))))))
     (double-float
      (cos-double-float x))
+    (short-float
+     (float (cos-single-float (float x 0.0f0)) #.(xshort-float 0.0s0)))
     (real
      (cos-single-float (float x 0.0f0)))))
 
@@ -719,7 +723,9 @@
     (when (float-infinity-p d)
       (setf u (/ 0.0f0 0.0f0)))
 
-    u))
+    (if (floatp d)
+        (float u d)
+        u)))
 
 (defun tan (radians)
   (etypecase radians
@@ -860,16 +866,23 @@
             tt))))
 
 (defun atan2 (y x)
-  (cond ((> x 0) (atan (/ y x)))
-        ((and (>= y 0) (< x 0))
-         (+ (atan (/ y x)) pi))
-        ((and (< y 0) (< x 0))
-         (- (atan (/ y x)) pi))
-        ((and (> y 0) (zerop x))
-         (/ pi 2))
-        ((and (< y 0) (zerop x))
-         (- (/ pi 2)))
-        (t 0)))
+  (let ((n (cond ((> x 0) (atan (/ y x)))
+                 ((and (>= y 0) (< x 0))
+                  (+ (atan (/ y x)) pi))
+                 ((and (< y 0) (< x 0))
+                  (- (atan (/ y x)) pi))
+                 ((and (> y 0) (zerop x))
+                  (/ pi 2))
+                 ((and (< y 0) (zerop x))
+                  (- (/ pi 2)))
+                 (t 0))))
+    (cond ((and (floatp x) (floatp y))
+           (float (float n x) y))
+          ((floatp x)
+           (float n x))
+          ((floatp y)
+           (float n y))
+          (t n))))
 
 (defun two-arg-gcd (a b)
   (check-type a integer)
@@ -890,40 +903,41 @@
 (defun phase (number)
   (atan (imagpart number) (realpart number)))
 
+(defun fix-fdiv-quotient (quotient number divisor)
+  (cond ((or (double-float-p number)
+             (double-float-p divisor))
+         (float quotient 0.0d0))
+        ((or (single-float-p number)
+             (single-float-p divisor))
+         (float quotient 0.0f0))
+        ((or (short-float-p number)
+             (short-float-p divisor))
+         (float quotient #.(xshort-float 0.0s0)))
+        (t
+         (float quotient 0.0f0))))
+
 (defun ffloor (number &optional (divisor 1))
   (multiple-value-bind (quotient remainder)
       (floor number divisor)
-    (values (float quotient (if (or (double-float-p number)
-                                    (double-float-p divisor))
-                                0.0d0
-                                0.0f0))
+    (values (fix-fdiv-quotient quotient number divisor)
             remainder)))
 
 (defun fceiling (number &optional (divisor 1))
   (multiple-value-bind (quotient remainder)
       (ceiling number divisor)
-    (values (float quotient (if (or (double-float-p number)
-                                    (double-float-p divisor))
-                                0.0d0
-                                0.0f0))
+    (values (fix-fdiv-quotient quotient number divisor)
             remainder)))
 
 (defun ftruncate (number &optional (divisor 1))
   (multiple-value-bind (quotient remainder)
       (truncate number divisor)
-    (values (float quotient (if (or (double-float-p number)
-                                    (double-float-p divisor))
-                                0.0d0
-                                0.0f0))
+    (values (fix-fdiv-quotient quotient number divisor)
             remainder)))
 
 (defun fround (number &optional (divisor 1))
   (multiple-value-bind (quotient remainder)
       (round number divisor)
-    (values (float quotient (if (or (double-float-p number)
-                                    (double-float-p divisor))
-                                0.0d0
-                                0.0f0))
+    (values (fix-fdiv-quotient quotient number divisor)
             remainder)))
 
 ;;; INTEGER-DECODE-FLOAT from SBCL.
@@ -1283,7 +1297,7 @@
   (%integer-as-single-float
    (dpb exp +single-float-exponent-byte+
         (dpb sig +single-float-significand-byte+
-             (if (zerop sign) 0 -1)))))
+             (if (zerop sign) 0 #x80000000)))))
 (defun double-from-bits (sign exp sig)
   (declare (type bit sign) (type (unsigned-byte 53) sig)
            (type (unsigned-byte 11) exp))
@@ -1291,7 +1305,7 @@
    (logior (ash (dpb exp +double-float-exponent-byte+
                      (dpb (ash sig -32)
                           +double-float-significand-byte+
-                          (if (zerop sign) 0 -1)))
+                          (if (zerop sign) 0 #x80000000)))
                 32)
            (ldb (byte 32 0) sig))))
 (defun short-from-bits (sign exp sig)
@@ -1300,7 +1314,7 @@
   (%integer-as-short-float
    (dpb exp +short-float-exponent-byte+
         (dpb sig +short-float-significand-byte+
-             (if (zerop sign) 0 -1)))))
+             (if (zerop sign) 0 #x8000)))))
 
 ;;; Ratio to float conversion from SBCL 1.4.2
 
