@@ -19,6 +19,7 @@
 (defconstant +location-type-signed-byte-64+   8)
 (defconstant +location-type-single-float+     9)
 (defconstant +location-type-double-float+     10)
+(defconstant +location-type-short-float+      11)
 
 (defun sys.int::%instance-layout (object)
   "Return an instance's direct layout."
@@ -57,7 +58,8 @@
     #.+location-type-signed-byte-32+
     #.+location-type-signed-byte-64+
     #.+location-type-single-float+
-    #.+location-type-double-float+))
+    #.+location-type-double-float+
+    #.+location-type-short-float+))
 
 (defun make-location (type offset)
   (logior (dpb type +location-type+ 0)
@@ -87,7 +89,8 @@
     (#.+location-type-signed-byte-32+   4)
     (#.+location-type-signed-byte-64+   8)
     (#.+location-type-single-float+     4)
-    (#.+location-type-double-float+     8)))
+    (#.+location-type-double-float+     8)
+    (#.+location-type-short-float+      2)))
 
 (defun location-type-accessor (location-type)
   (ecase location-type
@@ -112,7 +115,9 @@
     (#.+location-type-single-float+
      'sys.int::%object-ref-single-float-unscaled)
     (#.+location-type-double-float+
-     'sys.int::%object-ref-double-float-unscaled)))
+     'sys.int::%object-ref-double-float-unscaled)
+    (#.+location-type-short-float+
+     'sys.int::%object-ref-short-float-unscaled)))
 )
 
 (macrolet ((def (name-base args)
