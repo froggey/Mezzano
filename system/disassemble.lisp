@@ -185,7 +185,8 @@
            (when (inst-lock-prefix instruction)
              (format t "LOCK "))
            (format t "~A" (inst-opcode instruction))
-           (when (and (eql (inst-opcode instruction) 'sys.lap-x86:cmp8)
+           (when (and (member (inst-opcode instruction)
+                              '(sys.lap-x86:cmp8 sys.lap-x86:sub8))
                       (eql (first (inst-operands instruction)) :al)
                       (integerp (second (inst-operands instruction))))
              ;; Probably a type check.
