@@ -5,6 +5,7 @@
 
 (in-package :mezzano.runtime)
 
+(declaim (inline sys.int::simple-character-array-p))
 (defun sys.int::simple-character-array-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-simple-string+))
 
@@ -17,9 +18,10 @@
 
 (declaim (inline sys.int::character-array-p))
 (defun sys.int::character-array-p (object)
-  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
-       (or (%%object-of-type-p object sys.int::+object-tag-simple-string+)
-           (%%object-of-type-p object sys.int::+object-tag-string+))))
+  (sys.int::%object-of-type-range-p
+   object
+   sys.int::+object-tag-simple-string+
+   sys.int::+object-tag-string+))
 
 (declaim (inline arrayp))
 (defun arrayp (object)
