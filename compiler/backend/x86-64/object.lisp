@@ -50,6 +50,19 @@
                          :inputs (list temp)
                          :outputs '()))))
 
+(define-builtin sys.int::%value-has-immediate-tag-p ((object (:constant tag (typep tag '(unsigned-byte 2)))) :z)
+  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:lea64
+                         :operands (list temp `(,object ,(- (logior (ash tag 4) sys.int::+tag-immediate+))))
+                         :inputs (list object)
+                         :outputs (list temp)))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:test64
+                         :operands (list temp #b111111)
+                         :inputs (list temp)
+                         :outputs '()))))
+
 (define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
   (cond ((eql object-tag 0)
          (emit (make-instance 'x86-instruction
