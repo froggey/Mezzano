@@ -167,3 +167,16 @@ A list of two elements, the short & long name." )
 ;;; Mezzano uses no supporting software.
 (defun software-type () nil)
 (defun software-version () nil)
+
+(defun uptime ()
+  "Print the current uptime."
+  (let* ((uptime (truncate (get-internal-run-time) internal-time-units-per-second)))
+    (multiple-value-bind (x-minutes seconds)
+        (truncate uptime 60)
+      (multiple-value-bind (x-hours minutes)
+          (truncate x-minutes 60)
+        (multiple-value-bind (days hours)
+            (truncate x-hours 24)
+          (format t "Up ~D day~:P, ~D hour~:P, ~D minute~:P, ~D second~:P.~%"
+                  days hours minutes seconds)
+          (values))))))
