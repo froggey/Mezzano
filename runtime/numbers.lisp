@@ -389,7 +389,7 @@
 (declaim (inline sys.int::binary-+ sys.int::binary--
                  sys.int::binary-* sys.int::%truncate
                  rem
-                 ;sys.int::binary-logand
+                 sys.int::binary-logand
                  sys.int::binary-logior
                  sys.int::binary-logxor
                  lognot))
