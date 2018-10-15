@@ -619,11 +619,10 @@
          (%%assemble-value
           (logior (ash (%simple-array-aref (%complex-array-storage array) index)
                        (+ (byte-position sys.int::+immediate-tag+)
-                          (byte-size sys.int::+immediate-tag+)))
-                  (dpb +immediate-tag-character+
-                       +immediate-tag+
-                       0))
-          +tag-immediate+))
+                          (byte-size sys.int::+immediate-tag+))))
+          (dpb +immediate-tag-character+
+               +immediate-tag+
+               +tag-immediate+)))
         (t ;; Normal array, backed by a simple array.
          (%simple-array-aref (%complex-array-storage array) index))))
 

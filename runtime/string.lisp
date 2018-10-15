@@ -181,12 +181,13 @@
 (declaim (inline sys.int::%%make-character))
 (defun sys.int::%%make-character (code &optional bits)
   (sys.int::%%assemble-value
-   (logior (dpb code sys.int::+char-code+ 0)
-           (dpb (or bits 0) sys.int::+char-bits+ 0)
-           (dpb sys.int::+immediate-tag-character+
-                sys.int::+immediate-tag+
-                0))
-   sys.int::+tag-immediate+))
+   (if bits
+       (dpb code sys.int::+char-code+ 0)
+       (logior (dpb code sys.int::+char-code+ 0)
+               (dpb (or bits 0) sys.int::+char-bits+ 0)))
+   (dpb sys.int::+immediate-tag-character+
+        sys.int::+immediate-tag+
+        sys.int::+tag-immediate+)))
 
 (defun sys.int::%make-character (code &optional bits)
   (check-type code (integer 0 #x0010FFFF)
@@ -195,9 +196,8 @@
   (if (or (<= #xD800 code #xDFFF) ; UTF-16 surrogates.
           ;; Noncharacters.
           (<= #xFDD0 code #xFDEF)
-          (member code '#.(loop for i to #x10
-                             collect (logior (ash i 16) #xFFFE)
-                             collect (logior (ash i 16) #xFFFF))))
+          ;; The final two code points in each plane are noncharacters.
+          (eql (logand code #xFFFE) #xFFFE))
       nil
       (sys.int::%%make-character code bits)))
 
