@@ -120,6 +120,71 @@
                        :inputs (list :rax)
                        :outputs '())))
 
+(define-builtin sys.int::%object-tag ((object) result)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:movzx8
+                       :operands (list :eax `(:object ,object -1))
+                       :inputs (list object)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:and32
+                       :operands (list :eax -4)
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:shr32
+                       :operands (list :eax 1)
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'ir:move-instruction
+                       :source :rax
+                       :destination result)))
+
+(define-builtin sys.int::lisp-object-address ((value) result)
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:lea64
+                       :operands (list result (list value value))
+                       :inputs (list value)
+                       :outputs (list result))))
+
+(define-builtin sys.int::%%assemble-value ((pointer tag) result)
+  (cond ((constant-value-p tag '(eql 0))
+         (emit (make-instance 'x86-fake-three-operand-instruction
+                              :opcode 'lap:sar64
+                              :result result
+                              :lhs pointer
+                              :rhs sys.int::+n-fixnum-bits+)))
+        ((constant-value-p tag '(signed-byte 29))
+         (let ((raw-pointer (make-instance 'ir:virtual-register)))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sar64
+                                :result raw-pointer
+                                :lhs pointer
+                                :rhs sys.int::+n-fixnum-bits+))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:or64
+                                :result result
+                                :lhs raw-pointer
+                                :rhs (fetch-constant-value tag)))))
+        (t
+         (let ((raw-pointer (make-instance 'ir:virtual-register))
+               (raw-tag (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sar64
+                                :result raw-pointer
+                                :lhs pointer
+                                :rhs sys.int::+n-fixnum-bits+))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sar64
+                                :result raw-tag
+                                :lhs tag
+                                :rhs sys.int::+n-fixnum-bits+))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:or64
+                                :result result
+                                :lhs raw-pointer
+                                :rhs raw-tag))))))
+
 (define-builtin sys.int::%unbound-value-p ((object) :e)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:cmp64
