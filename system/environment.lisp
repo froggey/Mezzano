@@ -25,11 +25,11 @@ A list of two elements, the short & long name." )
   (setf string (string string))
   (cond (package
          (do-symbols (sym package)
-           (when (search string (symbol-name sym) :test #'string-equal)
+           (when (search string (symbol-name sym) :test #'char-equal)
              (funcall fn sym))))
         (t
          (do-all-symbols (sym)
-           (when (search string (symbol-name sym) :test #'string-equal)
+           (when (search string (symbol-name sym) :test #'char-equal)
              (funcall fn sym))))))
 
 (defun apropos (string &optional package)
