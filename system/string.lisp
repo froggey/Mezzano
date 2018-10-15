@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-;;;; String functions. These replace most of the genesis string functions.
+;;;; String functions.
 
 (in-package :sys.int)
 
