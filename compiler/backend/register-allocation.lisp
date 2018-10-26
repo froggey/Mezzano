@@ -32,6 +32,9 @@
   (:method (kind1 kind2 architecture)
     (eql kind1 kind2)))
 
+#|
+;; Original recursive implementation.
+;; Uses too much stack space when compiling Ironclad.
 (defun instructions-reverse-postorder (backend-function)
   "Return instructions in reverse postorder."
   (let ((visited (make-hash-table :test 'eq :synchronized nil))
@@ -55,6 +58,40 @@
                                               (ir:begin-nlx-targets inst))))
                     (setf inst (ir:next-instruction backend-function inst))))))
       (visit (ir:first-instruction backend-function)))
+    order))
+|#
+
+(defun instructions-reverse-postorder (backend-function)
+  (let ((visited (make-hash-table :test 'eq :synchronized nil))
+        (order '())
+        (stack (make-array 128 :adjustable t :fill-pointer 0)))
+    ;; instruction, additional-basic-blocks, block-instruction-order, at-end.
+    (vector-push-extend (list (ir:first-instruction backend-function) '() '() nil) stack)
+    (setf (gethash (ir:first-instruction backend-function) visited) t)
+    (loop
+       (when (eql (length stack) 0) (return))
+       (let ((current (aref stack (1- (length stack)))))
+         (loop
+              (let ((inst (first current)))
+                (when (fourth current) ; at-end, just finishing up.
+                  (setf order (append (reverse (third current))
+                                      order))
+                  (vector-pop stack)
+                  (return))
+                (push inst (third current))
+                (when (typep inst 'ir:terminator-instruction)
+                  (dolist (succ (reverse
+                                 (union (ir:successors backend-function inst)
+                                        (second current))))
+                    (when (not (gethash succ visited))
+                      (setf (gethash succ visited) t)
+                      (vector-push-extend (list succ '() '() nil) stack)))
+                  (setf (fourth current) t)
+                  (return))
+                (when (typep inst 'ir:begin-nlx-instruction)
+                  (setf (second current) (union (second current)
+                                                (ir:begin-nlx-targets inst))))
+                (setf (first current) (ir:next-instruction backend-function inst))))))
     order))
 
 (defun all-virtual-registers (backend-function)
