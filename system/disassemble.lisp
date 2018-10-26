@@ -834,8 +834,13 @@
     nil
     nil
     nil
-    nil ; 10
-    nil
+    (decode-v-w nil ; sys.lap-x86:movups
+     nil ; sys.lap-x86:movupd
+     sys.lap-x86:movsd sys.lap-x86:movss) ; 10
+    (decode-w-v nil ; sys.lap-x86:movups
+     nil ; sys.lap-x86:movupd
+     sys.lap-x86:movsd sys.lap-x86:movss)
+    ;; FIXME: For MOVHLPS, if the R/M operand is memory then the instruction is actually MOVLPS.
     (decode-v-w sys.lap-x86:movhlps nil nil nil)
     nil
     (decode-v-w sys.lap-x86:unpcklps sys.lap-x86:unpcklpd nil nil)
@@ -1679,6 +1684,31 @@
                 (make-instruction opcode
                                   (decode-mmx-or-mem r/m)
                                   (decode-mmx reg)))))))
+
+(defun decode-w-v (context info opcode opcode-66 opcode-f2 opcode-f3)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (cond ((getf info :osize)
+           (and opcode-66
+                (make-instruction opcode-66
+                                  (decode-xmm-or-mem r/m (rex-b info))
+                                  (decode-xmm reg (rex-r info)))))
+          ((eql (getf info :rep) #xF2)
+           (and opcode-f2
+                (make-instruction opcode-f2
+                                  (decode-xmm-or-mem r/m (rex-b info))
+                                  (decode-xmm reg (rex-r info)))))
+          ((eql (getf info :rep) #xF3)
+           (and opcode-f3
+                (make-instruction opcode-f3
+                                  (decode-xmm-or-mem r/m (rex-b info))
+                                  (decode-xmm reg (rex-r info)))))
+          (t
+           (and opcode
+                (make-instruction opcode
+                                  (decode-xmm-or-mem r/m (rex-b info))
+                                  (decode-xmm reg (rex-r info))))))))
+
 
 (defun decode-v-w (context info opcode opcode-66 opcode-f2 opcode-f3)
   (multiple-value-bind (reg r/m)
