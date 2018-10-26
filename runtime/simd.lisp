@@ -365,6 +365,22 @@ Equivalent to the _mm_set_ps intrinsic."
 The values in the other lanes of the vector are indeterminate and may not be zero."
   (%single-float-to-sse-vector vector))
 
+(declaim (inline sse-vector-single-float-ref (setf sse-vector-single-float-ref)))
+
+(defun sse-vector-single-float-ref (vector n-lanes index)
+  "Like SSE-VECTOR-REF, but for single-float vectors."
+  (ecase n-lanes
+    (1 (sse-vector-single-float-1-ref vector index))
+    (2 (sse-vector-single-float-2-ref vector index))
+    (4 (sse-vector-single-float-4-ref vector index))))
+
+(defun (setf sse-vector-single-float-ref) (value vector n-lanes index)
+  "Like SSE-VECTOR-REF, but for single-float vectors."
+  (ecase n-lanes
+    (1 (setf (sse-vector-single-float-1-ref vector index) value))
+    (2 (setf (sse-vector-single-float-2-ref vector index) value))
+    (4 (setf (sse-vector-single-float-4-ref vector index) value))))
+
 (defun sse-vector-single-float-1-ref (vector index)
   "Read 1 single-float from the simple 1D single-float array VECTOR into lane 0 of an sse-vector, with the remaining lanes set to zero."
   (check-type vector (simple-array single-float (*)))
@@ -495,6 +511,20 @@ Equivalent to the _mm_set_pd intrinsic."
   "Convert a DOUBLE-FLOAT to an SSE-VECTOR, storing it in lane 0.
 The values in the other lanes of the vector are indeterminate and may not be zero."
   (%double-float-to-sse-vector vector))
+
+(declaim (inline sse-vector-double-float-ref (setf sse-vector-double-float-ref)))
+
+(defun sse-vector-double-float-ref (vector n-lanes index)
+  "Like SSE-VECTOR-REF, but for double-float vectors."
+  (ecase n-lanes
+    (1 (sse-vector-double-float-1-ref vector index))
+    (2 (sse-vector-double-float-2-ref vector index))))
+
+(defun (setf sse-vector-double-float-ref) (value vector n-lanes index)
+  "Like SSE-VECTOR-REF, but for double-float vectors."
+  (ecase n-lanes
+    (1 (setf (sse-vector-double-float-1-ref vector index) value))
+    (2 (setf (sse-vector-double-float-2-ref vector index) value))))
 
 (defun sse-vector-double-float-1-ref (vector index)
   "Read 1 double-float from the simple 1D double-float array VECTOR into lane 0 of an sse-vector, with the remaining lanes set to zero."
