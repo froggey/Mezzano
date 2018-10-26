@@ -211,6 +211,92 @@
   (sys.c::mark-as-constant-foldable '%sse-vector-value/ub64)
   (sys.c::mark-as-constant-foldable '%sse-vector-value/fixnum))
 
+(defun sse-vector-ref-common (vector n-lanes)
+  (let* ((element-type-width (etypecase vector
+                               ((simple-array (unsigned-byte 8) (*)) 8)
+                               ((simple-array (unsigned-byte 16) (*)) 16)
+                               ((simple-array (unsigned-byte 32) (*)) 32)
+                               ((simple-array (unsigned-byte 64) (*)) 64)
+                               ((simple-array (signed-byte 8) (*)) 8)
+                               ((simple-array (signed-byte 16) (*)) 16)
+                               ((simple-array (signed-byte 32) (*)) 32)
+                               ((simple-array (signed-byte 64) (*)) 64)))
+         (access-width (* element-type-width n-lanes)))
+    (check-type n-lanes (integer 1))
+    (assert (zerop (logand n-lanes (1- n-lanes))) () "N-LANES (~S) must be a power-of-two." n-lanes)
+    (assert (<= 8 access-width 128)) ; No instructions can do accesses smaller/larger than this.
+    element-type-width))
+
+(defun sse-vector-ref (vector n-lanes index)
+  "Read N-LANES integers from VECTOR into an sse-vector.
+VECTOR must be a simple 1D specialized on an integer subtype.
+N-LANES must be a power of two.
+N-LANES must be reasonably constant if you want this to go fast.
+The total access width must be at least 8 bits and no larger than 128 bits."
+  (let* ((element-type-width (sse-vector-ref-common vector n-lanes))
+         (value 0))
+    (dotimes (i n-lanes)
+      (setf value (logior value
+                          (ash (ldb (byte element-type-width 0) ; Snip sign bits aways
+                                    (aref vector (+ index i)))
+                               (* i element-type-width)))))
+    (make-sse-vector value)))
+
+(defun (setf sse-vector-ref) (value vector n-lanes index)
+  "Store N-LANES integers into VECTOR from an sse-vector.
+VECTOR must be a simple 1D specialized on an integer subtype.
+N-LANES must be a power of two.
+N-LANES must be reasonably constant if you want this to go fast.
+The total access width must be at least 8 bits and no larger than 128 bits."
+  (let* ((element-type-width (sse-vector-ref-common vector n-lanes))
+         (raw-value (sse-vector-value value)))
+    (dotimes (i n-lanes)
+      (setf (aref vector (+ index i))
+            (sys.int::sign-extend
+             (ldb (byte element-type-width (* i element-type-width))
+                  raw-value)
+             element-type-width))))
+  value)
+
+;; Define transforms for SSE-VECTOR-REF
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (macrolet ((def (width signedp)
+               `(progn
+                  ;; Emit (def* ...) for each lane count & access width.
+                  ,@(loop
+                       for n-lanes = 1 then (+ n-lanes n-lanes)
+                       for access-width = (* n-lanes width)
+                       repeat 128
+                       when (<= 8 access-width 128)
+                       collect `(def* ,width ,signedp ,n-lanes ,access-width))))
+             (def* (width signedp n-lanes access-width)
+               (let ((type `(simple-array (,(if signedp 'signed-byte 'unsigned-byte) ,width) (*)))
+                     (access-fn (ecase access-width
+                                  (8 '%%object-ref-sse-vector/8-unscaled)
+                                  (16 '%%object-ref-sse-vector/16-unscaled)
+                                  (32 '%%object-ref-sse-vector/32-unscaled)
+                                  (64 '%%object-ref-sse-vector/64-unscaled)
+                                  (128 '%%object-ref-sse-vector/128-unscaled))))
+                 `(progn
+                    (sys.c::define-transform sse-vector-ref ((vector ,type) (n-lanes (eql ,n-lanes)) index)
+                        ((:optimize (= safety 0) (= speed 3)))
+                      `(the sse-vector (progn
+                                         (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index ',',(1- n-lanes)))
+                                         (sys.c::call ,',access-fn ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))
+                    (sys.c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type) (n-lanes (eql ,n-lanes)) index)
+                        ((:optimize (= safety 0) (= speed 3)))
+                      `(the sse-vector (progn
+                                         (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index ',',(1- n-lanes)))
+                                         (sys.c::call ,',access-fn ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
+    (def 8 nil)
+    (def 16 nil)
+    (def 32 nil)
+    (def 64 nil)
+    (def 8 t)
+    (def 16 t)
+    (def 32 t)
+    (def 64 t)))
+
 (declaim (inline make-sse-vector-single-float))
 (defun make-sse-vector-single-float (&optional (a 0.0) (b 0.0) (c 0.0) (d 0.0))
   "Construct an SSE-VECTOR from 4 SINGLE-FLOAT values.
@@ -459,6 +545,42 @@ The values in the other lanes of the vector are indeterminate and may not be zer
     `(the sse-vector (progn
                        (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
                        (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))))
+
+;; Fake low-level accessors for smaller access widths.
+
+(declaim (inline %%object-ref-sse-vector/8-unscaled %%object-ref-sse-vector/16-unscaled
+                 (setf %%object-ref-sse-vector/8-unscaled) (setf %%object-ref-sse-vector/16-unscaled)))
+
+(defun %%object-ref-sse-vector/8-unscaled (object index)
+  (%make-sse-vector/fixnum (sys.int::%%object-ref-unsigned-byte-8-unscaled object index)))
+
+(defun (setf %%object-ref-sse-vector/8-unscaled) (value object index)
+  (setf (sys.int::%%object-ref-unsigned-byte-8-unscaled object index)
+        (%sse-vector-value/fixnum value))
+  value)
+
+(defun %%object-ref-sse-vector/16-unscaled (object index)
+  (%make-sse-vector/fixnum (sys.int::%%object-ref-unsigned-byte-16-unscaled object index)))
+
+(defun (setf %%object-ref-sse-vector/16-unscaled) (value object index)
+  (setf (sys.int::%%object-ref-unsigned-byte-16-unscaled object index)
+        (%sse-vector-value/fixnum value))
+  value)
+
+(declaim (inline %object-ref-sse-vector/8-unscaled %object-ref-sse-vector/16-unscaled
+                 (setf %object-ref-sse-vector/8-unscaled) (setf %object-ref-sse-vector/16-unscaled)))
+
+(defun %object-ref-sse-vector/8-unscaled (object &optional (index 0))
+  (%%object-ref-sse-vector/8-unscaled object index))
+
+(defun (setf %object-ref-sse-vector/8-unscaled) (value object &optional (index 0))
+  (setf (%%object-ref-sse-vector/8-unscaled object index) value))
+
+(defun %object-ref-sse-vector/16-unscaled (object &optional (index 0))
+  (%%object-ref-sse-vector/16-unscaled object index))
+
+(defun (setf %object-ref-sse-vector/16-unscaled) (value object &optional (index 0))
+  (setf (%%object-ref-sse-vector/16-unscaled object index) value))
 
 (declaim (inline %object-ref-sse-vector/32 %object-ref-sse-vector/64 %object-ref-sse-vector/128
                  (setf %object-ref-sse-vector/32) (setf %object-ref-sse-vector/64) (setf %object-ref-sse-vector/128)))

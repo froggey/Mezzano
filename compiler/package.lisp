@@ -668,6 +668,7 @@
            #:mmx-vector-p
            #:make-sse-vector
            #:sse-vector-value
+           #:sse-vector-ref
            #:make-sse-vector-single-float
            #:sse-vector-single-float-element
            #:sse-vector-single-float-1-ref
