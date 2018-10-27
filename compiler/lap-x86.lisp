@@ -1159,7 +1159,12 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (and (eql (reg-class src) :mm)
              (eql (reg-class dst) :mm))
     (return-from instruction
-      (generate-modrm :gpr-64 dst src '(#x0F #x7F)))))
+      (generate-modrm :gpr-64 dst src '(#x0F #x7F))))
+  (when (and (eql (reg-class src) :xmm)
+             (eql (reg-class dst) :xmm))
+    (emit #xF3)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x7E)))))
 
 (define-instruction movdqa (dst src)
   (when (eql (reg-class dst) :xmm)
@@ -1249,6 +1254,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-sse-float-op cmpnlt #xC2 :imm 5)
 (define-sse-float-op cmpnle #xC2 :imm 6)
 (define-sse-float-op cmpord #xC2 :imm 7)
+
+(define-instruction comiss (lhs rhs)
+  (modrm :xmm rhs lhs '(#x0F #x2F)))
+
+(define-instruction comisd (lhs rhs)
+  (emit #x66)
+  (modrm :xmm rhs lhs '(#x0F #x2F)))
+
+(define-instruction ucomiss (lhs rhs)
+  (modrm :xmm rhs lhs '(#x0F #x2E)))
+
+(define-instruction ucomisd (lhs rhs)
+  (emit #x66)
+  (modrm :xmm rhs lhs '(#x0F #x2E)))
 
 (define-instruction cvtpd2ps (lhs rhs)
   (emit #x66)
@@ -1449,6 +1468,42 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simd-integer-op punpckldq #x62)
 (define-simd-integer-op pxor #xEF)
 
+(define-instruction pmovmskb (dst src)
+  (when (eql (reg-class src) :mm)
+    (cond ((eql (reg-class dst) :gpr-32)
+           (return-from instruction
+             (generate-modrm :gpr-32 src dst '(#x0F #xD7))))
+          ((eql (reg-class dst) :gpr-64)
+           (return-from instruction
+             (generate-modrm :gpr-64 src dst '(#x0F #xD7))))))
+  (when (eql (reg-class src) :xmm)
+    (emit #x66)
+    (cond ((eql (reg-class dst) :gpr-32)
+           (return-from instruction
+             (generate-modrm :gpr-32 src dst '(#x0F #xD7))))
+          ((eql (reg-class dst) :gpr-64)
+           (return-from instruction
+             (generate-modrm :gpr-64 src dst '(#x0F #xD7)))))))
+
+(define-instruction movmskps (dst src)
+  (when (eql (reg-class src) :xmm)
+    (cond ((eql (reg-class dst) :gpr-32)
+           (return-from instruction
+             (generate-modrm :gpr-32 src dst '(#x0F #x50))))
+          ((eql (reg-class dst) :gpr-64)
+           (return-from instruction
+             (generate-modrm :gpr-64 src dst '(#x0F #x50)))))))
+
+(define-instruction movmskpd (dst src)
+  (when (eql (reg-class src) :xmm)
+    (emit #x66)
+    (cond ((eql (reg-class dst) :gpr-32)
+           (return-from instruction
+             (generate-modrm :gpr-32 src dst '(#x0F #x50))))
+          ((eql (reg-class dst) :gpr-64)
+           (return-from instruction
+             (generate-modrm :gpr-64 src dst '(#x0F #x50)))))))
+
 ;; SSE1
 (define-simd-integer-op pavgb #xE0)
 (define-simd-integer-op pavgw #xE3)
@@ -1463,11 +1518,46 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-simd-integer-op pmuludq #xF4)
 (define-simd-integer-op psubq #xFB)
 
+(define-instruction pslldq (lhs count)
+  (when (and (eql (reg-class lhs) :xmm)
+             (immediatep count))
+    (let ((*following-immediate-bytes* 1))
+      (generate-modrm :xmm lhs 7 '(#x0F #x73)))
+    (emit-imm-with-relocation 1 count)
+    (return-from instruction t)))
+
+(define-instruction psrldq (lhs count)
+  (when (and (eql (reg-class lhs) :xmm)
+             (immediatep count))
+    (let ((*following-immediate-bytes* 1))
+      (generate-modrm :xmm lhs 3 '(#x0F #x73)))
+    (emit-imm-with-relocation 1 count)
+    (return-from instruction t)))
+
 (define-instruction punpckhqdq (lhs rhs)
   (xmm-integer-op lhs rhs (#x0F #x6D)))
 
 (define-instruction punpcklqdq (lhs rhs)
   (xmm-integer-op lhs rhs (#x0F #x6C)))
+
+(define-instruction pshufd (lhs rhs imm)
+  (when (eql (reg-class lhs) :xmm)
+    (emit #x66)
+    (modrm-imm8 :xmm rhs lhs imm '(#x0F #x70))))
+
+(define-instruction pshufhw (lhs rhs imm)
+  (when (eql (reg-class lhs) :xmm)
+    (emit #xF3)
+    (modrm-imm8 :xmm rhs lhs imm '(#x0F #x70))))
+
+(define-instruction pshuflw (lhs rhs imm)
+  (when (eql (reg-class lhs) :xmm)
+    (emit #xF2)
+    (modrm-imm8 :xmm rhs lhs imm '(#x0F #x70))))
+
+(define-instruction pshufw (lhs rhs imm)
+  (when (eql (reg-class lhs) :mm)
+    (modrm-imm8 :mm rhs lhs imm '(#x0F #x70))))
 
 (define-instruction shufps (lhs rhs imm)
   (when (eql (reg-class lhs) :xmm)
@@ -1477,6 +1567,58 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (eql (reg-class lhs) :xmm)
     (emit #x66)
     (modrm-imm8 :xmm rhs lhs imm '(#x0F #xC6))))
+
+(define-instruction pextrw (lhs rhs imm)
+  (when (eql (reg-class rhs) :mm)
+    (cond ((eql (reg-class lhs) :gpr-32)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-32 rhs lhs '(#x0F #xC5)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))
+          ((eql (reg-class lhs) :gpr-64)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-64 rhs lhs '(#x0F #xC5)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))))
+  (when (eql (reg-class rhs) :xmm)
+    (emit #x66)
+    (cond ((eql (reg-class lhs) :gpr-32)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-32 rhs lhs '(#x0F #xC5)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))
+          ((eql (reg-class lhs) :gpr-64)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-64 rhs lhs '(#x0F #xC5)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t)))))
+
+(define-instruction pinsrw (lhs rhs imm)
+  (when (eql (reg-class lhs) :mm)
+    (cond ((or (eql (reg-class rhs) :gpr-32)
+               (consp rhs))
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-32 rhs lhs '(#x0F #xC4)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))
+          ((eql (reg-class rhs) :gpr-64)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-64 rhs lhs '(#x0F #xC4)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))))
+  (when (eql (reg-class lhs) :xmm)
+    (emit #x66)
+    (cond ((or (eql (reg-class rhs) :gpr-32)
+               (consp rhs))
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-32 rhs lhs '(#x0F #xC4)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t))
+          ((eql (reg-class rhs) :gpr-64)
+           (let ((*following-immediate-bytes* 1))
+             (generate-modrm :gpr-64 rhs lhs '(#x0F #xC4)))
+           (emit-imm-with-relocation 1 imm)
+           (return-from instruction t)))))
 
 (defmacro modrm-two-classes (class r/m-class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))

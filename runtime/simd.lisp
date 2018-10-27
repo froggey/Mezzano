@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2017-2018 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 (in-package :mezzano.simd)
@@ -102,6 +102,27 @@
        ;; Don't let the compiler constant-fold the call back into a vector.
        (declare (notinline make-mmx-vector))
      (make-mmx-vector ',(mmx-vector-value object))))
+
+(defun pshufw (a b control)
+  (check-type a mmx-vector)
+  (check-type b mmx-vector)
+  (check-type control (unsigned-byte 8))
+  (%pshufw/mmx a b control))
+
+(defun %pshufw/mmx (a b control)
+  (macrolet ((gen ()
+               `(ecase control
+                  ,@(loop for i below 256
+                         collect `(,i (%pshufw/mmx a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pshufw)
+  (sys.c::define-transform pshufw ((a mmx-vector) (b mmx-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the mmx-vector (sys.c::call %pshufw/mmx ,a ,b ,control)))
+  (sys.c::mark-as-constant-foldable 'pshufw)
+  (sys.c::mark-as-constant-foldable '%pshufw/mmx))
 
 ;;; SSE (128-bit integer/float) vectors.
 
@@ -768,6 +789,24 @@ The values in the other lanes of the vector are indeterminate and may not be zer
        (sys.c::mark-as-constant-foldable ',sse-function))
      ',name))
 
+(defmacro define-simd-float-com-op (name sse-function)
+  `(progn
+     (defun ,name (lhs rhs)
+       (etypecase lhs
+         (sse-vector
+          (check-type rhs sse-vector)
+          (,sse-function lhs rhs))))
+     (defun ,sse-function (lhs rhs)
+       (,sse-function lhs rhs))
+     (eval-when (:compile-toplevel :load-toplevel :execute)
+       (export ',name :mezzano.simd)
+       (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
+           ((:optimize (= safety 0) (= speed 3)))
+         `(sys.c::call ,',sse-function ,lhs ,rhs))
+       (sys.c::mark-as-constant-foldable ',name)
+       (sys.c::mark-as-constant-foldable ',sse-function))
+     ',name))
+
 ;; MMX
 (define-simd-integer-op packssdw %packssdw/mmx %packssdw/sse)
 (define-simd-integer-op packsswb %packsswb/mmx %packsswb/sse)
@@ -836,6 +875,7 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (define-simd-float-op minss %minss/sse)
 (define-simd-float-op movhlps %movhlps/sse)
 (define-simd-float-op movlhps %movlhps/sse)
+(define-simd-float-op-unary movq %movq/sse)
 (define-simd-float-op movss %movss/sse)
 (define-simd-float-op mulps %mulps/sse)
 (define-simd-float-op mulss %mulss/sse)
@@ -924,6 +964,32 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 (define-simd-float-op cmpordsd %cmpordsd/sse)
 (define-simd-float-op cmpordpd %cmpordpd/sse)
 
+(define-simd-float-com-op comieqss %comieqss/sse)
+(define-simd-float-com-op comieqss %comieqss/sse)
+(define-simd-float-com-op comigtss %comigtss/sse)
+(define-simd-float-com-op comigess %comigess/sse)
+(define-simd-float-com-op comiless %comiless/sse)
+(define-simd-float-com-op comiltss %comiltss/sse)
+(define-simd-float-com-op comineqss %comineqss/sse)
+(define-simd-float-com-op comieqsd %comieqsd/sse)
+(define-simd-float-com-op comigtsd %comigtsd/sse)
+(define-simd-float-com-op comigesd %comigesd/sse)
+(define-simd-float-com-op comilesd %comilesd/sse)
+(define-simd-float-com-op comiltsd %comiltsd/sse)
+(define-simd-float-com-op comineqsd %comineqsd/sse)
+(define-simd-float-com-op ucomieqss %ucomieqss/sse)
+(define-simd-float-com-op ucomigtss %ucomigtss/sse)
+(define-simd-float-com-op ucomigess %ucomigess/sse)
+(define-simd-float-com-op ucomiless %ucomiless/sse)
+(define-simd-float-com-op ucomiltss %ucomiltss/sse)
+(define-simd-float-com-op ucomineqss %ucomineqss/sse)
+(define-simd-float-com-op ucomieqsd %ucomieqsd/sse)
+(define-simd-float-com-op ucomigtsd %ucomigtsd/sse)
+(define-simd-float-com-op ucomigesd %ucomigesd/sse)
+(define-simd-float-com-op ucomilesd %ucomilesd/sse)
+(define-simd-float-com-op ucomiltsd %ucomiltsd/sse)
+(define-simd-float-com-op ucomineqsd %ucomineqsd/sse)
+
 (defun shufps (a b control)
   (check-type a sse-vector)
   (check-type b sse-vector)
@@ -966,6 +1032,225 @@ The values in the other lanes of the vector are indeterminate and may not be zer
     (sys.c::mark-as-constant-foldable 'shufpd))
   (sys.c::mark-as-constant-foldable 'shufpd)
   (sys.c::mark-as-constant-foldable '%shufpd/sse))
+
+(defun pshufd (a b control)
+  (check-type a sse-vector)
+  (check-type b sse-vector)
+  (check-type control (unsigned-byte 8))
+  (%pshufd/sse a b control))
+
+(defun %pshufd/sse (a b control)
+  (macrolet ((gen ()
+               `(ecase control
+                  ,@(loop for i below 256
+                         collect `(,i (%pshufd/sse a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pshufd)
+  (sys.c::define-transform pshufd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %pshufd/sse ,a ,b ,control)))
+  (sys.c::mark-as-constant-foldable 'pshufd)
+  (sys.c::mark-as-constant-foldable '%pshufd/sse))
+
+(defun pshufhw (a b control)
+  (check-type a sse-vector)
+  (check-type b sse-vector)
+  (check-type control (unsigned-byte 8))
+  (%pshufhw/sse a b control))
+
+(defun %pshufhw/sse (a b control)
+  (macrolet ((gen ()
+               `(ecase control
+                  ,@(loop for i below 256
+                         collect `(,i (%pshufhw/sse a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pshufhw)
+  (sys.c::define-transform pshufhw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %pshufhw/sse ,a ,b ,control)))
+  (sys.c::mark-as-constant-foldable 'pshufhw)
+  (sys.c::mark-as-constant-foldable '%pshufhw/sse))
+
+(defun pshuflw (a b control)
+  (check-type a sse-vector)
+  (check-type b sse-vector)
+  (check-type control (unsigned-byte 8))
+  (%pshuflw/sse a b control))
+
+(defun %pshuflw/sse (a b control)
+  (macrolet ((gen ()
+               `(ecase control
+                  ,@(loop for i below 256
+                         collect `(,i (%pshuflw/sse a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pshuflw)
+  (sys.c::define-transform pshuflw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %pshuflw/sse ,a ,b ,control)))
+  (sys.c::mark-as-constant-foldable 'pshuflw)
+  (sys.c::mark-as-constant-foldable '%pshuflw/sse))
+
+(defun pslldq (value count)
+  (check-type value sse-vector)
+  (check-type count (unsigned-byte 8))
+  (%pslldq/sse value count))
+
+(defun %pslldq/sse (value count)
+  (macrolet ((gen ()
+               `(ecase count
+                  ,@(loop for i below 256
+                         collect `(,i (%pslldq/sse value ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pslldq)
+  (sys.c::define-transform pslldq ((value sse-vector) (count (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %pslldq/sse ,value ,count)))
+  (sys.c::mark-as-constant-foldable 'pslldq)
+  (sys.c::mark-as-constant-foldable '%pslldq/sse))
+
+(defun psrldq (value count)
+  (check-type value sse-vector)
+  (check-type count (unsigned-byte 8))
+  (%psrldq/sse value count))
+
+(defun %psrldq/sse (value count)
+  (macrolet ((gen ()
+               `(ecase count
+                  ,@(loop for i below 256
+                         collect `(,i (%psrldq/sse value ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'psrldq)
+  (sys.c::define-transform psrldq ((value sse-vector) (count (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %psrldq/sse ,value ,count)))
+  (sys.c::mark-as-constant-foldable 'psrldq)
+  (sys.c::mark-as-constant-foldable '%psrldq/sse))
+
+(defun pmovmskb (value)
+  (etypecase value
+    (mmx-vector (%pmovmskb/mmx value))
+    (sse-vector (%pmovmskb/sse value))))
+
+(defun %pmovmskb/mmx (value)
+  (%pmovmskb/mmx value))
+
+(defun %pmovmskb/sse (value)
+  (%pmovmskb/sse value))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pmovmskb)
+  (sys.c::define-transform pmovmskb ((value mmx-vector))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (and fixnum (integer 0)) (sys.c::call %pmovmskb/mmx ,value)))
+  (sys.c::define-transform pmovmskb ((value sse-vector))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (and fixnum (integer 0)) (sys.c::call %pmovmskb/sse ,value)))
+  (sys.c::mark-as-constant-foldable 'pmovmskb)
+  (sys.c::mark-as-constant-foldable '%pmovmskb/mmx)
+  (sys.c::mark-as-constant-foldable '%pmovmskb/sse))
+
+(defun movmskps (value)
+  (check-type value sse-vector)
+  (%movmskps/sse value))
+
+(defun %movmskps/sse (value)
+  (%movmskps/sse value))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'movmskps)
+  (sys.c::define-transform movmskps ((value sse-vector))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (and fixnum (integer 0)) (sys.c::call %movmskps/sse ,value)))
+  (sys.c::mark-as-constant-foldable 'movmskps)
+  (sys.c::mark-as-constant-foldable '%movmskps/sse))
+
+(defun movmskpd (value)
+  (check-type value sse-vector)
+  (%movmskpd/sse value))
+
+(defun %movmskpd/sse (value)
+  (%movmskpd/sse value))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'movmskpd)
+  (sys.c::define-transform movmskpd ((value sse-vector))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (and fixnum (integer 0)) (sys.c::call %movmskpd/sse ,value)))
+  (sys.c::mark-as-constant-foldable 'movmskpd)
+  (sys.c::mark-as-constant-foldable '%movmskpd/sse))
+
+(defun pextrw (a imm)
+  (etypecase a
+    (mmx-vector (%pextrw/mmx a imm))
+    (sse-vector (%pextrw/sse a imm))))
+
+(defun %pextrw/mmx (a imm)
+  (macrolet ((gen ()
+               `(ecase imm
+                  ,@(loop for i below 256
+                         collect `(,i (%pextrw/mmx a ,i))))))
+    (gen)))
+
+(defun %pextrw/sse (a imm)
+  (macrolet ((gen ()
+               `(ecase imm
+                  ,@(loop for i below 256
+                         collect `(,i (%pextrw/sse a ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pextrw)
+  (sys.c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (unsigned-byte 16) (sys.c::call %pextrw/mmx ,a ,imm)))
+  (sys.c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the (unsigned-byte 16) (sys.c::call %pextrw/sse ,a ,imm)))
+  (sys.c::mark-as-constant-foldable 'pextrw)
+  (sys.c::mark-as-constant-foldable '%pextrw/mmx)
+  (sys.c::mark-as-constant-foldable '%pextrw/sse))
+
+(defun pinsrw (a b imm)
+  (check-type b fixnum)
+  (etypecase a
+    (mmx-vector (%pinsrw/mmx a b imm))
+    (sse-vector (%pinsrw/sse a b imm))))
+
+(defun %pinsrw/mmx (a b imm)
+  (macrolet ((gen ()
+               `(ecase imm
+                  ,@(loop for i below 256
+                         collect `(,i (%pinsrw/mmx a b ,i))))))
+    (gen)))
+
+(defun %pinsrw/sse (a b imm)
+  (macrolet ((gen ()
+               `(ecase imm
+                  ,@(loop for i below 256
+                         collect `(,i (%pinsrw/sse a b ,i))))))
+    (gen)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'pinsrw)
+  (sys.c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the mmx-vector (sys.c::call %pinsrw/mmx ,a ,b ,imm)))
+  (sys.c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (sys.c::call %pinsrw/sse ,a ,b ,imm)))
+  (sys.c::mark-as-constant-foldable 'pinsrw)
+  (sys.c::mark-as-constant-foldable '%pinsrw/mmx)
+  (sys.c::mark-as-constant-foldable '%pinsrw/sse))
 
 (declaim (inline %sse-vector-single-float-element))
 (defun %sse-vector-single-float-element (vector index)
