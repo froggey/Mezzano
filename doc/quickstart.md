@@ -80,7 +80,7 @@ bound to Page-Up.
 
 `C-M-F`        Move forward one s-expression.
 
-`C-M-F`        Move backward one s-expression.
+`C-M-B`        Move backward one s-expression.
 
 `C-D`          Delete the next character, also bound to Delete.
 
