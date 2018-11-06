@@ -1172,7 +1172,7 @@ Other arguments are included directly."
        (function-name
         &rest all-keys
         &key (generic-function-class *the-class-standard-gf*)
-             (method-class *the-class-standard-method*)
+             (method-class 'standard-method)
         &allow-other-keys)
   (cond ((and (symbolp function-name)
               (special-operator-p function-name))
@@ -1197,12 +1197,14 @@ Other arguments are included directly."
          ;; This should call reinitialize-instance here, but whatever.
          (fdefinition function-name))
         (t
+         ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
+         (remf all-keys :generic-function-class)
          (let ((gf (apply (if (eq generic-function-class *the-class-standard-gf*)
                               #'make-instance-standard-generic-function
                               #'make-instance)
                           generic-function-class
                           :name function-name
-                          :method-class method-class
+                          :method-class (find-class method-class)
                           all-keys)))
            ;; Not entirely sure where this should be done.
            ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
