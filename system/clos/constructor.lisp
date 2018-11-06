@@ -10,7 +10,7 @@
          (progn ,@body)
        ;; After methods.
        ,@(loop
-            for method in (remove-if-not #'after-method-p applicable-methods)
+            for method in (reverse (remove-if-not #'after-method-p applicable-methods))
             collect `(apply ',(funcall (method-function method) method '()) ,@apply-arguments)))))
 
 (defun compute-constructor-allocate-form (class initargs-sym)
