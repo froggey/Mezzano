@@ -559,6 +559,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          (panic "Missing pte for wired page " wired-page))
        (when (page-dirty-p pte)
          (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         ;; ARM64's dirty bit emulation does not support emulating
+         ;; dirty bits in the wired area yet.
+         #-arm64
          (update-pte pte :dirty nil))))
     (flush-tlb)
     (tlb-shootdown-all)

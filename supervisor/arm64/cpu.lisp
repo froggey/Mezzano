@@ -9,7 +9,7 @@
                             8
                             (* 1 8))
                          1024))
-         (sp-el1 (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)))
+         (sp-el1 (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))))
     (flet ((gen-vector (offset common entry)
              (let ((base (+ addr offset))
                    (common-entry (sys.int::%object-ref-signed-byte-64
@@ -225,4 +225,11 @@
 (sys.int::defglobal *n-up-cpus* 1)
 
 (defstruct (cpu
-             (:area :wired)))
+             (:area :wired))
+  state
+  info-vector
+  apic-id
+  idle-thread
+  wired-stack
+  exception-stack
+  irq-stack)

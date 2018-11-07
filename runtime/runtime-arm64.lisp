@@ -315,7 +315,7 @@
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret)
   SLOW-PATH
-  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  (:gc :no-frame :layout #*00)
   ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
   (mezzano.lap.arm64:movz :x5 #.(ash 3 #.sys.int::+n-fixnum-bits+))
   SLOW-PATH-BAD-ARGS
@@ -453,6 +453,7 @@
   ;; Check argument count.
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 2 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:b.ne SLOW-PATH-BAD-ARGS)
+  (:gc :no-frame :layout #*00)
   ;; Update allocation meter.
   ;; FIXME: Should be atomic add.
   (mezzano.lap.arm64:ldr :x6 (:constant *cons-allocation-count*))
@@ -497,7 +498,7 @@
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret)
   SLOW-PATH
-  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
+  (:gc :no-frame :layout #*00)
   ;; Tail call into SLOW-CONS.
   (mezzano.lap.arm64:movz :x5 #.(ash 2 #.sys.int::+n-fixnum-bits+))
   SLOW-PATH-BAD-ARGS
