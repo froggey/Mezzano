@@ -246,11 +246,11 @@
   (apply #'emit (code-for-reg-immediate-mem-op
                  inst reg base (object-slot-displacement slot scale))))
 
-(defun emit-object-load (reg base &key (slot 0))
-  (emit-object-op 'lap:ldr reg base slot))
+(defun emit-object-load (reg base &key (slot 0) scale)
+  (emit-object-op 'lap:ldr reg base slot scale))
 
-(defun emit-object-store (reg base &key (slot 0))
-  (emit-object-op 'lap:str reg base slot))
+(defun emit-object-store (reg base &key (slot 0) scale)
+  (emit-object-op 'lap:str reg base slot scale))
 
 (defun code-for-stack-op (inst reg slot &optional temp)
   (code-for-reg-immediate-mem-op inst reg :x29 (control-stack-frame-offset slot) temp))
