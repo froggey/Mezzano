@@ -1003,7 +1003,9 @@
   (let ((slots (gethash instruction *prepass-data*))
         (frame-reg (ir:push-special-stack-frame instruction)))
     ;; Store header.
-    (load-literal :x9 (ash 3 sys.int::+object-data-shift+))
+    (load-literal :x9 (logior (ash 3 sys.int::+object-data-shift+)
+                              (ash (ir:push-special-stack-tag instruction)
+                                   sys.int::+object-type-shift+)))
     (emit-stack-store :x9  (+ slots 3))
     ;; Store bits.
     (emit-stack-store (ir:push-special-stack-a-value instruction) (+ slots 1))
