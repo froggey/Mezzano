@@ -63,8 +63,4 @@
   (setf mezzano.network.ethernet::*ethernet-thread*
         (mezzano.supervisor:make-thread 'mezzano.network.ethernet::ethernet-thread
                                         :name "Ethernet thread"))
-  ;; ARP expiration disabled.
-  ;; It's causing the IP layer to drop packets which breaks
-  ;; long-running TCP connections.
-  #+(or)
   (mezzano.network.arp:start-arp-expiration))
