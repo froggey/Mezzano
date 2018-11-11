@@ -47,9 +47,7 @@
    (scroll-end :initarg :scroll-end :accessor scroll-end)
 
    (autowrap :initarg :autowrap :accessor autowrap) ; DECAWM (7)
-   )
-  (:default-initargs
-   :queued-bytes '()))
+   ))
 
 (defvar *xterm-translations*
   '((#\Up-Arrow    (#\Esc #\[ #\A))
