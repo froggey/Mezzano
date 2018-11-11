@@ -276,8 +276,7 @@ party to perform, the indicated option.")
                                     (fifo telnet)))))
 
 (defvar *server-shortcuts*
-  '(("nao" "nethack.alt.org")
-    ("nyan" "nyancat.dakko.us")))
+  '(("nao" "nethack.alt.org")))
 
 (defun find-server (telnet server)
   (cond
