@@ -26,7 +26,9 @@
                                               collect (canonicalize-defclass-direct-slot name slot)))
                      ,@(loop
                           for option in options
-                          append (canonicalize-defclass-option name option))))))
+                          append (canonicalize-defclass-option name option))
+                     ,@(when (not (member :default-initargs *defclass-options*))
+                         '(:direct-default-initargs nil))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
