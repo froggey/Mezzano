@@ -38,13 +38,12 @@
         ;; already in my translation table, update the sender
         ;; hardware address field of the entry with the new
         ;; information in the packet and set Merge_flag to true.
-        (mezzano.supervisor:with-mutex (*arp-lock*)
-          (dolist (e *arp-table*)
-            (when (and (eql (first e) ptype)
-                       (eql (second e) spa))
-              (setf (third e) (subseq packet sha-start spa-start)
-                    merge-flag t)
-              (return))))
+        (dolist (e *arp-table*)
+          (when (and (eql (first e) ptype)
+                     (eql (second e) spa))
+            (setf (third e) (subseq packet sha-start spa-start)
+                  merge-flag t)
+            (return)))
         (when (and address (eql tpa address))
           (unless merge-flag
             (mezzano.supervisor:with-mutex (*arp-lock*)
@@ -68,8 +67,7 @@
                   (ub16ref/be packet 20) +arp-op-reply+)
             (mezzano.network.ethernet:transmit-packet interface (list (subseq packet 0 44))))))
       (mezzano.network.ip::arp-table-updated))
-    (mezzano.supervisor:with-mutex (*arp-lock*)
-      (format t "New ARP table: ~S~%" *arp-table*))))
+    (format t "New ARP table: ~S~%" *arp-table*)))
 
 (defun send-arp (interface ptype address)
   "Send an ARP packet out onto the wire."
@@ -107,11 +105,10 @@ Returns NIL if there is no entry currently in the cache, this will trigger a loo
                 address)
     (return-from arp-lookup (mezzano.network.ethernet:ethernet-mac interface)))
   ;; Scan the ARP table.
-  (mezzano.supervisor:with-mutex (*arp-lock*)
-    (dolist (e *arp-table*)
-      (when (and (eql (first e) ptype)
-                 (eql (second e) address))
-        (return-from arp-lookup (third e)))))
+  (dolist (e *arp-table*)
+    (when (and (eql (first e) ptype)
+               (eql (second e) address))
+      (return-from arp-lookup (third e))))
   (send-arp interface ptype address)
   nil)
 
