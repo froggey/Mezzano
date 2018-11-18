@@ -156,11 +156,14 @@
 (defvar *transforms* (make-hash-table :test 'equal))
 
 (defmacro define-transform (function lambda-list options &body body)
-  (let ((lambda-parameters (loop
+  (let* ((lambda-parameters (loop
                               for l in lambda-list
                               collect (if (symbolp l)
                                           l
-                                          (first l)))))
+                                          (first l))))
+         (temps (loop
+                   for l in lambda-parameters
+                   collect (gensym (string l)))))
     `(register-transform (make-instance 'transform
                                         :function ',function
                                         :lambda-list ',lambda-parameters
@@ -169,9 +172,23 @@
                                                              collect (if (symbolp l)
                                                                          't
                                                                          (or (second l) 't)))
-                                        :body (lambda ,lambda-parameters
-                                                (declare (ignorable ,@lambda-parameters))
-                                                ,@body)
+                                        :body (lambda ,temps
+                                                (declare (ignorable ,@temps)
+                                                         (sys.int::lambda-name (transform ,function)))
+                                                (let (,@(loop
+                                                           for tmp in temps
+                                                           for l in lambda-parameters
+                                                           collect (list l `(first ,tmp)))
+                                                      ,@(loop
+                                                           for tmp in temps
+                                                           for l in lambda-list
+                                                           for (name type tyvar) = (if (symbolp l)
+                                                                                       (list l)
+                                                                                       l)
+                                                           when tyvar
+                                                           collect (list tyvar `(second ,tmp))))
+                                                  (declare (ignorable ,@lambda-parameters))
+                                                  ,@body))
                                         ,@(loop for (option . rest) in options
                                              collect option
                                              collect (ecase option
@@ -206,6 +223,13 @@
         ((typep argument 'ast-quote)
          (typep (value argument) transform-type))))
 
+(defun value-type (value)
+  (cond ((typep value 'ast-the)
+         (the-type value))
+        ((typep value 'ast-quote)
+         `(eql ,(value value)))
+        (t t)))
+
 (defun match-one-transform (transform call result-type target-architecture)
   (and (or (eql (transform-architecture transform) 't)
            (member target-architecture (transform-architecture transform)))
@@ -225,17 +249,18 @@
   ;; Enforce left-to-right order of evaluation for arguments.
   (let* ((temps (loop
                    for arg in arguments
-                   collect (make-instance 'lexical-variable
-                                          :inherit arg
-                                          :name (gensym)
-                                          :definition-point *current-lambda*
-                                          :use-count 1)))
+                   collect (list (make-instance 'lexical-variable
+                                                :inherit arg
+                                                :name (gensym)
+                                                :definition-point *current-lambda*
+                                                :use-count 1)
+                                 (value-type arg))))
          (new-form (apply (transform-body transform) temps)))
     (if new-form
         (ast `(let ,(loop
                        for temp in temps
                        for arg in arguments
-                       collect (list temp arg))
+                       collect (list (first temp) arg))
                 ,new-form)
              inherit)
         nil)))
@@ -451,6 +476,25 @@
 ;;; Fast array accesses, avoid type-dispatch in AREF.
 ;;; These check bounds, but not the type.
 
+(defun insert-bounds-check (array array-type index index-type &key (adjust 0))
+  ;; Index type should look like (EQL integer)
+  (let ((index-value (and (typep index-type '(cons (eql eql) (cons integer null)))
+                          (second index-type)))
+        ;; Array type should look like (SIMPLE-ARRAY t (integer))
+        (array-limit (and (typep array-type '(cons (eql simple-array) (cons t (cons (cons integer null) null))))
+                          (first (third array-type)))))
+    (cond ((and index-value
+                array-limit
+                (<= 0 index-value (1- (- array-limit adjust))))
+           ;; Elide bounds check for fixed-sized arrays with a known index.
+           ''nil)
+          ((zerop adjust)
+           `(call sys.int::%bounds-check ,array ,index))
+          (t
+           ;; FIXME: This isn't quite right, it'll miss cases where INDEX
+           ;; is slightly negative.
+           `(call sys.int::%bounds-check ,array (call %fast-fixnum-+ ,index ',adjust))))))
+
 (defmacro define-fast-array-transform (type accessor)
   `(progn
      (define-transform row-major-aref ((array (and (simple-array ,type *)
@@ -470,15 +514,15 @@
           (progn
             (call sys.int::%bounds-check storage ,index)
             (the ,',type (call (setf ,',accessor) ,value storage ,index)))))
-     (define-transform row-major-aref ((array (simple-array ,type (*))) (index fixnum))
+     (define-transform row-major-aref ((array (simple-array ,type (*)) array-type) (index fixnum index-type))
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
-          (call sys.int::%bounds-check ,array ,index)
+          ,(insert-bounds-check array array-type index index-type)
           (the ,',type (call ,',accessor ,array ,index))))
-     (define-transform (setf row-major-aref) (value (array (simple-array ,type (*))) (index fixnum))
+     (define-transform (setf row-major-aref) (value (array (simple-array ,type (*)) array-type) (index fixnum index-type))
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
-          (call sys.int::%bounds-check ,array ,index)
+          ,(insert-bounds-check array array-type index index-type)
           (the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)

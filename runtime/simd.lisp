@@ -299,15 +299,15 @@ The total access width must be at least 8 bits and no larger than 128 bits."
                                   (64 '%%object-ref-sse-vector/64-unscaled)
                                   (128 '%%object-ref-sse-vector/128-unscaled))))
                  `(progn
-                    (sys.c::define-transform sse-vector-ref ((vector ,type) (n-lanes (eql ,n-lanes)) index)
+                    (sys.c::define-transform sse-vector-ref ((vector ,type array-type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
-                                         (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index ',',(1- n-lanes)))
+                                         ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
                                          (sys.c::call ,',access-fn ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))
                     (sys.c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type) (n-lanes (eql ,n-lanes)) index)
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
-                                         (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index ',',(1- n-lanes)))
+                                         ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
                                          (sys.c::call ,',access-fn ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
     (def 8 nil)
     (def 16 nil)
@@ -415,15 +415,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-1-ref ((vector (simple-array single-float (*))) index)
+  (sys.c::define-transform sse-vector-single-float-1-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       ,(sys.c::insert-bounds-check vector array-type index index-type)
                        (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-1-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+  (sys.c::define-transform (setf sse-vector-single-float-1-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       ,(sys.c::insert-bounds-check vector array-type index index-type)
                        (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
 
 (defun sse-vector-single-float-2-ref (vector index)
@@ -441,15 +441,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-2-ref ((vector (simple-array single-float (*))) index)
+  (sys.c::define-transform sse-vector-single-float-2-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
                        (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-2-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+  (sys.c::define-transform (setf sse-vector-single-float-2-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
                        (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
 
 (defun sse-vector-single-float-4-ref (vector index)
@@ -471,15 +471,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-4-ref ((vector (simple-array single-float (*))) index)
+  (sys.c::define-transform sse-vector-single-float-4-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '3))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 3)
                        (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-4-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*))) index)
+  (sys.c::define-transform (setf sse-vector-single-float-4-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '3))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 3)
                        (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
 
 (declaim (inline make-sse-vector-double-float))
@@ -560,15 +560,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-double-float-1-ref ((vector (simple-array double-float (*))) index)
+  (sys.c::define-transform sse-vector-double-float-1-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       ,(sys.c::insert-bounds-check vector array-type index index-type)
                        (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
-  (sys.c::define-transform (setf sse-vector-double-float-1-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*))) index)
+  (sys.c::define-transform (setf sse-vector-double-float-1-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector ,index)
+                       ,(sys.c::insert-bounds-check vector array-type index index-type)
                        (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))))
 
 (defun sse-vector-double-float-2-ref (vector index)
@@ -586,15 +586,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-double-float-2-ref ((vector (simple-array double-float (*))) index)
+  (sys.c::define-transform sse-vector-double-float-2-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
                        (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
-  (sys.c::define-transform (setf sse-vector-double-float-2-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*))) index)
+  (sys.c::define-transform (setf sse-vector-double-float-2-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       (sys.c::call sys.int::%bounds-check ,vector (sys.c::call sys.c::%fast-fixnum-+ ,index '1))
+                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
                        (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))))
 
 ;; Fake low-level accessors for smaller access widths.
