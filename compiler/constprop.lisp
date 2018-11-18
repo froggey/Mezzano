@@ -407,6 +407,7 @@
              (sys.int::binary-+ :commutative-arithmetic +)
              (sys.int::binary-- (number number) -)
              (sys.int::binary-* :commutative-arithmetic *)
+             (sys.int::binary-/ (number number) /)
              (sys.int::binary-logand (integer integer) logand)
              (sys.int::generic-logand (integer integer) logand)
              (mezzano.runtime::%fixnum-logand (integer integer))
