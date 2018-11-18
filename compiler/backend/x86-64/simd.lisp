@@ -542,9 +542,10 @@
                          (emit (make-instance 'box-sse-vector-instruction
                                               :source result-unboxed
                                               :destination result)))))))
-           (def2 (fn inst)
+           (def2 (fn inst &key (allow-memory-operand t))
              `(define-builtin ,fn ((lhs rhs) result)
-                (cond ((constant-value-p rhs 'mezzano.simd:sse-vector)
+                (cond ((and ',allow-memory-operand
+                            (constant-value-p rhs 'mezzano.simd:sse-vector))
                        (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :sse))
                              (result-unboxed (make-instance 'ir:virtual-register :kind :sse)))
                          (emit (make-instance 'unbox-sse-vector-instruction
@@ -709,7 +710,7 @@
   (def2 mezzano.simd::%movhlps/sse lap:movhlps)
   (def2 mezzano.simd::%movlhps/sse lap:movlhps)
   (def1 mezzano.simd::%movq/sse lap:movq)
-  (def2 mezzano.simd::%movss/sse lap:movss)
+  (def2 mezzano.simd::%movss/sse lap:movss :allow-memory-operand nil)
   (def2 mezzano.simd::%mulps/sse lap:mulps)
   (def2 mezzano.simd::%mulss/sse lap:mulss)
   (def2 mezzano.simd::%orps/sse lap:orps)
@@ -770,7 +771,7 @@
   (def2 mezzano.simd::%maxsd/sse lap:maxsd)
   (def2 mezzano.simd::%minpd/sse lap:minpd)
   (def2 mezzano.simd::%minsd/sse lap:minsd)
-  (def2 mezzano.simd::%movsd/sse lap:movsd)
+  (def2 mezzano.simd::%movsd/sse lap:movsd :allow-memory-operand nil)
   (def2 mezzano.simd::%mulpd/sse lap:mulpd)
   (def2 mezzano.simd::%mulsd/sse lap:mulsd)
   (def2 mezzano.simd::%orpd/sse lap:orpd)
