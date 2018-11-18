@@ -241,9 +241,12 @@
               (arguments call))))
 
 (defun match-transform (call result-type target-architecture)
-  (dolist (transform (gethash (ast-name call) *transforms*) nil)
-    (when (match-one-transform transform call result-type target-architecture)
-      (return transform))))
+  (let ((name (ast-name call)))
+    (when (or (eql name 'sys.int::binary-logand)
+              (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline)))
+      (dolist (transform (gethash name *transforms*) nil)
+        (when (match-one-transform transform call result-type target-architecture)
+          (return transform))))))
 
 (defun apply-transform (transform arguments inherit)
   ;; Enforce left-to-right order of evaluation for arguments.
