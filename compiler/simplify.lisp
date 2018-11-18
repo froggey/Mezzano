@@ -261,9 +261,37 @@
                      (let ,bindings
                        ,(simp-form (body form))))
                 form)))
-        (t (setf (value-form form) (simp-form (value-form form))
-                 (body form) (simp-form (body form)))
-           form)))
+        ;; Rewrite (m-v-b (...) (let (...) ...) ...)
+        ;; to (let (...) (m-v-b (...) ... ...)) when there are no
+        ;; special bindings in the LET.
+        ;; This puts the real values form closer to the M-V-B.
+        ((and (typep (ast-value-form form) 'ast-let)
+              (not (let-binds-special-variable-p (ast-value-form form))))
+         (change-made)
+         (ast `(let ,(ast-bindings (ast-value-form form))
+                 (multiple-value-bind ,(ast-bindings form)
+                     ,(simp-form (ast-body (ast-value-form form)))
+                   ,(simp-form (ast-body form))))
+              form))
+        ;; Rewrite (m-v-b (bn...) (values vn...) ...)
+        ;; to (let ((bn vn)...) ...)
+        ((and (typep (ast-value-form form) 'ast-call)
+              (eql (ast-name (value-form form)) 'values))
+         (change-made)
+         (let ((values (ast-arguments (ast-value-form form))))
+           (ast `(let ,(loop
+                          for b in (ast-bindings form)
+                          collect (list b (if values
+                                              (pop values)
+                                              `'nil)))
+                   (progn
+                     ,@values
+                     ,(ast-body form)))
+                form)))
+        (t
+         (setf (value-form form) (simp-form (value-form form))
+               (body form) (simp-form (body form)))
+         form)))
 
 (defmethod simp-form ((form ast-multiple-value-call))
   (setf (function-form form) (simp-form (function-form form))
