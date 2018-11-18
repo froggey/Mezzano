@@ -1297,7 +1297,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (modrm :xmm rhs lhs '(#x0F #xE6)))
 
 (define-instruction cvtps2dq (lhs rhs)
-  (emit #xF2)
+  (emit #x66)
   (modrm :xmm rhs lhs '(#x0F #x5B)))
 
 (define-instruction cvttps2dq (lhs rhs)
