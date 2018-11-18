@@ -286,7 +286,8 @@
      (let ((realpart (%double-float-as-integer (realpart value)))
            (imagpart (%double-float-as-integer (imagpart value))))
        (setf (%object-ref-unsigned-byte-64 array (* index 2)) realpart
-             (%object-ref-unsigned-byte-64 array (1+ (* index 2))) imagpart)))))
+             (%object-ref-unsigned-byte-64 array (1+ (* index 2))) imagpart))))
+  value)
 
 (defun %simple-array-element-type (array)
   (svref *array-types* (%object-tag array)))
