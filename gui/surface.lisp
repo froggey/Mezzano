@@ -83,25 +83,33 @@ premultiplied alpha unless PREMULTIPLIED is true."
   "Copy a WIDTHxHEIGHT rectangle of pixels from SOURCE-SURFACE to DEST-SURFACE.
 SOURCE-X,SOURCE-Y specify the top-left pixel in the source rectangle,
 DEST-X,DEST-Y specify the top-left pixel in the destination rectangle.
-MODE can be :SET, :BLEND, or :XOR.
+MODE can be :SET, :BLEND, :XOR, or a COLOUR-MATRIX.
 :SET will replace destination pixels with source pixels.
 :BLEND will alpha blend destination pixels with source pixels using the over operator.
 :XOR will exclusive-or destination pixels with source pixels.
 The :XOR blend mode may interact poorly with pixels that are not fully opaque.
+A COLOUR-MATRIX is equivalent to :SET, but will transform the copied pixels
+using the matrix.
 The rectangle will be clipped so that it is fully inside SOURCE/DEST."
-  (ecase mode
-    (:set
+  (etypecase mode
+    ((eql :set)
      (2d-array-bitblt
       height width
       (surface-pixels source-surface) source-y source-x
       (surface-pixels dest-surface) dest-y dest-x))
-    (:blend
+    ((eql :blend)
      (2d-array-bitblt-blend
       height width
       (surface-pixels source-surface) source-y source-x
       (surface-pixels dest-surface) dest-y dest-x))
-    (:xor
+    ((eql :xor)
      (2d-array-bitblt-xor
+      height width
+      (surface-pixels source-surface) source-y source-x
+      (surface-pixels dest-surface) dest-y dest-x))
+    (colour-matrix
+     (2d-array-bitblt-matrix
+      mode
       height width
       (surface-pixels source-surface) source-y source-x
       (surface-pixels dest-surface) dest-y dest-x))))

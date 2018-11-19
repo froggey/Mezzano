@@ -38,7 +38,16 @@
            #:surface-pixels
            #:surface-width
            #:surface-height
-           #:surface-pixel))
+           #:surface-pixel
+           #:colour-matrix
+           #:colour-matrix-p
+           #:make-colour-matrix
+           #:colour-matrix-element
+           #:simd-coloud
+           #:make-simd-colour
+           #:simd-colour-elements
+           #:colour-lerp
+           #:colour-matrix-multiply))
 
 (defpackage :mezzano.gui.compositor
   (:use :cl :mezzano.gui)

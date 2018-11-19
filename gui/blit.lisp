@@ -102,6 +102,8 @@
 
 ;;; High-level functions.
 
+;;; FIXME: BITBLT has problems with overlapping copies.
+
 (defun 2d-array-bitblt (nrows ncols from-array from-row from-col to-array to-row to-col)
   (multiple-value-bind (nrows ncols from from-offset from-stride to to-offset to-stride)
       (compute-blit-info-dest-src nrows ncols from-array from-row from-col to-array to-row to-col)
@@ -143,6 +145,43 @@
                       from from-offset)
         (incf from-offset from-stride)
         (incf to-offset to-stride)))))
+
+(defun 2d-array-bitblt-matrix (colour-matrix nrows ncols from-array from-row from-col to-array to-row to-col)
+  (multiple-value-bind (nrows ncols from from-offset from-stride to to-offset to-stride)
+      (compute-blit-info-dest-src nrows ncols from-array from-row from-col to-array to-row to-col)
+    (assert (typep colour-matrix 'colour-matrix))
+    (assert (simple-ub32-vector-p from))
+    (assert (simple-ub32-vector-p to))
+    (%2d-array-bitblt-matrix
+     (colour-matrix-elements colour-matrix)
+     nrows ncols
+     from from-offset from-stride
+     to to-offset to-stride)))
+
+(defun %2d-array-bitblt-matrix-inner (matrix ncols from from-offset to to-offset)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type matrix4 matrix)
+           (type fixnum ncols from-offset to-offset)
+           (type (simple-array colour (*)) from to))
+  (loop
+     for x fixnum below ncols
+     do
+       (setf (aref to to-offset)
+             (%colour-matrix-multiply matrix (aref from from-offset)))
+       (incf from-offset)
+       (incf to-offset)))
+
+(defun %2d-array-bitblt-matrix (matrix nrows ncols from from-offset from-stride to to-offset to-stride)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type matrix4 matrix)
+           (type fixnum nrows ncols from-offset from-stride to-offset to-stride)
+           (type (simple-array colour (*)) from to))
+  (loop
+     for y fixnum below nrows
+     do
+       (%2d-array-bitblt-matrix-inner matrix ncols from from-offset to to-offset)
+       (incf from-offset from-stride)
+       (incf to-offset to-stride)))
 
 (defun 2d-array-bitset (nrows ncols colour to-array to-row to-col)
   (multiple-value-bind (nrows ncols to to-offset to-stride)
