@@ -99,7 +99,8 @@
            #:window-x
            #:window-y
            #:*screensaver-spawn-function*
-           #:*screensaver-time*))
+           #:*screensaver-time*
+           #:*postprocess-matrix*))
 
 (defpackage :mezzano.gui.input-drivers
   (:use :cl))

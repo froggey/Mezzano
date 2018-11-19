@@ -988,9 +988,21 @@ Only works when the window is active."
               colour
               *screen-backbuffer* c-x c-y))))
 
+(defvar *postprocess-matrix* nil)
+(defvar *prev-postprocess-matrix* nil)
+
+(defun postprocess-screen (clip-x clip-y clip-w clip-h)
+  (bitblt *postprocess-matrix* ; matrix mode
+          clip-w clip-h
+          *screen-backbuffer* clip-x clip-y
+          *screen-backbuffer* clip-x clip-y))
+
 (defun recompose-windows (&optional full)
   (when full
     (damage-whole-screen))
+  (when (not (eql *prev-postprocess-matrix* *postprocess-matrix*))
+    (damage-whole-screen)
+    (setf *prev-postprocess-matrix* *postprocess-matrix*))
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
     (return-from recompose-windows))
@@ -1010,6 +1022,8 @@ Only works when the window is active."
     (blit-with-clip (surface-width mouse-surface) (surface-height mouse-surface)
                     mouse-surface
                     (- *mouse-x* hot-x) (- *mouse-y* hot-y)))
+  (when *postprocess-matrix*
+    (postprocess-screen *clip-rect-x* *clip-rect-y* *clip-rect-width* *clip-rect-height*))
   ;; Update the actual screen.
   (mezzano.supervisor:framebuffer-blit *main-screen*
                                        *clip-rect-height*
@@ -1058,7 +1072,8 @@ Only works when the window is active."
   ;; nonempty clip rect.
   (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
             (and (not (zerop *clip-rect-width*))
-                 (not (zerop *clip-rect-height*))))
+                 (not (zerop *clip-rect-height*)))
+            (not (eql *prev-postprocess-matrix* *postprocess-matrix*)))
     (submit-compositor-event (make-instance 'redisplay-time-event))))
 
 (defun compositor-heartbeat-thread ()
