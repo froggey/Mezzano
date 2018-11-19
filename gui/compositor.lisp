@@ -856,12 +856,15 @@ Only works when the window is active."
 
 ;;;; Internal redisplay timer event.
 
+(defvar *redisplay-pending* nil)
+
 (defclass redisplay-time-event (event)
   ((%fullp :initarg :full :reader redisplay-time-event-fullp))
   (:default-initargs :full nil))
 
 (defmethod process-event ((event redisplay-time-event))
-  (recompose-windows (redisplay-time-event-fullp event)))
+  (when (not (eql *redisplay-pending* :full))
+    (setf *redisplay-pending* (if (redisplay-time-event-fullp event) :full t))))
 
 (defun force-redisplay (&optional full)
   (submit-compositor-event (make-instance 'redisplay-time-event :full full)))
@@ -1049,8 +1052,22 @@ Only works when the window is active."
                             (make-instance 'screen-geometry-update
                                            :width (mezzano.supervisor:framebuffer-width *main-screen*)
                                            :height (mezzano.supervisor:framebuffer-height *main-screen*))))
+  ;; Process all pending events, then update the screen if required.
+  ;; This folds multiple redisplay events into a single screen update,
+  ;; preventing other events from being held up by slow redisplays.
+  (loop
+       (multiple-value-bind (event validp)
+           (mezzano.supervisor:fifo-pop *event-queue* nil)
+         (when (not validp)
+           (return))
+         (sys.int::log-and-ignore-errors
+          (process-event event))))
+  (when *redisplay-pending*
+    (recompose-windows (eql *redisplay-pending* :full))
+    (setf *redisplay-pending* nil))
+  ;; Block waiting for the next event.
   (sys.int::log-and-ignore-errors
-    (process-event (mezzano.supervisor:fifo-pop *event-queue*))))
+   (process-event (mezzano.supervisor:fifo-pop *event-queue*))))
 
 (defun compositor-thread ()
   (loop (compositor-thread-body)))
