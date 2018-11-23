@@ -55,32 +55,31 @@
 Valid forms are : #(#xEB x #x90) and #(#xE9 x x).
 X is for some 1 byte number." boot-jmp))))
 
-(defun check-bytes-per-sector (bytes-per-sector)
-  "Ensure that bytes-per-sector is valid."
-  (loop :for n :in '(512 1024 2048 4096)
-        :do (when (= n bytes-per-sector)
-              (return bytes-per-sector))
-        :finally (error "Bad bytes-per-sector : ~a .
-Valid bytes-per-sector are 512, 1024, 2048 and 4096" bytes-per-sector)))
+(let ((valid-bytes-per-sector '(512 1024 2048 4096)))
+  (defun check-bytes-per-sector (bytes-per-sector)
+    "Ensure that bytes-per-sector is valid."
+    (if (member bytes-per-sector valid-bytes-per-sector)
+        bytes-per-sector
+        (error "Bad bytes-per-sector : ~a .
+Valid bytes-per-sector are 512, 1024, 2048 and 4096" bytes-per-sector))))
 
-(defun check-sectors-per-cluster (sectors-per-cluster bytes-per-sector)
-  (loop :for n :in '(1 2 4 8 16 32 64 128)
-        :do (when (= n sectors-per-cluster)
-              (return sectors-per-cluster))
-        :finally (error "Bad sectors-per-cluster : ~a .
+(let ((valid-sectors-per-cluster '(1 2 4 8 16 32 64 128)))
+  (defun check-sectors-per-cluster (sectors-per-cluster bytes-per-sector)
+    (cond ((not (member sectors-per-cluster valid-sectors-per-cluster))
+           (error "Bad sectors-per-cluster : ~a .
 Valid bytes-per-sector are 1,2,4,8,16,32,64,128" sectors-per-cluster))
-  (when (> (* sectors-per-cluster bytes-per-sector)
-           32768)
-    (error "Error sectors-per-cluster * bytes-per-sector > 32KiB .
+          ((> (* sectors-per-cluster bytes-per-sector)
+              32768)
+           (error "Error sectors-per-cluster * bytes-per-sector > 32KiB .
 sectors-per-cluster= ~a bytes-per-sector= ~a" sectors-per-cluster bytes-per-sector))
-  sectors-per-cluster)
+          (t sectors-per-cluster))))
 
-(defun check-media-type (media-type)
-  (loop :for n :in '(#xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF)
-        :do (when (= n media-type)
-              (return media-type))
-        :finally (error "Bad media-type : ~a .
-Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
+(let ((valid-media-type '(#xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF)))
+  (defun check-media-type (media-type)
+    (if (member media-type valid-media-type)
+        media-type
+        (error "Bad media-type : ~a .
+Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type))))
 
 (defun check-fat-type-label32 (fat-type-label)
   (if (string= "FAT32   " fat-type-label)
