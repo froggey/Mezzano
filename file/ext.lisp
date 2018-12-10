@@ -10,6 +10,52 @@
 
 (in-package :mezzano.ext-file-system)
 
+;; Compatible feature set flags.
+(defconstant +compat-dir-prealloc+ #x1)
+(defconstant +compat-imagic-inodes+ #x2)
+(defconstant +compat-has-journal+ #x4)
+(defconstant +compat-ext-attr+ #x8)
+(defconstant +compat-resize-inode+ #x10)
+(defconstant +compat-dir-index+ #x20)
+(defconstant +compat-lazy-bg+ #x40)
+(defconstant +compat-exclude-inode+ #x80)
+(defconstant +compat-exclude-bitmap+ #x100)
+(defconstant +compat-sparse-super2+ #x200)
+
+;; Incompatible feature set.
+(defconstant +incompat-compression+ #x1)
+(defconstant +incompat-filetype+ #x2)
+(defconstant +incompat-recover+ #x4)
+(defconstant +incompat-journal-dev+ #x8)
+(defconstant +incompat-meta-bg+ #x10)
+(defconstant +incompat-extents+ #x40)
+(defconstant +incompat-64bit+ #x80)
+(defconstant +incompat-mmp+ #x100)
+(defconstant +incompat-flex-bg+ #x200)
+(defconstant +incompat-ea-inode+ #x400)
+(defconstant +incompat-dirdata+ #x1000)
+(defconstant +incompat-csum-seed+ #x2000)
+(defconstant +incompat-largedir+ #x4000)
+(defconstant +incompat-inline-data+ #x8000)
+(defconstant +incompat-encrypt+ #x10000)
+
+;; Readonly-compatible feature set.
+(defconstant +ro-compat-sparse-super+ #x1)
+(defconstant +ro-compat-large-file+ #x2)
+(defconstant +ro-compat-btree-dir+ #x4)
+(defconstant +ro-compat-huge-file+ #x8)
+(defconstant +ro-compat-gdt-csum+ #x10)
+(defconstant +ro-compat-dir-nlink+ #x20)
+(defconstant +ro-compat-extra-isize+ #x40)
+(defconstant +ro-compat-has-snapshot+ #x80)
+(defconstant +ro-compat-quota+ #x100)
+(defconstant +ro-compat-bigalloc+ #x200)
+(defconstant +ro-compat-metadata-csum+ #x400)
+(defconstant +ro-compat-replica+ #x800)
+(defconstant +ro-compat-readonly+ #x1000)
+(defconstant +ro-compat-project+ #x2000)
+
+;; Directory file types
 (defconstant +unknown-type+ #x0)
 (defconstant +regular-file-type+ #x1)
 (defconstant +directory-type+ #x2)
@@ -89,10 +135,17 @@
     (error "Bad magic : #x~x.
   Valid magic value is #xEF53." magic)))
 
+(defun check-feature-incompat (feature-incompat)
+  (unless (= #x2 (logand #b11111011111011111 feature-incompat))
+    (error "Some feature not implemented from Incompatible feature set~%~b"
+           (- #b11111011111011111 feature-incompat))))
+
 (defun read-superblock (disk)
   (let* ((superblock (read-sector disk 2 2))
-         (magic (sys.int::ub16ref/le superblock 56)))
+         (magic (sys.int::ub16ref/le superblock 56))
+         (feature-incompat (sys.int::ub32ref/le superblock 96)))
     (check-magic magic)
+    (check-feature-incompat feature-incompat)
     (make-superblock :inodes-count (sys.int::ub32ref/le superblock 0)
                      :blocks-count (sys.int::ub32ref/le superblock 4)
                      :r-blocks-count (sys.int::ub32ref/le superblock 8)
@@ -122,7 +175,7 @@
                      :inode-size (sys.int::ub16ref/le superblock 88)
                      :block-group-nr (sys.int::ub16ref/le superblock 90)
                      :feature-compat (sys.int::ub32ref/le superblock 92)
-                     :feature-incompat (sys.int::ub32ref/le superblock 96)
+                     :feature-incompat feature-incompat
                      :feature-ro-compat (sys.int::ub32ref/le superblock 100)
                      :uuid (logior (ash (sys.int::ub64ref/le superblock 112) 64)
                                    (sys.int::ub64ref/le superblock 104))
