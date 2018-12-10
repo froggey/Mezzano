@@ -10,6 +10,15 @@
 
 (in-package :mezzano.ext-file-system)
 
+(defconstant +unknown-type+ #x0)
+(defconstant +regular-file-type+ #x1)
+(defconstant +directory-type+ #x2)
+(defconstant +character-device-type+ #x3)
+(defconstant +block-device-type+ #x4)
+(defconstant +fifo-type+ #x5)
+(defconstant +socket-type+ #x6)
+(defconstant +symbolic-link-type+ #x7)
+
 (defun read-sector (disk start-sector n-sectors)
   "Read n sectors from disk"
   (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
@@ -526,15 +535,17 @@
         (stack '())
         (path (directory-namestring pathname)))
     (do-files (block offset) disk superblock bgdt inode-n t
-      (let ((file (read-linked-directory-entry block offset)))
-        (push (parse-simple-file-path host
-                                      (format nil
-                                              (if (= 2 (linked-directory-entry-file-type file)) ; dirertory-p
-                                                  "~a~a>"
-                                                  "~a~a")
-                                              path
-                                              (linked-directory-entry-name file)))
-              stack)))
+      (let* ((file (read-linked-directory-entry block offset))
+             (type (linked-directory-entry-file-type file)))
+        (unless (= +unknown-type+ type)
+          (push (parse-simple-file-path host
+                                        (format nil
+                                                (if (= +directory-type+ type)
+                                                    "~a~a>"
+                                                    "~a~a")
+                                                path
+                                                (linked-directory-entry-name file)))
+                stack))))
     (return-from directory-using-host stack)))
 
 ;; (defmethod ensure-directories-exist-using-host ((host ext-host) pathname &key verbose))
