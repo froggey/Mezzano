@@ -100,7 +100,8 @@
            #:window-y
            #:*screensaver-spawn-function*
            #:*screensaver-time*
-           #:*postprocess-matrix*))
+           #:*postprocess-matrix*
+           #:*enable-live-resize*))
 
 (defpackage :mezzano.gui.input-drivers
   (:use :cl))

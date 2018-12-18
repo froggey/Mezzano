@@ -6,6 +6,9 @@
 (defvar *default-foreground-colour* (mezzano.gui:make-colour-from-octets #xDC #xDC #xCC))
 (defvar *default-background-colour* (mezzano.gui:make-colour-from-octets #x3E #x3E #x3E #xD8))
 
+(defparameter *enable-live-resize* nil
+  "When true, windows will continously redraw their contents when resizing.")
+
 (defun clamp (x min max)
   (cond ((< x min) min)
         ((> x max) max)
@@ -482,13 +485,14 @@ A passive drag sends no drag events to the window.")
               (not (zerop y-motion)))
       (when *drag-window*
         (cond (*resize-origin*
-               (multiple-value-bind (origin new-width new-height)
-                   (compute-resized-window-geometry)
-                 (send-event *drag-window* (make-instance 'resize-request-event
-                                                          :window *drag-window*
-                                                          :origin origin
-                                                          :width new-width
-                                                          :height new-height))))
+               (when *enable-live-resize*
+                 (multiple-value-bind (origin new-width new-height)
+                     (compute-resized-window-geometry)
+                   (send-event *drag-window* (make-instance 'resize-request-event
+                                                            :window *drag-window*
+                                                            :origin origin
+                                                            :width new-width
+                                                            :height new-height)))))
               (t
                (expand-clip-rectangle-by-window *drag-window*)
                ;; Use clipped mouse coordinates instead of relative motion.
@@ -507,7 +511,18 @@ A passive drag sends no drag events to the window.")
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
                *drag-window*)
-      ;; Left click release, stop drag.
+      ;; Left click release, stop drag and finish resize.
+      (when (and *resize-origin*
+                 (not *enable-live-resize*))
+        ;; Issue the real resize request now.
+        (multiple-value-bind (origin new-width new-height)
+            (compute-resized-window-geometry)
+          (send-event *drag-window* (make-instance 'resize-request-event
+                                                   :window *drag-window*
+                                                   :origin origin
+                                                   :width new-width
+                                                   :height new-height)))
+        (setf *resize-origin* nil))
       (setf *drag-window* nil))))
 
 (defun submit-mouse (buttons x-motion y-motion)
@@ -527,6 +542,11 @@ A passive drag sends no drag events to the window.")
   "Fetch the current mouse state."
   (values *mouse-buttons* *mouse-x* *mouse-y*))
 
+(defvar *prev-resize-rect-x* nil)
+(defvar *prev-resize-rect-y* nil)
+(defvar *prev-resize-rect-w* nil)
+(defvar *prev-resize-rect-h* nil)
+
 (defun update-mouse-cursor ()
   ;; Get cursor style under mouse.
   (let* ((mwin (window-at-point *mouse-x* *mouse-y*))
@@ -539,7 +559,34 @@ A passive drag sends no drag events to the window.")
       (setf style *none-mouse-pointer*))
     (when (not (eql style *mouse-pointer*))
       (setf *mouse-pointer* style)
-      (recompose-windows t))))
+      (recompose-windows t)))
+  (cond ((and (not *enable-live-resize*)
+              (resize-in-progress-p))
+         ;; Active resize, redraw the entire resize rect.
+         (when *prev-resize-rect-x*
+           ;; Zap the old one.
+           (expand-clip-rectangle *prev-resize-rect-x*
+                                  *prev-resize-rect-y*
+                                  *prev-resize-rect-w*
+                                  *prev-resize-rect-h*))
+         (multiple-value-bind (x y w h)
+             (resize-rect-geom)
+           (expand-clip-rectangle x y w h)
+           (setf *prev-resize-rect-x* x
+                 *prev-resize-rect-y* y
+                 *prev-resize-rect-w* w
+                 *prev-resize-rect-h* h)))
+        (*prev-resize-rect-x*
+         ;; Resize completed, but there's still a rect on-screen.
+         ;; Zap it.
+         (expand-clip-rectangle *prev-resize-rect-x*
+                                *prev-resize-rect-y*
+                                *prev-resize-rect-w*
+                                *prev-resize-rect-h*)
+           (setf *prev-resize-rect-x* nil
+                 *prev-resize-rect-y* nil
+                 *prev-resize-rect-w* nil
+                 *prev-resize-rect-h* nil))))
 
 ;;;; Window creation event.
 ;;;; From clients to the compositor.
@@ -712,6 +759,23 @@ A passive drag sends no drag events to the window.")
    (%height :initarg :height :reader height)
    (%new-fb :initarg :new-fb :reader resize-new-fb)))
 
+(defun updated-window-origin-for-resize (window origin new-width new-height)
+  (let ((delta-w (- (width window) new-width))
+        (delta-h (- (height window) new-height)))
+    (ecase origin
+      (:bottom-right
+       (values (+ (window-x window) delta-w)
+               (+ (window-y window) delta-h)))
+      (:top-right
+       (values (+ (window-x window) delta-w)
+               (window-y window)))
+      (:bottom-left
+       (values (window-x window)
+               (+ (window-y window) delta-h)))
+      (:top-left
+       (values (window-x window)
+               (window-y window))))))
+
 (defmethod process-event ((event resize-event))
   (let* ((window (window event))
          (origin (resize-origin event))
@@ -739,14 +803,10 @@ A passive drag sends no drag events to the window.")
         (:top-right
          (incf *drag-x-origin* delta-w)
          (decf *drag-y-origin* delta-h))))
-    (case origin
-      (:bottom-right
-       (incf (window-x window) delta-w)
-       (incf (window-y window) delta-h))
-      (:top-right
-       (incf (window-x window) delta-w))
-      (:bottom-left
-       (incf (window-y window) delta-h)))
+    (setf (values (window-x window) (window-y window))
+          (updated-window-origin-for-resize window origin
+                                            (mezzano.gui:surface-width new-framebuffer)
+                                            (mezzano.gui:surface-height new-framebuffer)))
     ;; Switch over to the new framebuffer.
     (setf (slot-value window '%buffer) new-framebuffer)
     ;; Update display based on new position & geometry.
@@ -1000,6 +1060,37 @@ Only works when the window is active."
           *screen-backbuffer* clip-x clip-y
           *screen-backbuffer* clip-x clip-y))
 
+(defun resize-in-progress-p ()
+  (and *drag-window*
+       *resize-origin*))
+
+(defun resize-rect-geom ()
+  (multiple-value-bind (origin new-width new-height)
+      (compute-resized-window-geometry)
+    (multiple-value-bind (real-x real-y)
+        (updated-window-origin-for-resize *drag-window* origin
+                                          new-width new-height)
+      (values real-x real-y new-width new-height))))
+
+(defparameter *resize-rect-colour* (mezzano.gui:make-colour 0.75 1.0 1.0 0.5))
+(defparameter *resize-rect-border-colour* (mezzano.gui:make-colour 0 1.0 1.0 0.5))
+
+(defun draw-resize-rect ()
+  (multiple-value-bind (x y w h)
+      (resize-rect-geom)
+    ;; Draw a rectangle with a nice border.
+    ;; Top
+    (fill-with-clip w 1 *resize-rect-border-colour* x y)
+    ;; Bottom
+    (fill-with-clip w 1 *resize-rect-border-colour* x (+ y (- h 1)))
+    ;; Don't let the sides overdraw the top/bottom.
+    ;; Left
+    (fill-with-clip 1 (- h 2) *resize-rect-border-colour* x (+ y 1))
+    ;; Right
+    (fill-with-clip 1 (- h 2) *resize-rect-border-colour* (+ x (- w 1)) (+ y 1))
+    ;; Body
+    (fill-with-clip (- w 2) (- h 2) *resize-rect-colour* (+ x 1) (+ y 1))))
+
 (defun recompose-windows (&optional full)
   (when full
     (damage-whole-screen))
@@ -1018,6 +1109,10 @@ Only works when the window is active."
       (fill-with-clip (width window) (height window)
                       (mezzano.gui:make-colour 0 0 0 0.5)
                       (window-x window) (window-y window))))
+  ;; Resize rect.
+  (when (and (not *enable-live-resize*)
+             (resize-in-progress-p))
+    (draw-resize-rect))
   ;; Then the mouse pointer on top.
   (let ((mouse-surface (mouse-cursor-surface *mouse-pointer*))
         (hot-x (mouse-cursor-hot-x *mouse-pointer*))
