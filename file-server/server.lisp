@@ -23,13 +23,37 @@
                       (destructuring-bind ,lambda-list (rest ,args)
                         ,@body)))))
 
+(defun parse-path (path)
+  ;; Convert /x/ to x:/ on Windows.
+  #+win32
+  (when (and (>= (length path) 3)
+             (eql (char path 0) #\/)
+             (eql (char path 2) #\/))
+    (setf path (copy-seq path))
+    (setf (char path 0) (char path 1))
+    (setf (char path 1) #\:)
+    (format t "Converted to Windows path ~S~%" path))
+  path)
+
+(defun unparse-namestring (namestring)
+  ;; Convert x:/ back to /x/ on Windows.
+  #+win32
+  (when (and (>= (length namestring) 3)
+             (eql (char namestring 1) #\:)
+             (eql (char namestring 2) #\/))
+    (setf namestring (copy-seq namestring))
+    (setf (char namestring 1) (char namestring 0))
+    (setf (char namestring 0) #\/)
+    (format t "Converted from Windows namestring ~S~%" namestring))
+  namestring)
+
 (defcommand :open (path &rest keys &key &allow-other-keys)
   (let ((fid (loop
                 for i from 0
                 for entry across *file-table*
                 do (when (eql entry nil)
                      (return i)))))
-    (format t "Keys ~S~%" keys)
+    (format t "Keys ~:S~%" keys)
     (unless fid
       (error 'error-with-class
              :format-control "Too many open files."
@@ -39,7 +63,7 @@
              :format-control ":ELEMENT-TYPE is not permitted."
              :class :bad-argument))
     (setf (aref *file-table* fid)
-          (apply 'open path
+          (apply 'open (parse-path path)
                  :element-type '(unsigned-byte 8)
                  keys))
     (format *client* "~D~%" fid)))
@@ -90,50 +114,52 @@
   (format *client* "~S~%"
           (list* :ok
                  (mapcar (lambda (path)
-                           (namestring path))
-                         (directory path)))))
+                           (unparse-namestring
+                            (namestring path)))
+                         (directory (parse-path path))))))
 
 (defcommand :probe (path)
-  (if (probe-file path)
+  (if (probe-file (parse-path path))
       (format *client* ":ok~%")
       (format *client* "(:not-found \"File not found\")~%")))
 
 (defcommand :create (path)
-  (if (open path :direction :probe :if-exists nil :if-does-not-exist :create)
+  (if (open (parse-path path) :direction :probe :if-exists nil :if-does-not-exist :create)
       (format *client* ":ok~%")
       (format *client* "(:error \"???\")~%")))
 
-#-lisp-os(defcommand :backup (path)
-  (when (open path :direction :probe)
-    (cl-fad:copy-file path (format nil "~A~~" path)
+#-mezzano
+(defcommand :backup (path)
+  (when (open (parse-path path) :direction :probe)
+    (cl-fad:copy-file (parse-path path) (format nil "~A~~" (parse-path path))
                       :overwrite t))
   (format *client* ":ok~%"))
 
 (defcommand :restore (path)
-  (let ((backup (format nil "~A~~" path)))
+  (let ((backup (format nil "~A~~" (parse-path path))))
     (when (open backup :direction :probe)
-      (rename-file backup path))
+      (rename-file backup (parse-path path)))
     (format *client* ":ok~%")))
 
 (defcommand :create-directory (path)
   (multiple-value-bind (_ created)
-      (ensure-directories-exist path)
+      (ensure-directories-exist (parse-path path))
     (declare (ignore _))
     (if created
         (format *client* ":ok~%")
         (format *client* ":exists~%"))))
 
 (defcommand :rename-file (source dest)
-  (rename-file source dest)
+  (rename-file (parse-path source) (parse-path dest))
   (format *client* ":ok~%"))
 
 (defcommand :file-write-date (path)
-  (format *client* "~D~%" (file-write-date path)))
+  (format *client* "~D~%" (file-write-date (parse-path path))))
 
 (defcommand :delete (path)
-  (if (or (pathname-name path) (pathname-type path))
-      (delete-file path)
-      #+sbcl (sb-posix:rmdir path)
+  (if (or (pathname-name (parse-path path)) (pathname-type (parse-path path)))
+      (delete-file (parse-path path))
+      #+sbcl (sb-posix:rmdir (parse-path path))
       #-sbcl (error "delete of directories not implemented"))
   (format *client* ":ok~%"))
 
