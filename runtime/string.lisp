@@ -182,9 +182,9 @@
 (defun sys.int::%%make-character (code &optional bits)
   (sys.int::%%assemble-value
    (if bits
-       (dpb code sys.int::+char-code+ 0)
        (logior (dpb code sys.int::+char-code+ 0)
-               (dpb (or bits 0) sys.int::+char-bits+ 0)))
+               (dpb bits sys.int::+char-bits+ 0))
+       (dpb code sys.int::+char-code+ 0))
    (dpb sys.int::+immediate-tag-character+
         sys.int::+immediate-tag+
         sys.int::+tag-immediate+)))
