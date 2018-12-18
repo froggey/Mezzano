@@ -123,15 +123,9 @@ A list of two elements, the short & long name." )
            (fresh-line)
            (let ((result (multiple-value-list (let ((- form))
                                                 (eval form)))))
-             (setf *** **
-                   ** *
-                   * (first result)
-                   /// //
-                   // /
-                   / result
-                   +++ ++
-                   ++ +
-                   + form)
+             (shiftf *** ** * (first result))
+             (shiftf /// // / result)
+             (shiftf +++ ++ + form)
              (when result
                (dolist (v result)
                  (fresh-line)
