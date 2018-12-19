@@ -37,7 +37,7 @@
 (define-condition pause-event () ())
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (let* ((ch (mezzano.gui.compositor:key-key event)))
       (cond ((char= ch #\Space)
              (signal 'pause-event))))))

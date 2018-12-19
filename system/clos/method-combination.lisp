@@ -30,7 +30,7 @@
          nil)
         (t
          (let ((mc (gethash name *method-combinations*)))
-           (when (not mc)
+           (unless mc
              (error "Unknown method combination ~S." name))
            (list* mc args)))))
 
@@ -122,7 +122,7 @@
         (declare (ignore _))
         (check-type sym (and symbol (not null)))
         (setf generic-function-symbol sym)))
-    (when (not generic-function-symbol)
+    (unless generic-function-symbol
       (setf generic-function-symbol (gensym "GENERIC-FUNCTION")))
     `(register-method-combination
       ',name

@@ -27,7 +27,7 @@
                      ,@(loop
                           for option in options
                           append (canonicalize-defclass-option name option))
-                     ,@(when (not (member :default-initargs *defclass-options*))
+                     ,@(unless (member :default-initargs *defclass-options*)
                          '(:direct-default-initargs nil))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -47,9 +47,9 @@
 (defun check-plist (plist)
   (do ((i plist (cddr i)))
       ((null i))
-    (when (not (and (consp i)
+    (unless (and (consp i)
                     (symbolp (first i))
-                    (consp (rest i))))
+                    (consp (rest i)))
       (error 'sys.int::simple-program-error
                :format-control "Malformed plist ~S."
                :format-arguments (list plist)))))
@@ -107,7 +107,7 @@
                   (setf documentation val))
                  (t
                   (let ((existing (assoc sym others)))
-                    (when (not existing)
+                    (unless existing
                       (setf existing (cons sym '()))
                       (push existing others))
                     (push val (cdr existing)))))))

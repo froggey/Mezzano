@@ -197,7 +197,7 @@ party to perform, the indicated option.")
   ((%key :initarg :key :reader typed-key)))
 
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:key-event))
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (signal 'typed-key :key (mezzano.gui.compositor:key-key event))
     (mezzano.gui.xterm:input-translate (xterm telnet)
                                        (mezzano.gui.compositor:key-key event)
@@ -256,7 +256,7 @@ party to perform, the indicated option.")
         ;; FIXME: Translate from UTF-8 here. Can't use read-char on the tcp-stream because
         ;; terminal IO happens on top of the binary telnet layer.
         (loop
-           (when (not (connection telnet))
+           (unless (connection telnet)
              (return))
            (let ((byte (read-byte connection)))
              (cond ((eql byte +command-iac+)

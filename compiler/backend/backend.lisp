@@ -220,9 +220,9 @@
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (dolist (inst lap)
-        (when (not (and (not (eql sys.c::*trace-asm* :full))
+        (unless (and (not (eql sys.c::*trace-asm* :full))
                         (consp inst)
-                        (member (first inst) '(:gc :debug))))
+                        (member (first inst) '(:gc :debug)))
           (cond ((symbolp inst)
                  (format t "~S~%" inst))
                 (t

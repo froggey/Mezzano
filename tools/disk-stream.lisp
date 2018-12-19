@@ -52,7 +52,7 @@
                                         (truncate fpos sector-size)
                                         1
                                         buffer)
-        (when (not successp)
+        (unless successp
           (error "Disk read error: ~S" error))
         (setf (subseq seq (+ start (* i sector-size))) buffer)
         (incf fpos sector-size)
@@ -73,7 +73,7 @@
                                          (truncate fpos sector-size)
                                          1
                                          buffer)
-        (when (not successp)
+        (unless successp
           (error "Disk read error: ~S" error))
         (incf fpos sector-size)
         (file-position stream fpos)))))

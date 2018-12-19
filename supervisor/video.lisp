@@ -26,7 +26,7 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
 (sys.int::defglobal *debug-video-col* 0)
 
 (defun initialize-early-video ()
-  (when (not (boundp '*light-position*))
+  (unless (boundp '*light-position*)
     (setf *light-position* :top))
   ;; Trash old framebuffer.
   (setf *current-framebuffer* nil)
@@ -79,7 +79,7 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
   "Update a region of the system framebuffer.
 Returns false if the framebuffer is invalid, true otherwise.
 If the framebuffer is invalid, the caller should fetch the current framebuffer and discard the old one."
-  (when (not (eql (array-rank from-array) 2))
+  (unless (eql (array-rank from-array) 2)
     (error 'type-error
            :expected-type '(array (unsigned-byte 32) (* *))
            :datum from-array))
@@ -103,7 +103,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (setf from-offset (sys.int::%complex-array-info from-array)
             from-storage (sys.int::%complex-array-storage from-storage)))
     ;; Storage must be a simple ub32 array.
-    (when (not (sys.int::%object-of-type-p from-storage sys.int::+object-tag-array-unsigned-byte-32+))
+    (unless (sys.int::%object-of-type-p from-storage sys.int::+object-tag-array-unsigned-byte-32+)
       (error 'type-error
              :expected-type (array (unsigned-byte 32) (* *))
              :datum from-array))
@@ -133,7 +133,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (setf ncols (max 0 (min ncols (- (framebuffer-width fb) to-col) (- from-width from-col))))
     ;; Disable snapshotting and the GC while this is in progress, as we're touching physical memory.
     (with-pseudo-atomic
-      (when (not (eql fb *current-framebuffer*))
+      (unless (eql fb *current-framebuffer*)
         (return-from framebuffer-blit nil))
       (let ((to-base (convert-to-pmap-address
                       (+ (framebuffer-base-address fb)

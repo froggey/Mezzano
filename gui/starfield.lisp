@@ -22,7 +22,7 @@
   (:method (f e)))
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:window-activation-event))
-  (when (not (mezzano.gui.compositor:state event))
+  (unless (mezzano.gui.compositor:state event)
     (throw 'quit nil)))
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:key-event))
@@ -106,7 +106,7 @@
                (mezzano.gui.compositor:damage-window window 0 0 width height)
                (loop
                   (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
-                    (when (not evt) (return))
+                    (unless evt (return))
                     (dispatch-event starfield evt)))
                (sleep (/ 1 30))
                (let ((dt (/ (- (get-internal-run-time) start-time)

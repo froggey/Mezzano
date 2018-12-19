@@ -79,7 +79,7 @@
       (flet ((add-decl (name what)
                (let ((existing (assoc name new-decls :test #'equal)))
                  (cond (existing
-                        (when (not (eql (second existing) what))
+                        (unless (eql (second existing) what)
                           (error "~S ~S declaration conflicts with ~S declaration."
                                  what name (second existing))))
                        (t
@@ -89,7 +89,7 @@
            when (member what '(inline notinline))
            do (loop for name in names do (add-decl name what))))
       (dolist (func functions)
-        (when (not (assoc (first func) new-decls :test #'equal))
+        (unless (assoc (first func) new-decls :test #'equal)
           (push (list (first func) nil) new-decls)))
       (setf (slot-value sub '%inline-decls) (append new-decls
                                                     (set-difference (slot-value environment '%inline-decls)

@@ -25,14 +25,14 @@
 
 (defun validate-llf-header (stream target)
   ;; Check the header.
-  (when (not (and (eql (read-byte stream) #x4C)
+  (unless (and (eql (read-byte stream) #x4C)
                   (eql (read-byte stream) #x4C)
                   (eql (read-byte stream) #x46)
-                  (eql (read-byte stream) #x01)))
+                  (eql (read-byte stream) #x01))
     (error 'invalid-llf
            :format-control "Bad LLF magic."))
   (let ((version (read-byte stream)))
-    (when (not (eql version sys.int::*llf-version*))
+    (unless (eql version sys.int::*llf-version*)
       (error 'invalid-llf
              :format-control "Bad LLF version ~D, wanted version ~D."
              :format-arguments (list version sys.int::*llf-version*))))
@@ -40,7 +40,7 @@
                 (#.sys.int::+llf-arch-x86-64+ :x86-64)
                 (#.sys.int::+llf-arch-arm64+ :arm64)
                 (t :unknown))))
-    (when (not (eql arch target))
+    (unless (eql arch target)
       (error 'invalid-llf
              :format-control "LLF compiled for wrong architecture ~S. Wanted ~S."
              :format-arguments (list arch target)))))
@@ -52,7 +52,7 @@
   (let ((value 0) (shift 0))
     (loop
        (let ((b (load-byte loader)))
-         (when (not (logtest b #x80))
+         (unless (logtest b #x80)
            (setf value (logior value (ash (logand b #x3F) shift)))
            (if (logtest b #x40)
                (return (- value))
@@ -353,6 +353,6 @@
              (t
               (multiple-value-bind (value inhibit-value-p)
                   (load-one-object loader command)
-                (when (not inhibit-value-p)
+                (unless inhibit-value-p
                   (stack-push value loader)))))))
       (reverse (loader-load-time-forms loader)))))

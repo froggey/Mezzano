@@ -100,7 +100,7 @@
                        :operands (list :al `(:object ,object -1))
                        :inputs (list object)
                        :outputs (list :rax)))
-  (when (not (eql first-tag 0))
+  (unless (eql first-tag 0)
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:sub8
                          :operands (list :al (ash first-tag

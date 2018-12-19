@@ -246,7 +246,7 @@
                      (eql (name cleanup-function) 'sys.int::make-closure)
                      (= (list-length (arguments cleanup-function)) 2)
                      (lambda-information-p (first (arguments cleanup-function))))))
-    (when (not (lambda-information-p cleanup-function))
+    (unless (lambda-information-p cleanup-function)
       ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
       (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t))
     (ast `(progn (call sys.int::%%push-special-stack

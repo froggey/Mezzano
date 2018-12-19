@@ -189,7 +189,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defgeneric save-one-object (object object-map stream))
 
 (defmethod save-one-object ((object function) omap stream)
-  (when (not (eql (function-tag object) +object-tag-function+))
+  (unless (eql (function-tag object) +object-tag-function+)
     (error "Cannot save complicated function ~S" object))
   (dotimes (i (function-pool-size object))
     (save-object (function-pool-object object i) omap stream))
@@ -456,7 +456,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (incf (second info))
            (when (eql (second info) 1)
              (save-one-object object omap stream)))
-          (t (when (not (third info))
+          (t (unless (third info)
                (save-one-object object omap stream)
                (setf (third info) t)
                (unless (eql (second info) 1)

@@ -168,7 +168,7 @@
     (loop
       (setf j (position-not-in "+-0123456789,Vv#:@" j))
       (when (null j) (err 1 "missing directive" (1- start)))
-      (when (not (eq (aref *string* j) #\')) (return j))
+      (unless (eq (aref *string* j) #\') (return j))
       (incf j)
       (if (= j end) (err 2 "No character after '" (1- j)))
       (incf j))))
@@ -214,7 +214,7 @@
   (let (i (j 0) (end (length *string*)) c)
     (loop
       (setf (values i j) (next-directive1 j end))
-      (when (not i) (return nil))
+      (unless i (return nil))
       (setf c (aref *string* j))
       (when (or (find c "_Ii/Ww") (and (find c ">Tt") (colonp j)))
         (return T)))))
@@ -246,7 +246,7 @@
             (parse-params (1+ i) nil :nocolonatsign T)
           (when atsign (push `(pprint-newline+ :unconditional xp) result))
           (incf j)
-          (when (not colon)
+          (unless colon
             (setf j (position-if-not
                       (lambda (c)
                           (or (char= c #\tab) (char= c #\space)))
@@ -541,11 +541,11 @@
                         ((null ms) (return (nreverse result)))
                       (push (compile-format (car ns) (directive-start (car ms)))
                             result))))
-      (cond (colon (when (not (= (length innards) 2))
+      (cond (colon (unless (= (length innards) 2)
                      (err 13 "Wrong number of clauses in ~~:[...~~]" (1- start)))
                    `(cond ((null ,(get-arg)) ,@ (car innards))
                           (T ,@ (cadr innards))))
-            (atsign (when (not (= (length innards) 1))
+            (atsign (unless (= (length innards) 1)
                       (err 14 "Too many clauses in ~~@[...~~]" (1- start)))
                     `(cond ((car args) ,@ (car innards)) (T ,(get-arg))))
             (T (let* ((j -1) (len (- (length chunks) 2))
@@ -569,7 +569,7 @@
 
 (def-format-handler #\; (start end)
   (declare (ignore start))
-  (when (not *in-justify*)
+  (unless *in-justify*
     (err 15 "~~; appears out of context" (1- end))))
 (def-format-handler #\] (start end) (declare (ignore start))
   (err 16 "Unmatched closing directive" (1- end)))

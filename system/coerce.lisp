@@ -130,6 +130,6 @@
                (return-from coerce whole))
               (t
                `(progn
-                  (when (not (typep ,obj ',result-type))
+                  (unless (typep ,obj ',result-type)
                     (error 'unknown-coercion :object ,obj :type ',result-type))
                   ,obj))))))

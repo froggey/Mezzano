@@ -105,7 +105,7 @@
 
 (defun unwrap-the (form)
   (loop
-     (when (not (typep form 'ast-the))
+     (unless (typep form 'ast-the)
        (return form))
      (setf form (ast-value form))))
 

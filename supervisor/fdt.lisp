@@ -54,7 +54,7 @@
        (block nil
          (tagbody
             ,loop-head
-            (when (not ,node-sym)
+            (unless ,node-sym
               (return (let ((,child-node nil)) (progn ,result-form))))
             (let ((,child-node ,node-sym))
               ,@body)
@@ -67,7 +67,7 @@
 
 (defun fdt-root ()
   "Return the root node of the FDT."
-  (when (not *fdt*)
+  (unless *fdt*
     (panic "No FDT provided"))
   (+ *fdt* (memref-ub32/be (+ *fdt* +fdt-header-structure-offset+))))
 
@@ -222,7 +222,7 @@
   "Return the property named NAME in NODE, or nil if there is no such property"
   (let ((prop (fdt-first-property node)))
     (loop
-       (when (not prop)
+       (unless prop
          (return nil))
        (when (fdt-string-compare (fdt-property-name prop) name)
          (return prop))
@@ -279,7 +279,7 @@
                    (fdt-first-property aliases-node)
                    nil)))
     (loop
-       (when (not prop)
+       (unless prop
          (return nil))
        (when (fdt-string-compare-memory (fdt-property-name prop) name name-len)
          (debug-print-line "Resolved alias " name " to " prop)
@@ -293,10 +293,10 @@
                      when (eql (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) i) (char-code #\:))
                      do (return i)
                      finally (return (1- (fdt-property-length prop))))))
-    (when (not (eql (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) 0) (char-code #\/)))
+    (unless (eql (sys.int::memref-unsigned-byte-8 (fdt-property-data prop) 0) (char-code #\/))
       ;; This is an alias. Search the aliases node for a matching property.
       (setf prop (fdt-resolve-alias (fdt-property-data prop) path-len))
-      (when (not prop)
+      (unless prop
         (debug-print-line "failed to resolved path property alias")
         (return-from fdt-resolve-prop-path nil))
       (setf path-len (fdt-property-length prop)))
@@ -324,7 +324,7 @@
            (setf current (fdt-get-named-child-node-internal current
                                                             (+ (fdt-property-data prop) path-element-start)
                                                             name-len))
-           (when (not current)
+           (unless current
              (debug-print-line "failed to resolved path property")
              (return nil))
            (incf path-element-start name-len)

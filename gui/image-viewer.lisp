@@ -103,7 +103,7 @@
                    (return-from main))))))))))
 
 (defun spawn (path)
-  (when (not (mezzano.gui:surface-p path))
+  (unless (mezzano.gui:surface-p path)
     (setf path (merge-pathnames path)))
   (mezzano.supervisor:make-thread (lambda () (main path))
                                   :name (format nil "Image Viewer - ~S" path)

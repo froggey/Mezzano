@@ -79,7 +79,7 @@
 (defun (setf single-dispatch-emf-entry) (value emf-table class)
   (mezzano.supervisor:with-mutex ((single-dispatch-emf-table-update-lock emf-table))
     (cond ((null (single-dispatch-emf-table-table emf-table))
-           (when (not (eql value nil))
+           (unless (eql value nil)
              (setf (single-dispatch-emf-table-table emf-table) (cons class value))
              (setf (single-dispatch-emf-table-count emf-table) 1)))
           ((consp (single-dispatch-emf-table-table emf-table))

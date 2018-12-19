@@ -41,8 +41,8 @@
 	     (cell (ldb (byte 8 0) codepoint))
 	     (glyph (subseq line 5)))
 	;; Strip out non-printing glyphs, the private use area and surrogate forms.
-	(when (not (or (string= "00542A542A542A542A542A542A542A00" glyph)
-		       (<= #xD800 codepoint #xF8FF)))
+	(unless (or (string= "00542A542A542A542A542A542A542A00" glyph)
+		    (<= #xD800 codepoint #xF8FF))
           (unless (aref unifont-table row)
             (setf (aref unifont-table row) (make-array 256 :element-type '(unsigned-byte 32) :initial-element 0)))
 	  (let ((decoded-glyph (decode-glyph glyph))
@@ -222,7 +222,7 @@ the seperator character."
 		   (adjust-array packed (* (array-dimension packed 0) 2)
 				 :initial-element 0))
 		 (when (eql (aref packed i) 0)
-		   (when (not seen-blank)
+		   (unless seen-blank
 		     ;; Cache the first blank tile.
 		     (setf scan-start-point i
 			   seen-blank t))
@@ -232,7 +232,7 @@ the seperator character."
 								(+ i 1 37)))
 			       (return-from pack-one (write-node-at i node))))
 		     (when (aref node (1+ j))
-		       (when (not (eql (aref packed (+ i 1 j)) 0))
+		       (unless (eql (aref packed (+ i 1 j)) 0)
 			 (return))))))))
       (pack-one trie)
       ;; Turn it into a simple array.

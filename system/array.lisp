@@ -15,12 +15,12 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-array-type-1 (object base-predicate element-type dimensions)
   `(and (,base-predicate ,object)
-        ,@(when (not (eql element-type '*))
+        ,@(unless (eql element-type '*)
             ;; Parse-array-type returns the upgraded element type.
             `((equal (array-element-type ,object) ',element-type)))
-        ,@(when (not (eql dimensions '*))
+        ,@(unless (eql dimensions '*)
             `((eql (array-rank ,object) ',(length dimensions))))
-        ,@(when (not (eql dimensions '*))
+        ,@(unless (eql dimensions '*)
             (loop
                for dim in dimensions
                for i from 0
@@ -43,7 +43,7 @@
       (return-from compile-simple-array-type
         (compile-array-type-1 object 'simple-array-p element-type dimensions)))
     (let ((info (upgraded-array-info element-type)))
-      (when (not (specialized-array-definition-tag info))
+      (unless (specialized-array-definition-tag info)
         (return-from compile-simple-array-type
           (compile-array-type-1 object 'simple-array-p element-type dimensions)))
       (cond ((eql (first dimensions) '*)
@@ -290,7 +290,7 @@
                (info (upgraded-array-info (if (consp element-type)
                                               (second element-type)
                                               element-type))))
-           (when (not (specialized-array-definition-tag info))
+           (unless (specialized-array-definition-tag info)
              (return-from make-array whole))
            `(let* ((,area-sym ,area)
                    (,array-sym (make-array-with-known-element-type
@@ -312,7 +312,7 @@
   (cond ((integerp dimensions)
          (assert (<= 0 dimensions))
          (let ((array (make-simple-array-1 dimensions info area)))
-           (when (not (eql initial-element (specialized-array-definition-zero-element info)))
+           (unless (eql initial-element (specialized-array-definition-zero-element info))
              (fill array initial-element))
            (when (or adjustable fill-pointer)
              (when fill-pointer
@@ -348,7 +348,7 @@
                                 displaced-to displaced-index-offset
                                 area)
   ;; n => (n)
-  (when (not (listp dimensions))
+  (unless (listp dimensions)
     (setf dimensions (list dimensions)))
   (let ((rank (length dimensions))
         (upgraded-element-type (upgraded-array-element-type element-type)))
@@ -433,7 +433,7 @@
                      (area (object-allocation-area array)))
   (when (integerp new-dimensions)
     (setf new-dimensions (list new-dimensions)))
-  (when (not (eql (array-rank array) (length new-dimensions)))
+  (unless (eql (array-rank array) (length new-dimensions))
     (error "New dimensions do not match array's rank."))
   (when element-type-p
     (unless (equal element-type (array-element-type array))

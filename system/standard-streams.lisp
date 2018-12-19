@@ -132,8 +132,8 @@
 
 (defun make-broadcast-stream (&rest streams)
   (dolist (stream streams)
-    (when (not (and (streamp stream)
-                    (output-stream-p stream)))
+    (unless (and (streamp stream)
+                 (output-stream-p stream))
       (error 'type-error
              :expected-type 'output-stream
              :datum stream)))
@@ -232,11 +232,11 @@
                   :reader echo-stream-output-stream)))
 
 (defun make-echo-stream (input-stream output-stream)
-  (when (not (and (streamp input-stream)
-                  (input-stream-p input-stream)))
+  (unless (and (streamp input-stream)
+               (input-stream-p input-stream))
     (error 'type-error :datum input-stream :expected-type 'input-stream))
-  (when (not (and (streamp output-stream)
-                  (output-stream-p output-stream)))
+  (unless (and (streamp output-stream)
+               (output-stream-p output-stream))
     (error 'type-error :datum output-stream :expected-type 'output-stream))
   (make-instance 'echo-stream
                  :input-stream input-stream
@@ -342,11 +342,11 @@
                   :reader two-way-stream-output-stream)))
 
 (defun make-two-way-stream (input-stream output-stream)
-  (when (not (and (streamp input-stream)
-                  (input-stream-p input-stream)))
+  (unless (and (streamp input-stream)
+               (input-stream-p input-stream))
     (error 'type-error :datum input-stream :expected-type 'input-stream))
-  (when (not (and (streamp output-stream)
-                  (output-stream-p output-stream)))
+  (unless (and (streamp output-stream)
+               (output-stream-p output-stream))
     (error 'type-error :datum output-stream :expected-type 'output-stream))
   (make-instance 'two-way-stream
                  :input-stream input-stream
@@ -433,8 +433,8 @@
 
 (defun make-concatenated-stream (&rest input-streams)
   (dolist (s input-streams)
-    (when (not (and (streamp s)
-                    (input-stream-p s)))
+    (unless (and (streamp s)
+                 (input-stream-p s))
       (error 'type-error :datum s :expected-type 'input-stream)))
   (make-instance 'concatenated-stream :streams input-streams))
 
@@ -463,7 +463,7 @@
      (when (endp (concatenated-stream-streams stream))
        (return :eof))
      (let ((ch (read-byte (first (concatenated-stream-streams stream)) nil :eof)))
-       (when (not (eql ch :eof))
+       (unless (eql ch :eof)
          (return ch))
        ;; Reached end of this stream. Pop streams.
        (pop (slot-value stream 'streams)))))
@@ -473,7 +473,7 @@
      (when (endp (concatenated-stream-streams stream))
        (return :eof))
      (let ((ch (read-char (first (concatenated-stream-streams stream)) nil :eof)))
-       (when (not (eql ch :eof))
+       (unless (eql ch :eof)
          (return ch))
        ;; Reached end of this stream. Pop streams.
        (pop (slot-value stream 'streams)))))
@@ -483,7 +483,7 @@
      (when (endp (concatenated-stream-streams stream))
        (return :eof))
      (let ((ch (read-char-no-hang (first (concatenated-stream-streams stream)) nil :eof)))
-       (when (not (eql ch :eof))
+       (unless (eql ch :eof)
          (return ch))
        ;; Reached end of this stream. Pop streams.
        (pop (slot-value stream 'streams)))))
@@ -515,7 +515,7 @@
      (when (endp (concatenated-stream-streams stream))
        (return :eof))
      (let ((ch (peek-char nil (first (concatenated-stream-streams stream)) nil :eof)))
-       (when (not (eql ch :eof))
+       (unless (eql ch :eof)
          (return ch))
        ;; Reached end of this stream. Pop streams.
        (pop (slot-value stream 'streams)))))
@@ -530,10 +530,10 @@
 
 (defun make-string-output-stream (&key (element-type 'character) (string nil stringp))
   (when stringp
-    (when (not (and (stringp string)
-                    (array-has-fill-pointer-p string)))
+    (unless (and (stringp string)
+                 (array-has-fill-pointer-p string))
       (error "~S must be a string with a fill-pointer" string)))
-  (when (not (subtypep element-type 'character))
+  (unless (subtypep element-type 'character)
     (error "Element-type ~S must be a subtype of CHARACTER" element-type))
   (make-instance 'string-output-stream :element-type element-type :string string))
 
@@ -553,7 +553,7 @@
 
 (defmethod sys.gray:stream-write-sequence ((stream string-output-stream) seq &optional (start 0) end)
   (setf end (or end (length seq)))
-  (when (not (typep seq 'string))
+  (unless (typep seq 'string)
     ;; Make sure the sequence only contains characters.
     (loop
        for i from start below end

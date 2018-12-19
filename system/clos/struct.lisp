@@ -119,7 +119,7 @@
         (prev-layout (class-layout existing-class)))
     ;; FIXME: If the parent class changes, call add-/remove-direct-subclass
     (sys.int::populate-struct-class-from-structure-defintion existing-class sdef)
-    (when (not (class-layouts-compatible-p prev-layout new-layout))
+    (unless (class-layouts-compatible-p prev-layout new-layout)
       ;; Make instances obsolete if the layout changes.
       (setf (mezzano.runtime::instance-access-by-name existing-class 'mezzano.clos::slot-storage-layout)
             new-layout)

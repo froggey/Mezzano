@@ -154,7 +154,7 @@
       (when env-arg
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons env-arg :home))
-          (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
+          (unless (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup)
             ;; Read environment pointer from closure object.
             (emit `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 2))))
           (emit `(sys.lap-x86:mov64 (:stack ,ofs) :rbx)))))
@@ -927,7 +927,7 @@
                    variables))
     ;; Initialize local variables to NIL.
     (dolist (var variables)
-      (when (not (zerop (lexical-variable-use-count var)))
+      (unless (zerop (lexical-variable-use-count var))
         (let ((slot (find-stack-slot)))
           (setf (aref *stack-values* slot) (cons var :home))
           (emit `(sys.lap-x86:mov64 (:stack ,slot) nil)))))
@@ -981,7 +981,7 @@ Returns an appropriate tag."
 (defun cg-multiple-value-call (form)
   (let ((value-form (ast-value-form form))
         (fn-tag (let ((*for-value* t)) (cg-form (ast-function-form form)))))
-    (when (not fn-tag)
+    (unless fn-tag
       (return-from cg-multiple-value-call nil))
     (let ((value-tag (let ((*for-value* :multiple))
                        (cg-form value-form))))
@@ -1112,7 +1112,7 @@ Returns an appropriate tag."
            (emit-gc-info)
            (add-dx-root sv-save-area))
          (let ((*for-value* nil))
-           (when (not (cg-form (ast-body form)))
+           (unless (cg-form (ast-body form))
              ;; No return.
              (setf *load-list* (delete tag *load-list*))
              (return-from cg-multiple-value-prog1 'nil)))
@@ -1151,7 +1151,7 @@ Returns an appropriate tag."
 (defun cg-return-from (form)
   (let* ((local-info (assoc (ast-target form) *rename-list*))
          (*for-value* (block-information-return-mode (ast-target form)))
-         (target-tag (when (not local-info)
+         (target-tag (unless local-info
                        (let ((*for-value* t))
                          (cg-form (ast-info form)))))
          (tag (cg-form (ast-value form))))
@@ -1517,7 +1517,7 @@ Returns an appropriate tag."
            (unless tag (return-from cg-values nil))
            (let ((*for-value* nil))
              (dolist (f (rest forms))
-               (when (not (cg-form f))
+               (unless (cg-form f)
                  (setf *load-list* (delete tag *load-list*))
                  (return-from cg-values nil))))
            tag))))
@@ -1592,7 +1592,7 @@ Returns an appropriate tag."
 
 ;; ### TCE here
 (defun cg-function-form (form)
-  (let ((fn (when (not sys.c::*suppress-builtins*)
+  (let ((fn (unless sys.c::*suppress-builtins*
               (match-builtin (ast-name form) (length (ast-arguments form))))))
     (cond ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
            (cg-make-dx-simple-vector form))

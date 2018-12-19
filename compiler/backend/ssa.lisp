@@ -73,7 +73,7 @@ Virtual registers must be defined exactly once."
                      ;; This should track debug info instead...
                      (let ((label use))
                        (loop
-                          (when (not (typep label 'debug-update-variable-instruction))
+                          (unless (typep label 'debug-update-variable-instruction)
                             (return))
                           (setf label (prev-instruction backend-function label)))
                        (and (typep label 'label)
@@ -133,7 +133,7 @@ Virtual registers must be defined exactly once."
         (when (typep inst 'label)
           (incf n-phis-converted (length (label-phis inst)))
           (setf (label-phis inst) '())))
-      (when (not *shut-up*)
+      (unless *shut-up*
         (format t "Deconstructed ~D phi variables, inserted ~D moves.~%"
                 n-phis-converted n-moves-inserted)))))
 
@@ -179,7 +179,7 @@ Virtual registers must be defined exactly once."
         (setf simple-transforms (remove (store-local-local inst)
                                         simple-transforms))
         (push (store-local-local inst) full-transforms)))
-    (when (not (endp full-transforms))
+    (unless (endp full-transforms)
       ;; Bail if there are any NLX regions in the function at all.
       (do-instructions (inst backend-function)
         (when (typep inst 'begin-nlx-instruction)
@@ -238,7 +238,7 @@ Virtual registers must be defined exactly once."
                (push inst remove-me)))))
     (dolist (inst remove-me)
       (remove-instruction backend-function inst))
-    (when (not *shut-up*)
+    (unless *shut-up*
       (format t "Converted ~D simple loads.~%" n-simple-loads-converted))
     n-simple-loads-converted))
 
@@ -258,12 +258,12 @@ Virtual registers must be defined exactly once."
                 (eql inst candidate))
         (when (eql inst candidate)
           (setf binding-bb current-bb))
-        (when (not (gethash current-bb visited))
+        (unless (gethash current-bb visited)
           (setf (gethash current-bb visited) t)
           (push current-bb def-sites)))
       (when (typep inst 'terminator-instruction)
         (setf current-bb (next-instruction backend-function inst))))
-    (when (not *shut-up*)
+    (unless *shut-up*
       (format t "Def sites for ~S: ~:S~%" candidate def-sites))
     (assert binding-bb)
     (loop
@@ -276,10 +276,10 @@ Virtual registers must be defined exactly once."
                     ;; And block where the variable is live on entry.
                     (member candidate (gethash frontier dynamic-contour)))
            (push frontier phi-sites)
-           (when (not (gethash frontier visited))
+           (unless (gethash frontier visited)
              (setf (gethash frontier visited) t)
              (push frontier def-sites)))))
-    (when (not *shut-up*)
+    (unless *shut-up*
       (format t "Phi sites for ~S: ~:S~%" candidate phi-sites))
     ;; FIXME: Critical edges will prevent phi insertion, need to break them.
     ;; work around this by bailing out whenever a phi site's predecessor is
@@ -290,8 +290,8 @@ Virtual registers must be defined exactly once."
         (loop
            (when (typep pred 'terminator-instruction) (return))
            (setf pred (next-instruction backend-function pred)))
-        (when (not (typep pred 'jump-instruction))
-          (when (not *shut-up*)
+        (unless (typep pred 'jump-instruction)
+          (unless *shut-up*
             (format t "Bailing out of conversion for ~S due to non-jump ~S.~%"
                     candidate pred))
           (return-from ssa-convert-one-local nil))))
@@ -404,14 +404,14 @@ Virtual registers must be defined exactly once."
   (sys.c:with-metering (:backend-construct-ssa)
     (multiple-value-bind (simple-transforms full-transforms rejected-transforms)
         (discover-ssa-conversion-candidates backend-function)
-      (when (not *shut-up*)
+      (unless *shut-up*
         (format t "Directly converting ~:S~%" simple-transforms)
         (format t "Fully converting ~:S~%" full-transforms)
         (format t "Rejected converting ~:S~%" rejected-transforms))
       (let ((debugp (/= (sys.c::optimize-quality (ast backend-function) 'debug) 0)))
-        (when (not (endp simple-transforms))
+        (unless (endp simple-transforms)
           (ssa-convert-simple-locals backend-function simple-transforms debugp))
-        (when (not (endp full-transforms))
+        (unless (endp full-transforms)
           (ssa-convert-locals backend-function full-transforms debugp))))))
 
 (defun remove-unused-phis (backend-function)
@@ -475,7 +475,7 @@ Virtual registers must be defined exactly once."
               (when (endp worklist)
                 (return))
               (let ((other-phi (pop worklist)))
-                (when (not (member other-phi visited))
+                (unless (member other-phi visited)
                   (push other-phi visited)
                   (dolist (value (gethash other-phi phi-values))
                     (cond ((typep (first (gethash value defs)) 'label)

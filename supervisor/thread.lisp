@@ -325,7 +325,7 @@ Interrupts must be off and the global thread lock must be held."
   (let ((current (current-thread))
         (next (%update-run-queue)))
     ;; todo: reset preemption timer here.
-    (when (not (eql next current))
+    (unless (eql next current)
       (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next)))
     (setf (thread-state next) :active)
     (%%switch-to-thread-via-interrupt current interrupt-frame next)))
@@ -551,7 +551,7 @@ Interrupts must be off and the global thread lock must be held."
           (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
   ;; Remove the thread from any potential run queue it may be on.
-  (when (not (eql priority :idle))
+  (unless (eql priority :idle)
     (let ((rq (run-queue-for-priority (thread-priority thread))))
       (cond ((and (eql (run-queue-head rq) thread)
                   (eql (run-queue-tail rq) thread))
@@ -590,7 +590,7 @@ Interrupts must be off and the global thread lock must be held."
     (setf (thread-symbol-cache thread i) 0)))
 
 (defun initialize-threads ()
-  (when (not (boundp '*global-thread-lock*))
+  (unless (boundp '*global-thread-lock*)
     ;; First-run stuff.
     (setf *global-thread-lock* :unlocked)
     (setf *supervisor-priority-run-queue* (make-run-queue :supervisor)

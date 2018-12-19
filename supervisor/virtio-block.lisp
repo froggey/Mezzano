@@ -126,7 +126,7 @@
     (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                        virtio:+virtio-status-driver+))
     ;; Allocate virtqueue.
-    (when (not (virtio:virtio-configure-virtqueues device 1))
+    (unless (virtio:virtio-configure-virtqueues device 1)
       (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
       (return-from virtio::virtio-block-register nil))
     ;; Read data from the config area.

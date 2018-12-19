@@ -86,7 +86,7 @@
   (let ((value 0) (shift 0))
     (loop
          (let ((b (%read-byte stream)))
-           (when (not (logtest b #x80))
+           (unless (logtest b #x80)
              (setf value (logior value (ash (logand b #x3F) shift)))
              (if (logtest b #x40)
                  (return (- value))
@@ -346,7 +346,7 @@
      (when (load-inhibited)
        ;; Drop the then value
        (vector-pop stack))
-     (when (not (eql (first *load-if-stack*) :inhibit))
+     (unless (eql (first *load-if-stack*) :inhibit)
        (setf (first *load-if-stack*) (not (first *load-if-stack*))))
      (values))
     (#.+llf-fi+
@@ -371,7 +371,7 @@
               (#.+llf-end-of-load+
                (when *noisy-load*
                  (format t "END-OF-LOAD~%"))
-               (when (not (eql (length stack) 0))
+               (unless (eql (length stack) 0)
                  (error "Bug! Stack not empty after LLF load."))
                (return))
               (#.+llf-backlink+

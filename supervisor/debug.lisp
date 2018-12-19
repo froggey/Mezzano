@@ -247,7 +247,7 @@
          (debug-print-line "<truncated>")
          (return))
       (debug-print-line "Thread " thread " " (thread-state thread) " " (thread-wait-item thread))))
-  (when (not (eql thread (current-thread)))
+  (unless (eql thread (current-thread))
     (dump-thread-saved-pc thread))
   (panic-print-backtrace fp))
 
@@ -266,7 +266,7 @@
     (do ((thread *all-threads*
                  (thread-global-next thread)))
         ((null thread))
-      (when (not (eql thread (current-thread)))
+      (unless (eql thread (current-thread))
         (debug-print-line "----------")
         (dump-thread thread (thread-frame-pointer thread))))))
 
@@ -297,7 +297,7 @@
 
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."
-  `(when (not ,condition)
+  `(unless ,condition
      (panic ,@things)))
 
 (in-package :mezzano.supervisor)

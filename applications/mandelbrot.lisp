@@ -189,7 +189,7 @@
                      (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
                      (loop
                         (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
-                          (when (not evt) (return))
+                          (unless evt (return))
                           (handler-case
                               (dispatch-event app evt)
                             (must-redraw ()

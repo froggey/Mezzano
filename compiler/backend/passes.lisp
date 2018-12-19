@@ -20,13 +20,13 @@
         (unbind-local-instruction
          (push inst unbinds))))
     (dolist (inst stores)
-      (when (not (gethash (store-local-local inst) loaded-variables))
+      (unless (gethash (store-local-local inst) loaded-variables)
         (remove-instruction backend-function inst)))
     (dolist (inst binds)
-      (when (not (gethash inst loaded-variables))
+      (unless (gethash inst loaded-variables)
         (remove-instruction backend-function inst)))
     (dolist (inst unbinds)
-      (when (not (gethash (unbind-local-local inst) loaded-variables))
+      (unless (gethash (unbind-local-local inst) loaded-variables)
         (remove-instruction backend-function inst)))
     (length binds)))
 
@@ -219,7 +219,7 @@ Must be performed after SSA conversion."
         (failed nil))
     (loop until (endp worklist) do
          (let ((value (pop worklist)))
-           (when (not (member value visited))
+           (unless (member value visited)
              (push value visited)
              (dolist (use (gethash value uses))
                (typecase use

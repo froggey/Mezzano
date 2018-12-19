@@ -229,7 +229,7 @@
       (return i))))
 
 (defun code-for-reg-immediate-mem-op (inst reg base offset &optional temp)
-  (when (not temp)
+  (unless temp
     (setf temp :x12))
   (cond ((or (<= -256 offset 255)
              (and (<= 0 offset 16380)
@@ -280,7 +280,7 @@
 (defun code-for-load-literal (register value)
   (cond ((keywordp value)
          (let ((pos (position value *literal-pool*)))
-           (when (not pos)
+           (unless pos
              (setf pos (vector-push-extend value *literal-pool*)))
            (list `(:comment :literal ,value)
                  `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))
@@ -290,7 +290,7 @@
          (list `(lap:movz ,register ,value)))
         (t
          (let ((pos (position value *literal-pool*)))
-           (when (not pos)
+           (unless pos
              (setf pos (vector-push-extend value *literal-pool*)))
            (list `(:comment :literal ,value)
                  `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))))
@@ -413,7 +413,7 @@
       (when env-arg
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons env-arg :home))
-          (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
+          (unless (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup)
             ;; Read environment pointer from closure object.
             (emit-object-load :x6 :x6 :slot 2))
           (emit-stack-store :x6 ofs))))
@@ -676,7 +676,7 @@
          (dx-rest (lexical-variable-dynamic-extent rest-arg)))
     (emit-dx-rest-list lambda arg-registers)
     ;; The rest list has been created in R13.
-    (when (not dx-rest)
+    (unless dx-rest
       ;; Call COPY-LIST to convert the dx list into a heap list.
       (emit `(lap:orr :x0 :xzr :x7)
             `(lap:ldr :x7 (:function copy-list))
@@ -912,7 +912,7 @@
          (stack-slots (set-up-for-branch)))
     (when (null test-tag)
       (return-from cg-if))
-    (when (not (keywordp test-tag))
+    (unless (keywordp test-tag)
       (kill-value test-tag))
     (cond ((keywordp test-tag)) ; Nothing for predicates.
           (t (load-in-x0 test-tag)
@@ -1004,7 +1004,7 @@
                    variables))
     ;; Initialize local variables to NIL.
     (dolist (var variables)
-      (when (not (zerop (lexical-variable-use-count var)))
+      (unless (zerop (lexical-variable-use-count var))
         (let ((slot (find-stack-slot)))
           (setf (aref *stack-values* slot) (cons var :home))
           (emit-stack-store :x26 slot))))
@@ -1062,7 +1062,7 @@ Returns an appropriate tag."
                   (cg-form (make-instance 'ast-call
                                           :name 'sys.int::%coerce-to-callable
                                           :arguments (list (ast-function-form form)))))))
-    (when (not fn-tag)
+    (unless fn-tag
       (return-from cg-multiple-value-call nil))
     (let ((value-tag (let ((*for-value* :multiple))
                        (cg-form value-form))))
@@ -1191,7 +1191,7 @@ Returns an appropriate tag."
            (emit-gc-info)
            (add-dx-root sv-save-area))
          (let ((*for-value* nil))
-           (when (not (cg-form (ast-body form)))
+           (unless (cg-form (ast-body form))
              ;; No return.
              (kill-value tag)
              (return-from cg-multiple-value-prog1 'nil)))
@@ -1232,7 +1232,7 @@ Returns an appropriate tag."
 (defun cg-return-from (form)
   (let* ((local-info (assoc (ast-target form) *rename-list*))
          (*for-value* (block-information-return-mode (ast-target form)))
-         (target-tag (when (not local-info)
+         (target-tag (unless local-info
                        (let ((*for-value* t))
                          (cg-form (ast-info form)))))
          (tag (cg-form (ast-value form))))
@@ -1464,7 +1464,7 @@ Returns an appropriate tag."
            (unless tag (return-from cg-values nil))
            (let ((*for-value* nil))
              (dolist (f (rest forms))
-               (when (not (cg-form f))
+               (unless (cg-form f)
                  (kill-value tag)
                  (return-from cg-values nil))))
            tag))))
@@ -1527,7 +1527,7 @@ Returns an appropriate tag."
                  (t (setf *x0-value* (list (gensym)))))))))
 
 (defun cg-function-form (form)
-  (let ((fn (when (not sys.c::*suppress-builtins*)
+  (let ((fn (unless sys.c::*suppress-builtins*
               (match-builtin (ast-name form) (length (ast-arguments form))))))
     (cond ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
            (cg-make-dx-simple-vector form))

@@ -14,7 +14,7 @@
        (destructuring-bind (bb active-debug-values)
            (pop worklist)
          (cond ((nth-value 1 (gethash bb result))
-                (when (not (equal (gethash bb result) active-debug-values))
+                (unless (equal (gethash bb result) active-debug-values)
                   (format *debug-io* "debug map conflict in bb ~S:~%" bb)
                   (format *debug-io* "existing: ~S~%" (gethash bb result))
                   (format *debug-io* "current: ~S~%" active-debug-values)

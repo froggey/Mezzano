@@ -247,7 +247,7 @@ TLB shootdown must be protected by the VM lock."
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1)
   (loop
-     (when (not *tlb-shootdown-in-progress*)
+     (unless *tlb-shootdown-in-progress*
        (return))
      (sys.int::cpu-relax))
   (flush-tlb)
@@ -398,7 +398,7 @@ TLB shootdown must be protected by the VM lock."
 
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
-  (when (not (boundp '*cpus*))
+  (unless (boundp '*cpus*)
     ;; For panics early in the first boot.
     (setf *cpus* '()))
   (setf *tlb-shootdown-in-progress* nil)
@@ -597,7 +597,7 @@ TLB shootdown must be protected by the VM lock."
   (lapic-setup)
   ;; Signal that this CPU has booted successfully.
   (let ((old (sys.int::cas (cpu-state (local-cpu-object)) :offline :online)))
-    (when (not (eql old :offline))
+    (unless (eql old :offline)
       ;; The system decided that this CPU failed to come up for some reason.
       (loop
          (%hlt))))
@@ -669,7 +669,7 @@ TLB shootdown must be protected by the VM lock."
   (map-physical-memory +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
-  (when (not (boundp '*bsp-cpu*))
+  (unless (boundp '*bsp-cpu*)
     (setf *bsp-cpu* (make-cpu :info-vector sys.int::*bsp-info-vector*
                               :idle-thread sys.int::*bsp-idle-thread*
                               :state :online))
@@ -765,7 +765,7 @@ TLB shootdown must be protected by the VM lock."
                      (logbitp +acpi-madt-processor-lapic-flag-enabled+
                               (acpi-madt-processor-lapic-flags entry))
                      (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
-            (when (not did-warn)
+            (unless did-warn
               (debug-print-line "### Multiple CPUs detected. SMP support is currently experimental and unreliable.")
               (setf did-warn t))
             (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))))))

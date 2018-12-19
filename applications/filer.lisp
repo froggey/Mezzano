@@ -252,7 +252,7 @@
           (wr (namestring new-path))
           (seperator)
           (setf column-y y)
-          (when (not (= (length (pathname-directory new-path)) 1))
+          (unless (= (length (pathname-directory new-path)) 1)
             (clickable *up-icon*
                        "Parent"
                        (make-pathname :directory (butlast (pathname-directory new-path))

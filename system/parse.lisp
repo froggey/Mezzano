@@ -33,7 +33,7 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                      (&fref (setf state :fref))
                      (&closure (setf state :closure))
                      (&count (setf state :count))
-                     (t (when (not (symbolp i))
+                     (t (unless (symbolp i)
                           (error "Required parameters must be symbols"))
                         (push i required))))
         (:optional (case i

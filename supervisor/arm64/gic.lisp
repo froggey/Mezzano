@@ -64,7 +64,7 @@
 (defun initialize-gic (distributor-address cpu-address)
   (setf *gic-distributor-base* distributor-address
         *gic-cpu-interface-base* cpu-address)
-  (when (not (boundp '*gic-irqs*))
+  (unless (boundp '*gic-irqs*)
     (setf *gic-irqs* (sys.int::make-simple-vector 1024 :wired)))
   (dotimes (i 1024)
     (setf (svref *gic-irqs* i) nil))

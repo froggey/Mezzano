@@ -23,7 +23,7 @@
 (defun disassemble-function (fn &key (gc-metadata *print-gc-metadata*) (debug-metadata *print-debug-metadata*) architecture)
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
-  (when (not (functionp fn))
+  (unless (functionp fn)
     (setf fn (fdefinition fn)))
   (check-type fn function)
   (setf architecture (sys.c::canonicalize-target architecture))
@@ -43,8 +43,8 @@
          until (endp worklist)
          for fn = (pop worklist)
          do
-           (when (not (member fn closures))
-             (when (not (eql fn fundamental-fn))
+           (unless (member fn closures)
+             (unless (eql fn fundamental-fn)
                (push fn closures))
              (dotimes (i (sys.int::function-pool-size fn))
                (let ((entry (sys.int::function-pool-object fn i)))
@@ -122,7 +122,7 @@
       ;; Find the approximate end of the function. The size is rounded up to 16 bytes and
       ;; it's padded with zeros.
       (loop
-         (when (not (zerop (sys.int::function-code-byte function (1- true-end))))
+         (unless (zerop (sys.int::function-code-byte function (1- true-end)))
            (return))
          (decf true-end))
       ;; Disassemble all instructions.

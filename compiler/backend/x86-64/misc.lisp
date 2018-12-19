@@ -33,7 +33,7 @@
                                 :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
                                 :inputs (list symbol)
                                 :outputs (list global-cell)))
-           (when (not (constant-value-p symbol 'symbol))
+           (unless (constant-value-p symbol 'symbol)
              ;; For global symbols, don't even look at the cache.
              ;; Cache entries exist on the stack, which may not be paged in.
              (emit (make-instance 'x86-instruction

@@ -155,7 +155,7 @@
                            (write-char #\( stream)
                            (dotimes (i (first dims))
                              (setf index (print-level (rest dims) index))
-                             (when (not (eql i (1- (first dims))))
+                             (unless (eql i (1- (first dims)))
                                (write-char #\Space stream)))
                            (write-char #\) stream)
                            index))))
@@ -219,7 +219,7 @@ The file will only be recompiled if the source is newer than the output file, or
 
 (defun %define-symbol-macro (name expansion)
   (check-type name symbol)
-  (when (not (member (symbol-mode name) '(nil :symbol-macro)))
+  (unless (member (symbol-mode name) '(nil :symbol-macro))
     (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode name)))
   (setf (symbol-mode name) :symbol-macro)
   (setf (gethash name *symbol-macro-expansions*) expansion)

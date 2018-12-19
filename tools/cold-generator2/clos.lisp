@@ -107,7 +107,7 @@
   (let* ((initargs (gethash class-name *primordial-class-table*))
          (layout (getf initargs :layout))
          (metaclass (primordial-class-metaclass class-name)))
-    (when (not layout)
+    (unless layout
       (let ((direct-slots (getf initargs :direct-slots)))
         (setf layout (append (loop
                                 for direct-slot in direct-slots
@@ -209,7 +209,7 @@
   (dolist (cpl-constituent (reverse cpl-so-far))
     (let* ((supers (primordial-slot-value cpl-constituent (env:translate-symbol environment 'mezzano.clos::direct-superclasses)))
            (common (intersection minimal-elements supers)))
-      (when (not (null common))
+      (unless (null common)
         (return-from primordial-tie-breaker-rule (car common))))))
 
 (defun primordial-collect-superclasses (environment class)
@@ -294,14 +294,14 @@
                                              :test-not #'eq)))
                                   all-names))
          (metaclass (primordial-slot-value (primordial-class-of class) (env:translate-symbol environment 'mezzano.clos::name))))
-    (when (not (eql metaclass 'structure-class))
+    (unless (eql metaclass 'structure-class)
       (loop
          with next-instance-slot-index = (if (eql metaclass (env:translate-symbol environment 'mezzano.clos:funcallable-standard-class))
                                              16 ; Skip the first two slots of funcallable instances, used for the function & entry point
                                              0)
          for slot in effective-slots
          do
-           (when (not (eql (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
+           (unless (eql (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::allocation)) :instance)
              (error "Non-instances slots not supported"))
            (setf (primordial-slot-value slot (env:translate-symbol environment 'mezzano.clos::location))
                  (mezzano.runtime::make-location mezzano.runtime::+location-type-t+ next-instance-slot-index))
@@ -313,12 +313,12 @@
     (dolist (c (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list)))
       (loop
          for (initarg form fn) in (primordial-slot-value c (env:translate-symbol environment 'mezzano.clos::direct-default-initargs))
-         do (when (not (member initarg default-initargs :key #'first))
+         do (unless (member initarg default-initargs :key #'first)
               (push (list initarg form fn) default-initargs))))
     (nreverse default-initargs)))
 
 (defun finalize-primordial-class (environment class)
-  (when (not (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::finalized-p)))
+  (unless (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::finalized-p))
     (dolist (super (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::direct-superclasses)))
       (push class (primordial-slot-value super (env:translate-symbol environment 'mezzano.clos::direct-subclasses)))
       (finalize-primordial-class environment super))
@@ -348,7 +348,7 @@
                        for slot-name = (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::name))
                        for slot-location = (primordial-slot-location-in-layout layout slot-name)
                        do
-                         (when (not (eql (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::location)) slot-location))
+                         (unless (eql (primordial-slot-value slot-definition (env:translate-symbol environment 'mezzano.clos::location)) slot-location)
                            (error "Instance slots and computed early layout mismatch in class ~S."
                                   (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name))))))
                    (t

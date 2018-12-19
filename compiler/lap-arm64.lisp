@@ -1021,7 +1021,7 @@
              (assert (member extend '(:uxtb :uxth :uxtw :uxtx
                                       :sxtb :sxth :sxtw :sxtx
                                       :lsl nil))))
-           (when (not amount)
+           (unless amount
              (setf amount 0))
            (assert (<= 0 amount 4))
            (when (member extend '(nil :lsl))

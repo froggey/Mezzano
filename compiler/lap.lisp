@@ -216,7 +216,7 @@
          (note-variably-sized-instruction)
          (destructuring-bind (alignment) (rest instruction)
            (let ((misalignment (rem *current-address* alignment)))
-             (when (not (zerop misalignment))
+             (unless (zerop misalignment)
                (loop
                   repeat (- alignment misalignment)
                   do (emit 0))))))
@@ -275,7 +275,7 @@
   "Test if two machine code arrays are equal."
   (and (eql (length a) (length b))
        (dotimes (i (length a) t)
-         (when (not (eql (aref a i) (aref b i)))
+         (unless (eql (aref a i) (aref b i))
            (return nil)))))
 
 (defun delta-compress-debug-info-1 (old-layout new-layout)
@@ -288,9 +288,9 @@
         ((or (endp old) (endp new)
              (not (eql (first (first old)) (first (first new))))
              (not (equal (cdddr (first old)) (cdddr (first new)))))
-         (when (not (endp old))
+         (unless (endp old)
            (push `(:drop ,index) result))
-         (when (not (endp new))
+         (unless (endp new)
            (dolist (e new)
              (push e current)
              (push `(:add ,@e) result)))
@@ -416,12 +416,12 @@ a vector of constants and an alist of symbols & addresses."
                   (let ((*machine-code* (make-array 16 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
                         (*instruction-is-variably-sized* t))
                     (assemble-one-instruction instruction-set (chunk-instruction chunk))
-                    (when (not (mc-equal (chunk-code chunk) *machine-code*))
+                    (unless (mc-equal (chunk-code chunk) *machine-code*)
                       (setf changed-something t
                             (chunk-code chunk) *machine-code*))))))
              (when *missing-symbols*
                (error "Missing symbols ~S." *missing-symbols*))
-             (when (not changed-something)
+             (unless changed-something
                (setf *mc-end* *current-address*)
                (return))))
       ;; Now we have the final layout.
@@ -486,7 +486,7 @@ a vector of constants and an alist of symbols & addresses."
             (destructuring-bind (offset &key layout) entry
               (declare (ignore offset))
               (dolist (var layout)
-                (when (not (find (first var) *constant-pool*))
+                (unless (find (first var) *constant-pool*)
                   (vector-push-extend (first var) *constant-pool*)))))
           (setf (tenth (aref *constant-pool* 1)) (encode-debug-info result-debug-md *constant-pool*)))
         (values result-mc
@@ -577,7 +577,7 @@ a vector of constants and an alist of symbols & addresses."
        (cond ((eql val 't) nil)
              (val)
              (t
-              (when (not *in-pass1*)
+              (unless *in-pass1*
                 (pushnew value *missing-symbols*))
               nil))))
     (integer value)))
@@ -616,9 +616,9 @@ a vector of constants and an alist of symbols & addresses."
         (setf (getf gc-keys :interrupt) interrupt))
       (when incoming-arguments
         (setf (getf gc-keys :incoming-arguments) incoming-arguments))
-      (when (not (zerop pushed-values))
+      (unless (zerop pushed-values)
         (setf (getf gc-keys :pushed-values) pushed-values))
-      (when (not (zerop (length layout)))
+      (unless (zerop (length layout))
         (setf (getf gc-keys :layout) layout))
       (when restart
         (setf (getf gc-keys :restart) t))

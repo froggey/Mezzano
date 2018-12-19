@@ -24,7 +24,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
   (setf green (float green 0.0f0))
   (setf blue  (float blue  0.0f0))
   (setf alpha (float alpha 0.0f0))
-  (when (not premultiplied)
+  (unless premultiplied
     ;; Convert to premultiplied alpha.
     (setf red   (* red alpha)
           green (* green alpha)

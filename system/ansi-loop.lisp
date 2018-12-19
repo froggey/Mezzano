@@ -1329,7 +1329,7 @@ collected result will be returned as the value of the LOOP."
 	(name (when (loop-tequal (car *loop-source-code*) 'into)
 		(loop-pop-source)
 		(loop-pop-source))))
-    (when (not (symbolp name))
+    (unless (symbolp name)
       (loop-error "Value accumulation recipient name, ~S, is not a symbol." name))
     (unless dtype
       (setq dtype (or (loop-optional-type) default-type)))

@@ -81,7 +81,7 @@
     (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
 
 (defun initialize-disk ()
-  (when (not (boundp '*disk-request-queue-head*))
+  (unless (boundp '*disk-request-queue-head*)
     (setf *log-disk-requests* nil)
     (setf *disk-request-current* nil
           *disk-request-queue-head* nil
@@ -164,7 +164,7 @@
                                         (ceiling (* (disk-request-n-sectors request)
                                                     (disk-sector-size disk))
                                                  +4k-page-size+)))
-                   (when (not bounce-buffer)
+                   (unless bounce-buffer
                      (return-from process-one-disk-request
                        (values nil "Unable to allocate disk bounce buffer.")))
                    (setf real-buffer (convert-to-pmap-address (* bounce-buffer +4k-page-size+)))
@@ -294,7 +294,7 @@ Signals an error if REQUEST is already queued or in-progress.
 Resubmitting a completed or failed request treats the request object as though it had
 been freshly allocated."
   ;; Avoid signalling with the lock held.
-  (when (not (disk-submit-request-1 request disk direction lba n-sectors buffer))
+  (unless (disk-submit-request-1 request disk direction lba n-sectors buffer)
     (error "Request already in progress.")))
 
 (defun disk-cancel-request (request &optional (reason :cancelled))

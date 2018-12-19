@@ -31,7 +31,7 @@
                        +acpi-iapc-boot-arch-8042+))
       (probe-ps/2))
     (initialize-pci)
-    (when (not (boot-option +boot-option-no-detect+))
+    (unless (boot-option +boot-option-no-detect+)
       (pci-detect))))
 
 (defun platform-reboot ()

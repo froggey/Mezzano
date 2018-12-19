@@ -18,7 +18,7 @@
 (sys.int::defglobal *boot-time*)
 
 (defun initialize-time ()
-  (when (not (boundp '*run-time*))
+  (unless (boundp '*run-time*)
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
     (setf *run-time* 0)
     (setf sys.int::*rtc-is-utc* t

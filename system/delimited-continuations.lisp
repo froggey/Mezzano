@@ -40,8 +40,8 @@ If this is NIL then CALL-WITH-PROMPT will use the system's default stack size fo
   (cond ((delimited-continuation-p thunk)
          ;; Resuming an existing continuation, reuse the stack.
          ;; Attempt to take ownership of this continuation.
-         (when (not (sys.int::%cas-object thunk sys.int::+delimited-continuation-state+
-                                          :resumable :consumed))
+         (unless (sys.int::%cas-object thunk sys.int::+delimited-continuation-state+
+                                       :resumable :consumed)
            (error 'consumed-continuation-resumed
                   :continuation thunk
                   :arguments '()))

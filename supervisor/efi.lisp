@@ -55,7 +55,7 @@
                                                   idx)))
           (declare (dynamic-extent #'guid))
           (when (dotimes (j 16 t)
-                  (when (not (eql (svref guid j) (guid j)))
+                  (unless (eql (svref guid j) (guid j))
                     (return nil)))
             (debug-print-line "Found at index " i)
             (return (physical-memref-unsigned-byte-64 (+ config-table

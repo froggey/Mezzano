@@ -46,7 +46,7 @@
            (debug-print-line "stdout node is an unsupported device")))))
 
 (defun initialize-early-platform ()
-  (when (not (fdt-present-p))
+  (unless (fdt-present-p)
     (panic "No FDT provided"))
   (debug-print-line "Performing early FDT scan")
   (arm64-fdt-scan t))
@@ -64,11 +64,11 @@
   (let ((address-cells (fdt-address-cells node))
         (size-cells (fdt-size-cells node))
         (ranges (fdt-get-property node "ranges")))
-    (when (not ignore-ranges)
-      (when (not ranges)
+    (unless ignore-ranges
+      (unless ranges
         (debug-print-line "invalid simple-bus. missing ranges")
         (return-from register-fdt-simple-bus))
-      (when (not (eql (fdt-property-length ranges) 0))
+      (unless (eql (fdt-property-length ranges) 0)
         ;; TODO.
         (debug-print-line "simple-bus with non-simple parent-child mapping, ignoring.")
         (return-from register-fdt-simple-bus)))
@@ -78,18 +78,18 @@
              (debug-print-line "simple-bus at " child)
              (register-fdt-simple-bus child earlyp))
             ((fdt-compatible-p child "arm,armv8-timer")
-             (when (not earlyp)
+             (unless earlyp
                (initialize-platform-time child)))
             ((or (fdt-compatible-p child "arm,gic-400")
                  (fdt-compatible-p child "arm,cortex-a15-gic"))
              (when earlyp
                (initialize-fdt-gic-400 child address-cells size-cells)))
             ((fdt-compatible-p child "virtio,mmio")
-             (when (not earlyp)
+             (unless earlyp
                (virtio-mmio-fdt-register child address-cells size-cells)))
             #+(or) ; not implemented yet!
             ((fdt-compatible-p child "allwinner,sun4i-a10-timer")
-             (when (not earlyp)
+             (unless earlyp
                (initialize-fdt-sun4i-a10-timer node address-cells size-cells)))
             (t
              (debug-print-line "unknown fdt node at " child " on simple-bus"))))))

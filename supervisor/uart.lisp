@@ -36,7 +36,7 @@
   (loop
      ;; The TXFE bit seems to be broken on qemu.
      ;; That's fine, the TXFF bit has mostly the same effect.
-     (when (not (logbitp 5 (uart-reg +uart-fr+)))
+     (unless (logbitp 5 (uart-reg +uart-fr+))
        (return)))
   (setf (uart-reg +uart-dr+) byte))
 

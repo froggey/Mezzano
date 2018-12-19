@@ -5,10 +5,10 @@
 
 (defun set-equal (list-1 list-2)
   (and (dolist (elt list-1 t)
-         (when (not (member elt list-2))
+         (unless (member elt list-2)
            (return nil)))
        (dolist (elt list-2 t)
-         (when (not (member elt list-1))
+         (unless (member elt list-1)
            (return nil)))))
 
 (defun compute-actual-successors (backend-function)
@@ -97,8 +97,8 @@
                                                    (set-difference (gethash inst live-out)
                                                                    defs)))))
            (when (dolist (inst basic-blocks t)
-                   (when (not (and (set-equal (gethash inst live-in) (gethash inst live-in*))
-                                   (set-equal (gethash inst live-out) (gethash inst live-out*))))
+                   (unless (and (set-equal (gethash inst live-in) (gethash inst live-in*))
+                                (set-equal (gethash inst live-out) (gethash inst live-out*)))
                      (return nil)))
              (return)))
         ;; Compute liveness for individual instructions.

@@ -13,12 +13,12 @@
 
 (defun decode-image-header (header)
   ;; Check the magic number and version numbers match.
-  (when (not (every 'eql (subseq header 0 16) *mezzano-magic*))
+  (unless (every 'eql (subseq header 0 16) *mezzano-magic*)
     (error "Image header has wrong magic at start."))
   (let ((major (nibbles:ub16ref/le header 32))
         (minor (nibbles:ub16ref/le header 34)))
-    (when (not (and (eql major 0)
-                    (eql minor 24)))
+    (unless (and (eql major 0)
+                 (eql minor 24))
       (error "Image has unsupported protocol version ~D.~D.~%" major minor))
     (let* ((uuid (subseq header 16 32))
            (entry-fref (nibbles:ub64ref/le header 40))
@@ -247,12 +247,12 @@
          (output-freelist-block nil)
          (image-header-data (when header-path
                               (load-image-header header-path))))
-    (when (not output-offset)
+    (unless output-offset
       (setf output-offset (if image-header-data
                               (length image-header-data)
                               0)))
     (when image-header-data
-      (when (not output-size)
+      (unless output-size
         (setf output-size (* 512 1024 1024)))
       (write-sequence image-header-data output-stream)
       ;; Update the size of the third partition entry, the Mezzano partiton.

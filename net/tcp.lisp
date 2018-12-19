@@ -498,7 +498,7 @@
       ;; FIXME: Better timeout mechanism.
       (let ((timeout (+ (get-universal-time) *tcp-connect-timeout*)))
         (loop
-           (when (not (eql (tcp-connection-state connection) :syn-sent))
+           (unless (eql (tcp-connection-state connection) :syn-sent)
              (when (eql (tcp-connection-state connection) :connection-aborted)
                (error 'connection-aborted
                       :host ip
@@ -568,7 +568,7 @@
 
 (defmethod sys.gray:stream-read-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
-    (when (not (refill-tcp-packet-buffer stream))
+    (unless (refill-tcp-packet-buffer stream)
       (return-from sys.gray:stream-read-byte :eof))
     (let* ((packet (tcp-stream-packet stream))
            (byte (aref (first packet) (second packet))))

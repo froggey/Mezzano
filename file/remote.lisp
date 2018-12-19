@@ -183,7 +183,7 @@
         (abort-action nil)
         (size nil))
     (with-connection (con host)
-      (when (not (eql (ignore-errors (command pathname con `(:probe ,path))) :ok))
+      (unless (eql (ignore-errors (command pathname con `(:probe ,path))) :ok)
         (ecase if-does-not-exist
           (:error (error 'simple-file-error
                          :pathname pathname
@@ -216,7 +216,7 @@
            (setf size 0))
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
-      (when (not size)
+      (unless size
         (let ((id (command pathname con `(:open ,path :direction :input))))
           (setf size (command pathname con `(:size ,id))))))
     (let ((stream (cond ((or (eql element-type :default)
@@ -328,7 +328,7 @@
 
 (defmethod gray:stream-write-byte ((stream remote-file-stream) byte)
   (assert (member (direction stream) '(:io :output)))
-  (when (not (maybe-write-byte stream byte))
+  (unless (maybe-write-byte stream byte)
     ;; No buffer, buffer full or buffer in the wrong place. Flush and retry.
     (flush-buffer stream)
     (setf (buffer-position stream) (file-position* stream))

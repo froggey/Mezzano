@@ -120,7 +120,7 @@
                               (when (>= digit-position trailing-zeros)
                                 (write rem :stream stream :base 10))))))
                  (frob adjusted-decimal 0))))))
-  (when (not (eql (type-of float) *read-default-float-format*))
+  (unless (eql (type-of float) *read-default-float-format*)
     (etypecase float
       (single-float
        (write-string "F0" stream))
@@ -177,7 +177,7 @@
                           (find-symbol (symbol-name object) (symbol-package object))
                         (write-case-escaped-string (package-name (symbol-package object)) stream)
                         (write-char #\: stream)
-                        (when (not (eql status :external))
+                        (unless (eql status :external)
                           (write-char #\: stream)))))))
          (write-case-escaped-string (symbol-name object) stream))
         (t (write-case-escaped-string (symbol-name object) stream))))
@@ -233,7 +233,7 @@
                (write-string " . " stream)
                (write i :stream stream)))
           (write-char #\Space stream)
-          (when (not (output (car i)))
+          (unless (output (car i))
             (return))))
       (write-char #\) stream))))
 
@@ -244,7 +244,7 @@
     (dotimes (i (length object))
       (unless (zerop i)
         (write-char #\Space stream))
-      (when (not (output (aref object i)))
+      (unless (output (aref object i))
         (return)))
     (write-char #\) stream)))
 

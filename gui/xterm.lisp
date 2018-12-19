@@ -992,7 +992,7 @@ Calls FN with each output character."
          (parameter 0))
     (dotimes (i parameter-end)
       (let ((weight (digit-char-p (aref buf i))))
-        (when (not weight)
+        (unless weight
           (report-unknown-escape terminal)
           (return-from xterm-osc-end))
         (setf parameter (+ (* parameter 10) weight))))

@@ -53,7 +53,7 @@
              (#\+ (incf offset))
              (#\- (incf offset)
                   (setf negative t)))
-           (when (not (digit-char-p (char control-string offset)))
+           (unless (digit-char-p (char control-string offset))
              ;; The sign is optional, the digits are not.
              (error "Invalid format control string ~S." control-string))
            (do () ((not (digit-char-p (char control-string offset))))
@@ -131,7 +131,7 @@
        (values offset (reverse result)))
     (flet ((append-character (c)
              "Append C to the accumulated-string."
-             (when (not accumulated-string)
+             (unless accumulated-string
                (setf accumulated-string (make-array 50 :element-type 'character :adjustable t :fill-pointer 0)))
              (vector-push-extend c accumulated-string)))
       (cond ((eql #\~ (char control-string offset))
@@ -192,10 +192,10 @@
            (lambda (,arguments ,at-sign-sym ,colon-sym ,@parameter-lambda-list)
              (declare (sys.int::lambda-name (format-interpreter ,character)))
              (block nil
-               ,@(when (not at-sign)
+               ,@(unless at-sign
                        (list `(when ,at-sign-sym
                                 (error "~~~C does not take the at-sign modifier." ',character))))
-               ,@(when (not colon)
+               ,@(unless colon
                        (list `(when ,colon-sym
                                 (error "~~~C does not take the colon modifier." ',character))))
                (flet ((consume-argument ()
@@ -641,7 +641,7 @@
 
 ;; TODO!
 (define-format-interpreter #\^ (at-sign colon &rest params)
-  (when (not (remaining-arguments))
+  (unless (remaining-arguments)
     (throw 'escape-upwards nil)))
 
 (define-format-interpreter #\Newline (at-sign colon)
@@ -685,7 +685,7 @@
                              (compute-parameters (block-directive-parameters element)))))
         (directive
          (let ((fn (format-interpreter (directive-character element))))
-           (when (not fn)
+           (unless fn
              (error "Unknown format directive ~S!" (directive-character element)))
            (setf args (apply fn args
                              (directive-at-sign element)

@@ -185,7 +185,7 @@
            collect (list destination-host interface packet (1+ attempt)))))
 
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.driver.network-card:network-card) packet)
-  (when (not (try-ethernet-transmit destination-host interface packet))
+  (unless (try-ethernet-transmit destination-host interface packet)
     (push (list destination-host interface packet 0)
           *outstanding-sends*)))
 
@@ -269,7 +269,7 @@
            (protocol (aref packet (+ start +ipv4-header-protocol+)))
            (source-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-source-ip+))))
            (dest-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-destination-ip+)))))
-      (when (not (eql version 4))
+      (unless (eql version 4)
         (format t "Discarding IPv4 packet with bad version ~D.~%" version)
         (return-from ipv4-receive))
       (when (< header-length 20)
@@ -287,7 +287,7 @@
       (when (logbitp +ipv4-header-flag-reserved+ frag-control)
         (format t "Discarding IPv4 packet with reserved flag set.~%")
         (return-from ipv4-receive))
-      (when (not (eql (compute-ip-checksum packet start (+ start header-length)) 0))
+      (unless (eql (compute-ip-checksum packet start (+ start header-length)) 0)
         (format t "Discarding IPv4 packet with bad header checksum.~%")
         (return-from ipv4-receive))
       ;; TODO: Fragmentation support.
@@ -460,7 +460,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
           (code (aref packet (+ start +icmp4-code+)))
           (identifier (ub16ref/be packet (+ start +icmp4-identifier+)))
           (sequence-number (ub16ref/be packet (+ start +icmp4-sequence-number+))))
-      (when (not (eql (compute-ip-checksum packet start end) 0))
+      (unless (eql (compute-ip-checksum packet start end) 0)
         (format t "Discarding ICMPv4 packet with bad header checksum.~%")
         (return-from icmp4-receive))
       (dolist (l *icmp-listeners*)
@@ -489,7 +489,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (transmit-ipv4-packet nil destination +ip-protocol-icmp+ (list packet))))
 
 (defun send-ping (destination &optional (identifier 0) (sequence-number 0) payload)
-  (when (not payload)
+  (unless payload
     (setf payload (make-array 56 :element-type '(unsigned-byte 8)))
     (dotimes (i 56)
       (setf (aref payload i) i)))
@@ -534,7 +534,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                      (let ((seq (ub16ref/be packet (+ start +icmp4-sequence-number+))))
                        (when (find seq in-flight-pings)
                          (setf in-flight-pings (remove seq in-flight-pings))
-                         (when (not quiet)
+                         (unless quiet
                            (format t "Pong ~S.~%" seq)))))))
            (when (or (> (get-universal-time) timeout-absolute)
                      (null in-flight-pings))

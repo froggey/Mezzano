@@ -35,7 +35,7 @@
            (type (simple-array bit (*)) mask)
            (type (unsigned-byte 32) colour))
   (loop for i fixnum below ncols do
-    (when (not (eql (aref mask mask-offset) 0))
+    (unless (eql (aref mask mask-offset) 0)
       (funcall blender colour to to-offset))
     (incf to-offset)
     (incf mask-offset)))

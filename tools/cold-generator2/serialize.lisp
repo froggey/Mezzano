@@ -375,7 +375,7 @@ Must not call SERIALIZE-OBJECT."))
              (total-data-words (ceiling (* n-elements element-size) 64))
              (image-array (allocate (1+ total-data-words) image area sys.int::+tag-object+)))
         (initialize-object-header image image-array object-type n-elements)
-        (when (not (eql element-type 't))
+        (unless (eql element-type 't)
           ;; Numeric array. write the data directly.
           (dotimes (i total-data-words)
             (let ((value 0))
@@ -398,7 +398,7 @@ Must not call SERIALIZE-OBJECT."))
   ;; Deduplicate strings & bit-vectors in the image.
   (let* ((key (cons object (env:object-area environment object)))
          (existing (gethash key (image-dedup-table image))))
-    (when (not existing)
+    (unless existing
       (setf existing (call-next-method)
             (gethash key (image-dedup-table image)) existing))
     existing))
@@ -433,7 +433,7 @@ Must not call SERIALIZE-OBJECT."))
          ;; Deduplicate bignums in the image.
          (let* ((key (cons object (env:object-area environment object)))
                 (existing (gethash key (image-dedup-table image))))
-           (when (not existing)
+           (unless existing
              (setf existing (call-next-method)
                    (gethash key (image-dedup-table image)) existing))
            existing))))
@@ -456,7 +456,7 @@ Must not call SERIALIZE-OBJECT."))
   ;; Deduplicate double floats in the image.
   (let* ((key (cons object nil))
          (existing (gethash key (image-dedup-table image))))
-    (when (not existing)
+    (unless existing
       (setf existing (call-next-method)
             (gethash key (image-dedup-table image)) existing))
     existing))
@@ -492,7 +492,7 @@ Must not call SERIALIZE-OBJECT."))
   ;; Deduplicate double floats in the image.
   (let* ((key (cons object nil))
          (existing (gethash key (image-dedup-table image))))
-    (when (not existing)
+    (unless existing
       (setf existing (call-next-method)
             (gethash key (image-dedup-table image)) existing))
     existing))

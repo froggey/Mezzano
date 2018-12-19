@@ -35,12 +35,12 @@
     ;; Wait for the start of this tick.
     (loop
        (setf start-time (get-internal-run-time))
-       (when (not (eq start-time initial-time))
+       (unless (eq start-time initial-time)
          (return)))
     (setf start-cycle (sys.int::tsc))
     (loop
        (setf end-time (get-internal-run-time))
-       (when (not (eq end-time start-time))
+       (unless (eq end-time start-time)
          (return)))
     (setf end-cycle (sys.int::tsc))
     (let* ((cycles (- end-cycle start-cycle))
@@ -55,7 +55,7 @@
     (setf *cpu-speed* n)))
 
 (defun initialize-platform-time ()
-  (when (not (boundp '*rtc-lock*))
+  (unless (boundp '*rtc-lock*)
     (setf *rtc-lock* (place-spinlock-initializer)))
   (configure-pit-tick-rate 100)
   (irq-attach (platform-irq +pit-irq+)
@@ -141,7 +141,7 @@
                   (eql day    last-day)
                   (eql month  last-month)
                   (eql year   last-year)))
-          (when (not (wait-for-rtc))
+          (unless (wait-for-rtc)
             ;; RTC timed out, use these values anyway.
             (return)))
         (values second minute hour day month year status-b)))))

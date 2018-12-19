@@ -47,7 +47,7 @@ Returns the character position in *UNIFONT-BMP-DATA* and the character pixel wid
       (unless glyph
         (multiple-value-bind (glyph-offset width)
             (map-unifont c)
-          (when (not glyph-offset) (return-from map-unifont-2d nil))
+          (unless glyph-offset (return-from map-unifont-2d nil))
           (setf glyph (make-array (list 16 width)
                                   :displaced-to *unifont-bmp-data*
                                   :displaced-index-offset glyph-offset)

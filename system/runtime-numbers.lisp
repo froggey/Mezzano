@@ -366,14 +366,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (setf tq (ash tq n))
     ;; Divide bit-by-bit.
     (dotimes (i (1+ n))
-      (when (not (> tb ta))
+      (unless (> tb ta)
         (setf ta (- ta tb))
         (setf q (+ tq q)))
       (setf tb (ash tb -1)
             tq (ash tq -1)))
     ;; Quotient in Q, remainder in TA.
     ;; Correct sign.
-    (when (not (eql (minusp a) (minusp b)))
+    (unless (eql (minusp a) (minusp b))
       (setf q (- q)))
     (when (minusp a)
       (setf ta (- ta)))
@@ -557,7 +557,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (when (fixnump b)
       (setf b (%make-bignum-from-fixnum b)))
     (setf c (%%bignum-multiply-unsigned a b))
-    (when (not (eql a-negative b-negative))
+    (unless (eql a-negative b-negative)
       (setf c (- c)))
     c))
 
@@ -778,7 +778,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
     (setf s (* d d))
 
-    (when (not (logtest q 2))
+    (unless (logtest q 2)
       (setf d (- d)))
 
     (finish-sincos-single-float s d)))
@@ -827,7 +827,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
     (setf s (* d d))
 
-    (when (not (logtest q 2))
+    (unless (logtest q 2)
       (setf d (- d)))
 
     (finish-sincos-double-float s d)))
@@ -882,7 +882,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
     (setf s (* x x))
 
-    (when (not (eql (logand q 1) 0))
+    (unless (eql (logand q 1) 0)
       (setf x (- x)))
 
     (setf u 0.00927245803177356719970703f0)
@@ -894,7 +894,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
     (setf u (sleef-mlaf s (* u x) x))
 
-    (when (not (eql (logand q 1) 0))
+    (unless (eql (logand q 1) 0)
       (setf u (/ u)))
 
     (when (float-infinity-p d)
@@ -1016,9 +1016,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
         (setf tt (+ s (* s tt u)))
 
-        (when (not (eql (logand q 1) 0))
+        (unless (eql (logand q 1) 0)
           (setf tt (- 1.570796326794896557998982f0 tt)))
-        (when (not (eql (logand q 2) 0))
+        (unless (eql (logand q 2) 0)
           (setf tt (- tt)))
         (if (floatp number1)
             (float tt number1)

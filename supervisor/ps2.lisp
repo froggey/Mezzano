@@ -88,7 +88,7 @@
   ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
             (debug-print-line "PS/2: Timeout waiting for " what "."))
-    (when (not (zerop (logand (sys.int::io-port/8 +ps/2-control-port+) +ps/2-status-output-buffer-status+)))
+    (unless (zerop (logand (sys.int::io-port/8 +ps/2-control-port+) +ps/2-status-output-buffer-status+))
       (return t))))
 
 (defun ps/2-port-write (byte command)
@@ -118,7 +118,7 @@
 (defun initialize-ps/2 ()
   (setf *ps/2-present* nil)
   (setf *ps/2-debug-dump-state* 0)
-  (when (not (boundp '*ps/2-controller-lock*))
+  (unless (boundp '*ps/2-controller-lock*)
     (setf *ps/2-controller-lock* :unlocked
           *ps/2-key-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 key fifo")
           *ps/2-aux-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 aux fifo")))

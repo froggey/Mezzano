@@ -263,7 +263,7 @@
   (mezzano.gui.widgets:draw-frame (frame peek)))
 
 (defmethod dispatch-event (peek (event mezzano.gui.compositor:key-event))
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (let* ((ch (mezzano.gui.compositor:key-key event))
            (cmd (assoc ch *peek-commands* :test 'char-equal)))
       (cond ((char= ch #\Space)
@@ -350,7 +350,7 @@
                                            :damage-function (lambda (&rest args)
                                                               (loop
                                                                  (let ((ev (mezzano.supervisor:fifo-pop fifo nil)))
-                                                                   (when (not ev) (return))
+                                                                   (unless ev (return))
                                                                    (dispatch-event peek ev)))
                                                               (apply #'mezzano.gui.compositor:damage-window window args)))))
             (setf (slot-value peek '%text-pane) text-pane)
@@ -368,7 +368,7 @@
                    (fresh-line)
                    (ignore-errors
                      (funcall (mode peek)))))
-               (when (not (redraw peek))
+               (unless (redraw peek)
                  (dispatch-event peek (mezzano.supervisor:fifo-pop fifo))))))))))
 
 (defun spawn ()

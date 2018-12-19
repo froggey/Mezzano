@@ -208,7 +208,7 @@
                                            nil))
             (push new-form new-subforms)
             (when control-terminates
-              (when (not (eql (length new-subforms) (length (forms form))))
+              (unless (eql (length new-subforms) (length (forms form)))
                 (change-made))
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-subforms))
@@ -270,7 +270,7 @@
                                      ;; Avoid moving the entry block.
                                      (not (eql (target stmt) (first (first (statements form))))))))
                             (statements form))))
-       (when (not victim)
+       (unless victim
          (return))
        (change-made)
        (let ((target (find (target (second victim)) (statements form) :key #'first)))
@@ -328,7 +328,7 @@
               (simplify-control-flow-1 argument ti/tb-mapping permitted-hoist-tagbodys renames nil)
             (push new-form new-arguments)
             (when control-terminates
-              (when (not (eql (length new-arguments) (length (arguments form))))
+              (unless (eql (length new-arguments) (length (arguments form)))
                 (change-made))
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-arguments))

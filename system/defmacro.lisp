@@ -52,7 +52,7 @@
                    (setf required-count (1+ required-count)
                          ll (cdr ll)
                          current `(cdr ,current)))
-                 (when (not (listp ll))
+                 (unless (listp ll)
                    ;; Dotted lists after required arguments as rest arguments.
                    (push (list ll current) bindings)
                    (return-from handle-one-level (values required-count nil)))
@@ -77,7 +77,7 @@
                      (setf optional-count (1+ optional-count)
                            ll (cdr ll)
                            current `(cdr ,current))))
-                 (when (not (listp ll))
+                 (unless (listp ll)
                    ;; Dotted lists after optional arguments as rest arguments.
                    (push (list ll current) bindings)
                    (return-from handle-one-level (values required-count nil)))

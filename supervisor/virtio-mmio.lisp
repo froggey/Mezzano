@@ -126,9 +126,9 @@
          (did (virtio-mmio-device-id dev))
          (vid (virtio-mmio-vendor-id dev)))
     (setf (virtio:virtio-device-did dev) did)
-    (when (not (and (eql magic +virtio-mmio-magic-value+)
+    (unless (and (eql magic +virtio-mmio-magic-value+)
                     (eql version 1)
-                    (not (eql did virtio:+virtio-dev-id-invalid+))))
+                    (not (eql did virtio:+virtio-dev-id-invalid+)))
       (return-from virtio-mmio-register nil))
     (sup:debug-print-line "mmio virtio device at " address " did: " did " vid: " vid)
     (virtio:virtio-device-register dev)))
@@ -154,7 +154,7 @@
     (let* ((queue-size (virtio-mmio-queue-num-max device))
            (size (virtio:virtio-ring-size queue-size)))
       (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
+      (unless (zerop queue-size)
         ;; Allocate and clear the virtqueue.
         ;; Must be 4k aligned and contiguous in physical memory.
         (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))

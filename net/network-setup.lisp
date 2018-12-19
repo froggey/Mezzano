@@ -59,7 +59,7 @@
 (mezzano.supervisor:add-boot-hook 'ethernet-boot-hook)
 
 ;; Don't start the ethernet worker until the whole stack has been loaded.
-(when (not mezzano.network.ethernet::*ethernet-thread*)
+(unless mezzano.network.ethernet::*ethernet-thread*
   (setf mezzano.network.ethernet::*ethernet-thread*
         (mezzano.supervisor:make-thread 'mezzano.network.ethernet::ethernet-thread
                                         :name "Ethernet thread"))

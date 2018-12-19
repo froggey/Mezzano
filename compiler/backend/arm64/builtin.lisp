@@ -4,7 +4,7 @@
 (in-package :mezzano.compiler.backend.arm64)
 
 (defmacro define-builtin (name (lambda-list results) &body body)
-  (when (not (listp results))
+  (unless (listp results)
     (setf results (list results)))
   (let ((backend-function (gensym))
         (insertion-point (gensym))
@@ -29,7 +29,7 @@
                                                    (typep (first arg-defs) 'ir:constant-instruction))
                                               (ir:constant-value (first arg-defs)))
                                              (t (give-up))))))
-                          (when (not ,predicate)
+                          (unless ,predicate
                             (give-up))
                           ,@body)))))
     `(%defbuiltin ',name
@@ -84,9 +84,9 @@
             (out-uses (gethash out uses)))
         ;(format t "Out: ~S  defs: ~S  uses: ~S~%" out out-defs out-uses)
         ;; Must have one definition.
-        (when (not (and out-defs
+        (unless (and out-defs
                         (eql (first out-defs) definition)
-                        (endp (rest out-defs))))
+                        (endp (rest out-defs)))
           (return nil))
         ;; Must be used only by the consumer.
         (when (or (endp out-uses)
@@ -120,10 +120,10 @@
                    ;; FIXME: This should work when the result consumed by the branch is a predicate and other results are ignored.
                    (eql (length (builtin-result-list builtin)) 1)
                    (keywordp (first (builtin-result-list builtin))))
-          (when (not (apply (builtin-generator builtin)
+          (unless (apply (builtin-generator builtin)
                             backend-function inst
                             defs
-                            (ir:call-arguments inst)))
+                            (ir:call-arguments inst))
             (return-from lower-predicate-builtin nil))
           (let ((pred (first (builtin-result-list builtin))))
             (ir:insert-before
@@ -159,11 +159,11 @@
                          for reg in result-regs
                          when (not (keywordp result))
                          collect reg)))
-        (when (not (apply (builtin-generator builtin)
+        (unless (apply (builtin-generator builtin)
                           backend-function inst
                           defs
                           (append (ir:call-arguments inst)
-                                  results)))
+                                  results))
           (return-from lower-builtin nil))
         (cond ((and result-regs
                     (endp (builtin-result-list builtin)))

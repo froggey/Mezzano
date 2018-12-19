@@ -123,8 +123,8 @@
 
 (defun proclaim-symbol-mode (sym mode)
   (check-type sym symbol)
-  (when (not (or (null (sys.int::symbol-mode sym))
-                 (eql (sys.int::symbol-mode sym) mode)))
+  (unless (or (null (sys.int::symbol-mode sym))
+              (eql (sys.int::symbol-mode sym) mode))
     (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
             sym (sys.int::symbol-mode sym) mode))
   (setf (gethash sym *system-symbol-declarations*) mode))
@@ -417,5 +417,5 @@
 
 (defun sys.int::%type-check (object tag type)
   (declare (ignore tag))
-  (when (not (typep object type))
+  (unless (typep object type)
     (error "Type error: ~S not of type ~S." object type)))

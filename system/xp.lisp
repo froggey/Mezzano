@@ -239,7 +239,7 @@
     (values (or fn #'non-pretty-print) (not (null fn)))))
 
 (defun get-printer (object table)
-  (when (not (typep table 'pprint-dispatch-table))
+  (unless (typep table 'pprint-dispatch-table)
     (return-from get-printer nil))
   (let* ((entry (if (consp object)
                     (gethash (car object) (conses-with-cars table))
@@ -466,7 +466,7 @@
 
 (defun push-prefix-stack (xp)
   (let ((old-prefix 0) (old-suffix 0) (old-non-blank 0))
-    (when (not (minusp (prefix-stack-ptr xp)))
+    (unless (minusp (prefix-stack-ptr xp))
       (setf old-prefix (prefix-ptr xp)
             old-suffix (suffix-ptr xp)
             old-non-blank (non-blank-prefix-ptr xp)))
@@ -769,7 +769,7 @@
   `(let ((limit (linel ,xp)))
      (when (eql (line-limit ,xp) (line-no ,xp)) ;prevents suffix overflow
        (decf limit 2) ;3 for " .." minus 1 for space (heuristic)
-       (when (not (minusp (prefix-stack-ptr ,xp)))
+       (unless (minusp (prefix-stack-ptr ,xp))
          (decf limit (suffix-ptr ,xp))))
      (cond ((Qend ,xp ,Qentry)
             (> (LP<-TP ,xp (Qpos ,xp (+ ,Qentry (Qend ,xp ,Qentry)))) limit))
@@ -873,7 +873,7 @@
     (replace (buffer xp) (prefix xp) :end2 prefix-end)
     (incf (buffer-ptr xp) change)
     (decf (buffer-offset xp) change)
-    (when (not (member (Qkind xp Qentry) '(:unconditional :fresh)))
+    (unless (member (Qkind xp Qentry) '(:unconditional :fresh))
       (setf (section-start-line xp) (line-no xp)))))
 
 (defun set-indentation-prefix (xp new-position)
@@ -923,7 +923,7 @@
             (*locating-circularities* (if *print-circle* 0 nil))
             (*circularity-hash-table*
               (if *print-circle* (get-circularity-hash-table) nil))
-            (*parents* (when (not *print-shared*) (list nil)))
+            (*parents* (unless *print-shared* (list nil)))
             (*result* nil))
         (xp-print fn (decode-stream-arg stream) args)
         (if *circularity-hash-table*
@@ -1134,7 +1134,7 @@
 
 (defmethod sys.gray:stream-fresh-line ((stream xp-structure))
   (attempt-to-output stream T T) ;ok because we want newline
-  (when (not (zerop (LP<-BP stream)))
+  (unless (zerop (LP<-BP stream))
     (pprint-newline+ :fresh stream)
     T))
 
@@ -1220,7 +1220,7 @@
                                 &body body)
   (cond ((eq stream-symbol nil) (setf stream-symbol '*standard-output*))
         ((eq stream-symbol T) (setf stream-symbol '*terminal-io*)))
-  (when (not (symbolp stream-symbol))
+  (unless (symbolp stream-symbol)
     (warn "STREAM-SYMBOL arg ~S to PPRINT-LOGICAL-BLOCK is not a bindable symbol"
           stream-symbol)
     (setf stream-symbol '*standard-output*))

@@ -358,7 +358,7 @@
                     (error "Invalid feature expression ~S" test))
                   (not (eval-feature-test (cadr test))))
             (:and (dolist (subexpr (cdr test) t)
-                    (when (not (eval-feature-test subexpr))
+                    (unless (eval-feature-test subexpr)
                       (return nil))))
             (:or (dolist (subexpr (cdr test) nil)
                    (when (eval-feature-test subexpr)
@@ -880,7 +880,7 @@
            (incf (second info))
            (when (eql (second info) 1)
              (save-one-object object omap stream)))
-          (t (when (not (third info))
+          (t (unless (third info)
                (save-one-object object omap stream)
                (setf (third info) t)
                (unless (eql (second info) 1)
@@ -1133,7 +1133,7 @@
          for values = (multiple-value-list (funcall generator))
          for form = (first values)
          do
-           (when (not values)
+           (unless values
              (return))
            (when *compile-print*
              (let ((*print-length* 3)

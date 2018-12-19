@@ -347,7 +347,7 @@
                                 (mouse-y-position event))
          (when (resizablep frame)
            (funcall (set-cursor-function frame) :default))
-         (when (not (close-button-hover frame))
+         (unless (close-button-hover frame)
            (setf (close-button-hover frame) t)
            (draw-frame frame)
            (funcall (damage-function frame)
@@ -428,7 +428,7 @@
                       x y
                       1 line-height))))
     (cond ((cursor-visible stream)
-           (when (not value)
+           (unless value
              ;; Cursor was visible, now invisible.
              (doit)))
           (t (when value

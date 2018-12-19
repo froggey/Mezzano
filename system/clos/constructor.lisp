@@ -118,7 +118,7 @@
       (return-from compute-constructor-initialization-form nil))
     ;; Instance allocated slots only.
     (dolist (slot (class-slots class))
-      (when (not (eql (slot-definition-allocation slot) :instance))
+      (unless (eql (slot-definition-allocation slot) :instance)
         (return-from compute-constructor-initialization-form nil)))
     (multiple-value-bind (ii-initargs ii-initargs-aok)
         (applicable-methods-initargs ii-applicable-methods)
@@ -165,11 +165,11 @@
                ;; Default initargs.
                ,@(loop
                     for (initarg form fn) in (class-default-initargs class)
-                    collect `(when (not (property-present-p ,supplied-initargs ',initarg))
+                    collect `(unless (property-present-p ,supplied-initargs ',initarg)
                                (setf ,initargs (list* ',initarg (funcall ',fn) ,initargs))))
                ;; Check key validity.
-               ,(when (not (or allocate-aok initialize-aok))
-                  `(when (not (getf ,initargs :allow-other-keys))
+               ,(unless (or allocate-aok initialize-aok)
+                  `(unless (getf ,initargs :allow-other-keys)
                      (let ((invalid-initargs (loop
                                                 for key in ,initargs by #'cddr
                                                 when (not (member key ',all-keys))

@@ -373,7 +373,7 @@
 
 (defun parse-namestring (thing &optional host (default-pathname *default-pathname-defaults*) &key (start 0) (end nil) junk-allowed)
   (loop
-     (when (not (typep thing 'synonym-stream))
+     (unless (typep thing 'synonym-stream)
        (return))
      (setf thing (symbol-value (synonym-stream-symbol thing))))
   (when (typep thing 'file-stream)
@@ -729,9 +729,9 @@ NAMESTRING as the second."
       ;; {directory directory-marker}* [name]
       (loop
          (let ((word (consume-word)))
-           (when (not word)
+           (unless word
              (return))
-           (when (not (consume-char #\;))
+           (unless (consume-char #\;)
              ;; This is the name portion.
              (when (eql word :wild-inferiors)
                (error "Unexpected wild-inferiors in name position."))
@@ -758,7 +758,7 @@ NAMESTRING as the second."
                           (string= word "NEWEST"))
                      (setf version :newest))
                     (t (setf version word))))))))
-    (when (not (eql offset (length namestring)))
+    (unless (eql offset (length namestring))
       (error "Unexpected ~C in logical namestring." (char namestring offset)))
     (make-instance 'logical-pathname
                    :host host
@@ -825,7 +825,7 @@ NAMESTRING as the second."
 
 (defun (setf logical-pathname-translations) (new-translations host)
   (let ((logical-host (find-host host nil)))
-    (when (not logical-host)
+    (unless logical-host
       (check-type host string)
       (setf logical-host (make-instance 'logical-host :name (string-upcase host))
             (find-host host) logical-host))
@@ -834,7 +834,7 @@ NAMESTRING as the second."
 
 (defun translate-logical-pathname (pathname &key)
   (setf pathname (pathname pathname))
-  (when (not (typep pathname 'logical-pathname))
+  (unless (typep pathname 'logical-pathname)
     (return-from translate-logical-pathname pathname))
   (loop
      with host = (pathname-host pathname)
@@ -854,5 +854,5 @@ NAMESTRING as the second."
     pathname))
 
 ;; Create the SYS logical host if it doesn't exist.
-(when (not (find-host "SYS" nil))
+(unless (find-host "SYS" nil)
   (setf (logical-pathname-translations "SYS") '()))

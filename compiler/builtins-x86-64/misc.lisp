@@ -435,7 +435,7 @@
       ;; Done.
       (emit `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r9 symbol t)
-    (when (not (constant-type-p symbol 'symbol))
+    (unless (constant-type-p symbol 'symbol)
       ;; Symbol type check.
       (emit `(sys.lap-x86:lea64 :rax (:r9 ,(- sys.int::+tag-object+)))
             `(sys.lap-x86:test8 :al #b1111)

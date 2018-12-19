@@ -106,7 +106,7 @@
   ;; Avoid high-level array/seq functions.
   ;; fixme: allocation should be done once (by the cold-gen?)
   ;; but the reset should be done every boot.
-  (when (not (boundp '*user-interrupt-handlers*))
+  (unless (boundp '*user-interrupt-handlers*)
     (setf *user-interrupt-handlers* (sys.int::make-simple-vector 256 :wired)))
   (dotimes (i 256)
     (setf (svref *user-interrupt-handlers* i) nil)))
@@ -258,7 +258,7 @@ If clear, the fault occured in supervisor mode.")
   (check-type irq (integer 0 15))
   (safe-without-interrupts (irq)
     (with-symbol-spinlock (*i8259-spinlock*)
-      (when (not (logbitp irq *i8259-shadow-mask*))
+      (unless (logbitp irq *i8259-shadow-mask*)
         ;; Currently unmasked, mask it.
         (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 1)
         (if (< irq 8)
@@ -278,7 +278,7 @@ If clear, the fault occured in supervisor mode.")
 
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
-  (when (not (boundp '*i8259-irqs*))
+  (unless (boundp '*i8259-irqs*)
     (setf *i8259-irqs* (sys.int::make-simple-vector 16 :wired)
           ;; fixme: do at cold-gen time.
           *i8259-spinlock* :unlocked))

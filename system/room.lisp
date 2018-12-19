@@ -74,7 +74,7 @@ Should be kept in sync with data-types.")
 
 (defun print-n-allocated-objects-table (n-allocated-objects allocated-object-sizes allocated-classes)
   (dotimes (i (length n-allocated-objects))
-    (when (not (zerop (aref n-allocated-objects i)))
+    (unless (zerop (aref n-allocated-objects i))
       (format t "  ~A:~35T~:D objects. ~:D words.~%"
               (aref *object-tags-to-basic-types* i)
               (aref n-allocated-objects i)
@@ -141,7 +141,7 @@ Should be kept in sync with data-types.")
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
-    (when (not (eql mezzano.supervisor::*paging-disk* :freestanding))
+    (unless (eql mezzano.supervisor::*paging-disk* :freestanding)
       (multiple-value-bind (n-free-blocks total-blocks)
           (mezzano.supervisor:store-statistics)
         (format t "~:D/~:D store blocks used (~D%).~%"
@@ -268,7 +268,7 @@ FN will be called with the world stopped, it must not allocate."
                      (incf (svref n-allocated-objects tag))
                      (incf (svref allocated-objects-sizes tag) size)
                      (incf total-words size)
-                     (when (not (eql tag +object-tag-freelist-entry+))
+                     (unless (eql tag +object-tag-freelist-entry+)
                        (incf allocated-words size))
                      (case tag
                        (#.+object-tag-freelist-entry+
@@ -288,7 +288,7 @@ FN will be called with the world stopped, it must not allocate."
   (format t "  Free fragment counts:~%")
   (dotimes (i (length counts))
     (let ((n (aref counts i)))
-      (when (not (zerop n))
+      (unless (zerop n)
         (format t "    ~:D words:~35T~D~%" (ash 1 i) n)))))
 
 (defun pinned-area-fragment-counts (area)

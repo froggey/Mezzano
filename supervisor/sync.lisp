@@ -167,7 +167,7 @@
 (defun release-mutex (mutex)
   (check-mutex-release-consistence mutex)
   (setf (mutex-owner mutex) nil)
-  (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
+  (unless (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked)
     ;; Mutex must be in the contested state.
     (release-mutex-slow-path mutex))
   (values))
@@ -189,7 +189,7 @@
 
 (defun release-mutex-for-condition-variable (mutex)
   (setf (mutex-owner mutex) nil)
-  (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
+  (unless (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked)
     ;; Mutex must be in the contested state.
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
@@ -253,7 +253,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
     ;; Got woken up. Reacquire the mutex.
     ;; Slightly tricky, if the thread was interrupted and unwound before
     ;; interrupts were disabled, then the mutex won't have been released.
-    (when (not (mutex-held-p mutex))
+    (unless (mutex-held-p mutex)
       (acquire-mutex mutex t)))
   (values))
 
@@ -410,7 +410,7 @@ Safe to use from an interrupt handler."
 Returns two values. The first value is the value popped from the FIFO.
 The second value is true if a value was popped, false otherwise.
 It is only possible for the second value to be false when wait-p is false."
-  (when (not (semaphore-down (irq-fifo-count fifo) wait-p))
+  (unless (semaphore-down (irq-fifo-count fifo) wait-p)
     (return-from irq-fifo-pop
       (values nil nil)))
   (safe-without-interrupts (fifo)
@@ -431,7 +431,7 @@ It is only possible for the second value to be false when wait-p is false."
      (multiple-value-bind (value validp)
          (irq-fifo-pop fifo nil)
        (declare (ignore value))
-       (when (not validp)
+       (unless validp
          (return)))))
 
 (defstruct (fifo
@@ -472,7 +472,7 @@ The second value is true if a value was popped, false otherwise.
 It is only possible for the second value to be false when wait-p is false."
   (with-mutex ((fifo-lock fifo))
     (loop
-       (when (not (eql (fifo-head fifo) (fifo-tail fifo)))
+       (unless (eql (fifo-head fifo) (fifo-tail fifo))
          ;; Fifo not empty, pop byte.
          (let ((value (aref (fifo-buffer fifo) (fifo-head fifo)))
                (next (1+ (fifo-head fifo))))

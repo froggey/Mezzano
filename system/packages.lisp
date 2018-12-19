@@ -123,7 +123,7 @@
          (when (endp pending)
            (return (values nil nil)))
          (let ((pak (pop pending)))
-           (when (not (member pak visited))
+           (unless (member pak visited)
              (push pak visited)
              (multiple-value-bind (sym present-p)
                  (gethash string (package-%external-symbols pak))
@@ -310,7 +310,7 @@
   (with-package-iterator (itr (list package) :internal :external :inherited)
     (loop (multiple-value-bind (valid symbol)
               (itr)
-            (when (not valid) (return))
+            (unless valid (return))
             (funcall fn symbol)))))
 
 ;; FIXME: Declares
@@ -325,7 +325,7 @@
   (with-package-iterator (itr (list package) :external)
     (loop (multiple-value-bind (valid symbol)
               (itr)
-            (when (not valid) (return))
+            (unless valid (return))
             (funcall fn symbol)))))
 
 ;; FIXME: Declares
@@ -340,7 +340,7 @@
   (with-package-iterator (itr (list-all-packages) :internal :external)
     (loop (multiple-value-bind (valid symbol)
               (itr)
-            (when (not valid) (return))
+            (unless valid (return))
             (funcall fn symbol)))))
 
 ;; FIXME: Declares
@@ -376,8 +376,8 @@
       (import (list symbol) p)
       (when (eql p *keyword-package*)
         (setf (symbol-mode symbol) :special)
-        (when (not (eq (mezzano.runtime::fast-symbol-value-cell symbol)
-                       (mezzano.runtime::symbol-global-value-cell symbol)))
+        (unless (eq (mezzano.runtime::fast-symbol-value-cell symbol)
+                    (mezzano.runtime::symbol-global-value-cell symbol))
           ;; Fault to preserve the state as much as possible.
           (sys.int::%%unreachable))
         (setf (symbol-value symbol) symbol)
@@ -558,7 +558,7 @@
           (gethash symbol-name (package-%internal-symbols package)) new-symbol)))
 
 (defun shadowing-import (symbols &optional (package *package*))
-  (when (not (listp symbols))
+  (unless (listp symbols)
     (setf symbols (list symbols)))
   (setf package (find-package-or-die package))
   (dolist (symbol symbols)
@@ -629,7 +629,7 @@
     (let ((sym (aref *initial-obarray* i)))
       (let* ((package-keyword (symbol-package sym))
              (package (find-package (string package-keyword))))
-        (when (not package)
+        (unless package
           (setf package (make-package (string package-keyword) :use '("CL"))))
         (setf (symbol-package sym) nil)
         (import-one-symbol sym package)

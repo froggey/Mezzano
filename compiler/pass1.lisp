@@ -185,7 +185,7 @@
   "Find SYMBOL in ENV, returning a SPECIAL-VARIABLE if it's special or if it's not found."
   (let ((var (lookup-variable-in-environment symbol env)))
     (cond ((typep var 'symbol-macro)
-           (when (not allow-symbol-macros)
+           (unless allow-symbol-macros
              (error-program-error "Symbol-macro not allowed here."))
            (list symbol (symbol-macro-expansion var)))
           (t
@@ -228,7 +228,7 @@
                            (warn "Caught error ~A during compiler-macro expansion of ~S" c form)
                            ;; Evaluate to FORM to reject expansion.
                            form))))
-        (when (not (eq expansion form))
+        (unless (eq expansion form)
           (return-from compiler-macroexpand-1
             (values expansion t))))))
   (let ((fn (macro-function (first form) env)))
@@ -631,7 +631,7 @@
     (let ((whole (gensym "WHOLE")))
       (multiple-value-bind (lambda-list env)
           (sys.int::fix-lambda-list-environment lambda-list)
-        (when (not env)
+        (unless env
           (setf env (gensym "ENV")))
         (multiple-value-bind (body declares)
             (sys.int::parse-declares forms)

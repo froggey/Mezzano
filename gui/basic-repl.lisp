@@ -29,7 +29,7 @@
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (mezzano.supervisor:fifo-push (mezzano.gui.compositor:key-key event) (input-buffer window) nil)))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
@@ -39,7 +39,7 @@
   "Read & dispatch window events until there are no more waiting events."
   (loop
      (let ((evt (mezzano.supervisor:fifo-pop (fifo window) nil)))
-       (when (not evt)
+       (unless evt
          (return))
        (dispatch-event window evt))))
 

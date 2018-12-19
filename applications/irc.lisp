@@ -300,7 +300,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
         (fifo (fifo irc)))
     (loop
        (let ((line (read-line connection nil)))
-         (when (not line)
+         (unless line
            (mezzano.supervisor:fifo-push (make-instance 'server-disconnect-event) fifo)
            (return))
          (mezzano.supervisor:fifo-push (make-instance 'server-line-event :line line) fifo)))))
@@ -507,7 +507,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 
 (defmethod dispatch-event (irc (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (throw 'next-character
       (if (mezzano.gui.compositor:key-modifier-state event)
           ;; Force character to uppercase when a modifier key is active, gets

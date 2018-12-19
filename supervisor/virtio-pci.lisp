@@ -179,7 +179,7 @@
     (let* ((queue-size (virtio-pci-common-cfg-queue-size device))
            (size (virtio:virtio-ring-size queue-size)))
       (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
+      (unless (zerop queue-size)
         ;; Allocate and clear the virtqueue.
         ;; Must be 4k aligned and contiguous in physical memory.
         (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
@@ -319,7 +319,7 @@
     (let* ((queue-size (virtio-legacy-pci-transport-queue-size device))
            (size (virtio:virtio-ring-size queue-size)))
       (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
+      (unless (zerop queue-size)
         ;; Allocate and clear the virtqueue.
         ;; Must be 4k aligned and contiguous in physical memory.
         (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))

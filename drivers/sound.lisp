@@ -151,7 +151,7 @@
      (mezzano.supervisor:with-mutex (*sink-lock*)
        ;; Wait for at least one sink.
        (loop
-          (when (not (endp *sinks*))
+          (unless (endp *sinks*)
             (return))
           (mezzano.supervisor:condition-wait *sink-cvar* *sink-lock*)))
      ;; There are sinks. Start the card.
@@ -314,7 +314,7 @@
                                total-elements-consumed)
              (copy-into-sink sink samples offset end)
            (incf offset total-elements-consumed)
-           (when (not (eql total-samples-copied 0))
+           (unless (eql total-samples-copied 0)
              (mezzano.supervisor:condition-notify *sink-cvar* t))
            (when (>= offset end)
              (return))

@@ -179,7 +179,7 @@
     (setf (second b) (simp-form (second b))))
   (setf (body form) (simp-form (body form)))
   ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
-  (when (not (let-binds-special-variable-p form))
+  (unless (let-binds-special-variable-p form)
     (loop
        for binding-position from 0
        for (variable initform) in (bindings form)
@@ -499,9 +499,9 @@
          type-1)
         ((or (values-type-p type-1)
              (values-type-p type-2))
-         (when (not (values-type-p type-1))
+         (unless (values-type-p type-1)
            (setf type-1 `(values ,type-1)))
-         (when (not (values-type-p type-2))
+         (unless (values-type-p type-2)
            (setf type-2 `(values ,type-2)))
          (do ((i (rest type-1) (rest i))
               (j (rest type-2) (rest j))
@@ -536,12 +536,12 @@
          form)
         ((typep (value form) 'ast-if)
          ;; Push type declarations into IF arms.
-         (when (not (typep (if-then (value form)) 'ast-the))
+         (unless (typep (if-then (value form)) 'ast-the)
            (change-made)
            (setf (if-then (value form)) (ast `(the ,(the-type form)
                                                    ,(if-then (value form)))
                                              (if-then (value form)))))
-         (when (not (typep (if-else (value form)) 'ast-the))
+         (unless (typep (if-else (value form)) 'ast-the)
            (change-made)
            (setf (if-else (value form)) (ast `(the ,(the-type form)
                                                    ,(if-else (value form)))
@@ -642,11 +642,11 @@
 
 (defun mod-n-transform-candidate-p (value mask)
   ;; Mask must be a known positive power-of-two minus 1 fixnum.
-  (when (not (and (typep mask 'ast-quote)
+  (unless (and (typep mask 'ast-quote)
                   (typep (ast-value mask) 'fixnum)
                   (> (ast-value mask) 0)
                   (zerop (logand (ast-value mask)
-                                 (1+ (ast-value mask))))))
+                                 (1+ (ast-value mask)))))
     (return-from mod-n-transform-candidate-p
       nil))
   (when (and (typep value 'ast-call)
@@ -672,11 +672,11 @@
   ;; Both sides must be fixnums. This will cause the fixnum arithmetic
   ;; transforms to fire, and the calls to be transformed to their
   ;; fixnum-appropriate functions.
-  (when (not (and (typep value 'ast-call)
+  (unless (and (typep value 'ast-call)
                   (member (name value) *mod-n-arithmetic-functions*)
                   (eql (length (arguments value)) 2)
                   (match-transform-argument 'fixnum (first (arguments value)))
-                  (match-transform-argument 'fixnum (second (arguments value)))))
+                  (match-transform-argument 'fixnum (second (arguments value))))
     (return-from mod-n-transform-candidate-p
       nil))
   t)

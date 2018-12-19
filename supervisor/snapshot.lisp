@@ -39,7 +39,7 @@
          (bme (sys.int::memref-unsigned-byte-64 bme-addr 0)))
     #+(or)(debug-print-line "Add writeback frame " frame ":" address " " bme)
     ;; Commit if needed.
-    (when (not (logtest bme sys.int::+block-map-committed+))
+    (unless (logtest bme sys.int::+block-map-committed+)
       (let ((new-block (or (store-alloc 1)
                            (panic "Aiiee, out of store during writeback page commit.")))
             (old-block (ash bme (- sys.int::+block-map-id-shift+))))
@@ -66,7 +66,7 @@
            (map-ptes
             start end
             (dx-lambda (wired-page pte)
-              (when (not pte)
+              (unless pte
                 (panic "No page table entry for wired-page " wired-page))
               (let ((page-frame (and (page-present-p pte 0)
                                      (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))))
@@ -97,7 +97,7 @@
              (map-ptes
               start end
               (dx-lambda (wired-page pte)
-                (when (not pte)
+                (unless pte
                   (panic "No page table entry for " wired-page))
                 (let* ((page-frame (and (page-present-p pte)
                                         (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
@@ -143,7 +143,7 @@
   (cond (*enable-snapshot-cow-fast-path*
          ;; Doesn't work on SMP, due to issues with TLB shootdown.
          (let ((new-frame (allocate-physical-pages 1)))
-           (when (not new-frame)
+           (unless new-frame
              ;; No memory. Punt to the pager, does not return.
              (wait-for-page-via-interrupt interrupt-frame fault-addr))
            (snapshot-clone-cow-page new-frame fault-addr)))
@@ -230,7 +230,7 @@ Returns 4 values:
          (setf n 100)
          (debug-print-line *snapshot-pending-writeback-pages-count* " dirty pages to write back"))
        (decf n)
-       (when (not *snapshot-pending-writeback-pages*) (return))
+       (unless *snapshot-pending-writeback-pages* (return))
        (multiple-value-bind (frame freep block-id address)
            (pop-pending-snapshot-page)
          (declare (ignorable address))
@@ -265,7 +265,7 @@ Returns 4 values:
     (dotimes (i 512)
       (let ((entry (sys.int::memref-unsigned-byte-64 bml1 i))
             (address (* (logior next-address-part i) +4k-page-size+)))
-        (when (not (zerop entry))
+        (unless (zerop entry)
           ;; Allocate any lazy blocks.
           (when (block-info-lazy-block-p entry)
             (ensure (block-info-committed-p entry) "Uncommitted lazy block.")
@@ -397,7 +397,7 @@ Returns 4 values:
   (map-ptes
    start end
    (dx-lambda (wired-page pte)
-     (when (not pte)
+     (unless pte
        (panic "No page table entry for wired page " wired-page))
      (let* ((page-frame (and (page-present-p pte)
                              (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))))

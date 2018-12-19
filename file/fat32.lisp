@@ -278,7 +278,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
     (dotimes (offset n-sectors)
       (multiple-value-bind (successp error-reason)
           (mezzano.supervisor:disk-read disk (+ start-sector offset) 1 temp-buf)
-        (when (not successp)
+        (unless successp
           (error "Disk read error: ~S" error-reason)))
       (replace result temp-buf :start1 (* offset sector-size)))
     result))
@@ -291,7 +291,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (replace temp-buf array :start2 (* offset sector-size))
       (multiple-value-bind (successp error-reason)
           (mezzano.supervisor:disk-write disk (+ start-sector offset) 1 temp-buf)
-        (when (not successp)
+        (unless successp
           (error "Disk write error: ~S" error-reason))))))
 
 ;;; bit offsets
@@ -326,7 +326,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         ((>= cluster-n #x0FFFFFF8) result)
       (multiple-value-bind (successp error-reason)
           (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-        (when (not successp)
+        (unless successp
           (error "Disk read error: ~S" error-reason)))
       (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
 
@@ -349,7 +349,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                (replace temp-buf array :start2 (* (+ i n-cluster) spc sector-size))
                (multiple-value-bind (successp error-reason)
                    (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-                 (when (not successp)
+                 (unless successp
                    (error "Disk write error: ~S" error-reason)))
                (setf (sys.int::ub32ref/le fat (ash last-cluster 2)) cluster-n
                      last-cluster cluster-n))
@@ -358,7 +358,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (replace temp-buf array :start2 (* n-cluster spc sector-size))
       (multiple-value-bind (successp error-reason)
           (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-        (when (not successp)
+        (unless successp
           (error "Disk write error: ~S" error-reason))))))
 
 (defun read-attributes (directory offset)

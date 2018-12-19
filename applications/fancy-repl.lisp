@@ -73,7 +73,7 @@
                   (t
                    (do-external-symbols (sym package)
                      (frob sym)))))
-          (when (not marker)
+          (unless marker
             (dolist (package (list-all-packages))
               (dolist (package-name (list* (package-name package) (package-nicknames package)))
                 (when (and (>= (length package-name) (length name))
@@ -94,7 +94,7 @@
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (mezzano.supervisor:fifo-push (if (mezzano.gui.compositor:key-modifier-state event)
                                       ;; Force character to uppercase when a modifier key is active, gets
                                       ;; around weirdness in how character names are processed.
@@ -149,7 +149,7 @@
   "Read & dispatch window events until there are no more waiting events."
   (loop
      (let ((evt (mezzano.supervisor:fifo-pop (fifo window) nil)))
-       (when (not evt)
+       (unless evt
          (return))
        (dispatch-event window evt))))
 
@@ -191,7 +191,7 @@
   (pump-event-loop stream)
   ;; Munch all waiting characters.
   (loop
-     (when (not (mezzano.supervisor:fifo-pop (input-buffer stream) nil))
+     (unless (mezzano.supervisor:fifo-pop (input-buffer stream) nil)
        (return))))
 
 (defun repl-main (&optional initial-function title width height)

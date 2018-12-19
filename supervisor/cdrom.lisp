@@ -43,7 +43,7 @@
           (svref cdb 5) 0)
     (sup:debug-print-line "Issue inquiry command...")
     (let ((result (funcall command-fn device cdb buffer 512)))
-      (when (not result)
+      (unless result
         (sup:debug-print-line "Inquiry command failed.")
         (return-from cdrom-initialize-device))
       (dotimes (i result)
@@ -62,7 +62,7 @@
           (svref cdb 8) 0
           (svref cdb 9) 0)
     (let ((result (funcall command-fn device cdb buffer 8)))
-      (when (not result)
+      (unless result
         (sup:debug-print-line "Read capacity failed, no medium?")
         (return-from cdrom-initialize-device))
       (let ((max-lba (logior (ash (sys.int::memref-unsigned-byte-8 buffer 0) 24)
@@ -73,7 +73,7 @@
                                 (ash (sys.int::memref-unsigned-byte-8 buffer 5) 16)
                                 (ash (sys.int::memref-unsigned-byte-8 buffer 6) 8)
                                 (sys.int::memref-unsigned-byte-8 buffer 7))))
-        (when (not (eql block-size 2048))
+        (unless (eql block-size 2048)
           (sup:debug-print-line "Device has unusual block size " block-size ", ignoring.")
           (return-from cdrom-initialize-device))
         (sup:debug-print-line " Max LBA: " max-lba " Block sise: " block-size)

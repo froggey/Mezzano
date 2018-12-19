@@ -17,7 +17,7 @@
               (t
                (error "Unknown VirtualBox event ~S." abs-x)))))))
 
-(when (not *virtualbox-helper*)
+(unless *virtualbox-helper*
   (setf *virtualbox-helper*
         (mezzano.supervisor:make-thread 'virtualbox-helper-thread
                                         :name "VirtualBox Guest Helper")))

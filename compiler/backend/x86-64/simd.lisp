@@ -186,7 +186,7 @@
   )
 
 (define-builtin mezzano.simd::%pshufw/mmx ((a b control) result)
-  (when (not (constant-value-p control '(unsigned-byte 8)))
+  (unless (constant-value-p control '(unsigned-byte 8))
     (give-up))
   (cond ((constant-value-p b 'mezzano.simd:mmx-vector)
          (let ((a-unboxed (make-instance 'ir:virtual-register :kind :mmx))
@@ -239,7 +239,7 @@
                          :destination result))))
 
 (define-builtin mezzano.simd::%pextrw/mmx ((value control) result)
-  (when (not (constant-value-p control '(unsigned-byte 8)))
+  (unless (constant-value-p control '(unsigned-byte 8))
     (give-up))
   (let ((value-unboxed (make-instance 'ir:virtual-register :kind :mmx))
         (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
@@ -256,7 +256,7 @@
                          :destination result))))
 
 (define-builtin mezzano.simd::%pinsrw/mmx ((a b control) result)
-  (when (not (constant-value-p control '(unsigned-byte 8)))
+  (unless (constant-value-p control '(unsigned-byte 8))
     (give-up))
   (let ((a-unboxed (make-instance 'ir:virtual-register :kind :mmx))
         (b-unboxed (make-instance 'ir:virtual-register :kind :integer))
@@ -857,7 +857,7 @@
 ;; Shuffles
 (macrolet ((def (name op)
              `(define-builtin ,name ((a b control) result)
-                (when (not (constant-value-p control '(unsigned-byte 8)))
+                (unless (constant-value-p control '(unsigned-byte 8))
                   (give-up))
                 (cond ((constant-value-p b 'mezzano.simd:sse-vector)
                        (let ((a-unboxed (make-instance 'ir:virtual-register :kind :sse))
@@ -945,7 +945,7 @@
                          :destination result))))
 
 (define-builtin mezzano.simd::%pextrw/sse ((value control) result)
-  (when (not (constant-value-p control '(unsigned-byte 8)))
+  (unless (constant-value-p control '(unsigned-byte 8))
     (give-up))
   (let ((value-unboxed (make-instance 'ir:virtual-register :kind :sse))
         (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
@@ -962,7 +962,7 @@
                          :destination result))))
 
 (define-builtin mezzano.simd::%pinsrw/sse ((a b control) result)
-  (when (not (constant-value-p control '(unsigned-byte 8)))
+  (unless (constant-value-p control '(unsigned-byte 8))
     (give-up))
   (let ((a-unboxed (make-instance 'ir:virtual-register :kind :sse))
         (b-unboxed (make-instance 'ir:virtual-register :kind :integer))

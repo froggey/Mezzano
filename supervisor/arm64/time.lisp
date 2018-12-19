@@ -63,7 +63,7 @@
     (setf *run-time-advance* (truncate internal-time-units-per-second tick-rate))
     (debug-print-line "Timer reset: " *generic-timer-reset-value*)
     (debug-print-line "Timer advance: " *run-time-advance*)
-    (when (not (boundp '*rtc-adjust*))
+    (unless (boundp '*rtc-adjust*)
       (setf *rtc-adjust* 0))
     (irq-attach (platform-irq irq)
                 'generic-timer-irq-handler

@@ -144,7 +144,7 @@
                              (lexical-variable
                               rest))))
               (progn
-                ,@(when (not allow-other-keys)
+                ,@(unless allow-other-keys
                     `((tagbody aok-tb
                          (aok-entry
                           (go aok-test aok-tb))

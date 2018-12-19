@@ -224,7 +224,7 @@
   ;; TODO: I think the size can be determined from the BAR?
   ;; Would be better to do that in the future...
   (let ((address (pci-bar device bar)))
-    (when (not (logbitp 0 address))
+    (unless (logbitp 0 address)
       (let* ((base (logand address (lognot #b1111)))
              (end (sup::align-up (+ base size) #x1000))
              (aligned-base (logand base (lognot #xFFF)))
@@ -327,7 +327,7 @@
     (funcall fn device)))
 
 (defun sup::initialize-pci ()
-  (when (not (boundp '*pci-drivers*))
+  (unless (boundp '*pci-drivers*)
     (setf *pci-drivers* '()))
   (setf *pci-config-lock* :unlocked)
   (setf *pci-devices* '()
@@ -511,7 +511,7 @@
 (defun register-pci-driver (name probe-function pci-ids classes)
   (dolist (drv *pci-drivers*)
     (when (eql (pci-driver-name drv) name)
-      (when (not (eql (pci-driver-probe drv) probe-function))
+      (unless (eql (pci-driver-probe drv) probe-function)
         ;; TODO: Detach current driver and reprobe?
         (error "Incompatible redefinition of virtio driver ~S." name))
       (probe-pci-driver drv)

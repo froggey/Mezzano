@@ -144,7 +144,7 @@
 (defun find-special (environment name)
   (multiple-value-bind (value presentp)
       (gethash name (environment-specials environment))
-    (when (not presentp)
+    (unless presentp
       (error "Missing special ~S" name))
     value))
 
@@ -340,7 +340,7 @@
 (defun symbol-global-value-cell (environment symbol)
   (check-type symbol symbol)
   (let ((cell (gethash symbol (environment-symbol-global-value-cell-table environment))))
-    (when (not cell)
+    (unless cell
       (setf cell (make-instance 'symbol-value-cell :symbol symbol)
             (gethash symbol (environment-symbol-global-value-cell-table environment)) cell)
       (when (keywordp symbol)
@@ -434,7 +434,7 @@
          (key (cons name-string pkg-keyword)))
     (multiple-value-bind (symbol presentp)
         (gethash key (environment-package-symbol-table environment))
-      (when (not presentp)
+      (unless presentp
         (setf symbol (if (eql pkg-keyword :keyword)
                          (cl:intern name-string :keyword)
                          (cl:make-symbol name-string))
@@ -511,7 +511,7 @@
       (setf (gethash array (environment-object-area-table environment)) area))
     ;; Keep track of the element-type, not all implementations support all
     ;; element-types.
-    (when (not (eql element-type 't))
+    (unless (eql element-type 't)
       (setf (gethash array (environment-array-element-type-table environment)) element-type))
     array))
 
@@ -535,7 +535,7 @@
   (let* ((sym (translate-symbol environment type))
          (sdef (find-structure-definition environment sym))
          (class (structure-definition-native-class sdef)))
-    (when (not class)
+    (unless class
       ;; Create an instance class for this structure definition.
       ;; TODO: Set direct superclasses properly. This involves figuring out
       ;; which slots are inherited.
@@ -586,7 +586,7 @@
                  (vector
                   (setf (gethash object (environment-object-area-table environment)) area)
                   ;; Try to get element types correct too.
-                  (when (not (eql (array-element-type object) 't))
+                  (unless (eql (array-element-type object) 't)
                     (setf (gethash object (environment-array-element-type-table environment)) (array-element-type object)))
                   ;; Avoid visiting integers in numeric/character vectors
                   (when (typep object '(vector t))

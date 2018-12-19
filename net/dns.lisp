@@ -77,7 +77,7 @@ the seperator character."
     (nreverse list)))
 
 (defun write-dns-name (packet offset name)
-  (when (not (zerop (length name)))
+  (unless (zerop (length name))
     ;; Domain names can end in a #\., trim it off.
     (dolist (part (explode name #\. :end (when (eql #\. (char name (1- (length name))))
                                            (1- (length name)))))
@@ -137,13 +137,13 @@ the seperator character."
                            (return))))))
                  section-size)))
       (incf offset (read-section offset))
-      (when (not (zerop (length name)))
+      (unless (zerop (length name))
         ;; Snip trailing #\.
         (decf (fill-pointer name)))
       (values name offset))))
 
 (defun decode-resource-record-data (type class packet offset data-len)
-  (when (not (eql class :in))
+  (unless (eql class :in)
     (return-from decode-resource-record-data (list (subseq packet offset (+ offset data-len)))))
   (case type
     ((:cname :ptr :mb :md :mf :mg :mr :ns) (list (read-dns-name packet offset)))

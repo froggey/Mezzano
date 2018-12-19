@@ -120,7 +120,7 @@
   (sys.lap-x86:ret))
 
 (defun convert-thread-to-full-save (thread)
-  (when (not (thread-full-save-p thread))
+  (unless (thread-full-save-p thread)
     (setf (thread-state-rcx-value thread) 0
           (thread-state-rbx-value thread) nil
           (thread-state-r8-value thread) nil

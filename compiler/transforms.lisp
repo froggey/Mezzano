@@ -203,13 +203,13 @@
 (defun match-optimize-settings (call optimize-qualities)
   (dolist (setting optimize-qualities
            t)
-    (when (not (funcall (first setting)
+    (unless (funcall (first setting)
                         (if (integerp (second setting))
                             (second setting)
                             (optimize-quality call (second setting)))
                         (if (integerp (third setting))
                             (third setting)
-                            (optimize-quality call (third setting)))))
+                            (optimize-quality call (third setting))))
       (return nil))))
 
 (defun match-transform-type (transform-type type)

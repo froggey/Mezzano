@@ -98,7 +98,7 @@ and then some alignment.")
   ((vnet :initarg :vnet)))
 
 (defun check-virtio-net-boot (nic)
-  (when (not (eql (virtio-net-boot-id nic) (sup:current-boot-id)))
+  (unless (eql (virtio-net-boot-id nic) (sup:current-boot-id))
     (sup:debug-print-line "virtio-net device " nic " removed. Old boot: "
                           (virtio-net-boot-id nic)
                           " Current boot: "
@@ -202,8 +202,8 @@ and then some alignment.")
     ;; Send any pending packets.
     (loop
        #+(or)(debug-print-line "Real TX " (virtio-net-free-tx-buffers nic) " " (virtio-net-real-tx-pending nic))
-       (when (not (and (virtio-net-free-tx-buffers nic)
-                       (virtio-net-real-tx-pending nic)))
+       (unless (and (virtio-net-free-tx-buffers nic)
+                    (virtio-net-real-tx-pending nic))
          (return))
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
@@ -306,7 +306,7 @@ and then some alignment.")
 (defun virtio-net-worker (nic)
   (unwind-protect
        (catch 'nic-detached
-         (when (not (virtio-net-initialize nic))
+         (unless (virtio-net-initialize nic)
            (return-from virtio-net-worker))
          (loop
             ;; Wait for something to happen.
@@ -328,13 +328,13 @@ and then some alignment.")
       (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                          virtio:+virtio-status-driver+))
       ;; Feature negotiation, we only have eyes for the MAC feature.
-      (when (not (virtio:virtio-device-feature device +virtio-net-f-mac+))
+      (unless (virtio:virtio-device-feature device +virtio-net-f-mac+)
         (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
         (return-from virtio-net-initialize nil))
       ;; Enable MAC feature.
       (setf (virtio:virtio-driver-feature device +virtio-net-f-mac+) t)
       ;; Allocate virtqueues.
-      (when (not (virtio:virtio-configure-virtqueues device 2))
+      (unless (virtio:virtio-configure-virtqueues device 2)
         (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
         (return-from virtio-net-initialize nil))
       ;; Read the MAC address.
@@ -342,11 +342,11 @@ and then some alignment.")
         (dotimes (i 6)
           (setf (ldb (byte 8 (* i 8)) mac) (virtio:virtio-device-specific-header/8 device (+ +virtio-net-mac+ i))))
         (setf (virtio-net-mac nic) mac)
-        (when (not (virtio-net-allocate-tx-descriptors nic))
+        (unless (virtio-net-allocate-tx-descriptors nic)
           (sup:debug-print-line "Unable to allocate TX buffers")
           (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
           (return-from virtio-net-initialize nil))
-        (when (not (virtio-net-allocate-rx-descriptors nic))
+        (unless (virtio-net-allocate-rx-descriptors nic)
           (sup:debug-print-line "Unable to allocate RX buffers")
           (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
           (return-from virtio-net-initialize nil))

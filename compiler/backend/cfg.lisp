@@ -43,7 +43,7 @@
        (let ((block (pop worklist)))
          (push block visited)
          (dolist (succ (gethash block bb-successors))
-           (when (not (member succ visited))
+           (unless (member succ visited)
              (pushnew succ worklist)))))
     visited))
 
@@ -261,11 +261,11 @@ Successors of jumps and branches must be labels."
       (do-instructions (inst backend-function)
         ;; TODO: Support switches too.
         (when (typep inst 'branch-instruction)
-          (when (not (endp (rest (gethash (branch-true-target inst) bb-preds))))
-            (when (not *shut-up*)
+          (unless (endp (rest (gethash (branch-true-target inst) bb-preds)))
+            (unless *shut-up*
               (format t "Split edge ~S -> ~S~%" inst (branch-true-target inst)))
             (setf (branch-true-target inst) (split-edge (branch-true-target inst))))
-          (when (not (endp (rest (gethash (branch-false-target inst) bb-preds))))
-            (when (not *shut-up*)
+          (unless (endp (rest (gethash (branch-false-target inst) bb-preds)))
+            (unless *shut-up*
               (format t "Split edge ~S -> ~S~%" inst (branch-false-target inst)))
             (setf (branch-false-target inst) (split-edge (branch-false-target inst)))))))))

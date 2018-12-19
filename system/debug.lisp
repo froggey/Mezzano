@@ -86,7 +86,7 @@ Returns NIL if the function captures no variables."
                  (loop
                     (let ((b (consume)))
                       (setf result (logior result (ash (logand b #x7F) shift)))
-                    (when (not (logtest b #x80))
+                    (unless (logtest b #x80)
                       (return))
                     (incf shift 7)))
                  result))
@@ -578,7 +578,7 @@ Returns NIL if the function captures no variables."
       (pushnew name *traced-functions* :test #'equal)
       (let* ((fref (function-reference name))
              (fn (function-reference-function fref)))
-        (when (not (typep fn 'trace-wrapper))
+        (unless (typep fn 'trace-wrapper)
           (let ((wrapper (make-instance 'trace-wrapper
                                         :name name
                                         :original fn)))

@@ -395,8 +395,8 @@
              (ahci-port-register ahci port +ahci-register-PxCMD+))
         0)
   (loop
-     (when (not (logbitp +ahci-PxCMD-CR+
-                         (ahci-port-register ahci port +ahci-register-PxCMD+)))
+     (unless (logbitp +ahci-PxCMD-CR+
+                      (ahci-port-register ahci port +ahci-register-PxCMD+))
        (return)))
   ;; Issue COMRESET.
   (sup:debug-print-line "Issue COMRESET.")
@@ -421,7 +421,7 @@
   (loop
      (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
             (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
-       (when (not (logtest ata:+ata-bsy+ sts))
+       (unless (logtest ata:+ata-bsy+ sts)
          (return))))
   ;; Reenable command processing.
   ;; Stop command processing. Clear ST and wait for CR to clear.
@@ -536,10 +536,10 @@
                 (logbitp 14 general-config))
         (sup:debug-print-line "Device does not implement the PACKET command set.")
         (return-from ahci-detect-atapi-drive))
-      (when (not (eql (ldb (byte 5 8) general-config) 5))
+      (unless (eql (ldb (byte 5 8) general-config) 5)
         (sup:debug-print-line "PACKET device is not a CD-ROM drive.")
         (return-from ahci-detect-atapi-drive))
-      (when (not cdb-size)
+      (unless cdb-size
         (sup:debug-print-line "PACKET device has unsupported CDB size " (ldb (byte 2 0) general-config))
         (return-from ahci-detect-atapi-drive))
       (setf (ahci-port-atapi-p port-info) t
@@ -763,7 +763,7 @@
 
 (defun ahci-port-irq-handler (ahci port)
   (let ((state (ahci-port-register ahci port +ahci-register-PxIS+)))
-    (when (not (zerop state))
+    (unless (zerop state)
       #+(or)(sup:debug-print-line "AHCI IRQ for port " port ": " state)
       ;; Ack interrupts.
       (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)
@@ -799,7 +799,7 @@
            (major (ldb (byte +ahci-VS-MJR-size+ +ahci-VS-MJR-position+) version))
            (minor (ldb (byte +ahci-VS-MNR-size+ +ahci-VS-MNR-position+) version)))
       (sup:debug-print-line "AHCI HBA version " version)
-      (when (not (eql major 1))
+      (unless (eql major 1)
         (sup:debug-print-line "Major version " major " not supported.")
         (return-from pci::ahci-pci-register)))
     ;; Clear IE and set AE in GHC.

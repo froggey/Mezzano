@@ -114,7 +114,7 @@ Arguments to FUNCTION:
               (let ((shift 0))
                 (loop
                    (let ((b (consume)))
-                     (when (not (logtest b #x80))
+                     (unless (logtest b #x80)
                        (setf pv (logior pv (ash (logand b #x3F) shift)))
                        (when (logtest b #x40)
                          (setf pv (- pv)))
@@ -126,7 +126,7 @@ Arguments to FUNCTION:
                 (loop
                    (let ((b (consume)))
                      (setf n-layout-bits (logior n-layout-bits (ash (logand b #x7F) shift)))
-                     (when (not (logtest b #x80))
+                     (unless (logtest b #x80)
                        (return))
                      (incf shift 7))))
               (setf layout-address (+ address position))

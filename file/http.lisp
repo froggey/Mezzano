@@ -65,14 +65,14 @@
         (setf current 2))
       ;; Read host portion.
       (loop
-         (when (not (find (peek) "abcdefghijklmnopqrstuvwxyz0123456789-_."))
+         (unless (find (peek) "abcdefghijklmnopqrstuvwxyz0123456789-_.")
            (return))
          (vector-push-extend (consume) domain))
       ;; Possible port.
       (when (eql (peek) #\:)
         (consume)
         (loop
-           (when (not (find (peek) "abcdefghijklmnopqrstuvwxyz0123456789-_."))
+           (unless (find (peek) "abcdefghijklmnopqrstuvwxyz0123456789-_.")
              (setf port-number (parse-integer port))
              (return))
            (vector-push-extend (consume) port)))

@@ -26,9 +26,9 @@
                                   data width height channels)))))
 
 (defun transcode-cl-jpeg-buffer (destination-surface x-offset y-offset data width height channels)
-  (when (not (eql channels 3))
+  (unless (eql channels 3)
     (error "Unsupported JPEG image, too many or too few channels."))
-  (when (not (eql (mezzano.gui:surface-format destination-surface) :argb32))
+  (unless (eql (mezzano.gui:surface-format destination-surface) :argb32)
     (error "Unsupported destination surface format ~S."
            (mezzano.gui:surface-format destination-surface)))
   (let* ((dest-array (mezzano.gui:surface-pixels destination-surface))

@@ -448,7 +448,7 @@
 (defun initialize-acpi ()
   (setf *acpi* nil)
   (let ((rsdp-address (acpi-rsdp-address)))
-    (when (not rsdp-address)
+    (unless rsdp-address
       (debug-print-line "No ACPI RSDP.")
       (return-from initialize-acpi))
     (let ((rsdp (acpi-parse-rsdp rsdp-address)))

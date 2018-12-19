@@ -140,7 +140,7 @@
           *page-fault-hook* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
-    (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
+    (unless (boundp 'mezzano.runtime::*active-catch-handlers*)
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
@@ -166,7 +166,7 @@
     (initialize-virtio)
     (initialize-platform)
     (initialize-time-late)
-    (when (not (boot-option +boot-option-no-detect+))
+    (unless (boot-option +boot-option-no-detect+)
       (detect-disk-partitions))
     (initialize-paging-system)
     ;; Disabled, SMP is more broken than normal.

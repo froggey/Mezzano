@@ -301,7 +301,7 @@
     (when (>= start len)
       (return-from read-ratio))
     (setf numerator (digit-char-p (char string start) *read-base*))
-    (when (not numerator)
+    (unless numerator
       (return-from read-ratio))
     (loop
        (incf start)
@@ -312,7 +312,7 @@
          (when (eql ch #\/)
            (return))
          (let ((weight (digit-char-p ch *read-base*)))
-           (when (not weight)
+           (unless weight
              (return-from read-ratio))
            (setf numerator (+ (* numerator *read-base*)
                               weight)))))
@@ -322,14 +322,14 @@
     (when (>= start len)
       (return-from read-ratio))
     (setf denominator (digit-char-p (char string start) *read-base*))
-    (when (not denominator)
+    (unless denominator
       (return-from read-ratio))
     (loop
        (incf start)
        (when (>= start len)
          (return))
        (let ((weight (digit-char-p (char string start) *read-base*)))
-         (when (not weight)
+         (unless weight
            (return-from read-ratio))
          (setf denominator (+ (* denominator *read-base*)
                               weight))))
@@ -375,7 +375,7 @@
       ;; Parse the integer portion.
       (loop
          (let ((weight (position (peek) *decimal-digits*)))
-           (when (not weight) (return))
+           (unless weight (return))
            (consume)
            (setf saw-integer-digits t)
            (setf integer-part (+ (* integer-part 10.0d0) weight))))
@@ -386,15 +386,15 @@
         ;; If there was an integer part, then the next character
         ;; must be either a decimal-digit or an exponent marker.
         ;; If there was no integer part, it must be a decimal-digit.
-        (when (not (if saw-integer-digits
+        (unless (if saw-integer-digits
                        (or (find (peek) *exponent-markers*)
                            (find (peek) *decimal-digits*))
-                       (find (peek) *decimal-digits*)))
+                       (find (peek) *decimal-digits*))
           (return-from read-float))
         ;; Accumulate decimal digits.
         (let ((first-decimal position))
           (loop
-             (when (not (find (peek) *decimal-digits*))
+             (unless (find (peek) *decimal-digits*)
                (return))
              (setf saw-decimal-digits t)
              (consume))
@@ -416,7 +416,7 @@
                            saw-decimal-point)))
           (return-from read-float))
         ;; Read exponent part.
-        (loop (when (not (find (peek) *decimal-digits*))
+        (loop (unless (find (peek) *decimal-digits*)
                 (return))
            (setf exponent-value (+ (* exponent-value 10)
                                    (digit-char-p (consume))))))
@@ -424,7 +424,7 @@
       (when (peek)
         (return-from read-float))
       ;; Must have seen either a decimal point or exponent.
-      (when (not (or saw-decimal-point exponent))
+      (unless (or saw-decimal-point exponent)
         (return-from read-float))
       ;; TODO, deal with float type selection correctly.
       (coerce
@@ -460,7 +460,7 @@
             negative (minus-sign-p (char token 0))
             start (1+ start)))
     ;; If the token is empty, aside from the sign, then it isn't a number.
-    (when (not (= (- end start) 0))
+    (unless (= (- end start) 0)
       ;; Main digit-reading loop for integers.
       (do ((offset start (1+ offset)))
           ((>= offset end)
@@ -469,7 +469,7 @@
                (- number)
                number))
         (let ((weight (digit-char-p (char token offset) read-base)))
-          (when (not weight)
+          (unless weight
             ;; This character is not a digit in the current base.
             (return))
           (setf number (+ (* number read-base) weight)))))))
@@ -786,7 +786,7 @@
                     (error "Invalid feature expression ~S" test))
                   (not (eval-feature-test (cadr test))))
             (:and (dolist (subexpr (cdr test) t)
-                    (when (not (eval-feature-test subexpr))
+                    (unless (eval-feature-test subexpr)
                       (return nil))))
             (:or (dolist (subexpr (cdr test) nil)
                    (when (eval-feature-test subexpr)
@@ -853,7 +853,7 @@
         (t
          (multiple-value-bind (value existsp)
              (gethash p *read-lookahead-table*)
-           (when (not existsp)
+           (unless existsp
              (cerror "Read NIL" "Unknown read ## value ~D" p))
            value))))
 

@@ -132,7 +132,7 @@
                   (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
              (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
                  (hash-table-rehash-threshold hash-table)))
-         (when (not (eq old-value default))
+         (unless (eq old-value default)
            (return-from gethash default))
          ;; There must always be at least one unbound slot in the hash table.
          (hash-table-rehash hash-table t)
@@ -151,7 +151,7 @@
            default))
         ;; No rehash/resize needed. Insert directly.
         (t
-         (when (not (eq old-value default))
+         (unless (eq old-value default)
            (return-from gethash default))
          (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
            (incf (hash-table-used hash-table)))

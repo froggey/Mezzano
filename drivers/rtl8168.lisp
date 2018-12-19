@@ -216,7 +216,7 @@
   (setf (rtl8168-irq-handler nic) (make-simple-irq (rtl8168-irq nic) (rtl8168-irq-latch nic)))
   (with-pseudo-atomic
     ;; Initialize the device.
-    (when (not (eql (rtl8168-boot-id nic) (current-boot-id)))
+    (unless (eql (rtl8168-boot-id nic) (current-boot-id))
       ;; Reboot occurred, card no longer exists.
       (return-from rtl8168-initialize))
     (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
@@ -231,7 +231,7 @@
     (loop
        repeat 100
        do
-         (when (not (logbitp +rtl8168-CR-RST+ (rtl8168-reg/8 nic +rtl8168-register-CR+)))
+         (unless (logbitp +rtl8168-CR-RST+ (rtl8168-reg/8 nic +rtl8168-register-CR+))
            (return))
          (sleep 0.01)
        finally
@@ -342,10 +342,10 @@
           0))
 
 (defun rtl8168-worker (nic)
-  (when (not (rtl8168-initialize nic))
+  (unless (rtl8168-initialize nic)
     (return-from rtl8168-worker))
   (flet ((check-boot ()
-           (when (not (eql (rtl8168-boot-id nic) (current-boot-id)))
+           (unless (eql (rtl8168-boot-id nic) (current-boot-id))
              (return-from rtl8168-worker))))
     (loop
        ;; Wait for something to happen.
@@ -411,7 +411,7 @@
           (let ((to-send (with-mutex ((rtl8168-lock nic))
                            (pop (rtl8168-tx-pending nic))))
                 (current (rtl8168-tx-current nic)))
-            (when (not to-send)
+            (unless to-send
               (return))
             #+(or)(debug-print-line "RTL8168 transmitting packet " to-send " on descriptor " current)
             (with-pseudo-atomic ()

@@ -94,8 +94,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun typeexpand-1 (type &optional environment)
-  (when (not (or (symbolp type)
-                 (listp type)))
+  (unless (or (symbolp type)
+              (listp type))
     (return-from typeexpand-1 (values type nil)))
   (let ((expander (get (if (symbolp type)
                            type
@@ -246,7 +246,7 @@
                           ((consp min)
                            (unless (null (rest min))
                              (error "Bad type ~S." type))
-                           (when (not (typep (first min) base))
+                           (unless (typep (first min) base)
                              (error "Bad type ~S (lower-limit is not of type ~S)."
                                     type base))
                            (if (and (eql base 'integer)
@@ -255,7 +255,7 @@
                                     (> ,object ',(first min)))
                                `(> ,object ',(first min))))
                           (t
-                           (when (not (typep min base))
+                           (unless (typep min base)
                              (error "Bad type ~S (lower-limit is not of type ~S)."
                                     type base))
                            (if (and (eql base 'integer)
@@ -267,7 +267,7 @@
                           ((consp max)
                            (unless (null (rest max))
                              (error "Bad type ~S." type))
-                           (when (not (typep (first max) base))
+                           (unless (typep (first max) base)
                              (error "Bad type ~S (upper-limit is not of type ~S)."
                                     type base))
                            (if (and (eql base 'integer)
@@ -276,7 +276,7 @@
                                     (< ,object ',(first max)))
                                `(< ,object ',(first max))))
                           (t
-                           (when (not (typep max base))
+                           (unless (typep max base)
                              (error "Bad type ~S (lower-limit is not of type ~S)."
                                     type base))
                            (if (and (eql base 'integer)
@@ -315,9 +315,9 @@
     (when (eql cdr-type '*)
       (setf cdr-type 't))
     `(and (consp ,object)
-          ,@(when (not (eql car-type 't))
+          ,@(unless (eql car-type 't)
               `((typep (car ,object) ',car-type)))
-          ,@(when (not (eql cdr-type 't))
+          ,@(unless (eql cdr-type 't)
               `((typep (cdr ,object) ',cdr-type))))))
 (%define-compound-type-optimizer 'cons 'compile-cons-type)
 )
@@ -399,7 +399,7 @@
 
 (defun and-type (object type)
   (dolist (elt (cdr type) t)
-    (when (not (typep object elt))
+    (unless (typep object elt)
       (return nil))))
 (%define-compound-type 'and 'and-type)
 
@@ -648,7 +648,7 @@
           ((and (consp t2)
                 (eql (first t2) 'and))
            (dolist (type (rest t2) (values t t))
-             (when (not (subtypep t1 type))
+             (unless (subtypep t1 type)
                (return (values nil t)))))
           ((and (consp t1)
                 (eql (first t1) 'not))

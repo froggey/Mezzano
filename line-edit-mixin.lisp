@@ -45,22 +45,22 @@
 
 (defmethod history-newest ((history history-table))
   (mezzano.supervisor:with-mutex ((lock history))
-    (when (not (zerop (length (slot-value history '%history-data))))
+    (unless (zerop (length (slot-value history '%history-data)))
       (1- (length (slot-value history '%history-data))))))
 
 (defmethod history-oldest ((history history-table))
   (mezzano.supervisor:with-mutex ((lock history))
-    (when (not (zerop (length (slot-value history '%history-data))))
+    (unless (zerop (length (slot-value history '%history-data)))
       0)))
 
 (defmethod history-previous ((history history-table) entry)
   (mezzano.supervisor:with-mutex ((lock history))
-    (when (not (zerop entry))
+    (unless (zerop entry)
       (1- entry))))
 
 (defmethod history-next ((history history-table) entry)
   (mezzano.supervisor:with-mutex ((lock history))
-    (when (not (eql entry (1- (length (slot-value history '%history-data)))))
+    (unless (eql entry (1- (length (slot-value history '%history-data))))
       (1+ entry))))
 
 (defmethod history-data ((history history-table) entry)
@@ -105,7 +105,7 @@
 
 (defun global-set-key (keys command)
   "Create keyboard shortcut to any command."
-  (when (not (listp keys))
+  (unless (listp keys)
     (setf keys (list keys)))
   (loop for key in keys
      collect (setf (gethash key *line-editor-command-table*) command)))
@@ -190,7 +190,7 @@
                    (:newest (history-newest history-table))
                    (:oldest (history-oldest history-table))
                    (t (funcall direction-function history-table position)))))
-       (when (not next)
+       (unless next
          (return nil))
        (let ((data (history-data history-table next)))
          (when (and (<= (length term) (length data))
@@ -295,7 +295,7 @@
   nil)
 
 (define-command complete (stream #\Tab)
-  (when (not (eql (last-command stream) 'complete))
+  (unless (eql (last-command stream) 'complete)
     (setf (values (current-completion-start stream)
                   (current-completion-end stream)
                   (completions stream))
@@ -367,10 +367,10 @@
                      (fn (gethash ch *line-editor-command-table*)))
                 (cond ((eql ch #\Newline) ;; Submit the line.
                        ;; ### Maybe turn this into a proper command.
-                       (when (not (eql (cursor-position stream) (length (buffer stream))))
+                       (unless (eql (cursor-position stream) (length (buffer stream)))
                          (setf (cursor-position stream) (length (buffer stream)))
                          (redraw-line stream))
-                       (when (not (zerop (length (buffer stream))))
+                       (unless (zerop (length (buffer stream)))
                          (history-add (history-table stream) (copy-seq (buffer stream))))
                        (vector-push-extend #\Newline (buffer stream))
                        (write-char #\Newline stream)

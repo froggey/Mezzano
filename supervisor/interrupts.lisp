@@ -7,7 +7,7 @@
 
 (declaim (inline ensure-interrupts-enabled ensure-interrupts-disabled))
 (defun ensure-interrupts-enabled ()
-  (when (not (sys.int::%interrupt-state))
+  (unless (sys.int::%interrupt-state)
     (panic "Interrupts disabled when they shouldn't be.")))
 
 (defun ensure-interrupts-disabled ()
@@ -247,13 +247,13 @@ RETURN-FROM/GO must not be used to leave this form."
            (panic "Attachment " attachment " handler " (irq-attachment-handler attachment) " on IRQ " irq " returned invalid status " status)))))
     (when (zerop accept-count)
       (debug-print-line "No handler accepted IRQ " irq))
-    (when (not (zerop pending-count))
+    (unless (zerop pending-count)
       ;; Mask the IRQ until all EOIs are delivered.
       (platform-mask-irq (irq-platform-number irq)))))
 
 (defun irq-attach (irq handler device &key exclusive)
   (cond (exclusive
-         (when (not (endp (irq-attachments irq)))
+         (unless (endp (irq-attachments irq))
            (debug-print-line "Cannot exclusively attach to IRQ " irq " - in use")
            (return-from irq-attach nil)))
         (t
@@ -272,7 +272,7 @@ RETURN-FROM/GO must not be used to leave this form."
     attachment))
 
 (defun irq-eoi (attachment)
-  (when (not (irq-attachment-pending-eoi attachment))
+  (unless (irq-attachment-pending-eoi attachment)
     (debug-print-line "Multiple EOI calls for attachment " attachment))
   (setf (irq-attachment-pending-eoi attachment) nil)
   ;; Unmask the IRQ if all attachments have EOI'd.

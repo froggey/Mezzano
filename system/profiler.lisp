@@ -227,7 +227,7 @@ thread states & call-stacks."
          (incf offset) ; Skip past timestamp
          (let ((sample (make-array 10 :adjustable t :fill-pointer 0)))
            (loop
-              (when (not (mezzano.supervisor:threadp (next)))
+              (unless (mezzano.supervisor:threadp (next))
                 (return))
               (let ((thread (consume)) ; thread
                     (state (consume)) ; state
@@ -244,8 +244,8 @@ thread states & call-stacks."
                       (let ((fn (consume))
                             (offset (consume)))
                         (unless stop
-                          (when (not (find (sys.int::function-name fn) ignore-functions
-                                           :test #'equal))
+                          (unless (find (sys.int::function-name fn) ignore-functions
+                                        :test #'equal)
                             (vector-push-extend (cons fn offset) call-stack))
                           (when (eql fn prune-function)
                             (setf stop t)))))
@@ -375,7 +375,7 @@ thread states & call-stacks."
            ;; Ignore truncated or unmapped samples.
            (when (functionp fn)
              (let ((branch (gethash fn (tree-branch-branches current-branch))))
-               (when (not branch)
+               (unless branch
                  (setf branch (make-tree-branch :value fn)
                        (gethash fn (tree-branch-branches current-branch)) branch))
                (add-sample branch call-stack (1- position))))))))
@@ -386,7 +386,7 @@ thread states & call-stacks."
      for sample across profile do
        (loop
           for thread across sample do
-            (when (not (gethash (thread-sample-thread thread) threads))
+            (unless (gethash (thread-sample-thread thread) threads)
               (setf (gethash (thread-sample-thread thread) threads)
                     (make-tree-branch :value (thread-sample-thread thread))))
             (let ((root (gethash (thread-sample-thread thread) threads)))
@@ -424,11 +424,11 @@ thread states & call-stacks."
   (let ((threads (make-hash-table)))
     (labels ((entry-for (thread function)
                (let ((thread-samples (gethash thread threads)))
-                 (when (not thread-samples)
+                 (unless thread-samples
                    (setf thread-samples (make-hash-table)
                          (gethash thread threads) thread-samples))
                  (let ((entry (gethash function thread-samples)))
-                   (when (not entry)
+                   (unless entry
                      (setf entry (make-instance 'profile-entry :function function)
                            (gethash function thread-samples) entry))
                    entry)))
@@ -516,12 +516,12 @@ thread states & call-stacks."
   (loop
      for sample across (profile-data profile)
      do
-       (when (not (zerop (length sample)))
+       (unless (zerop (length sample))
          (loop
             with first = t
             for (fn . offset) across (reverse (thread-sample-call-stack (elt sample 0)))
             do
-              (when (not (eql fn 0))
+              (unless (eql fn 0)
                 (cond (first (setf first nil))
                       (t (write-char #\; stream)))
                 (let ((*print-pretty* nil))

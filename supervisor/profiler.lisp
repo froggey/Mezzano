@@ -85,7 +85,7 @@
     ;; And all the others.
     (cond (*profile-thread*
            (let ((thread *profile-thread*))
-             (when (not (eql thread (current-thread)))
+             (unless (eql thread (current-thread))
                (profile-append-entry thread)
                (profile-append-entry (thread-state thread))
                (profile-append-entry (thread-wait-item thread))
@@ -97,7 +97,7 @@
            (loop
               for thread = *all-threads* then (thread-global-next thread)
               until (not thread) do
-                (when (not (eql thread (current-thread)))
+                (unless (eql thread (current-thread))
                   (profile-append-entry thread)
                   (profile-append-entry (thread-state thread))
                   (profile-append-entry (thread-wait-item thread))

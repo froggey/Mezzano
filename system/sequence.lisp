@@ -365,7 +365,7 @@
                         ((null i))
                       (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
                         (setf imin i)))
-                    (when (not (eq imin ipos))
+                    (unless (eq imin ipos)
                       ;; Swap
                       (let ((old-ipos (car ipos))
                             (old-imin (car imin)))
@@ -478,14 +478,14 @@
     `(let ((,predicate-sym ,predicate))
        (block ,block
          (map nil (lambda ,element-vars
-                    (when (not (funcall ,predicate-sym ,@element-vars))
+                    (unless (funcall ,predicate-sym ,@element-vars)
                       (return-from ,block nil)))
               ,first-seq ,@more-sequences)
          t))))
 
 (defun every (predicate first-seq &rest more-sequences)
   (apply #'map nil (lambda (&rest seqs)
-                     (when (not (apply predicate seqs))
+                     (unless (apply predicate seqs)
                        (return-from every nil)))
          first-seq more-sequences)
   t)
@@ -618,7 +618,7 @@
                   (error "Duplicate default forms"))
                 (setf default-form `(return-from ,block-name (progn ,@forms))))
                (t
-                (when (not (listp keys))
+                (unless (listp keys)
                   (setf keys (list keys)))
                 (dolist (key keys)
                   (assert (<= 0 key 64))
@@ -640,7 +640,7 @@
 (defun fill-known-args (sequence item start end)
   (check-type start (integer 0))
   (prog ((original-sequence sequence))
-     (when (not (%value-has-tag-p sequence +tag-object+))
+     (unless (%value-has-tag-p sequence +tag-object+)
        (go NOT-OBJECT))
      RETRY-COMPLEX-ARRAY
      (macrolet ((fast-vector-fill (type)
@@ -675,7 +675,7 @@
          (#.+object-tag-array-single-float+ (fast-vector-fill single-float))
          (#.+object-tag-array-double-float+ (fast-vector-fill double-float))
          ((#.+object-tag-simple-array+ #.+object-tag-array+)
-          (when (not (eql (array-rank sequence) 1))
+          (unless (eql (array-rank sequence) 1)
             (error 'type-error :datum sequence :expected-type 'sequence))
           (when (array-displacement sequence)
             (go GENERIC))
@@ -692,10 +692,10 @@
           (go GENERIC))))
      (return original-sequence)
      NOT-OBJECT
-     (when (not (consp sequence))
+     (unless (consp sequence)
        (error 'type-error :datum sequence :expected-type 'sequence))
      GENERIC
-     (when (not end)
+     (unless end
        (setf end (length sequence)))
      (assert (<= 0 start end (length sequence)))
      (dotimes (i (- end start))
@@ -708,8 +708,8 @@
   (fill-known-args sequence item start end))
 
 (define-compiler-macro map (&whole whole result-type function first-sequence &rest more-sequences)
-  (when (not (or (eql result-type 'nil)
-                 (equal result-type ''nil)))
+  (unless (or (eql result-type 'nil)
+              (equal result-type ''nil))
     (return-from map whole))
   (let* ((function-sym (gensym "FUNCTION"))
          (n-sequences (1+ (length more-sequences)))
@@ -849,7 +849,7 @@
                  sequence))
         (t (unless end (setf end (length sequence)))
            (dotimes (i (- end start))
-             (when (not (funcall predicate (funcall key (elt sequence (+ start i)))))
+             (unless (funcall predicate (funcall key (elt sequence (+ start i))))
                (setf (elt sequence (+ start i)) newitem)))
            sequence)))
 
@@ -972,11 +972,11 @@
   (setf end2 (or end2 (length sequence-2)))
   (dotimes (position (min (- end1 start1)
                           (- end2 start2))
-            (when (not (eql (- end1 start1) (- end2 start2)))
+            (unless (eql (- end1 start1) (- end2 start2))
               (+ start1 position)))
-    (when (not (funcall test
+    (unless (funcall test
                         (funcall key (elt sequence-1 (+ start1 position)))
-                        (funcall key (elt sequence-2 (+ start2 position)))))
+                        (funcall key (elt sequence-2 (+ start2 position))))
       (return (+ start1 position)))))
 
 

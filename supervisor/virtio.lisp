@@ -470,8 +470,8 @@
 (defun register-virtio-driver (name probe-function dev-id)
   (dolist (drv *virtio-drivers*)
     (when (eql (virtio-driver-name drv) name)
-      (when (not (and (eql (virtio-driver-probe drv) probe-function)
-                      (eql (virtio-driver-dev-id drv) dev-id)))
+      (unless (and (eql (virtio-driver-probe drv) probe-function)
+                   (eql (virtio-driver-dev-id drv) dev-id))
         (error "Incompatible redefinition of virtio driver ~S." name))
       ;; TODO: Maybe detach current driver and reprobe?
       (return-from register-virtio-driver name)))
@@ -491,7 +491,7 @@
     name))
 
 (defun sup::initialize-virtio ()
-  (when (not (boundp '*virtio-drivers*))
+  (unless (boundp '*virtio-drivers*)
     (setf *virtio-drivers* '()))
   ;; TODO: This should notify drivers that devices are gone.
   (setf *virtio-devices* '()

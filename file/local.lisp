@@ -278,17 +278,17 @@
 
 (defmethod open-using-host ((host local-file-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
-  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+  (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
   (when (eql element-type :default)
     (setf element-type 'character))
-  (when (not (or (and (eql element-type 'character)
+  (unless (or (and (eql element-type 'character)
                       (eql external-format :utf-8))
-                 (eql external-format :default)))
+                 (eql external-format :default))
     (error "Unsupported external format ~S." external-format))
-  (when (not (pathname-name pathname))
+  (unless (pathname-name pathname)
     (error 'simple-file-error
            :pathname pathname
            :format-control "I've been through the desert on a file with no name."))
@@ -303,7 +303,7 @@
                     ((endp element)
                      dir)
                   (let ((next (read-directory-entry dir (car element) "directory")))
-                    (when (not next)
+                    (unless next
                       (ecase if-does-not-exist
                         ((:error :create)
                          (error 'simple-file-error
@@ -316,7 +316,7 @@
            (file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname)))
            (createdp nil)
            (superseded-file nil))
-      (when (not file)
+      (unless file
         (ecase if-does-not-exist
           (:error (error 'simple-file-error
                          :pathname pathname
@@ -391,7 +391,7 @@
                             :superseded-file superseded-file))))))
 
 (defmethod probe-using-host ((host local-file-host) pathname)
-  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+  (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
@@ -418,13 +418,13 @@
                  (t
                   pathname))))
       (let ((next (read-directory-entry dir (car element) "directory")))
-        (when (not next)
+        (unless next
           ;; directory doesn't exist, return nil
           (return-from probe-using-host nil))
         (setf dir next)))))
 
 (defmethod file-write-date-using-host ((host local-file-host) pathname)
-  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+  (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
@@ -440,13 +440,13 @@
          (dir (local-host-root host)))
         ((endp element)
          (let ((file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname))))
-           (when (not file)
+           (unless file
              (error 'simple-file-error
                     :pathname pathname
                     :format-control "File does not exist."))
            (getf (file-plist file) :write-time)))
       (let ((next-dir (read-directory-entry dir (car element) "directory")))
-        (when (not next-dir)
+        (unless next-dir
           (error 'simple-file-error
                  :pathname pathname
                  :format-control "File does not exist."))
@@ -532,7 +532,7 @@
   (let ((dir (pathname-directory pathname)))
     (when (eql dir :wild)
       (setf dir '(:absolute :wild-inferiors)))
-    (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+    (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
       (error 'simple-file-error
              :pathname pathname
              :format-control "Non-absolute pathname."))
@@ -550,12 +550,12 @@
                          :test #'equal))))
 
 (defmethod ensure-directories-exist-using-host ((host local-file-host) pathname &key verbose)
-  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+  (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
   (dolist (entry (rest (pathname-directory pathname)))
-    (when (not (stringp entry))
+    (unless (stringp entry)
       (error 'simple-file-error
              :pathname pathname
              :format-control "Bad directory name ~S." entry)))
@@ -571,7 +571,7 @@
          createdp)
       (let* ((name (car element))
              (existing (read-directory-entry dir name "directory")))
-        (when (not existing)
+        (unless existing
           (setf createdp t)
           (setf existing (make-file dir
                                     (make-pathname :name name
@@ -585,7 +585,7 @@
 (defun walk-directory (host pathname &key (errorp t))
   "Return the directory specified by PATHNAME.
 If ERRORP is true, then a file error will be signalled if any components are missing."
-  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+  (unless (typep (pathname-directory pathname) '(cons (eql :absolute)))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
@@ -594,7 +594,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
      for element in (rest (pathname-directory pathname))
      for next-dir = (read-directory-entry dir element "directory")
      do
-       (when (not next-dir)
+       (unless next-dir
          (if errorp
              (error 'simple-file-error
                     :pathname pathname
@@ -664,7 +664,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
         (error 'simple-file-error
                :pathname dest
                :format-control "Destination file exists."))
-      (when (not source-index)
+      (unless source-index
         (error 'simple-file-error
                :pathname source
                :format-control "File does not exist."))
@@ -695,7 +695,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
              (remhash key name-table))
             (t
              (let ((index (version-position version container)))
-               (when (not index)
+               (unless index
                  (error 'simple-file-error
                         :pathname pathname
                         :format-control "File does not exist."))
@@ -860,13 +860,13 @@ If ERRORP is true, then a file error will be signalled if any components are mis
 (defun make-translating-stream (underlying-stream direction element-type external-format)
   (when (eql direction :io)
     (error "Element translation not supported with :IO direction"))
-  (when (not (equal (stream-element-type underlying-stream) '(unsigned-byte 8)))
+  (unless (equal (stream-element-type underlying-stream) '(unsigned-byte 8))
     (error "Underlying stream must have octet type, not type ~S"
            (stream-element-type underlying-stream)))
-  (when (not (and (subtypep element-type 'character)
-                  (subtypep 'character element-type)))
+  (unless (and (subtypep element-type 'character)
+               (subtypep 'character element-type))
     (error "Translation element-type must be CHARACTER, not ~S" element-type))
-  (when (not (member external-format '(:default :utf-8)))
+  (unless (member external-format '(:default :utf-8))
     (error "Unsupported external format ~S" external-format))
   (make-instance (ecase direction
                    (:input 'translating-input-stream)

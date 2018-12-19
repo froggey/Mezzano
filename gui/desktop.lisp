@@ -102,7 +102,7 @@
        when (consp icon-repr)
        do
          (destructuring-bind (icon name fn) icon-repr
-           (when (not (gethash name cache))
+           (unless (gethash name cache)
              (setf (gethash name cache) (rasterize-string name font colour)))))
     cache))
 

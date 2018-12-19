@@ -250,7 +250,7 @@
 
 (defun graphic-char-p (char)
   "Returns true if CHAR is a graphic character."
-  (when (not (zerop (char-bits char)))
+  (unless (zerop (char-bits char))
     ;; Control bits set, not graphic.
     (return-from graphic-char-p nil))
   ;; Fast path for ASCII.
@@ -639,10 +639,10 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
         (let ((ch (char name i)))
           ;; Ignore spaces and medial hyphens
           (cond ((eql ch #\-)
-                 (when (not (or (and prev-was-letter
+                 (unless (or (and prev-was-letter
                                      (not (spacep (peek-next))))
                                 (and (not prev-was-letter)
-                                     (spacep (peek-next)))))
+                                     (spacep (peek-next))))
                    (advance #\-)))
                 ((spacep ch)
                  (setf prev-was-letter nil))

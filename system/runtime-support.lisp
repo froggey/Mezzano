@@ -16,8 +16,8 @@
 
 (defun proclaim-symbol-mode (symbol new-mode)
   (check-type symbol symbol)
-  (when (not (or (null (symbol-mode symbol))
-                 (eql (symbol-mode symbol) new-mode)))
+  (unless (or (null (symbol-mode symbol))
+              (eql (symbol-mode symbol) new-mode))
     (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
             symbol (symbol-mode symbol) new-mode))
   (setf (symbol-mode symbol) new-mode))
@@ -191,7 +191,7 @@
   (copy-list-in-area list))
 
 ;;; Will be overriden later in the init process.
-(when (not (fboundp 'funcallable-instance-lambda-expression))
+(unless (fboundp 'funcallable-instance-lambda-expression)
   (defun funcallable-instance-lambda-expression (function)
     (values nil t nil))
   (defun funcallable-instance-debug-info (function)
@@ -397,7 +397,7 @@
   (let* ((name (structure-definition-name structure-type))
          (existing (find-class name nil)))
     (cond (existing
-           (when (not (structure-definition-trivially-compatible-p existing structure-type))
+           (unless (structure-definition-trivially-compatible-p existing structure-type)
              (mezzano.clos::redefine-structure-type existing structure-type))
            existing)
           (t
@@ -409,10 +409,10 @@
 (defun %defconstant (name value &optional docstring)
   (cond ((boundp name)
          (let ((old-value (symbol-value name)))
-           (when (not (funcall (or (and (boundp '*defconstant-redefinition-comparator*)
+           (unless (funcall (or (and (boundp '*defconstant-redefinition-comparator*)
                                         *defconstant-redefinition-comparator*)
                                    #'eql)
-                               old-value value))
+                               old-value value)
              (when *incompatible-constant-redefinition-is-an-error*
                (cerror "Redefine the constant"
                        'defconstant-uneql
@@ -540,7 +540,7 @@ VALUE may be nil to make the fref unbound."
 
 (defun fdefinition (name)
   (let ((fn (function-reference-function (function-reference name))))
-    (when (not fn)
+    (unless fn
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
     ;; FIXME: Doesn't match the behaviour of FUNCTION.
@@ -599,7 +599,7 @@ VALUE may be nil to make the fref unbound."
     (labels ((frob (value)
                (multiple-value-bind (quot rem)
                    (truncate value 10)
-                 (when (not (zerop quot))
+                 (unless (zerop quot)
                    (frob quot))
                  (vector-push-extend (code-char (+ 48 rem))
                                      name))))

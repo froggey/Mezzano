@@ -27,7 +27,7 @@
     (format t "No network cards detected!~%~
 Make sure there is a virtio-net NIC attached.~%")
     (return-from sys.int::check-connectivity))
-  (when (not (null (rest mezzano.network.ethernet::*cards*)))
+  (unless (null (rest mezzano.network.ethernet::*cards*))
     (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
   (format t "Using network card ~S.~%" (first mezzano.network.ethernet::*cards*))
   ;; Check connectivity to the file-server.

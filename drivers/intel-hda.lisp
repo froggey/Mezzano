@@ -223,8 +223,8 @@
 (define-condition device-disconnect () ())
 
 (defun check-hda-presence (hda)
-  (when (not (eql (pci:pci-device-boot-id (hda-pci-device hda))
-                  (mezzano.supervisor:current-boot-id)))
+  (unless (eql (pci:pci-device-boot-id (hda-pci-device hda))
+               (mezzano.supervisor:current-boot-id))
     (signal 'device-disconnect)))
 
 (defmacro with-hda-access ((hda) &body body)
@@ -344,7 +344,7 @@
   (let* ((rirbsize (rirbsize-rirbsize (global-reg/8 hda +rirbsize+)))
          (rirbwp (global-reg/16 hda +rirbwp+))
          (read-pointer (hda-rirb-read-pointer hda)))
-    (when (not (eql read-pointer rirbwp))
+    (unless (eql read-pointer rirbwp)
       ;; Bits available!
       ;; Update the read pointer, then read the entry.
       (setf read-pointer (rem (1+ (hda-rirb-read-pointer hda))
@@ -1112,7 +1112,7 @@ Returns NIL if there is no output path."
                   ;; current buffer to the other buffer.
                   (let* ((dmap (dma-position hda output-stream))
                          (current-offset (truncate dmap half-buf-len)))
-                    (when (not (eql current-offset (truncate buffer-offset half-buf-len)))
+                    (unless (eql current-offset (truncate buffer-offset half-buf-len))
                       (when stop-countdown
                         (when (zerop stop-countdown)
                           (return))

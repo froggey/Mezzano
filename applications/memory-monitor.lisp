@@ -18,7 +18,7 @@
   (:method (f e)))
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:key-event))
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (let* ((ch (mezzano.gui.compositor:key-key event)))
       (cond ((char= ch #\Space)
              ;; refresh current window

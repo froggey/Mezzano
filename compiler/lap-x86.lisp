@@ -1047,11 +1047,11 @@ Remaining values describe the effective address: base index scale disp rip-relat
                 value #x8F 0))
 
 (define-instruction lea32 (dst src)
-  (when (not (reg-class src))
+  (unless (reg-class src)
     (modrm :gpr-32 src dst #x8D)))
 
 (define-instruction lea64 (dst src)
-  (when (not (reg-class src))
+  (unless (reg-class src)
     (modrm :gpr-64 src dst #x8D)))
 
 (define-instruction lgdt (gdtr)

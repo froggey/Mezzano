@@ -331,7 +331,7 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
 (defmethod lower-env-form ((form ast-block))
   (ast `(block ,(info form)
           (progn
-            ,@(when (not (localp (info form)))
+            ,@(unless (localp (info form))
                 (let ((env-var (second (first *environment-chain*)))
                       (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
                   (setf (block-information-env-var (info form)) env-var
@@ -445,7 +445,7 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
                      (ast `(tagbody ,(info form)
                               (entry (progn
                                        ;; Save the tagbody info.
-                                       ,@(when (not (localp (info form)))
+                                       ,@(unless (localp (info form))
                                                (let ((env-var (second (first *environment-chain*)))
                                                      (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
                                                  (setf (tagbody-information-env-var (info form)) env-var

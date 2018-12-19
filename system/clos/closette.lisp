@@ -204,7 +204,7 @@
 (defun std-slot-value (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
+    (unless location
       (return-from std-slot-value
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-value))))
@@ -225,7 +225,7 @@
 
 (defun fast-slot-value-reader (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-readers*)))
-    (when (not gf)
+    (unless gf
       ;; Slot readers/writers require a direct-slot-definition.
       (let ((direct-slot (make-instance 'standard-direct-slot-definition
                                         :name slot-name)))
@@ -271,7 +271,7 @@
 (defun (setf std-slot-value) (value instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
+    (unless location
       (slot-missing (class-of instance) instance slot-name 'setf value)
       (return-from std-slot-value
         value))
@@ -291,7 +291,7 @@
 
 (defun fast-slot-value-writer (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-writers*)))
-    (when (not gf)
+    (unless gf
       ;; Slot readers/writers require a direct-slot-definition.
       (let ((direct-slot (make-instance 'standard-direct-slot-definition
                                         :name slot-name)))
@@ -333,7 +333,7 @@
 (defun (sys.int::cas std-slot-value) (old new instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
+    (unless location
       (return-from std-slot-value
         (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new))))
     (sys.int::cas (standard-instance-access slots location) old new)))
@@ -350,7 +350,7 @@
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
+    (unless location
       (return-from std-slot-boundp
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-boundp))))
@@ -368,7 +368,7 @@
 (defun std-slot-makunbound (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
+    (unless location
       (return-from std-slot-makunbound
         (values (slot-missing (class-of instance) instance
                               slot-name 'slot-makunbound))))
@@ -410,7 +410,7 @@
 (defmacro find-class-cached (class)
   `(let ((cache (load-time-value (cons nil nil))))
      (let ((value (car cache)))
-       (when (not value)
+       (unless value
          (setf value (find-class ,class)
                (car cache) value))
        value)))
@@ -745,7 +745,7 @@ Other arguments are included directly."
   (when (endp direct-superclasses)
     (setf direct-superclasses (default-direct-superclasses (class-of class))))
   (dolist (superclass direct-superclasses)
-    (when (not (validate-superclass class superclass))
+    (unless (validate-superclass class superclass)
       (error "Superclass ~S incompatible with class ~S." (class-of superclass) (class-of class))))
   (setf (safe-class-direct-superclasses class) direct-superclasses)
   (dolist (superclass direct-superclasses)
@@ -762,7 +762,7 @@ Other arguments are included directly."
   (setf (safe-class-direct-default-initargs class) direct-default-initargs)
   (setf (std-slot-value class 'allocation-area) (first area))
   (setf (std-slot-value class 'sealed) (first sealed))
-  (when (not (std-slot-boundp class 'hash))
+  (unless (std-slot-boundp class 'hash)
     (setf (std-slot-value class 'hash) (next-class-hash-value)))
   (maybe-finalize-inheritance class)
   (values))
@@ -776,7 +776,7 @@ Other arguments are included directly."
 
 (defun ensure-class-finalized (class)
   "If CLASS is not finalized, call FINALIZE-INHERITANCE on it."
-  (when (not (safe-class-finalized-p class))
+  (unless (safe-class-finalized-p class)
     (finalize-inheritance class)))
 
 ;;; Slot definition metaobjects
@@ -938,7 +938,7 @@ Other arguments are included directly."
   (dolist (cpl-constituent (reverse cpl-so-far))
     (let* ((supers (safe-class-direct-superclasses cpl-constituent))
            (common (intersection minimal-elements supers)))
-      (when (not (null common))
+      (unless (null common)
         (return-from std-tie-breaker-rule (car common))))))
 
 ;;; This version of collect-superclasses* isn't bothered by cycles in the class
@@ -1281,8 +1281,8 @@ has only has class specializer."
                                     :initial-element 0))
          (class-t (find-class 't))
          (argument-precedence (safe-generic-function-argument-precedence-order gf)))
-    (when (not (eql (length required-args)
-                    (length (remove-duplicates required-args))))
+    (unless (eql (length required-args)
+                 (length (remove-duplicates required-args)))
       (error "Generic function has duplicate required argument in its lambda list ~S."
              (safe-generic-function-lambda-list gf)))
     ;; Verify that the argument-precedence order is correct.
@@ -1380,7 +1380,7 @@ has only has class specializer."
 ;;; defmethod
 
 (defun defmethod-1 (gf-name &rest args)
-  (when (not (fboundp gf-name))
+  (unless (fboundp gf-name)
     (warn "Implicit defintion of generic function ~S." gf-name))
   (apply #'ensure-method
          (ensure-generic-function gf-name)
@@ -1853,7 +1853,7 @@ has only has class specializer."
         (if (eql (class-of gf) *the-class-standard-gf*)
             (std-compute-applicable-methods-using-classes gf classes)
             (compute-applicable-methods-using-classes gf classes))
-      (when (not validp)
+      (unless validp
         ;; EQL specialized.
         (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
                                      (std-compute-applicable-methods gf args)
@@ -2072,7 +2072,7 @@ has only has class specializer."
       ;; TODO: make the lambda-list here refect the actual lambda list more accurately.
       `(lambda (&rest ,method-args)
          (declare (sys.int::lambda-name (effective-method ,@name)))
-         ,@(when (not suppress-keyword-checking)
+         ,@(unless suppress-keyword-checking
              `(check-method-keyword-arguments ',gf (nthcdr ',key-arg-index ,method-args) ',keywords))
          (macrolet ((call-method (method &optional next-method-list)
                       (when (listp method)
@@ -2247,7 +2247,7 @@ has only has class specializer."
 (defgeneric class-prototype (class)
   (:method ((class std-class))
     (declare (notinline slot-boundp slot-value (setf slot-value))) ; bootstrap hack
-    (when (not (slot-boundp class 'prototype))
+    (unless (slot-boundp class 'prototype)
       (setf (slot-value class 'prototype) (allocate-instance class)))
     (slot-value class 'prototype)))
 (defgeneric class-sealed (class)
@@ -2513,7 +2513,7 @@ has only has class specializer."
     (dolist (c (safe-class-precedence-list class))
       (loop
          for (initarg form fn) in (safe-class-direct-default-initargs c)
-         do (when (not (member initarg default-initargs :key #'first))
+         do (unless (member initarg default-initargs :key #'first)
               (push (list initarg form fn) default-initargs))))
     (nreverse default-initargs)))
 
@@ -2595,7 +2595,7 @@ has only has class specializer."
            (,initargs-sym ,initargs))
        (multiple-value-bind (,valid-initargs ,cache-validp)
            (gethash ,class-sym ,cache-sym)
-         (when (not ,cache-validp)
+         (unless ,cache-validp
            (setf ,valid-initargs (valid-initargs ,class-sym ,cache-sym ,functions)))
          (when (and (not (eql ,valid-initargs 't))
                     (not (getf ,initargs-sym :allow-other-keys)))
@@ -2929,7 +2929,7 @@ has only has class specializer."
 (defmethod initialize-instance :after ((class built-in-class) &rest args)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (apply #'std-after-initialization-for-classes class args)
-  (when (not (slot-boundp class 'prototype))
+  (unless (slot-boundp class 'prototype)
     (setf (slot-value class 'prototype) (std-allocate-instance class))))
 
 (defmethod reinitialize-instance :before ((class built-in-class) &rest args)
@@ -3084,7 +3084,7 @@ has only has class specializer."
     (loop
        for slot in discarded-slots
        do (let ((value (mezzano.runtime::instance-access old-instance (slot-location-using-layout slot old-layout))))
-            (when (not (eql value *secret-unbound-value*))
+            (unless (eql value *secret-unbound-value*)
               (setf property-list (list* slot value
                                          property-list)))))
     ;; Obsolete the old instance, replacing it with the new instance.

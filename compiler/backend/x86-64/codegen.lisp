@@ -22,7 +22,7 @@
               (when (member current visited)
                 (return (resolve-label label :snap nil)))
               (let ((next (ir:next-instruction nil current)))
-                (when (not (typep next 'ir:jump-instruction))
+                (unless (typep next 'ir:jump-instruction)
                   (return (resolve-label current :snap nil)))
                 (push current visited)
                 (setf current (ir:jump-target next))))))
@@ -145,12 +145,12 @@
           (let ((stack-size (length *current-frame-layout*)))
             (when (oddp stack-size)
               (incf stack-size))
-            (when (not (zerop stack-size))
+            (unless (zerop stack-size)
               (emit `(lap:sub64 :rsp ,(* stack-size 8))))
             (loop
                for i from 0
                for elt across *current-frame-layout*
-               do (when (not (zerop elt))
+               do (unless (zerop elt)
                     (emit `(lap:mov64 (:stack ,i) nil)))))
           (emit-gc-info :incoming-arguments :rcx)
           (ir:do-instructions (inst-or-label backend-function)
@@ -158,7 +158,7 @@
             (cond ((typep inst-or-label 'ir:label)
                    (push (gethash inst-or-label *labels*) *emitted-lap*))
                   (t
-                   (when (not (eql inst-or-label (ir:first-instruction backend-function)))
+                   (unless (eql inst-or-label (ir:first-instruction backend-function))
                      (if (eql (gethash inst-or-label mv-flow) :multiple)
                          (emit-gc-info :multiple-values 0)
                          (emit-gc-info)))
@@ -186,7 +186,7 @@
              ;; the closure calling convention and the closure object will
              ;; still be in RBX. For non-closures, reconstruct the function
              ;; object and put that in RBX.
-             (when (not (sys.c::lambda-information-environment-arg (ir::ast backend-function)))
+             (unless (sys.c::lambda-information-environment-arg (ir::ast backend-function))
                (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
              (emit `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
                    ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
@@ -387,7 +387,7 @@
         (emit `(lap:movdqa ,(ir:move-destination instruction) ,(ir:move-source instruction))))))))
 
 (defmethod emit-lap (backend-function (instruction ir:swap-instruction) uses defs)
-  (when (not (eql (ir:swap-lhs instruction) (ir:swap-rhs instruction)))
+  (unless (eql (ir:swap-lhs instruction) (ir:swap-rhs instruction))
     (assert (eql (lap::reg-class (ir:swap-lhs instruction)) (lap::reg-class (ir:swap-rhs instruction))))
     (ecase (lap::reg-class (ir:swap-rhs instruction))
       ((:mm :xmm)
@@ -481,7 +481,7 @@
         (t
          ;; Jump to the true target, maybe fall-through to the true target.
          (emit (list opcode (resolve-label true-target)))
-         (when (not (eql (ir:next-instruction backend-function instruction) false-target))
+         (unless (eql (ir:next-instruction backend-function instruction) false-target)
            (emit (list 'lap:jmp (resolve-label false-target)))))))
 
 (defmethod emit-lap (backend-function (instruction x86-branch-instruction) uses defs)
@@ -530,8 +530,8 @@
   (emit `(lap:ud2)))
 
 (defmethod emit-lap (backend-function (instruction ir:jump-instruction) uses defs)
-  (when (not (eql (ir:next-instruction backend-function instruction)
-                  (ir:jump-target instruction)))
+  (unless (eql (ir:next-instruction backend-function instruction)
+               (ir:jump-target instruction))
     (emit `(lap:jmp ,(resolve-label (ir:jump-target instruction))))))
 
 (defmethod emit-lap (backend-function (instruction ir:switch-instruction) uses defs)
@@ -558,7 +558,7 @@
          (n-args (length call-arguments)))
     (when (oddp n-stack-args)
       (incf n-stack-args))
-    (when (not (zerop n-stack-args))
+    (unless (zerop n-stack-args)
       (emit `(lap:sub64 :rsp ,(* n-stack-args 8))))
     (loop
        for arg in stack-args
@@ -580,7 +580,7 @@
          (n-stack-args (length stack-args)))
     (when (oddp n-stack-args)
       (incf n-stack-args))
-    (when (not (zerop n-stack-args))
+    (unless (zerop n-stack-args)
       (emit `(lap:add64 :rsp ,(* n-stack-args 8))))))
 
 (defun maybe-log-missed-builtin (fn)

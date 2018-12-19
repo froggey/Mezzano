@@ -28,11 +28,11 @@
         (named nil)
         (slot-offsets nil)
         (sealed nil))
-    (when (not (listp name-and-options))
+    (unless (listp name-and-options)
       (setf name-and-options (list name-and-options)))
     (setf name (first name-and-options))
     (dolist (option (rest name-and-options))
-      (when (not (listp option))
+      (unless (listp option)
         (setf option (list option)))
       (cond
         ;; Standard options.

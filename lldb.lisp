@@ -1,7 +1,7 @@
 (in-package :sys.int)
 
 (defun fetch-thread-function-arguments (thread)
-  (when (not (mezzano.supervisor:thread-full-save-p thread))
+  (unless (mezzano.supervisor:thread-full-save-p thread)
     (format t "Thread not full save?~%")
     (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
   (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
@@ -12,7 +12,7 @@
                         (mezzano.supervisor:thread-state-r12-value thread)))
         (sp (mezzano.supervisor:thread-state-rsp thread))
         (stack-vals '()))
-    (when (not (fixnump count))
+    (unless (fixnump count)
       (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
       (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
     (dotimes (i (max 0 (- count 5)))
@@ -21,7 +21,7 @@
             0 count)))
 
 (defun fetch-thread-return-values (thread)
-  (when (not (mezzano.supervisor:thread-full-save-p thread))
+  (unless (mezzano.supervisor:thread-full-save-p thread)
     (format t "Thread not full save?~%")
     (return-from fetch-thread-return-values '(:thread-in-strange-state)))
   (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
@@ -30,7 +30,7 @@
                     (mezzano.supervisor:thread-state-r10-value thread)
                     (mezzano.supervisor:thread-state-r9-value thread)
                     (mezzano.supervisor:thread-state-r8-value thread))))
-    (when (not (fixnump count))
+    (unless (fixnump count)
       (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
       (return-from fetch-thread-return-values '(:thread-in-strange-state)))
     (dotimes (i (max 0 (- count 5)))
@@ -59,7 +59,7 @@
   (let* ((rip (mezzano.supervisor:thread-state-rip thread))
          (fn (return-address-to-function rip)))
     (cond ((member fn *step-special-functions* :key #'fdefinition)
-           (when (not (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+)))
+           (unless (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
              (cerror "Step anyway"
                      "Cannot single-step function in the middle of special function ~S."
                      fn)
@@ -90,7 +90,7 @@
          (when (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
            (format t "Entered function ~S with arguments ~:S.~%" fn (fetch-thread-function-arguments thread))
            (return))
-         (when (not (eql fn prev-fn))
+         (unless (eql fn prev-fn)
            (format t "Returning from function ~S to ~S with results ~:S.~%"
                    prev-fn fn (fetch-thread-return-values thread))
            (return))
@@ -140,7 +140,7 @@
                           entry-offset restart)
         (gc-info-for-function-offset fn fn-offset)
       (cond (interruptp
-             (when (not framep)
+             (unless framep
                (error "Frameless interrupt frames not implemented" framep interruptp pushed-values pushed-values-register
                       layout-address layout-length
                       multiple-values incoming-arguments
@@ -319,7 +319,7 @@
                                                (mapcar #'print-safely-to-string
                                                        (fetch-thread-return-values thread))))))))
                        (when print-instructions
-                         (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
+                         (unless (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context))
                            (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
                          (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
                            (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
@@ -385,8 +385,8 @@
      thread
      (lambda (stack-pointer frame-pointer return-address fn fn-offset)
        (declare (ignore stack-pointer frame-pointer return-address))
-       (when (not (or (eql fn #'mezzano.supervisor::stop-current-thread)
-                      (eql fn #'mezzano.supervisor::%%partial-save-return-thunk)))
+       (unless (or (eql fn #'mezzano.supervisor::stop-current-thread)
+                   (eql fn #'mezzano.supervisor::%%partial-save-return-thunk))
          (vector-push-extend (cons fn fn-offset) stack))))
     (mezzano.supervisor::resume-thread thread)
     stack))

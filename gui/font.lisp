@@ -171,11 +171,11 @@
          (cell (logand code #xFFFF))
          (main-cache (glyph-cache font))
          (cell-cache (aref main-cache plane)))
-    (when (not cell-cache)
+    (unless cell-cache
       (setf cell-cache (make-array (expt 2 16) :initial-element nil)
             (aref main-cache plane) cell-cache))
     (let ((glyph (aref cell-cache cell)))
-      (when (not glyph)
+      (unless glyph
         ;; Glyph does not exist in the cache, rasterize it.
         (mezzano.supervisor:with-mutex ((glyph-cache-lock font))
           (mezzano.supervisor:with-mutex ((typeface-lock (typeface font)))

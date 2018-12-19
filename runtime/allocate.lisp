@@ -144,7 +144,7 @@
                     (setf (freelist-entry-next prev) (freelist-entry-next freelist)))
                    (t
                     (setf (svref bins log2-len) (freelist-entry-next freelist))))
-             (when (not (eql size words))
+             (unless (eql size words)
                ;; Entry is too large, split it.
                ;; Always create new entries with the pinned mark bit
                ;; set. A GC will flip it, making all the freelist
@@ -198,13 +198,13 @@
                   (existing-bin (integer-length existing-len))
                   (new-len (+ len existing-len))
                   (new-bin (integer-length new-len)))
-             (when (not (eql new-bin existing-bin))
+             (unless (eql new-bin existing-bin)
                ;; Bin changed, need to remove from the old bin and reinsert into the new.
                (loop
                   with prev = nil
                   with curr = (svref sys.int::*pinned-area-free-bins* existing-bin)
                   do
-                    (when (not curr)
+                    (unless curr
                       (mezzano.supervisor:panic "Can't find freelist entry " final-entry " in bin " existing-bin))
                     (when (eql curr final-entry)
                       (cond (prev
@@ -242,7 +242,7 @@
        (let ((result (%allocate-from-pinned-area-1 tag data words)))
          (when result
            (return result)))
-       (when (not (eql i 0))
+       (unless (eql i 0)
          ;; The GC has been run at least once, try enlarging the pinned area.
          (let ((grow-by (* words 8)))
            (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
@@ -452,7 +452,7 @@
                 (multiple-value-bind (result ignore1 ignore2 failurep)
                     (%do-allocate-from-general-area tag data words)
                   (declare (ignore ignore1 ignore2))
-                  (when (not failurep)
+                  (unless failurep
                     (return-from %slow-allocate-from-general-area
                       result)))
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
@@ -546,7 +546,7 @@
                 (multiple-value-bind (result blah failurep)
                     (do-cons car cdr)
                   (declare (ignore blah))
-                  (when (not failurep)
+                  (unless failurep
                     (return-from slow-cons result)))
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
                 ;; Running the GC cannot be done when pseudo-atomic.
@@ -800,13 +800,13 @@
                   (addr (logior bump
                                 (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
              ;; Allocate backing mmory.
-             (when (not (allocate-memory-range addr size
+             (unless (allocate-memory-range addr size
                                                (logior sys.int::+block-map-present+
                                                        sys.int::+block-map-writable+
                                                        sys.int::+block-map-zero-fill+
                                                        (if wired
                                                            sys.int::+block-map-wired+
-                                                           0))))
+                                                           0)))
                (go DO-GC))
              ;; Memory actually allocated, now update bump pointers.
              (if wired

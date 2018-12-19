@@ -87,7 +87,7 @@
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzano.gui.compositor:key-releasep event))
+  (unless (mezzano.gui.compositor:key-releasep event)
     (mezzano.supervisor:with-mutex ((lock window))
       (cond ((and (eql (mezzano.gui.compositor:key-key event) #\Esc)
                   (member :control (mezzano.gui.compositor:key-modifier-state event)))

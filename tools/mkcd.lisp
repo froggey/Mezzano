@@ -33,7 +33,7 @@
       (format t "Image path: ~A~%" image-path)
       (format t "Base path: ~A~%" base-path))
     (when confirm
-      (when (not (y-or-n-p "Ok?"))
+      (unless (y-or-n-p "Ok?")
         (return-from build-kboot-stub nil)))
     (delete-directory-and-files stage :if-does-not-exist :ignore)
     (unwind-protect

@@ -128,7 +128,7 @@
 
 (defun detect-virtio-input-devices ()
   (dolist (dev mezzano.supervisor.virtio-input:*virtio-input-devices*)
-    (when (not (gethash dev *virtio-input-forwarders*))
+    (unless (gethash dev *virtio-input-forwarders*)
       (format t "Created input forwarder for ~A~%"
               (with-output-to-string (s)
                 (print-unreadable-object (dev s :type t :identity t))))

@@ -95,11 +95,11 @@
   (multiple-value-bind (rc xres yres bpp)
       (vbox-issue-get-display-change vbox 1)
     (declare (ignore rc))
-    (when (not (or (zerop xres)
+    (unless (or (zerop xres)
                    (zerop yres)
                    (zerop bpp)
                    (and (eql *vbox-screen-xres* xres)
-                        (eql *vbox-screen-yres* yres))))
+                        (eql *vbox-screen-yres* yres)))
       ;; Screen size has changed. Resize the display and send an event
       ;; to the listener thread to update the video framebuffer.
       (sup:debug-print-line "New screen geometry is " xres "x" yres "x" bpp)
@@ -121,12 +121,12 @@
   (vbox-issue-ack-events vbox 0))
 
 (defun vbox-ensure-fifo-exists ()
-  (when (not (boundp '*vbox-event-fifo*))
+  (unless (boundp '*vbox-event-fifo*)
     ;; Create a new fifo in the unlikely event that this image has never
     ;; been booted in virtualbox.
     (let ((new-fifo (sup:make-irq-fifo 50 :name "VirtualBox event FIFO")))
       (sup:safe-without-interrupts (new-fifo)
-        (when (not (boundp '*vbox-event-fifo*))
+        (unless (boundp '*vbox-event-fifo*)
           (setf *vbox-event-fifo* new-fifo))))))
 
 (defun virtualbox-read-event (&optional (wait-p t))

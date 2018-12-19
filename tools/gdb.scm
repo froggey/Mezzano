@@ -67,7 +67,7 @@
 
 (define (break name)
   (define addr (lookup name))
-  (when (not addr)
+  (unless addr
     (error "Unknown symbol" name))
   (gdb:execute (format #f "break *0x~x" addr))
   addr)

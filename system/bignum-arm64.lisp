@@ -58,12 +58,12 @@
     (let ((sbit (bignum-sign-32 bignum)))
       ;; Now loop, until there are either no more redundant sign-extension fragments or until the length is zero.
       (loop
-         (when (not (and (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 1)) sbit)
-                         (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 2)) sbit)))
+         (unless (and (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 1)) sbit)
+                      (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 2)) sbit))
            (return))
-         (when (not (zerop (logand #x80000000
+         (unless (zerop (logand #x80000000
                                    (logxor (%object-ref-unsigned-byte-32 bignum (- (* len 2) 3))
-                                           sbit))))
+                                           sbit)))
            (return))
          (when (eql len 1)
            (return))
@@ -187,11 +187,11 @@
          (sign-x (ash (%object-ref-unsigned-byte-32 x (- (* len-x 2) 1)) -31))
          (sign-y (ash (%object-ref-unsigned-byte-32 y (- (* len-y 2) 1)) -31)))
     ;; Check sign bits. If they differ, then one is obviously less than the other.
-    (when (not (zerop (logxor sign-x sign-y)))
+    (unless (zerop (logxor sign-x sign-y))
       (return-from %%bignum-<
         (not (zerop sign-x))))
     ;; Same sign, check lengths.
-    (when (not (eql len-x len-y))
+    (unless (eql len-x len-y)
       (cond ((zerop sign-x)
              ;; Non-negative.
              (return-from %%bignum-< (< len-x len-y)))
@@ -214,17 +214,17 @@
          (sign-x (ash (%object-ref-unsigned-byte-32 x (- (* len-x 2) 1)) -31))
          (sign-y (ash (%object-ref-unsigned-byte-32 y (- (* len-y 2) 1)) -31)))
     ;; Check sign bits. If they differ, then one is obviously less than the other.
-    (when (not (zerop (logxor sign-x sign-y)))
+    (unless (zerop (logxor sign-x sign-y))
       (return-from %%bignum-= nil))
     ;; Same sign, check lengths.
-    (when (not (eql len-x len-y))
+    (unless (eql len-x len-y)
       (return-from %%bignum-= nil))
     ;; Same length, same sign. Compare fragment-by-fragment.
     (operate-on-bignum x y
                        (lambda (len-x len-y)
                          (max len-x len-y))
                        (lambda (a b)
-                         (when (not (eql a b))
+                         (unless (eql a b)
                            (return-from %%bignum-= nil))
                          0))
     t))

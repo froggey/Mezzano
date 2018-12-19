@@ -84,7 +84,7 @@
   (let ((sector-size (disk-sector-size disk)))
     (multiple-value-bind (sector-index byte-offset)
         (truncate (* i entry-size) sector-size)
-      (when (not (disk-read disk (+ offset sector-index) 1 sector-buffer))
+      (unless (disk-read disk (+ offset sector-index) 1 sector-buffer)
         (panic "Unable to read GPT entry block " (+ offset sector-index) " on disk " disk))
       (let* ((base (+ sector-buffer byte-offset))
              (first-lba (memref-ub64/le (+ base #x20) 0))
@@ -118,7 +118,7 @@
     (with-pages (page-addr pages-per-sector
                            :mandatory-p "DETECT-DISK disk buffer")
       ;; GPT is stored on LBA 1, protective MBR on LBA 0.
-      (when (not (disk-read disk 1 1 page-addr))
+      (unless (disk-read disk 1 1 page-addr)
         (panic "Unable to read second block on disk " disk))
       (when (and (>= sector-size 512)
                  (check-gpt-header-signature page-addr))
@@ -152,7 +152,7 @@
          (ebr-lba nil))
     (with-pages (page-addr pages-per-sector
                            :mandatory-p "DETECT-DISK disk buffer")
-      (when (not (disk-read disk 0 1 page-addr))
+      (unless (disk-read disk 0 1 page-addr)
         (panic "Unable to read first block on disk " disk))
       (when (and (>= sector-size 512)
                  (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FE) #x55)
@@ -184,7 +184,7 @@
         ;; Handle extended partition documentation at:
         ;; https://thestarman.pcministry.com/asm/mbr/PartTables.htm
         (when ebr-lba
-          (when (not (disk-read disk ebr-lba 1 page-addr))
+          (unless (disk-read disk ebr-lba 1 page-addr)
             ;; What do to with this error?
             )
           (loop with part-type and data-offset and size and ebr-offset
@@ -218,7 +218,7 @@
              else do
                (progn
                  (setf ebr-lba (+ ebr-lba ebr-offset))
-                 (when (not (disk-read disk ebr-lba 1 page-addr))
+                 (unless (disk-read disk ebr-lba 1 page-addr)
                    ;; what to do with this error?
                    )))))
       found-table-p)))
@@ -229,15 +229,15 @@
      ;; Limit to searching the first 128 entries.
      for sector from #x10 below (+ #x10 128)
      do
-       (when (not (disk-read disk sector 1 buffer))
+       (unless (disk-read disk sector 1 buffer)
          (return nil))
        ;; Check identifier 'CD001' and version
-       (when (not (and (eql (sys.int::memref-unsigned-byte-8 buffer 1) #x43)
+       (unless (and (eql (sys.int::memref-unsigned-byte-8 buffer 1) #x43)
                        (eql (sys.int::memref-unsigned-byte-8 buffer 2) #x44)
                        (eql (sys.int::memref-unsigned-byte-8 buffer 3) #x30)
                        (eql (sys.int::memref-unsigned-byte-8 buffer 4) #x30)
                        (eql (sys.int::memref-unsigned-byte-8 buffer 5) #x31)
-                       (eql (sys.int::memref-unsigned-byte-8 buffer 6) #x01)))
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 6) #x01))
          (return nil))
        ;; Check type.
        (case (sys.int::memref-unsigned-byte-8 buffer 0)
@@ -250,13 +250,13 @@
   (let* ((sector-size (disk-sector-size disk))
          (pages-per-sector (ceiling sector-size +4k-page-size+))
          (found-table-p nil))
-    (when (not (eql sector-size 2048))
+    (unless (eql sector-size 2048)
       (return-from detect-iso9660-partition-table nil))
     (with-pages (page-addr pages-per-sector
                            :mandatory-p "DETECT-DISK disk buffer")
       ;; Search for a primary volume descriptor.
       (let ((primary-volume (find-iso9660-primary-volume-descriptor disk page-addr)))
-        (when (not primary-volume)
+        (unless primary-volume
           (return-from detect-iso9660-partition-table nil))
         (debug-print-line "Detected ISO9660 primary volume descriptor at sector " primary-volume " on disk " disk)
         ;; Treat every file in the root directory as a partition.
@@ -267,7 +267,7 @@
           (loop
              for sector from 0 below (ceiling root-length 2048)
              do
-               (when (not (disk-read disk (+ root-extent sector) 1 page-addr))
+               (unless (disk-read disk (+ root-extent sector) 1 page-addr)
                  (return nil))
                (do ((offset 0))
                    ((>= offset 2048))

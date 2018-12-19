@@ -103,7 +103,7 @@
 
 (defun check-symbol-value-type (value symbol)
   (let ((type (symbol-type symbol)))
-    (when (not (eql type 't))
+    (unless (eql type 't)
       (assert (typep value (symbol-type symbol))))))
 
 (defun sys.int::symbol-global-value (symbol)
@@ -125,7 +125,7 @@
 (define-compiler-macro symbol-value-cell (symbol)
   (let ((sym (gensym)))
     `(let ((,sym ,symbol))
-       (when (not (symbolp ,sym))
+       (unless (symbolp ,sym)
          (sys.int::raise-type-error ,sym 'symbol)
          (sys.int::%%unreachable))
        (fast-symbol-value-cell ,sym))))

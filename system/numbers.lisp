@@ -463,14 +463,14 @@
                (t
                 ;; All remaining characters must be whitespace.
                 (do () ((>= offset end))
-                  (when (not (member (char string offset) whitespace))
+                  (unless (member (char string offset) whitespace)
                     (error 'simple-parse-error
                            :format-control "Junk after trailing whitespace in ~S."
                            :format-arguments (list string)))
                   (incf offset))
                 (values n end))))
       (let ((weight (digit-char-p (char string offset) radix)))
-        (when (not weight)
+        (unless weight
           (if junk-allowed
               (return-from parse-integer
                 (values (if (eql offset start)

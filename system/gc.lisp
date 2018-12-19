@@ -72,7 +72,7 @@
   (dotimes (i (min (length *gc-transport-cycles*)
                    (length *gc-transport-counts*)
                    (length *gc-transport-old-counts*)))
-    (when (not (zerop (aref *gc-transport-counts* i)))
+    (unless (zerop (aref *gc-transport-counts* i))
       (format t "  ~:D: ~:D objects, ~:D new, ~:D cycles.~%"
               (expt 2 i)
               (aref *gc-transport-counts* i)
@@ -119,7 +119,7 @@
         (setf *gc-force-major-cycle* full))
       (mezzano.supervisor:condition-notify *gc-cvar* t)
       (loop
-         (when (not (eql epoch *gc-epoch*))
+         (unless (eql epoch *gc-epoch*)
            (return))
          (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))))
 
@@ -173,7 +173,7 @@ This is required to make the GC interrupt safe."
       `(let* (,@(mapcar #'list vars vals)
               (,orig ,getter)
               (,(car stores) (scavenge-object ,orig ,cycle-kind)))
-           (when (not (eq ,orig ,(car stores)))
+           (unless (eq ,orig ,(car stores))
              ,setter)))))
 
 (defun scavenge-many (address n cycle-kind)
@@ -218,7 +218,7 @@ This is required to make the GC interrupt safe."
           (transport-object object cycle-kind))
          (0
           ;; Minor GC: Dynamic generation 0 allocations are transported to generation 1.
-          (when (not (eql (ldb +address-generation+ address) +address-generation-0+))
+          (unless (eql (ldb +address-generation+ address) +address-generation-0+)
             (return-from scavenge-object object))
           (transport-object object cycle-kind))))
       (#.+address-tag-pinned+
@@ -383,9 +383,9 @@ This is required to make the GC interrupt safe."
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
           (cond (interruptp
-                 (when (not (eql layout-length 0))
+                 (unless (eql layout-length 0)
                    (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
-                 (when (not (eql pushed-values 0))
+                 (unless (eql pushed-values 0)
                    (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
                  (when pushed-values-register
                    (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
@@ -580,11 +580,11 @@ This is required to make the GC interrupt safe."
              (declare (dynamic-extent #'bad-metadata))
              ;; Validate metadata.
              (cond (interruptp
-                    (when (not framep)
+                    (unless framep
                       (bad-metadata "Interrupted :NO-FRAME :INTERRUPTED frame"))
-                    (when (not (eql layout-length 0))
+                    (unless (eql layout-length 0)
                       (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
-                    (when (not (eql pushed-values 0))
+                    (unless (eql pushed-values 0)
                       (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
                     (when pushed-values-register
                       (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
@@ -694,9 +694,9 @@ This is required to make the GC interrupt safe."
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
           (cond (interruptp
-                 (when (not (eql layout-length 0))
+                 (unless (eql layout-length 0)
                    (bad-metadata "Non-zero layout-length in an :INTERRUPT frame"))
-                 (when (not (eql pushed-values 0))
+                 (unless (eql pushed-values 0)
                    (bad-metadata "Non-zero :PUSHED-VALUES in an :INTERRUPT frame"))
                  (when pushed-values-register
                    (bad-metadata "Non-NIL :PUSHED-VALUES-REGISTER in an :INTERRUPT frame"))
@@ -1035,12 +1035,12 @@ This is required to make the GC interrupt safe."
 (defun scan-delimited-continuation (object cycle-kind)
   (gc-log "Scan delimited continuation " object)
   (let ((entry-point (%object-ref-signed-byte-64 object +function-entry-point+)))
-    (when (not (zerop entry-point))
+    (unless (zerop entry-point)
       (scavenge-object (return-address-to-function entry-point) cycle-kind)))
   (scavengef (%object-ref-t object +delimited-continuation-stack+) cycle-kind)
   (scavengef (%object-ref-t object +delimited-continuation-state+) cycle-kind)
   (let ((stack-pointer (%object-ref-signed-byte-64 object +delimited-continuation-stack-pointer+)))
-    (when (not (zerop stack-pointer))
+    (unless (zerop stack-pointer)
       ;; Scan the stack. God willing.
       (let ((frame-pointer (memref-unsigned-byte-64 stack-pointer 2))
             (return-address (memref-unsigned-byte-64 stack-pointer 3)))
@@ -1126,7 +1126,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (length nil)
          (new-address nil))
     (setf length (object-size object))
-    (when (not length)
+    (unless length
       (transport-error object))
     ;; Update meters.
     (incf *objects-copied*)
@@ -1184,7 +1184,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
         (incf (svref *gc-transport-old-counts* bin))))
     ;; Update object starts.
     ;; Conses are exempt as the cons area has a uniform layout.
-    (when (not (consp object))
+    (unless (consp object)
       (loop
          for card from (align-up new-address +card-size+) below (+ new-address (* length 8)) by +card-size+
          for delta = (- new-address card)
@@ -1303,13 +1303,13 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (let ((address (ash (%pointer-field object) 4)))
     (cond ((consp object)
            ;; The object header for conses is 16 bytes behind the address.
-           (when (not (eql (ldb (byte +object-type-size+ +object-type-shift+)
+           (unless (eql (ldb (byte +object-type-size+ +object-type-shift+)
                                 (memref-unsigned-byte-64 address -2))
-                           +object-tag-cons+))
+                           +object-tag-cons+)
              (mezzano.supervisor:panic "Invalid pinned cons " object))
-           (when (not (eql (logand (memref-unsigned-byte-64 address -2)
+           (unless (eql (logand (memref-unsigned-byte-64 address -2)
                                    +pinned-object-mark-bit+)
-                           *pinned-mark-bit*))
+                           *pinned-mark-bit*)
              ;; Not marked, mark it.
              (setf (memref-unsigned-byte-64 address -2) (logior (logand (memref-unsigned-byte-64 address -2)
                                                                         (lognot +pinned-object-mark-bit+))
@@ -1318,9 +1318,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
              (scan-object object :major)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
                (mezzano.supervisor:panic "Marking freelist entry " object))
-             (when (not (eql (logand (memref-unsigned-byte-8 address 0) ; Read carefully, no bignums.
+             (unless (eql (logand (memref-unsigned-byte-8 address 0) ; Read carefully, no bignums.
                                      +pinned-object-mark-bit+)
-                             *pinned-mark-bit*))
+                             *pinned-mark-bit*)
                ;; Not marked, mark it.
                (setf (memref-unsigned-byte-8 address 0) (logior (logand (memref-unsigned-byte-8 address 0)
                                                                         (lognot +pinned-object-mark-bit+))
@@ -1390,8 +1390,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (loop
      (when (>= start limit)
        (return nil))
-     (when (not (eql (logand (memref-unsigned-byte-8 start 0) +pinned-object-mark-bit+)
-                     *pinned-mark-bit*))
+     (unless (eql (logand (memref-unsigned-byte-8 start 0) +pinned-object-mark-bit+)
+                  *pinned-mark-bit*)
        ;; Not marked, must be free.
        (return start))
      (let ((size (* (align-up (size-of-pinned-area-allocation start) 2) 8)))
@@ -1449,7 +1449,7 @@ Additionally update the card table offset fields."
   (let* ((entry-start (find-next-free-object base limit))
          (entry-len 0)
          (current entry-start))
-    (when (not entry-start)
+    (unless entry-start
       (when *gc-debug-freelist-rebuild*
         (gc-log "done (empty)"))
       (return-from rebuild-freelist))
@@ -1474,7 +1474,7 @@ Additionally update the card table offset fields."
             (when *gc-debug-freelist-rebuild*
               (gc-log "marked, next is " current))
             (finish-freelist-entry bins entry-start entry-len)
-            (when (not current)
+            (unless current
               (return))
             (setf entry-start current
                   entry-len 0))
@@ -1538,7 +1538,7 @@ Additionally update the card table offset fields."
           (incf current (minor-scan-at current gen))
           (when (>= current end)
             (return-from minor-scan-range))
-          (when (not (card-table-dirty-p current gen))
+          (unless (card-table-dirty-p current gen)
             (return)))
        (setf current (logand current (lognot (1- +card-size+)))))))
 
@@ -1769,21 +1769,21 @@ Additionally update the card table offset fields."
                          (1 (+ *cons-area-gen0-limit* *cons-area-gen1-limit*)))))
     ;; Allocate newspace in the target generation.
     ;; This allocates the maximum space required up front to avoid complicating transport.
-    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
+    (unless (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
                                                                     (ash +address-tag-general+ +address-tag-shift+))
                                                             general-limit)
                                                          general-total
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
-                                                                 +block-map-zero-fill+)))
+                                                                 +block-map-zero-fill+))
       (gc-insufficient-space))
-    (when (not (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
+    (unless (mezzano.supervisor:allocate-memory-range (+ (logior target-generation
                                                                     (ash +address-tag-cons+ +address-tag-shift+))
                                                             cons-limit)
                                                          cons-total
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
-                                                                 +block-map-zero-fill+)))
+                                                                 +block-map-zero-fill+))
       (gc-insufficient-space))
     ;; Disable dirty bit tracking on the target generation.
     (mezzano.supervisor:protect-memory-range (logior target-generation
@@ -2051,19 +2051,19 @@ Additionally update the card table offset fields."
                                                      +block-map-writable+))
     ;; Allocate newspace.
     ;; This allocates the maximum space required up front to avoid complicating transport.
-    (when (not (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
+    (unless (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
                                                                  (ash +address-tag-general+ +address-tag-shift+))
                                                          maximum-general-limit
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
-                                                                 +block-map-zero-fill+)))
+                                                                 +block-map-zero-fill+))
       (gc-insufficient-space))
-    (when (not (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
+    (unless (mezzano.supervisor:allocate-memory-range (logior *dynamic-mark-bit*
                                                                  (ash +address-tag-cons+ +address-tag-shift+))
                                                          maximum-cons-limit
                                                          (logior +block-map-present+
                                                                  +block-map-writable+
-                                                                 +block-map-zero-fill+)))
+                                                                 +block-map-zero-fill+))
       (gc-insufficient-space))
     (setf *general-area-bump* 0
           *cons-area-bump* 0
@@ -2181,7 +2181,7 @@ Additionally update the card table offset fields."
   (mezzano.supervisor::set-gc-light t)
   (gc-log "GC in progress... " force-major " " target-generation)
   (incf *gc-cycles*)
-  (when (not (or force-major target-generation))
+  (unless (or force-major target-generation)
     ;; Figure out exactly what kind of collection to do.
     ;; FIXME: This is probably pretty lame. It doesn't seem to do any gen1 collections...
     (let ((gen0-size (+ *general-area-gen0-limit* *cons-area-gen0-limit*))
@@ -2335,7 +2335,7 @@ No type information will be provided."
                     (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
                           new-worklist weak-pointer))))))
      ;; Stop when no more memory needs to be scavenged.
-       (when (not did-something)
+       (unless did-something
          (return))
        (setf did-something nil)
        (scavenge-dynamic))

@@ -26,7 +26,7 @@
   form)
 
 (defun convert-dx-initializer (initform)
-  (when (not (typep initform 'ast-call))
+  (unless (typep initform 'ast-call)
     (return-from convert-dx-initializer initform))
   (multiple-value-bind (list-body list-tail)
       (extract-list-like-forms initform)

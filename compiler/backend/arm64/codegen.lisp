@@ -125,7 +125,7 @@
   (- (* (1+ slot) 8)))
 
 (defun code-for-reg-immediate-mem-op (inst reg base offset &optional temp)
-  (when (not temp)
+  (unless temp
     (setf temp :x12))
   (cond ((or (<= -256 offset 255)
              (and (<= 0 offset 16380)
@@ -196,7 +196,7 @@
           (let ((stack-size (length *current-frame-layout*)))
             (when (oddp stack-size)
               (incf stack-size))
-            (when (not (zerop stack-size))
+            (unless (zerop stack-size)
               (cond ((> (* stack-size 8) 4095)
                      (load-literal :x9 (* stack-size 8))
                      (emit `(lap:sub :sp :sp :x9)))
@@ -205,7 +205,7 @@
             (loop
                for i from 0
                for elt across *current-frame-layout*
-               do (when (not (zerop elt))
+               do (unless (zerop elt)
                     (emit-stack-store :x26 i))))
           (emit-gc-info :incoming-arguments :rcx)
           (ir:do-instructions (inst-or-label backend-function)
@@ -213,7 +213,7 @@
             (cond ((typep inst-or-label 'ir:label)
                    (push (gethash inst-or-label *labels*) *emitted-lap*))
                   (t
-                   (when (not (eql inst-or-label (ir:first-instruction backend-function)))
+                   (unless (eql inst-or-label (ir:first-instruction backend-function))
                      (if (eql (gethash inst-or-label mv-flow) :multiple)
                          (emit-gc-info :multiple-values 0)
                          (emit-gc-info)))
@@ -259,7 +259,7 @@
              ;; the closure calling convention and the closure object will
              ;; still be in RBX. For non-closures, reconstruct the function
              ;; object and put that in RBX.
-             (when (not (sys.c::lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
+             (unless (sys.c::lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function))
                (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
              (emit `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
              (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
@@ -452,7 +452,7 @@
 (defmethod emit-lap (backend-function (instruction ir:swap-instruction) uses defs)
   (let ((lhs (ir:swap-lhs instruction))
         (rhs (ir:swap-rhs instruction)))
-    (when (not (eql lhs rhs))
+    (unless (eql lhs rhs)
       (assert (eql (lap::register-class lhs) (lap::register-class rhs)))
       (ecase (lap::register-class rhs)
         (:gpr-64
@@ -572,8 +572,8 @@
   (emit `(lap:hlt 42)))
 
 (defmethod emit-lap (backend-function (instruction ir:jump-instruction) uses defs)
-  (when (not (eql (ir:next-instruction backend-function instruction)
-                  (ir:jump-target instruction)))
+  (unless (eql (ir:next-instruction backend-function instruction)
+               (ir:jump-target instruction))
     (emit `(lap:b ,(resolve-label (ir:jump-target instruction))))))
 
 (defmethod emit-lap (backend-function (instruction ir:switch-instruction) uses defs)
@@ -599,7 +599,7 @@
          (n-args (length call-arguments)))
     (when (oddp n-stack-args)
       (incf n-stack-args))
-    (when (not (zerop n-stack-args))
+    (unless (zerop n-stack-args)
       (emit `(lap:sub :sp :sp ,(* n-stack-args 8))))
     (loop
        for arg in stack-args
@@ -615,7 +615,7 @@
          (n-stack-args (length stack-args)))
     (when (oddp n-stack-args)
       (incf n-stack-args))
-    (when (not (zerop n-stack-args))
+    (unless (zerop n-stack-args)
       (emit `(lap:add :sp :sp ,(* n-stack-args 8))))))
 
 (defun maybe-log-missed-builtin (fn)

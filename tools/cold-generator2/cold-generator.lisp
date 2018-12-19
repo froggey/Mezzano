@@ -405,7 +405,7 @@
 (defun save-tables (environment)
   (let ((fref-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     (env:do-all-environment-frefs (fref environment)
-      (when (not (symbolp (env:function-reference-name fref)))
+      (unless (symbolp (env:function-reference-name fref))
         (vector-push-extend fref fref-table)))
     (setf (env:cross-symbol-value environment 'sys.int::*initial-fref-obarray*) fref-table))
   ;; Do this last, no symbols can be added after it.

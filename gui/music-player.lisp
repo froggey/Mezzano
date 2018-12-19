@@ -66,10 +66,10 @@
               (data (find "data" riff-chunks
                           :key (lambda (e) (getf e :chunk-id))
                           :test #'string=)))
-         (when (not (and riff
+         (unless (and riff
                          (string= (getf riff :file-type) "WAVE")
                          fmt
-                         data))
+                         data)
            (format t "Invalid wav file, missing chunks.~%")
            (return-from worker))
          (let* ((fmt* (getf fmt :chunk-data))
@@ -79,10 +79,10 @@
                 (sample-size (getf fmt* :significant-bits-per-sample))
                 (data-size (getf data :chunk-data-size))
                 (data-file-position (getf data :chunk-data)))
-           (when (not (and (eql compression 1) ; uncompressed
+           (unless (and (eql compression 1) ; uncompressed
                            (eql channels 2)
                            (eql sample-rate 44100)
-                           (member sample-size '(8 16))))
+                           (member sample-size '(8 16)))
              (format t "Unsupported wav file. ~S ~S ~S ~S ~S~%" fmt compression channels sample-rate sample-size)
              (return-from worker))
            (file-position stream data-file-position)

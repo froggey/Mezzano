@@ -14,7 +14,7 @@ Inherit source locations/etc from INHERIT."
     (let ((var (assoc form new-variables)))
       (assert var () "Missing substitution variable ~S" form)
       (return-from convert-ast-form (cdr var))))
-  (when (not (consp form))
+  (unless (consp form)
     (return-from convert-ast-form form))
   (apply (ecase (first form)
            ((block) #'convert-ast-block)

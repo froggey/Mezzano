@@ -236,7 +236,7 @@
          (modifier (assoc scancode *keyboard-modifiers*)))
     (cond ((and modifier (third modifier))
            ;; Locking modifier.
-           (when (not (key-releasep event))
+           (unless (key-releasep event)
              (setf *keyboard-modifier-state*
                    (if (member (second modifier) *keyboard-modifier-state*)
                        (remove (second modifier) *keyboard-modifier-state*)
@@ -293,8 +293,8 @@
                                        (make-instance 'quit-event :window *active-window*))))))
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\Tab))
-                  (when (not (key-releasep event))
-                    (when (not *m-tab-active*)
+                  (unless (key-releasep event)
+                    (unless *m-tab-active*
                       (setf *m-tab-active* t
                             *m-tab-list* (remove-if-not #'allow-m-tab (copy-list *window-list*))))
                     (let* ((p (position *active-window* *m-tab-list*))
@@ -355,7 +355,7 @@ A passive drag sends no drag events to the window.")
 
 (defun activate-window (window)
   "Make WINDOW the active window."
-  (when (not (eql window *active-window*))
+  (unless (eql window *active-window*)
     (when *active-window*
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
@@ -364,7 +364,7 @@ A passive drag sends no drag events to the window.")
     (send-event window (make-instance 'window-activation-event
                                       :window window
                                       :state t))
-    (when (not (eql (layer window) :bottom))
+    (unless (eql (layer window) :bottom)
       (setf *window-list* (remove window *window-list*))
       (push window *window-list*)
       ;; Layering change, redraw the whole window.
@@ -537,7 +537,7 @@ A passive drag sends no drag events to the window.")
       (setf style *default-mouse-pointer*))
     (when (eql style :none)
       (setf style *none-mouse-pointer*))
-    (when (not (eql style *mouse-pointer*))
+    (unless (eql style *mouse-pointer*)
       (setf *mouse-pointer* style)
       (recompose-windows t))))
 
@@ -863,7 +863,7 @@ Only works when the window is active."
   (:default-initargs :full nil))
 
 (defmethod process-event ((event redisplay-time-event))
-  (when (not (eql *redisplay-pending* :full))
+  (unless (eql *redisplay-pending* :full)
     (setf *redisplay-pending* (if (redisplay-time-event-fullp event) :full t))))
 
 (defun force-redisplay (&optional full)
@@ -1003,7 +1003,7 @@ Only works when the window is active."
 (defun recompose-windows (&optional full)
   (when full
     (damage-whole-screen))
-  (when (not (eql *prev-postprocess-matrix* *postprocess-matrix*))
+  (unless (eql *prev-postprocess-matrix* *postprocess-matrix*)
     (damage-whole-screen)
     (setf *prev-postprocess-matrix* *postprocess-matrix*))
   (when (or (zerop *clip-rect-width*)
@@ -1041,7 +1041,7 @@ Only works when the window is active."
         *clip-rect-height* 0))
 
 (defun compositor-thread-body ()
-  (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
+  (unless (eql *main-screen* (mezzano.supervisor:current-framebuffer))
     ;; Framebuffer changed. Rebuild the screen.
     (setf *main-screen* (mezzano.supervisor:current-framebuffer)
           *screen-backbuffer* (mezzano.gui:make-surface
@@ -1058,7 +1058,7 @@ Only works when the window is active."
   (loop
        (multiple-value-bind (event validp)
            (mezzano.supervisor:fifo-pop *event-queue* nil)
-         (when (not validp)
+         (unless validp
            (return))
          (sys.int::log-and-ignore-errors
           (process-event event))))
@@ -1096,10 +1096,10 @@ Only works when the window is active."
 (defun compositor-heartbeat-thread ()
   (loop (compositor-heartbeat-thread-body)))
 
-(when (not *compositor*)
+(unless *compositor*
   (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
                                                      :name "Compositor")))
 
-(when (not *compositor-heartbeat*)
+(unless *compositor-heartbeat*
   (setf *compositor-heartbeat* (mezzano.supervisor:make-thread 'compositor-heartbeat-thread
                                                                :name "Compositor Heartbeat")))

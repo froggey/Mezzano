@@ -89,7 +89,7 @@
       ;; iteratively eliminate nodes that are not dominators.
       (let ((changes t))
         (loop
-           (when (not changes)
+           (unless changes
              (return))
            (setf changes nil)
            (dolist (bb basic-blocks)
@@ -142,12 +142,12 @@
     (labels ((frob (n)
                (let ((s '()))
                  (dolist (y (gethash n bb-succs))
-                   (when (not (eql (gethash y idoms) n))
+                   (unless (eql (gethash y idoms) n)
                      (pushnew y s)))
                  (dolist (c (gethash n dom-tree))
                    (frob c)
                    (dolist (w (gethash c df))
-                     (when (not (member w (gethash n dom-tree)))
+                     (unless (member w (gethash n dom-tree))
                        (pushnew w s))))
                  (setf (gethash n df) s))))
       (frob (first-instruction backend-function)))

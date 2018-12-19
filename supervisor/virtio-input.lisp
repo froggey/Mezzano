@@ -55,7 +55,7 @@
          (vq (virtio:virtio-virtqueue dev 0)))
     (loop
        (let ((desc (virtio:virtio-pop-used-ring vq)))
-         (when (not desc)
+         (unless desc
            (return))
          (let* ((phys-addr (virtio:virtio-ring-desc-address vq desc))
                 (type (sup::physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-type+)))
@@ -93,7 +93,7 @@
          (vq (virtio:virtio-virtqueue dev 1)))
     (loop
        (let ((desc (virtio:virtio-pop-used-ring vq)))
-         (when (not desc)
+         (unless desc
            (return))
          (virtio:virtio-ring-free-descriptor vq desc)))))
 
@@ -121,7 +121,7 @@
     (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                        virtio:+virtio-status-driver+))
     ;; Allocate virtqueues.
-    (when (not (virtio:virtio-configure-virtqueues device 2))
+    (unless (virtio:virtio-configure-virtqueues device 2)
       (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
       (sup:panic "Unable to initialize virtqueues."))
     ;; Enable IRQ handler.
@@ -143,7 +143,7 @@
                 (virtio:virtio-ring-desc-flags event-vq desc) (ash 1 virtio:+virtio-ring-desc-f-write+))
           (virtio:virtio-ring-add-to-avail-ring event-vq desc))))
     (virtio:virtio-kick device 0)
-    (when (not (boundp '*virtio-input-devices*))
+    (unless (boundp '*virtio-input-devices*)
       (setf *virtio-input-devices* '()))
     (sup::push-wired input *virtio-input-devices*)))
 

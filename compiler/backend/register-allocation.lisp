@@ -48,7 +48,7 @@
                     (when (typep inst 'ir:terminator-instruction)
                       (dolist (succ (union (ir::successors backend-function inst)
                                            additional))
-                        (when (not (gethash succ visited))
+                        (unless (gethash succ visited)
                           (visit succ)))
                       (setf order (append (reverse block-order)
                                           order))
@@ -83,7 +83,7 @@
                   (dolist (succ (reverse
                                  (union (ir:successors backend-function inst)
                                         (second current))))
-                    (when (not (gethash succ visited))
+                    (unless (gethash succ visited)
                       (setf (gethash succ visited) t)
                       (vector-push-extend (list succ '() '() nil) stack)))
                   (setf (fourth current) t)
@@ -293,7 +293,7 @@
                                 valid-pregs-cache-regs regs)
                           regs)))))
              (add-range (vreg end zombiep)
-               (when (not zombiep)
+               (unless zombiep
                  (setf (gethash vreg vreg-conflicts) (union (gethash vreg vreg-conflicts)
                                                             (set-difference arch-phys-regs
                                                                             (valid-pregs vreg)))))
@@ -305,7 +305,7 @@
                                             :end end
                                             :conflicts (if zombiep '() (gethash vreg vreg-conflicts))
                                             :zombie zombiep)))
-                 (when (not ir::*shut-up*)
+                 (unless ir::*shut-up*
                    (format t " Add range ~S~%" range))
                  (push range (gethash start starts '()))
                  (vector-push-extend range ranges)
@@ -322,7 +322,7 @@
                   (zombie-vregs (set-difference debug-vregs vregs))
                   (newly-live-zombie-vregs (set-difference zombie-vregs active-zombie-vregs))
                   (newly-dead-zombie-vregs (set-difference active-zombie-vregs zombie-vregs)))
-             (when (not ir::*shut-up*)
+             (unless ir::*shut-up*
                (format t "~D:" range-start)
                (ir::print-instruction inst)
                (format t "active: ~:S~%" active-vregs)
@@ -354,9 +354,9 @@
                ;; Update conflicts for this vreg.
                ;; Don't conflict source/destination of move instructions.
                ;; #'linear-scan-allocator specializes this.
-               (when (not (and (typep inst 'ir:move-instruction)
+               (unless (and (typep inst 'ir:move-instruction)
                                (or (eql (ir:move-source inst) vreg)
-                                   (eql (ir:move-destination inst) vreg))))
+                                   (eql (ir:move-destination inst) vreg)))
                  (dolist (preg clobbers)
                    (pushnew preg (gethash vreg vreg-conflicts '()))))
                ;; Set the allocation hint.
@@ -397,7 +397,7 @@
             (length (allocator-remaining-ranges allocator))
             (hash-table-count (allocator-vreg-to-id-table allocator))
             (length ordering)))
-  (when (not ir::*shut-up*)
+  (unless ir::*shut-up*
     (format t "Live ranges: ~:S~%" (allocator-remaining-ranges allocator)))
   (values))
 
@@ -407,7 +407,7 @@
                (>= (live-range-end (first (allocator-active-ranges allocator))) current-interval))
      do (let* ((range (pop (allocator-active-ranges allocator)))
                (reg (gethash range (allocator-range-allocations allocator))))
-          (when (not (interval-spilled-p allocator range))
+          (unless (interval-spilled-p allocator range)
             (push reg (allocator-free-registers allocator))))))
 
 (defun mark-interval-spilled (allocator interval)
@@ -418,7 +418,7 @@
   (let ((vreg (live-range-vreg interval)))
     (setf (gethash interval (allocator-range-allocations allocator)) register)
     ;; Update the hint for this vreg so the allocator tries to allocate multiple intervals in the same register.
-    (when (not (gethash vreg (allocator-vreg-hints allocator)))
+    (unless (gethash vreg (allocator-vreg-hints allocator))
       (setf (gethash vreg (allocator-vreg-hints allocator)) register))
     (setf (allocator-active-ranges allocator)
           (merge 'list
@@ -597,7 +597,7 @@
                             ;; Must not also be an output register.
                             (not (member input (ir::instruction-outputs inst))))
                    (let ((reg (gethash interval (allocator-range-allocations allocator))))
-                     (when (not ir::*shut-up*)
+                     (unless ir::*shut-up*
                        (format t "Return interval ~S (reg ~S) early.~%" interval reg))
                      (deactivate-interval allocator interval)
                      (push reg (allocator-free-registers allocator))
@@ -707,7 +707,7 @@
                                           ;; Destination must not be used by any pending pairs.
                                           (not (find (cdr x) pairs :key #'car)))
                                         pairs)))
-                (when (not candidate)
+                (unless candidate
                   (return))
                 (setf pairs (remove candidate pairs))
                 (insert (make-instance 'ir:move-instruction
@@ -718,7 +718,7 @@
            (let* ((p (pop pairs))
                   (r1 (car p))
                   (r2 (cdr p)))
-             (when (not (eql r1 r2))
+             (unless (eql r1 r2)
                (insert (make-instance 'ir:swap-instruction
                                       :lhs r1
                                       :rhs r2))
@@ -773,7 +773,7 @@
   ;; Load spilled input registers.
   (dolist (spill spilled-input-vregs)
     (let ((reg (instant-register-at allocator spill instruction-index)))
-      (when (not (eql reg :memory))
+      (unless (eql reg :memory)
         (ir:insert-before backend-function inst
                           (make-instance 'ir:fill-instruction
                                          :destination reg
@@ -781,7 +781,7 @@
   ;; Store spilled output registers.
   (dolist (spill spilled-output-vregs)
     (let ((reg (instant-register-at allocator spill instruction-index)))
-      (when (not (eql reg :memory))
+      (unless (eql reg :memory)
         (ir:insert-after backend-function inst
                          (make-instance 'ir:spill-instruction
                                         :destination spill
@@ -817,7 +817,7 @@
            ;; Multiple successors, insert fixups after each branch, breaking critical edges as needed.
            (dolist (succ successors)
              (let ((insert-point succ))
-               (when (not (endp (rest (gethash succ (allocator-cfg-preds allocator)))))
+               (unless (endp (rest (gethash succ (allocator-cfg-preds allocator))))
                  ;; Critical edge...
                  (unless ir::*shut-up*
                    (format t "Break critical edge ~S -> ~S~%" inst succ))
@@ -909,7 +909,7 @@
               (spilled-output-vregs (remove-if-not (lambda (vreg)
                                                      (spilledp allocator vreg instruction-index))
                                                    output-vregs)))
-         (when (not (typep inst 'ir:terminator-instruction))
+         (unless (typep inst 'ir:terminator-instruction)
            ;; Spill registers that become zombies after the next instruction.
            (dolist (range (gethash (1+ instruction-index)
                                    (allocator-range-starts allocator)))
@@ -1054,7 +1054,7 @@
 (defun build-interference-graph (allocator)
   "Construct the interference graph for spilled virtual registers.
 Returns the interference graph and the set of spilled virtual registers."
-  (when (not ir::*shut-up*)
+  (unless ir::*shut-up*
     (loop
        for i from 0
        for inst in (allocator-instruction-ordering allocator)
@@ -1066,7 +1066,7 @@ Returns the interference graph and the set of spilled virtual registers."
                               :key #'live-range-start))
         (live '()))
     (loop for range across spilled-ranges do
-         (when (not ir::*shut-up*)
+         (unless ir::*shut-up*
            (let ((*print-length* 2))
              (format t "Process range ~S~%" range)
              (dolist (r live)

@@ -62,7 +62,7 @@
                (push inst to-remove)
                (push forward to-remove)
                (loop-finish))
-             (when (not (multiple-value-safe-p forward nil))
+             (unless (multiple-value-safe-p forward nil)
                (loop-finish)))))
     (dolist (inst to-remove)
       (remove-instruction backend-function inst))

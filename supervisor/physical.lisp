@@ -158,7 +158,7 @@
 
 ;; Bootloader does everything for us. How kind.
 (defun initialize-physical-allocator ()
-  (when (not (boundp '*physical-lock*))
+  (unless (boundp '*physical-lock*)
     ;; First boot.
     (setf *physical-lock* :unlocked
           *verbose-physical-allocation* nil)))
@@ -186,7 +186,7 @@
         (when (verbose-physical-allocation-p)
           (debug-print-line "Considering frame " frame " type " (physical-page-frame-type frame)
                             " avail bin " avail-bin " best bin " best-bin))
-        (when (not (eql (physical-page-frame-type frame) :free))
+        (unless (eql (physical-page-frame-type frame) :free)
           (panic "Allocated allocated page " frame))
         (setf (physical-page-frame-type frame) type)
         ;; Split block as required.
@@ -225,7 +225,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (let ((frame
          (safe-without-interrupts (n-pages type 32-bit-only)
            (with-symbol-spinlock (*physical-lock*)
-             (or (when (not 32-bit-only)
+             (or (unless 32-bit-only
                    ;; Try 64-bit allocator first, save 32-bit pages for things that really need it.
                    (allocate-physical-pages-1 n-pages
                                               +boot-information-64-bit-physical-buddy-bins-offset+

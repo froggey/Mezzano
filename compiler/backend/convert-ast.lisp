@@ -106,7 +106,7 @@
       (let ((env-arg (lambda-information-environment-arg lambda)))
         (when env-arg
           (let ((env-reg closure-reg))
-            (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
+            (unless (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup)
               ;; Read environment pointer from closure object.
               (let* ((real-env-reg (make-instance 'virtual-register :name :environment))
                      (index (make-instance 'virtual-register)))
@@ -147,7 +147,7 @@
         (when (and rest-arg
                    ;; Avoid generating code &REST code when the variable isn't used.
                    (not (zerop (lexical-variable-use-count rest-arg))))
-          (when (not (lexical-variable-dynamic-extent rest-arg))
+          (unless (lexical-variable-dynamic-extent rest-arg)
             (let ((real-rest (make-instance 'virtual-register)))
               (emit (make-instance 'call-instruction
                                    :result real-rest
@@ -263,7 +263,7 @@
 (defmethod cg-form ((form ast-return-from) result-mode)
   (let* ((local-info (gethash (ast-target form) *go-tag-and-block-labels*))
          (real-result-mode (first (block-information-return-mode (ast-target form))))
-         (target-tag (when (not local-info)
+         (target-tag (unless local-info
                        (cg-form (ast-info form) :value)))
          (value (cg-form (ast-value form)
                          ;; Non-local exits must not use tail calls.
@@ -271,7 +271,7 @@
                                   (not local-info))
                              :multiple
                              real-result-mode))))
-    (when (not value)
+    (unless value
       (return-from cg-form nil))
     (incf (block-information-count (ast-target form)))
     (when (and (member real-result-mode '(:multiple :tail))
@@ -372,7 +372,7 @@
                                               '())))
          (test-value (cg-form (ast-test form) :value))
          (exit-reached nil))
-    (when (not test-value)
+    (unless test-value
       (return-from cg-form nil))
     (emit (make-instance 'branch-instruction
                          :value test-value
@@ -384,7 +384,7 @@
         (setf exit-reached t)
         (ecase result-mode
           ((:multiple :tail)
-           (when (not (eql then-value :multiple))
+           (unless (eql then-value :multiple)
              (emit (make-instance 'values-instruction
                                   :values (list then-value))))
            (emit (make-instance 'jump-instruction
@@ -402,7 +402,7 @@
         (setf exit-reached t)
         (ecase result-mode
           ((:multiple :tail)
-           (when (not (eql else-value :multiple))
+           (unless (eql else-value :multiple)
              (emit (make-instance 'values-instruction
                                   :values (list else-value))))
            (emit (make-instance 'jump-instruction
@@ -414,7 +414,7 @@
           (:effect
            (emit (make-instance 'jump-instruction
                                 :target exit-label))))))
-    (when (not exit-reached)
+    (unless exit-reached
       (return-from cg-form nil))
     (emit exit-label)
     (ecase result-mode
@@ -434,7 +434,7 @@
          (assert (and (lexical-variable-p var)
                       (localp var)))
          (let ((value (cg-form init-form :value)))
-           (when (not value)
+           (unless value
              (return-from cg-form nil))
            (let ((inst (make-instance 'bind-local-instruction
                                       :ast var
@@ -494,10 +494,10 @@
 
 (defmethod cg-form ((form ast-multiple-value-call) result-mode)
   (let ((fn-tag (cg-form (ast-function-form form) :value)))
-    (when (not fn-tag)
+    (unless fn-tag
       (return-from cg-form nil))
     (let ((value-tag (cg-form (ast-value-form form) :multiple)))
-      (when (not value-tag)
+      (unless value-tag
         (return-from cg-form nil))
       (cond ((eql value-tag :multiple)
              (ecase result-mode
@@ -548,13 +548,13 @@
   (let ((value (cg-form (ast-value-form form) result-mode))
         (context (make-instance 'virtual-register))
         (*dynamic-stack* *dynamic-stack*))
-    (when (not value)
+    (unless value
       (return-from cg-form nil))
     (when (eql value :multiple)
       (setf context (make-instance 'save-multiple-instruction))
       (emit context)
       (push `(:saved-mv ,context) *dynamic-stack*))
-    (when (not (cg-form (ast-body form) :effect))
+    (unless (cg-form (ast-body form) :effect)
       (return-from cg-form nil))
     (when (eql value :multiple)
       (emit (make-instance 'restore-multiple-instruction
@@ -566,7 +566,7 @@
       (do ((i (ast-forms form) (rest i)))
           ((endp (rest i))
            (cg-form (first i) result-mode))
-        (when (not (cg-form (first i) :effect))
+        (unless (cg-form (first i) :effect)
           (return-from cg-form nil)))
       (cg-form (make-instance 'ast-quote :value nil) result-mode)))
 
@@ -594,7 +594,7 @@
          (value (cg-form (ast-value form) :value))
          (loc (gethash var *variable-registers*)))
     (assert (localp var))
-    (when (not value)
+    (unless value
       (return-from cg-form nil))
     (emit (make-instance 'store-local-instruction
                          :local loc
@@ -694,7 +694,7 @@
   (let* ((arguments (loop
                        for arg in (ast-arguments form)
                        collect (let ((value (cg-form arg :value)))
-                                 (when (not value)
+                                 (unless value
                                    (return-from cg-funcall nil))
                                  value)))
          (function (first arguments)))
@@ -751,16 +751,16 @@
          ;; Like PROGN
          (loop
             for arg in (ast-arguments form)
-            do (when (not (cg-form arg :effect))
+            do (unless (cg-form arg :effect)
                  (return-from cg-values nil))))
         ((eql result-mode :value)
          ;; Like PROG1
          (let ((first-value (cg-form (first (ast-arguments form)) :value)))
-           (when (not first-value)
+           (unless first-value
              (return-from cg-values nil))
            (loop
               for arg in (rest (ast-arguments form))
-              do (when (not (cg-form arg :effect))
+              do (unless (cg-form arg :effect)
                    (return-from cg-values nil)))
            first-value))
         (t
@@ -770,7 +770,7 @@
                              collect (let ((value (cg-form arg (if (eql result-mode :effect)
                                                                    :effect
                                                                    :value))))
-                                       (when (not value)
+                                       (unless value
                                          (return-from cg-values nil))
                                        value))))
            (ecase result-mode
@@ -788,7 +788,7 @@
   (let ((arguments (loop
                       for arg in (ast-arguments form)
                       collect (let ((value (cg-form arg :value)))
-                                (when (not value)
+                                (unless value
                                   (return-from cg-call nil))
                                 value))))
     (cond ((and sys.c::*perform-tce*
@@ -884,7 +884,7 @@
   (let ((arguments (loop
                       for arg in (ast-arguments form)
                       collect (let ((value (cg-form arg :value)))
-                                (when (not value)
+                                (unless value
                                   (return-from cg-primitive nil))
                                 value))))
     (apply (primitive-emitter primitive) result-mode arguments)))
@@ -942,7 +942,7 @@
              collect (if (local-go-p j)
                          (first (gethash (ast-target j) *go-tag-and-block-labels*))
                          (make-instance 'label :name :jump-table-target)))))
-    (when (not tag)
+    (unless tag
       (return-from cg-form nil))
     (emit (make-instance 'switch-instruction
                          :value tag

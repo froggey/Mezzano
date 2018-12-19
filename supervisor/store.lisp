@@ -297,7 +297,7 @@
     (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (if (freelist-metadata-free-p range) "free" "used"))))
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
-  (when (not (boundp '*verbose-store*))
+  (unless (boundp '*verbose-store*)
     (setf *verbose-store* nil))
   (setf *store-freelist-metadata-freelist* '()
         *store-freelist-recursive-metadata-allocation* nil
@@ -313,7 +313,7 @@
   (loop
      (multiple-value-bind (last-entry-offset next-block)
          (process-one-freelist-block freelist-block)
-       (when (not next-block)
+       (unless next-block
          (return))
        (setf freelist-block next-block)))
   (when *verbose-store*
@@ -321,7 +321,7 @@
   (debug-print-line *store-freelist-n-free-blocks* "/" *store-freelist-total-blocks* " store blocks free at boot"))
 
 (defun initialize-freestanding-store ()
-  (when (not (boundp '*verbose-store*))
+  (unless (boundp '*verbose-store*)
     (setf *verbose-store* nil))
   (setf *store-freelist-metadata-freelist* '()
         *store-freelist-recursive-metadata-allocation* nil
@@ -400,7 +400,7 @@
         ;; Advance to next block.
         (setf offset 0)
         (setf current-block nil))
-      (when (not current-block)
+      (unless current-block
         (ensure free-block-list)
         (setf current-page free-block-list
               current-block (sys.int::memref-t current-page 1)
@@ -408,7 +408,7 @@
         (zeroize-page current-page)
         (when *verbose-store*
           (debug-print-line "Next freelist block " current-block)))
-      (when (not (freelist-metadata-free-p range))
+      (unless (freelist-metadata-free-p range)
         (let ((start (freelist-metadata-start range))
               (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
           (when *verbose-store*
@@ -423,7 +423,7 @@
     ;; Write them to disk.
     (let ((last-block 0))
       (loop
-         (when (not used-block-list)
+         (unless used-block-list
            (return))
          (let* ((current-page used-block-list)
                 (current-block (sys.int::memref-t current-page 511)))
@@ -442,7 +442,7 @@
           (store-insert-range start n-blocks nil)))
       ;; Freelist is back to normal, safe to free the other blocks/pages now.
       (loop
-         (when (not free-block-list)
+         (unless free-block-list
            (return))
          (let* ((page free-block-list)
                 (block (sys.int::memref-t page 1)))
