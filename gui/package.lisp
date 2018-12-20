@@ -47,6 +47,7 @@
            #:make-simd-colour
            #:simd-colour-elements
            #:colour-lerp
+           #:colour-matrix-matrix-multiply
            #:colour-matrix-multiply))
 
 (defpackage :mezzano.gui.compositor

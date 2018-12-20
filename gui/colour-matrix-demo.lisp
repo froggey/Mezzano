@@ -53,6 +53,13 @@
     0.0  0.0 -1.0  1.0
     0.0  0.0  0.0  1.0))
 
+(defun make-tint-colour-matrix (r g b)
+  (gui:make-colour-matrix
+   (/ r 3) (/ r 3) (/ r 3) 0.0
+   (/ g 3) (/ g 3) (/ g 3) 0.0
+   (/ b 3) (/ b 3) (/ b 3) 0.0
+   0.0     0.0     0.0     1.0))
+
 (declaim (inline vec-set1))
 (defun vec-set1 (value)
   (declare (type single-float value))
@@ -134,6 +141,9 @@
                            (sleep (max 0.0 (- step-size run-time)))))
                     (setf current-matrix target-matrix)))
              (lerp-to (make-invert-colour-matrix))
+             (lerp-to (gui:colour-matrix-matrix-multiply
+                       (make-invert-colour-matrix)
+                       (make-saturation-colour-matrix 0.0)))
              (loop repeat 5 do
                   (lerp-to (make-random-colour-matrix :min -0.75 :max 0.75)))
              (lerp-to (make-saturation-colour-matrix 10.0))
@@ -144,6 +154,12 @@
              (sleep 0.1)
              (loop repeat 10 do
                   (lerp-to (make-random-colour-matrix :min 0.0 :max 0.5) 1.0))
+             (lerp-to (make-identity-colour-matrix))
+             (lerp-to (make-tint-colour-matrix 0.5 1.0 1.0))
+             (lerp-to (make-tint-colour-matrix 1.0 0.5 0.7))
+             (lerp-to (make-saturation-colour-matrix 0.0))
+             (lerp-to (make-tint-colour-matrix 1.0 0.5 0.7))
+             (lerp-to (make-tint-colour-matrix 0.5 1.0 1.0))
              (lerp-to (make-identity-colour-matrix)))
            (ignore-errors
              (multiple-value-bind (cur-x cur-y)

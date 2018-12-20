@@ -233,14 +233,20 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (deftype matrix4 ()
   '(simple-array single-float (16)))
 
+(declaim (inline matrix4-column (setf matrix4-column)))
+(defun matrix4-column (mat col)
+  (mezzano.simd:sse-vector-single-float-ref mat 4 (* col 4)))
+(defun (setf matrix4-column) (vec mat col)
+  (setf (mezzano.simd:sse-vector-single-float-ref mat 4 (* col 4)) vec))
+
 (declaim (inline matrix4-vector4-multiply))
 (defun matrix4-vector4-multiply (mat vec)
   (declare (type mezzano.simd:sse-vector vec)
            (type matrix4 mat))
-  (let* ((c0 (mezzano.simd:sse-vector-single-float-ref mat 4 0))
-         (c1 (mezzano.simd:sse-vector-single-float-ref mat 4 4))
-         (c2 (mezzano.simd:sse-vector-single-float-ref mat 4 8))
-         (c3 (mezzano.simd:sse-vector-single-float-ref mat 4 12))
+  (let* ((c0 (matrix4-column mat 0))
+         (c1 (matrix4-column mat 1))
+         (c2 (matrix4-column mat 2))
+         (c3 (matrix4-column mat 3))
          (xv (mezzano.simd:shufps vec vec #4r0000))
          (yv (mezzano.simd:shufps vec vec #4r1111))
          (zv (mezzano.simd:shufps vec vec #4r2222))
@@ -250,6 +256,41 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
          (t2 (mezzano.simd:mulps c2 zv)) ; cz gz kz oz
          (t3 (mezzano.simd:mulps c3 wv))) ; dw hw lw pw
     (mezzano.simd:addps (mezzano.simd:addps t0 t1) (mezzano.simd:addps t2 t3))))
+
+(defun matrix4-multiply (result ma mb)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type matrix4 result ma mb))
+  (let* ((mac0 (matrix4-column ma 0)) ; a e i m
+         (mac1 (matrix4-column ma 1)) ; b f j n
+         (mac2 (matrix4-column ma 2)) ; c g k o
+         (mac3 (matrix4-column ma 3)) ; d h l p
+         (mbc0 (matrix4-column mb 0)) ; A E I M
+         (mbc1 (matrix4-column mb 1)) ; B F J N
+         (mbc2 (matrix4-column mb 2)) ; C G K O
+         (mbc3 (matrix4-column mb 3))); D H L P
+    (flet ((frob (b-column)
+             (mezzano.simd:addps
+              (mezzano.simd:addps
+               (mezzano.simd:mulps mac0 (mezzano.simd:shufps b-column b-column #4r0000))    ; a * R0, e * R0, i * R0, m * R0
+               (mezzano.simd:mulps mac1 (mezzano.simd:shufps b-column b-column #4r1111)))   ; b * R1, f * R1, j * R1, n * R1
+              (mezzano.simd:addps
+               (mezzano.simd:mulps mac2 (mezzano.simd:shufps b-column b-column #4r2222))    ; c * R2, g * R2, k * R2, o * R2
+               (mezzano.simd:mulps mac3 (mezzano.simd:shufps b-column b-column #4r3333)))))); d * R3, h * R3, l * R3, p * R3
+      (setf (matrix4-column result 0) (frob mbc0)
+            (matrix4-column result 1) (frob mbc1)
+            (matrix4-column result 2) (frob mbc2)
+            (matrix4-column result 3) (frob mbc3))))
+  result)
+
+(defun colour-matrix-matrix-multiply (ma mb)
+  "Multiply two colour matrices together, returning the result as a new matrix."
+  (assert (colour-matrix-p ma))
+  (assert (colour-matrix-p mb))
+  (let ((mr (make-array 16 :element-type 'single-float)))
+    (matrix4-multiply mr
+                      (colour-matrix-elements ma)
+                      (colour-matrix-elements mb))
+    (%make-colour-matrix :elements mr)))
 
 (declaim (inline %colour-matrix-multiply))
 (defun %colour-matrix-multiply (matrix colour)
