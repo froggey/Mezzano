@@ -304,7 +304,7 @@ The total access width must be at least 8 bits and no larger than 128 bits."
                       `(the sse-vector (progn
                                          ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
                                          (sys.c::call ,',access-fn ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))
-                    (sys.c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type) (n-lanes (eql ,n-lanes)) index)
+                    (sys.c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
                                          ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
@@ -379,12 +379,14 @@ Equivalent to the _mm_set_ps intrinsic."
     `(sys.c::call %sse-vector-single-float-element ,vector ,index)))
 
 (defun %sse-vector-to-single-float (vector)
+  (check-type vector sse-vector)
   (%sse-vector-to-single-float vector))
 
-(defun %single-float-to-sse-vector (vector)
+(defun %single-float-to-sse-vector (value)
   "Convert a SINGLE-FLOAT to an SSE-VECTOR, storing it in lane 0.
 The values in the other lanes of the vector are indeterminate and may not be zero."
-  (%single-float-to-sse-vector vector))
+  (check-type value single-float)
+  (%single-float-to-sse-vector value))
 
 (declaim (inline sse-vector-single-float-ref (setf sse-vector-single-float-ref)))
 
