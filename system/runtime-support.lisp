@@ -132,6 +132,7 @@
   (declare (dynamic-extent values))
   (values-list values))
 
+(declaim (inline constantly))
 (defun constantly (value)
   (lambda (&rest arguments)
     (declare (ignore arguments))
