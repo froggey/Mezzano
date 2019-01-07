@@ -187,6 +187,9 @@ Make sure there is a virtio-net NIC attached.~%")
 ;;(eval (read-from-string "(setf mezzano.gui.compositor:*screensaver-spawn-function* 'mezzano.gui.starfield:spawn)"))
 
 ;; Other stuff.
+(sys.int::cal "sys:source;file;cache.lisp")
+(sys.int::cal "sys:source;file;fat32.lisp")
+(sys.int::cal "sys:source;file;ext.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
 

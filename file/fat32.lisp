@@ -3,7 +3,7 @@
 ;;;; For now support reading fat32 FS and some write operations.
 
 (defpackage :mezzano.fat32-file-system
-  (:use :cl :mezzano.file-system)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache)
   (:export)
   (:import-from :sys.int
                 #:explode))
@@ -269,30 +269,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             (logior date
                     (ash month 5)
                     (ash (- year 1980) 9)))))
-
-(defun read-sector (disk start-sector n-sectors)
-  "Read n sectors from disk"
-  (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
-         (result (make-array (* sector-size  n-sectors) :element-type '(unsigned-byte 8)))
-         (temp-buf (make-array sector-size :element-type '(unsigned-byte 8) :area :wired)))
-    (dotimes (offset n-sectors)
-      (multiple-value-bind (successp error-reason)
-          (mezzano.supervisor:disk-read disk (+ start-sector offset) 1 temp-buf)
-        (when (not successp)
-          (error "Disk read error: ~S" error-reason)))
-      (replace result temp-buf :start1 (* offset sector-size)))
-    result))
-
-(defun write-sector (disk start-sector array n-sectors)
-  "Write n sectors to disk"
-  (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
-         (temp-buf (make-array sector-size :element-type '(unsigned-byte 8) :area :wired)))
-    (dotimes (offset n-sectors)
-      (replace temp-buf array :start2 (* offset sector-size))
-      (multiple-value-bind (successp error-reason)
-          (mezzano.supervisor:disk-write disk (+ start-sector offset) 1 temp-buf)
-        (when (not successp)
-          (error "Disk write error: ~S" error-reason))))))
 
 ;;; bit offsets
 (defconstant +attribute-read-only+ 0)
@@ -739,28 +715,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 (defclass fat32-file-stream (sys.gray:fundamental-binary-input-stream
                              sys.gray:fundamental-binary-output-stream
+                             file-cache-stream
                              file-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
-   (direction :initarg :direction :reader direction)
-   ;; Read buffer.
-   (buffer :initarg :buffer
-           :accessor buffer)
    ;; File position where the buffer data starts.
    (buffer-position :initarg :buffer-position
                     :initform 0
                     :accessor buffer-position)
-   ;; Current offset into the buffer.
-   (buffer-offset :initarg :buffer-offset
-                  :accessor buffer-offset)
-   ;; File size
-   (buffer-size :initarg :buffer-size
-                :initform 0
-                :accessor buffer-size)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass fat32-file-character-stream (sys.gray:fundamental-character-input-stream
                                        sys.gray:fundamental-character-output-stream
+                                       file-cache-character-stream
                                        fat32-file-stream
                                        sys.gray:unread-char-mixin)
   ())
@@ -1051,108 +1018,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod stream-truename ((stream fat32-file-stream))
   (file-stream-pathname stream))
 
-(defmethod sys.gray:stream-element-type ((stream fat32-file-stream))
-  '(unsigned-byte 8))
-
-(defmethod sys.gray:stream-element-type ((stream fat32-file-character-stream))
-  'character)
-
-(defmethod sys.gray:stream-external-format ((stream fat32-file-stream))
-  :default)
-
-(defmethod sys.gray:stream-external-format ((stream fat32-file-character-stream))
-  :utf-8)
-
-(defmethod input-stream-p ((stream fat32-file-stream))
-  (member (direction stream) '(:input :io)))
-
-(defmethod output-stream-p ((stream fat32-file-stream))
-  (member (direction stream) '(:output :io)))
-
-(defmethod sys.gray:stream-write-byte ((stream fat32-file-stream) byte)
-  (assert (member (direction stream) '(:output :io)))
-  (when (> (buffer-offset stream)
-           (buffer-size stream))
-    (setf (buffer-size stream)
-          (buffer-offset stream)))
-  (let ((array-size (array-dimension (buffer stream) 0)))
-    (when (>= (buffer-offset stream) array-size)
-      (let* ((host (host stream))
-             (fat32 (fat32-structure host)))
-        (setf (buffer stream) (adjust-array (buffer stream)
-                                            (+ array-size (bytes-per-cluster fat32))
-                                            :initial-element 0)))))
-  (setf (aref (buffer stream)
-              (buffer-offset stream))
-        byte)
-  (incf (buffer-offset stream)))
-
-(defmethod sys.gray:stream-read-byte ((stream fat32-file-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (let ((char (aref (buffer stream)
-                    (buffer-offset stream))))
-    (incf (buffer-offset stream))
-    (if (<= (buffer-size stream)
-            (buffer-offset stream))
-        :eof
-        char)))
-
-(defmethod sys.gray:stream-read-sequence ((stream fat32-file-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (buffer-size stream))))
-    (replace sequence (buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
-    end2))
-
-(defmethod sys.gray:stream-write-char ((stream fat32-file-character-stream) char)
-  (assert (member (direction stream) '(:output :io)))
-  (when (> (buffer-offset stream)
-           (buffer-size stream))
-    (setf (buffer-size stream)
-          (buffer-offset stream)))
-  (let ((array-size (array-dimension (buffer stream) 0)))
-    (when (>= (buffer-offset stream) array-size)
-      (let* ((host (host stream))
-             (fat32 (fat32-structure host)))
-        (setf (buffer stream) (adjust-array (buffer stream)
-                                            (+ array-size (bytes-per-cluster fat32))
-                                            :initial-element 0)))))
-  (setf (aref (buffer stream)
-              (buffer-offset stream))
-        (char-code char))
-  (incf (buffer-offset stream)))
-
-(defmethod sys.gray:stream-read-char ((stream fat32-file-character-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (let ((char (aref (buffer stream)
-                    (buffer-offset stream))))
-    (incf (buffer-offset stream))
-    (if (<= (buffer-size stream)
-            (buffer-offset stream))
-        :eof
-        (code-char char))))
-
-(defmethod sys.gray:stream-read-sequence ((stream fat32-file-character-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (buffer-size stream))))
-    (loop :for n1 :from start :to (1- end)
-          :for n2 :to (1- end2)
-          :do (setf (aref sequence n1)
-                    (code-char (aref (buffer stream) n2))))
-    end2))
-
-(defmethod sys.gray:stream-file-position ((stream fat32-file-stream) &optional (position-spec nil position-specp))
-  (cond (position-specp
-         (setf (buffer-offset stream) (case position-spec
-                                        (:start 0)
-                                        (:end (read-buffer-size stream))
-                                        (t position-spec))))
-        (t (buffer-offset stream))))
-
-(defmethod sys.gray:stream-file-length ((stream fat32-file-stream))
-  (buffer-size stream))
-
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (let* ((host (host stream))
@@ -1176,32 +1041,3 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
         ;; TODO Implement abort-action :delete
         (t (error "Aborted close not suported")))
   t)
-
-;;; testing
-
-;; Mount partition
-;; (let* ((disk-name "FAT32")
-;;        (disk (nth 3 (mezzano.supervisor:all-disks)))
-;;        (fat32 (read-fat32-structure disk))
-;;        (fat32-info (read-fat32-info-structure disk fat32))
-;;        (fat (read-fat disk fat32))
-;;        (instance (make-instance 'fat32-host
-;;                                 :name disk-name
-;;                                 :partition disk
-;;                                 :fat32-structure fat32
-;;                                 :fat32-info fat32-info
-;;                                 :fat fat)))
-;;   (setf (mezzano.file-system:find-host disk-name)
-;;         instance))
-
-;; (let ((path #P"FAT32:>file5"))
-;;   ;; Write to some file
-;;   (time
-;;    (with-open-file (file path :direction :output :if-exists :overwrite)
-;;      (loop for i to (buffer-size file)
-;;            do (write-byte (ldb (byte 8 0) i) file))))
-;;   ;; Read some file
-;;   (time
-;;    (with-open-file (file path)
-;;      (loop for char = (read-char file nil nil)
-;;            while char do (write-char char)))))

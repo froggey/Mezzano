@@ -3,9 +3,9 @@
 ;;;; This implementation does support some ext read operations
 
 (defpackage :mezzano.ext-file-system
-  (:use :cl :mezzano.file-system :iterate)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache :iterate)
   (:export)
-  (:import-from :sys.int
+  (:import-from #:sys.int
                 #:explode))
 
 (in-package :mezzano.ext-file-system)
@@ -64,19 +64,6 @@
 (defconstant +fifo-type+ #x5)
 (defconstant +socket-type+ #x6)
 (defconstant +symbolic-link-type+ #x7)
-
-(defun read-sector (disk start-sector n-sectors)
-  "Read n sectors from disk"
-  (let* ((sector-size (mezzano.supervisor:disk-sector-size disk))
-         (result (make-array (* sector-size n-sectors) :element-type '(unsigned-byte 8)))
-         (temp-buf (make-array sector-size :element-type '(unsigned-byte 8) :area :wired)))
-    (dotimes (offset n-sectors)
-      (multiple-value-bind (successp error-reason)
-          (mezzano.supervisor:disk-read disk (+ start-sector offset) 1 temp-buf)
-        (when (not successp)
-          (error "Disk read error: ~S" error-reason)))
-      (replace result temp-buf :start1 (* offset sector-size)))
-    result))
 
 (defstruct superblock
   (inodes-count nil :type (unsigned-byte 32))
@@ -607,17 +594,16 @@
 
 (defclass ext-file-stream (sys.gray:fundamental-binary-input-stream
                            sys.gray:fundamental-binary-output-stream
+                           file-cache-stream
                            file-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
-   (direction :initarg :direction :reader direction)
    (file-inode :initarg :file-inode :accessor file-inode)
-   (buffer :initarg :buffer :accessor buffer)
-   (buffer-offset :initarg :buffer-offset :accessor buffer-offset)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass ext-file-character-stream (sys.gray:fundamental-character-input-stream
                                      sys.gray:fundamental-character-output-stream
+                                     file-cache-character-stream
                                      ext-file-stream
                                      sys.gray:unread-char-mixin)
   ())
@@ -633,12 +619,15 @@
     (let ((file-inode nil)
           (buffer nil)
           (buffer-offset 0)
+          (buffer-size 0)
           (created-file nil)
           (abort-action nil))
       (let ((inode-n (find-file host pathname)))
         (if inode-n
-            (setf file-inode (read-inode (partition host) (superblock host) (bgdt host) inode-n)
-                  buffer (read-file (partition host) (superblock host) (bgdt host) inode-n))
+            (let ((file-inode (read-inode (partition host) (superblock host) (bgdt host) inode-n)))
+              (setf file-inode file-inode
+                    buffer (read-file (partition host) (superblock host) (bgdt host) inode-n)
+                    buffer-size (inode-size file-inode)))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
@@ -660,6 +649,7 @@
                                           :file-inode file-inode
                                           :buffer buffer
                                           :buffer-offset buffer-offset
+                                          :buffer-size buffer-size
                                           :abort-action abort-action))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
@@ -671,6 +661,7 @@
                                           :file-inode file-inode
                                           :buffer buffer
                                           :buffer-offset buffer-offset
+                                          :buffer-size buffer-size
                                           :abort-action abort-action))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
@@ -716,106 +707,5 @@
 (defmethod stream-truename ((stream ext-file-stream))
   (file-stream-pathname stream))
 
-(defmethod sys.gray:stream-element-type ((stream ext-file-stream))
-  '(unsigned-byte 8))
-
-(defmethod sys.gray:stream-element-type ((stream ext-file-character-stream))
-  'character)
-
-(defmethod sys.gray:stream-external-format ((stream ext-file-stream))
-  :default)
-
-(defmethod sys.gray:stream-external-format ((stream ext-file-character-stream))
-  :utf-8)
-
-(defmethod input-stream-p ((stream ext-file-stream))
-  (member (direction stream) '(:input :io)))
-
-(defmethod output-stream-p ((stream ext-file-stream))
-  (member (direction stream) '(:output :io)))
-
-;; (defmethod sys.gray:stream-write-byte ((stream ext-file-stream) byte)
-;;   (assert (member (direction stream) '(:output :io)))
-;;   (error "Not implemented"))
-
-(defmethod sys.gray:stream-read-byte ((stream ext-file-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (let ((offset (buffer-offset stream)))
-    (incf (buffer-offset stream))
-    (if (<= (inode-size (file-inode stream))
-            offset)
-        :eof
-        (aref (buffer stream) offset))))
-
-;; (defmethod sys.gray:stream-write-sequence ((stream ext-file-stream) sequence &optional (start 0) end)
-;;   (assert (member (direction stream) '(:output :io)))
-;;   (error "Not implemented"))
-
-(defmethod sys.gray:stream-read-sequence ((stream ext-file-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (inode-size (file-inode stream)))))
-    (replace sequence (buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
-    end2))
-
-;; (defmethod sys.gray:stream-write-char ((stream ext-file-character-stream) char)
-;;   (assert (member (direction stream) '(:output :io)))
-;;   (error "Not implemented"))
-
-(defmethod sys.gray:stream-read-char ((stream ext-file-character-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (let ((offset (buffer-offset stream)))
-    (incf (buffer-offset stream))
-    (if (<= (inode-size (file-inode stream))
-            offset)
-        :eof
-        (code-char (aref (buffer stream) offset)))))
-
-;; (defmethod sys.gray:stream-write-sequence ((stream ext-file-character-stream) sequence &optional (start 0) end)
-;;   (assert (member (direction stream) '(:output :io)))
-;;   (error "Not implemented"))
-
-(defmethod sys.gray:stream-read-sequence ((stream ext-file-character-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (inode-size (file-inode stream)))))
-    (loop :for n1 :from start :to (1- end)
-          :for n2 :to (1- end2)
-          :do (setf (aref sequence n1)
-                    (code-char (aref (buffer stream) n2))))
-    end2))
-
-(defmethod sys.gray:stream-file-position ((stream ext-file-stream) &optional (position-spec nil position-specp))
-  (cond (position-specp
-         (setf (buffer-offset stream) (case position-spec
-                                        (:start 0)
-                                        (:end (inode-size (file-inode stream)))
-                                        (t position-spec))))
-        (t (buffer-offset stream))))
-
-(defmethod sys.gray:stream-file-length ((stream ext-file-stream))
-  (inode-size (file-inode stream)))
-
 (defmethod close ((stream ext-file-stream) &key abort)
   t)
-
-;;; testing
-;; Mount partition
-;; (let* ((disk-name "EXT2")
-;;        (disk (nth 3 (mezzano.supervisor:all-disks)))
-;;        (superblock (read-superblock disk))
-;;        (bgdt (read-block-group-descriptor-table disk superblock))
-;;        (instance (make-instance 'ext-host
-;;                                 :name disk-name
-;;                                 :partition disk
-;;                                 :superblock superblock
-;;                                 :bgdt bgdt)))
-;;   (setf (mezzano.file-system:find-host disk-name)
-;;         instance))
-
-;; (let ((path #P"EXT2:>Mezzano>supervisor>acpi.lisp"))
-;;   ;; Read some file
-;;   (time
-;;    (with-open-file (file path)
-;;      (loop for byte = (read-byte file nil nil)
-;;            while byte do (write-char (code-char byte))))))
