@@ -3,6 +3,8 @@
 
 (in-package :sys.int)
 
+(defgeneric make-load-form (object &optional environment))
+
 (defvar *compile-parallel* nil)
 (defvar *top-level-form-number* nil)
 
@@ -418,14 +420,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defmethod make-load-form ((object hash-table) &optional environment)
   (declare (ignore environment))
-  ;; FIXME: Should produce creation & initialzation forms, but not that's not implemented yet.
-  `(let ((ht (make-hash-table :test ',(hash-table-test object)
-                              :rehash-size ',(hash-table-rehash-size object)
-                              :rehash-threshold ',(hash-table-rehash-threshold object))))
-     ,@(loop
-          for keys being the hash-keys in object using (hash-value value)
-          collect `(setf (gethash ',keys ht) ',value))
-     ht))
+  (values `(make-hash-table :test ',(hash-table-test object)
+                            :rehash-size ',(hash-table-rehash-size object)
+                            :rehash-threshold ',(hash-table-rehash-threshold object))
+          `(progn
+             ,@(loop
+                  for keys being the hash-keys in object using (hash-value value)
+                  collect `(setf (gethash ',keys ',object) ',value)))))
 
 (defmethod save-one-object (object omap stream)
   (when (%value-has-tag-p object +tag-instance-header+)
@@ -435,14 +436,30 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (return-from save-one-object))
   (multiple-value-bind (creation-form initialization-form)
       (make-load-form object)
-    (when initialization-form
-      (error "Initialization-forms from MAKE-LOAD-FORM not supported."))
     (save-object (compile nil `(lambda ()
-                                 (declare (sys.int::lambda-name load-form))
+                                 (declare (sys.int::lambda-name creation-form))
                                  (progn ,creation-form)))
                  omap stream)
     (save-object 0 omap stream)
-    (write-byte +llf-funcall-n+ stream)))
+    (write-byte +llf-funcall-n+ stream)
+    (when initialization-form
+      (write-object-backlink object omap stream)
+      (save-object (compile nil `(lambda ()
+                                   (declare (sys.int::lambda-name initialization-form))
+                                   (progn ,initialization-form)))
+                   omap stream)
+      (save-object 0 omap stream)
+      (write-byte +llf-funcall-n+ stream)
+      (write-byte +llf-drop+ stream))))
+
+(defun write-object-backlink (object omap stream)
+  (when (not *llf-dry-run*)
+    (let ((info (gethash object omap)))
+      (assert (eql (third info) :save-in-progress))
+      (setf (third info) t)
+      (unless (eql (second info) 1)
+        (write-byte +llf-add-backlink+ stream)
+        (save-integer (first info) stream)))))
 
 (defun save-object (object omap stream)
   (when (typep object 'deferred-function)
@@ -450,21 +467,27 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (return-from save-object
       (save-object (deferred-function-function object) omap stream)))
   (when (null (gethash object omap))
+    ;; Backlink id, reference count, has-been-emitted
     (setf (gethash object omap) (list (hash-table-count omap) 0 nil)))
   (let ((info (gethash object omap)))
     (cond (*llf-dry-run*
            (incf (second info))
            (when (eql (second info) 1)
              (save-one-object object omap stream)))
-          (t (when (not (third info))
-               (save-one-object object omap stream)
-               (setf (third info) t)
-               (unless (eql (second info) 1)
-                 (write-byte +llf-add-backlink+ stream)
-                 (save-integer (first info) stream)))
-             (unless (eql (second info) 1)
-                 (write-byte +llf-backlink+ stream)
-                 (save-integer (first info) stream))))))
+          (t
+           (ecase (third info)
+             ((nil)
+              ;; Emit object
+              (setf (third info) :save-in-progress)
+              (save-one-object object omap stream)
+              (when (eql (third info) :save-in-progress)
+                (write-object-backlink object omap stream)))
+             (:save-in-progress
+              (error "Unbroken circularity detected when saving object ~S. This can happen when an object's allocation form contains the object, possibly indirectly." object))
+             ((t))) ; object saved ok
+           (unless (eql (second info) 1)
+             (write-byte +llf-backlink+ stream)
+             (save-integer (first info) stream))))))
 
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *llf-forms*))

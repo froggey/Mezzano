@@ -21,8 +21,6 @@
     (declare (ignore function))
     nil))
 
-(defgeneric make-load-form (object &optional environment))
-
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((contents (list (type-of object)))
