@@ -489,6 +489,35 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
              (write-byte +llf-backlink+ stream)
              (save-integer (first info) stream))))))
 
+(defun make-load-form-saving-slots (object &key (slot-names nil slot-names-p) environment)
+  (declare (ignore environment))
+  (etypecase object
+    (standard-object
+     (values `(allocate-instance ',(class-of object))
+             `(progn
+                ,@(loop
+                     with class = (class-of object)
+                     for slot in (mezzano.clos:class-slots class)
+                     when (and (eql (mezzano.clos:slot-definition-allocation slot) :instance)
+                               (or (not slot-names-p)
+                                   (member (mezzano.clos:slot-definition-name slot) slot-names))
+                               (slot-boundp object (mezzano.clos:slot-definition-name slot)))
+                     collect `(setf (slot-value ',object ',(mezzano.clos:slot-definition-name slot))
+                                    ',(slot-value object (mezzano.clos:slot-definition-name slot)))))))
+    (structure-object
+     ;; Must use alternative setters, (SETF SLOT-VALUE-USING-CLASS) on structures respects read-only-p.
+     (values `(%allocate-struct ',(class-name (class-of object)))
+             `(progn
+                ,@(loop
+                     with class = (class-of object)
+                     with class-name = (class-name class)
+                     for slot in (mezzano.clos:class-slots class)
+                     when (and (eql (mezzano.clos:slot-definition-allocation slot) :instance)
+                               (or (not slot-names-p)
+                                   (member (mezzano.clos:slot-definition-name slot) slot-names)))
+                     collect `(setf (%struct-slot ',object ',class-name ',(mezzano.clos:slot-definition-name slot))
+                                    ',(slot-value object (mezzano.clos:slot-definition-name slot)))))))))
+
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *llf-forms*))
 
