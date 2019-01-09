@@ -3,7 +3,7 @@
 ;;;; For now support reading fat32 FS and some write operations.
 
 (defpackage :mezzano.fat32-file-system
-  (:use :cl :mezzano.file-system :mezzano.file-system-cache)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system)
   (:export)
   (:import-from :sys.int
                 #:explode))

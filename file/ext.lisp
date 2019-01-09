@@ -3,7 +3,7 @@
 ;;;; This implementation does support some ext read operations
 
 (defpackage :mezzano.ext-file-system
-  (:use :cl :mezzano.file-system :mezzano.file-system-cache :iterate)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system :iterate)
   (:export)
   (:import-from #:sys.int
                 #:explode))

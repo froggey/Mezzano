@@ -188,6 +188,7 @@ Make sure there is a virtio-net NIC attached.~%")
 
 ;; Other stuff.
 (sys.int::cal "sys:source;file;cache.lisp")
+(sys.int::cal "sys:source;file;disk.lisp")
 (sys.int::cal "sys:source;file;fat32.lisp")
 (sys.int::cal "sys:source;file;ext.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
