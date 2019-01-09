@@ -5,6 +5,16 @@
 
 (defgeneric make-load-form (object &optional environment))
 
+(defmethod make-load-form (object &optional environment)
+  (declare (ignore environment))
+  (error "Cannot save ~S, no specialized MAKE-LOAD-FORM method" object))
+
+(defmethod make-load-form ((object class) &optional environment)
+  (declare (ignore environment))
+  (when (not (eql (find-class (class-name object)) object))
+    (error "Cannot serialize class ~S, has no name in the current environment."))
+  `(find-class ',(class-name object)))
+
 (defvar *compile-parallel* nil)
 (defvar *top-level-form-number* nil)
 
