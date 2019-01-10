@@ -4,8 +4,8 @@
 (require :babel)
 
 (defpackage :mezzano.file-system.http
-  (:export #:http-host)
-  (:use #:cl #:mezzano.file-system))
+  (:use #:cl #:mezzano.file-system #:mezzano.file-system-cache)
+  (:export #:http-host))
 
 (in-package :mezzano.file-system.http)
 
@@ -23,16 +23,14 @@
   ())
 
 (defclass http-binary-stream (sys.gray:fundamental-binary-input-stream
+                              file-cache-stream
                               file-stream)
-  ((path :initarg :path :reader path)
-   (position :initarg :position :accessor stream-position)
-   (buffer :initarg :buffer :reader stream-buffer)))
+  ((path :initarg :path :reader path)))
 
 (defclass http-character-stream (sys.gray:fundamental-character-input-stream
+                                 file-cache-character-stream
                                  file-stream)
-  ((path :initarg :path :reader path)
-   (position :initarg :position :accessor stream-position)
-   (buffer :initarg :buffer :reader stream-buffer)))
+  ((path :initarg :path :reader path)))
 
 (defmethod print-object ((object http-binary-stream) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -127,17 +125,6 @@
   (and (subtypep x y)
        (subtypep y x)))
 
-(defun decode-buffer (buffer external-format)
-  ;; Babel doesn't seem to understand external-formats properly, and ignores the EOL style.
-  (let ((decoded (babel:octets-to-string buffer
-                                         :encoding (if (eql external-format :default)
-                                                       :utf-8
-                                                       external-format)
-                                         :errorp nil)))
-    (if (eql external-format :default)
-        (remove #\Carriage-Return decoded)
-        decoded)))
-
 (defun decode-status-line (line)
   (let* ((version-end (position #\Space line))
          (code-end (position #\Space line :start (1+ version-end)))
@@ -219,12 +206,16 @@
   (if (type-equal element-type 'character)
       (make-instance 'http-character-stream
                      :path pathname
-                     :position 0
-                     :buffer (decode-buffer body external-format))
+                     :direction :input
+                     :buffer body
+                     :buffer-offset 0
+                     :buffer-size (length body))
       (make-instance 'http-binary-stream
                      :path pathname
-                     :position 0
-                     :buffer body)))
+                     :direction :input
+                     :buffer body
+                     :buffer-offset 0
+                     :buffer-size (length body))))
 
 (defun decode-location (location)
   ;; This should parse an absoluteURI from rfc2396.
@@ -276,53 +267,6 @@
                 :pathname pathname
                 :format-control "HTTP ~D ~A"
                 :format-arguments (list status-code reason-phrase)))))))
-
-(defmethod sys.gray:stream-element-type ((stream http-binary-stream))
-  (declare (ignore stream))
-  '(unsigned-byte 8))
-
-(defmethod sys.gray:stream-read-byte ((stream http-binary-stream))
-  (cond ((>= (stream-position stream)
-             (length (stream-buffer stream)))
-         :eof)
-        (t (prog1
-               (aref (stream-buffer stream) (stream-position stream))
-             (incf (stream-position stream))))))
-
-(defmethod sys.gray:stream-file-position ((stream http-binary-stream) &optional (position-spec nil position-specp))
-  (cond (position-specp
-         (setf (stream-position stream)
-               (case position-spec
-                 (:start 0)
-                 (:end (length (stream-buffer stream)))
-                 (t position-spec))))
-        (t (stream-position stream))))
-
-(defmethod sys.gray:stream-file-length ((stream http-binary-stream))
-  (length (stream-buffer stream)))
-
-(defmethod sys.gray:stream-element-type ((stream http-character-stream))
-  'character)
-
-(defmethod sys.gray:stream-read-char ((stream http-character-stream))
-  (cond ((>= (stream-position stream)
-             (length (stream-buffer stream)))
-         :eof)
-        (t (prog1
-               (aref (stream-buffer stream) (stream-position stream))
-             (incf (stream-position stream))))))
-
-(defmethod sys.gray:stream-file-position ((stream http-character-stream) &optional (position-spec nil position-specp))
-  (cond (position-specp
-         (setf (stream-position stream)
-               (case position-spec
-                 (:start 0)
-                 (:end (length (stream-buffer stream)))
-                 (t position-spec))))
-        (t (stream-position stream))))
-
-(defmethod sys.gray:stream-file-length ((stream http-character-stream))
-  (length (stream-buffer stream)))
 
 (defmethod directory-using-host ((host http-host) pathname &key)
   (declare (ignore host pathname))
