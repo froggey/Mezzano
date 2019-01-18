@@ -165,7 +165,6 @@
                               +incompat-journal-dev+
                               +incompat-meta-bg+
                               +incompat-extents+
-                              +incompat-64bit+
                               +incompat-mmp+
                               +incompat-flex-bg+
                               +incompat-ea-inode+
@@ -336,30 +335,64 @@
     (ceiling (/ (superblock-blocks-count superblock) (superblock-blocks-per-group superblock)))))
 
 (defstruct block-group-descriptor
-  (block-bitmap nil :type (unsigned-byte 32))
-  (inode-bitmap nil :type (unsigned-byte 32))
-  (inode-table nil :type (unsigned-byte 32))
-  (free-blocks-count nil :type (unsigned-byte 16))
-  (free-inodes-count nil :type (unsigned-byte 16))
-  (used-dirs-count nil :type (unsigned-byte 16)))
+  (block-bitmap)
+  (inode-bitmap)
+  (inode-table)
+  (free-blocks-count)
+  (free-inodes-count)
+  (used-dirs-count)
+  (flags nil)
+  (exclude-bitmap nil)
+  (block-bitmap-csum nil)
+  (inode-bitmap-csum nil)
+  (itable-unused nil)
+  (checksum nil)
+  (reserved nil))
 
-(defun read-block-group-descriptor (block offset)
-  (make-block-group-descriptor :block-bitmap (sys.int::ub32ref/le block (+ 0 offset))
-                               :inode-bitmap (sys.int::ub32ref/le block (+ 4 offset))
-                               :inode-table (sys.int::ub32ref/le block (+ 8 offset))
-                               :free-blocks-count (sys.int::ub16ref/le block (+ 12 offset))
-                               :free-inodes-count (sys.int::ub16ref/le block (+ 14 offset))
-                               :used-dirs-count (sys.int::ub16ref/le block (+ 16 offset))))
+(defun read-block-group-descriptor (superblock block offset)
+  (if (zerop (logand +incompat-64bit+ (superblock-feature-incompat superblock)))
+      (make-block-group-descriptor :block-bitmap (sys.int::ub32ref/le block (+ 0 offset))
+                                   :inode-bitmap (sys.int::ub32ref/le block (+ 4 offset))
+                                   :inode-table (sys.int::ub32ref/le block (+ 8 offset))
+                                   :free-blocks-count (sys.int::ub16ref/le block (+ 12 offset))
+                                   :free-inodes-count (sys.int::ub16ref/le block (+ 14 offset))
+                                   :used-dirs-count (sys.int::ub16ref/le block (+ 16 offset)))
+      (make-block-group-descriptor :block-bitmap (logior (ash (sys.int::ub32ref/le block (+ 32 offset)) 32)
+                                                         (sys.int::ub32ref/le block (+ 0 offset)))
+                                   :inode-bitmap (logior (ash (sys.int::ub32ref/le block (+ 36 offset)) 32)
+                                                         (sys.int::ub32ref/le block (+ 4 offset)))
+                                   :inode-table (logior (ash (sys.int::ub32ref/le block (+ 40 offset)) 32)
+                                                        (sys.int::ub32ref/le block (+ 8 offset)))
+                                   :free-blocks-count (logior (ash (sys.int::ub16ref/le block (+ 44 offset)) 16)
+                                                              (sys.int::ub16ref/le block (+ 12 offset)))
+                                   :free-inodes-count (logior (ash (sys.int::ub16ref/le block (+ 46 offset)) 16)
+                                                              (sys.int::ub16ref/le block (+ 14 offset)))
+                                   :used-dirs-count (logior (ash (sys.int::ub16ref/le block (+ 48 offset)) 16)
+                                                            (sys.int::ub16ref/le block (+ 16 offset)))
+                                   :flags (sys.int::ub16ref/le block (+ 18 offset))
+                                   :exclude-bitmap (logior (ash (sys.int::ub32ref/le block (+ 52 offset)) 32)
+                                                           (sys.int::ub32ref/le block (+ 20 offset)))
+                                   :block-bitmap-csum (logior (ash (sys.int::ub16ref/le block (+ 56 offset)) 16)
+                                                              (sys.int::ub32ref/le block (+ 24 offset)))
+                                   :inode-bitmap-csum (logior (ash (sys.int::ub16ref/le block (+ 58 offset)) 16)
+                                                              (sys.int::ub32ref/le block (+ 26 offset)))
+                                   :itable-unused (logior (ash (sys.int::ub16ref/le block (+ 50 offset)) 16)
+                                                          (sys.int::ub16ref/le block (+ 28 offset)))
+                                   :checksum (sys.int::ub16ref/le block (+ 30 offset))
+                                   :reserved (sys.int::ub32ref/le block (+ 60 offset)))))
 
 (defun read-block-group-descriptor-table (disk superblock)
   (make-array (list (n-block-groups superblock)) :initial-contents
-              (iter (with n-octets := (* 32 (n-block-groups superblock)))
+              (iter (with block-group-size := (if (zerop (logand +incompat-64bit+
+                                                                 (superblock-feature-incompat superblock)))
+                                                  32 (superblock-desc-size superblock)))
+                (with n-octets := (* block-group-size (n-block-groups superblock)))
                 (with block := (read-block disk superblock 1
                                            (/ n-octets
                                               (mezzano.supervisor:disk-sector-size disk)
                                               (block-size disk superblock))))
-                (for offset :from 0 :below n-octets :by 32)
-                (collecting (read-block-group-descriptor block offset)))))
+                (for offset :from 0 :below n-octets :by block-group-size)
+                (collecting (read-block-group-descriptor superblock block offset)))))
 
 (defun read-block-bitmap (disk superblock bgds)
   (read-block disk superblock (block-group-descriptor-block-bitmap bgds)))
