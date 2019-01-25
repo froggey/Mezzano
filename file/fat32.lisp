@@ -552,18 +552,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (setf i 0
             r j))))
 
-;; TODO Make proper function for generating short names.
-(defun create-file (host file cluster-n pathname-name pathname-type attributes)
-  "Create file/directory"
-  (let* ((name (concatenate 'string pathname-name "." pathname-type))
-         (short-name (make-string 11 :initial-element #\Space))
-         (name-length (length name))
-         (start-offset (next-n-spaces file (if (> name-length 11)
-                                               (1+ (ceiling (/ name-length 13)))
-                                               1)))
-         (end-offset (+ start-offset (* 32 (if (> name-length 11)
-                                               (ceiling (/ name-length 13))
-                                               0)))))
+(defun make-short-name (pathname-name pathname-type file)
+  (let ((short-name (make-string 11 :initial-element #\Space)))
     (loop :for char-n :from 0 :to 7
           :for char :across pathname-name
           :do (setf (aref short-name char-n)
@@ -574,9 +564,23 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             :do (setf (aref short-name char-n)
                       char)))
     ;; Check for short name collision
-    (do-files (offset) file t
+    (do-files (offset) file
+              short-name
+      ;; TODO: name collision resolution
       (when (string= short-name (read-short-name file offset))
-        (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))
+        (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))))
+
+(defun create-file (host file cluster-n pathname-name pathname-type attributes)
+  "Create file/directory"
+  (let* ((name (concatenate 'string pathname-name "." pathname-type))
+         (short-name (make-short-name pathname-name pathname-type file))
+         (name-length (length name))
+         (start-offset (next-n-spaces file (if (> name-length 11)
+                                               (1+ (ceiling (/ name-length 13)))
+                                               1)))
+         (end-offset (+ start-offset (* 32 (if (> name-length 11)
+                                               (ceiling (/ name-length 13))
+                                               0)))))
     (multiple-value-bind (time date) (get-fat32-time)
       (let ((cluster-number (next-free-cluster (fat host))))
         (flet ((set-short-name (name file start-offset cluster-number)
@@ -949,7 +953,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                              ;; Write short name part
                              (multiple-value-bind (pathname-name pathname-type) (sub-path dest)
                                (let* ((name (concatenate 'string pathname-name "." pathname-type))
-                                      (short-name (make-string 11 :initial-element #\Space))
+                                      (short-name (make-short-name pathname-name pathname-type file))
                                       (name-length (length name))
                                       (start-offset (next-n-spaces dest-dir (if (> name-length 11)
                                                                                 (1+ (ceiling
@@ -961,20 +965,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                  ;; Copy short part
                                  (let ((metadata (subseq source-dir source-start (+ 32 source-start))))
                                    (replace dest-dir metadata :start1 end-offset))
-                                 ;; Make short-name
-                                 (loop :for char-n :from 0 :to 7
-                                       :for char :across pathname-name
-                                       :do (setf (aref short-name char-n)
-                                                 char))
-                                 (when pathname-type
-                                   (loop :for char-n :from 8 :to 10
-                                         :for char :across pathname-type
-                                         :do (setf (aref short-name char-n)
-                                                   char)))
-                                 ;; Check for short name collision
-                                 (do-files (offset) dest-dir t
-                                   (when (string= short-name (read-short-name dest-dir offset))
-                                     (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))
                                  ;; Change short name
                                  (setf (read-short-name dest-dir end-offset) short-name)
                                  ;; Write long name parts only if needed
