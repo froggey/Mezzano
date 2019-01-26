@@ -2073,7 +2073,7 @@ has only has class specializer."
       `(lambda (&rest ,method-args)
          (declare (sys.int::lambda-name (effective-method ,@name)))
          ,@(when (not suppress-keyword-checking)
-             `(check-method-keyword-arguments ',gf (nthcdr ',key-arg-index ,method-args) ',keywords))
+             (list `(check-method-keyword-arguments ',gf (nthcdr ',key-arg-index ,method-args) ',keywords)))
          (macrolet ((call-method (method &optional next-method-list)
                       (when (listp method)
                         (assert (eql (first method) 'make-method)))

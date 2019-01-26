@@ -20,7 +20,6 @@
         (conc-name nil)
         (included-structure-name nil)
         (included-slot-descriptions nil)
-        (included-structure nil)
         (print-object nil)
         (print-function nil)
         (print-object-specializer nil)
@@ -250,14 +249,73 @@
                   (+ current-index (* element-size (max (or fixed-vector 1) 1)))
                   (eql location-type mezzano.runtime::+location-type-t+)))))))
 
+(defparameter *defstruct-constructor-slot-threshold* 16)
+
+(defmacro %get-slot-initarg (initargs slot-name type initform)
+  (let ((itr (gensym))
+        (value (gensym (symbol-name slot-name))))
+    `(let ((,value (do ((,itr ,initargs (cddr ,itr)))
+                       ((endp ,itr)
+                        ,initform)
+                     (when (eql (car ,itr) ',(intern (symbol-name slot-name) "KEYWORD"))
+                       (return (cadr ,itr))))))
+       (check-type ,value ,type)
+       ,value)))
+
 (defun generate-simple-defstruct-constructor (struct-name struct-type name area)
-  (generate-defstruct-constructor struct-name
-                                  struct-type
-                                  name
-                                  (list* '&key (mapcar (lambda (slot)
-                                                         (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
-                                                       (structure-definition-slots struct-type)))
-                                  area))
+  ;; Due to issues with the compiler, structures with a large number of slots
+  ;; can't use the &key mechanism for initargs. This is temporary and should be
+  ;; removed when the compiler is improved.
+  (cond ((< (length (structure-definition-slots struct-type)) *defstruct-constructor-slot-threshold*)
+         (generate-defstruct-constructor struct-name
+                                         struct-type
+                                         name
+                                         (list* '&key (mapcar (lambda (slot)
+                                                                (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
+                                                              (structure-definition-slots struct-type)))
+                                         area))
+        (t
+         (let ((initargs (gensym "INITARGS"))
+               (tmp (gensym "INSTANCE")))
+           `(defun ,name (&rest ,initargs)
+              (declare (dynamic-extent ,initargs))
+              ;; Check for allow-other-keys, invalid keys & odd-length initargs list.
+              (let ((aok nil))
+                (do ((itr ,initargs (cddr itr)))
+                    ((endp itr))
+                  (when (null (cdr itr))
+                    (error "Odd number of arguments")))
+                (do ((itr ,initargs (cddr itr)))
+                    ((endp itr))
+                  (when (eql (car itr) :allow-other-keys)
+                    (setf aok (cadr itr))
+                    (return)))
+                (when (not aok)
+                  (do ((itr ,initargs (cddr itr)))
+                      ((endp itr))
+                    (when (not (member (car itr) ',(loop
+                                                      for s in (structure-definition-slots struct-type)
+                                                      collect (intern (symbol-name (structure-slot-definition-name s)) "KEYWORD"))))
+                      (error "Invalid initarg ~S" (car itr))))))
+              (let ((,tmp (%allocate-struct ',struct-name)))
+                ,@(loop
+                     for s in (structure-definition-slots struct-type)
+                     collect (if (structure-slot-definition-fixed-vector s)
+                                 (let ((itr (gensym))
+                                       (value (gensym)))
+                                   `(let ((,value (%get-slot-initarg ,initargs
+                                                                     ,(structure-slot-definition-name s)
+                                                                     ,(structure-slot-definition-type s)
+                                                                     ,(structure-slot-definition-initform s))))
+                                      (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
+                                        (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
+                                              ,value))))
+                                 `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
+                                        (%get-slot-initarg ,initargs
+                                                           ,(structure-slot-definition-name s)
+                                                           ,(structure-slot-definition-type s)
+                                                           ,(structure-slot-definition-initform s)))))
+                ,tmp))))))
 
 (defun generate-defstruct-constructor (struct-name struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)

@@ -1606,10 +1606,13 @@
     (make-instruction (if (rex-w info)
                           opcode64
                           opcode32)
-                      (if (rex-w info)
-                          (decode-gpr64-or-mem r/m (rex-b info))
-                          (decode-gpr32-or-mem r/m (rex-b info)))
-                      (if (getf info :osize)
+                      (if (eql (getf info :rep) #xF3)
+                          (decode-xmm-or-mem r/m (rex-b info))
+                          (if (rex-w info)
+                              (decode-gpr64-or-mem r/m (rex-b info))
+                              (decode-gpr32-or-mem r/m (rex-b info))))
+                      (if (or (eql (getf info :rep) #xF3)
+                              (getf info :osize))
                           (decode-xmm reg (rex-r info))
                           (decode-mmx reg)))))
 
