@@ -188,7 +188,7 @@
 (defun virtio-ring-size (queue-size)
   "Compute the actual size of a vring from the queue-size field."
   (+ (sup::align-up (+ (* +virtio-ring-desc-size+ queue-size) (* 2 (+ 2 queue-size))) 4096)
-     (sup::align-up (* +virtio-ring-used-elem-size+ queue-size) 4096)))
+     (sup::align-up (+ (* 2 3) (* +virtio-ring-used-elem-size+ queue-size)) 4096)))
 
 (defun virtio-virtqueue (device virtqueue)
   (svref (virtio-device-virtqueues device) virtqueue))
