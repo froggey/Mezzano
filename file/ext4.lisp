@@ -1,14 +1,14 @@
 ;;;; Copyright (c) 2018-2018 Bruno Cichon <ebrasca@librepanther.com>
 ;;;; This code is licensed under the MIT license.
-;;;; This implementation does support some ext read operations
+;;;; This implementation can read from ext2 and ext3. Ext4 is WIP
 
-(defpackage :mezzano.ext-file-system
+(defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system :iterate)
   (:export)
   (:import-from #:sys.int
                 #:explode))
 
-(in-package :mezzano.ext-file-system)
+(in-package :mezzano.ext4-file-system)
 
 ;; Compatible feature set flags.
 (defconstant +compat-dir-prealloc+ #x1)
