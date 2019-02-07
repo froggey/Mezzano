@@ -393,10 +393,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (setf (sys.int::ub16ref/le directory (+ offset 20)) (ldb (byte 16 16) cluster-n)
         (sys.int::ub16ref/le directory (+ offset 26)) (ldb (byte 16 0) cluster-n)))
 
-(defun read-file-size (directory offset)
+(defun read-file-length (directory offset)
   (sys.int::ub32ref/le directory (+ 28 offset)))
 
-(defun (setf read-file-size) (size directory offset)
+(defun (setf read-file-length) (size directory offset)
   (setf (sys.int::ub32ref/le directory (+ offset 28)) size))
 
 (defun checksum (array offset)
@@ -594,7 +594,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                        (read-write-time file start-offset) time
                        (read-write-date file start-offset) date
                        (read-first-cluster file start-offset) cluster-number
-                       (read-file-size file start-offset) 0)))
+                       (read-file-length file start-offset) 0)))
           ;; Write short name part
           (set-short-name short-name file end-offset cluster-number)
           ;; Write long name parts only if needed
@@ -794,8 +794,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (with-fat32-host-locked (host)
     (let ((buffer nil)
           (buffer-position 0)
-          (buffer-offset 0)
-          (buffer-size 0)
+          (file-position 0)
+          (file-length 0)
           (created-file nil)
           (abort-action nil))
       (multiple-value-bind (file-data cluster-n start) (find-file host pathname)
@@ -806,7 +806,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                     (read-first-cluster file-data start)
                                     (fat host))
                   buffer-position (read-first-cluster file-data start)
-                  buffer-size (read-file-size file-data start))
+                  file-length (read-file-length file-data start))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
@@ -823,8 +823,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                      (setf buffer (make-array (* (fat32-sectors-per-cluster (fat32-structure host))
                                                  (fat32-bytes-per-sector (fat32-structure host)))
                                               :initial-element 0)
-                           buffer-position cluster-number
-                           buffer-size 0))))))))
+                           buffer-position cluster-number))))))))
       (when (and (not created-file) (member direction '(:output :io)))
         (ecase if-exists
           (:error (error 'simple-file-error
@@ -860,7 +859,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
            (unless created-file
              (error "Cannot create ~A. ~S" pathname)))
           ((:overwrite) t)
-          ((:append) (setf buffer-offset buffer-size))
+          ((:append) (setf file-position file-length))
           ((nil) (return-from open-using-host nil))))
       (let ((stream (cond ((or (eql element-type :default)
                                (subtypep element-type 'character))
@@ -872,8 +871,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :direction direction
                                           :buffer buffer
                                           :buffer-position buffer-position
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size))
+                                          :position file-position
+                                          :length file-length))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
                            (assert (eql external-format :default) (external-format))
@@ -883,8 +882,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :direction direction
                                           :buffer buffer
                                           :buffer-position buffer-position
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size))
+                                          :position file-position
+                                          :length file-length))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
 
@@ -1011,7 +1010,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (let* ((host (host stream))
-                (file-size (buffer-size stream)))
+                (file-length (file-length* stream)))
            (multiple-value-bind (directory cluster-n offset)
                (find-file host (file-stream-pathname stream))
              (multiple-value-bind (time date) (get-fat32-time)
@@ -1024,7 +1023,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                (buffer stream)))
                  (setf (read-write-time directory offset) time
                        (read-write-date directory offset) date
-                       (read-file-size directory offset) file-size))
+                       (read-file-length directory offset) file-size))
                (setf (read-last-access-date directory offset) date))
              ;; Write to disk new metadata
              (write-file (fat32-structure host) (partition host) cluster-n (fat host) directory))))

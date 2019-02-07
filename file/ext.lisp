@@ -668,8 +668,8 @@
   (with-ext-host-locked (host)
     (let ((file-inode nil)
           (buffer nil)
-          (buffer-offset 0)
-          (buffer-size 0)
+          (file-position 0)
+          (file-length 0)
           (created-file nil)
           (abort-action nil))
       (let ((inode-n (find-file host pathname)))
@@ -677,7 +677,7 @@
             (let ((file-inode (read-inode (partition host) (superblock host) (bgdt host) inode-n)))
               (setf file-inode file-inode
                     buffer (read-file (partition host) (superblock host) (bgdt host) inode-n)
-                    buffer-size (inode-size file-inode)))
+                    file-length (inode-size file-inode)))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
@@ -698,8 +698,8 @@
                                           :direction direction
                                           :file-inode file-inode
                                           :buffer buffer
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size
+                                          :position file-position
+                                          :length file-length
                                           :abort-action abort-action))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
@@ -710,8 +710,8 @@
                                           :direction direction
                                           :file-inode file-inode
                                           :buffer buffer
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size
+                                          :position file-position
+                                          :length file-length
                                           :abort-action abort-action))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
