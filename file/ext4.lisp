@@ -166,7 +166,6 @@
                               +incompat-meta-bg+
                               +incompat-extents+
                               +incompat-mmp+
-                              +incompat-flex-bg+
                               +incompat-ea-inode+
                               +incompat-dirdata+
                               +incompat-csum-seed+
@@ -395,10 +394,14 @@
                 (collecting (read-block-group-descriptor superblock block offset)))))
 
 (defun read-block-bitmap (disk superblock bgds)
-  (read-block disk superblock (block-group-descriptor-block-bitmap bgds)))
+  (let ((n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
+                      1 (expt 2 (superblock-log-groups-per-flex superblock)))))
+    (read-block disk superblock (block-group-descriptor-block-bitmap bgds) n-blocks)))
 
 (defun read-inode-bitmap (disk superblock bgds)
-  (read-block disk superblock (block-group-descriptor-inode-bitmap bgds)))
+  (let ((n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
+                      1 (expt 2 (superblock-log-groups-per-flex superblock)))))
+    (read-block disk superblock (block-group-descriptor-inode-bitmap bgds) n-blocks)))
 
 (defstruct inode
   (mode nil :type (unsigned-byte 16))
@@ -422,9 +425,14 @@
 
 (defun read-inode (disk superblock bgdt inode-n)
   (let* ((bgds (aref bgdt (block-group inode-n superblock)))
-         (block (read-block disk superblock (+ (block-group-descriptor-inode-table bgds)
-                                               (floor (/ (offset inode-n superblock)
-                                                         (block-size-in-bytes disk superblock))))))
+         (n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
+                       1 (expt 2 (superblock-log-groups-per-flex superblock))))
+         (block (read-block disk
+                            superblock
+                            (+ (block-group-descriptor-inode-table bgds)
+                               (floor (/ (offset inode-n superblock)
+                                         (block-size-in-bytes disk superblock))))
+                            n-blocks))
          (offset (mod (offset inode-n superblock) (block-size-in-bytes disk superblock))))
     (make-inode :mode (sys.int::ub16ref/le block (+ 0 offset))
                 :uid (sys.int::ub16ref/le block (+ 2 offset))
@@ -439,7 +447,7 @@
                 :flags (sys.int::ub32ref/le block (+ 32 offset))
                 :osd1 (sys.int::ub32ref/le block (+ 36 offset))
                 :block (iter (for i :from (+ 40 offset) :to (+ 96 offset) :by 4)
-                         (collecting (sys.int::ub32ref/le block i)))
+                             (collecting (sys.int::ub32ref/le block i)))
                 :generation (sys.int::ub32ref/le block (+ 100 offset))
                 :file-acl (sys.int::ub32ref/le block (+ 104 offset))
                 :dir-acl (sys.int::ub32ref/le block (+ 108 offset))
