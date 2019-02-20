@@ -161,7 +161,6 @@
   Valid magic value is #xEF53." magic)))
 
 (let* ((not-implemented (list +incompat-compression+
-                              +incompat-recover+
                               +incompat-journal-dev+
                               +incompat-meta-bg+
                               +incompat-extents+
@@ -174,6 +173,8 @@
                               +incompat-encrypt+))
        (sum (reduce #'logior not-implemented)))
   (defun check-feature-incompat (feature-incompat)
+    (when (= +incompat-recover+ (logand +incompat-recover+ feature-incompat))
+      (error "Filesystem needs recovery"))
     (unless (= +incompat-filetype+ (logand sum feature-incompat))
       (error "Required features not implemented : ~{#x~x ~}"
              (loop :for feature :in not-implemented
