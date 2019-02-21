@@ -1,6 +1,6 @@
 ;;;; Copyright (c) 2018-2018 Bruno Cichon <ebrasca@librepanther.com>
 ;;;; This code is licensed under the MIT license.
-;;;; This implementation can read from ext2 and ext3. Ext4 is WIP
+;;;; This implementation can read from ext2, ext3 and ext4.
 
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system :iterate)
@@ -54,6 +54,23 @@
 (defconstant +ro-compat-replica+ #x800)
 (defconstant +ro-compat-readonly+ #x1000)
 (defconstant +ro-compat-project+ #x2000)
+
+;; Inode flags
+(defconstant +sync-flag+ #x8) ; All writes to the file must be synchronous
+(defconstant +immutable-flag+ #x10) ; File is immutable
+(defconstant +append-flag+ #x20) ; File can only be appended
+(defconstant +noatime-flag+ #x80) ; Do not update access time
+(defconstant +encrypt-flag+ #x800) ; Encrypted inode
+(defconstant +hashed-indexes-flag+ #x1000) ; Directory has hashed indexes
+(defconstant +imagic-flag+ #x2000) ; AFS magic directory
+(defconstant +journal-data-flag+ #x4000) ; File data must always be written through the journal
+(defconstant +notail-flag+ #x8000) ; File tail should not be merged (not used by ext4)
+(defconstant +dirsync-flag+ #x10000) ; All directory entry data should be written synchronously
+(defconstant +topdir-flag+ #x20000) ; Top of directory hierarchy
+(defconstant +huge-file-flag+ #x40000) ; This is a huge file
+(defconstant +extents-flag+ #x80000) ; Inode uses extents
+(defconstant +ea-inode-flag+ #x200000) ; Inode stores a large extended attribute value in its data blocks
+(defconstant +inline-data-flag+ #x10000000) ; Inode has inline data
 
 ;; Directory file types
 (defconstant +unknown-type+ #x0)
@@ -163,7 +180,6 @@
 (let* ((not-implemented (list +incompat-compression+
                               +incompat-journal-dev+
                               +incompat-meta-bg+
-                              +incompat-extents+
                               +incompat-mmp+
                               +incompat-ea-inode+
                               +incompat-dirdata+
@@ -175,7 +191,7 @@
   (defun check-feature-incompat (feature-incompat)
     (when (= +incompat-recover+ (logand +incompat-recover+ feature-incompat))
       (error "Filesystem needs recovery"))
-    (unless (= +incompat-filetype+ (logand sum feature-incompat))
+    (unless (= +incompat-filetype+ (logand (+ +incompat-filetype+ sum) feature-incompat))
       (error "Required features not implemented : ~{#x~x ~}"
              (loop :for feature :in not-implemented
                    :unless (zerop (logand feature feature-incompat))
@@ -447,8 +463,7 @@
                 :blocks (sys.int::ub32ref/le block (+ 28 offset))
                 :flags (sys.int::ub32ref/le block (+ 32 offset))
                 :osd1 (sys.int::ub32ref/le block (+ 36 offset))
-                :block (iter (for i :from (+ 40 offset) :to (+ 96 offset) :by 4)
-                             (collecting (sys.int::ub32ref/le block i)))
+                :block (subseq block (+ 40 offset) (+ 100 offset))
                 :generation (sys.int::ub32ref/le block (+ 100 offset))
                 :file-acl (sys.int::ub32ref/le block (+ 104 offset))
                 :dir-acl (sys.int::ub32ref/le block (+ 108 offset))
@@ -474,6 +489,34 @@
                                                     (+ 8 offset)
                                                     (+ 8 offset name-len))))))
 
+(defstruct extent-header
+  (magic nil :type (unsigned-byte 16))
+  (entries nil :type (unsigned-byte 16))
+  (max nil :type (unsigned-byte 16))
+  (depth nil :type (unsigned-byte 16)))
+
+(defun read-extent-header (inode-block)
+  (let ((magic (sys.int::ub16ref/le inode-block 0)))
+    (assert (= #xF30A magic))
+    (make-extent-header :magic magic
+                        :entries (sys.int::ub16ref/le inode-block 2)
+                        :max (sys.int::ub16ref/le inode-block 4)
+                        :depth (sys.int::ub16ref/le inode-block 6))))
+
+(defstruct extent
+  (n-block nil :type (unsigned-byte 32))
+  (length nil :type (unsigned-byte 16))
+  (start-block nil :type (unsigned-byte 48)))
+
+(defun read-extent (inode-block offset)
+  (let ((length (sys.int::ub16ref/le inode-block (+ 4 offset))))
+    (when (> length 32768)
+      (error "Uninitialized extent not suported"))
+    (make-extent :n-block (sys.int::ub16ref/le inode-block offset)
+                 :length length
+                 :start-block (logior (ash (sys.int::ub16ref/le inode-block (+ 6 offset)) 32)
+                                      (sys.int::ub32ref/le inode-block (+ 8 offset))))))
+
 (defun follow-pointer (disk superblock block-n fn n-indirection)
   (if (zerop n-indirection)
       (funcall fn (read-block disk superblock block-n))
@@ -484,23 +527,30 @@
           (follow-pointer disk superblock block-n fn (1- n-indirection))))))
 
 (defun do-file (fn disk superblock bgdt inode-n)
-  (let* ((inode-block (inode-block (read-inode disk superblock bgdt inode-n))))
-    (iter (for block-n := (pop inode-block))
-      (for n :from 0 :to 10)
-      (unless (and (zerop block-n))
-        (follow-pointer disk superblock block-n fn 0)))
-
-    (let ((block-n (pop inode-block)))
-      (unless (and (zerop block-n))
-        (follow-pointer disk superblock block-n fn 1)))
-
-    (let ((block-n (pop inode-block)))
-      (unless (and (zerop block-n))
-        (follow-pointer disk superblock block-n fn 2)))
-
-    (let ((block-n (pop inode-block)))
-      (unless (and (zerop block-n))
-        (follow-pointer disk superblock block-n fn 3)))))
+  (let* ((inode (read-inode disk superblock bgdt inode-n))
+         (inode-block (inode-block inode))
+         (inode-flags (inode-flags inode)))
+    (if (= +extents-flag+ (logand +extents-flag+ inode-flags))
+        ;; TODO Add support for extent-header-depth not equal to 0
+        (let ((extent-header (read-extent-header inode-block)))
+          (unless (zerop (extent-header-depth extent-header))
+            (error "Not 0 depth extents nodes not implemented"))
+          (iter (for offset :from 12 :by 12)
+            (for extent := (read-extent inode-block offset))
+            (repeat (extent-header-entries extent-header))
+            (iter (for block-n :from (extent-start-block extent))
+              (repeat (extent-length extent))
+              (funcall fn (read-block disk superblock block-n)))))
+        (progn
+          (iter (for offset :from 0 :below 48 :by 4)
+            (for block-n := (sys.int::ub32ref/le inode-block offset))
+            (never (zerop block-n))
+            (follow-pointer disk superblock block-n fn 0))
+          (iter (for offset :from 48 :below 60 :by 4)
+            (for indirection :from 1)
+            (for block-n := (sys.int::ub32ref/le inode-block offset))
+            (never (zerop block-n))
+            (follow-pointer disk superblock block-n fn indirection))))))
 
 (defun read-file (disk superblock bgdt inode-n)
   (let ((blocks))
