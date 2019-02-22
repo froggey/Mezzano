@@ -185,7 +185,6 @@
                               +incompat-dirdata+
                               +incompat-csum-seed+
                               +incompat-largedir+
-                              +incompat-inline-data+
                               +incompat-encrypt+))
        (sum (reduce #'logior not-implemented)))
   (defun check-feature-incompat (feature-incompat)
@@ -530,27 +529,29 @@
   (let* ((inode (read-inode disk superblock bgdt inode-n))
          (inode-block (inode-block inode))
          (inode-flags (inode-flags inode)))
-    (if (= +extents-flag+ (logand +extents-flag+ inode-flags))
-        ;; TODO Add support for extent-header-depth not equal to 0
-        (let ((extent-header (read-extent-header inode-block)))
-          (unless (zerop (extent-header-depth extent-header))
-            (error "Not 0 depth extents nodes not implemented"))
-          (iter (for offset :from 12 :by 12)
-            (for extent := (read-extent inode-block offset))
-            (repeat (extent-header-entries extent-header))
-            (iter (for block-n :from (extent-start-block extent))
-              (repeat (extent-length extent))
-              (funcall fn (read-block disk superblock block-n)))))
-        (progn
-          (iter (for offset :from 0 :below 48 :by 4)
-            (for block-n := (sys.int::ub32ref/le inode-block offset))
-            (never (zerop block-n))
-            (follow-pointer disk superblock block-n fn 0))
-          (iter (for offset :from 48 :below 60 :by 4)
-            (for indirection :from 1)
-            (for block-n := (sys.int::ub32ref/le inode-block offset))
-            (never (zerop block-n))
-            (follow-pointer disk superblock block-n fn indirection))))))
+    (cond ((= +extents-flag+ (logand +extents-flag+ inode-flags))
+           ;; TODO Add support for extent-header-depth not equal to 0
+           (let ((extent-header (read-extent-header inode-block)))
+             (unless (zerop (extent-header-depth extent-header))
+               (error "Not 0 depth extents nodes not implemented"))
+             (iter (for offset :from 12 :by 12)
+               (for extent := (read-extent inode-block offset))
+               (repeat (extent-header-entries extent-header))
+               (iter (for block-n :from (extent-start-block extent))
+                 (repeat (extent-length extent))
+                 (funcall fn (read-block disk superblock block-n))))))
+          ((= +inline-data-flag+ (logand +inline-data-flag+ inode-flags))
+           (funcall fn inode-block))
+          (t
+           (iter (for offset :from 0 :below 48 :by 4)
+             (for block-n := (sys.int::ub32ref/le inode-block offset))
+             (never (zerop block-n))
+             (follow-pointer disk superblock block-n fn 0))
+           (iter (for offset :from 48 :below 60 :by 4)
+             (for indirection :from 1)
+             (for block-n := (sys.int::ub32ref/le inode-block offset))
+             (never (zerop block-n))
+             (follow-pointer disk superblock block-n fn indirection))))))
 
 (defun read-file (disk superblock bgdt inode-n)
   (let ((blocks))
