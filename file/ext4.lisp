@@ -401,13 +401,13 @@
               (iter (with block-group-size := (if (zerop (logand +incompat-64bit+
                                                                  (superblock-feature-incompat superblock)))
                                                   32 (superblock-desc-size superblock)))
-                (with n-octets := (* block-group-size (n-block-groups superblock)))
-                (with block := (read-block disk superblock 1
-                                           (/ n-octets
-                                              (mezzano.supervisor:disk-sector-size disk)
-                                              (block-size disk superblock))))
-                (for offset :from 0 :below n-octets :by block-group-size)
-                (collecting (read-block-group-descriptor superblock block offset)))))
+                    (with n-octets := (* block-group-size (n-block-groups superblock)))
+                    (with block := (read-block disk superblock 1
+                                               (/ n-octets
+                                                  (mezzano.supervisor:disk-sector-size disk)
+                                                  (block-size disk superblock))))
+                    (for offset :from 0 :below n-octets :by block-group-size)
+                    (collecting (read-block-group-descriptor superblock block offset)))))
 
 (defun read-block-bitmap (disk superblock bgds)
   (let ((n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
@@ -520,10 +520,10 @@
   (if (zerop n-indirection)
       (funcall fn (read-block disk superblock block-n))
       (iter (with i-block := (read-block disk superblock block-n))
-        (for offset :from 0 :below (block-size-in-bytes disk superblock) :by 4)
-        (for block-n := (sys.int::ub32ref/le i-block offset))
-        (unless (and (zerop block-n))
-          (follow-pointer disk superblock block-n fn (1- n-indirection))))))
+            (for offset :from 0 :below (block-size-in-bytes disk superblock) :by 4)
+            (for block-n := (sys.int::ub32ref/le i-block offset))
+            (unless (and (zerop block-n))
+              (follow-pointer disk superblock block-n fn (1- n-indirection))))))
 
 (defun do-file (fn disk superblock bgdt inode-n)
   (let* ((inode (read-inode disk superblock bgdt inode-n))
@@ -535,35 +535,35 @@
              (unless (zerop (extent-header-depth extent-header))
                (error "Not 0 depth extents nodes not implemented"))
              (iter (for offset :from 12 :by 12)
-               (for extent := (read-extent inode-block offset))
-               (repeat (extent-header-entries extent-header))
-               (iter (for block-n :from (extent-start-block extent))
-                 (repeat (extent-length extent))
-                 (funcall fn (read-block disk superblock block-n))))))
+                   (for extent := (read-extent inode-block offset))
+                   (repeat (extent-header-entries extent-header))
+                   (iter (for block-n :from (extent-start-block extent))
+                         (repeat (extent-length extent))
+                         (funcall fn (read-block disk superblock block-n))))))
           ((= +inline-data-flag+ (logand +inline-data-flag+ inode-flags))
            (funcall fn inode-block))
           (t
            (iter (for offset :from 0 :below 48 :by 4)
-             (for block-n := (sys.int::ub32ref/le inode-block offset))
-             (never (zerop block-n))
-             (follow-pointer disk superblock block-n fn 0))
+                 (for block-n := (sys.int::ub32ref/le inode-block offset))
+                 (never (zerop block-n))
+                 (follow-pointer disk superblock block-n fn 0))
            (iter (for offset :from 48 :below 60 :by 4)
-             (for indirection :from 1)
-             (for block-n := (sys.int::ub32ref/le inode-block offset))
-             (never (zerop block-n))
-             (follow-pointer disk superblock block-n fn indirection))))))
+                 (for indirection :from 1)
+                 (for block-n := (sys.int::ub32ref/le inode-block offset))
+                 (never (zerop block-n))
+                 (follow-pointer disk superblock block-n fn indirection))))))
 
 (defun read-file (disk superblock bgdt inode-n)
   (let ((blocks))
     (do-file #'(lambda (block)
                  (push block blocks))
-             disk superblock bgdt inode-n)
+      disk superblock bgdt inode-n)
     (iter (with block-size := (block-size-in-bytes disk superblock))
-      (with result := (make-array (list (* block-size (length blocks))) :element-type '(unsigned-byte 8)))
-      (for block :in (nreverse blocks))
-      (for offset :from 0 :by block-size)
-      (replace result block :start1 offset)
-      (finally (return result)))))
+          (with result := (make-array (list (* block-size (length blocks))) :element-type '(unsigned-byte 8)))
+          (for block :in (nreverse blocks))
+          (for offset :from 0 :by block-size)
+          (replace result block :start1 offset)
+          (finally (return result)))))
 
 (defmacro do-files ((arg var) disk superblock bgdt inode-n finally &body body)
   `(unless (do-file (lambda (,arg)
@@ -687,10 +687,10 @@
         :for directory :in (rest (pathname-directory pathname))
         :do (block do-files
               (do-files (block offset) disk superblock bgdt inode-n
-                        (error 'simple-file-error
-                               :pathname pathname
-                               :format-control "Directory ~A not found. ~S"
-                               :format-arguments (list directory pathname))
+                (error 'simple-file-error
+                       :pathname pathname
+                       :format-control "Directory ~A not found. ~S"
+                       :format-arguments (list directory pathname))
                 (when (string= directory (linked-directory-entry-name (read-linked-directory-entry block offset)))
                   (setf inode-n (linked-directory-entry-inode (read-linked-directory-entry block offset)))
                   (return-from do-files t))))
