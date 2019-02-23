@@ -393,10 +393,10 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (setf (sys.int::ub16ref/le directory (+ offset 20)) (ldb (byte 16 16) cluster-n)
         (sys.int::ub16ref/le directory (+ offset 26)) (ldb (byte 16 0) cluster-n)))
 
-(defun read-file-size (directory offset)
+(defun read-file-length (directory offset)
   (sys.int::ub32ref/le directory (+ 28 offset)))
 
-(defun (setf read-file-size) (size directory offset)
+(defun (setf read-file-length) (size directory offset)
   (setf (sys.int::ub32ref/le directory (+ offset 28)) size))
 
 (defun checksum (array offset)
@@ -552,18 +552,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
       (setf i 0
             r j))))
 
-;; TODO Make proper function for generating short names.
-(defun create-file (host file cluster-n pathname-name pathname-type attributes)
-  "Create file/directory"
-  (let* ((name (concatenate 'string pathname-name "." pathname-type))
-         (short-name (make-string 11 :initial-element #\Space))
-         (name-length (length name))
-         (start-offset (next-n-spaces file (if (> name-length 11)
-                                               (1+ (ceiling (/ name-length 13)))
-                                               1)))
-         (end-offset (+ start-offset (* 32 (if (> name-length 11)
-                                               (ceiling (/ name-length 13))
-                                               0)))))
+(defun make-short-name (pathname-name pathname-type file)
+  (let ((short-name (make-string 11 :initial-element #\Space)))
     (loop :for char-n :from 0 :to 7
           :for char :across pathname-name
           :do (setf (aref short-name char-n)
@@ -574,9 +564,23 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
             :do (setf (aref short-name char-n)
                       char)))
     ;; Check for short name collision
-    (do-files (offset) file t
+    (do-files (offset) file
+              short-name
+      ;; TODO: name collision resolution
       (when (string= short-name (read-short-name file offset))
-        (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))
+        (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))))
+
+(defun create-file (host file cluster-n pathname-name pathname-type attributes)
+  "Create file/directory"
+  (let* ((name (concatenate 'string pathname-name "." pathname-type))
+         (short-name (make-short-name pathname-name pathname-type file))
+         (name-length (length name))
+         (start-offset (next-n-spaces file (if (> name-length 11)
+                                               (1+ (ceiling (/ name-length 13)))
+                                               1)))
+         (end-offset (+ start-offset (* 32 (if (> name-length 11)
+                                               (ceiling (/ name-length 13))
+                                               0)))))
     (multiple-value-bind (time date) (get-fat32-time)
       (let ((cluster-number (next-free-cluster (fat host))))
         (flet ((set-short-name (name file start-offset cluster-number)
@@ -590,7 +594,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                        (read-write-time file start-offset) time
                        (read-write-date file start-offset) date
                        (read-first-cluster file start-offset) cluster-number
-                       (read-file-size file start-offset) 0)))
+                       (read-file-length file start-offset) 0)))
           ;; Write short name part
           (set-short-name short-name file end-offset cluster-number)
           ;; Write long name parts only if needed
@@ -790,8 +794,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
   (with-fat32-host-locked (host)
     (let ((buffer nil)
           (buffer-position 0)
-          (buffer-offset 0)
-          (buffer-size 0)
+          (file-position 0)
+          (file-length 0)
           (created-file nil)
           (abort-action nil))
       (multiple-value-bind (file-data cluster-n start) (find-file host pathname)
@@ -802,7 +806,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                     (read-first-cluster file-data start)
                                     (fat host))
                   buffer-position (read-first-cluster file-data start)
-                  buffer-size (read-file-size file-data start))
+                  file-length (read-file-length file-data start))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
                              :pathname pathname
@@ -819,8 +823,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                      (setf buffer (make-array (* (fat32-sectors-per-cluster (fat32-structure host))
                                                  (fat32-bytes-per-sector (fat32-structure host)))
                                               :initial-element 0)
-                           buffer-position cluster-number
-                           buffer-size 0))))))))
+                           buffer-position cluster-number))))))))
       (when (and (not created-file) (member direction '(:output :io)))
         (ecase if-exists
           (:error (error 'simple-file-error
@@ -856,7 +859,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
            (unless created-file
              (error "Cannot create ~A. ~S" pathname)))
           ((:overwrite) t)
-          ((:append) (setf buffer-offset buffer-size))
+          ((:append) (setf file-position file-length))
           ((nil) (return-from open-using-host nil))))
       (let ((stream (cond ((or (eql element-type :default)
                                (subtypep element-type 'character))
@@ -868,8 +871,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :direction direction
                                           :buffer buffer
                                           :buffer-position buffer-position
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size))
+                                          :position file-position
+                                          :length file-length))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
                            (assert (eql external-format :default) (external-format))
@@ -879,8 +882,8 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                           :direction direction
                                           :buffer buffer
                                           :buffer-position buffer-position
-                                          :buffer-offset buffer-offset
-                                          :buffer-size buffer-size))
+                                          :position file-position
+                                          :length file-length))
                           (t (error "Unsupported element-type ~S." element-type)))))
         stream))))
 
@@ -949,7 +952,7 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                              ;; Write short name part
                              (multiple-value-bind (pathname-name pathname-type) (sub-path dest)
                                (let* ((name (concatenate 'string pathname-name "." pathname-type))
-                                      (short-name (make-string 11 :initial-element #\Space))
+                                      (short-name (make-short-name pathname-name pathname-type file))
                                       (name-length (length name))
                                       (start-offset (next-n-spaces dest-dir (if (> name-length 11)
                                                                                 (1+ (ceiling
@@ -961,20 +964,6 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
                                  ;; Copy short part
                                  (let ((metadata (subseq source-dir source-start (+ 32 source-start))))
                                    (replace dest-dir metadata :start1 end-offset))
-                                 ;; Make short-name
-                                 (loop :for char-n :from 0 :to 7
-                                       :for char :across pathname-name
-                                       :do (setf (aref short-name char-n)
-                                                 char))
-                                 (when pathname-type
-                                   (loop :for char-n :from 8 :to 10
-                                         :for char :across pathname-type
-                                         :do (setf (aref short-name char-n)
-                                                   char)))
-                                 ;; Check for short name collision
-                                 (do-files (offset) dest-dir t
-                                   (when (string= short-name (read-short-name dest-dir offset))
-                                     (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))
                                  ;; Change short name
                                  (setf (read-short-name dest-dir end-offset) short-name)
                                  ;; Write long name parts only if needed
@@ -1021,20 +1010,19 @@ Valid trail-signature is ~a" trail-signature +trail-signature+)))
 (defmethod close ((stream fat32-file-stream) &key abort)
   (cond ((not abort)
          (let* ((host (host stream))
-                (file-size (buffer-size stream)))
+                (file-length (file-length* stream)))
            (multiple-value-bind (directory cluster-n offset)
                (find-file host (file-stream-pathname stream))
              (multiple-value-bind (time date) (get-fat32-time)
                (when (member (direction stream) '(:output :io))
-                 (let ((host (host stream)))
-                   (write-file (fat32-structure host)
-                               (partition host)
-                               (buffer-position stream)
-                               (fat host)
-                               (buffer stream)))
+                 (write-file (fat32-structure host)
+                             (partition host)
+                             (buffer-position stream)
+                             (fat host)
+                             (buffer stream))
                  (setf (read-write-time directory offset) time
                        (read-write-date directory offset) date
-                       (read-file-size directory offset) file-size))
+                       (read-file-length directory offset) file-length))
                (setf (read-last-access-date directory offset) date))
              ;; Write to disk new metadata
              (write-file (fat32-structure host) (partition host) cluster-n (fat host) directory))))

@@ -208,14 +208,12 @@
                      :path pathname
                      :direction :input
                      :buffer body
-                     :buffer-offset 0
-                     :buffer-size (length body))
+                     :length (length body))
       (make-instance 'http-binary-stream
                      :path pathname
                      :direction :input
                      :buffer body
-                     :buffer-offset 0
-                     :buffer-size (length body))))
+                     :length (length body))))
 
 (defun decode-location (location)
   ;; This should parse an absoluteURI from rfc2396.
