@@ -500,6 +500,37 @@
   'nil)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+(defun known-type-p (type &optional environment)
+  (let ((type (typeexpand type environment)))
+    (not (not
+          (or (and (symbolp type)
+                   (find-class type nil environment))
+              ;; Figure 4-3. Standardized Compound Type Specifier Names
+              ;; With types defined by deftype (such as string, vector, etc) removed.
+              (typep type '(cons (member
+                                  and
+                                  array
+                                  complex
+                                  cons
+                                  double-float
+                                  eql
+                                  float
+                                  function
+                                  integer
+                                  long-float
+                                  member
+                                  not
+                                  or
+                                  rational
+                                  real
+                                  satisfies
+                                  short-float
+                                  simple-array
+                                  single-float
+                                  string
+                                  values
+                                  vector))))))))
+
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (declare (notinline typep)) ; ### Boostrap hack.
@@ -662,7 +693,8 @@
                (and (consp t2) (eql (first t2) 'satisfies)))
            (values nil nil))
           (t
-           (values nil t)))))
+           (values nil (and (known-type-p t1 environment)
+                            (known-type-p t2 environment)))))))
 
 (defun subclassp (class-1 class-2)
   (declare (notinline typep)) ; ### Boostrap hack.
