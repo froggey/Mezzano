@@ -87,13 +87,12 @@
                  (pick-branch (if-then form) (if-else form))))
             ((and (typep (test form) 'ast-the)
                   ;; Type must equal NULL.
-                  (compiler-subtypep (the-type (test form)) 'null)
-                  (compiler-subtypep 'null (the-type (test form))))
+                  (compiler-valid-type-equal-p (the-type (test form)) 'null))
              (change-made)
              ;; Use the else branch.
              (pick-branch (if-else form) (if-then form)))
             ((and (typep (test form) 'ast-the)
-                  (compiler-subtypep (the-type (test form)) '(not null)))
+                  (compiler-valid-subtypep (the-type (test form)) '(not null)))
              (change-made)
              ;; Use the true branch.
              (pick-branch (if-then form) (if-else form)))
@@ -252,9 +251,8 @@
   (let ((val (assoc (ast-value form) *known-variables*)))
     (cond ((and val
                 (typep (second val) 'ast-the)
-                (or (and (compiler-subtypep (the-type (second val)) (the-type form))
-                         (compiler-subtypep (the-type form) (the-type (second val))))
-                    (compiler-subtypep (the-type form) (the-type (second val))))
+                (or (compiler-valid-type-equal-p (the-type (second val)) (the-type form))
+                    (compiler-valid-subtypep (the-type form) (the-type (second val))))
                 (eql (ast-value (second val)) (ast-value form))
                 (typep (ast-value form) 'lexical-variable))
            ;; Don't do anything. This would replace this form with an identical nested THE.

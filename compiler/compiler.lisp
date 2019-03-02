@@ -229,3 +229,31 @@ be generated instead.")
 ;; A wrapper around SUBTYPEP that can be traced safely.
 (defun compiler-subtypep (type-1 type-2 &optional environment)
   (subtypep type-1 type-2 environment))
+
+(defun compiler-valid-subtypep (type-1 type-2 &optional environment)
+  (multiple-value-bind (successp validp)
+      (subtypep type-1 type-2 environment)
+    (and successp validp)))
+
+(defun compiler-valid-not-subtypep (type-1 type-2 &optional environment)
+  (multiple-value-bind (successp validp)
+      (subtypep type-1 type-2 environment)
+    (and (not successp) validp)))
+
+(defun compiler-type-equal-p (type-1 type-2 &optional environment)
+  (multiple-value-bind (success-1-p valid-1-p)
+      (compiler-subtypep type-1 type-2 environment)
+    (multiple-value-bind (success-2-p valid-2-p)
+        (compiler-subtypep type-2 type-1 environment)
+      (values (and success-1-p success-2-p)
+              (and valid-1-p valid-2-p)))))
+
+(defun compiler-valid-type-equal-p (type-1 type-2 &optional environment)
+  (multiple-value-bind (successp validp)
+      (compiler-type-equal-p type-1 type-2 environment)
+    (and successp validp)))
+
+(defun compiler-valid-not-type-equal-p (type-1 type-2 &optional environment)
+  (multiple-value-bind (successp validp)
+      (compiler-type-equal-p type-1 type-2 environment)
+    (and (not successp) validp)))

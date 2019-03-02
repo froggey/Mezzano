@@ -516,7 +516,7 @@
          `(and ,type-1 ,type-2))))
 
 (defmethod simp-form ((form ast-the))
-  (cond ((compiler-subtypep 't (the-type form))
+  (cond ((compiler-valid-subtypep 't (the-type form))
          (change-made)
          (simp-form (value form)))
         ((typep (value form) 'ast-the)
@@ -582,8 +582,7 @@
   (cond ((and (eql (list-length (arguments form)) 2)
               (or (and (typep (second (arguments form)) 'ast-the)
                        (match-optimize-settings form '((= safety 0) (= speed 3)))
-                       (compiler-subtypep (ast-the-type (second (arguments form))) '(eql 0))
-                       (compiler-subtypep '(eql 0) (ast-the-type (second (arguments form)))))
+                       (compiler-valid-type-equal-p (ast-the-type (second (arguments form))) '(eql 0)))
                   (and (quoted-form-p (second (arguments form)))
                        (eql (value (second (arguments form))) 0))))
          ;; (ash value 0) => (progn (type-check value integer) value)
@@ -618,14 +617,14 @@
         ((and (eql (list-length (arguments form)) 2)
               (match-optimize-settings form '((= safety 0) (= speed 3)))
               (typep (second (arguments form)) 'ast-the)
-              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer 0)))
+              (compiler-valid-subtypep (ast-the-type (second (arguments form))) '(integer 0)))
          ;; (ash value known-non-negative-integer) => left-shift
          (change-made)
          (setf (name form) 'mezzano.runtime::left-shift))
         ((and (eql (list-length (arguments form)) 2)
               (match-optimize-settings form '((= safety 0) (= speed 3)))
               (typep (second (arguments form)) 'ast-the)
-              (compiler-subtypep (ast-the-type (second (arguments form))) '(integer * 0)))
+              (compiler-valid-subtypep (ast-the-type (second (arguments form))) '(integer * 0)))
          ;; (ash value known-non-positive-integer) => right-shift
          (change-made)
          (setf (name form) 'mezzano.runtime::right-shift
@@ -751,7 +750,7 @@
                       ;; This axis is unknown, but the axis is valid.
                       (if (and (eql rank 1)
                                ;; Strings are always complex arrays.
-                               (not (compiler-subtypep element-type 'character)))
+                               (compiler-valid-not-subtypep element-type 'character))
                           (ast `(the fixnum (call sys.int::%object-header-data ,array) form))
                           (ast `(the fixnum (call sys.int::%object-ref-t
                                                   ,array

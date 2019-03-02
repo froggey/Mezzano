@@ -213,8 +213,8 @@
       (return nil))))
 
 (defun match-transform-type (transform-type type)
-  (and (not (compiler-subtypep type 'nil))
-       (compiler-subtypep type transform-type)))
+  (and (compiler-valid-not-subtypep type 'nil)
+       (compiler-valid-subtypep type transform-type)))
 
 (defun match-transform-argument (transform-type argument)
   (cond ((eql transform-type 't))
