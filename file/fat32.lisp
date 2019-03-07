@@ -53,8 +53,8 @@ Valid bytes-per-sector are 512, 1024, 2048 and 4096" bytes-per-sector))))
            (error "Bad sectors-per-cluster : ~a .
 Valid bytes-per-sector are 1,2,4,8,16,32,64,128" sectors-per-cluster))
           ((> (* sectors-per-cluster bytes-per-sector)
-              32768)
-           (error "Error sectors-per-cluster * bytes-per-sector > 32KiB .
+              65536)
+           (error "Error sectors-per-cluster * bytes-per-sector > 64KiB .
 sectors-per-cluster= ~a bytes-per-sector= ~a" sectors-per-cluster bytes-per-sector))
           (t sectors-per-cluster))))
 
