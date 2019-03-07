@@ -221,6 +221,11 @@
              :effect)
     (when (zerop (block-information-count info))
       ;; Nothing reached the exit.
+      (when escapes
+        ;; The BEGIN-NLX instruction has been emitted, but nothing needed it.
+        ;; Clear the target list, the thunk label won't be emitted and
+        ;; we don't want the instruction referring to a non-existent basic block.
+        (setf (begin-nlx-targets nlx-region) '()))
       (return-from cg-form nil))
     (when escapes
       (emit thunk-label)
