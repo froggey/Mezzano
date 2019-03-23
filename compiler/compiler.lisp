@@ -204,9 +204,16 @@ be generated instead.")
     blexit
     apply-transforms))
 
+(defparameter *report-after-optimize-passes* nil)
+
 (defun run-optimizers (form target-architecture)
   (setf target-architecture (canonicalize-target target-architecture))
   (with-metering (:ast-optimize)
+    (when *report-after-optimize-passes*
+      (let ((*report-after-optimize-passes* nil))
+        (format t "Before optimizations:~%")
+        (write (unparse-compiler-form form) :pretty t)
+        (terpri)))
     (dotimes (i *max-optimizer-iterations*
               (progn (warn 'sys.int::simple-style-warning
                            :format-control "Possible optimizer infinite loop."
@@ -214,7 +221,12 @@ be generated instead.")
                      form))
       (let ((*change-count* 0))
         (dolist (pass *optimization-passes*)
-          (setf form (funcall pass form target-architecture)))
+          (setf form (funcall pass form target-architecture))
+          (when *report-after-optimize-passes*
+            (let ((*report-after-optimize-passes* nil))
+              (format t "After optimize pass ~S:~%" pass)
+              (write (unparse-compiler-form form) :pretty t)
+              (terpri))))
         (when (eql *change-count* 0)
           (return form))))))
 
