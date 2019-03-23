@@ -38,7 +38,10 @@
                        did-something
                        (typep (unwrap-the form) '(or ast-quote ast-function lambda-information)))
                    (kt-form form))
-                  ((typep (unwrap-the form) 'lexical-variable)
+                  ((and (typep (unwrap-the form) 'lexical-variable)
+                        ;; Don't skip over variables if they are written to.
+                        ;; The replacement form may contain a SETQ.
+                        (zerop (lexical-variable-write-count (unwrap-the form))))
                    (multiple-value-bind (new did-replace)
                        (kt-form form target-variable replacement-form)
                      (when did-replace
