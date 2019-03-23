@@ -181,16 +181,30 @@
 (define-modify-macro incf (&optional (delta 1)) +)
 (define-modify-macro decf (&optional (delta 1)) -)
 
-;; FIXME...
-(defmacro psetf (&rest pairs)
-  (when pairs
-    (when (null (cdr pairs))
-      (error "Odd number of arguments to PSETF"))
-    (let ((value (gensym)))
-      `(let ((,value ,(cadr pairs)))
-         (psetf ,@(cddr pairs))
-         (setf ,(car pairs) ,value)
-         nil))))
+(defmacro psetf (&environment env &rest pairs)
+  (when (oddp (length pairs))
+    (error "Odd number of arguments to PSETF"))
+  ;; Evaluate all subforms before performing assignments.
+  (let ((bindings '())
+        (assignments '()))
+    (loop
+       for (place newvalue) on pairs by #'cddr
+       do
+         (multiple-value-bind (vars vals stores setter getter)
+             (get-setf-expansion place env)
+           (declare (ignore getter))
+           (when (or (endp stores) (rest stores))
+             ;; FIXME
+             (error "Multiple (or no) store values not implemented in PSETF for place ~S" place))
+           (loop
+              for var in vars
+              for val in vals
+              do (push (list var val) bindings))
+           (push (list (first stores) newvalue) bindings)
+           (push setter assignments)))
+    `(let ,(nreverse bindings)
+       (progn
+         ,@(nreverse assignments)))))
 
 ;; FIXME...
 (defmacro rotatef (&rest places)

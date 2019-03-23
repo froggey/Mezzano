@@ -49,7 +49,8 @@
 
 (defmacro psetq (&rest pairs)
   ;; Make sure all variables are symbols, then hand off to PSETF.
-  (loop for var in pairs by #'cddr
+  (loop
+     for var in pairs by #'cddr
      do (check-type var symbol))
   `(psetf ,@pairs))
 
