@@ -101,10 +101,14 @@ Virtual registers must be defined exactly once."
             (let* ((conflicts (loop
                                  for phi in (label-phis (jump-target inst))
                                  for value in (jump-values inst)
+                                 ;; A phi conflicts if it is used as a source or
+                                 ;; destination by another value in this jump/label.
                                  when (loop
                                          for other-phi in (label-phis (jump-target inst))
+                                         for other-value in (jump-values inst)
                                          when (and (not (eql phi other-phi))
-                                                   (eql other-phi value))
+                                                   (or (eql other-phi value)
+                                                       (eql other-value phi)))
                                          do (return t)
                                          finally (return nil))
                                  collect phi))
