@@ -25,8 +25,6 @@
                        (list* (car place) call-vars)))))
 
 (defun get-setf-expansion (place &optional environment)
-  (assert (not (and (consp place) (eql (first place) 'values))) (place)
-          "SETF VALUES not supported here.")
   (if (consp place)
       (let ((expander (and (symbolp (car place))
                            (get (car place) 'setf-expander))))
@@ -50,20 +48,6 @@
               (values '() '() (list store-sym)
                       `(setq ,place ,store-sym)
                       place))))))
-
-(defun expand-setf-values (place value env)
-  "Expand a (setf (values foo...) bar) place."
-  ;; TODO: Evaluation order & env.
-  (let ((tmp-values (loop for i below (length (rest place))
-                         collect (gensym "VALUE"))))
-    `(multiple-value-bind ,tmp-values ,value
-       (setf ,@(loop
-                  for p in (rest place)
-                  for v in tmp-values
-                  collect p
-                  collect v))
-       ;; Evaluate to all values.
-       (values ,@tmp-values))))
 
 (defun expand-setf (place value env)
   "Expand a normal setf place."
@@ -92,10 +76,7 @@
         (error "Odd number of forms supplied to SETF."))
       (let ((place (car i))
             (value (cadr i)))
-        (setf (cdr tail) (cons (cond ((and (consp place) (eql (first place) 'values))
-                                      (expand-setf-values place value env))
-                                     (t (expand-setf place value env)))
-                               nil))))))
+        (setf (cdr tail) (cons (expand-setf place value env) nil))))))
 
 (defmacro push (&environment env item place)
   (multiple-value-bind (vars vals stores setter getter)
@@ -182,30 +163,23 @@
 (define-modify-macro decf (&optional (delta 1)) -)
 
 (defmacro psetf (&environment env &rest pairs)
-  (when (oddp (length pairs))
-    (error "Odd number of arguments to PSETF"))
   ;; Evaluate all subforms before performing assignments.
-  (let ((bindings '())
-        (assignments '()))
-    (loop
-       for (place newvalue) on pairs by #'cddr
-       do
-         (multiple-value-bind (vars vals stores setter getter)
-             (get-setf-expansion place env)
-           (declare (ignore getter))
-           (when (or (endp stores) (rest stores))
-             ;; FIXME
-             (error "Multiple (or no) store values not implemented in PSETF for place ~S" place))
-           (loop
-              for var in vars
-              for val in vals
-              do (push (list var val) bindings))
-           (push (list (first stores) newvalue) bindings)
-           (push setter assignments)))
-    `(let ,(nreverse bindings)
-       (progn
-         ,@(nreverse assignments))
-       nil)))
+  (labels ((frob (remaining)
+             (when (endp remaining)
+               (return-from frob))
+             (when (endp (rest remaining))
+               (error "Odd number of arguments to PSETF"))
+             (let ((place (first remaining))
+                   (newvalue (second remaining)))
+               (multiple-value-bind (vars vals stores setter getter)
+                   (get-setf-expansion place env)
+                 (declare (ignore getter))
+                 `(let ,(mapcar 'list vars vals)
+                    (multiple-value-bind ,stores
+                        ,newvalue
+                      ,(frob (cddr remaining))
+                      ,setter))))))
+    `(progn ,(frob pairs) nil)))
 
 ;; FIXME...
 (defmacro rotatef (&rest places)
@@ -300,3 +274,33 @@
             (list store)
             `(apply #'(setf ,real-function) ,store ,@vars)
             `(apply #',real-function ,@vars))))
+
+(define-setf-expander values (&rest places &environment env)
+  (let ((temp-vars '())
+        (temp-forms '())
+        (store-vars '())
+        (store-forms '())
+        (read-forms '()))
+    (loop
+       for place in places
+       do
+         (multiple-value-bind (place-temp-vars
+                               place-temp-forms
+                               place-store-vars
+                               place-store-form
+                               place-read-form)
+             (get-setf-expansion place env)
+           (setf temp-vars (append temp-vars place-temp-vars)
+                 temp-forms (append temp-forms place-temp-forms))
+           (dolist (inner-value (rest place-store-vars))
+             (push inner-value temp-vars)
+             (push nil temp-forms))
+           (setf store-vars (append store-vars (list (first (or place-store-vars
+                                                                (list (gensym)))))))
+           (setf store-forms (append store-forms (list place-store-form)))
+           (setf read-forms (append read-forms (list place-read-form)))))
+    (values temp-vars
+            temp-forms
+            store-vars
+            `(values ,@store-forms)
+            `(values ,@read-forms))))
