@@ -759,15 +759,6 @@
   base
   size)
 
-(defun %allocate-stack-1 (aligned-size actual-size bump-sym)
-  (mezzano.supervisor:without-footholds
-    (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
-      (when (< (mezzano.runtime::bytes-remaining) size)
-        (sys.int::gc :full t))
-      (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
-                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-        (incf (symbol-value bump-sym) aligned-size)))))
-
 (defconstant +stack-guard-size+ #x200000)
 (defconstant +stack-region-alignment+ #x200000)
 
