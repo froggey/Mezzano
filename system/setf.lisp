@@ -204,7 +204,8 @@
            (push setter assignments)))
     `(let ,(nreverse bindings)
        (progn
-         ,@(nreverse assignments)))))
+         ,@(nreverse assignments))
+       nil)))
 
 ;; FIXME...
 (defmacro rotatef (&rest places)
