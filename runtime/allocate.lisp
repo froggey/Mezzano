@@ -125,6 +125,43 @@
                                                              (ash (ldb (byte (- 32 sys.int::+object-data-shift+) 0) data) sys.int::+object-data-shift+))
         (sys.int::memref-unsigned-byte-32 address 1) (ldb (byte 32 (- 32 sys.int::+object-data-shift+)) data)))
 
+(defun %freelist-allocate-internal (freelist prev size log2-len tag data words bins)
+  ;; Remove it from the bin.
+  (cond (prev
+         (setf (freelist-entry-next prev) (freelist-entry-next freelist)))
+        (t
+         (setf (svref bins log2-len) (freelist-entry-next freelist))))
+  (when (not (eql size words))
+    ;; Entry is too large, split it.
+    ;; Always create new entries with the pinned mark bit
+    ;; set. A GC will flip it, making all the freelist
+    ;; entries unmarked. No object can ever point to a freelist entry, so
+    ;; they will never be marked during a gc.
+    (let* ((new-size (- size words))
+           (new-bin (integer-length new-size))
+           (next (+ freelist (* words 8))))
+      (setf (sys.int::memref-unsigned-byte-64 next 0) (logior sys.int::*pinned-mark-bit*
+                                                              (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
+                                                              (ash (- size words) sys.int::+object-data-shift+))
+            (sys.int::memref-t next 1) (svref bins new-bin))
+      (setf (svref bins new-bin) next)
+      ;; Update the card table starts for any pages
+      ;; that this new freelist entry crosses.
+      ;; TODO: Make this more efficient.
+      (loop
+         for card from (mezzano.supervisor::align-up next sys.int::+card-size+) below (+ next (* new-size 8)) by sys.int::+card-size+
+         for delta = (- next card)
+         do (setf (sys.int::card-table-offset card)
+                  (if (<= delta (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)))
+                      nil
+                      delta)))))
+  ;; Write object header.
+  (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
+  ;; Clear data.
+  (sys.int::%fill-words (+ freelist 8) 0 (1- words))
+  ;; Return address.
+  freelist)
+
 ;; Simple first-fit binning freelist allocator for pinned areas.
 (defun %allocate-from-freelist-area (tag data words bins)
   (let ((log2-len (integer-length words)))
@@ -139,41 +176,8 @@
          (let ((size (freelist-entry-size freelist)))
            (when (>= size words)
              ;; This freelist entry is large enough, use it.
-             ;; Remove it from the bin.
-             (cond (prev
-                    (setf (freelist-entry-next prev) (freelist-entry-next freelist)))
-                   (t
-                    (setf (svref bins log2-len) (freelist-entry-next freelist))))
-             (when (not (eql size words))
-               ;; Entry is too large, split it.
-               ;; Always create new entries with the pinned mark bit
-               ;; set. A GC will flip it, making all the freelist
-               ;; entries unmarked. No object can ever point to a freelist entry, so
-               ;; they will never be marked during a gc.
-               (let* ((new-size (- size words))
-                      (new-bin (integer-length new-size))
-                      (next (+ freelist (* words 8))))
-                 (setf (sys.int::memref-unsigned-byte-64 next 0) (logior sys.int::*pinned-mark-bit*
-                                                                         (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
-                                                                         (ash (- size words) sys.int::+object-data-shift+))
-                       (sys.int::memref-t next 1) (svref bins new-bin))
-                 (setf (svref bins new-bin) next)
-                 ;; Update the card table starts for any pages
-                 ;; that this new freelist entry crosses.
-                 ;; TODO: Make this more efficient.
-                 (loop
-                    for card from (mezzano.supervisor::align-up next sys.int::+card-size+) below (+ next (* new-size 8)) by sys.int::+card-size+
-                    for delta = (- next card)
-                    do (setf (sys.int::card-table-offset card)
-                             (if (<= delta (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)))
-                                 nil
-                                 delta)))))
-             ;; Write object header.
-             (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
-             ;; Clear data.
-             (sys.int::%fill-words (+ freelist 8) 0 (1- words))
-             ;; Return address.
-             (return-from %allocate-from-freelist-area freelist))))
+             (return-from %allocate-from-freelist-area
+               (%freelist-allocate-internal freelist prev size log2-len tag data words bins)))))
        (incf log2-len))))
 
 (defun %allocate-from-pinned-area-1 (tag data words)
