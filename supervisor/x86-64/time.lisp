@@ -62,7 +62,8 @@
               'pit-irq-handler
               'pit
               :exclusive t)
-  (calibrate-tsc))
+  (calibrate-tsc)
+  (lapic-timer-calibrate))
 
 (defun pit-irq-handler (interrupt-frame irq)
   (declare (ignore irq))
