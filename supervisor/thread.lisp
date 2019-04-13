@@ -20,6 +20,9 @@
 
 (sys.int::defglobal *default-stack-size*)
 
+;; Timeslice length, in internal time units.
+(sys.int::defglobal *timeslice-length*)
+
 (defvar *pseudo-atomic* nil)
 
 (defstruct (run-queue
@@ -217,6 +220,9 @@
                (thread-queue-next thread) nil
                (run-queue-tail rq) thread))))
 
+(defun run-queue-empty-p (rq)
+  (null (run-queue-head rq)))
+
 (defun push-run-queue (thread)
   (ensure-global-thread-lock-held)
   (when (eql thread *world-stopper*)
@@ -256,11 +262,19 @@
     (dump-run-queue *normal-priority-run-queue*)
     (dump-run-queue *low-priority-run-queue*)))
 
+(defun other-threads-ready-to-run-p ()
+  (not (and (run-queue-empty-p *supervisor-priority-run-queue*)
+            (run-queue-empty-p *high-priority-run-queue*)
+            (run-queue-empty-p *normal-priority-run-queue*)
+            (run-queue-empty-p *low-priority-run-queue*))))
+
 (defun %update-run-queue ()
   "Possibly return the current thread to the run queue, and
 return the next thread to run.
 Interrupts must be off and the global thread lock must be held."
   (ensure-global-thread-lock-held)
+  ;; Cancel the preemption timer, only used for scheduling normal threads.
+  (preemption-timer-reset nil)
   (let ((current (current-thread)))
     (when (eql current (local-cpu-idle-thread))
       (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
@@ -279,11 +293,19 @@ Interrupts must be off and the global thread lock must be held."
                  (t ;; Switch to idle.
                   (local-cpu-idle-thread))))
           (t
-           (or
-            ;; Try taking from the run queue.
-            (pop-run-queue)
-            ;; Fall back on idle.
-            (local-cpu-idle-thread))))))
+           ;; Try taking from the run queue.
+           (let ((next (pop-run-queue)))
+             (cond (next
+                    ;; This is a normal thread, re-arm the preemption timer.
+                    ;; Note: Some of this logic is replicated in the idle thread's body...
+                    ;; Only needed when there are other threads waiting to run,
+                    ;; if this is the only runnable thread then it can run forever.
+                    (when (other-threads-ready-to-run-p)
+                      (preemption-timer-reset *timeslice-length*))
+                    next)
+                   (t
+                    ;; Fall back on idle.
+                    (local-cpu-idle-thread))))))))
 
 ;;; Thread switching.
 
@@ -302,7 +324,6 @@ Interrupts must be off and the global thread lock must be held."
   (ensure-global-thread-lock-held)
   (let ((current (current-thread))
         (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
     (when (eql next current)
       ;; Staying on the same thread, unlock and return.
       (release-global-thread-lock)
@@ -324,7 +345,6 @@ Interrupts must be off and the global thread lock must be held."
   (ensure-global-thread-lock-held)
   (let ((current (current-thread))
         (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
     (when (not (eql next current))
       (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next)))
     (setf (thread-state next) :active)
@@ -474,6 +494,10 @@ Interrupts must be off and the global thread lock must be held."
   (%disable-interrupts)
   (decrement-n-running-cpus)
   (loop
+     ;; Make sure the preemption timer has been properly switched off when
+     ;; the system idles. Not needed to be correct, but reduces activity
+     ;; when idle.
+     (ensure (null (preemption-timer-remaining)))
      ;; Look for a thread to switch to.
      (acquire-global-thread-lock)
      (let ((next (cond (*world-stopper*
@@ -484,6 +508,9 @@ Interrupts must be off and the global thread lock must be held."
                        (t
                         (pop-run-queue)))))
        (cond (next
+              (when (and (not *world-stopper*) ; No preemption when running with the world stopped.
+                         (other-threads-ready-to-run-p))
+                (preemption-timer-reset *timeslice-length*))
               (increment-n-running-cpus)
               ;; Switch to thread.
               (setf (thread-state next) :active)
@@ -597,6 +624,9 @@ Interrupts must be off and the global thread lock must be held."
           *high-priority-run-queue* (make-run-queue :high)
           *normal-priority-run-queue* (make-run-queue :normal)
           *low-priority-run-queue* (make-run-queue :low))
+    ;; Default timeslice is 10ms/0.01s.
+    ;; Work at read-time to avoid floats at runtime.
+    (setf *timeslice-length* #.(truncate (* 0.01 internal-time-units-per-second)))
     (setf *world-stop-lock* (make-mutex "World stop lock")
           *world-stop-cvar* (make-condition-variable "World stop cvar")
           *world-stop-pending* nil
