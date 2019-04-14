@@ -64,23 +64,11 @@
     (4 :hs)
     (t (list :unknown-class class))))
 
-(defun explode (string seperator &key (start 0) (end nil))
-  "Break a string apart into a list using SEPERATOR as
-the seperator character."
-  (let ((start start)
-        (list nil))
-    (dotimes (i (- (or end (length string)) start))
-      (when (eql (char string i) seperator)
-        (push (subseq string start i) list)
-        (setf start (1+ i))))
-      (push (subseq string start end) list)
-    (nreverse list)))
-
 (defun write-dns-name (packet offset name)
   (when (not (zerop (length name)))
     ;; Domain names can end in a #\., trim it off.
-    (dolist (part (explode name #\. :end (when (eql #\. (char name (1- (length name))))
-                                           (1- (length name)))))
+    (dolist (part (sys.int::explode #\. name :end (when (eql #\. (char name (1- (length name))))
+                                                    (1- (length name)))))
       (assert (<= (length part) 63))
       (assert (not (zerop (length part))))
       (setf (aref packet offset) (length part))

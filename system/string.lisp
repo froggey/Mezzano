@@ -133,6 +133,8 @@ same characters in the corresponding positions; otherwise it returns false."))
       (make-array size :element-type element-type)))
 
 (defun explode (character string &optional (start 0) end)
+    "Break a string apart into a list using CHARACTER as
+the seperator character."
   (setf end (or end (length string)))
   (do ((elements '())
        (i start (1+ i))
