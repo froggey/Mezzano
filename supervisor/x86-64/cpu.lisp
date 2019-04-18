@@ -30,7 +30,7 @@
 (defconstant +lapic-reg-interrupt-command-low+ #x30)
 (defconstant +lapic-reg-interrupt-command-high+ #x31)
 (defconstant +lapic-reg-lvt-timer+ #x32)
-(defconstant +lapic-reg-lvt-termal-sensor+ #x33)
+(defconstant +lapic-reg-lvt-thermal-sensor+ #x33)
 (defconstant +lapic-reg-lvt-performance-monitoring-counters+ #x34)
 (defconstant +lapic-reg-lvt-lint0+ #x35)
 (defconstant +lapic-reg-lvt-lint1+ #x36)
@@ -38,6 +38,14 @@
 (defconstant +lapic-reg-timer-initial-count+ #x38)
 (defconstant +lapic-reg-timer-current-count+ #x39)
 (defconstant +lapic-reg-timer-divide-configuration+ #x3E)
+
+;; Interrupt vectors for the local apic
+(defconstant +lapic-vector-timer+ #xFD)
+(defconstant +lapic-vector-err+ #xFE)
+(defconstant +lapic-vector-svr+ #xFF) ; bits 0-3 hardwired to 1 on some CPUs
+
+(defconstant +lapic-svr-enable+ #x100)
+(defconstant +lapic-lvt-mask+ #x10000)
 
 (defconstant +ipi-type-fixed+ 0)
 (defconstant +ipi-type-lowest-priority+ 1)
@@ -658,14 +666,182 @@ TLB shootdown must be protected by the VM lock."
   (%wbinvd))
 
 (defun lapic-setup ()
-  (setf (lapic-reg +lapic-reg-spurious-interrupt-vector+) #x1FF))
+  (setf (lapic-reg +lapic-reg-lvt-error+) +lapic-vector-err+)
+  ;; Configure timer to divide by 16
+  (setf (lapic-reg +lapic-reg-lvt-timer+) +lapic-vector-timer+)
+  (setf (lapic-reg +lapic-reg-timer-divide-configuration+) #x03)
+  ;; Enable LAPIC
+  (setf (lapic-reg +lapic-reg-spurious-interrupt-vector+)
+        (logior +lapic-svr-enable+ +lapic-vector-svr+))
+  ;; Write to ESR to clear the error state.
+  (setf (lapic-reg +lapic-reg-error-status+) 0))
+
+(defun lapic-dump ()
+  (debug-print-line "Local APIC at " *lapic-address*)
+  (debug-print-line "  id: " (lapic-reg +lapic-reg-id+))
+  (debug-print-line "  version: " (lapic-reg +lapic-reg-version+))
+  (debug-print-line "  tpr: " (lapic-reg +lapic-reg-task-priority+))
+  (debug-print-line "  arp: " (lapic-reg +lapic-reg-arbitration-priority+))
+  (debug-print-line "  ppr: " (lapic-reg +lapic-reg-processor-priority+))
+  (debug-print-line "  logical-destination: " (lapic-reg +lapic-reg-logical-destination+))
+  (debug-print-line "  desination-format: " (lapic-reg +lapic-reg-destination-format+))
+  (debug-print-line "  svr: " (lapic-reg +lapic-reg-spurious-interrupt-vector+))
+  (debug-print-line "  isr: "
+                    (lapic-reg +lapic-reg-in-service-0+) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 1)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 2)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 3)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 4)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 5)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 6)) " "
+                    (lapic-reg (+ +lapic-reg-in-service-0+ 7)))
+  (debug-print-line "  tmr: "
+                    (lapic-reg +lapic-reg-trigger-mode-0+) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 1)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 2)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 3)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 4)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 5)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 6)) " "
+                    (lapic-reg (+ +lapic-reg-trigger-mode-0+ 7)))
+  (debug-print-line "  irr: "
+                    (lapic-reg +lapic-reg-interrupt-request-0+) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 1)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 2)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 3)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 4)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 5)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 6)) " "
+                    (lapic-reg (+ +lapic-reg-interrupt-request-0+ 7)))
+  (debug-print-line "  esr: " (lapic-reg +lapic-reg-error-status+))
+  (debug-print-line "  icr: " (lapic-reg +lapic-reg-interrupt-command-high+) ":" (lapic-reg +lapic-reg-interrupt-command-low+))
+  (debug-print-line "  lvt-timer: " (lapic-reg +lapic-reg-lvt-timer+))
+  (debug-print-line "  lvt-thermal-sensor: " (lapic-reg +lapic-reg-lvt-thermal-sensor+))
+  (debug-print-line "  lvt-pmc: " (lapic-reg +lapic-reg-lvt-performance-monitoring-counters+))
+  (debug-print-line "  lvt-lint0: " (lapic-reg +lapic-reg-lvt-lint0+))
+  (debug-print-line "  lvt-lint1: " (lapic-reg +lapic-reg-lvt-lint1+))
+  (debug-print-line "  lvt-error: " (lapic-reg +lapic-reg-lvt-error+))
+  (debug-print-line "  timer-initial: " (lapic-reg +lapic-reg-timer-initial-count+))
+  (debug-print-line "  timer-current: " (lapic-reg +lapic-reg-timer-current-count+))
+  (debug-print-line "  timer-divide: " (lapic-reg +lapic-reg-timer-divide-configuration+)))
+
+;; FIXME! This must be per-cpu.
+(sys.int::defglobal *lapic-timer-active*)
+
+(defun lapic-timer-active ()
+  ;; Preemption timers are per-CPU...
+  *lapic-timer-active*)
+
+(defun preemption-timer-reset (time-remaining)
+  "Configure the preemption timer to go off after TIME-REMAINING internal time units.
+If TIME-REMAINING is NIL, then the timer is disabled.
+TIME-REMAINING must be a non-negative fixnum or NIL.
+Returns the previous time remaining, or NIL if the timer was previously disabled.
+This is a one-shot timer and must be reset after firing."
+  (ensure (or (null time-remaining) (>= time-remaining 0)))
+  (safe-without-interrupts (time-remaining)
+    (let ((old-remaining (preemption-timer-remaining)))
+      (cond (time-remaining
+             (setf (lapic-reg +lapic-reg-timer-initial-count+)
+                   (max 1 (lapic-timer-convert-from-internal-time-units time-remaining)))
+             (setf *lapic-timer-active* t))
+            (t
+             (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
+             (setf *lapic-timer-active* nil)))
+      old-remaining)))
+
+(defun preemption-timer-remaining ()
+  (safe-without-interrupts ()
+    (if (lapic-timer-active)
+        (lapic-timer-convert-to-internal-time-units
+         (lapic-reg +lapic-reg-timer-current-count+))
+        nil)))
+
+(defun lapic-timer-handler (interrupt-frame info)
+  (declare (ignore info))
+  (lapic-eoi)
+  ;; Avoid a race condition:
+  ;; 1) thread blocks & task switch begins
+  ;; 2) interrupts masked
+  ;; 3) lapic timer expires, pending interrupt
+  ;; 4) scheduler resets preemption timer
+  ;; 5) task switch ends, interrupts unmasked
+  ;; 6) pending interrupt from (3) delivered
+  ;; Test both the timer count and the timer activity state,
+  ;; if the count is nonzero then the timer was restarted and is still ticking.
+  ;; If it is zero, then it may be a legitimate IRQ or the preemtion timer
+  ;; may have been disabled and the zero reading is from disabling the timer.
+  (when (or (not (zerop (lapic-reg +lapic-reg-timer-current-count+)))
+            (not (lapic-timer-active)))
+    (return-from lapic-timer-handler))
+  (maybe-preempt-via-interrupt interrupt-frame))
+
+(defun lapic-svr-handler (interrupt-frame info)
+  (declare (ignore interrupt-frame info))
+  (panic "Got LAPIC spurious interrupt"))
+
+(defun lapic-error-handler (interrupt-frame info)
+  (declare (ignore interrupt-frame info))
+  (panic "Got LAPIC error interrupt"))
+
+(defun lapic-timer-calibrate-1 ()
+  (let ((initial-time (get-internal-run-time))
+        (start-time nil)
+        (end-time nil)
+        (end-counter nil))
+    ;; Wait for the start of this tick.
+    (loop
+       (setf start-time (get-internal-run-time))
+       (when (not (eq start-time initial-time))
+         (return)))
+    ;; Start timer with the maximum count value
+    (setf (lapic-reg +lapic-reg-timer-initial-count+) #xFFFFFFFF)
+    ;; Wait for next tick.
+    (loop
+       (setf end-time (get-internal-run-time))
+       (when (not (eq end-time start-time))
+         (return)))
+    ;; Read current count & stop timer.
+    (setf end-counter (lapic-reg +lapic-reg-timer-current-count+))
+    (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
+    (let* ((cycles (- #xFFFFFFFF end-counter))
+           (total-time (- end-time start-time))
+           ;; Use single floats here. Rationals & double-floats require
+           ;; allocation and this is called too early for that.
+           (time (/ (float total-time) internal-time-units-per-second))
+           (cycles-per-second (/ cycles time)))
+      cycles-per-second)))
+
+;; Assume LAPIC timers across CPUs tick at the same rate.
+;; This is a fixnum, timer cycles per second.
+(sys.int::defglobal *lapic-timer-calibration*)
+
+;; TODO: Be more clever when picking the divisor.
+;; Should dynamically adjust so a goldilocks calibration value is returned.
+(defun lapic-timer-calibrate ()
+  (let ((n (lapic-timer-calibrate-1)))
+    (dotimes (i 5)
+      (setf n (/ (+ n (lapic-timer-calibrate-1)) 2)))
+    (setf *lapic-timer-calibration* (truncate n))))
+
+;; These two functions are interrupt-safe, they must not use
+;; floats, bignums or ratios when converting.
+(defun lapic-timer-convert-to-internal-time-units (duration-lapic-cycles)
+  (values
+   (truncate (* duration-lapic-cycles internal-time-units-per-second)
+             *lapic-timer-calibration*)))
+
+(defun lapic-timer-convert-from-internal-time-units (duration-internal-time-units)
+  (values
+   (truncate (* duration-internal-time-units *lapic-timer-calibration*)
+             internal-time-units-per-second)))
 
 (defun initialize-cpu ()
   (setf *lapic-address* (logand (sys.int::msr +msr-ia32-apic-base+)
                                 (lognot #xFFF)))
-  (debug-print-line "Local APIC at " *lapic-address*)
   (map-physical-memory *lapic-address* #x1000 "LAPIC")
   (lapic-setup)
+  (lapic-dump)
   (map-physical-memory +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
@@ -679,6 +855,10 @@ TLB shootdown must be protected by the VM lock."
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
   (setf *n-up-cpus* 1)
+  (setf *lapic-timer-active* nil)
+  (hook-user-interrupt +lapic-vector-svr+ 'lapic-svr-handler)
+  (hook-user-interrupt +lapic-vector-err+ 'lapic-error-handler)
+  (hook-user-interrupt +lapic-vector-timer+ 'lapic-timer-handler)
   (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
   (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
   (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)

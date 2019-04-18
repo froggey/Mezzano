@@ -558,6 +558,7 @@
     "system/cold-start.lisp"
     "system/cons.lisp"
     "system/runtime-numbers.lisp"
+    "supervisor/time.lisp"
     "supervisor/thread.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/entry.lisp"
