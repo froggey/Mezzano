@@ -346,14 +346,11 @@
                                    Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
                                 seq (tcp-connection-r-next connection)))))))
         (:closing
-         (cond ((eql seq (tcp-connection-r-next connection))
-                (when (logtest flags +tcp4-flag-ack+)
-                  (detach-tcp-connection connection)
-                  (setf (tcp-connection-state connection) :closed)))
-               (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
-                (format t "TCP state :closing. ~
-                           Ignoring packet with sequence number ~D, wanted ~D.~%"
-                        seq (tcp-connection-r-next connection)))))
+         ;; Waiting for ACK
+         (when (and (eql seq (tcp-connection-r-next connection))
+                    (logtest flags +tcp4-flag-ack+))
+           (detach-tcp-connection connection)
+           (setf (tcp-connection-state connection) :closed)))
         (t (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
            (detach-tcp-connection connection)
            (setf (tcp-connection-state connection) :closed))))
