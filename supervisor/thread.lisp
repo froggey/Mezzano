@@ -79,8 +79,8 @@
   ;; The thread object, used to make CURRENT-THREAD fast.
   self
   ;; Next/previous links for run queues and wait queues.
-  queue-next
-  queue-prev
+  (queue-next :unlinked)
+  (queue-prev :unlinked)
   ;; A list of foothold functions that need to be run.
   (pending-footholds '())
   ;; A non-negative fixnum, when 0 footholds are permitted to run.
@@ -138,6 +138,10 @@
   (state-rflags 0 :type (signed-byte 64))
   (state-rsp 0 :type (signed-byte 64))
   (state-ss  0 :type (signed-byte 64)))
+
+(define-doubly-linked-list-helpers run-queue
+    thread-queue-next thread-queue-prev
+    run-queue-head run-queue-tail)
 
 (defconstant +thread-interrupt-save-area+ +thread-state-r15+)
 
@@ -209,19 +213,7 @@
     (:low *low-priority-run-queue*)))
 
 (defun push-run-queue-1 (thread rq)
-  (cond ((null (run-queue-head rq))
-         (setf (run-queue-head rq) thread
-               (run-queue-tail rq) thread)
-         (setf (thread-queue-next thread) nil
-               (thread-queue-prev thread) nil))
-        (t
-         (setf (thread-queue-next (run-queue-tail rq)) thread
-               (thread-queue-prev thread) (run-queue-tail rq)
-               (thread-queue-next thread) nil
-               (run-queue-tail rq) thread))))
-
-(defun run-queue-empty-p (rq)
-  (null (run-queue-head rq)))
+  (run-queue-push-back thread rq))
 
 (defun push-run-queue (thread)
   (ensure-global-thread-lock-held)
@@ -230,15 +222,7 @@
   (push-run-queue-1 thread (run-queue-for-priority (thread-priority thread))))
 
 (defun pop-run-queue-1 (rq)
-  (let ((thread (run-queue-head rq)))
-    (when thread
-      (cond ((thread-queue-next thread)
-             (setf (thread-queue-prev (thread-queue-next thread)) nil)
-             (setf (run-queue-head rq) (thread-queue-next thread)))
-            (t
-             (setf (run-queue-head rq) nil
-                   (run-queue-tail rq) nil)))
-      thread)))
+  (run-queue-pop-front rq))
 
 (defun pop-run-queue ()
   (or (pop-run-queue-1 *supervisor-priority-run-queue*)
@@ -248,8 +232,7 @@
 
 (defun dump-run-queue (rq)
   (debug-print-line "Run queue " rq "/" (run-queue-name rq) ":")
-  (do ((thread (run-queue-head rq) (thread-queue-next thread)))
-      ((null thread))
+  (do-run-queue (thread rq)
     (debug-print-line "  " thread "/" (thread-name thread))))
 
 (defun dump-run-queues ()
@@ -578,27 +561,10 @@ Interrupts must be off and the global thread lock must be held."
           (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
   ;; Remove the thread from any potential run queue it may be on.
-  (when (not (eql priority :idle))
-    (let ((rq (run-queue-for-priority (thread-priority thread))))
-      (cond ((and (eql (run-queue-head rq) thread)
-                  (eql (run-queue-tail rq) thread))
-             ;; Only thread on run queue.
-             (setf (run-queue-head rq) nil
-                   (run-queue-tail rq) nil))
-            ((eql (run-queue-head rq) thread)
-             ;; More than one thread, at head.
-             (setf (thread-queue-prev (thread-queue-next thread)) nil)
-             (setf (run-queue-head rq) (thread-queue-next thread)))
-            ((eql (run-queue-tail rq) thread)
-             ;; More than one thread, at tail.
-             (setf (thread-queue-next (thread-queue-prev thread)) nil)
-             (setf (run-queue-tail rq) (thread-queue-prev thread)))
-            ((thread-queue-next thread)
-             ;; Somewhere in the middle of the run queue.
-             (setf (thread-queue-next (thread-queue-prev thread)) (thread-queue-next thread)
-                   (thread-queue-prev (thread-queue-next thread)) (thread-queue-prev thread))
-             (setf (thread-queue-next thread) nil
-                   (thread-queue-prev thread) nil)))))
+  (when (and (not (eql priority :idle))
+             (run-queue-linked-p thread))
+    (run-queue-remove thread
+                      (run-queue-for-priority (thread-priority thread))))
   (setf (thread-state thread) state
         (thread-priority thread) (or priority :supervisor)
         (thread-special-stack-pointer thread) nil
