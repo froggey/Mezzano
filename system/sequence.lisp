@@ -236,14 +236,28 @@
              :count count
              :key key))
 
-(defun delete (item sequence &key from-end test test-not (start 0) end count key)
-  (remove item sequence :from-end from-end :test test :test-not test-not :start start :end end :count count :key key))
-
+(declaim (inline delete-if delete delete-if-not))
 (defun delete-if (test sequence &key from-end (start 0) end count key)
   (remove-if test sequence :from-end from-end :start start :end end :count count :key key))
 
+(defun delete (item sequence &key from-end test test-not (start 0) end count key)
+  (check-test-test-not test test-not)
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (delete-if (lambda (x) (funcall test item x)) sequence
+             :from-end from-end
+             :start start
+             :end end
+             :count count
+             :key key))
+
 (defun delete-if-not (test sequence &key from-end (start 0) end count key)
-  (remove-if-not test sequence :from-end from-end :start start :end end :count count :key key))
+  (delete-if (complement test) sequence
+             :from-end from-end
+             :start start
+             :end end
+             :count count
+             :key key))
 
 (defun remove-duplicates (sequence &key from-end test test-not key (start 0) end)
   (check-test-test-not test test-not)
