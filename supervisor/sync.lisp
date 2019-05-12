@@ -494,9 +494,6 @@ It is only possible for the second value to be false when wait-p is false."
     (when completed
       ;; There were some completed events.
       (release-place-spinlock *big-wait-for-objects-lock*)
-      ;; Set LINKS to T to indicate that no events were registered with.
-      ;; See the big comment in WFO-WAIT.
-      (setf (wfo-links wfo) :completed)
       (return-from wfo-wait-1 completed)))
   ;; Register our wait queue with each event.
   (dolist (event (wfo-events wfo))
@@ -504,6 +501,10 @@ It is only possible for the second value to be false when wait-p is false."
       (setf (wfo-links wfo) (cdr link))
       (setf (cdr link) (event-waiters event)
             (event-waiters event) link)))
+  ;; Set LINKS to :SLEEP-IN-PROGRESS to indicate that events were registered
+  ;; with and WFO-UNREGISTER must be run.
+  ;; See the big comment in WFO-WAIT.
+  (setf (wfo-links wfo) :sleep-in-progress)
   ;; Now go to sleep, zzz.
   (let ((self (current-thread)))
     (lock-wait-queue wfo)
@@ -555,23 +556,24 @@ It is only possible for the second value to be false when wait-p is false."
                             wfo)))
             (when completed
               (return completed)))
-       ;; There are 4 ways to end up here:
+       ;; There are 5 ways to end up here:
        ;; 1) Normal return from WFO-WAIT-1 with completed events.
        ;; 2) Normal return without any completed events.
        ;; 3) Interrupted sleep, via normal return from the wfo unsleep helper.
        ;; 4) Interrupted sleep, via unwind.
+       ;; 5) Unwinding after establishing the cleanup handler but before
+       ;;    turning interrupts off.
        ;; Cases 2,3,4 are all effectively identical: WFO-WAIT-1 registered
        ;; the WFO with events and went to sleep. The WFO must be unregistered
        ;; from the events.
-       ;; Case 1 is special: WFO-WAIT-1 did not register with any events and
-       ;; WFO-UNREGISTER must *not* be called.
+       ;; Cases 1 and 5 are similar: WFO-WAIT-1 did not register with any
+       ;; events and WFO-UNREGISTER must *not* be called.
        ;; UNWIND-PROTECT catches case 4, cases 2 and 3 could be done in
        ;; the loop without an unwind protect. UNWIND-PROTECT screws over
-       ;; case 1, so a specific test is required to avoid this.
-       ;; WFO-LINKS is set to :COMPLETED when WFO-WAIT-1 picks up & returns
-       ;; completed events. This is set in WFO-WAIT-1 - not in the WHEN above -
-       ;; to avoid racing with further footholds (interrupts are disabled).
-       (when (not (eql (wfo-links wfo) :completed))
+       ;; cases 1 & 5, so extra tests are required to avoid this.
+       ;; To resolve this, WFO-LINKS is set to :SLEEP-IN-PROGRESS after
+       ;; WFO-WAIT-1 registers with events and actually goes to sleep.
+       (when (eql (wfo-links wfo) :sleep-in-progress)
          (wfo-unregister wfo)))))
 
 (defun wait-for-objects (&rest objects)
