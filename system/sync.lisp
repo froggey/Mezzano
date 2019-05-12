@@ -58,12 +58,11 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
   object)
 
 (defmethod print-object ((object sup:event) stream)
-  (let ((name (sup:event-name object)))
-    (cond (name
-           (print-unreadable-object (object stream :type t :identity t)
-             (format stream "~A" name)))
-          (t
-           (print-unreadable-object (object stream :type t :identity t))))))
+  (print-unreadable-object (object stream :type t :identity t)
+    (let ((name (sup:event-name object)))
+      (when name
+        (format stream "~A " name))
+      (format stream "=> ~S" (sup:event-state object)))))
 
 (defmethod get-object-event ((object sup:timer))
   (sup::timer-event object))
