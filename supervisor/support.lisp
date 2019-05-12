@@ -70,6 +70,24 @@
               (setf (,list-head list) element
                     (,list-tail list) element)))
        element)
+     (defun ,(intern (format nil "~A-INSERT-BEFORE" name)) (element existing list)
+       (cond ((eql (,list-head list) existing)
+              (setf (,list-head list) element))
+             (t
+              (setf (,element-next (,element-prev existing)) element)))
+       (setf (,element-prev element) (,element-prev existing)
+             (,element-next element) existing)
+       (setf (,element-prev existing) element)
+       element)
+     (defun ,(intern (format nil "~A-INSERT-AFTER" name)) (element existing list)
+       (cond ((eql (,list-tail list) existing)
+              (setf (,list-tail list) element))
+             (t
+              (setf (,element-prev (,element-next existing)) element)))
+       (setf (,element-next element) (,element-next existing)
+             (,element-prev element) existing)
+       (setf (,element-next existing) element)
+       element)
      (defun ,(intern (format nil "~A-POP-FRONT" name)) (list)
        (let ((element (,list-head list)))
          (when element
