@@ -49,24 +49,28 @@
      (defun ,(intern (format nil "~A-LINKED-P" name)) (element)
        (not (eql (,element-next element) :unlinked)))
      (defun ,(intern (format nil "~A-PUSH-FRONT" name)) (element list)
+       (setf (,element-prev element) nil)
        (cond ((,list-head list)
               ;; List not empty
+              (setf (,element-next element) (,list-head list))
               (setf (,element-prev (,list-head list)) element
-                    (,element-next element) (,list-head list)
                     (,list-head list) element))
              (t
               ;; List empty
+              (setf (,element-next element) nil)
               (setf (,list-head list) element
                     (,list-tail list) element)))
        element)
      (defun ,(intern (format nil "~A-PUSH-BACK" name)) (element list)
+       (setf (,element-next element) nil)
        (cond ((,list-tail list)
               ;; List not empty
+              (setf (,element-prev element) (,list-tail list))
               (setf (,element-next (,list-tail list)) element
-                    (,element-prev element) (,list-tail list)
                     (,list-tail list) element))
              (t
               ;; List empty
+              (setf (,element-prev element) nil)
               (setf (,list-head list) element
                     (,list-tail list) element)))
        element)
@@ -133,9 +137,7 @@
             (t
              ;; Somewhere in the middle of the run queue.
              (setf (,element-next (,element-prev element)) (,element-next element)
-                   (,element-prev (,element-next element)) (,element-prev element))
-             (setf (,element-next element) nil
-                   (,element-prev element) nil)))
+                   (,element-prev (,element-next element)) (,element-prev element))))
       (setf (,element-next element) :unlinked
             (,element-prev element) :unlinked)
       element)))
