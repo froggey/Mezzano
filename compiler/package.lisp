@@ -399,6 +399,8 @@
            #:simple-irq-unmask
            #:simple-irq-mask
            #:simple-irq-attach
+           #:simple-irq-pending-p
+           #:simple-irq-masked-p
 
            #:wait-for-objects
            #:get-object-event

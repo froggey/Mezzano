@@ -341,3 +341,14 @@ RETURN-FROM/GO must not be used to leave this form."
       (setf (event-state (simple-irq-event simple-irq)) nil)
       (irq-eoi (simple-irq-attachment simple-irq))))
   (values))
+
+(defun simple-irq-pending-p (simple-irq)
+  "Returns true if an IRQ has been delivered and the SIMPLE-IRQ is waiting for an EOI."
+  (event-state (simple-irq-event simple-irq)))
+
+(defun simple-irq-masked-p (simple-irq)
+  "Return if SIMPLE-IRQ has been masked.
+Returns true if it has either been masked manually with SIMPLE-IRQ-MASK or
+automatically through IRQ delivery."
+  ;; Could be :MASKED or :MASKED-EOI-PENDING
+  (not (eql (simple-irq-state simple-irq) :unmasked)))
