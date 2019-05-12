@@ -408,6 +408,18 @@
            #:event-name
            #:event-state
            #:event-wait
+
+           #:timer
+           #:timer-p
+           #:make-timer
+           #:timer-name
+           #:timer-arm
+           #:timer-arm-absolute
+           #:timer-disarm
+           #:timer-remaining
+           #:timer-deadline
+           #:timer-wait
+           #:timer-expired-p
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

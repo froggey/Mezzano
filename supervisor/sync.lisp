@@ -562,6 +562,7 @@ It is only possible for the second value to be false when wait-p is false."
                            ;; through G-O-E as it is defined much later.
                            (typecase object
                              (event object)
+                             (timer (timer-event object))
                              (t (get-object-event object))))
                          objects))
          (wfo (make-wfo :objects objects

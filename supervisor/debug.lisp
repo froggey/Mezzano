@@ -261,6 +261,7 @@
 (defun debug-dump-threads ()
   (dump-run-queues)
   (map-platform-irqs #'dump-irq)
+  (dump-active-timers)
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
   (when (boundp '*all-threads*)
     (do ((thread *all-threads*

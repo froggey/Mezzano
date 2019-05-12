@@ -13,8 +13,11 @@
 (defconstant internal-time-units-per-second 1000000)
 
 (sys.int::defglobal *heartbeat-wait-queue*)
+;; Total time the system has run for, internal time units. Not reset on boot.
 (sys.int::defglobal *run-time*)
+;; Value of *RUN-TIME* when the system was last booted.
 (sys.int::defglobal *run-time-at-boot*)
+;; Universal time when the system was last booted.
 (sys.int::defglobal *boot-time*)
 
 (defun initialize-time ()
@@ -30,7 +33,8 @@
               (dolist (days-in-month '(31 28 31 30 31 30 31 31 30 31 30 31))
                 (push sum reversed-result)
                 (incf sum days-in-month))
-              (coerce (nreverse reversed-result) 'simple-vector))))
+              (coerce (nreverse reversed-result) 'simple-vector)))
+    (setf *active-timers* (make-timer-queue)))
   (setf *run-time-at-boot* *run-time*
         *boot-time* 0))
 
@@ -44,6 +48,14 @@
     (do ()
         ((null (wait-queue-head *heartbeat-wait-queue*)))
       (wake-thread (pop-wait-queue *heartbeat-wait-queue*))))
+  ;; Walk the timer list, waking timers that have expired.
+  (with-place-spinlock ((timer-queue-lock *active-timers*))
+    (loop
+       (when (or (timer-list-empty-p *active-timers*)
+                 (> (timer-%deadline (timer-queue-head *active-timers*)) *run-time*))
+         (return))
+       (let ((timer (timer-list-pop-front *active-timers*)))
+         (setf (event-state (timer-event timer)) t))))
   (decay-lights run-time-advance))
 
 (defun wait-for-heartbeat-unsleep-helper (arg)
@@ -106,3 +118,112 @@
          (hours (+ hour (* days 24)))
          (time (+ second (* (+ minute (* (+ hours time-zone) 60)) 60))))
     time))
+(defstruct (timer-queue
+             (:area :wired))
+  head
+  tail
+  (lock (place-spinlock-initializer)))
+
+(defstruct (timer
+             (:constructor %make-timer)
+             (:area :wired))
+  (name nil :read-only t)
+  (next :unlinked)
+  (prev :unlinked)
+  %deadline
+  event)
+
+(sys.int::defglobal *active-timers*)
+
+(define-doubly-linked-list-helpers timer-list
+    timer-next timer-prev
+    timer-queue-head timer-queue-tail)
+
+(defun dump-active-timers ()
+  (debug-print-line "Active timers: (current time is " *run-time* ")")
+  (do-timer-list (timer *active-timers*)
+    (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer))))
+
+(defun make-timer (&key name relative deadline)
+  (when (and relative deadline)
+    (error "Relative and deadline time specified"))
+  (let ((timer (%make-timer :name name)))
+    (setf (timer-event timer) (make-event :name timer))
+    (when relative
+      (timer-arm relative timer))
+    (when deadline
+      (timer-arm-absolute deadline timer))
+    timer))
+
+(defun timer-arm (seconds timer)
+  "Arm TIMER to go off in approximately SECONDS seconds from now.
+SECONDS must be a REAL.
+This is a convienence function wrapping TIMER-ARM-ABSOLUTE."
+  (timer-arm-absolute (truncate
+                             (+ (* seconds internal-time-units-per-second)
+                                *run-time*))
+                      timer))
+
+(defun timer-disarm-1 (timer)
+  (when (timer-%deadline timer)
+    (setf (event-state (timer-event timer)) nil)
+    (when (timer-list-linked-p timer)
+      (timer-list-remove timer *active-timers*))
+    (setf (timer-%deadline timer) nil)))
+
+(defun timer-arm-absolute (internal-run-time timer)
+  "Configure TIMER to go off at INTERNAL-RUN-TIME.
+This is an absolute time specified in integer internal time units.
+The current internal run time can be fetched with GET-INTERNAL-RUN-TIME."
+  (check-type internal-run-time integer)
+  (check-type timer timer)
+  (safe-without-interrupts (internal-run-time timer)
+    (with-place-spinlock ((timer-queue-lock *active-timers*))
+      (timer-disarm-1 timer)
+      (setf (timer-%deadline timer) internal-run-time)
+      (cond ((> internal-run-time *run-time*)
+             ;; Timer has not yet expired.
+             ;; Insert it into the list at the appropriate time.
+             (do-timer-list (other *active-timers*
+                                   (timer-list-push-back timer *active-timers*))
+               (when (<= internal-run-time (timer-%deadline other))
+                 (timer-list-insert-before timer other *active-timers*)
+                 (return))))
+            (t
+             ;; Timer has already expired.
+             (setf (event-state (timer-event timer)) t)))))
+  (values))
+
+(defun convert-deadline-to-remaining-time (deadline)
+  (/ (min 0 (- deadline (get-internal-run-time)))
+     internal-time-units-per-second))
+
+(defun timer-disarm (timer)
+  "Reset TIMER back to its a disarmed state.
+Returns the number of seconds remaining if was armed or NIL if it was disarmed."
+  (check-type timer timer)
+  (flet ((do-disarm ()
+           ;; Disarm the timer and return the previous deadline.
+           (safe-without-interrupts (timer)
+             (with-place-spinlock ((timer-queue-lock *active-timers*))
+               (prog1 (timer-%deadline timer)
+                 (timer-disarm-1 timer))))))
+    (convert-deadline-to-remaining-time (do-disarm))))
+
+(defun timer-remaining (timer)
+  "Returns the number of seconds remaining if TIMER is armed or NIL if it is disarmed."
+  (let ((deadline (timer-deadline timer)))
+    (when deadline
+      (convert-deadline-to-remaining-time deadline))))
+
+(defun timer-deadline (timer)
+  "Returns TIMER's internal run time deadline if is armed or NIL if it is disarmed."
+  (timer-%deadline timer))
+
+(defun timer-wait (timer)
+  "Wait until TIMER's deadline has passed.
+Will wait forever if TIMER has not been armed."
+  (event-wait (timer-event timer)))
+
+(defun timer-expired-p (timer)
+  (event-status (timer-event timer)))
