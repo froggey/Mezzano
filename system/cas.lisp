@@ -16,22 +16,32 @@
 ;; A volatile write form might be nice as well, for unlocking spinlocks...
 (defun get-cas-expansion (place &optional environment)
   (let ((expansion (macroexpand place environment)))
-    (when (symbolp expansion)
-      ;; Lexical variables would be ok to cas (captured variables, etc),
-      ;; but special variables wouldn't be.
-      (error "CAS on a symbol or variable not supported."))
-    ;; All CAS forms are currently functions!
-    (let ((old (gensym "OLD"))
-          (new (gensym "NEW"))
-          (vars (loop
-                   for arg in (rest expansion)
-                   collect (gensym))))
-      (values vars
-              (copy-list (rest expansion))
-              old
-              new
-              `(funcall #'(cas ,(first expansion)) ,old ,new ,@vars)
-              `(,(first expansion) ,@vars)))))
+    (cond ((symbolp expansion)
+           ;; Lexical variables would be ok to cas (captured variables, etc),
+           ;; but special variables wouldn't be.
+           (when (not (eql (symbol-mode expansion) :global))
+             (error "CAS on a non-global symbol or variable not supported."))
+           (let ((old (gensym "OLD"))
+                 (new (gensym "NEW")))
+             (values '()
+                     '()
+                     old
+                     new
+                     `(funcall #'(cas symbol-global-value) ,old ,new ',expansion)
+                     `(symbol-global-value ',expansion))))
+          (t
+           ;; All other CAS forms are currently functions!
+           (let ((old (gensym "OLD"))
+                 (new (gensym "NEW"))
+                 (vars (loop
+                          for arg in (rest expansion)
+                          collect (gensym))))
+             (values vars
+                     (copy-list (rest expansion))
+                     old
+                     new
+                     `(funcall #'(cas ,(first expansion)) ,old ,new ,@vars)
+                     `(,(first expansion) ,@vars)))))))
 
 )
 
