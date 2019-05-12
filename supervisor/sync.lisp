@@ -494,6 +494,9 @@ It is only possible for the second value to be false when wait-p is false."
     (when completed
       ;; There were some completed events.
       (release-place-spinlock *big-wait-for-objects-lock*)
+      ;; Set LINKS to T to indicate that no events were registered with.
+      ;; See the big comment in WFO-WAIT.
+      (setf (wfo-links wfo) :completed)
       (return-from wfo-wait-1 completed)))
   ;; Register our wait queue with each event.
   (dolist (event (wfo-events wfo))
@@ -511,17 +514,21 @@ It is only possible for the second value to be false when wait-p is false."
     ;; Sleep.
     (setf (thread-wait-item self) wfo
           (thread-state self) :sleeping
-          (thread-unsleep-helper self) #'wfo-deregister
+          (thread-unsleep-helper self) #'wfo-unsleep-helper
           (thread-unsleep-helper-argument self) wfo)
     (unlock-wait-queue wfo)
     (%reschedule-via-wired-stack sp fp)))
 
-(defun wfo-deregister (wfo)
+(defun wfo-unsleep-helper (wfo)
+  (declare (ignore wfo))
+  nil)
+
+(defun wfo-unregister (wfo)
   (safe-without-interrupts (wfo)
     (with-place-spinlock (*big-wait-for-objects-lock*)
-      ;; Deregister from events and reclaim the links.
+      ;; Unregister from events and reclaim the links.
       ;; This resets the WFO object and prepares it for re-waiting.
-      (flet ((deregister-from-event (event marker)
+      (flet ((unregister-from-event (event marker)
                (do ((itr (event-waiters event) (cdr itr))
                     (prev nil itr))
                    ((null itr)
@@ -534,7 +541,7 @@ It is only possible for the second value to be false when wait-p is false."
                    (return itr)))))
         (setf (wfo-links wfo) '())
         (dolist (event (wfo-events wfo))
-          (let ((link (deregister-from-event event wfo)))
+          (let ((link (unregister-from-event event wfo)))
             (setf (cdr link) (wfo-links wfo)
                   (wfo-links wfo) link)))))))
 
@@ -542,18 +549,30 @@ It is only possible for the second value to be false when wait-p is false."
   ;; Loop required because the thread may be woken up and
   ;; not have any ready events.
   (loop
-     (let ((completed (%call-on-wired-stack-without-interrupts
-                       #'wfo-wait-1 nil
-                       wfo)))
-       (when completed
-         (return completed)))
-     ;; Unusual case: When WFO-WAIT-1 is interrupted via a foothold
-     ;; the unsleep handler (set to WFO-DEREGISTER) will be run automatically.
-     ;; A normal return from the foothold function will end up here while
-     ;; an unwind wont. We must avoid running WFO-DEREGISTER twice.
-     ;; The links slot will be non-NIL if WFO-DEREGISTER has already been run.
-     (when (not (wfo-links wfo))
-       (wfo-deregister wfo))))
+     (unwind-protect
+          (let ((completed (%call-on-wired-stack-without-interrupts
+                            #'wfo-wait-1 nil
+                            wfo)))
+            (when completed
+              (return completed)))
+       ;; There are 4 ways to end up here:
+       ;; 1) Normal return from WFO-WAIT-1 with completed events.
+       ;; 2) Normal return without any completed events.
+       ;; 3) Interrupted sleep, via normal return from the wfo unsleep helper.
+       ;; 4) Interrupted sleep, via unwind.
+       ;; Cases 2,3,4 are all effectively identical: WFO-WAIT-1 registered
+       ;; the WFO with events and went to sleep. The WFO must be unregistered
+       ;; from the events.
+       ;; Case 1 is special: WFO-WAIT-1 did not register with any events and
+       ;; WFO-UNREGISTER must *not* be called.
+       ;; UNWIND-PROTECT catches case 4, cases 2 and 3 could be done in
+       ;; the loop without an unwind protect. UNWIND-PROTECT screws over
+       ;; case 1, so a specific test is required to avoid this.
+       ;; WFO-LINKS is set to :COMPLETED when WFO-WAIT-1 picks up & returns
+       ;; completed events. This is set in WFO-WAIT-1 - not in the WHEN above -
+       ;; to avoid racing with further footholds (interrupts are disabled).
+       (when (not (eql (wfo-links wfo) :completed))
+         (wfo-unregister wfo)))))
 
 (defun wait-for-objects (&rest objects)
   ;; Objects converted to events.
