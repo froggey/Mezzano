@@ -231,6 +231,7 @@
 		      (let ((,tail-var ,head-var) ,@l)
 			,@body))
 	    #-CLOE `(let* ((,head-var (list nil)) (,tail-var ,head-var) ,@l)
+                      (declare (dynamic-extent ,head-var))
 		      ,@body)))
 
 
