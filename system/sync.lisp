@@ -76,3 +76,6 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
                               (float (/ remaining internal-time-units-per-second)))))))
             (t
              (format stream "[disarmed]"))))))
+
+(defmethod get-object-event ((object sup:simple-irq))
+  (sup::simple-irq-event object))

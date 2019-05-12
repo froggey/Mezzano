@@ -293,13 +293,15 @@ RETURN-FROM/GO must not be used to leave this form."
   function
   attachment
   latch
+  event
   (state :masked))
 
-(defun make-simple-irq (irq-number latch)
+(defun make-simple-irq (irq-number &optional latch)
   (declare (sys.c::closure-allocation :wired))
   (let* ((irq (platform-irq irq-number))
          (simple-irq (%make-simple-irq :irq irq
                                        :latch latch))
+         (event (make-event :name simple-irq))
          (fn (lambda (interrupt-frame irq)
                (declare (ignore interrupt-frame))
                (case (simple-irq-state simple-irq)
@@ -307,9 +309,12 @@ RETURN-FROM/GO must not be used to leave this form."
                   :rejected)
                  (:unmasked
                   (setf (simple-irq-state simple-irq) :masked-eoi-pending)
-                  (latch-trigger (simple-irq-latch simple-irq))
+                  (when (simple-irq-latch simple-irq)
+                    (latch-trigger (simple-irq-latch simple-irq)))
+                  (setf (event-state (simple-irq-event simple-irq)) t)
                   :accepted)))))
-    (setf (simple-irq-function simple-irq) fn
+    (setf (simple-irq-event simple-irq) event
+          (simple-irq-function simple-irq) fn
           (simple-irq-attachment simple-irq) (irq-attach irq fn simple-irq))
     simple-irq))
 
@@ -317,10 +322,11 @@ RETURN-FROM/GO must not be used to leave this form."
   (values))
 
 (defun simple-irq-mask (simple-irq)
-  ;; TODO: CAS this slot, or use some locking.
+  ;; FIXME: CAS this slot, or use some locking.
   (case (simple-irq-state simple-irq)
     (:masked-eoi-pending
      (setf (simple-irq-state simple-irq) :masked)
+     (setf (event-state (simple-irq-event simple-irq)) nil)
      (irq-eoi (simple-irq-attachment simple-irq)))
     (:masked)
     (:unmasked
@@ -328,9 +334,10 @@ RETURN-FROM/GO must not be used to leave this form."
   (values))
 
 (defun simple-irq-unmask (simple-irq)
-  ;; TODO: CAS this slot, or use some locking.
+  ;; FIXME: CAS this slot, or use some locking.
   (let ((prev (simple-irq-state simple-irq)))
     (setf (simple-irq-state simple-irq) :unmasked)
     (when (eql prev :masked-eoi-pending)
+      (setf (event-state (simple-irq-event simple-irq)) nil)
       (irq-eoi (simple-irq-attachment simple-irq))))
   (values))

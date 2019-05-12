@@ -394,6 +394,7 @@
            #:irq-attach
            #:irq-eoi
 
+           #:simple-irq
            #:make-simple-irq
            #:simple-irq-unmask
            #:simple-irq-mask
