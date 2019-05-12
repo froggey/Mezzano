@@ -13,7 +13,15 @@
                 #:get-object-event)
   (:export #:wait-for-objects
            #:wait-for-objects-with-timeout
-           #:get-object-event))
+           #:get-object-event
+
+           #:semaphore
+           #:make-semaphore
+           #:semaphore-name
+           #:semaphore-value
+           #:semaphore-up
+           #:semaphore-down
+           ))
 
 (in-package :mezzano.sync)
 
@@ -79,3 +87,61 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 
 (defmethod get-object-event ((object sup:simple-irq))
   (sup::simple-irq-event object))
+
+;;;; Semaphore.
+
+(defclass semaphore ()
+  ((%not-zero-event :reader semaphore-not-zero-event)
+   (%lock :initform (sup:make-mutex "Internal semaphore lock") :reader semaphore-lock)
+   (%value :initarg :value :accessor %semaphore-value))
+  (:default-initargs :value 0))
+
+(defmethod initialize-instance :after ((instance semaphore) &key name)
+  (setf (slot-value instance '%not-zero-event)
+        (sup:make-event :name name
+                        :state (not (zerop (%semaphore-value instance))))))
+
+(defmethod print-object ((object semaphore) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (when (semaphore-name object)
+      (format stream "~A " (semaphore-name object)))
+    (format stream "~A" (semaphore-value object))))
+
+(defmethod get-object-event ((object semaphore))
+  (semaphore-not-zero-event object))
+
+;;; Public API:
+
+(defun make-semaphore (&key name (value 0))
+  (check-type value (integer 0))
+  (make-instance 'semaphore :name name :value value))
+
+(defun semaphore-name (semaphore)
+  (sup:event-name (semaphore-not-zero-event semaphore)))
+
+(defun semaphore-value (semaphore)
+  "Return SEMAPHORE's current value."
+  (%semaphore-value semaphore))
+
+(defun semaphore-up (semaphore)
+  "Increment SEMAPHORE."
+  (sup:with-mutex ((semaphore-lock semaphore))
+    (incf (%semaphore-value semaphore))
+    (setf (sup:event-state (semaphore-not-zero-event semaphore)) t))
+  (values))
+
+(defun semaphore-down (semaphore &key (wait-p t))
+  "Decrement SEMAPHORE.
+If SEMAPHORE's current value is 0, then this will block if WAIT-P is true
+until SEMAPHORE is incremented.
+Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the semapore's value is 0."
+  (loop
+     (sup:with-mutex ((semaphore-lock semaphore))
+       (when (not (zerop (%semaphore-value semaphore)))
+         (decf (%semaphore-value semaphore))
+         (when (zerop (%semaphore-value semaphore))
+           (setf (sup:event-state (semaphore-not-zero-event semaphore)) nil))
+         (return t)))
+     (when (not wait-p)
+       (return nil))
+     (sup:event-wait (semaphore-not-zero-event semaphore))))
