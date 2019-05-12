@@ -398,6 +398,16 @@
            #:simple-irq-unmask
            #:simple-irq-mask
            #:simple-irq-attach
+
+           #:wait-for-objects
+           #:get-object-event
+
+           #:event
+           #:event-p
+           #:make-event
+           #:event-name
+           #:event-state
+           #:event-wait
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

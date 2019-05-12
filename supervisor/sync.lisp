@@ -465,3 +465,155 @@ It is only possible for the second value to be false when wait-p is false."
           (fifo-tail fifo) 0)
     ;; Signal the cvar to wake any waiting FIFO-PUSH calls.
     (condition-notify (fifo-cv fifo) t)))
+
+;;;; WAIT-FOR-OBJECTS and the EVENT primitive.
+
+(defstruct (wfo
+             (:include wait-queue)
+             (:area :wired))
+  objects
+  events
+  links)
+
+(sys.int::defglobal *big-wait-for-objects-lock*
+    (place-spinlock-initializer))
+
+(defun wfo-wait-1 (sp fp wfo)
+  (acquire-place-spinlock *big-wait-for-objects-lock*)
+  ;; Scan for completed events before registration.
+  (let ((completed nil))
+    (dolist (event (wfo-events wfo))
+      (let ((state (event-%state event)))
+        (when state
+          ;; This one is completed.
+          (let ((link (wfo-links wfo)))
+            (setf (wfo-links wfo) (cdr link))
+            (setf (car link) event
+                  (cdr link) completed
+                  completed link)))))
+    (when completed
+      ;; There were some completed events.
+      (release-place-spinlock *big-wait-for-objects-lock*)
+      (return-from wfo-wait-1 completed)))
+  ;; Register our wait queue with each event.
+  (dolist (event (wfo-events wfo))
+    (let ((link (wfo-links wfo)))
+      (setf (wfo-links wfo) (cdr link))
+      (setf (cdr link) (event-waiters event)
+            (event-waiters event) link)))
+  ;; Now go to sleep, zzz.
+  (let ((self (current-thread)))
+    (lock-wait-queue wfo)
+    (release-place-spinlock *big-wait-for-objects-lock*)
+    (acquire-global-thread-lock)
+    ;; Attach to the list.
+    (push-wait-queue self wfo)
+    ;; Sleep.
+    (setf (thread-wait-item self) wfo
+          (thread-state self) :sleeping
+          (thread-unsleep-helper self) #'wfo-deregister
+          (thread-unsleep-helper-argument self) wfo)
+    (unlock-wait-queue wfo)
+    (%reschedule-via-wired-stack sp fp)))
+
+(defun wfo-deregister (wfo)
+  (safe-without-interrupts (wfo)
+    (with-place-spinlock (*big-wait-for-objects-lock*)
+      ;; Deregister from events and reclaim the links.
+      ;; This resets the WFO object and prepares it for re-waiting.
+      (flet ((deregister-from-event (event marker)
+               (do ((itr (event-waiters event) (cdr itr))
+                    (prev nil itr))
+                   ((null itr)
+                    (panic "WFO link not registered?"))
+                 (when (eql (car itr) marker)
+                   (cond (prev
+                          (setf (cdr prev) (cdr itr)))
+                         (t
+                          (setf (event-waiters event) (cdr itr))))
+                   (return itr)))))
+        (setf (wfo-links wfo) '())
+        (dolist (event (wfo-events wfo))
+          (let ((link (deregister-from-event event wfo)))
+            (setf (cdr link) (wfo-links wfo)
+                  (wfo-links wfo) link)))))))
+
+(defun wfo-wait (wfo)
+  ;; Loop required because the thread may be woken up and
+  ;; not have any ready events.
+  (loop
+     (let ((completed (%call-on-wired-stack-without-interrupts
+                       #'wfo-wait-1 nil
+                       wfo)))
+       (when completed
+         (return completed)))
+     ;; Unusual case: When WFO-WAIT-1 is interrupted via a foothold
+     ;; the unsleep handler (set to WFO-DEREGISTER) will be run automatically.
+     ;; A normal return from the foothold function will end up here while
+     ;; an unwind wont. We must avoid running WFO-DEREGISTER twice.
+     ;; The links slot will be non-NIL if WFO-DEREGISTER has already been run.
+     (when (not (wfo-links wfo))
+       (wfo-deregister wfo))))
+
+(defun wait-for-objects (&rest objects)
+  ;; Objects converted to events.
+  (let* ((events (mapcar #'(lambda (object)
+                           ;; Special case events to avoid the call
+                           ;; through G-O-E as it is defined much later.
+                           (typecase object
+                             (event object)
+                             (t (get-object-event object))))
+                         objects))
+         (wfo (make-wfo :objects objects
+                        :events events)))
+    ;; Allocate links for each event.
+    (dolist (evt events)
+      (declare (ignore evt))
+      (setf (wfo-links wfo) (sys.int::cons-in-area wfo (wfo-links wfo) :wired)))
+    ;; Wait & convert completed events back to objects
+    (loop
+       for evt in (wfo-wait wfo)
+       collect (loop
+                  for input-object in objects
+                  for input-event in events
+                  when (eql evt input-event)
+                  do (return input-object)
+                  finally (error "Impossible? Can't convert event back to object")))))
+
+(defstruct (event
+             (:constructor %make-event (name %state))
+             (:area :wired))
+  (name nil :read-only t)
+  %state
+  waiters)
+
+(defun make-event (&key name state)
+  "Create a new event with the specified initial state."
+  (%make-event name state))
+
+(defun event-state (event)
+  "Return the current state of EVENT."
+  (event-%state event))
+
+(defun (setf event-state) (value event)
+  "Set the state of EVENT.
+STATE may be any object and will be treated as a generalized boolean by EVENT-WAIT and WAIT-FOR-OBJECTS."
+  (safe-without-interrupts (value event)
+    (with-place-spinlock (*big-wait-for-objects-lock*)
+      (when (and value
+                 (not (event-%state event)))
+        ;; Moving from the false state to the true state. Wake waiters.
+        (dolist (waiter (event-waiters event))
+          (with-wait-queue-lock (waiter)
+            (do ()
+                ((null (wait-queue-head waiter)))
+              (wake-thread (pop-wait-queue waiter))))))
+      (setf (event-%state event) value))))
+
+(defun event-wait (event)
+  "Wait until EVENT's state is not NIL and return the state."
+  (loop
+     (let ((current (event-state event)))
+       (when current
+         (return current)))
+     (wait-for-objects event)))

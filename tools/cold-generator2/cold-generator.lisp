@@ -122,6 +122,7 @@
     "system/clos/closette.lisp"
     "system/clos/struct.lisp"
     "system/clos/method-combination.lisp"
+    "system/sync.lisp"
     "system/describe.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
@@ -570,6 +571,7 @@
     "runtime/array.lisp"
     "runtime/symbol.lisp"
     "system/stuff.lisp"
+    "system/sync.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
