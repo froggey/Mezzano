@@ -100,7 +100,7 @@
   ;; Symbol binding cache hit and miss counts.
   (symbol-cache-hit-count 0)
   (symbol-cache-miss-count 0)
-  ;; Helper function UNSLEEP-THREAD.
+  ;; Helper function for UNSLEEP-THREAD.
   unsleep-helper
   ;; Argument for the unsleep helper.
   unsleep-helper-argument
