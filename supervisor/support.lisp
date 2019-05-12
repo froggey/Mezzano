@@ -40,7 +40,7 @@
 (defmacro define-doubly-linked-list-helpers (name element-next element-prev list-head list-tail)
   `(progn
      (defmacro ,(intern (format nil "DO-~A" name)) ((element list &optional result-form) &body body)
-       `(do ((,element (,',list-head list) (,',element-next ,element)))
+       `(do ((,element (,',list-head ,list) (,',element-next ,element)))
             ((null ,element)
              ,result-form)
           ,@body))
