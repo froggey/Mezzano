@@ -21,6 +21,18 @@
            #:semaphore-value
            #:semaphore-up
            #:semaphore-down
+
+           #:mailbox
+           #:make-mailbox
+           #:mailbox-name
+           #:mailbox-capacity
+           #:mailbox-n-pending-messages
+           #:mailbox-empty-p
+           #:mailbox-send-possible-event
+           #:mailbox-receive-possible-event
+           #:mailbox-send
+           #:mailbox-receive
+           #:mailbox-peek
            ))
 
 (in-package :mezzano.sync)
@@ -151,3 +163,111 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
      (when (not wait-p)
        (return nil))
      (sup:event-wait (semaphore-not-zero-event semaphore))))
+
+;;;; Mailbox. A buffered communication channel.
+
+(defclass mailbox ()
+  ((%name :reader mailbox-name :initarg :name)
+   (%capacity :reader mailbox-capacity :initarg :capacity :type (or null (integer 1)))
+   (%not-full-event :reader mailbox-send-possible-event)
+   (%not-empty-event :reader mailbox-receive-possible-event)
+   (%n-pending :initform 0 :reader mailbox-n-pending-messages)
+   (%head :accessor mailbox-head)
+   (%tail :accessor mailbox-tail)
+   (%lock :initform (sup:make-mutex "Internal mailbox lock") :reader mailbox-lock))
+  (:default-initargs :name nil))
+
+(defmethod print-object ((object mailbox) stream)
+  (cond ((mailbox-name object)
+         (print-unreadable-object (object stream :type t :identity t)
+           (format stream "~A" (mailbox-name object))))
+        (t
+         (print-unreadable-object (object stream :type t :identity t)))))
+
+(defmethod initialize-instance :after ((instance mailbox) &key)
+  (check-type (mailbox-capacity instance) (or null (integer 1)))
+  ;; Mailbox is initially empty.
+  (setf (slot-value instance '%not-full-event) (sup:make-event
+                                                :name `(mailbox-send-possible-event ,instance)
+                                                :state t)
+        (slot-value instance '%not-empty-event) (sup:make-event
+                                                 :name `(mailbox-receive-possible-event ,instance)
+                                                 :state nil))
+  (setf (mailbox-head instance) (cons nil nil)
+        (mailbox-tail instance) (mailbox-head instance)))
+
+(defmethod get-object-event ((object mailbox))
+  ;; Mailbox is ready for receiving as long as it isn't empty
+  (slot-value object '%not-empty-event))
+
+;;; Public API:
+
+(defun make-mailbox (&key name capacity)
+  "Create a new mailbox.
+CAPACITY can be NIL to indicate that there should be no limit on the number of buffered items
+or a positive integer to restrict the buffer to that many items.
+Returns two values representing the send & receive sides of the mailbox.
+Items are sent and received in FIFO order."
+  (check-type capacity (or null (integer 1)))
+  (make-instance 'mailbox
+                 :name name
+                 :capacity capacity))
+
+(defun mailbox-send (value mailbox &key (wait-p t))
+  "Push a value into the mailbox.
+If the mailbox is at capacity, this will block if WAIT-P is true."
+  (loop
+     (sup:with-mutex ((mailbox-lock mailbox))
+       (when (or (not (mailbox-capacity mailbox))
+                 (< (mailbox-n-pending-messages mailbox) (mailbox-capacity mailbox)))
+         ;; Space available, append to the message list.
+         (let ((link (cons nil nil)))
+           (setf (car (mailbox-tail mailbox)) value
+                 (cdr (mailbox-tail mailbox)) link
+                 (mailbox-tail mailbox) link))
+         (setf (sup:event-state (mailbox-receive-possible-event mailbox)) t)
+         (incf (slot-value mailbox '%n-pending))
+         (when (eql (mailbox-n-pending-messages mailbox) (mailbox-capacity mailbox))
+           ;; Mailbox now full.
+           (setf (sup:event-state (mailbox-send-possible-event mailbox)) nil))
+         (return t)))
+     (when (not wait-p)
+       (return nil))
+     (sup:event-wait (mailbox-send-possible-event mailbox))))
+
+(defun mailbox-receive (mailbox &key (wait-p t))
+  "Pop a value from the mailbox.
+If the mailbox is empty, this will block if WAIT-P is true."
+  (loop
+     (sup:with-mutex ((mailbox-lock mailbox))
+       (when (not (zerop (mailbox-n-pending-messages mailbox)))
+         ;; Messages pending.
+         ;; Grab the first one.
+         (let ((message (pop (mailbox-head mailbox))))
+           (when (endp (cdr (mailbox-head mailbox)))
+             ;; This was the last message.
+             (setf (sup:event-state (mailbox-receive-possible-event mailbox)) nil))
+           (decf (slot-value mailbox '%n-pending))
+           (setf (sup:event-state (mailbox-send-possible-event mailbox)) t)
+           (return (values message t))))
+       (when (not wait-p)
+         (return (values nil nil))))
+     (sup:event-wait (mailbox-receive-possible-event mailbox))))
+
+(defun mailbox-peek (mailbox &key (wait-p t))
+  "Peek at the next pending message in the mailbox, if any.
+Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
+  (loop
+     (sup:with-mutex ((mailbox-lock mailbox))
+       (when (not (zerop (mailbox-n-pending-messages mailbox)))
+         ;; Messages pending.
+         ;; Grab the first one.
+         (return (values (first (mailbox-head mailbox))
+                         t)))
+       (when (not wait-p)
+         (return (values nil nil))))
+     (sup:event-wait (mailbox-receive-possible-event mailbox))))
+
+(defun mailbox-empty-p (mailbox)
+  "Returns true if there are no messages waiting."
+  (zerop (mailbox-n-pending-messages mailbox)))
