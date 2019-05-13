@@ -67,35 +67,28 @@ packet (1514 bytes), plus a virtio-net header (10 or 12 bytes)
 and then some alignment.")
 (defconstant +virtio-net-n-tx-buffers+ 32)
 
-;; FIXME: Should derive from NIC:NETWORK-CARD.
-(defstruct virtio-net
-  mac
-  virtio-device
-  boot-id
-  (lock (sup:make-mutex "Virtio-Net NIC lock"))
-  (irq-latch (sup:make-latch "Virtio-Net NIC IRQ latch"))
-  irq-handler-function
-  worker-thread
-  tx-virt
-  tx-phys
-  (free-tx-buffers nil)
-  ;; Preallocated wired conses usable in the PA TX processing.
-  (tx-buffer-freelist nil)
-  ;; Packets waiting to be transmitted.
-  (tx-pending '())
-  (real-tx-pending '())
-  rx-virt
-  rx-phys
-  (total-rx-bytes 0)
-  (total-tx-bytes 0)
-  (total-rx-packets 0)
-  (total-tx-packets 0)
-  wrapper)
-
-;; FIXME: This should be merged with virtio-net.
-;; Only exists for compatibility.
-(defclass virtio-net-network-card (mezzano.driver.network-card:network-card)
-  ((vnet :initarg :vnet)))
+(defclass virtio-net (nic:network-card)
+  ((%mac :accessor virtio-net-mac :initarg :mac :reader nic:mac-address)
+   (%virtio-device :accessor virtio-net-virtio-device :initarg :virtio-device)
+   (%boot-id :accessor virtio-net-boot-id :initarg :boot-id)
+   (%lock :accessor virtio-net-lock :initform (sup:make-mutex "Virtio-Net NIC lock"))
+   (%irq-latch :accessor virtio-net-irq-latch :initform (sup:make-latch "Virtio-Net NIC IRQ latch"))
+   (%irq-handler-function :accessor virtio-net-irq-handler-function :initarg :irq-handler-function)
+   (%worker-thread :accessor virtio-net-worker-thread :initarg :worker-thread)
+   (%tx-virt :accessor virtio-net-tx-virt :initarg :tx-virt)
+   (%tx-phys :accessor virtio-net-tx-phys :initarg :tx-phys)
+   (%free-tx-buffers :accessor virtio-net-free-tx-buffers :initform nil)
+   ;; Preallocated wired conses usable in the PA TX processing.
+   (%tx-buffer-freelist :accessor virtio-net-tx-buffer-freelist :initform nil)
+   ;; Packets waiting to be transmitted.
+   (%tx-pending :accessor virtio-net-tx-pending :initform '())
+   (%real-tx-pending :accessor virtio-net-real-tx-pending :initform '())
+   (%rx-virt :accessor virtio-net-rx-virt :initarg :rx-virt)
+   (%rx-phys :accessor virtio-net-rx-phys :initarg :rx-phys)
+   (%total-rx-bytes :accessor virtio-net-total-rx-bytes :initform 0)
+   (%total-tx-bytes :accessor virtio-net-total-tx-bytes :initform 0)
+   (%total-rx-packets :accessor virtio-net-total-rx-packets :initform 0)
+   (%total-tx-packets :accessor virtio-net-total-tx-packets :initform 0)))
 
 (defun check-virtio-net-boot (nic)
   (when (not (eql (virtio-net-boot-id nic) (sup:current-boot-id)))
@@ -139,7 +132,7 @@ and then some alignment.")
              (virtio:virtio-ring-add-to-avail-ring rx-queue id)
              (setf (virtio:virtqueue-last-seen-used rx-queue)
                    (ldb (byte 16 0) (1+ (virtio:virtqueue-last-seen-used rx-queue))))))
-         (nic:device-received-packet (virtio-net-wrapper nic) packet)))))
+         (nic:device-received-packet nic packet)))))
 
 (defun virtio-net-do-transmit-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
@@ -207,7 +200,7 @@ and then some alignment.")
          (return))
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
-(defun virtio-net-transmit (nic packet)
+(defmethod nic:device-transmit-packet ((nic virtio-net) packet)
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len
@@ -226,7 +219,7 @@ and then some alignment.")
             (virtio-net-tx-pending nic) cons))
     (sup:latch-trigger (virtio-net-irq-latch nic))))
 
-(defun virtio-net-stats (nic)
+(defmethod nic:statistics ((nic virtio-net))
   (values (virtio-net-total-rx-bytes nic)
           (virtio-net-total-rx-packets nic)
           0
@@ -292,8 +285,9 @@ and then some alignment.")
 
 (defun virtio-net-register (device)
   (sup:debug-print-line "Detected virtio net device " device)
-  (let* ((nic (make-virtio-net :virtio-device device
-                               :boot-id (sup:current-boot-id)))
+  (let* ((nic (make-instance 'virtio-net
+                             :virtio-device device
+                             :boot-id (sup:current-boot-id)))
          (irq-handler (sup:make-simple-irq (virtio:virtio-device-irq device)
                                            (virtio-net-irq-latch nic))))
     (setf (virtio-net-irq-handler-function nic) irq-handler)
@@ -357,21 +351,10 @@ and then some alignment.")
                                                            virtio:+virtio-status-driver+
                                                            virtio:+virtio-status-ok+))
         (virtio:virtio-kick device +virtio-net-receiveq+)))
-    (let ((wrapper (make-instance 'virtio-net-network-card :vnet nic)))
-      (setf (virtio-net-wrapper nic) wrapper)
-      (nic:register-network-card wrapper)))
+    (nic:register-network-card nic))
   t)
 
-(defmethod nic:mac-address ((nic virtio-net-network-card))
-  (virtio-net-mac (slot-value nic 'vnet)))
-
-(defmethod nic:statistics ((nic virtio-net-network-card))
-  (virtio-net-stats (slot-value nic 'vnet)))
-
-(defmethod nic:mtu ((nic virtio-net-network-card))
+(defmethod nic:mtu ((nic virtio-net))
   +virtio-net-mtu+)
-
-(defmethod nic:device-transmit-packet ((nic virtio-net-network-card) packet)
-  (virtio-net-transmit (slot-value nic 'vnet) packet))
 
 (virtio:define-virtio-driver virtio-net virtio-net-register virtio:+virtio-dev-id-net+)
