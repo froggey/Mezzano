@@ -165,6 +165,10 @@
   (print-unreadable-object (object stream :identity t :type t)
     (format stream "~A" (mezzano.supervisor::irq-platform-number object))))
 
+(defmethod print-object ((object mezzano.supervisor::wfo) stream)
+  (print-unreadable-object (object stream :identity t :type t)
+    (format stream "~:A" (mezzano.supervisor::wfo-objects object))))
+
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
 To be run this in the basic repl after ipl completes."
