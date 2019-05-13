@@ -576,16 +576,25 @@ It is only possible for the second value to be false when wait-p is false."
        (when (eql (wfo-links wfo) :sleep-in-progress)
          (wfo-unregister wfo)))))
 
+(defun convert-objects-to-events (objects)
+  ;; The event list must be wired, so do this instead of a simple mapcar.
+  (let* ((head (cons nil nil))
+         (tail head))
+    (declare (dynamic-extent head))
+    (dolist (object objects)
+      ;; Special case events to avoid the call
+      ;; through G-O-E as it is defined much later.
+      (let ((event (typecase object
+                     (event object)
+                     (timer (timer-event object))
+                     (t (get-object-event object)))))
+        (setf (cdr tail) (sys.int::cons-in-area event nil :wired)
+              tail (cdr tail))))
+    (cdr head)))
+
 (defun wait-for-objects (&rest objects)
   ;; Objects converted to events.
-  (let* ((events (mapcar #'(lambda (object)
-                           ;; Special case events to avoid the call
-                           ;; through G-O-E as it is defined much later.
-                           (typecase object
-                             (event object)
-                             (timer (timer-event object))
-                             (t (get-object-event object))))
-                         objects))
+  (let* ((events (convert-objects-to-events objects))
          (wfo (make-wfo :objects objects
                         :events events)))
     ;; Allocate links for each event.
