@@ -222,14 +222,9 @@
 
 (define-condition device-disconnect () ())
 
-(defun check-hda-presence (hda)
-  (when (not (eql (pci:pci-device-boot-id (hda-pci-device hda))
-                  (mezzano.supervisor:current-boot-id)))
-    (signal 'device-disconnect)))
-
 (defmacro with-hda-access ((hda) &body body)
-  `(mezzano.supervisor:with-snapshot-inhibited ()
-     (check-hda-presence ,hda)
+  `(mezzano.supervisor:with-device-access ((pci:pci-device-boot-id (hda-pci-device ,hda))
+                                           (signal 'device-disconnect))
      ,@body))
 
 (defun global-reg/8 (hda reg)

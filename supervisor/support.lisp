@@ -141,3 +141,9 @@
       (setf (,element-next element) :unlinked
             (,element-prev element) :unlinked)
       element)))
+
+(defmacro with-device-access ((device-boot-id inaccessible-form) &body body)
+  `(with-snapshot-inhibited ()
+     (cond ((not (eql ,device-boot-id *boot-id*))
+            ,inaccessible-form)
+           (t ,@body))))

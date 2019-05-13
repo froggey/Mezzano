@@ -91,30 +91,24 @@ and then some alignment.")
 (defun virtio-net-boot-id (nic)
   (virtio:virtio-device-boot-id (virtio-net-virtio-device nic)))
 
-(defun check-virtio-net-boot (nic)
-  (when (sup:event-state (virtio-net-boot-id nic))
-    (sup:debug-print-line "virtio-net device " nic " removed. Old boot: "
-                          (virtio-net-boot-id nic)
-                          " Current boot: "
-                          (sup:current-boot-id))
-    (throw 'nic-detached nil)))
+(defmacro with-virito-net-access ((nic) &body body)
+  `(sup:with-device-access ((virtio-net-boot-id ,nic) (throw 'nic-detached nil))
+     ,@body))
 
 (defun virtio-net-receive-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
          (rx-queue (virtio:virtio-virtqueue dev +virtio-net-receiveq+)))
     (loop
        ;; Receive outstanding packets one by one.
-       (sup:with-pseudo-atomic
-         (check-virtio-net-boot nic)
+       (with-virito-net-access (nic)
          (when (eql (virtio:virtio-ring-used-idx rx-queue)
                     (virtio:virtqueue-last-seen-used rx-queue))
            ;; All packets have been processed, notify the device that buffers are available.
            (virtio:virtio-kick dev +virtio-net-receiveq+)
            (return)))
-       ;; Allocate a buffer. Can't be done while pseudo-atomic, hence the dropping in & out.
+       ;; Allocate a buffer. Try to minimize the amount of work done in a device-access region, hence the dropping in and out.
        (let ((packet (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))))
-         (sup:with-pseudo-atomic
-           (check-virtio-net-boot nic)
+         (with-virito-net-access (nic)
            (let* ((ring-entry (rem (virtio:virtqueue-last-seen-used rx-queue)
                                    (virtio:virtqueue-size rx-queue)))
                   (id (virtio:virtio-ring-used-elem-id rx-queue ring-entry))
@@ -191,8 +185,7 @@ and then some alignment.")
          (return))
        (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
                                                       (list packet)))))
-  (sup:with-pseudo-atomic
-    (check-virtio-net-boot nic)
+  (with-virito-net-access (nic)
     (virtio-net-do-transmit-processing nic)
     ;; Send any pending packets.
     (loop
@@ -315,8 +308,7 @@ and then some alignment.")
     (virtio:virtio-driver-detached (virtio-net-virtio-device nic))))
 
 (defun virtio-net-initialize (nic)
-  (sup:with-snapshot-inhibited ()
-    (check-virtio-net-boot nic)
+  (with-virito-net-access (nic)
     (let ((device (virtio-net-virtio-device nic)))
       ;; Set the driver bit in the status field.
       (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+

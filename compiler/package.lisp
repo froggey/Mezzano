@@ -225,6 +225,7 @@
            #:with-symbol-spinlock
            #:with-pseudo-atomic
            #:with-snapshot-inhibited
+           #:with-device-access
            #:without-interrupts
            #:with-world-stopped
            #:make-thread
