@@ -147,7 +147,9 @@
       (setf mezzano.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil
             sys.int::*known-finalizers* nil))
-    (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
+    (when (boundp '*boot-id*)
+      (setf (event-state *boot-id*) t))
+    (setf *boot-id* (make-event :name 'boot-epoch))
     (initialize-early-platform)
     (initialize-threads)
     (initialize-disk)
