@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.driver.intel-hda
   (:use :cl)
-  (:local-nicknames (:pci :mezzano.supervisor.pci)))
+  (:local-nicknames (:pci :mezzano.supervisor.pci)
+                    (:sync :mezzano.sync)))
 
 (in-package :mezzano.driver.intel-hda)
 
@@ -213,8 +214,7 @@
    (rirbsize :initarg :rirbsize :accessor hda-rirbsize)
    (rirb-read-pointer :initarg :rirb-read-pointer :accessor hda-rirb-read-pointer)
    (codecs :initarg :codecs :accessor hda-codecs)
-   (interrupt-latch :initarg :interrupt-latch :accessor hda-interrupt-latch)
-   (interrupt-handler :initarg :interrupt-handler :accessor hda-interrupt-handler)
+   (irq :initarg :irq :accessor hda-irq)
    (dma-buffer-phys :initarg :dma-buffer-phys :accessor hda-dma-buffer-phys)
    (dma-buffer-virt :initarg :dma-buffer-virt :accessor hda-dma-buffer-virt)
    (dma-buffer-size :initarg :dma-buffer-size :accessor hda-dma-buffer-size))
@@ -833,11 +833,9 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (format t "}~%"))
 
 (defun intel-hda-probe (device)
-  ;; FIXME: Flush old cards first.
   (let* ((bar0 (pci:pci-io-region device 0 #x3000))
          (hda (make-instance 'hda :pci-device device :register-set bar0)))
-    (setf (hda-interrupt-latch hda) (mezzano.supervisor:make-latch "HDA IRQ latch"))
-    (setf (hda-interrupt-handler hda) (mezzano.supervisor:make-simple-irq (pci:pci-intr-line device) (hda-interrupt-latch hda)))
+    (setf (hda-irq hda) (mezzano.supervisor:make-simple-irq (pci:pci-intr-line device)))
     (format t "Found Intel HDA controller at ~S.~%" device)
     (setf (pci:pci-bus-master-enabled device) t)
     ;; Perform a controller reset by pulsing crst to 0.
@@ -880,7 +878,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
       (setf (hda-dma-buffer-size hda) buf-size
             (hda-dma-buffer-phys hda) buf-phys
             (hda-dma-buffer-virt hda) buf-virt))
-    (mezzano.supervisor:simple-irq-attach (hda-interrupt-handler hda))
+    (mezzano.supervisor:simple-irq-attach (hda-irq hda))
     (initialize-corb hda)
     (initialize-rirb hda)
     (let ((dmap-address (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
@@ -894,11 +892,6 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
        do (setf (aref (hda-codecs hda) i) (enumerate-codec hda i)))
     (mezzano.driver.sound:register-sound-card hda))
   t)
-
-(pci:define-pci-driver intel-hda intel-hda-probe
-  ((#x8086 #x2668) ; ICH6 HDA
-   (#x8086 #x27D8)) ; ICH7 HDA
-  ())
 
 (defun write-bdl (hda entry base length)
   (let ((array (hda-corb/rirb/dmap hda))
@@ -984,17 +977,16 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (setf (sd-reg/8 hda stream (+ +sdnctlsts+ 3)) (ash 1 2))) ; bcis
 
 (defun wait-for-buffer-interrupt (hda)
-  (let ((latch (hda-interrupt-latch hda))
+  (let ((irq (hda-irq hda))
         (stream (first-output-stream hda)))
     (loop
-       (mezzano.supervisor:latch-wait latch)
-       (mezzano.supervisor:latch-reset latch)
+       (sync:wait-for-objects irq (pci:pci-device-boot-id (hda-pci-device hda)))
        (with-hda-access (hda)
          (when (logbitp stream (global-reg/32 hda +intsts+))
            (clear-pending-interrupt hda stream)
-           (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda))
+           (mezzano.supervisor:simple-irq-unmask irq)
            (return)))
-       (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))))
+       (mezzano.supervisor:simple-irq-unmask irq))))
 
 ;; Return a list of all pin widgets.
 (defun pin-widgets (hda)
@@ -1094,9 +1086,8 @@ Returns NIL if there is no output path."
             (dotimes (i buf-len)
               (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0))
             ;; Unmask the interrupt, flush any pending IRQs.
-            (mezzano.supervisor:latch-reset (hda-interrupt-latch hda))
             (clear-pending-interrupt hda output-stream)
-            (mezzano.supervisor:simple-irq-unmask (hda-interrupt-handler hda)))
+            (mezzano.supervisor:simple-irq-unmask (hda-irq hda)))
           ;; Begin playback.
           (multiple-value-bind (converter mixer)
               (output-path output-pin)
@@ -1117,7 +1108,15 @@ Returns NIL if there is no output path."
                   (wait-for-buffer-interrupt hda))
             (with-hda-access (hda)
               (stream-reset hda (first-output-stream hda))
-              (mezzano.supervisor:simple-irq-mask (hda-interrupt-handler hda))))))
+              (mezzano.supervisor:simple-irq-mask (hda-irq hda))))))
     (device-disconnect ()
       (format t "HDA ~S disconnected.~%" hda)
       (throw 'mezzano.supervisor:terminate-thread nil))))
+
+(defmethod mezzano.driver.sound:sound-card-presence-event ((hda hda))
+  (pci:pci-device-boot-id (hda-pci-device hda)))
+
+(pci:define-pci-driver intel-hda intel-hda-probe
+  ((#x8086 #x2668) ; ICH6 HDA
+   (#x8086 #x27D8)) ; ICH7 HDA
+  ())
