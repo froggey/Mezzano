@@ -15,6 +15,9 @@
            #:wait-for-objects-with-timeout
            #:get-object-event
 
+           #:always-false-event
+           #:always-true-event
+
            #:semaphore
            #:make-semaphore
            #:semaphore-name
@@ -75,6 +78,12 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
       (when name
         (format stream "~A " name))
       (format stream "=> ~S" (sup:event-state object)))))
+
+(sys.int::defglobal *always-false-event* (sup:make-event :name "Always false"))
+(defun always-false-event () *always-false-event*)
+
+(sys.int::defglobal *always-true-event* (sup:make-event :name "Always true" :state t))
+(defun always-true-event () *always-true-event*)
 
 (defmethod get-object-event ((object sup:timer))
   (sup::timer-event object))
