@@ -5,7 +5,8 @@
   (:use :cl)
   (:local-nicknames (:nic :mezzano.driver.network-card)
                     (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio)))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sync :mezzano.sync)))
 
 (in-package :mezzano.driver.virtio-net)
 
@@ -68,30 +69,30 @@ and then some alignment.")
 (defconstant +virtio-net-n-tx-buffers+ 32)
 
 (defclass virtio-net (nic:network-card)
-  ((%mac :accessor virtio-net-mac :initarg :mac :reader nic:mac-address)
+  ((%mac :accessor virtio-net-mac :reader nic:mac-address)
    (%virtio-device :accessor virtio-net-virtio-device :initarg :virtio-device)
-   (%boot-id :accessor virtio-net-boot-id :initarg :boot-id)
-   (%lock :accessor virtio-net-lock :initform (sup:make-mutex "Virtio-Net NIC lock"))
-   (%irq-latch :accessor virtio-net-irq-latch :initform (sup:make-latch "Virtio-Net NIC IRQ latch"))
-   (%irq-handler-function :accessor virtio-net-irq-handler-function :initarg :irq-handler-function)
-   (%worker-thread :accessor virtio-net-worker-thread :initarg :worker-thread)
-   (%tx-virt :accessor virtio-net-tx-virt :initarg :tx-virt)
-   (%tx-phys :accessor virtio-net-tx-phys :initarg :tx-phys)
+   (%tx-mailbox :accessor virtio-net-tx-mailbox)
+   (%irq-handler :accessor virtio-net-irq-handler)
+   (%worker-thread :accessor virtio-net-worker-thread)
+   (%tx-virt :accessor virtio-net-tx-virt)
+   (%tx-phys :accessor virtio-net-tx-phys)
    (%free-tx-buffers :accessor virtio-net-free-tx-buffers :initform nil)
    ;; Preallocated wired conses usable in the PA TX processing.
    (%tx-buffer-freelist :accessor virtio-net-tx-buffer-freelist :initform nil)
    ;; Packets waiting to be transmitted.
-   (%tx-pending :accessor virtio-net-tx-pending :initform '())
    (%real-tx-pending :accessor virtio-net-real-tx-pending :initform '())
-   (%rx-virt :accessor virtio-net-rx-virt :initarg :rx-virt)
-   (%rx-phys :accessor virtio-net-rx-phys :initarg :rx-phys)
+   (%rx-virt :accessor virtio-net-rx-virt)
+   (%rx-phys :accessor virtio-net-rx-phys)
    (%total-rx-bytes :accessor virtio-net-total-rx-bytes :initform 0)
    (%total-tx-bytes :accessor virtio-net-total-tx-bytes :initform 0)
    (%total-rx-packets :accessor virtio-net-total-rx-packets :initform 0)
    (%total-tx-packets :accessor virtio-net-total-tx-packets :initform 0)))
 
+(defun virtio-net-boot-id (nic)
+  (virtio:virtio-device-boot-id (virtio-net-virtio-device nic)))
+
 (defun check-virtio-net-boot (nic)
-  (when (not (eql (virtio-net-boot-id nic) (sup:current-boot-id)))
+  (when (sup:event-state (virtio-net-boot-id nic))
     (sup:debug-print-line "virtio-net device " nic " removed. Old boot: "
                           (virtio-net-boot-id nic)
                           " Current boot: "
@@ -183,12 +184,13 @@ and then some alignment.")
     (virtio:virtio-kick dev +virtio-net-transmitq+)))
 
 (defun virtio-net-transmit-processing (nic)
-  (sup:with-mutex ((virtio-net-lock nic))
-    (when (virtio-net-tx-pending nic)
-      ;; Add pending packets to the real transmit queue, in proper order.
-      (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
-                                                     (nreverse (virtio-net-tx-pending nic)))
-            (virtio-net-tx-pending nic) '())))
+  ;; Add pending packets to the real transmit queue, in proper order.
+  (loop
+     (let ((packet (sync:mailbox-receive (virtio-net-tx-mailbox nic) :wait-p nil)))
+       (when (not packet)
+         (return))
+       (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
+                                                      (list packet)))))
   (sup:with-pseudo-atomic
     (check-virtio-net-boot nic)
     (virtio-net-do-transmit-processing nic)
@@ -204,8 +206,7 @@ and then some alignment.")
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len
-                           :element-type '(unsigned-byte 8)))
-         (cons (cons data nil)))
+                           :element-type '(unsigned-byte 8))))
     (when (> len +virtio-net-mtu+)
       (error "Packet exceeds MTU."))
     ;; Copy packet into temp buffer.
@@ -214,10 +215,7 @@ and then some alignment.")
         (dotimes (i (length p))
           (setf (aref data offset) (aref p i))
           (incf offset))))
-    (sup:with-mutex ((virtio-net-lock nic))
-      (setf (cdr cons) (virtio-net-tx-pending nic)
-            (virtio-net-tx-pending nic) cons))
-    (sup:latch-trigger (virtio-net-irq-latch nic))))
+    (sync:mailbox-send data (virtio-net-tx-mailbox nic))))
 
 (defmethod nic:statistics ((nic virtio-net))
   (values (virtio-net-total-rx-bytes nic)
@@ -286,11 +284,10 @@ and then some alignment.")
 (defun virtio-net-register (device)
   (sup:debug-print-line "Detected virtio net device " device)
   (let* ((nic (make-instance 'virtio-net
-                             :virtio-device device
-                             :boot-id (sup:current-boot-id)))
-         (irq-handler (sup:make-simple-irq (virtio:virtio-device-irq device)
-                                           (virtio-net-irq-latch nic))))
-    (setf (virtio-net-irq-handler-function nic) irq-handler)
+                             :virtio-device device))
+         (irq-handler (sup:make-simple-irq (virtio:virtio-device-irq device))))
+    (setf (virtio-net-irq-handler nic) irq-handler)
+    (setf (virtio-net-tx-mailbox nic) (sync:make-mailbox :name `(tx-mailbox ,nic)))
     (setf (virtio-net-worker-thread nic)
           (sup:make-thread (lambda ()
                              (virtio-net-worker nic))
@@ -304,14 +301,17 @@ and then some alignment.")
            (return-from virtio-net-worker))
          (loop
             ;; Wait for something to happen.
-            (sup:latch-wait (virtio-net-irq-latch nic))
-            (sup:latch-reset (virtio-net-irq-latch nic))
-            (sup:simple-irq-unmask (virtio-net-irq-handler-function nic))
+            ;; Either an interrupt, a request to send, or the device's boot epoch expiring.
+            (sync:wait-for-objects (virtio-net-irq-handler nic)
+                                   (virtio-net-tx-mailbox nic)
+                                   (virtio-net-boot-id nic))
             (let* ((dev (virtio-net-virtio-device nic))
                    (status (virtio:virtio-isr-status dev)))
               (virtio-net-receive-processing nic)
               (virtio-net-transmit-processing nic)
-              (virtio:virtio-ack-irq dev status))))
+              (virtio:virtio-ack-irq dev status))
+            (sup:simple-irq-unmask (virtio-net-irq-handler nic))))
+    (nic:unregister-network-card nic)
     (virtio:virtio-driver-detached (virtio-net-virtio-device nic))))
 
 (defun virtio-net-initialize (nic)
@@ -345,8 +345,8 @@ and then some alignment.")
           (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
           (return-from virtio-net-initialize nil))
         ;; Configuration complete, go to OK mode.
-        (sup:simple-irq-attach (virtio-net-irq-handler-function nic))
-        (sup:simple-irq-unmask (virtio-net-irq-handler-function nic))
+        (sup:simple-irq-attach (virtio-net-irq-handler nic))
+        (sup:simple-irq-unmask (virtio-net-irq-handler nic))
         (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                            virtio:+virtio-status-driver+
                                                            virtio:+virtio-status-ok+))

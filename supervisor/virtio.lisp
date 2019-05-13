@@ -37,6 +37,7 @@
            #:virtio-ring-size
            #:virtio-virtqueue
            #:virtio-device-virtqueues
+           #:virtio-device-boot-id
            #:virtio-device-did
            #:virtio-device-register
            #:make-virtqueue

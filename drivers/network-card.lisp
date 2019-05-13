@@ -5,10 +5,10 @@
 
 (defpackage :mezzano.driver.network-card
   (:use :cl)
-  (:import-from :mezzano.supervisor
-                #:debug-print-line)
+  (:local-nicknames (:sup :mezzano.supervisor))
   (:export #:network-card
            #:register-network-card
+           #:unregister-network-card
            #:mac-address
            #:statistics
            #:mtu
@@ -19,8 +19,9 @@
 
 (in-package :mezzano.driver.network-card)
 
+(sys.int::defglobal *nics-lock* (sup:make-mutex "*NICS* lock"))
 (sys.int::defglobal *nics* '())
-(sys.int::defglobal *received-packets* (mezzano.supervisor:make-fifo 50))
+(sys.int::defglobal *received-packets* (sup:make-fifo 50))
 
 (defclass network-card () ())
 
@@ -30,8 +31,14 @@
             (mac-address object))))
 
 (defun register-network-card (device)
-  (debug-print-line "Registered NIC " device " with MAC " (mac-address device))
-  (push device *nics*))
+  (sup:debug-print-line "Registered NIC " device " with MAC " (mac-address device))
+  (sup:with-mutex (*nics-lock*)
+    (push device *nics*)))
+
+(defun unregister-network-card (device)
+  (sup:debug-print-line "Unregistered NIC " device " with MAC " (mac-address device))
+  (sup:with-mutex (*nics-lock*)
+    (setf *nics* (remove device *nics*))))
 
 (defgeneric mac-address (nic))
 (defgeneric statistics (nic))
@@ -56,7 +63,6 @@ Returns two values, the packet data and the receiving NIC."
   (mezzano.supervisor:fifo-push (cons nic packet) *received-packets*))
 
 (defun boot-hook ()
-  ;; TODO: Clear out old network cards.
   ;; Can't do this in an early boot-hook as device detection happens earlier.
   (mezzano.supervisor:fifo-reset *received-packets*))
 (mezzano.supervisor:add-boot-hook 'boot-hook :early)
