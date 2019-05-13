@@ -87,6 +87,13 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 (defmethod get-object-event ((object sup:simple-irq))
   (sup::simple-irq-event object))
 
+(defmethod print-object ((object sup:simple-irq) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream ":Irq ~A :Pending ~A :Masked ~A"
+            (sup:simple-irq-irq object)
+            (sup:simple-irq-pending-p object)
+            (sup:simple-irq-masked-p object))))
+
 ;;;; Semaphore.
 
 (defclass semaphore ()
