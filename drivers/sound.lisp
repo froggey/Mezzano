@@ -5,9 +5,12 @@
 
 (defpackage :mezzano.driver.sound
   (:use :cl)
+  (:local-nicknames (:sync :mezzano.sync)
+                    (:sup :mezzano.supervisor))
   (:export #:sound-card
            #:register-sound-card
            #:sound-card-run
+           #:sound-card-presence-event
            #:master-volume
            #:make-sound-output-sink
            #:sink-volume
@@ -42,8 +45,9 @@
 (defvar *cards* '())
 
 (defvar *sinks* '())
-(defvar *sink-lock* (mezzano.supervisor:make-mutex "Sound output sink lock"))
-(defvar *sink-cvar* (mezzano.supervisor:make-condition-variable "Sound output sink cvar"))
+(defvar *sink-lock* (sup:make-mutex "Sound output sink lock"))
+(defvar *sink-cvar* (sup:make-condition-variable "Sound output sink cvar"))
+(defvar *sinks-present-event* (sup:make-event :name "Sound sinks present"))
 
 (defvar *master-volume* 1.0)
 
@@ -118,6 +122,8 @@
     total-copied))
 
 (defgeneric sound-card-run (card buffer-fill-callback))
+(defgeneric sound-card-presence-event (card)
+  (:method (card) nil))
 
 (defun refill-sound-output-buffer (buffer start end)
   (check-type buffer (simple-array single-float (*)))
@@ -141,6 +147,8 @@
                               (lambda (sink)
                                 (buffer-empty sink))
                               *sinks*))
+               (when (endp *sinks*)
+                 (setf (sup:event-state *sinks-present-event*) nil))
                ;; Samples have been consumed, wake fillers.
                (mezzano.supervisor:condition-notify *sink-cvar* t)
                ;; Leave the card running.
@@ -148,12 +156,9 @@
 
 (defun sound-worker (device)
   (loop
-     (mezzano.supervisor:with-mutex (*sink-lock*)
-       ;; Wait for at least one sink.
-       (loop
-          (when (not (endp *sinks*))
-            (return))
-          (mezzano.supervisor:condition-wait *sink-cvar* *sink-lock*)))
+     (sync:wait-for-objects *sinks-present-event*
+                            (or (sound-card-presence-event device)
+                                (sync:always-false-event)))
      ;; There are sinks. Start the card.
      (format t "Starting playback on ~S~%" device)
      (sound-card-run device 'refill-sound-output-buffer)
@@ -308,6 +313,7 @@
          (when (buffer-empty sink)
            ;; Buffer is currently empty, sink is not live.
            (assert (not (member sink *sinks*)))
+           (setf (sup:event-state *sinks-present-event*) t)
            (push sink *sinks*))
          ;; Fill the buffer as much as possible.
          (multiple-value-bind (total-samples-copied
