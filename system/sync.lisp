@@ -36,6 +36,7 @@
            #:mailbox-send
            #:mailbox-receive
            #:mailbox-peek
+           #:mailbox-flush
            ))
 
 (in-package :mezzano.sync)
@@ -224,7 +225,8 @@ Items are sent and received in FIFO order."
 
 (defun mailbox-send (value mailbox &key (wait-p t))
   "Push a value into the mailbox.
-If the mailbox is at capacity, this will block if WAIT-P is true."
+If the mailbox is at capacity, this will block if WAIT-P is true.
+Returns true if the value was pushed, false if the mailbox is full and WAIT-P is false."
   (loop
      (sup:with-mutex ((mailbox-lock mailbox))
        (when (or (not (mailbox-capacity mailbox))
@@ -277,6 +279,44 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
          (return (values nil nil))))
      (sup:event-wait (mailbox-receive-possible-event mailbox))))
 
+(defun mailbox-flush (mailbox)
+  "Empty MAILBOX, returning a list of all pending messages."
+  (sup:with-mutex ((mailbox-lock mailbox))
+    (let ((messages (butlast (mailbox-head mailbox))))
+      (setf (mailbox-head mailbox) (cons nil nil)
+            (mailbox-tail mailbox) (mailbox-head mailbox))
+      (setf (slot-value mailbox '%n-pending) 0)
+      (setf (sup:event-state (mailbox-send-possible-event mailbox)) t
+            (sup:event-state (mailbox-receive-possible-event mailbox)) nil)
+      messages)))
+
 (defun mailbox-empty-p (mailbox)
   "Returns true if there are no messages waiting."
   (zerop (mailbox-n-pending-messages mailbox)))
+
+;;;; Compatibility wrappers.
+
+(deftype sup:fifo ()
+  'mailbox)
+
+(defun sup:fifo-p (object)
+  (typep object 'sup:fifo))
+
+(defun sup:make-fifo (size &key (element-type 't))
+  (declare (ignore element-type))
+  (make-mailbox :capacity size))
+
+(defun sup:fifo-push (value fifo &optional (wait-p t))
+  (mailbox-send value fifo :wait-p wait-p))
+
+(defun sup:fifo-pop (fifo &optional (wait-p t))
+  (mailbox-receive fifo :wait-p wait-p))
+
+(defun sup:fifo-reset (fifo)
+  (mailbox-flush fifo))
+
+(defun sup:fifo-size (fifo)
+  (mailbox-capacity fifo))
+
+(defun sup:fifo-element-type (fifo)
+  't)

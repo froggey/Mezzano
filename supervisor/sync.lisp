@@ -379,67 +379,6 @@ It is only possible for the second value to be false when wait-p is false."
        (when (not validp)
          (return)))))
 
-(defstruct (fifo
-             (:area :wired)
-             (:constructor (make-fifo (size &key (element-type 't) &aux (buffer (make-array (list size) :element-type element-type))))))
-  (head 0 :type fixnum)
-  (tail 0 :type fixnum)
-  (size nil :read-only t)
-  (element-type nil :read-only t)
-  (buffer nil :read-only t)
-  (cv (make-condition-variable))
-  (lock (make-mutex "fifo-lock")))
-
-(defun fifo-push (value fifo &optional (wait-p t))
-  "Push a byte onto FIFO. Returns true if successful.
-If the fifo is full, then FIFO-PUSH will wait for space to become available
-when WAIT-P is true, otherwise it will immediately return false."
-  (with-mutex ((fifo-lock fifo))
-    (loop
-       (let ((next (1+ (fifo-tail fifo))))
-         (when (>= next (fifo-size fifo))
-           (setf next 0))
-         ;; When next reaches head, the buffer is full.
-         (unless (= next (fifo-head fifo))
-           (setf (aref (fifo-buffer fifo) (fifo-tail fifo)) value
-                 (fifo-tail fifo) next)
-           (condition-notify (fifo-cv fifo))
-           (return t)))
-       (unless wait-p
-         (return nil))
-       (condition-wait (fifo-cv fifo)
-                       (fifo-lock fifo)))))
-
-(defun fifo-pop (fifo &optional (wait-p t))
-  "Pop a byte from FIFO.
-Returns two values. The first value is the value popped from the FIFO.
-The second value is true if a value was popped, false otherwise.
-It is only possible for the second value to be false when wait-p is false."
-  (with-mutex ((fifo-lock fifo))
-    (loop
-       (when (not (eql (fifo-head fifo) (fifo-tail fifo)))
-         ;; Fifo not empty, pop byte.
-         (let ((value (aref (fifo-buffer fifo) (fifo-head fifo)))
-               (next (1+ (fifo-head fifo))))
-           (when (>= next (fifo-size fifo))
-             (setf next 0))
-           (setf (fifo-head fifo) next)
-           (condition-notify (fifo-cv fifo))
-           (return (values value t))))
-       ;; Fifo empty, maybe wait?
-       (unless wait-p
-         (return (values nil nil)))
-       (condition-wait (fifo-cv fifo)
-                       (fifo-lock fifo)))))
-
-(defun fifo-reset (fifo)
-  "Flush any waiting data."
-  (with-mutex ((fifo-lock fifo))
-    (setf (fifo-head fifo) 0
-          (fifo-tail fifo) 0)
-    ;; Signal the cvar to wake any waiting FIFO-PUSH calls.
-    (condition-notify (fifo-cv fifo) t)))
-
 ;;;; WAIT-FOR-OBJECTS and the EVENT primitive.
 
 (defstruct (wfo
