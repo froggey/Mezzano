@@ -84,7 +84,8 @@
 (defun get-internal-run-time ()
   *run-time*)
 
-(defun sleep (seconds)
+(defun safe-sleep (seconds)
+  "Sleep in a supervisor-safe way, no allocations."
   (let ((wake-internal-time (+ *run-time*
                                (ceiling (* seconds internal-time-units-per-second)))))
      (loop
@@ -118,6 +119,7 @@
          (hours (+ hour (* days 24)))
          (time (+ second (* (+ minute (* (+ hours time-zone) 60)) 60))))
     time))
+
 (defstruct (timer-queue
              (:area :wired))
   head
@@ -227,3 +229,52 @@ Will wait forever if TIMER has not been armed."
 
 (defun timer-expired-p (timer)
   (event-status (timer-event timer)))
+
+(sys.int::defglobal *timer-pool-lock* (make-mutex "Timer pool"))
+(sys.int::defglobal *timer-pool* nil)
+(sys.int::defglobal *timer-pool-size* 0)
+(sys.int::defglobal *timer-pool-limit* 1000)
+(sys.int::defglobal *timer-pool-hit-count* 0)
+(sys.int::defglobal *timer-pool-miss-count* 0)
+
+(defun push-timer-pool (timer)
+  (timer-disarm timer)
+  (with-mutex (*timer-pool-lock*)
+    (when (< *timer-pool-size* *timer-pool-limit*)
+      (setf (timer-next timer) *timer-pool*
+            *timer-pool* timer)
+      (incf *timer-pool-size*))))
+
+(defun pop-timer-pool ()
+  (flet ((alloc ()
+           (with-mutex (*timer-pool-lock*)
+             (let ((timer *timer-pool*))
+               (cond (timer
+                      (setf *timer-pool* (timer-next timer)
+                            (timer-next timer) :unlinked)
+                      (incf *timer-pool-hit-count*)
+                      (decf *timer-pool-size*)
+                      timer)
+                     (t
+                      (incf *timer-pool-miss-count*)
+                      nil))))))
+    (or (alloc)
+        (make-timer :name 'pooled-timer))))
+
+(defmacro with-timer ((timer &key relative absolute) &body body)
+  "Allocate & arm a timer from the timer pool."
+  (let ((timer-actual (gensym "TIMER")))
+    `(let ((,timer-actual (pop-timer-pool)))
+       (unwind-protect
+            (progn
+              ,(when relative
+                 `(timer-arm ,relative ,timer-actual))
+              ,(when absolute
+                 `(timer-arm-absolute ,absolute ,timer-actual))
+              (let ((,timer ,timer-actual)) ,@body))
+         (push-timer-pool ,timer-actual)))))
+
+(defun sleep (seconds)
+  (check-type seconds (real 0))
+  (with-timer (timer :relative seconds)
+    (timer-wait timer)))

@@ -62,13 +62,9 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
                  0))
         (t
          ;; Arbitrary timeout.
-         (let ((timer (sup:make-timer :relative timeout)))
-           (unwind-protect
-                (values (remove timer (apply #'wait-for-objects (list* timer objects)))
-                        (sup:timer-remaining timer))
-             ;; Be a good citizen and disarm the timer once we're done with it.
-             ;; This stops it from hanging around longer than it needs to.
-             (sup:timer-disarm timer))))))
+         (sup:with-timer (timer :relative timeout)
+           (values (remove timer (apply #'wait-for-objects (list* timer objects)))
+                   (sup:timer-remaining timer))))))
 
 (defmethod get-object-event ((object sup:event))
   object)

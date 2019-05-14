@@ -373,8 +373,7 @@
            #:framebuffer-width
            #:framebuffer-height
            #:framebuffer-device
-           ;; The heartbeat timer is wired directly to the PIT, and beats at 18Hz.
-           #:wait-for-heartbeat
+           #:safe-sleep
            #:read-rtc-time
            #:all-disks
            #:disk-writable-p
@@ -428,6 +427,7 @@
            #:timer-deadline
            #:timer-wait
            #:timer-expired-p
+           #:with-timer
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

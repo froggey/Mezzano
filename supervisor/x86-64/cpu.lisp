@@ -912,11 +912,11 @@ This is a one-shot timer and must be reset after firing."
   ;; FIXME: Delay after sending.
   (let ((boot-vector (ash +ap-trampoline-physical-address+ -12)))
     (send-ipi (cpu-apic-id cpu) +ipi-type-init+ 0)
-    (sleep 0.01) ; 10ms
+    (safe-sleep 0.01) ; 10ms
     (send-ipi (cpu-apic-id cpu) +ipi-type-sipi+ boot-vector)
-    (sleep 0.0002) ; 200μs.
+    (safe-sleep 0.0002) ; 200μs.
     (send-ipi (cpu-apic-id cpu) +ipi-type-sipi+ boot-vector)
-    (sleep 0.0002))
+    (safe-sleep 0.0002))
   ;; Wait for the CPU to come up.
   (let ((start-time (get-internal-run-time)))
     (loop

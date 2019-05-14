@@ -157,7 +157,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
      (when (<= timeout 0)
        (return nil))
      ;; FIXME: Depends on the granularity of the timer.
-     (sleep 0.01)
+     (sup:safe-sleep 0.01)
      (decf timeout 0.01)))
 
 (defun ata-select-device (controller channel)
@@ -437,7 +437,7 @@ This is used to implement the Check_Status states of the various command protoco
        ;; Stay in Check_Status.
        (when (<= timeout 0)
          (return (values nil t)))
-       (sleep 0.001)
+       (sup:safe-sleep 0.001)
        (decf timeout 0.001))))
 
 (defun ata-intrq-wait (controller &optional (timeout 30))
@@ -658,7 +658,7 @@ This is used to implement the INTRQ_Wait state."
            ;; FIXME: Should reset the device here.
            (sup:debug-print-line "Device timeout during flush.")
            (return-from ata-flush (values nil :device-error)))
-         (sleep 0.001)
+         (sup:safe-sleep 0.001)
          (decf timeout 0.001))
     ;; Transition to Host_Idle, checking error status.
     (when (logtest (ata-alt-status controller) +ata-err+)
@@ -830,10 +830,10 @@ This is used to implement the INTRQ_Wait state."
     ;; Disable IRQs on the controller and reset both drives.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           (logior +ata-srst+ +ata-nien+))
-    (sleep 0.000005) ; Hold SRST high for 5µs.
+    (sup:safe-sleep 0.000005) ; Hold SRST high for 5µs.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           +ata-nien+)
-    (sleep 0.002) ; Hold SRST low for 2ms before probing for drives.
+    (sup:safe-sleep 0.002) ; Hold SRST low for 2ms before probing for drives.
     ;; Now wait for BSY to clear. It may take up to 31 seconds for the
     ;; reset to finish, which is a bit silly...
     (when (not (ata-wait-for-controller controller +ata-bsy+ 0 2))
