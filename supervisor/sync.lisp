@@ -247,55 +247,6 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                  (pop-one)))))))
   (values))
 
-(defstruct (semaphore
-             (:include wait-queue)
-             (:constructor make-semaphore (value &optional name))
-             (:area :wired))
-  (value 0 :type (integer 0)))
-
-(defun semaphore-up (semaphore)
-  "Increment the semaphore count, or wake a waiting thread.
-May be used from an interrupt handler."
-  (with-wait-queue-lock (semaphore)
-    ;; If there is a thread, wake it instead of incrementing.
-    (let ((thread (pop-wait-queue semaphore)))
-      (cond (thread
-             ;; Found one, wake it.
-             (wake-thread thread))
-            (t
-             ;; No threads sleeping, increment.
-             (incf (semaphore-value semaphore)))))))
-
-(defun semaphore-down (semaphore &optional (wait-p t))
-  (ensure-interrupts-enabled)
-  ;; Invert the result here because %RESCHEDULE-VIA-WIRED-STACK will always
-  ;; cause %R-O-W-S-W-I to return NIL, which is actually a success result.
-  (not (%run-on-wired-stack-without-interrupts (sp fp semaphore wait-p)
-        (let ((self (current-thread)))
-          (lock-wait-queue semaphore)
-          (cond ((not (zerop (semaphore-value semaphore)))
-                 (decf (semaphore-value semaphore))
-                 (unlock-wait-queue semaphore)
-                 ;; Success (inverted).
-                 nil)
-                (wait-p
-                 ;; Go to sleep.
-                 (push-wait-queue self semaphore)
-                 ;; Now sleep.
-                 ;; Must take the thread lock before dropping the semaphore lock or up
-                 ;; may be able to remove the thread from the sleep queue before it goes
-                 ;; to sleep.
-                 (acquire-global-thread-lock)
-                 (unlock-wait-queue semaphore)
-                 (setf (thread-wait-item self) semaphore
-                       (thread-state self) :sleeping
-                       (thread-unsleep-helper self) #'semaphore-down
-                       (thread-unsleep-helper-argument self) semaphore)
-                 (%reschedule-via-wired-stack sp fp))
-                (t (unlock-wait-queue semaphore)
-                   ;; Failure (inverted).
-                   t))))))
-
 (defstruct (irq-fifo
              (:area :wired)
              (:constructor %make-irq-fifo))
