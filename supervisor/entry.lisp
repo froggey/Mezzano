@@ -146,7 +146,8 @@
       ;; FIXME: Should be done by cold generator
       (setf mezzano.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil
-            sys.int::*known-finalizers* nil))
+            sys.int::*known-finalizers* nil
+            *big-wait-for-objects-lock* (place-spinlock-initializer)))
     (when (boundp '*boot-id*)
       (setf (event-state *boot-id*) t))
     (setf *boot-id* (make-event :name 'boot-epoch))

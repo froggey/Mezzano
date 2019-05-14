@@ -8,7 +8,7 @@
 ;;; Common structure for sleepable things.
 (defstruct (wait-queue
              (:area :wired))
-  name
+  (name nil :read-only t)
   (%lock (place-spinlock-initializer))
   (head nil)
   (tail nil))
@@ -476,8 +476,7 @@ It is only possible for the second value to be false when wait-p is false."
   events
   links)
 
-(sys.int::defglobal *big-wait-for-objects-lock*
-    (place-spinlock-initializer))
+(sys.int::defglobal *big-wait-for-objects-lock*)
 
 ;; Object pools are used for WFO structures and the wired cons cells
 ;; used to form the events & links lists. This is to reduce allocation
@@ -705,8 +704,8 @@ It is only possible for the second value to be false when wait-p is false."
 
 (defstruct (event
              (:constructor %make-event (name %state))
+             (:include wait-queue)
              (:area :wired))
-  (name nil :read-only t)
   %state
   waiters)
 
@@ -730,13 +729,33 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
           (with-wait-queue-lock (waiter)
             (do ()
                 ((null (wait-queue-head waiter)))
-              (wake-thread (pop-wait-queue waiter))))))
+              (wake-thread (pop-wait-queue waiter)))))
+        (with-wait-queue-lock (event)
+          (do ()
+              ((null (wait-queue-head event)))
+            (wake-thread (pop-wait-queue event)))))
       (setf (event-%state event) value))))
 
 (defun event-wait (event)
-  "Wait until EVENT's state is not NIL and return the state."
-  (loop
-     (let ((current (event-state event)))
-       (when current
-         (return current)))
-     (wait-for-objects event)))
+  "Wait until EVENT's state is not NIL."
+  (%run-on-wired-stack-without-interrupts (sp fp event)
+    (acquire-place-spinlock *big-wait-for-objects-lock*)
+    (let ((self (current-thread)))
+      (lock-wait-queue event)
+      (cond ((event-%state event)
+             ;; Event state is non-NIL, don't sleep.
+             (unlock-wait-queue event)
+             (release-place-spinlock *big-wait-for-objects-lock*))
+            (t
+             ;; Event state is NIL.
+             (acquire-global-thread-lock)
+             ;; Attach to the list.
+             (push-wait-queue self event)
+             ;; Sleep.
+             (setf (thread-wait-item self) event
+                   (thread-state self) :sleeping
+                   (thread-unsleep-helper self) #'event-wait
+                   (thread-unsleep-helper-argument self) event)
+             (unlock-wait-queue event)
+             (release-place-spinlock *big-wait-for-objects-lock*)
+             (%reschedule-via-wired-stack sp fp))))))
