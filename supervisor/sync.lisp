@@ -296,49 +296,23 @@ May be used from an interrupt handler."
                    ;; Failure (inverted).
                    t))))))
 
-(defstruct (latch
-             (:include wait-queue)
-             (:constructor make-latch (&optional name))
-             (:area :wired))
-  (state nil))
+(deftype latch () 'event)
+
+(defun latch-p (object)
+  (typep object 'event))
+
+(defun make-latch (&optional name)
+  (make-event :name name))
 
 (defun latch-reset (latch)
-  (safe-without-interrupts (latch)
-    (with-wait-queue-lock (latch)
-      (setf (latch-state latch) nil))))
+  (setf (event-state latch) nil))
 
 (defun latch-wait (latch)
-  (when (latch-state latch)
-    (return-from latch-wait))
-  (ensure-interrupts-enabled)
-  (%run-on-wired-stack-without-interrupts (sp fp latch)
-   (let ((self (current-thread)))
-     (lock-wait-queue latch)
-     (cond ((latch-state latch)
-            ;; Latch was opened after the wait-queue was locked.
-            ;; Don't sleep.
-            (unlock-wait-queue latch))
-           (t ;; Latch is closed, sleep.
-            (acquire-global-thread-lock)
-            ;; Attach to the list.
-            (push-wait-queue self latch)
-            ;; Sleep.
-            (setf (thread-wait-item self) latch
-                  (thread-state self) :sleeping
-                  (thread-unsleep-helper self) #'latch-wait
-                  (thread-unsleep-helper-argument self) latch)
-            (unlock-wait-queue latch)
-            (%reschedule-via-wired-stack sp fp)))))
+  (event-wait latch)
   (values))
 
 (defun latch-trigger (latch)
-  (safe-without-interrupts (latch)
-    (with-wait-queue-lock (latch)
-      (setf (latch-state latch) t)
-      ;; Loop until all the threads have been woken.
-      (do ()
-          ((null (wait-queue-head latch)))
-        (wake-thread (pop-wait-queue latch))))))
+  (setf (event-state latch) t))
 
 (defstruct (irq-fifo
              (:area :wired)
