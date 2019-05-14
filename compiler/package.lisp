@@ -320,7 +320,10 @@
            #:fifo-reset
            #:fifo-size
            #:fifo-element-type
+           #:irq-fifo
+           #:irq-fifo-p
            #:make-irq-fifo
+           #:irq-fifo-name
            #:irq-fifo-push
            #:irq-fifo-pop
            #:irq-fifo-reset

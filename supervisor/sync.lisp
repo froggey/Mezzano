@@ -306,18 +306,28 @@ May be used from an interrupt handler."
   (element-type)
   (buffer (error "no buffer supplied") :read-only t)
   (count)
+  data-available
   (lock (place-spinlock-initializer)))
 
 (defun make-irq-fifo (size &key (element-type 't) name)
   ;; TODO: non-t element types.
-  (%make-irq-fifo :size size
-                  :buffer (sys.int::make-simple-vector size :wired)
-                  :element-type 't
-                  :count (make-semaphore 0 name)
-                  :name name))
+  (let ((fifo (%make-irq-fifo :size size
+                              :buffer (sys.int::make-simple-vector size :wired)
+                              :element-type 't
+                              :count 0
+                              :name name)))
+    (setf (irq-fifo-data-available fifo)
+          (make-event :name (sys.int::cons-in-area
+                             'irq-fifo-data-available-event
+                             (sys.int::cons-in-area
+                              fifo
+                              nil
+                              :wired)
+                             :wired)))
+    fifo))
 
 (defun irq-fifo-push (value fifo)
-  "Push a byte onto FIFO. Returns true if there was space adn value was pushed successfully.
+  "Push a byte onto FIFO. Returns true if there was space and value was pushed successfully.
 If the fifo is full, then FIFO-PUSH will return false.
 Safe to use from an interrupt handler."
   (safe-without-interrupts (value fifo)
@@ -329,7 +339,8 @@ Safe to use from an interrupt handler."
         (unless (= next (irq-fifo-head fifo))
           (setf (svref (irq-fifo-buffer fifo) (irq-fifo-tail fifo)) value
                 (irq-fifo-tail fifo) next)
-          (semaphore-up (irq-fifo-count fifo))
+          (incf (irq-fifo-count fifo))
+          (setf (event-state (irq-fifo-data-available fifo)) t)
           t)))))
 
 (defun irq-fifo-pop (fifo &optional (wait-p t))
@@ -337,29 +348,37 @@ Safe to use from an interrupt handler."
 Returns two values. The first value is the value popped from the FIFO.
 The second value is true if a value was popped, false otherwise.
 It is only possible for the second value to be false when wait-p is false."
-  (when (not (semaphore-down (irq-fifo-count fifo) wait-p))
-    (return-from irq-fifo-pop
-      (values nil nil)))
-  (safe-without-interrupts (fifo)
-    (with-place-spinlock ((irq-fifo-lock fifo))
-      ;; FIFO must not be empty.
-      (ensure (not (eql (irq-fifo-head fifo) (irq-fifo-tail fifo))))
-      ;; Pop byte.
-      (let ((value (svref (irq-fifo-buffer fifo) (irq-fifo-head fifo)))
-            (next (1+ (irq-fifo-head fifo))))
-        (when (>= next (irq-fifo-size fifo))
-          (setf next 0))
-        (setf (irq-fifo-head fifo) next)
-        (values value t)))))
+  (loop
+       (multiple-value-bind (value validp)
+           (safe-without-interrupts (fifo)
+             (with-place-spinlock ((irq-fifo-lock fifo))
+               (cond ((zerop (irq-fifo-count fifo))
+                      (values nil nil))
+                     (t
+                      ;; Pop byte.
+                      (let ((value (svref (irq-fifo-buffer fifo) (irq-fifo-head fifo)))
+                            (next (1+ (irq-fifo-head fifo))))
+                        (when (>= next (irq-fifo-size fifo))
+                          (setf next 0))
+                        (setf (irq-fifo-head fifo) next)
+                        (decf (irq-fifo-count fifo))
+                        (when (zerop (irq-fifo-count fifo))
+                          (setf (event-state (irq-fifo-data-available fifo)) nil))
+                        (values value t))))))
+         (when validp
+           (return (values value t))))
+     (when (not wait-p)
+       (return (values nil nil)))
+     (event-wait (irq-fifo-data-available fifo))))
 
 (defun irq-fifo-reset (fifo)
   "Flush any waiting data."
-  (loop
-     (multiple-value-bind (value validp)
-         (irq-fifo-pop fifo nil)
-       (declare (ignore value))
-       (when (not validp)
-         (return)))))
+  (safe-without-interrupts (fifo)
+    (with-place-spinlock ((irq-fifo-lock fifo))
+      (setf (irq-fifo-head fifo) 0
+            (irq-fifo-tail fifo) 0
+            (irq-fifo-count fifo) 0)
+      (setf (event-state (irq-fifo-data-available fifo)) nil))))
 
 ;;;; WAIT-FOR-OBJECTS and the EVENT primitive.
 
