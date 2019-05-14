@@ -296,6 +296,25 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
 
 ;;;; Compatibility wrappers.
 
+(deftype sup:latch ()
+  'event)
+
+(defun sup:latch-p (object)
+  (typep object 'sup:latch))
+
+(defun sup:make-latch (&optional name)
+  (make-event :name name))
+
+(defun sup:latch-reset (latch)
+  (setf (event-state latch) nil))
+
+(defun sup:latch-wait (latch)
+  (event-wait latch)
+  (values))
+
+(defun sup:latch-trigger (latch)
+  (setf (event-state latch) t))
+
 (deftype sup:fifo ()
   'mailbox)
 

@@ -296,24 +296,6 @@ May be used from an interrupt handler."
                    ;; Failure (inverted).
                    t))))))
 
-(deftype latch () 'event)
-
-(defun latch-p (object)
-  (typep object 'event))
-
-(defun make-latch (&optional name)
-  (make-event :name name))
-
-(defun latch-reset (latch)
-  (setf (event-state latch) nil))
-
-(defun latch-wait (latch)
-  (event-wait latch)
-  (values))
-
-(defun latch-trigger (latch)
-  (setf (event-state latch) t))
-
 (defstruct (irq-fifo
              (:area :wired)
              (:constructor %make-irq-fifo))
