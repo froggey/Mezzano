@@ -112,7 +112,7 @@
   prdt-phys
   irq
   current-channel
-  (irq-latch (sup:make-latch "ATA IRQ Notifier"))
+  (irq-latch (sup:make-event :name "ATA IRQ Notifier"))
   bounce-buffer)
 
 (defstruct (ata-device
@@ -363,7 +363,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (when (not (ata-select-device controller (ata-device-channel device)))
       (sup:debug-print-line "Could not select ata device.")
       (return-from ata-issue-lba28-command nil))
-    (sup:latch-reset (ata-controller-irq-latch controller))
+    (setf (sup:event-state (ata-controller-irq-latch controller)) nil)
     ;; HI3: Write_parameters
     (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
                                  +ata-register-count+))
@@ -399,7 +399,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (when (not (ata-select-device controller (ata-device-channel device)))
       (sup:debug-print-line "Could not select ata device.")
       (return-from ata-issue-lba48-command nil))
-    (sup:latch-reset (ata-controller-irq-latch controller))
+    (setf (sup:event-state (ata-controller-irq-latch controller)) nil)
     ;; HI3: Write_parameters
     (when (eql count 65536)
       (setf count 0))
@@ -445,8 +445,8 @@ This is used to implement the Check_Status states of the various command protoco
 This is used to implement the INTRQ_Wait state."
   (declare (ignore timeout))
   ;; FIXME: Timeouts.
-  (sup:latch-wait (ata-controller-irq-latch controller))
-  (sup:latch-reset (ata-controller-irq-latch controller)))
+  (sup:event-wait (ata-controller-irq-latch controller))
+  (setf (sup:event-state (ata-controller-irq-latch controller)) nil))
 
 (defun ata-pio-data-in (device count mem-addr)
   "Implement the PIO data-in protocol."
@@ -673,7 +673,7 @@ This is used to implement the INTRQ_Wait state."
     (when (not (ata-select-device controller (atapi-device-channel device)))
       (sup:debug-print-line "Could not select ata device.")
       (return-from ata-submit-packet-command nil))
-    (sup:latch-reset (ata-controller-irq-latch controller))
+    (setf (sup:event-state (ata-controller-irq-latch controller)) nil)
     ;; HI3: Write_parameters
     (flet ((wr (reg val)
              (setf (sys.int::io-port/8 (+ command-base reg)) val)))
@@ -813,7 +813,7 @@ This is used to implement the INTRQ_Wait state."
   ;; Read the status register to clear the interrupt pending state.
   (sys.int::io-port/8 (+ (ata-controller-command controller)
                          +ata-register-status+))
-  (sup:latch-trigger (ata-controller-irq-latch controller)))
+  (setf (sup:event-state (ata-controller-irq-latch controller)) t))
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
   (declare (sys.c::closure-allocation :wired))

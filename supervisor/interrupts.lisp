@@ -310,7 +310,7 @@ RETURN-FROM/GO must not be used to leave this form."
                  (:unmasked
                   (setf (simple-irq-state simple-irq) :masked-eoi-pending)
                   (when (simple-irq-latch simple-irq)
-                    (latch-trigger (simple-irq-latch simple-irq)))
+                    (setf (event-state (simple-irq-latch simple-irq)) t))
                   (setf (event-state (simple-irq-event simple-irq)) t)
                   :accepted)))))
     (setf (simple-irq-event simple-irq) event

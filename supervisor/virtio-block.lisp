@@ -31,7 +31,7 @@
              (:area :wired))
   virtio-device
   irq-handler-function
-  (irq-latch (sup:make-latch "Virtio-Block IRQ Notifier"))
+  (irq-latch (sup:make-event :name "Virtio-Block IRQ Notifier"))
   request-phys
   request-virt)
 
@@ -76,8 +76,8 @@
           (virtio:virtio-ring-desc-flags vq stat-desc) (ash 1 virtio:+virtio-ring-desc-f-write+))
     (virtio:virtio-ring-add-to-avail-ring vq req-desc)
     (virtio:virtio-kick dev 0)
-    (sup:latch-wait (virtio-block-irq-latch device))
-    (sup:latch-reset (virtio-block-irq-latch device))
+    (sup:event-wait (virtio-block-irq-latch device))
+    (setf (sup:event-state (virtio-block-irq-latch device)) nil)
     ;; Release the descriptors.
     (virtio:virtio-ring-free-descriptor vq req-desc)
     (virtio:virtio-ring-free-descriptor vq buf-desc)
@@ -102,7 +102,7 @@
   t)
 
 (defun virtio-block-irq-handler (blk)
-  (sup:latch-trigger (virtio-block-irq-latch blk)))
+  (setf (sup:event-state (virtio-block-irq-latch blk)) t))
 
 (defun virtio::virtio-block-register (device)
   ;; Wired allocation required for the IRQ handler closure.

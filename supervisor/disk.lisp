@@ -49,7 +49,7 @@
   n-sectors
   buffer
   (lock (place-spinlock-initializer))
-  (latch (make-latch "Disk request notifier"))
+  (latch (make-event :name "Disk request notifier"))
   next)
 
 (sys.int::defglobal *disks*)
@@ -86,19 +86,19 @@
     (setf *disk-request-current* nil
           *disk-request-queue-head* nil
           *disk-request-queue-lock* (place-spinlock-initializer)
-          *disk-request-queue-latch* (make-latch "Disk request queue notifier")
+          *disk-request-queue-latch* (make-event :name "Disk request queue notifier")
           *disks* '()))
   ;; Abort any queued or in-progress requests.
   (do ((request *disk-request-queue-head* (disk-request-next request)))
       ((null request))
     (setf (disk-request-state request) :error
           (disk-request-error-reason request) :system-reinitialized)
-    (latch-trigger (disk-request-latch request)))
+    (setf (event-state (disk-request-latch request)) t))
   (setf *disk-request-queue-head* nil)
   (when *disk-request-current*
     (setf (disk-request-state *disk-request-current*) :error
           (disk-request-error-reason *disk-request-current*) :system-reinitialized)
-    (latch-trigger (disk-request-latch *disk-request-current*))
+    (setf (event-state (disk-request-latch *disk-request-current*)) t)
     (setf *disk-request-current* nil))
   ;; Clear the disk list.
   (dolist (disk *disks*)
@@ -116,8 +116,8 @@
                      *disk-request-current* req)
                (setf *disk-request-queue-head* (disk-request-next req)))
              (return req)))
-         (latch-reset *disk-request-queue-latch*)))
-     (latch-wait *disk-request-queue-latch*)))
+         (setf (event-state *disk-request-queue-latch*) nil)))
+     (event-wait *disk-request-queue-latch*)))
 
 (defun process-one-disk-request (request)
   (let* ((disk (disk-request-disk request))
@@ -214,7 +214,7 @@
                     (setf (disk-request-state request) :error
                           (disk-request-error-reason request) reason)))
              (setf *disk-request-current* nil)
-             (latch-trigger (disk-request-latch request))))))))
+             (setf (event-state (disk-request-latch request)) t)))))))
 
 (defun disk-read (disk lba n-sectors buffer)
   "Synchronously read N-SECTORS sectors of data to BUFFER from DISK at sector offset LBA.
@@ -273,15 +273,15 @@ Returns true on success; false on failure."
     (with-symbol-spinlock (*disk-request-queue-lock*)
       (with-place-spinlock ((disk-request-lock request))
         (setf (disk-request-state request) :waiting)
-        (latch-reset (disk-request-latch request))
+        (setf (event-state (disk-request-latch request)) nil)
         (cond ((disk-valid disk)
                ;; Attach to request list.
                (setf (disk-request-next request) *disk-request-queue-head*
                      *disk-request-queue-head* request)
                ;; Wake the disk thread.
-               (latch-trigger *disk-request-queue-latch*))
+               (setf (event-state *disk-request-queue-latch*) t))
               (t
-               (latch-trigger (disk-request-latch request))
+               (setf (event-state (disk-request-latch request)) t)
                (setf (disk-request-state request) :error
                      (disk-request-error-reason request) :system-reinitialized))))))
   ;; All done.
@@ -315,12 +315,12 @@ An in-progress request may be cancelled, or it may complete."
                        (setf (disk-request-next prev) (disk-request-next request))))))
           (setf (disk-request-state request) :error
                 (disk-request-error-reason request) reason)
-          (latch-trigger (disk-request-latch request)))))))
+          (setf (event-state (disk-request-latch request)) t))))))
 
 (defun disk-await-request (request)
   "Wait for REQUEST to complete. Returns true if the request succeeded; false on failure.
 Second value is the failure reason."
-  (latch-wait (disk-request-latch request))
+  (event-wait (disk-request-latch request))
   (case (disk-request-state request)
     (:complete
      t)

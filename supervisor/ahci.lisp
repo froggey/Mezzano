@@ -322,7 +322,7 @@
   command-list
   received-fis
   command-table
-  (irq-latch (sup:make-latch "AHCI Port IRQ Notifier"))
+  (irq-latch (sup:make-event :name "AHCI Port IRQ Notifier"))
   atapi-p
   cdb-size
   lba48-capable
@@ -664,11 +664,11 @@
           (ahci-fis ahci port +sata-register-command-register-update-field+) (ash 1 +sata-register-command-register-update-bit+)
           (ahci-fis ahci port +sata-register-command+) command)
     ;; Reset latch before starting the command.
-    (sup:latch-reset irq-latch)
+    (setf (sup:event-state irq-latch) nil)
     ;; Start command 1.
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
-    (sup:latch-wait irq-latch)))
+    (sup:event-wait irq-latch)))
 
 (defun ahci-initialize-port (ahci port)
   ;; Disable Command List processing and FIS RX.
@@ -769,7 +769,7 @@
       (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)
       ;; Need to do something with error interrupts here as well.
       ;; Wake sleepers.
-      (sup:latch-trigger (ahci-port-irq-latch (ahci-port ahci port))))))
+      (setf (sup:event-state (ahci-port-irq-latch (ahci-port ahci port))) t))))
 
 (defun ahci-irq-handler (ahci)
   (let ((pending (ahci-global-register ahci +ahci-register-IS+))
