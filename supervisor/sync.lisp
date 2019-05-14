@@ -469,6 +469,7 @@ It is only possible for the second value to be false when wait-p is false."
 ;;;; WAIT-FOR-OBJECTS and the EVENT primitive.
 
 (defstruct (wfo
+             (:constructor %make-wfo)
              (:include wait-queue)
              (:area :wired))
   objects
@@ -477,6 +478,90 @@ It is only possible for the second value to be false when wait-p is false."
 
 (sys.int::defglobal *big-wait-for-objects-lock*
     (place-spinlock-initializer))
+
+;; Object pools are used for WFO structures and the wired cons cells
+;; used to form the events & links lists. This is to reduce allocation
+;; in the wired area which is very slow, and GCing the wired area requires
+;; a full GC cycle.
+(sys.int::defglobal *wfo-pool-lock* (make-mutex "WFO pool"))
+(sys.int::defglobal *wfo-pool-hit-count* 0)
+(sys.int::defglobal *wfo-pool-miss-count* 0)
+
+(sys.int::defglobal *wfo-cons-pool* '())
+(sys.int::defglobal *wfo-cons-pool-size* 0)
+(sys.int::defglobal *wfo-cons-pool-limit* 1000)
+
+(defun wfo-cons (car cdr)
+  ;; Structured so that CONS-IN-AREA isn't called inside the pool lock.
+  (flet ((pop-pool ()
+           (with-mutex (*wfo-pool-lock*)
+             (let ((cons *wfo-cons-pool*))
+               (cond (cons
+                      (setf *wfo-cons-pool* (cdr cons))
+                      (decf *wfo-cons-pool-size*)
+                      (setf (car cons) car
+                            (cdr cons) cdr)
+                      (incf *wfo-pool-hit-count*)
+                      cons)
+                     (t
+                      (incf *wfo-pool-miss-count*)
+                      nil))))))
+    (or (pop-pool)
+        (sys.int::cons-in-area car cdr :wired))))
+
+(defun wfo-uncons (cons)
+  (with-mutex (*wfo-pool-lock*)
+    (when (< *wfo-cons-pool-size* *wfo-cons-pool-limit*)
+      (incf *wfo-cons-pool-size*)
+      (setf (car cons) nil ; don't leak objects!
+            (cdr cons) *wfo-cons-pool*)
+      (setf *wfo-cons-pool* cons))))
+
+(defun wfo-uncons-list (list)
+  "Like WFO-UNCONS, but unconses the entire spine of LIST."
+  (with-mutex (*wfo-pool-lock*)
+    (loop
+       (when (or (null list)
+                 (>= *wfo-cons-pool-size* *wfo-cons-pool-limit*))
+         (return))
+       (let ((cons list))
+         (setf list (cdr cons))
+         (incf *wfo-cons-pool-size*)
+         (setf (car cons) nil ; don't leak objects!
+               (cdr cons) *wfo-cons-pool*)
+         (setf *wfo-cons-pool* cons)))))
+
+(sys.int::defglobal *wfo-pool* '())
+(sys.int::defglobal *wfo-pool-size* 0)
+(sys.int::defglobal *wfo-pool-limit* 1000)
+
+(defun make-wfo (&key objects events)
+  ;; Structured so that %MAKE-WFO isn't called inside the pool lock.
+  (flet ((pop-pool ()
+           (with-mutex (*wfo-pool-lock*)
+             (let ((wfo *wfo-pool*))
+               (cond (wfo
+                      (setf *wfo-pool* (wfo-links wfo))
+                      (decf *wfo-pool-size*)
+                      (setf (wfo-objects wfo) objects
+                            (wfo-events wfo) events
+                            (wfo-links wfo) nil)
+                      (incf *wfo-pool-hit-count*)
+                      wfo)
+                     (t
+                      (incf *wfo-pool-miss-count*)
+                      nil))))))
+    (or (pop-pool)
+        (%make-wfo :objects objects :events events))))
+
+(defun unmake-wfo (wfo)
+  (with-mutex (*wfo-pool-lock*)
+    (when (< *wfo-pool-size* *wfo-pool-limit*)
+      (incf *wfo-pool-size*)
+      (setf (wfo-objects wfo) nil ; don't leak objects!
+            (wfo-events wfo) nil
+            (wfo-links wfo) *wfo-pool*)
+      (setf *wfo-pool* wfo))))
 
 (defun wfo-wait-1 (sp fp wfo)
   (acquire-place-spinlock *big-wait-for-objects-lock*)
@@ -588,7 +673,7 @@ It is only possible for the second value to be false when wait-p is false."
                      (event object)
                      (timer (timer-event object))
                      (t (get-object-event object)))))
-        (setf (cdr tail) (sys.int::cons-in-area event nil :wired)
+        (setf (cdr tail) (wfo-cons event nil)
               tail (cdr tail))))
     (cdr head)))
 
@@ -600,16 +685,23 @@ It is only possible for the second value to be false when wait-p is false."
     ;; Allocate links for each event.
     (dolist (evt events)
       (declare (ignore evt))
-      (setf (wfo-links wfo) (sys.int::cons-in-area wfo (wfo-links wfo) :wired)))
+      (setf (wfo-links wfo) (wfo-cons wfo (wfo-links wfo))))
     ;; Wait & convert completed events back to objects
-    (loop
-       for evt in (wfo-wait wfo)
-       collect (loop
-                  for input-object in objects
-                  for input-event in events
-                  when (eql evt input-event)
-                  do (return input-object)
-                  finally (error "Impossible? Can't convert event back to object")))))
+    (let* ((completed (wfo-wait wfo))
+           (completed-objects (loop
+                                 for evt in completed
+                                 collect (loop
+                                            for input-object in objects
+                                            for input-event in events
+                                            when (eql evt input-event)
+                                            do (return input-object)
+                                            finally (error "Impossible? Can't convert event back to object")))))
+      ;; Make sure to release links back to the pool
+      (wfo-uncons-list completed)
+      (wfo-uncons-list events)
+      (wfo-uncons-list (wfo-links wfo))
+      (unmake-wfo wfo)
+      completed-objects)))
 
 (defstruct (event
              (:constructor %make-event (name %state))
