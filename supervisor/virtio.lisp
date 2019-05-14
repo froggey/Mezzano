@@ -502,7 +502,6 @@
 (defun virtio-driver-detached (dev)
   "Call when a driver is done with a device."
   (setf (virtio-device-claimed dev) nil)
-  (sup:with-pseudo-atomic ()
-    (when (eql (virtio-device-boot-id dev) (sup:current-boot-id))
-      ;; TODO: Maybe reprobe the device?
-      (setf (virtio-device-status dev) +virtio-status-failed+))))
+  (sup:with-device-access ((virtio-device-boot-id dev) nil)
+    ;; TODO: Maybe reprobe the device?
+    (setf (virtio-device-status dev) +virtio-status-failed+)))

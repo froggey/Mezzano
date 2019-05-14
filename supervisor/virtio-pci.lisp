@@ -369,7 +369,7 @@
                       :header legacy-header
                       :transport 'virtio-legacy-pci-transport
                       :did (pci:pci-config/16 location pci:+pci-config-subdeviceid+)
-                      :boot-id (sup:current-boot-id))))
+                      :boot-id (pci:pci-device-boot-id location))))
            ;; Enable PCI bus master bit, just in case it wasn't set and
            ;; the emulator is really picky.
            (setf (pci:pci-bus-master-enabled location) t)
@@ -391,7 +391,7 @@
                       :notify-off-multiplier (virtio-pci-read-notify-off-multiplier location)
                       :transport 'virtio-pci-transport
                       :did (- (pci:pci-config/16 location pci:+pci-config-deviceid+) #x1040)
-                      :boot-id (sup:current-boot-id))))
+                      :boot-id (pci:pci-device-boot-id location))))
            (dump-virtio-pci-device dev)
            ;; Enable PCI bus master bit, just in case it wasn't set and
            ;; the emulator is really picky.

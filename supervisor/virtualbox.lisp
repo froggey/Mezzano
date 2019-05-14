@@ -203,21 +203,20 @@
 (sys.int::defglobal *virtualbox-graphics-fb-address* nil)
 
 (defun pci::virtualbox-graphics-register (device)
-  (setf *virtualbox-graphics-boot-id* (sup:current-boot-id)
+  (setf *virtualbox-graphics-boot-id* (pci:pci-device-boot-id device)
         *virtualbox-graphics-fb-address* (logand (pci:pci-bar device 0)
                                                  #xFFFFF000))
   :virtualbox-graphics)
 
 (defun virtualbox-graphics-update-framebuffer ()
-  (sup:with-snapshot-inhibited ()
-    (when (eql *virtualbox-graphics-boot-id* (sup:current-boot-id))
-      (sup:map-physical-memory *virtualbox-graphics-fb-address*
-                               (sup::align-up
-                                (* *vbox-screen-xres* *vbox-screen-yres* 4)
-                                #x1000)
-                           "Framebuffer")
-      (sup::video-set-framebuffer *virtualbox-graphics-fb-address*
-                                  *vbox-screen-xres*
-                                  *vbox-screen-yres*
-                                  (* *vbox-screen-xres* 4)
-                                  :x8r8g8b8))))
+  (sup:with-device-access (*virtualbox-graphics-boot-id* nil)
+    (sup:map-physical-memory *virtualbox-graphics-fb-address*
+                             (sup::align-up
+                              (* *vbox-screen-xres* *vbox-screen-yres* 4)
+                              #x1000)
+                             "Framebuffer")
+    (sup::video-set-framebuffer *virtualbox-graphics-fb-address*
+                                *vbox-screen-xres*
+                                *vbox-screen-yres*
+                                (* *vbox-screen-xres* 4)
+                                :x8r8g8b8)))
