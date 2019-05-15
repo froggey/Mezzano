@@ -125,7 +125,7 @@
                        for start-time = (/ (get-internal-real-time) internal-time-units-per-second)
                        for lerp-time from 0.0 by (* (/ time) step-size) to 1.0
                        do
-                         (setf comp:*postprocess-matrix* (lerp-matrix current-matrix target-matrix lerp-time))
+                         (setf (comp:postprocess-matrix) (lerp-matrix current-matrix target-matrix lerp-time))
                          (ignore-errors
                            (multiple-value-bind (cur-x cur-y)
                                (sys.int::stream-cursor-pos *terminal-io*)
@@ -135,7 +135,7 @@
                              (sys.int::stream-move-to *terminal-io*
                                                       start-x start-y))
                            (let ((*standard-output* *terminal-io*))
-                             (print-matrix comp:*postprocess-matrix*)))
+                             (print-matrix (comp:postprocess-matrix))))
                          (let* ((end-time (/ (get-internal-real-time) internal-time-units-per-second))
                                 (run-time (- end-time start-time)))
                            (sleep (max 0.0 (- step-size run-time)))))
@@ -169,5 +169,5 @@
                                               cur-x cur-y)
                (sys.int::stream-move-to *terminal-io*
                                         start-x start-y)))))
-    (setf comp:*postprocess-matrix* nil))
+    (setf (comp:postprocess-matrix) nil))
   (values))

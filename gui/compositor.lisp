@@ -1053,6 +1053,15 @@ Only works when the window is active."
 (defvar *postprocess-matrix* nil)
 (defvar *prev-postprocess-matrix* nil)
 
+(defun postprocess-matrix ()
+  *postprocess-matrix*)
+
+(defun (setf postprocess-matrix) (matrix)
+  (check-type matrix (or null colour-matrix))
+  (setf *postprocess-matrix* matrix)
+  (force-redisplay t)
+  matrix)
+
 (defun postprocess-screen (clip-x clip-y clip-w clip-h)
   (bitblt *postprocess-matrix* ; matrix mode
           clip-w clip-h
