@@ -374,6 +374,7 @@
            #:framebuffer-width
            #:framebuffer-height
            #:framebuffer-device
+           #:framebuffer-boot-id
            #:safe-sleep
            #:read-rtc-time
            #:all-disks

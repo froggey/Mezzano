@@ -18,7 +18,8 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
   damage-fn
   blit-fn
   fill-fn
-  device)
+  device
+  boot-id)
 
 (sys.int::defglobal *current-framebuffer* nil)
 (sys.int::defglobal *debug-video-x* 0)
@@ -66,7 +67,8 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
                                                                  'framebuffer-dummy-damage)
                                                   :device device
                                                   :blit-fn blit-fn
-                                                  :fill-fn fill-fn)))
+                                                  :fill-fn fill-fn
+                                                  :boot-id (current-boot-id))))
   (set-run-light t)
   (setf *debug-video-x* 0
         *debug-video-y* 0
