@@ -15,14 +15,13 @@
         (t x)))
 
 (defvar *compositor* nil "Compositor thread.")
-(defvar *compositor-heartbeat* nil "Compositor heartbeat thread. Drives redisplay.")
 (defvar *compositor-debug-enable* nil)
 
-(defvar *event-queue* (mezzano.supervisor:make-fifo 50)
+(defvar *event-queue* (mezzano.sync:make-mailbox :name 'compositor-event-queue)
   "Internal FIFO used to submit events to the compositor.")
 
 (defun submit-compositor-event (event)
-  (mezzano.supervisor:fifo-push event *event-queue*))
+  (mezzano.sync:mailbox-send event *event-queue*))
 
 (defclass window ()
   ((%x :initarg :x :accessor window-x)
@@ -918,16 +917,16 @@ Only works when the window is active."
 
 (defvar *redisplay-pending* nil)
 
-(defclass redisplay-time-event (event)
-  ((%fullp :initarg :full :reader redisplay-time-event-fullp))
+(defclass redisplay-event (event)
+  ((%fullp :initarg :full :reader redisplay-event-fullp))
   (:default-initargs :full nil))
 
-(defmethod process-event ((event redisplay-time-event))
+(defmethod process-event ((event redisplay-event))
   (when (not (eql *redisplay-pending* :full))
-    (setf *redisplay-pending* (if (redisplay-time-event-fullp event) :full t))))
+    (setf *redisplay-pending* (if (redisplay-event-fullp event) :full t))))
 
 (defun force-redisplay (&optional full)
-  (submit-compositor-event (make-instance 'redisplay-time-event :full full)))
+  (submit-compositor-event (make-instance 'redisplay-event :full full)))
 
 ;;;; Notifications.
 
@@ -1135,6 +1134,17 @@ Only works when the window is active."
         *clip-rect-width* 0
         *clip-rect-height* 0))
 
+(defvar *compositor-update-interval* 1/60)
+(defparameter *last-frame-timestamp* 0)
+(defparameter *screensaver-spawn-function* nil)
+(defparameter *screensaver-time* (* 1 60))
+
+(defun screen-dirty-p ()
+  (or (and (not (zerop *clip-rect-width*))
+           (not (zerop *clip-rect-height*)))
+      ;; Changing the postprocess matrix implies redrawing the screen.
+      (not (eql *prev-postprocess-matrix* *postprocess-matrix*))))
+
 (defun compositor-thread-body ()
   (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
     ;; Framebuffer changed. Rebuild the screen.
@@ -1142,7 +1152,7 @@ Only works when the window is active."
           *screen-backbuffer* (mezzano.gui:make-surface
                                (mezzano.supervisor:framebuffer-width *main-screen*)
                                (mezzano.supervisor:framebuffer-height *main-screen*)))
-    (recompose-windows t)
+    (setf *redisplay-pending* :full)
     (broadcast-notification :screen-geometry
                             (make-instance 'screen-geometry-update
                                            :width (mezzano.supervisor:framebuffer-width *main-screen*)
@@ -1151,28 +1161,14 @@ Only works when the window is active."
   ;; This folds multiple redisplay events into a single screen update,
   ;; preventing other events from being held up by slow redisplays.
   (loop
-       (multiple-value-bind (event validp)
-           (mezzano.supervisor:fifo-pop *event-queue* nil)
-         (when (not validp)
-           (return))
-         (sys.int::log-and-ignore-errors
-          (process-event event))))
-  (when *redisplay-pending*
-    (recompose-windows (eql *redisplay-pending* :full))
-    (setf *redisplay-pending* nil))
-  ;; Block waiting for the next event.
-  (sys.int::log-and-ignore-errors
-   (process-event (mezzano.supervisor:fifo-pop *event-queue*))))
-
-(defun compositor-thread ()
-  (loop (compositor-thread-body)))
-
-(defvar *compositor-update-interval* 1/60)
-(defparameter *screensaver-spawn-function* nil)
-(defparameter *screensaver-time* (* 1 60))
-
-(defun compositor-heartbeat-thread-body ()
-  (sleep *compositor-update-interval*)
+     (multiple-value-bind (event validp)
+         (mezzano.sync:mailbox-receive *event-queue* :wait-p nil)
+       (when (not validp)
+         (return))
+       (sys.int::log-and-ignore-errors
+         (process-event event))))
+  ;; FIXME: reimplement the screensaver stuff. tricky bit is not spawing the screen saver over and over.
+  #+(or)
   (when *screensaver-spawn-function*
     (let ((old-idle *idle-time*))
       (incf *idle-time* *compositor-update-interval*)
@@ -1180,21 +1176,31 @@ Only works when the window is active."
                  (>= *idle-time* *screensaver-time*))
         (ignore-errors
           (funcall *screensaver-spawn-function*)))))
-  ;; Redisplay only when the system framebuffer changes or when there's
-  ;; nonempty clip rect.
-  (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
-            (and (not (zerop *clip-rect-width*))
-                 (not (zerop *clip-rect-height*)))
-            (not (eql *prev-postprocess-matrix* *postprocess-matrix*)))
-    (submit-compositor-event (make-instance 'redisplay-time-event))))
+  (when (or *redisplay-pending*
+            (and (screen-dirty-p)
+                 (>= (- (get-internal-run-time) *last-frame-timestamp*)
+                     (* *compositor-update-interval* internal-time-units-per-second))))
+    (setf *last-frame-timestamp* (get-internal-run-time))
+    (recompose-windows (eql *redisplay-pending* :full))
+    (setf *redisplay-pending* nil))
+  (cond ((screen-dirty-p)
+         ;; Only bother arming the frame timer if there's outstanding stuff to draw.
+         (mezzano.supervisor:with-timer (frame-timer
+                                         ;; Use an absolute time since the last frame instead of a
+                                         ;; relative time to try to get a more consistent frame rate.
+                                         :absolute (+ *last-frame-timestamp*
+                                                       (truncate
+                                                        (* *compositor-update-interval* internal-time-units-per-second))))
+           (mezzano.sync:wait-for-objects frame-timer
+                                          *event-queue*
+                                          (mezzano.supervisor:framebuffer-boot-id *main-screen*))))
+        (t
+         (mezzano.sync:wait-for-objects *event-queue*
+                                         (mezzano.supervisor:framebuffer-boot-id *main-screen*)))))
 
-(defun compositor-heartbeat-thread ()
-  (loop (compositor-heartbeat-thread-body)))
+(defun compositor-thread ()
+  (loop (compositor-thread-body)))
 
 (when (not *compositor*)
   (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
                                                      :name "Compositor")))
-
-(when (not *compositor-heartbeat*)
-  (setf *compositor-heartbeat* (mezzano.supervisor:make-thread 'compositor-heartbeat-thread
-                                                               :name "Compositor Heartbeat")))
