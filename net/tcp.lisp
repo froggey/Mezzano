@@ -453,18 +453,18 @@
       ;; FIXME: Better timeout mechanism.
       (let ((timeout (+ (get-universal-time) *tcp-connect-timeout*)))
         (loop
-           (when (not (eql (tcp-connection-state connection) :syn-sent))
-             (when (eql (tcp-connection-state connection) :connection-aborted)
-               (error 'connection-aborted
-                      :host ip
-                      :port port))
-             (return))
-           (when (> (get-universal-time) timeout)
-             (close-tcp-connection connection)
-             (error 'connection-timed-out
-                    :host ip
-                    :port port))
-           (sleep 0.01)))
+          (when (not (eql (tcp-connection-state connection) :syn-sent))
+            (when (eql (tcp-connection-state connection) :connection-aborted)
+              (error 'connection-aborted
+                     :host ip
+                     :port port))
+            (return))
+          (when (> (get-universal-time) timeout)
+            (close-tcp-connection connection)
+            (error 'connection-timed-out
+                   :host ip
+                   :port port))
+          (sleep 0.01)))
       connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
