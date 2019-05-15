@@ -277,4 +277,5 @@ Will wait forever if TIMER has not been armed."
 (defun sleep (seconds)
   (check-type seconds (real 0))
   (with-timer (timer :relative seconds)
-    (timer-wait timer)))
+    (timer-wait timer))
+  nil)
