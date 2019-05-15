@@ -119,6 +119,9 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~A" (sup:irq-fifo-name object))))
 
+(defmethod get-object-event ((object sup:thread))
+  (sup::thread-join-event object))
+
 ;;;; Semaphore.
 
 (defclass semaphore ()

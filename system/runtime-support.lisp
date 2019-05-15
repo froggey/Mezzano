@@ -171,6 +171,10 @@
           (values (second name) '%setf-compiler-macro-function))
     (setf (get sym indicator) value)))
 
+(defun list-in-area (area &rest args)
+  (declare (dynamic-extent args))
+  (copy-list-in-area args area))
+
 (defun list (&rest args)
   args)
 

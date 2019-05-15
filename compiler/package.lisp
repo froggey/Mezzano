@@ -287,6 +287,7 @@
            #:without-footholds
            #:establish-thread-foothold
            #:terminate-thread
+           #:thread-join
            #:mutex
            #:mutex-p
            #:make-mutex

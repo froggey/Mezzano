@@ -104,6 +104,8 @@
   unsleep-helper
   ;; Argument for the unsleep helper.
   unsleep-helper-argument
+  ;; Event indicating when the thread has died.
+  join-event
   ;; Slots used as part of the multiple-value return convention.
   ;; These contain lisp values, but need to be scanned specially by the GC,
   ;; which is why they have type UB64 instead of T.
@@ -391,7 +393,8 @@ Interrupts must be off and the global thread lock must be held."
          (stack (%allocate-stack stack-size)))
     (setf (thread-stack thread) stack
           (thread-self thread) thread
-          (thread-priority thread) priority)
+          (thread-priority thread) priority
+          (thread-join-event thread) (make-event :name thread))
     ;; Perform initial bindings.
     (when initial-bindings
       (let ((symbols (mapcar #'first initial-bindings))
@@ -442,25 +445,27 @@ Interrupts must be off and the global thread lock must be held."
 ;; It sets up the top-level catch for 'terminate-thread, and deals with cleaning
 ;; up when the thread exits (either by normal return or by a throw to terminate-thread).
 (defun thread-entry-trampoline (function)
-  (unwind-protect
-       (catch 'terminate-thread
-         ;; Footholds in a new thread are inhibited until the terminate-thread
-         ;; catch block is established, to guarantee that it's always available.
-         (let ((thread (current-thread)))
-           (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
-           (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
-             (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
-               (funcall fh))))
-         (funcall function))
-    ;; Cleanup, terminate the thread.
-    (thread-final-cleanup)))
+  (let ((return-values 'terminate-thread))
+    (unwind-protect
+         (catch 'terminate-thread
+           ;; Footholds in a new thread are inhibited until the terminate-thread
+           ;; catch block is established, to guarantee that it's always available.
+           (let ((thread (current-thread)))
+             (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
+             (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
+               (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
+                 (funcall fh))))
+           (setf return-vaues (multiple-value-list (funcall function))))
+      ;; Cleanup, terminate the thread.
+      (thread-final-cleanup return-values))))
 
 ;; This is seperate from thread-entry-trampoline so steppers can detect it.
-(defun thread-final-cleanup ()
-  (%run-on-wired-stack-without-interrupts (sp fp)
+(defun thread-final-cleanup (return-values)
+  (%run-on-wired-stack-without-interrupts (sp fp return-values)
     (let ((self (current-thread)))
       (acquire-global-thread-lock)
       (setf (thread-state self) :dead)
+      (setf (event-state (thread-join-event self)) (or return-values :no-values))
       ;; Remove thread from the global list.
       (when (thread-global-next self)
         (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
@@ -469,6 +474,25 @@ Interrupts must be off and the global thread lock must be held."
       (when (eql self *all-threads*)
         (setf *all-threads* (thread-global-next self)))
       (%reschedule-via-wired-stack sp fp))))
+
+(defun thread-join (thread &optional (wait-p t))
+  "Wait for THREAD to exit.
+If the thread has exited, then the first value returned will
+be either a list of values returned by the thread's initial function
+or 'TERMINATE-THREAD if the thread exited due to a throw to 'TERMINATE-THREAD.
+The second value will be true if the thread has exited or false if it has
+not and WAIT-P is false."
+  (when wait-p
+    (event-wait (thread-join-event thread)))
+  (let ((values (event-state (thread-join-event thread))))
+    (cond ((null values)
+           ;; Not yet exited.
+           (values nil nil))
+          ((eql values :no-values)
+           ;; Returned no values but event-state can't represent that as an empty list.
+           (values '() t))
+          (t
+           (values values t)))))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
