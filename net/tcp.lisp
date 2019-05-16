@@ -65,9 +65,9 @@
    (cvar :accessor tcp-connection-cvar :initarg :cvar))
   (:default-initargs
    :max-seg-size 1000
-    :lock (mezzano.supervisor:make-mutex "TCP connection lock")
-    :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")
-    :rx-data '()))
+   :lock (mezzano.supervisor:make-mutex "TCP connection lock")
+   :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")
+   :rx-data '()))
 
 (declaim (inline tcp-connection-state (setf tcp-connection-state)))
 
@@ -75,7 +75,7 @@
   (tcp-connection-%state connection))
 
 (defun (setf tcp-connection-state) (value connection)
-  ;(format t "~S ~S => ~S~%" connection (tcp-connection-%state connection) value)
+  ;; (format t "~S ~S => ~S~%" connection (tcp-connection-%state connection) value)
   (setf (tcp-connection-%state connection) value))
 
 (defmacro with-tcp-connection-locked (connection &body body)
@@ -113,28 +113,27 @@
                      (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))))
          (connection (get-tcp-connection remote-ip remote-port local-ip local-port))
          (listener (get-tcp-listener local-ip local-port)))
-    (cond
-      (connection
-       (tcp4-receive connection packet start end))
-      ((and listener (eql flags +tcp4-flag-syn+))
-       (let ((connection (make-instance 'tcp-connection
-                                        :%state :listen
-                                        :local-port local-port
-                                        :local-ip local-ip
-                                        :remote-port remote-port
-                                        :remote-ip remote-ip
-                                        :s-next 0
-                                        :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
-                                        :window-size 8192)))
-         (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-           (push connection (tcp-listener-connection listener))
-           (mezzano.supervisor:condition-notify (tcp-listener-cvar listener)))
-         (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-           (push connection *tcp-connections*))))
-      ((eql flags +tcp4-flag-syn+)
-       (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
-      (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
-                 (subseq packet start end))))))
+    (cond (connection
+           (tcp4-receive connection packet start end))
+          ((and listener (eql flags +tcp4-flag-syn+))
+           (let ((connection (make-instance 'tcp-connection
+                                            :%state :listen
+                                            :local-port local-port
+                                            :local-ip local-ip
+                                            :remote-port remote-port
+                                            :remote-ip remote-ip
+                                            :s-next 0
+                                            :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
+                                            :window-size 8192)))
+             (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
+               (push connection (tcp-listener-connection listener))
+               (mezzano.supervisor:condition-notify (tcp-listener-cvar listener)))
+             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (push connection *tcp-connections*))))
+          ((eql flags +tcp4-flag-syn+)
+           (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
+          (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
+                     (subseq packet start end))))))
 
 (defun tcp4-accept-connection (connection)
   (let* ((seq (random #x100000000))
@@ -162,19 +161,43 @@
                                     :window-size 8192)))
     (let ((server (assoc local-port *server-alist*)))
       (cond (server
-             (format t "Establishing TCP connection. l ~D  r ~D  from ~X to server ~S.~%" local-port remote-port remote-ip (second server))
+             (format t "Establishing TCP connection. l ~D  r ~D  from ~X to server ~S.~%"
+                     local-port remote-port remote-ip (second server))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
              (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                :ack-p t :syn-p t)
              (funcall (second server) connection))
             (t
-             (format t "Ignoring  TCP connection attempt, no server. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip))))))
+             (format t "Ignoring  TCP connection attempt, no server. l ~D  r ~D  from ~X.~%"
+                     local-port remote-port remote-ip))))))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*)))
   (setf *allocated-tcp-ports* (remove (tcp-connection-local-port connection) *allocated-tcp-ports*)))
+
+(defun tcp4-receive-data (connection data-length end header-length packet seq start state)
+  (when (= seq (tcp-connection-r-next connection))
+    ;; Send data to the user layer
+    (if (tcp-connection-rx-data connection)
+        (setf (cdr (last (tcp-connection-rx-data connection)))
+              (list (list packet (+ start header-length) end)))
+        (setf (tcp-connection-rx-data connection)
+              (list (list packet (+ start header-length) end))))
+    (setf (tcp-connection-r-next connection)
+          (logand (+ (tcp-connection-r-next connection) data-length)
+                  #xFFFFFFFF)))
+  (cond ((<= seq (tcp-connection-r-next connection))
+         (tcp4-send-packet connection
+                           (tcp-connection-s-next connection)
+                           (tcp-connection-r-next connection)
+                           nil
+                           :ack-p t))
+        ;; Ignore future out-of-order packets, should be managed instead.
+        (t (format t "TCP state ~s. ~
+                      Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
+                   state seq (tcp-connection-r-next connection)))))
 
 (defun tcp4-receive (connection packet &optional (start 0) end)
   (unless end (setf end (length packet)))
@@ -225,35 +248,15 @@
                 (detach-tcp-connection connection))))
         (:established
          (if (zerop data-length)
-             (when (= seq (tcp-connection-r-next connection))
-               (cond ((logtest flags +tcp4-flag-fin+)
-                      ;; Remote have sended FIN and waiting for ACK
-                      (setf (tcp-connection-state connection) :close-wait
-                            (tcp-connection-r-next connection)
-                            (logand (+ (tcp-connection-r-next connection) 1)
-                                    #xFFFFFFFF))
-                      (tcp4-send-packet connection ack seq nil :ack-p t))))
-             (progn
-               (when (= seq (tcp-connection-r-next connection))
-                 ;; Send data to the user layer
-                 (if (tcp-connection-rx-data connection)
-                     (setf (cdr (last (tcp-connection-rx-data connection)))
-                           (list (list packet (+ start header-length) end)))
-                     (setf (tcp-connection-rx-data connection)
-                           (list (list packet (+ start header-length) end))))
-                 (setf (tcp-connection-r-next connection)
-                       (logand (+ (tcp-connection-r-next connection) data-length)
-                               #xFFFFFFFF)))
-               (cond ((<= seq (tcp-connection-r-next connection))
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil
-                                        :ack-p t))
-                     ;; Ignore future out-of-order packets, should be managed instead.
-                     (t (format t "TCP state :established. ~
-                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
-                                seq (tcp-connection-r-next connection)))))))
+             (when (and (= seq (tcp-connection-r-next connection))
+                        (logtest flags +tcp4-flag-fin+))
+               ;; Remote have sended FIN and waiting for ACK
+               (setf (tcp-connection-state connection) :close-wait
+                     (tcp-connection-r-next connection)
+                     (logand (+ (tcp-connection-r-next connection) 1)
+                             #xFFFFFFFF))
+               (tcp4-send-packet connection ack seq nil :ack-p t))
+             (tcp4-receive-data connection data-length end header-length packet seq start :established)))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
@@ -266,49 +269,24 @@
          ;; Local closed, waiting for remote to close.
          (if (zerop data-length)
              (when (= seq (tcp-connection-r-next connection))
-               (when (logtest flags +tcp4-flag-fin+)
-                 (setf (tcp-connection-r-next connection)
-                       (logand (+ (tcp-connection-r-next connection) 1)
-                               #xFFFFFFFF)))
-               (cond ((and (logtest flags +tcp4-flag-ack+)
-                           (logtest flags +tcp4-flag-fin+))
-                      ;; Remote saw our FIN and closed as well.
+               (cond ((logtest flags +tcp4-flag-fin+)
+                      (setf (tcp-connection-r-next connection)
+                            (logand (+ (tcp-connection-r-next connection) 1)
+                                    #xFFFFFFFF))
                       (tcp4-send-packet connection
                                         (tcp-connection-s-next connection)
                                         (tcp-connection-r-next connection)
                                         nil)
-                      (setf (tcp-connection-state connection) :closed)
-                      (detach-tcp-connection connection))
-                     ((logtest flags +tcp4-flag-fin+)
-                      ;; Simultaneous close
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil)
-                      (setf (tcp-connection-state connection) :closing))
+                      (if (logtest flags +tcp4-flag-ack+)
+                          ;; Remote saw our FIN and closed as well.
+                          (progn
+                            (setf (tcp-connection-state connection) :closed)
+                            (detach-tcp-connection connection))
+                          ;; Simultaneous close
+                          (setf (tcp-connection-state connection) :closing)))
                      ((logtest flags +tcp4-flag-ack+)
                       (setf (tcp-connection-state connection) :fin-wait-2))))
-             (progn
-               (when (= seq (tcp-connection-r-next connection))
-                 ;; Send data to the user layer
-                 (if (tcp-connection-rx-data connection)
-                     (setf (cdr (last (tcp-connection-rx-data connection)))
-                           (list (list packet (+ start header-length) end)))
-                     (setf (tcp-connection-rx-data connection)
-                           (list (list packet (+ start header-length) end))))
-                 (setf (tcp-connection-r-next connection)
-                       (logand (+ (tcp-connection-r-next connection) data-length)
-                               #xFFFFFFFF)))
-               (cond ((<= seq (tcp-connection-r-next connection))
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil
-                                        :ack-p t))
-                     ;; Ignore future out-of-order packets, should be managed instead.
-                     (t (format t "TCP state :fin-wait-1. ~
-                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
-                                seq (tcp-connection-r-next connection)))))))
+             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-1)))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (if (zerop data-length)
@@ -324,36 +302,13 @@
                                  nil)
                (setf (tcp-connection-state connection) :closed)
                (detach-tcp-connection connection))
-             (progn
-               (when (= seq (tcp-connection-r-next connection))
-                 ;; Send data to the user layer
-                 (if (tcp-connection-rx-data connection)
-                     (setf (cdr (last (tcp-connection-rx-data connection)))
-                           (list (list packet (+ start header-length) end)))
-                     (setf (tcp-connection-rx-data connection)
-                           (list (list packet (+ start header-length) end))))
-                 (setf (tcp-connection-r-next connection)
-                       (logand (+ (tcp-connection-r-next connection) data-length)
-                               #xFFFFFFFF)))
-               (cond ((<= seq (tcp-connection-r-next connection))
-                      (tcp4-send-packet connection
-                                        (tcp-connection-s-next connection)
-                                        (tcp-connection-r-next connection)
-                                        nil
-                                        :ack-p t))
-                     ;; Ignore future out-of-order packets, should be managed instead.
-                     (t (format t "TCP state :fin-wait-2. ~
-                                   Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
-                                seq (tcp-connection-r-next connection)))))))
+             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-2)))
         (:closing
-         (cond ((eql seq (tcp-connection-r-next connection))
-                (when (logtest flags +tcp4-flag-ack+)
-                  (detach-tcp-connection connection)
-                  (setf (tcp-connection-state connection) :closed)))
-               (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
-                (format t "TCP state :closing. ~
-                           Ignoring packet with sequence number ~D, wanted ~D.~%"
-                        seq (tcp-connection-r-next connection)))))
+         ;; Waiting for ACK
+         (when (and (eql seq (tcp-connection-r-next connection))
+                    (logtest flags +tcp4-flag-ack+))
+           (detach-tcp-connection connection)
+           (setf (tcp-connection-state connection) :closed)))
         (t (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
            (detach-tcp-connection connection)
            (setf (tcp-connection-state connection) :closed))))
@@ -498,44 +453,43 @@
       ;; FIXME: Better timeout mechanism.
       (let ((timeout (+ (get-universal-time) *tcp-connect-timeout*)))
         (loop
-           (when (not (eql (tcp-connection-state connection) :syn-sent))
-             (when (eql (tcp-connection-state connection) :connection-aborted)
-               (error 'connection-aborted
-                      :host ip
-                      :port port))
-             (return))
-           (when (> (get-universal-time) timeout)
-             (close-tcp-connection connection)
-             (error 'connection-timed-out
-                    :host ip
-                    :port port))
-           (sleep 0.01)))
+          (when (not (eql (tcp-connection-state connection) :syn-sent))
+            (when (eql (tcp-connection-state connection) :connection-aborted)
+              (error 'connection-aborted
+                     :host ip
+                     :port port))
+            (return))
+          (when (> (get-universal-time) timeout)
+            (close-tcp-connection connection)
+            (error 'connection-timed-out
+                   :host ip
+                   :port port))
+          (sleep 0.01)))
       connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
   (when (eql (tcp-connection-state connection) :established)
     (setf end (or end (length data)))
     (let ((mss (tcp-connection-max-seg-size connection)))
-      (cond
-        ((>= start end))
-        ((> (- end start) mss)
-         ;; Send multiple packets.
-         (do ((offset start (+ offset mss)))
-             ((>= offset end))
-           (tcp-send connection data offset (min (+ offset mss) end))))
-        (t ;; Send one packet.
-         (with-tcp-connection-locked connection
-           (let ((s-next (tcp-connection-s-next connection)))
-             (setf (tcp-connection-s-next connection)
-                   (logand (+ s-next (- end start))
-                           #xFFFFFFFF))
-             (tcp4-send-packet connection s-next
-                               (tcp-connection-r-next connection)
-                               (if (and (eql start 0)
-                                        (eql end (length data)))
-                                   data
-                                   (subseq data start end))
-                               :psh-p t))))))))
+      (cond ((>= start end))
+            ((> (- end start) mss)
+             ;; Send multiple packets.
+             (do ((offset start (+ offset mss)))
+                 ((>= offset end))
+               (tcp-send connection data offset (min (+ offset mss) end))))
+            (t ;; Send one packet.
+             (with-tcp-connection-locked connection
+               (let ((s-next (tcp-connection-s-next connection)))
+                 (setf (tcp-connection-s-next connection)
+                       (logand (+ s-next (- end start))
+                               #xFFFFFFFF))
+                 (tcp4-send-packet connection s-next
+                                   (tcp-connection-r-next connection)
+                                   (if (and (eql start 0)
+                                            (eql end (length data)))
+                                       data
+                                       (subseq data start end))
+                                   :psh-p t))))))))
 
 (defclass tcp-octet-stream (sys.gray:fundamental-binary-input-stream
                             sys.gray:fundamental-binary-output-stream)
@@ -657,11 +611,11 @@
                          :initial-element byte)))
     (tcp-send (tcp-stream-connection stream) ary)))
 
-(defmethod sys.gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
-  (unless end (setf end (length sequence)))
-  (cond ((not (and (zerop start)
-                   (eql end (length sequence))))
-         (setf sequence (subseq sequence start end))))
+(defmethod sys.gray:stream-write-sequence ((stream tcp-octet-stream) sequence
+                                           &optional (start 0) (end (length sequence)))
+  (unless (and (zerop start)
+               (eql end (length sequence)))
+    (setf sequence (subseq sequence start end)))
   (tcp-send (tcp-stream-connection stream) sequence))
 
 (defmethod sys.gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
