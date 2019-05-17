@@ -611,8 +611,8 @@
                          :initial-element byte)))
     (tcp-send (tcp-stream-connection stream) ary)))
 
-(defmethod sys.gray:stream-write-sequence ((stream tcp-octet-stream) sequence
-                                           &optional (start 0) (end (length sequence)))
+(defmethod sys.gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
+  (unless end (setf end (length sequence)))
   (unless (and (zerop start)
                (eql end (length sequence)))
     (setf sequence (subseq sequence start end)))
