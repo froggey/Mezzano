@@ -17,6 +17,9 @@
 (defconstant +tcp4-flag-rst+ #b00000100)
 (defconstant +tcp4-flag-psh+ #b00001000)
 (defconstant +tcp4-flag-ack+ #b00010000)
+(defconstant +tcp4-flag-urg+ #b00100000)
+(defconstant +tcp4-flag-ece+ #b01000000)
+(defconstant +tcp4-flag-cwr+ #b10000000)
 
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
@@ -314,7 +317,7 @@
            (setf (tcp-connection-state connection) :closed))))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
-(defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
+(defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p)
   (let* ((source (tcp-connection-local-ip connection))
          (source-port (tcp-connection-local-port connection))
          (packet (assemble-tcp4-packet source source-port
@@ -323,6 +326,9 @@
                                        seq ack
                                        (tcp-connection-window-size connection)
                                        data
+                                       :cwr-p cwr-p
+                                       :ece-p ece-p
+                                       :urg-p urg-p
                                        :ack-p ack-p
                                        :psh-p psh-p
                                        :rst-p rst-p
@@ -341,7 +347,7 @@
      length))
 
 (defun assemble-tcp4-packet (src-ip src-port dst-ip dst-port seq-num ack-num window payload
-                             &key (ack-p t) psh-p rst-p syn-p fin-p)
+                             &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p)
   "Build a full TCP & IP header."
   (let* ((checksum 0)
          (payload-size (length payload))
@@ -358,7 +364,10 @@
                                                                           (if syn-p +tcp4-flag-syn+ 0)
                                                                           (if rst-p +tcp4-flag-rst+ 0)
                                                                           (if psh-p +tcp4-flag-psh+ 0)
-                                                                          (if ack-p +tcp4-flag-ack+ 0))
+                                                                          (if ack-p +tcp4-flag-ack+ 0)
+                                                                          (if urg-p +tcp4-flag-urg+ 0)
+                                                                          (if ece-p +tcp4-flag-ece+ 0)
+                                                                          (if cwr-p +tcp4-flag-cwr+ 0))
           ;; Window.
           (ub16ref/be header +tcp4-header-window-size+) window
           ;; Checksum.
