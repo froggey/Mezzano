@@ -211,6 +211,10 @@
            (flags (ldb (byte 12 0) flags-and-data-offset))
            (header-length (* (ldb (byte 4 12) flags-and-data-offset) 4))
            (data-length (- end (+ start header-length))))
+      (when (logtest flags +tcp4-flag-rst+)
+        ;; Remote have sended RST , aborting connection
+        (setf (tcp-connection-state connection) :connection-aborted)
+        (detach-tcp-connection connection))
       (case (tcp-connection-state connection)
         (:listen
          ;; Remote has start new connection.
@@ -231,7 +235,9 @@
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
                                   :ack-p t :syn-p t))
                (t
+                ;; Aborting connection
                 (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags)
+                (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection))))
         (:syn-received
@@ -243,11 +249,13 @@
                      (eql ack (1- (tcp-connection-s-next connection))))
                 (format t "TCP: Ignore duplicated syn packets."))
                (t
+                ;; Aborting connection
                 (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
                         ack (tcp-connection-s-next connection)
                         seq (tcp-connection-r-next connection)
                         flags)
-                (setf (tcp-connection-state connection) :closed)
+                (tcp4-send-packet connection ack seq nil :rst-p t)
+                (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection))))
         (:established
          (if (zerop data-length)
@@ -312,9 +320,12 @@
                     (logtest flags +tcp4-flag-ack+))
            (detach-tcp-connection connection)
            (setf (tcp-connection-state connection) :closed)))
-        (t (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
-           (detach-tcp-connection connection)
-           (setf (tcp-connection-state connection) :closed))))
+        (t
+         ;; Aborting connection
+         (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
+         (tcp4-send-packet connection ack seq nil :rst-p t)
+         (setf (tcp-connection-state connection) :connection-aborted)
+         (detach-tcp-connection connection))))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p)
