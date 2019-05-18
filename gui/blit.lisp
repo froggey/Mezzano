@@ -40,11 +40,15 @@
     (multiple-value-bind (from-displaced-to from-displaced-offset)
         (array-displacement from-array)
       (when from-displaced-to
+        (when (integerp from-displaced-to)
+          (error "Memory arrays not supported"))
         (setf from-array from-displaced-to
               from-offset from-displaced-offset)))
     (multiple-value-bind (to-displaced-to to-displaced-offset)
         (array-displacement to-array)
       (when to-displaced-to
+        (when (integerp to-displaced-to)
+          (error "Memory arrays not supported"))
         (setf to-array to-displaced-to
               to-offset to-displaced-offset)))
     (incf from-offset (+ (* from-row from-width) from-col))
@@ -80,6 +84,8 @@
     (multiple-value-bind (to-displaced-to to-displaced-offset)
         (array-displacement to-array)
       (when to-displaced-to
+        (when (integerp to-displaced-to)
+          (error "Memory arrays not supported"))
         (setf to-array to-displaced-to
               to-offset to-displaced-offset)))
     (incf to-offset (+ (* to-row to-width) to-col))

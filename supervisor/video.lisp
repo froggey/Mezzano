@@ -101,7 +101,10 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
         (from-width (array-dimension from-array 1))
         (from-height (array-dimension from-array 0)))
     ;; Check for displaced arrays.
-    (when (integerp (sys.int::%complex-array-info from-array))
+    (when (sys.int::%complex-array-info from-array)
+      (when (integerp from-storage)
+        ;; Memory array
+        (error "Can't copy from a memory array"))
       (setf from-offset (sys.int::%complex-array-info from-array)
             from-storage (sys.int::%complex-array-storage from-storage)))
     ;; Storage must be a simple ub32 array.

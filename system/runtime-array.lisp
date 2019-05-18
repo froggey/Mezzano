@@ -289,6 +289,170 @@
              (%object-ref-unsigned-byte-64 array (1+ (* index 2))) imagpart))))
   value)
 
+(defun %memory-array-aref (array index)
+  (let ((address (%complex-array-storage array)))
+    (ecase (%complex-array-info array)
+      ((#.+object-tag-array-t+
+        #.+object-tag-array-fixnum+)
+       (memref-t address index))
+      (#.+object-tag-array-bit+
+       (multiple-value-bind (offset bit)
+           (truncate index 8)
+         (ldb (byte 1 bit)
+              (memref-unsigned-byte-8 address offset))))
+      (#.+object-tag-array-unsigned-byte-2+
+       (multiple-value-bind (offset bit)
+           (truncate index 4)
+         (ldb (byte 2 (* bit 2))
+              (memref-unsigned-byte-8 address offset))))
+      (#.+object-tag-array-unsigned-byte-4+
+       (multiple-value-bind (offset bit)
+           (truncate index 2)
+         (ldb (byte 4 (* bit 4))
+              (memref-unsigned-byte-8 address offset))))
+      (#.+object-tag-array-unsigned-byte-8+
+       (memref-unsigned-byte-8 address index))
+      (#.+object-tag-array-unsigned-byte-16+
+       (memref-unsigned-byte-16 address index))
+      (#.+object-tag-array-unsigned-byte-32+
+       (memref-unsigned-byte-32 address index))
+      (#.+object-tag-array-unsigned-byte-64+
+       (memref-unsigned-byte-64 address index))
+      (#.+object-tag-array-signed-byte-1+
+       (multiple-value-bind (offset bit)
+           (truncate index 8)
+         (sign-extend (ldb (byte 1 bit)
+                           (memref-unsigned-byte-8 address offset))
+                      1)))
+      (#.+object-tag-array-signed-byte-2+
+       (multiple-value-bind (offset bit)
+           (truncate index 4)
+         (sign-extend (ldb (byte 2 (* bit 2))
+                           (memref-unsigned-byte-8 address offset))
+                      2)))
+      (#.+object-tag-array-signed-byte-4+
+       (multiple-value-bind (offset bit)
+           (truncate index 2)
+         (sign-extend (ldb (byte 4 (* bit 4))
+                           (memref-unsigned-byte-8 address offset))
+                      4)))
+      (#.+object-tag-array-signed-byte-8+
+       (memref-signed-byte-8 address index))
+      (#.+object-tag-array-signed-byte-16+
+       (memref-signed-byte-16 address index))
+      (#.+object-tag-array-signed-byte-32+
+       (memref-signed-byte-32 address index))
+      (#.+object-tag-array-signed-byte-64+
+       (memref-signed-byte-64 address index))
+      (#.+object-tag-array-single-float+
+       (%integer-as-single-float (memref-unsigned-byte-32 address index)))
+      (#.+object-tag-array-double-float+
+       (%integer-as-double-float (memref-unsigned-byte-64 address index)))
+      (#.+object-tag-array-complex-single-float+
+       (complex
+        (%integer-as-single-float (memref-unsigned-byte-32 address (* index 2)))
+        (%integer-as-single-float (memref-unsigned-byte-32 address (1+ (* index 2))))))
+      (#.+object-tag-array-complex-double-float+
+       (complex
+        (%integer-as-double-float (memref-unsigned-byte-64 address (* index 2)))
+        (%integer-as-double-float (memref-unsigned-byte-64 address (1+ (* index 2)))))))))
+
+(defun (setf %memory-array-aref) (value array index)
+  (let ((address (%complex-array-storage array)))
+    (ecase (%complex-array-info array)
+      (#.+object-tag-array-t+ ;; simple-vector
+       (setf (memref-t address index) value))
+      (#.+object-tag-array-fixnum+
+       (check-type value fixnum)
+       (setf (memref-t address index) value))
+      (#.+object-tag-array-bit+
+       (check-type value bit)
+       (multiple-value-bind (offset bit)
+           (truncate index 8)
+         (setf (ldb (byte 1 bit)
+                    (memref-unsigned-byte-8 address offset))
+               value)))
+      (#.+object-tag-array-unsigned-byte-2+
+       (check-type value (unsigned-byte 2))
+       (multiple-value-bind (offset bit)
+           (truncate index 4)
+         (setf (ldb (byte 2 (* bit 2))
+                    (memref-unsigned-byte-8 address offset))
+               value)))
+      (#.+object-tag-array-unsigned-byte-4+
+       (check-type value (unsigned-byte 4))
+       (multiple-value-bind (offset bit)
+           (truncate index 2)
+         (setf (ldb (byte 4 (* bit 4))
+                    (memref-unsigned-byte-8 address offset))
+               value)))
+      (#.+object-tag-array-unsigned-byte-8+
+       (setf (memref-unsigned-byte-8 address index)
+             value))
+      (#.+object-tag-array-unsigned-byte-16+
+       (setf (memref-unsigned-byte-16 address index)
+             value))
+      (#.+object-tag-array-unsigned-byte-32+
+       (setf (memref-unsigned-byte-32 address index)
+             value))
+      (#.+object-tag-array-unsigned-byte-64+
+       (setf (memref-unsigned-byte-64 address index)
+             value))
+      (#.+object-tag-array-signed-byte-1+
+       (check-type value (signed-byte 1))
+       (multiple-value-bind (offset bit)
+           (truncate index 8)
+         (setf (ldb (byte 1 bit)
+                    (memref-unsigned-byte-8 address offset))
+               (ldb (byte 1 0) value))))
+      (#.+object-tag-array-signed-byte-2+
+       (check-type value (signed-byte 2))
+       (multiple-value-bind (offset bit)
+           (truncate index 4)
+         (setf (ldb (byte 2 (* bit 2))
+                    (memref-unsigned-byte-8 address offset))
+               (ldb (byte 2 0) value))))
+      (#.+object-tag-array-signed-byte-4+
+       (check-type value (signed-byte 4))
+       (multiple-value-bind (offset bit)
+           (truncate index 2)
+         (setf (ldb (byte 4 (* bit 4))
+                    (memref-unsigned-byte-8 address offset))
+               (ldb (byte 4 0) value))))
+      (#.+object-tag-array-signed-byte-8+
+       (setf (memref-signed-byte-8 address index)
+             value))
+      (#.+object-tag-array-signed-byte-16+
+       (setf (memref-signed-byte-16 address index)
+             value))
+      (#.+object-tag-array-signed-byte-32+
+       (setf (memref-signed-byte-32 address index)
+             value))
+      (#.+object-tag-array-signed-byte-64+
+       (setf (memref-signed-byte-64 address index)
+             value))
+      (#.+object-tag-array-single-float+
+       (check-type value single-float)
+       (setf (memref-unsigned-byte-32 address index)
+             (%single-float-as-integer value)))
+      (#.+object-tag-array-double-float+
+       (check-type value double-float)
+       (setf (memref-unsigned-byte-64 address index)
+             (%double-float-as-integer value)))
+      (#.+object-tag-array-complex-single-float+
+       (check-type value (complex single-float))
+       (let ((realpart (%single-float-as-integer (realpart value)))
+             (imagpart (%single-float-as-integer (imagpart value))))
+         (setf (memref-unsigned-byte-32 address (* index 2)) realpart
+               (memref-unsigned-byte-32 address (1+ (* index 2))) imagpart)))
+      (#.+object-tag-array-complex-double-float+
+       (check-type value (complex double-float))
+       (let ((realpart (%double-float-as-integer (realpart value)))
+             (imagpart (%double-float-as-integer (imagpart value))))
+         (setf (memref-unsigned-byte-64 address (* index 2)) realpart
+               (memref-unsigned-byte-64 address (1+ (* index 2))) imagpart)))))
+  value)
+
 (defun %simple-array-element-type (array)
   (svref *array-types* (%object-tag array)))
 
