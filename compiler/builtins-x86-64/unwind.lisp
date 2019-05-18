@@ -109,7 +109,7 @@
           `(sys.lap-x86:mov64 ,(object-ea nil
                                           :slot mezzano.supervisor::+thread-symbol-cache+
                                           :index '(:rax 8))
-                              0))
+                              :symbol-binding-cache-sentinel))
     (emit after-flush))
   ''nil)
 

@@ -445,6 +445,11 @@
                         :element-type '(unsigned-byte 64)
                         :initial-element 0
                         :area :wired))
+  (env:add-special environment
+                   :symbol-binding-cache-sentinel
+                   (env:symbol-global-value-cell
+                    environment
+                    (env:make-symbol environment "SYMBOL-BINDING-CACHE-SENTINEL")))
   ;; Initial thread will have the initial stack field set by serialize.
   (setf (env:cross-symbol-value environment 'sys.int::*initial-thread*)
         (create-thread environment "Initial thread"

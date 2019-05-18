@@ -665,6 +665,8 @@
                         (sys.int::lisp-object-address (sys.int::%unbound-value)))
                        (:funcallable-instance-trampoline
                         (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))
+                       (:symbol-binding-cache-sentinel
+                        (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
                        (t (error "Unsupported fixup ~S." (car fixup))))))
           (dotimes (i 4)
             (setf (sys.int::memref-unsigned-byte-8 address (+ (cdr fixup) i))

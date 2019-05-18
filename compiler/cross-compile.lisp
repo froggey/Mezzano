@@ -630,7 +630,8 @@
                             (:unbound-value . :fixup)
                             (:undefined-function . :fixup)
                             (:closure-trampoline . :fixup)
-                            (:funcallable-instance-trampoline . :fixup))
+                            (:funcallable-instance-trampoline . :fixup)
+                            (:symbol-binding-cache-sentinel . :fixup))
          :info (list name debug-info)))
     (declare (ignore symbols))
     (make-cross-function :mc mc

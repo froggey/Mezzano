@@ -550,8 +550,16 @@
                                                   :initform (structure-slot-definition-initform slot)
                                                   :initfunction (let ((slot slot))
                                                                   (lambda ()
-                                                                    ;; Ehhhhhhhhhhhhhhhhh.
-                                                                    (let ((val (eval (structure-slot-definition-initform slot))))
+                                                                    ;; Special case calls to sys.int::%symbol-binding-cache-sentinel so they at least work...
+                                                                    (let* ((initform (structure-slot-definition-initform slot))
+                                                                           (val (cond ((and (consp initform)
+                                                                                            (symbolp (first initform))
+                                                                                            (endp (rest initform))
+                                                                                            (string= (symbol-name (first initform)) "%SYMBOL-BINDING-CACHE-SENTINEL"))
+                                                                                       (find-special environment :symbol-binding-cache-sentinel))
+                                                                                      (t
+                                                                                       ;; Ehhhhhhhhhhhhhhhhh.
+                                                                                       (eval initform)))))
                                                                       (if (structure-slot-definition-fixed-vector slot)
                                                                           (cl:make-array (structure-slot-definition-fixed-vector slot) :initial-element val)
                                                                           val))))

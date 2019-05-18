@@ -156,7 +156,7 @@
   (lap:xor32 :ecx :ecx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rcx) 0)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rcx) :symbol-binding-cache-sentinel)
   (lap:add64 :rcx 1)
   (lap:cmp64 :rcx #.mezzano.supervisor::+thread-symbol-cache-size+)
   (lap:jne CLEAR-LOOP)
@@ -321,7 +321,7 @@
   (lap:xor32 :edx :edx)
   CLEAR-LOOP
   (lap:gs)
-  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rdx) 0)
+  (lap:mov64 (:object nil #.mezzano.supervisor::+thread-symbol-cache+ :rdx) :symbol-binding-cache-sentinel)
   (lap:add64 :rdx 1)
   (lap:cmp64 :rdx #.mezzano.supervisor::+thread-symbol-cache-size+)
   (lap:jne CLEAR-LOOP)

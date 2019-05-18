@@ -1044,7 +1044,8 @@
     (emit `(lap:ldr :x10 (:x28 :x9))
           `(lap:subs :xzr :x10 :x6)
           `(lap:b.ne ,after-flush))
-    (emit `(lap:str :xzr (:x28 :x9)))
+    (emit `(lap:ldr :x10 (:literal :symbol-binding-cache-sentinel)))
+    (emit `(lap:str :x10 (:x28 :x9)))
     (emit after-flush)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-block-or-tagbody-instruction) uses defs)
