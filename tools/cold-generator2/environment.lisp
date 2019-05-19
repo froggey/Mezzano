@@ -521,7 +521,7 @@
 (defclass instance-class (standard-class)
   ((%sdef :initarg :sdef :reader instance-class-structure-definition)))
 
-(defmethod sb-mop:validate-superclass ((class instance-class) (superclass standard-class))
+(defmethod c2mop:validate-superclass ((class instance-class) (superclass standard-class))
   t)
 
 (defclass instance-object (standard-object)

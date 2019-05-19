@@ -34,6 +34,22 @@
            :most-positive-single-float
            :most-positive-double-float
            :most-positive-long-float
+           :least-negative-short-float
+           :least-negative-single-float
+           :least-negative-double-float
+           :least-negative-long-float
+           :least-positive-short-float
+           :least-positive-single-float
+           :least-positive-double-float
+           :least-positive-long-float
+           :least-negative-normalized-short-float
+           :least-negative-normalized-single-float
+           :least-negative-normalized-double-float
+           :least-negative-normalized-long-float
+           :least-positive-normalized-short-float
+           :least-positive-normalized-single-float
+           :least-positive-normalized-double-float
+           :least-positive-normalized-long-float
            :boole-1
            :boole-2
            :boole-andc1

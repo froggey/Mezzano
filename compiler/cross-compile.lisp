@@ -14,10 +14,10 @@
 (in-package :sys.int)
 
 (defun mezzano.clos:class-precedence-list (class)
-  (sb-mop:class-precedence-list class))
+  (c2mop:class-precedence-list class))
 
 (defun mezzano.clos::safe-class-precedence-list (class)
-  (sb-mop:class-precedence-list class))
+  (c2mop:class-precedence-list class))
 
 (defclass structure-definition ()
   ((name :initarg :name :reader structure-definition-name)
@@ -795,30 +795,49 @@
 
 (defun sys.int::%single-float-as-integer (value)
   (check-type value single-float)
-  #+sbcl (ldb (byte 32 0) (sb-kernel:single-float-bits value))
-  #-(or sbcl) (error "Not implemented on this platform!"))
+  #+sbcl
+  (ldb (byte 32 0) (sb-kernel:single-float-bits value))
+  #+ccl
+  (ccl::single-float-bits value)
+  #-(or sbcl ccl)
+  (error "Not implemented on this platform!"))
 
 (defun sys.int::%double-float-as-integer (value)
   (check-type value double-float)
-  #+sbcl (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits value)) 32)
-                 (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
-  #-(or sbcl) (error "Not implemented on this platform!"))
+  #+sbcl
+  (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits value)) 32)
+          (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
+  #+ccl
+  (multiple-value-bind (upper lower)
+      (ccl::double-float-bits value)
+    (logior (ash upper 32) lower))
+  #-(or sbcl ccl) (error "Not implemented on this platform!"))
 
 (defun sys.int::%integer-as-single-float (value)
   (check-type value (unsigned-byte 32))
-  #+sbcl (sb-kernel:make-single-float (if (logbitp 31 value)
-                                          (logior value (ash -1 32))
-                                          value))
-  #-(or sbcl) (error "Not implemented on this platform!"))
+  #+sbcl
+  (sb-kernel:make-single-float (if (logbitp 31 value)
+                                   (logior value (ash -1 32))
+                                   value))
+  #+ccl
+  (ccl::host-single-float-from-unsigned-byte-32 value)
+  #-(or sbcl ccl)
+  (error "Not implemented on this platform!"))
 
 (defun sys.int::%integer-as-double-float (value)
   (check-type value (unsigned-byte 64))
-  #+sbcl (let ((ext (if (logbitp 63 value)
-                        (logior value (ash -1 64))
-                        value)))
-           (sb-kernel:make-double-float (ash ext -32)
-                                        (ldb (byte 32 0) ext)))
-  #-(or sbcl) (error "Not implemented on this platform!"))
+  #+sbcl
+  (let ((ext (if (logbitp 63 value)
+                 (logior value (ash -1 64))
+                 value)))
+    (sb-kernel:make-double-float (ash ext -32)
+                                 (ldb (byte 32 0) ext)))
+  #+ccl
+  (let ((upper (ldb (byte 32 32) value))
+        (lower (ldb (byte 32 0) value)))
+    (ccl::double-float-from-bits upper lower))
+  #-(or sbcl ccl)
+  (error "Not implemented on this platform!"))
 
 (defmethod save-one-object ((object float) omap stream)
   (etypecase object
@@ -1240,4 +1259,4 @@
     (sys.int::structure-slot-definition-fixed-vector slot-definition)))
 
 (defun mezzano.clos:ensure-class (name &rest initargs)
-  (apply #'sb-mop:ensure-class name initargs))
+  (apply #'c2mop:ensure-class name initargs))

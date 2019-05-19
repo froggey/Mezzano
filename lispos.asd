@@ -9,7 +9,7 @@
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
   :depends-on (#:nibbles #:cl-ppcre #:iterate
-               #:alexandria)
+               #:alexandria #:closer-mop)
   :serial t
   :components ((:file "compiler/cross")
                (:file "compiler/cross-boot")
