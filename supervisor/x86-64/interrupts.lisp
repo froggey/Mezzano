@@ -56,7 +56,7 @@
 ;; to the CPU's wired stack for the duration of the call.
 ;; %C-O-W-S-W-I must not be exited using a non-local exit.
 ;; %RESCHEDULE and similar functions must not be called.
-(sys.int::define-lap-function %call-on-wired-stack-without-interrupts ()
+(sys.int::define-lap-function %call-on-wired-stack-without-interrupts ((function unused-must-be-nil &optional arg1 arg2 arg3))
   (:gc :no-frame :layout #*0)
   ;; Argument setup.
   (sys.lap-x86:mov64 :rbx :r8) ; function
