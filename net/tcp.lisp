@@ -221,6 +221,7 @@
          ;; Not much to do here, just waiting for the application to accept or decline new connection.
          )
         (:syn-sent
+         ;; Active open
          (cond ((and (logtest flags +tcp4-flag-ack+)
                      (logtest flags +tcp4-flag-syn+)
                      (eql ack (tcp-connection-s-next connection)))
@@ -241,12 +242,15 @@
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection))))
         (:syn-received
+         ;; Pasive open
          (cond ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
+                ;; Remote have sended ACK , connection established
                 (setf (tcp-connection-state connection) :established))
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection))))
+                ;; Ignore duplicated SYN packets
                 (format t "TCP: Ignore duplicated syn packets."))
                (t
                 ;; Aborting connection
@@ -273,7 +277,9 @@
          ;; Not much to do here, just waiting for the application to close.
          )
         (:last-ack
+         ;; Local closed, waiting for remote to ACK.
          (when (logtest flags +tcp4-flag-ack+)
+           ;; Remote have sended ACK , connection closed
            (setf (tcp-connection-state connection) :closed)
            (detach-tcp-connection connection)))
         (:fin-wait-1
@@ -296,6 +302,7 @@
                           ;; Simultaneous close
                           (setf (tcp-connection-state connection) :closing)))
                      ((logtest flags +tcp4-flag-ack+)
+                      ;; Remote saw our FIN
                       (setf (tcp-connection-state connection) :fin-wait-2))))
              (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-1)))
         (:fin-wait-2
@@ -318,6 +325,7 @@
          ;; Waiting for ACK
          (when (and (eql seq (tcp-connection-r-next connection))
                     (logtest flags +tcp4-flag-ack+))
+           ;; Remote have sended ACK , connection closed
            (detach-tcp-connection connection)
            (setf (tcp-connection-state connection) :closed)))
         (t
