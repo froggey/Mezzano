@@ -496,7 +496,8 @@
       connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
-  (when (eql (tcp-connection-state connection) :established)
+  (when (or (eql (tcp-connection-state connection) :established)
+            (eql (tcp-connection-state connection) :close-wait))
     (setf end (or end (length data)))
     (let ((mss (tcp-connection-max-seg-size connection)))
       (cond ((>= start end))
