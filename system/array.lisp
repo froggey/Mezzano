@@ -270,6 +270,7 @@
                                           adjustable
                                           fill-pointer
                                           displaced-to displaced-index-offset
+                                          memory physical-memory
                                           area)
   (cond ((or (not (or (eql element-type 't)
                       (and (consp element-type)
@@ -282,7 +283,8 @@
                       (integerp fill-pointer)))
              (not (or (eql adjustable nil)
                       (eql adjustable t)))
-             displaced-to displaced-index-offset)
+             displaced-to displaced-index-offset
+             memory physical-memory)
          whole)
         (t
          (let ((array-sym (gensym "ARRAY"))
@@ -346,6 +348,7 @@
                                 adjustable
                                 fill-pointer
                                 displaced-to displaced-index-offset
+                                memory physical-memory
                                 area)
   ;; n => (n)
   (when (not (listp dimensions))
@@ -356,10 +359,13 @@
       (error "Array has too many dimensions."))
     (when (and initial-element-p initial-contents-p)
       (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
-    (when (and displaced-to (or initial-element-p initial-contents-p))
-      (error "Cannot use :INITIAL-ELEMENT or :INITIAL-CONTENTS with a displaced array."))
+    (when (and (or displaced-to memory physical-memory)
+               (or initial-element-p initial-contents-p))
+      (error "Cannot use :INITIAL-ELEMENT or :INITIAL-CONTENTS with a displaced or memory array."))
     (when (and (not displaced-to) displaced-index-offset)
       (error "Non-NIL :DISPLACED-INDEX-OFFSET with NIL :DISPLACED-TO."))
+    (when (and displaced-to (or memory physical-memory))
+      (error "Cannot supply :DISPLACED-TO and :MEMORY or :PHYSICAL-MEMORY"))
     (when fill-pointer
       (unless (eql rank 1)
         (error ":FILL-POINTER is not valid on multidimensional arrays."))
@@ -369,12 +375,24 @@
         (error "Invalid :FILL-POINTER ~S." fill-pointer))
       (unless (<= 0 fill-pointer (first dimensions))
         (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <= ~S." fill-pointer (first dimensions))))
+    (when (and (eql upgraded-element-type 'character)
+               (or memory physical-memory))
+      (error "Element type ~S (upgraded to ~S) not supported for memory arrays."
+             element-type upgraded-element-type))
+    (when (and memory physical-memory)
+      (error "Cannot supply :MEMORY and :PHYSICAL-MEMORY"))
+    (when physical-memory
+      (check-type physical-memory fixnum)
+      (setf memory (mezzano.supervisor::convert-to-pmap-address physical-memory)))
+    (when memory
+      (check-type memory fixnum))
     (dolist (dimension dimensions)
       (check-type dimension (integer 0)))
     (cond ((and (eql rank 1)
                 (not adjustable)
                 (not fill-pointer)
                 (not displaced-to)
+                (not memory)
                 ;; character arrays are special.
                 (not (eql upgraded-element-type 'character)))
            ;; Create a simple 1D array.
@@ -384,6 +402,16 @@
              (when initial-contents-p
                (initialize-from-initial-contents array initial-contents))
              array))
+          (memory
+           ;; storage = address
+           ;; info = element type as an object-tag
+           (%make-array-header +object-tag-array+
+                               memory
+                               fill-pointer
+                               (specialized-array-definition-tag
+                                (upgraded-array-info element-type))
+                               dimensions
+                               area))
           (displaced-to
            (unless displaced-index-offset
              (setf displaced-index-offset 0))
@@ -537,11 +565,16 @@
 
 (defun array-displacement (array)
   (check-type array array)
-  (if (or (%simple-1d-array-p array)
-          (not (fixnump (%complex-array-info array))))
-      (values nil 0)
-      (values (%complex-array-storage array)
-              (%complex-array-info array))))
+  (cond ((or (%simple-1d-array-p array)
+             (not (%complex-array-info array)))
+         (values nil 0))
+        ((fixnump (%complex-array-storage array))
+         ;; Memory array.
+         (values (%complex-array-storage array) 0))
+        (t
+         ;; Normal displaced array.
+         (values (%complex-array-storage array)
+                 (%complex-array-info array)))))
 
 (defun array-element-type (array)
   (check-type array array)
@@ -549,6 +582,9 @@
          (%simple-array-element-type array))
         ((character-array-p array)
          'character)
+        ((fixnump (%complex-array-storage array))
+         ;; Memory arrays have their type in the info field.
+         (svref *array-types* (%complex-array-info array)))
         ((%complex-array-info array)
          ;; Displaced arrays inherit the type of the array they displace on.
          (array-element-type (%complex-array-storage array)))
@@ -611,9 +647,13 @@
   (cond ((%simple-1d-array-p array)
          (%simple-array-aref array index))
         ((%complex-array-info array)
-         ;; A displaced array.
-         (row-major-aref (%complex-array-storage array)
-                         (+ index (%complex-array-info array))))
+         (cond ((fixnump (%complex-array-storage array))
+                ;; A memory array.
+                (%memory-array-aref array index))
+               (t
+                ;; A displaced array.
+                (row-major-aref (%complex-array-storage array)
+                                (+ index (%complex-array-info array))))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (%%assemble-value
@@ -631,10 +671,14 @@
   (cond ((%simple-1d-array-p array)
          (setf (%simple-array-aref array index) value))
         ((%complex-array-info array)
-         ;; A displaced array.
-         (setf (row-major-aref (%complex-array-storage array)
-                               (+ index (%complex-array-info array)))
-               value))
+         (cond ((fixnump (%complex-array-storage array))
+                ;; A memory array.
+                (setf (%memory-array-aref array index) value))
+               (t
+                ;; A displaced array.
+                (setf (row-major-aref (%complex-array-storage array)
+                                      (+ index (%complex-array-info array)))
+                      value))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (let ((min-len (cond ((<= (char-int value) #xFF)

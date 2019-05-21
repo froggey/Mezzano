@@ -83,18 +83,6 @@
                                 :outputs (list cache-temp)
                                 :prefix '(lap:gs)))
            ;; Do symbols match?
-           ;; Be careful here. The entry may be 0.
-           (emit (make-instance 'x86-instruction
-                                :opcode 'lap:test64
-                                :operands (list cache-temp cache-temp)
-                                :inputs (list cache-temp)
-                                :outputs (list)))
-           (let ((tmp (make-instance 'ir:label)))
-             (emit (make-instance 'x86-branch-instruction
-                                  :opcode 'lap:jz
-                                  :true-target cache-miss
-                                  :false-target tmp))
-             (emit tmp))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:cmp64
                                 :operands (list global-cell `(:object ,cache-temp ,sys.int::+symbol-value-cell-symbol+))

@@ -66,8 +66,8 @@
   ;; Also update the cache for this symbol.
   ;; Recompute the symbol hash.
   (emit `(lap:add :x9 :xzr :x1 :lsr 1)
-        `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
-  (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
+        `(lap:and :x9 :x9 ,(ash (1- mezzano.supervisor::+thread-symbol-cache-size+) 3)))
+  (emit `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-special-stack-pointer+))
         `(lap:str :x0 (:x28 :x9)))
   (setf *x0-value* (list (gensym))))
 
@@ -94,7 +94,8 @@
     (emit `(lap:ldr :x10 (:x28 :x9))
           `(lap:subs :xzr :x10 :x6)
           `(lap:b.ne ,after-flush))
-    (emit `(lap:str :xzr (:x28 :x9)))
+    (emit `(lap:ldr :x10 (:literal :symbol-binding-cache-sentinel)))
+    (emit `(lap:str :x10 (:x28 :x9)))
     (emit after-flush))
   ''nil)
 

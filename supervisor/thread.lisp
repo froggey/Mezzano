@@ -111,7 +111,8 @@
   ;; which is why they have type UB64 instead of T.
   (mv-slots 0 :fixed-vector #.+thread-mv-slots-size+ :type (unsigned-byte 64))
   ;; Symbol binding cell cache.
-  (symbol-cache 0 :fixed-vector #.+thread-symbol-cache-size+)
+  (symbol-cache (sys.int::%symbol-binding-cache-sentinel)
+                :fixed-vector #.+thread-symbol-cache-size+)
   ;; Other saved machine state.
   (arm64-fpsr 0 :type (unsigned-byte 32))
   (arm64-fpcr 0 :type (unsigned-byte 32))
@@ -615,7 +616,7 @@ not and WAIT-P is false."
       (release-global-thread-lock)))
   ;; Flush the symbol cache.
   (dotimes (i +thread-symbol-cache-size+)
-    (setf (thread-symbol-cache thread i) 0)))
+    (setf (thread-symbol-cache thread i) (sys.int::%symbol-binding-cache-sentinel))))
 
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))

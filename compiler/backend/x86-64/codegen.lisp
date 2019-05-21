@@ -996,7 +996,7 @@
           `(sys.lap-x86:cmp64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :rbx))
     (emit `(sys.lap-x86:jne ,after-flush))
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) 0))
+          `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :symbol-binding-cache-sentinel))
     (emit after-flush)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-block-or-tagbody-instruction) uses defs)

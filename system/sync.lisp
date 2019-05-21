@@ -191,7 +191,7 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
    (%head :accessor mailbox-head)
    (%tail :accessor mailbox-tail)
    (%lock :initform (sup:make-mutex "Internal mailbox lock") :reader mailbox-lock))
-  (:default-initargs :name nil))
+  (:default-initargs :name nil :capacity nil))
 
 (defmethod print-object ((object mailbox) stream)
   (cond ((mailbox-name object)

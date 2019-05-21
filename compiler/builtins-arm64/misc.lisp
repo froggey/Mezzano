@@ -107,6 +107,7 @@
 (define-support-object sys.int::%undefined-function :undefined-function)
 (define-support-object sys.int::%closure-trampoline :closure-trampoline)
 (define-support-object sys.int::%funcallable-instance-trampoline :funcallable-instance-trampoline)
+(define-support-object sys.int::%symbol-binding-cache-sentinel :symbol-binding-cache-sentinel)
 
 ;;; Fixed-size dynamic-extent object creation.
 
@@ -168,8 +169,6 @@
     (emit `(lap:add :x9 :x9 ,(object-slot-displacement mezzano.supervisor::+thread-symbol-cache+))
           `(lap:ldr :x0 (:x28 :x9)))
     ;; Do symbols match?
-    ;; Be careful here. The entry may be 0.
-    (emit `(lap:cbz :x0 ,cache-miss))
     (emit-object-load :x2 :x0 :slot sys.int::+symbol-value-cell-symbol+)
     (emit `(lap:subs :xzr :x1 :x2)
           `(lap:b.ne ,cache-miss))
