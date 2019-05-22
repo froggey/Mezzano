@@ -69,7 +69,9 @@
                        :address address
                        :port port)))
 
-(defun parse-remote-file-path (host namestring)
+(defmethod parse-namestring-using-host ((host remote-file-host) namestring junk-allowed)
+  (when junk-allowed
+    (error "TODO: Junk-allowed"))
   (let ((start 0)
         (end (length namestring))
         (directory '())
@@ -77,7 +79,7 @@
         (type nil)
         (version nil))
     (when (eql start end)
-      (return-from parse-remote-file-path (make-pathname :host host)))
+      (return-from parse-namestring-using-host (make-pathname :host host)))
     (cond ((eql (char namestring start) #\/)
            (push :absolute directory)
            (incf start))
@@ -117,11 +119,6 @@
                    :name name
                    :type type
                    :version version)))
-
-(defmethod parse-namestring-using-host ((host remote-file-host) namestring junk-allowed)
-  (when junk-allowed
-    (error "TODO: Junk-allowed"))
-  (parse-remote-file-path host namestring))
 
 (defun unparse-remote-file-path (pathname)
   (when (pathname-device pathname)
