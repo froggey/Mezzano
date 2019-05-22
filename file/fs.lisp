@@ -84,12 +84,12 @@
   (mapcar #'second *host-alist*))
 
 (defclass pathname ()
-  ((%host :initarg :host :accessor pathname-%host)
-   (%device :initarg :device :accessor pathname-%device)
-   (%directory :initarg :directory :accessor pathname-%directory)
-   (%name :initarg :name :accessor pathname-%name)
-   (%type :initarg :type :accessor pathname-%type)
-   (%version :initarg :version :accessor pathname-%version))
+  ((%host :initarg :host :reader pathname-%host)
+   (%device :initarg :device :reader pathname-%device)
+   (%directory :initarg :directory :reader pathname-%directory)
+   (%name :initarg :name :reader pathname-%name)
+   (%type :initarg :type :reader pathname-%type)
+   (%version :initarg :version :reader pathname-%version))
   (:default-initargs :device nil :directory nil :name nil :type nil :version nil))
 
 (defun pathnamep (object)
@@ -98,6 +98,9 @@
 ;; This should really have a host associated with it...
 (defvar *default-pathname-defaults* (make-instance 'pathname :host nil))
 
+(defmethod initialize-instance :after ((instance pathname) &key)
+  (assert (pathname-%host instance)))
+
 (defun make-pathname (&key host
                         (device nil devicep)
                         (directory nil directoryp)
@@ -105,21 +108,32 @@
                         (type nil typep)
                         (version nil versionp)
                         defaults)
-  (if defaults
-      (setf defaults (pathname defaults))
-      (setf defaults (make-instance (host-pathname-class (pathname-host *default-pathname-defaults*))
-                                    :host (pathname-host *default-pathname-defaults*))))
-  (make-instance (host-pathname-class (if host (find-host host) (pathname-host defaults)))
-                 :host (if host (find-host host) (pathname-host defaults))
-                 :device (if devicep device (pathname-device defaults))
-                 :directory (if directoryp
-                                (if (eq directory :wild)
-                                    '(:absolute :wild-inferiors)
-                                    directory)
-                                (pathname-directory defaults))
-                 :name (if namep name (pathname-name defaults))
-                 :type (if typep type (pathname-type defaults))
-                 :version (if versionp version (pathname-version defaults))))
+  (let* ((defaults (cond (defaults
+                          (pathname defaults))
+                         ((pathname-host *default-pathname-defaults*)
+                          (make-instance (host-pathname-class (pathname-host *default-pathname-defaults*))
+                                         :host (pathname-host *default-pathname-defaults*)))
+                         (t
+                          ;; During bootstrap, before any real filesystems are
+                          ;; defined, the pathname in *D-P-D* is a hostless
+                          ;; pathname. We want to avoid creating any more of
+                          ;; these. So just use it as-is. This is fine, as all
+                          ;; the other elements are NIL anyway.
+                          *default-pathname-defaults*)))
+         (host (if host
+                   (find-host host)
+                   (pathname-host defaults))))
+    (make-instance (host-pathname-class host)
+                   :host host
+                   :device (if devicep device (pathname-device defaults))
+                   :directory (if directoryp
+                                  (if (eq directory :wild)
+                                      '(:absolute :wild-inferiors)
+                                      directory)
+                                  (pathname-directory defaults))
+                   :name (if namep name (pathname-name defaults))
+                   :type (if typep type (pathname-type defaults))
+                   :version (if versionp version (pathname-version defaults)))))
 
 (defun pathname-host (pathname &key (case :local))
   (pathname-%host (pathname pathname)))
