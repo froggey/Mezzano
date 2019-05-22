@@ -301,7 +301,7 @@
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."
   `(when (not ,condition)
-     (panic ,@things)))
+     (panic ',condition ": " ,@things)))
 
 (in-package :mezzano.supervisor)
 
