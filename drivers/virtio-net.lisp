@@ -275,10 +275,10 @@ and then some alignment.")
   t)
 
 (defun virtio-net-register (device)
-  (sup:debug-print-line "Detected virtio net device " device)
   (let* ((nic (make-instance 'virtio-net
                              :virtio-device device))
          (irq-handler (sup:make-simple-irq (virtio:virtio-device-irq device))))
+    (sup:debug-print-line "Detected virtio net device " device " with irq " irq-handler)
     (setf (virtio-net-irq-handler nic) irq-handler)
     (setf (virtio-net-tx-mailbox nic) (sync:make-mailbox :name `(tx-mailbox ,nic)))
     (setf (virtio-net-worker-thread nic)
@@ -300,10 +300,13 @@ and then some alignment.")
                                    (virtio-net-boot-id nic))
             (let* ((dev (virtio-net-virtio-device nic))
                    (status (virtio:virtio-isr-status dev)))
+              ;; The IRQ (if any) must be acknowledged before doing RX/TX processing.
+              ;; Doing it the other way around can result in IRQs being lost between
+              ;; RX processing and IRQ acknowledgment.
+              (virtio:virtio-ack-irq dev status)
+              (sup:simple-irq-unmask (virtio-net-irq-handler nic))
               (virtio-net-receive-processing nic)
-              (virtio-net-transmit-processing nic)
-              (virtio:virtio-ack-irq dev status))
-            (sup:simple-irq-unmask (virtio-net-irq-handler nic))))
+              (virtio-net-transmit-processing nic))))
     (nic:unregister-network-card nic)
     (virtio:virtio-driver-detached (virtio-net-virtio-device nic))))
 
