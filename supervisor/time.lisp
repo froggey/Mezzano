@@ -55,6 +55,8 @@
                  (> (timer-%deadline (timer-queue-head *active-timers*)) *run-time*))
          (return))
        (let ((timer (timer-list-pop-front *active-timers*)))
+         (when (timer-cvar timer)
+           (condition-notify (timer-cvar timer) t))
          (setf (event-state (timer-event timer)) t))))
   (decay-lights run-time-advance))
 
@@ -133,7 +135,8 @@
   (next :unlinked)
   (prev :unlinked)
   %deadline
-  event)
+  event
+  cvar)
 
 (sys.int::defglobal *active-timers*)
 

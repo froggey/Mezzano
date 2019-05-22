@@ -195,38 +195,59 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
              (:constructor make-condition-variable (&optional name))
              (:area :wired)))
 
-(defun condition-wait (condition-variable mutex)
+(defun condition-wait (condition-variable mutex &optional timeout)
   (assert (mutex-held-p mutex))
   (check-mutex-release-consistence mutex)
   (ensure-interrupts-enabled)
   (unwind-protect
-       (%run-on-wired-stack-without-interrupts (sp fp condition-variable mutex)
-        (let ((self (current-thread)))
-          (lock-wait-queue condition-variable)
-          (lock-wait-queue mutex)
-          (acquire-global-thread-lock)
-          ;; Attach to the list.
-          (push-wait-queue self condition-variable)
-          ;; Drop the mutex.
-          (release-mutex-for-condition-variable mutex)
-          ;; Sleep.
-          ;; need to be careful with that, returning or unwinding from condition-wait
-          ;; with the lock unlocked would be quite bad.
-          (setf (thread-wait-item self) condition-variable
-                (thread-state self) :sleeping
-                ;; Relock the mutex and return if unsleeped.
-                ;; Condition-wait can return spuriously.
-                (thread-unsleep-helper self) #'acquire-mutex
-                (thread-unsleep-helper-argument self) mutex)
-          (unlock-wait-queue mutex)
-          (unlock-wait-queue condition-variable)
-          (%reschedule-via-wired-stack sp fp)))
+       (cond (timeout
+              (with-timer (timer :relative timeout)
+                (unwind-protect
+                     (progn
+                       (setf (timer-cvar timer) condition-variable)
+                       (%call-on-wired-stack-without-interrupts
+                        #'condition-wait-inner nil condition-variable mutex timer)
+                       ;; This gets a little fuzzy with timeouts vs a legit wake...
+                       (not (timer-expired-p timer)))
+                  ;; Make sure to clear the timer's cvar slot before returning it.
+                  (setf (timer-cvar timer) nil))))
+             (t
+              (%call-on-wired-stack-without-interrupts
+               #'condition-wait-inner nil condition-variable mutex nil)
+              t))
     ;; Got woken up. Reacquire the mutex.
     ;; Slightly tricky, if the thread was interrupted and unwound before
     ;; interrupts were disabled, then the mutex won't have been released.
     (when (not (mutex-held-p mutex))
-      (acquire-mutex mutex t)))
-  (values))
+      (acquire-mutex mutex t))))
+
+(defun condition-wait-inner (sp fp condition-variable mutex timer)
+  (let ((self (current-thread)))
+    (lock-wait-queue condition-variable)
+    (lock-wait-queue mutex)
+    (acquire-global-thread-lock)
+    ;; The timer may have expired and signalled the cvar before the locks were
+    ;; taken, check before going to sleep.
+    (when (and timer (timer-expired-p timer))
+      (unlock-wait-queue condition-variable)
+      (unlock-wait-queue mutex)
+      (return-from condition-wait-inner))
+    ;; Attach to the list.
+    (push-wait-queue self condition-variable)
+    ;; Drop the mutex.
+    (release-mutex-for-condition-variable mutex)
+    ;; Sleep.
+    ;; need to be careful with that, returning or unwinding from condition-wait
+    ;; with the lock unlocked would be quite bad.
+    (setf (thread-wait-item self) condition-variable
+          (thread-state self) :sleeping
+          ;; Relock the mutex and return if unsleeped.
+          ;; Condition-wait can return spuriously.
+          (thread-unsleep-helper self) #'acquire-mutex
+          (thread-unsleep-helper-argument self) mutex)
+    (unlock-wait-queue mutex)
+    (unlock-wait-queue condition-variable)
+    (%reschedule-via-wired-stack sp fp)))
 
 (defun condition-notify (condition-variable &optional broadcast)
   "Wake one or many threads waiting on CONDITION-VARIABLE.
