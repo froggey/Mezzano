@@ -228,7 +228,7 @@ Will wait forever if TIMER has not been armed."
   (event-wait (timer-event timer)))
 
 (defun timer-expired-p (timer)
-  (event-status (timer-event timer)))
+  (event-state (timer-event timer)))
 
 (sys.int::defglobal *timer-pool-lock* (make-mutex "Timer pool"))
 (sys.int::defglobal *timer-pool* nil)
