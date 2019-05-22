@@ -89,7 +89,8 @@
   idle-thread
   wired-stack
   exception-stack
-  irq-stack)
+  irq-stack
+  lapic-timer-active)
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
@@ -725,12 +726,9 @@ TLB shootdown must be protected by the VM lock."
   (debug-print-line "  timer-current: " (lapic-reg +lapic-reg-timer-current-count+))
   (debug-print-line "  timer-divide: " (lapic-reg +lapic-reg-timer-divide-configuration+)))
 
-;; FIXME! This must be per-cpu.
-(sys.int::defglobal *lapic-timer-active*)
-
 (defun lapic-timer-active ()
   ;; Preemption timers are per-CPU...
-  *lapic-timer-active*)
+  (cpu-lapic-timer-active (local-cpu-object)))
 
 (defun preemption-timer-reset (time-remaining)
   "Configure the preemption timer to go off after TIME-REMAINING internal time units.
@@ -744,10 +742,10 @@ This is a one-shot timer and must be reset after firing."
       (cond (time-remaining
              (setf (lapic-reg +lapic-reg-timer-initial-count+)
                    (max 1 (lapic-timer-convert-from-internal-time-units time-remaining)))
-             (setf *lapic-timer-active* t))
+             (setf (cpu-lapic-timer-active (local-cpu-object)) t))
             (t
              (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
-             (setf *lapic-timer-active* nil)))
+             (setf (cpu-lapic-timer-active (local-cpu-object)) nil)))
       old-remaining)))
 
 (defun preemption-timer-remaining ()
@@ -855,7 +853,6 @@ This is a one-shot timer and must be reset after firing."
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
   (setf *n-up-cpus* 1)
-  (setf *lapic-timer-active* nil)
   (hook-user-interrupt +lapic-vector-svr+ 'lapic-svr-handler)
   (hook-user-interrupt +lapic-vector-err+ 'lapic-error-handler)
   (hook-user-interrupt +lapic-vector-timer+ 'lapic-timer-handler)
