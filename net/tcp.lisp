@@ -248,10 +248,9 @@
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote have sended ACK , connection established
                 (setf (tcp-connection-state connection) :established))
+               ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
-                     (eql ack (1- (tcp-connection-s-next connection))))
-                ;; Ignore duplicated SYN packets
-                (format t "TCP: Ignore duplicated syn packets."))
+                     (eql ack (1- (tcp-connection-s-next connection)))))
                (t
                 ;; Aborting connection
                 (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
