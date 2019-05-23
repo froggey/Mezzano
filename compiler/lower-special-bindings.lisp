@@ -244,7 +244,8 @@
     (assert (or (lambda-information-p cleanup-function)
                 (and (typep cleanup-function 'ast-call)
                      (eql (name cleanup-function) 'sys.int::make-closure)
-                     (= (list-length (arguments cleanup-function)) 2)
+                     (or (= (list-length (arguments cleanup-function)) 2)
+                         (= (list-length (arguments cleanup-function)) 3))
                      (lambda-information-p (first (arguments cleanup-function))))))
     (when (not (lambda-information-p cleanup-function))
       ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
