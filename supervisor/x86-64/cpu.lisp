@@ -196,6 +196,7 @@ Protected by the world stop lock."
       ;; Return this thread to the run queue.
       (setf (thread-state current) :runnable)
       (push-run-queue current)
+      (preemption-timer-reset nil)
       ;; Save thread state.
       (save-fpu-state current)
       (save-interrupted-state current interrupt-frame)
