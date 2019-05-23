@@ -73,7 +73,7 @@
                          ;; Stay in this state.
                          )
                         ((eql code #x57) ; F11
-                         (sup::debug-dump-threads)
+                         (sup::debug-magic-button)
                          (setf (virtio-input-debug-dump-state input) 0))
                         (t
                          (setf (virtio-input-debug-dump-state input) 0))))

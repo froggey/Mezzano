@@ -108,6 +108,9 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +tlb-shootdown-ipi-vector+ #x83
   "Sent to CPUs to prepare them for TLB shootdown.")
 
+(defconstant +magic-button-ipi-vector+ #x84
+  "Sent to CPUs when the magic debug button is pressed.")
+
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)
                          (interrupt-gate-p t))
@@ -210,6 +213,17 @@ Protected by the world stop lock."
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
                                  idle))))
+
+(defun stop-other-cpus-for-debug-magic-button ()
+  (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+))
+
+(defun magic-button-ipi-handler (interrupt-frame info)
+  (declare (ignore info))
+  ;; Save the current thread state so it looks approximately correct.
+  (let ((current (current-thread)))
+    (save-fpu-state current)
+    (save-interrupted-state current interrupt-frame))
+  (loop while *debug-magic-button-hold-variable*))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
@@ -860,7 +874,8 @@ This is a one-shot timer and must be reset after firing."
   (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
   (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
   (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)
-  (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler))
+  (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
+  (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler))
 
 (defun load-cpu-bits (vector)
   (let* ((addr (- (sys.int::lisp-object-address vector)

@@ -58,7 +58,7 @@
                   ;; Stay in this state.
                   )
                  ((eql byte #x57) ; F11
-                  (debug-dump-threads)
+                  (debug-magic-button)
                   (setf *ps/2-debug-dump-state* 0))
                  (t
                   (setf *ps/2-debug-dump-state* 0))))

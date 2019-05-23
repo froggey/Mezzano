@@ -26,8 +26,11 @@
 
 (sys.int::defglobal *debug-line-lock*)
 
+(sys.int::defglobal *debug-magic-button-hold-variable*)
+
 (defun initialize-debug-log ()
   (setf *debug-line-lock* (place-spinlock-initializer))
+  (setf *debug-magic-button-hold-variable* nil)
   (setf *debug-pseudostream* (lambda (&rest ignored) (declare (ignore ignored))))
   (cond ((boundp '*supervisor-log-buffer-position*)
          (debug-log-buffer-write-char #\Newline))
@@ -281,6 +284,13 @@
       (when (not (eql thread (current-thread)))
         (debug-print-line "----------")
         (dump-thread thread (thread-frame-pointer thread))))))
+
+(defun debug-magic-button ()
+  ;; Try to bring all the other CPUs to a complete stop before doing anything.
+  (setf *debug-magic-button-hold-variable* t)
+  (stop-other-cpus-for-debug-magic-button)
+  (debug-dump-threads)
+  (setf *debug-magic-button-hold-variable* nil))
 
 (defun panic-1 (things extra)
   (safe-without-interrupts (things extra)
