@@ -502,10 +502,12 @@ not and WAIT-P is false."
   (%disable-interrupts)
   (decrement-n-running-cpus)
   (loop
+     ;; Must be running on the right CPU.
+     (ensure (eql (current-thread) (local-cpu-idle-thread)))
      ;; Make sure the preemption timer has been properly switched off when
      ;; the system idles. Not needed to be correct, but reduces activity
      ;; when idle.
-     (ensure (null (preemption-timer-remaining)))
+     (ensure (not (preemption-timer-remaining)))
      ;; Look for a thread to switch to.
      (acquire-global-thread-lock)
      (let ((next (cond (*world-stopper*
@@ -516,6 +518,7 @@ not and WAIT-P is false."
                        (t
                         (pop-run-queue)))))
        (cond (next
+              (ensure (not (eql next (local-cpu-idle-thread))))
               (when (and (not *world-stopper*) ; No preemption when running with the world stopped.
                          (other-threads-ready-to-run-p))
                 (preemption-timer-reset *timeslice-length*))
