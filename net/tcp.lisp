@@ -64,13 +64,15 @@
    (window-size :accessor tcp-connection-window-size :initarg :window-size)
    (max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
    (rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
+   (rx-data-unordered :accessor tcp-connection-rx-data-unordered :initarg :rx-data-unordered)
    (lock :accessor tcp-connection-lock :initarg :lock)
    (cvar :accessor tcp-connection-cvar :initarg :cvar))
   (:default-initargs
    :max-seg-size 1000
+   :rx-data '()
+   :rx-data-unordered (make-hash-table)
    :lock (mezzano.supervisor:make-mutex "TCP connection lock")
-   :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")
-   :rx-data '()))
+   :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
 
 (declaim (inline tcp-connection-state (setf tcp-connection-state)))
 
@@ -180,26 +182,38 @@
   (setf *allocated-tcp-ports* (remove (tcp-connection-local-port connection) *allocated-tcp-ports*)))
 
 (defun tcp4-receive-data (connection data-length end header-length packet seq start state)
-  (when (= seq (tcp-connection-r-next connection))
-    ;; Send data to the user layer
-    (if (tcp-connection-rx-data connection)
-        (setf (cdr (last (tcp-connection-rx-data connection)))
-              (list (list packet (+ start header-length) end)))
-        (setf (tcp-connection-rx-data connection)
-              (list (list packet (+ start header-length) end))))
-    (setf (tcp-connection-r-next connection)
-          (logand (+ (tcp-connection-r-next connection) data-length)
-                  #xFFFFFFFF)))
+  (cond ((= seq (tcp-connection-r-next connection))
+         ;; Send data to the user layer
+         (if (tcp-connection-rx-data connection)
+             (setf (cdr (last (tcp-connection-rx-data connection)))
+                   (list (list packet (+ start header-length) end)))
+             (setf (tcp-connection-rx-data connection)
+                   (list (list packet (+ start header-length) end))))
+         (setf (tcp-connection-r-next connection)
+               (logand (+ (tcp-connection-r-next connection) data-length)
+                       #xFFFFFFFF))
+         ;; Check if the next packet is in tcp-connection-rx-data-unordered
+         (loop :for packet := (gethash (tcp-connection-r-next connection)
+                                       (tcp-connection-rx-data-unordered connection))
+               :always packet
+               :do (remhash (tcp-connection-r-next connection)
+                            (tcp-connection-rx-data-unordered connection))
+               :do (setf (cdr (last (tcp-connection-rx-data connection)))
+                         (list (list packet (+ start header-length) end)))
+               :do (setf (tcp-connection-r-next connection)
+                         (logand (+ (tcp-connection-r-next connection) data-length)
+                                 #xFFFFFFFF))))
+        ;; Add future packet to tcp-connection-rx-data-unordered
+        ((> seq (tcp-connection-r-next connection))
+         (unless (gethash seq (tcp-connection-rx-data-unordered connection))
+           (setf (gethash seq (tcp-connection-rx-data-unordered connection))
+                 (list (list packet (+ start header-length) end))))))
   (cond ((<= seq (tcp-connection-r-next connection))
          (tcp4-send-packet connection
                            (tcp-connection-s-next connection)
                            (tcp-connection-r-next connection)
                            nil
-                           :ack-p t))
-        ;; Ignore future out-of-order packets, should be managed instead.
-        (t (format t "TCP state ~s. ~
-                      Ignoring future packet with sequence number ~D, wanted <= ~D.~%"
-                   state seq (tcp-connection-r-next connection)))))
+                           :ack-p t))))
 
 (defun tcp4-receive (connection packet &optional (start 0) end)
   (unless end (setf end (length packet)))
