@@ -80,7 +80,6 @@
   (tcp-connection-%state connection))
 
 (defun (setf tcp-connection-state) (value connection)
-  ;; (format t "~S ~S => ~S~%" connection (tcp-connection-%state connection) value)
   (setf (tcp-connection-%state connection) value))
 
 (defmacro with-tcp-connection-locked (connection &body body)
@@ -136,8 +135,7 @@
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))))
           ((eql flags +tcp4-flag-syn+)
-           (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
-          (t (format t "Ignoring packet from ~X ~X~%" remote-ip flags)))))
+           (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end)))))
 
 (defun tcp4-accept-connection (connection)
   (let* ((seq (random #x100000000))
@@ -165,16 +163,11 @@
                                     :window-size 8192)))
     (let ((server (assoc local-port *server-alist*)))
       (cond (server
-             (format t "Establishing TCP connection. l ~D  r ~D  from ~X to server ~S.~%"
-                     local-port remote-port remote-ip (second server))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
              (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                :ack-p t :syn-p t)
-             (funcall (second server) connection))
-            (t
-             (format t "Ignoring  TCP connection attempt, no server. l ~D  r ~D  from ~X.~%"
-                     local-port remote-port remote-ip))))))
+             (funcall (second server) connection))))))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -250,7 +243,6 @@
                                   :ack-p t :syn-p t))
                (t
                 ;; Aborting connection
-                (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags)
                 (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection))))
@@ -266,10 +258,6 @@
                      (eql ack (1- (tcp-connection-s-next connection)))))
                (t
                 ;; Aborting connection
-                (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
-                        ack (tcp-connection-s-next connection)
-                        seq (tcp-connection-r-next connection)
-                        flags)
                 (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection))))
@@ -342,7 +330,6 @@
            (setf (tcp-connection-state connection) :closed)))
         (t
          ;; Aborting connection
-         (format t "TCP: Unknown connection state ~S ~S.~%" (tcp-connection-state connection) start)
          (tcp4-send-packet connection ack seq nil :rst-p t)
          (setf (tcp-connection-state connection) :connection-aborted)
          (detach-tcp-connection connection))))
