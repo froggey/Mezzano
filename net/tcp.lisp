@@ -416,7 +416,13 @@
   (with-tcp-connection-locked connection
     (ecase (tcp-connection-state connection)
       (:syn-sent
-       (setf (tcp-connection-state connection) :closed))
+       (setf (tcp-connection-state connection) :closed)
+       (tcp4-send-packet connection
+                         (tcp-connection-s-next connection)
+                         (tcp-connection-r-next connection)
+                         nil
+                         :rst-p t)
+       (detach-tcp-connection connection))
       ((:established :syn-received)
        (setf (tcp-connection-state connection) :fin-wait-1)
        (tcp4-send-packet connection
