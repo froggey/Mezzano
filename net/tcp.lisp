@@ -135,8 +135,7 @@
                (push connection *tcp-connections*))))
           ((eql flags +tcp4-flag-syn+)
            (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end))
-          (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
-                     (subseq packet start end))))))
+          (t (format t "Ignoring packet from ~X ~X~%" remote-ip flags)))))
 
 (defun tcp4-accept-connection (connection)
   (let* ((seq (random #x100000000))
@@ -329,7 +328,7 @@
            (setf (tcp-connection-state connection) :closed)))
         (t
          ;; Aborting connection
-         (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
+         (format t "TCP: Unknown connection state ~S ~S.~%" (tcp-connection-state connection) start)
          (tcp4-send-packet connection ack seq nil :rst-p t)
          (setf (tcp-connection-state connection) :connection-aborted)
          (detach-tcp-connection connection))))
