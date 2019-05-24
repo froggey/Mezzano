@@ -37,7 +37,9 @@
        (mezzano.network.arp::arp-receive interface packet))
       ((eql ethertype +ethertype-ipv4+)
        (mezzano.network.ip::ipv4-receive interface packet 14 (length packet)))
-      (t (format t "Unknown ethertype ~X ~X.~%" ethertype packet)))))
+      ((eql ethertype +ethertype-ipv6+)
+       (format t "IPV6 isn't supported.~%"))
+      (t (format t "Unknown ethertype ~X.~%" ethertype)))))
 
 (defun ethernet-thread ()
   (loop
