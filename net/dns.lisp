@@ -67,8 +67,8 @@
 (defun write-dns-name (packet offset name)
   (when (not (zerop (length name)))
     ;; Domain names can end in a #\., trim it off.
-    (dolist (part (sys.int::explode #\. name :end (when (eql #\. (char name (1- (length name))))
-                                                    (1- (length name)))))
+    (dolist (part (sys.int::explode #\. name 0 (if (eql #\. (char name (1- (length name))))
+                                                   (1- (length name)))))
       (assert (<= (length part) 63))
       (assert (not (zerop (length part))))
       (setf (aref packet offset) (length part))
