@@ -464,9 +464,15 @@ Interrupts must be off and the global thread lock must be held."
 (defun thread-final-cleanup (return-values)
   (%run-on-wired-stack-without-interrupts (sp fp return-values)
     (let ((self (current-thread)))
+      ;; FIXME: This should be done with the global lock held, but that makes
+      ;; the lock ordering incorrect in (setf event-state).
+      ;; (setf event-state) expects to be called with the thread lock released.
+      ;; This leaves a small race window between the thread's join event
+      ;; being set and the thread state being set to dead, but this is only
+      ;; visible on SMP as interrupts are disabled here.
+      (setf (event-state (thread-join-event self)) (or return-values :no-values))
       (acquire-global-thread-lock)
       (setf (thread-state self) :dead)
-      (setf (event-state (thread-join-event self)) (or return-values :no-values))
       ;; Remove thread from the global list.
       (when (thread-global-next self)
         (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
