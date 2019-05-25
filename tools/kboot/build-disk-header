@@ -33,3 +33,5 @@ dd if=efibootfs.img of=disk-header.bin conv=notrunc bs=512 seek=2048
 dd if=bootfs.img of=disk-header.bin conv=notrunc bs=512 seek=4096
 
 kboot-install --target=bios --image=disk-header.bin --offset=2097152 --path=boot/kboot.bin --verbose
+
+mv disk-header.bin ..

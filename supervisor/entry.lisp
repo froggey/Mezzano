@@ -46,6 +46,7 @@
 (defconstant +boot-option-freestanding+ #x02)
 (defconstant +boot-option-video-console+ #x04)
 (defconstant +boot-option-no-detect+ #x08)
+(defconstant +boot-option-no-smp+ #x10)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
@@ -172,8 +173,8 @@
     (when (not (boot-option +boot-option-no-detect+))
       (detect-disk-partitions))
     (initialize-paging-system)
-    ;; Disabled, SMP is more broken than normal.
-    ;;(boot-secondary-cpus)
+    (when (not (boot-option +boot-option-no-smp+))
+      (boot-secondary-cpus))
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
                  *boot-hook-lock* (make-mutex "Boot Hook Lock")
