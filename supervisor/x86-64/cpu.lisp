@@ -223,7 +223,8 @@ Protected by the world stop lock."
   (let ((current (current-thread)))
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
-  (loop while *debug-magic-button-hold-variable*))
+  (loop while *debug-magic-button-hold-variable*)
+  (lapic-eoi))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
