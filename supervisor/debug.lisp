@@ -24,12 +24,9 @@
 (sys.int::defglobal sys.int::*supervisor-log-buffer*)
 (sys.int::defglobal *supervisor-log-buffer-position*)
 
-(sys.int::defglobal *debug-line-lock*)
-
 (sys.int::defglobal *debug-magic-button-hold-variable*)
 
 (defun initialize-debug-log ()
-  (setf *debug-line-lock* (place-spinlock-initializer))
   (setf *debug-magic-button-hold-variable* nil)
   (setf *debug-pseudostream* (lambda (&rest ignored) (declare (ignore ignored))))
   (cond ((boundp '*supervisor-log-buffer-position*)
@@ -165,12 +162,10 @@
            (debug-write-string ">"))))
 
 (defun debug-print-line-1 (things)
-  (safe-without-interrupts (things)
-    (with-place-spinlock (*debug-line-lock*)
-      (dolist (thing things)
-        (debug-write thing))
-      (debug-write-char #\Newline)
-      (debug-force-output))))
+  (dolist (thing things)
+    (debug-write thing))
+  (debug-write-char #\Newline)
+  (debug-force-output))
 
 (defun debug-print-line (&rest things)
   (declare (dynamic-extent things))
