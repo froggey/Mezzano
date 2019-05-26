@@ -786,37 +786,44 @@
     (tagbody
      RETRY
        (mezzano.supervisor:without-footholds
-         (mezzano.supervisor:with-mutex (mezzano.runtime::*allocator-lock*)
-           (when (< (mezzano.runtime::bytes-remaining) size)
-             (go DO-GC))
-           ;; This is where the stack starts in virtual memory.
-           (let* ((bump (+ +stack-guard-size+
-                           (if wired
-                               sys.int::*wired-stack-area-bump*
-                               sys.int::*stack-area-bump*)))
-                  (addr (logior bump
-                                (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
-             ;; Allocate backing mmory.
-             (when (not (allocate-memory-range addr size
-                                               (logior sys.int::+block-map-present+
-                                                       sys.int::+block-map-writable+
-                                                       sys.int::+block-map-zero-fill+
-                                                       (if wired
-                                                           sys.int::+block-map-wired+
-                                                           0))))
-               (go DO-GC))
-             ;; Memory actually allocated, now update bump pointers.
-             (if wired
-                 (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
-                 (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
-             (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
-             (setf (stack-base stack) addr
-                   ;; Notify the finalizer that the stack has been allocated & should be freed.
-                   stack-address addr)
-             ;; Flush the stack object so it doesn't get held live by the finalizer closure.
-             (let ((s stack))
-               (setf stack nil)
-               (return-from %allocate-stack s)))))
+         (unwind-protect
+              (progn
+                ;; Don't acquire the allocator lock if the world is stopped.
+                ;; This happens when allocating stacks for CPUs during boot.
+                (when (not (eql mezzano.supervisor::*world-stopper* (mezzano.supervisor:current-thread)))
+                  (acquire-mutex mezzano.runtime::*allocator-lock*))
+                (when (< (mezzano.runtime::bytes-remaining) size)
+                  (go DO-GC))
+                ;; This is where the stack starts in virtual memory.
+                (let* ((bump (+ +stack-guard-size+
+                                (if wired
+                                    sys.int::*wired-stack-area-bump*
+                                    sys.int::*stack-area-bump*)))
+                       (addr (logior bump
+                                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
+                  ;; Allocate backing mmory.
+                  (when (not (allocate-memory-range addr size
+                                                    (logior sys.int::+block-map-present+
+                                                            sys.int::+block-map-writable+
+                                                            sys.int::+block-map-zero-fill+
+                                                            (if wired
+                                                                sys.int::+block-map-wired+
+                                                                0))))
+                    (go DO-GC))
+                  ;; Memory actually allocated, now update bump pointers.
+                  (if wired
+                      (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
+                      (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
+                  (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
+                  (setf (stack-base stack) addr
+                        ;; Notify the finalizer that the stack has been allocated & should be freed.
+                        stack-address addr)
+                  ;; Flush the stack object so it doesn't get held live by the finalizer closure.
+                  (let ((s stack))
+                    (setf stack nil)
+                    (return-from %allocate-stack s))))
+           (when (mutex-held-p mezzano.runtime::*allocator-lock*)
+             (release-mutex mezzano.runtime::*allocator-lock*))))
      DO-GC
        (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
          (error 'storage-condition))
