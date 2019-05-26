@@ -187,6 +187,9 @@
     (do ((fp initial-frame-pointer
              (sys.int::memref-signed-byte-64 fp 0)))
         ((eql fp 0))
+      (when (not (eql (ldb sys.int::+address-tag+ fp) sys.int::+address-tag-stack+))
+        (debug-print-line fp " #<truncated>")
+        (return-from panic-print-backtrace))
       (let ((return-address (sys.int::memref-signed-byte-64 fp 1)))
         (when (eql return-address 0)
           (return))
