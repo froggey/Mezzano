@@ -374,8 +374,11 @@ Interrupts must be off and the global thread lock must be held."
   (set-current-thread new-thread)
   ;; Restore FPU state.
   (restore-fpu-state new-thread)
-  ;; Drop the global thread lock.
-  (release-global-thread-lock)
+  ;; The global thread lock is dropped by the restore functions, not here.
+  ;; We are still running on the current (old) thread's stack, so cannot
+  ;; allow another CPU to switch on to it just yet.
+  ;; This can only occur when performing a voluntary switch away from
+  ;; a thread with a wired stack - one of the ephemeral supervisor threads.
   ;; Check if the thread is full-save.
   (if (thread-full-save-p new-thread)
       (%%restore-full-save-thread new-thread)
