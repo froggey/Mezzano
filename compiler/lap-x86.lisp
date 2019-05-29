@@ -358,10 +358,23 @@ Used to make rip-relative addressing line up right.")
                        (- (+ *following-immediate-bytes* 4)))
       (emit 0 0 0 0))))
 
+(defun parse-object-ea (form segment slot-scale)
+  (destructuring-bind (base slot &optional index (scale 8))
+      (rest form)
+    (values nil
+            base
+            index
+            (if index scale nil)
+            ;; subtract +tag-object+, skip object header.
+            ;; Return an expression, so slot goes through symbol resolution, etc.
+            `(+ (- #b1001) 8 (* ,slot ,slot-scale))
+            nil
+            segment)))
+
 (defun parse-r/m (form)
   "Parse a register or effective address into a bunch of values.
 First value is the register, or false if the expression is an effective address.
-Remaining values describe the effective address: base index scale disp rip-relative"
+Remaining values describe the effective address: base index scale disp rip-relative segment"
   (cond ((not (consp form))
          form)
         ((and (= (length form) 2)
@@ -384,28 +397,16 @@ Remaining values describe the effective address: base index scale disp rip-relat
          (ecase (first form)
            (:car (values nil (second form) nil nil -3))
            (:cdr (values nil (second form) nil nil (+ -3 8)))))
+        ((and (member (first form) '(:cs :ss :ds :es :fs :gs))
+              (eql (second form) :object))
+         (parse-object-ea (rest form) (first form) 8))
         ((eql (first form) :object)
-         (destructuring-bind (base slot &optional index (scale 8))
-             (rest form)
-           (values nil
-                   base
-                   index
-                   (if index scale nil)
-                   ;; subtract +tag-object+, skip object header.
-                   ;; Return an expression, so slot goes through symbol resolution, etc.
-                   `(+ (- #b1001) 8 (* ,slot 8))
-                   nil)))
+         (parse-object-ea form nil 8))
+        ((and (member (first form) '(:cs :ss :ds :es :fs :gs))
+              (eql (second form) :object-unscaled))
+         (parse-object-ea (rest form) (first form) 1))
         ((eql (first form) :object-unscaled)
-         (destructuring-bind (base slot &optional index (scale 1))
-             (rest form)
-           (values nil
-                   base
-                   index
-                   (if index scale nil)
-                   ;; subtract +tag-object+, skip object header.
-                   ;; Return an expression, so slot goes through symbol resolution, etc.
-                   `(+ (- #b1001) 8 ,slot)
-                   nil)))
+         (parse-object-ea form nil 1))
         (t (let (base index scale disp rip-relative segment)
              (dolist (elt form)
                (cond ((eql elt :rip)
