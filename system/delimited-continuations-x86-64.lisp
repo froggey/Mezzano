@@ -16,11 +16,9 @@
   (lap:add64 (:object nil #.mezzano.supervisor::+thread-inhibit-footholds+)
              #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Find the top of the new stack.
-  (lap:mov64 :rsp (:object :r11 1)) ; stack.base
+  (lap:mov64 :rsp (:object :r11 0)) ; stack.base
+  (lap:add64 :rsp (:object :r11 1)) ; stack.size
   (lap:sar64 :rsp #.sys.int::+n-fixnum-bits+)
-  (lap:mov64 :rcx (:object :r11 2)) ; stack.size
-  (lap:sar64 :rcx #.sys.int::+n-fixnum-bits+)
-  (lap:add64 :rsp :rcx)
   ;; Construct the delimited continuation frame on the stack.
   (lap:lea64 :rax (:rip PHONY-RETURN-ADDRESS))
   (lap:push :rax) ; Fake return address for the GC.
