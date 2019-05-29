@@ -311,7 +311,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                   sys.int::+block-map-committed+))
                   flags))))
 
-(defun release-vm-page (frame &optional allow-wired)
+(defun release-vm-page (frame &key allow-wired stackp)
   (case (physical-page-frame-type frame)
     (:active
      (remove-from-page-replacement-list frame)
@@ -322,7 +322,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
      (when (not allow-wired)
        (panic "Releasing page wired " frame))
      ;; Release the backing frame, if any.
-     (when (physical-page-frame-next frame)
+     (when (and (not stackp)
+                (physical-page-frame-next frame))
        (release-physical-pages (physical-page-frame-next frame) 1))
      (release-physical-pages frame 1))
     (t
@@ -481,7 +482,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
             (let ((pte (get-pte-for-address (+ card-base (* i #x1000)) nil)))
               (when (and pte (page-present-p pte 0))
                 (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
-                                 t)
+                                 :allow-wired t)
                 (setf (page-table-entry pte 0) 0))))
           (tlb-shootdown-range card-base card-length)))
       (dotimes (i (truncate length #x1000))
@@ -492,7 +493,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           (when (and pte (page-present-p pte 0))
             (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
                              ;; Allow wired stacks to be freed.
-                             stackp)
+                             :allow-wired stackp :stackp stackp)
             (setf (page-table-entry pte 0) 0)))))
     (flush-tlb)
     (tlb-shootdown-all)
