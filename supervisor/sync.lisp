@@ -64,6 +64,7 @@
   (contested-count 0))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
+  (check-type mutex mutex)
   (let ((self (current-thread)))
     ;; Fast path - try to lock.
     (when (eql (sys.int::cas (mutex-state mutex) :unlocked :locked) :unlocked)
@@ -136,6 +137,7 @@
                       :format-arguments (list mutex (mutex-name mutex) current-owner)))))))
 
 (defun release-mutex (mutex)
+  (check-type mutex mutex)
   (check-mutex-release-consistence mutex)
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
@@ -196,6 +198,8 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
              (:area :wired)))
 
 (defun condition-wait (condition-variable mutex &optional timeout)
+  (check-type condition-variable condition-variable)
+  (check-type mutex mutex)
   (assert (mutex-held-p mutex))
   (check-mutex-release-consistence mutex)
   (ensure-interrupts-enabled)
@@ -252,6 +256,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
 (defun condition-notify (condition-variable &optional broadcast)
   "Wake one or many threads waiting on CONDITION-VARIABLE.
 May be used from an interrupt handler, assuming the associated mutex is interrupt-safe."
+  (check-type condition-variable condition-variable)
   (safe-without-interrupts (condition-variable broadcast)
     (flet ((pop-one ()
              (wake-thread (pop-wait-queue condition-variable))))
@@ -302,6 +307,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
   "Push a byte onto FIFO. Returns true if there was space and value was pushed successfully.
 If the fifo is full, then FIFO-PUSH will return false.
 Safe to use from an interrupt handler."
+  (check-type fifo irq-fifo)
   (safe-without-interrupts (value fifo)
     (with-place-spinlock ((irq-fifo-lock fifo))
       (let ((next (1+ (irq-fifo-tail fifo))))
@@ -320,6 +326,7 @@ Safe to use from an interrupt handler."
 Returns two values. The first value is the value popped from the FIFO.
 The second value is true if a value was popped, false otherwise.
 It is only possible for the second value to be false when wait-p is false."
+  (check-type fifo irq-fifo)
   (loop
        (multiple-value-bind (value validp)
            (safe-without-interrupts (fifo)
@@ -345,6 +352,7 @@ It is only possible for the second value to be false when wait-p is false."
 
 (defun irq-fifo-reset (fifo)
   "Flush any waiting data."
+  (check-type fifo irq-fifo)
   (safe-without-interrupts (fifo)
     (with-place-spinlock ((irq-fifo-lock fifo))
       (setf (irq-fifo-head fifo) 0
@@ -606,6 +614,7 @@ It is only possible for the second value to be false when wait-p is false."
 (defun (setf event-state) (value event)
   "Set the state of EVENT.
 STATE may be any object and will be treated as a generalized boolean by EVENT-WAIT and WAIT-FOR-OBJECTS."
+  (check-type event event)
   (safe-without-interrupts (value event)
     (with-place-spinlock (*big-wait-for-objects-lock*)
       (when (and value
@@ -624,6 +633,7 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
 
 (defun event-wait (event)
   "Wait until EVENT's state is not NIL."
+  (check-type event event)
   (%run-on-wired-stack-without-interrupts (sp fp event)
     (acquire-place-spinlock *big-wait-for-objects-lock*)
     (let ((self (current-thread)))
