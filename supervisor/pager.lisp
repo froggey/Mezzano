@@ -757,7 +757,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
-  (with-mutex (*vm-lock* nil)
+  (with-mutex (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte

@@ -182,15 +182,29 @@
     (when (mutex-held-p mutex)
       (release-mutex mutex))))
 
-(defmacro with-mutex ((mutex &optional (wait-p t)) &body body)
+(defmacro with-mutex ((mutex &key (wait-p t) resignal-errors) &body body)
   "Run body with MUTEX locked.
-May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin mutex."
-  ;; Cold generator has some odd problems with uninterned symbols...
-  `(flet ((call-with-mutex-thunk () ,@body))
-     (declare (dynamic-extent #'call-with-mutex-thunk))
-     (call-with-mutex #'call-with-mutex-thunk
-                      ,mutex
-                      ,wait-p)))
+May be used from an interrupt handler when TIMEOUT is 0.
+If RESIGNAL-ERRORS is non-NIL, any conditions signalled inside BODY
+that match the type specified by RESIGNAL-ERRORS (as by HANDLER-CASE/-BIND)
+will be resignalled (via ERROR) with the lock released.
+If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
+  (let ((call-with-mutex-thunk (gensym "CALL-WITH-MUTEX-THUNK")))
+    (flet ((emit-body ()
+             `(flet ((,call-with-mutex-thunk () ,@body))
+                (declare (dynamic-extent #',call-with-mutex-thunk))
+                (call-with-mutex #',call-with-mutex-thunk
+                                 ,mutex
+                                 ,wait-p))))
+      (cond (resignal-errors
+             `(handler-case ,(emit-body)
+                (,(if (eql resignal-errors 't)
+                      'error
+                      resignal-errors)
+                    (condition)
+                  (error condition))))
+            (t
+             (emit-body))))))
 
 (defstruct (condition-variable
              (:include wait-queue)
