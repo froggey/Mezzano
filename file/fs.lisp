@@ -215,10 +215,11 @@
   (host-name (pathname-host pathname)))
 
 (defun namestring (pathname)
-  (concatenate 'string
-               (string (host-name (pathname-host pathname)))
-               ":"
-               (namestring-using-host (pathname-host pathname) pathname)))
+  (let ((p (pathname pathname)))
+    (concatenate 'string
+                 (string (host-name (pathname-host p)))
+                 ":"
+                 (namestring-using-host (pathname-host p) p))))
 
 (defun file-namestring (pathname)
   (namestring-using-host (pathname-host pathname)
@@ -296,11 +297,16 @@
                          :version (pathname-version object)))))))
 
 (defun pathname (pathname)
-  (cond ((pathnamep pathname)
-         pathname)
-        ((typep pathname 'file-stream)
-         (pathname (file-stream-pathname pathname)))
-        (t (parse-namestring pathname))))
+  (typecase pathname
+    (pathname pathname)
+    (file-stream
+     (pathname (file-stream-pathname pathname)))
+    (synonym-stream
+     (pathname (sys.int::follow-synonym-stream pathname)))
+    (string
+     (parse-namestring pathname))
+    (t
+     (error 'type-error :datum pathname :expected-type 'pathname-designator))))
 
 (defgeneric stream-truename (stream))
 
