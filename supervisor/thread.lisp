@@ -45,12 +45,12 @@
 
 (defstruct (thread
              (:area :wired)
-             (:constructor %make-thread (name))
+             (:constructor %make-thread (%name))
              (:predicate threadp)
              :slot-offsets
              :sealed)
   ;; The name of the thread, a string.
-  (name nil :type (or string null) :read-only t)
+  (%name nil)
   ;; Current state.
   ;;   :active    - the thread is currently running on a core.
   ;;   :runnable  - the thread can be run, but is not currently running.
@@ -386,13 +386,29 @@ Interrupts must be off and the global thread lock must be held."
 
 ;;; Stuff.
 
+(defun copy-name-to-wired-area (name)
+  (typecase name
+    (string
+     (mezzano.runtime::copy-string-in-area name :wired))
+    (cons
+     (sys.int::copy-list-in-area
+      (mapcar #'copy-name-to-wired-area name)
+      :wired))
+    (t
+     name)))
+
+(defun thread-name (thread)
+  (thread-%name thread))
+
+(defun (setf thread-name) (value thread)
+  (setf (thread-%name thread) (copy-name-to-wired-area value))
+  value)
+
 (defun make-thread (function &key name initial-bindings (stack-size *default-stack-size*) (priority :normal))
   (declare (sys.c::closure-allocation :wired))
-  (check-type name (or null string))
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :high :normal :low))
-  (when name
-    (setf name (mezzano.runtime::copy-string-in-area name :wired)))
+  (setf name (copy-name-to-wired-area name))
   (let* ((thread (%make-thread name))
          (stack (%allocate-stack stack-size)))
     (setf (thread-stack thread) stack

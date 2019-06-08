@@ -251,7 +251,7 @@
   (let* ((stack (env:make-stack environment stack-size))
          (thread (env:make-structure
                   environment 'mezzano.supervisor:thread
-                  :name name
+                  :%name name
                   :state initial-state
                   :stack stack)))
     (setf (env:structure-slot-value environment thread 'mezzano.supervisor::self) thread)
