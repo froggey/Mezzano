@@ -55,6 +55,7 @@
 (defmethod describe-object ((object function) stream)
   (multiple-value-bind (lambda-expression closure-p name)
       (function-lambda-expression object)
+    (declare (ignore lambda-expression))
     (format stream "~S is a ~A" object
             (cond (closure-p "closure")
                   ((mezzano.delimited-continuations:delimited-continuation-p object)

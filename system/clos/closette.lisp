@@ -2760,10 +2760,12 @@ has only has class specializer."
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
 (defmethod reader-method-class ((class std-class) (direct-slot standard-direct-slot-definition) &rest initargs)
+  (declare (ignore initargs))
   (find-class 'standard-reader-method))
 
 (defgeneric writer-method-class (class direct-slot &rest initargs))
 (defmethod writer-method-class ((class std-class) (direct-slot standard-direct-slot-definition) &rest initargs)
+  (declare (ignore initargs))
   (find-class 'standard-writer-method))
 
 ;;; Finalize inheritance
@@ -2933,6 +2935,7 @@ has only has class specializer."
     (setf (slot-value class 'prototype) (std-allocate-instance class))))
 
 (defmethod reinitialize-instance :before ((class built-in-class) &rest args)
+  (declare (ignore args))
   (error "Cannot reinitialize built-in classes."))
 
 ;;; eql specializers.
@@ -3119,6 +3122,7 @@ has only has class specializer."
 
 (defgeneric slot-missing (class object slot-name operation &optional new-value))
 (defmethod slot-missing ((class t) object slot-name operation &optional new-value)
+  (declare (ignore new-value))
   (error "Slot ~S missing from class ~S when performing ~S." slot-name class operation))
 
 ;;; Initarg cache maintenance

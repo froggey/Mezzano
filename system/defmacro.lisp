@@ -19,6 +19,7 @@
                           (t `(<= ,req-count (dotted-list-length ,list) ,(+ req-count opt-count))))
                   (error "~S does not match destructuring sublist ~S." ,list ',lambda-list)))
              (handle-sublist (sublist whole)
+               ;; FIXME: This should be marked as ignorable
                (let* ((x (gensym "SUBLIST"))
                       (sublist-binding (list x nil))
                       (y (gensym)))

@@ -163,24 +163,24 @@
        (write-string output-string stream)))))
 
 (defun write-symbol (object stream)
-  (cond ((or *print-escape* *print-readably*)
-         (cond ((null (symbol-package object))
-                (when *print-gensym*
-                  (write-string "#:" stream)))
-               ((keywordp object)
-                (write-char #\: stream))
-               (t (multiple-value-bind (symbol status)
-                      (find-symbol (symbol-name object) *package*)
-                    (unless (and status (eql symbol object))
-                      ;; Not accessible in the current package.
-                      (multiple-value-bind (symbol status)
-                          (find-symbol (symbol-name object) (symbol-package object))
-                        (write-case-escaped-string (package-name (symbol-package object)) stream)
-                        (write-char #\: stream)
-                        (when (not (eql status :external))
-                          (write-char #\: stream)))))))
-         (write-case-escaped-string (symbol-name object) stream))
-        (t (write-case-escaped-string (symbol-name object) stream))))
+  (when (or *print-escape* *print-readably*)
+    (cond ((null (symbol-package object))
+           (when *print-gensym*
+             (write-string "#:" stream)))
+          ((keywordp object)
+           (write-char #\: stream))
+          (t
+           (multiple-value-bind (symbol status)
+               (find-symbol (symbol-name object) *package*)
+             (unless (and status (eql symbol object))
+               ;; Not accessible in the current package.
+               (let ((status (nth-value 1 (find-symbol (symbol-name object)
+                                                       (symbol-package object)))))
+                 (write-case-escaped-string (package-name (symbol-package object)) stream)
+                 (write-char #\: stream)
+                 (when (not (eql status :external))
+                   (write-char #\: stream))))))))
+  (write-case-escaped-string (symbol-name object) stream))
 
 (defun write-ratio (object stream)
   (when *print-radix*

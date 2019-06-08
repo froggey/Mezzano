@@ -198,10 +198,13 @@
 ;;; Will be overriden later in the init process.
 (when (not (fboundp 'funcallable-instance-lambda-expression))
   (defun funcallable-instance-lambda-expression (function)
+    (declare (ignore function))
     (values nil t nil))
   (defun funcallable-instance-debug-info (function)
+    (declare (ignore function))
     nil)
   (defun funcallable-instance-compiled-function-p (function)
+    (declare (ignore function))
     nil)
   )
 

@@ -177,7 +177,8 @@
 (defstruct (wired-obsolete-instance-layout
              (:include obsolete-instance-layout)
              (:area :wired))
-  old-layout)
+  ;; No new slots needed here, just changing the allocation area.
+  )
 
 (defun supersede-instance (old-instance replacement)
   (let ((layout (sys.int::%instance-layout old-instance)))
@@ -222,6 +223,6 @@
   (class nil :read-only t)
   (obsolete nil)
   (heap-size nil)
-  (heap-layout nl)
+  (heap-layout nil)
   (area nil)
   (instance-slots nil))

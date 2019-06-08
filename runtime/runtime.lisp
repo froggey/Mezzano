@@ -379,7 +379,7 @@ thread's stack if this function is called from normal code."
 (defun %%object-ref-single-float-unscaled (object index)
   (%integer-as-single-float (%%object-ref-unsigned-byte-32-unscaled object index)))
 (defun (setf %%object-ref-single-float-unscaled) (value object index)
-  (setf (%%object-ref-unsigned-byte-32 object-unscaled index)
+  (setf (%%object-ref-unsigned-byte-32-unscaled object index)
         (%single-float-as-integer value))
   value)
 

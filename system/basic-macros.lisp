@@ -440,8 +440,7 @@
 
 (defmacro prog2 (first-form second-form &rest forms)
   "Evaluate FIRST-FORM, SECOND-FORM, then FORMS in order; returning the value of SECOND-FORM."
-  (let ((sym (gensym)))
-    `(prog1 (progn ,first-form ,second-form) ,@forms)))
+  `(prog1 (progn ,first-form ,second-form) ,@forms))
 
 (defmacro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)

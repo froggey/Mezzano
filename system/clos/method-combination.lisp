@@ -190,6 +190,7 @@
 )
 
 (defun invalid-method-error (method format-control &rest format-arguments)
+  (declare (ignore method))
   (apply #'error format-control format-arguments))
 
 ;; Built-in method combinations.

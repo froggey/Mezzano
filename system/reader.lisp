@@ -38,7 +38,7 @@
     (set-syntax-from-char (code-char i) (code-char i) to-readtable from-readtable))
   (clrhash (readtable-extended-characters to-readtable))
   (maphash (lambda (k v)
-             (declare (ignore))
+             (declare (ignore v))
              (set-syntax-from-char k k to-readtable from-readtable))
            (readtable-extended-characters from-readtable))
   to-readtable)
@@ -529,7 +529,6 @@
 
 (defun read-right-parenthesis (stream first)
   "Signals a reader-error when an unexpected #\) is seen."
-  (declare (ignore stream))
   (error 'simple-reader-error :stream stream
          :format-control "Unexpected ~S."
          :format-arguments (list first)))
@@ -832,7 +831,7 @@
 
 (defun read-#-invalid (stream ch p)
   "Handle explicitly invalid # dispatch characters."
-  (declare (ignore stream p))
+  (declare (ignore p))
   (error 'simple-reader-error :stream stream
          :format-control "Illegal syntax #~A."
          :format-arguments (list ch)))

@@ -708,7 +708,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun parameter (node parameter)
   (command (hda node) (cad node) (nid node) (make-parameter parameter)))
 
-(defmethod initialize-instance :after ((node root-node) &rest initargs)
+(defmethod initialize-instance :after ((node root-node) &key)
   (let* ((subs (parameter node +parameter-subordinates+))
          (viddid (parameter node +parameter-viddid+))
          (revision (parameter node +parameter-revision+)))

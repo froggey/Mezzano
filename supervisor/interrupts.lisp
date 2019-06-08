@@ -312,7 +312,7 @@ RETURN-FROM/GO must not be used to leave this form."
                                        :latch latch))
          (event (make-event :name simple-irq))
          (fn (lambda (interrupt-frame irq)
-               (declare (ignore interrupt-frame))
+               (declare (ignore interrupt-frame irq))
                (with-place-spinlock ((simple-irq-lock simple-irq))
                  (case (simple-irq-state simple-irq)
                    ((:masked :masked-eoi-pending)

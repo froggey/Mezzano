@@ -1226,7 +1226,8 @@
     (setf stream-symbol '*standard-output*))
   (when (and prefix per-line-prefix)
     (warn "prefix ~S and per-line-prefix ~S cannot both be specified ~
-           in PPRINT-LOGICAL-BLOCK")
+           in PPRINT-LOGICAL-BLOCK"
+          prefix per-line-prefix)
     (setf per-line-prefix nil))
   `(maybe-initiate-xp-printing
      (lambda (,stream-symbol)

@@ -61,7 +61,7 @@
            n-sectors
            buffer))
 
-(defun flush-disk-partition (device buffer)
+(defun flush-disk-partition (device)
   (funcall (disk-flush-fn (partition-disk device))
            (disk-device (partition-disk device))))
 
@@ -89,19 +89,22 @@
       (let* ((base (+ sector-buffer byte-offset))
              (first-lba (memref-ub64/le (+ base #x20) 0))
              (last-lba (memref-ub64/le (+ base #x28) 0))
-             (size (- (1+ last-lba) first-lba)))
+             (size (- (1+ last-lba) first-lba))
+             (the-system-id nil))
         (when (loop
                  for i from 0 below 16
                  for system-id = (sys.int::memref-unsigned-byte-8 (+ base i) 0)
                             then (sys.int::memref-unsigned-byte-8 (+ base i) 0)
                  when (not (eql system-id 0))
-                 do (return t)
+                 do
+                   (setf the-system-id system-id)
+                   (return t)
                  finally (return nil))
           (debug-print-line "Detected partition " i " on disk " disk ". Start: " first-lba " size: " size)
           (register-disk (make-partition :disk disk
                                          :offset first-lba
                                          :id i
-                                         :type system-id)
+                                         :type the-system-id)
                          (disk-writable-p disk)
                          size
                          sector-size

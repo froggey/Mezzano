@@ -742,9 +742,7 @@ not and WAIT-P is false."
 ;;; Foothold management.
 
 (defmacro without-footholds (&body body)
-  (let ((thread (gensym))
-        (footholds (gensym "FOOTHOLDS"))
-        (fh (gensym "FH")))
+  (let ((thread (gensym)))
     `(unwind-protect
           (progn
             (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)
