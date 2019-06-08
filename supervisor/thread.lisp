@@ -369,6 +369,7 @@ Interrupts must be off and the global thread lock must be held."
   (%%switch-to-thread-common current-thread next-thread))
 
 (defun %%switch-to-thread-common (current-thread new-thread)
+  (declare (ignore current-thread))
   ;; Current thread's state has been saved, restore the new-thread's state.
   ;; Switch threads.
   (set-current-thread new-thread)
@@ -905,7 +906,7 @@ not and WAIT-P is false."
         (funcall thunk)
       (with-world-stop-lock ()
         ;; Release the dogs!
-        (safe-without-interrupts (self)
+        (safe-without-interrupts ()
           (acquire-global-thread-lock)
           (setf *world-stopper* nil)
           (release-global-thread-lock))
