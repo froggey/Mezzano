@@ -272,12 +272,10 @@
 (defun construct-dx-list (arg-vars &optional tail)
   (cond ((null arg-vars)
          (or tail '(quote nil)))
+        (tail
+         `(call dx-list* ,@arg-vars ,tail))
         (t
-         `(let ((c (call make-dx-cons)))
-            (progn
-              (call (setf mezzano.runtime::%car) ,(first arg-vars) c)
-              (call (setf mezzano.runtime::%cdr) ,(construct-dx-list (rest arg-vars) tail) c)
-              c)))))
+         `(call dx-list ,@arg-vars))))
 
 (defun lift-lambda-apply (lambda arguments)
   (multiple-value-bind (list-body list-tail)

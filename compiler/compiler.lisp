@@ -133,6 +133,8 @@ be generated instead.")
     (setf form (lower-special-bindings form))
     (when run-optimizations
       (setf form (simplify form target)))
+    ;; Lower the complicated DX list functions.
+    (setf form (lower-dynamic-extent-list form))
     form))
 
 (defun eval-load-time-value (form read-only-p)
