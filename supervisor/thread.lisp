@@ -475,7 +475,7 @@ Interrupts must be off and the global thread lock must be held."
              (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
                (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
                  (funcall fh))))
-           (setf return-vaues (multiple-value-list (funcall function))))
+           (setf return-values (multiple-value-list (funcall function))))
       ;; Cleanup, terminate the thread.
       (thread-final-cleanup return-values))))
 
