@@ -49,7 +49,9 @@
 
 (defmethod print-object ((object mezzano.supervisor:thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (mezzano.supervisor:thread-name object))))
+    (format stream "~S ~S"
+            (mezzano.supervisor:thread-name object)
+            (mezzano.supervisor:thread-state object))))
 
 (defmethod print-object ((object mezzano.supervisor::disk) stream)
   (print-unreadable-object (object stream :identity t)
