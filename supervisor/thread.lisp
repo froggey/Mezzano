@@ -887,11 +887,13 @@ not and WAIT-P is false."
            (setf *world-stop-pending* self)
            (return))
          ;; Wait for the world to unstop.
+         ;; FIXME: This can still cause deadlocks when reacquiring the lock.
          (condition-wait *world-stop-cvar* *world-stop-lock*))
       ;; Now wait for any PA threads to finish.
       (loop
          (when (zerop *pseudo-atomic-thread-count*)
            (return))
+         ;; FIXME: Same here.
          (condition-wait *world-stop-cvar* *world-stop-lock*))
       (safe-without-interrupts (self)
         (acquire-global-thread-lock)
@@ -899,8 +901,7 @@ not and WAIT-P is false."
               *world-stop-pending* nil)
         (release-global-thread-lock))
       (quiesce-cpus-for-world-stop))
-    ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
-    (multiple-value-prog1
+    (unwind-protect
         (funcall thunk)
       (with-world-stop-lock ()
         ;; Release the dogs!
@@ -927,6 +928,7 @@ not and WAIT-P is false."
        (when (null *world-stop-pending*)
          (return))
        ;; Don't go PA if there is a thread waiting to stop the world.
+       ;; FIXME: Can deadlock...
        (condition-wait *world-stop-cvar* *world-stop-lock*))
     ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
     ;; from being inspected.
