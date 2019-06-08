@@ -233,3 +233,6 @@
   wired-stack
   exception-stack
   irq-stack)
+
+(defun logical-core-count ()
+  1)

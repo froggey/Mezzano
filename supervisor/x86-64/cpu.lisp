@@ -971,6 +971,9 @@ This is a one-shot timer and must be reset after firing."
     (when (eql (cpu-state cpu) :offline)
       (boot-cpu cpu))))
 
+(defun logical-core-count ()
+  (length *cpus*))
+
 (in-package :sys.int)
 
 ;; (%cpuid leaf ecx) -> eax ebx ecx edx

@@ -341,6 +341,7 @@
            #:with-symbol-spinlock
            #:map-physical-memory
            #:add-deferred-boot-action
+           #:logical-core-count
 
            #:boot-uuid
            #:boot-field
@@ -430,6 +431,9 @@
            #:timer-wait
            #:timer-expired-p
            #:with-timer
+
+           #:thread-thread-pool
+           #:thread-pool-block
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

@@ -106,6 +106,8 @@
   unsleep-helper-argument
   ;; Event indicating when the thread has died.
   join-event
+  ;; The thread pool that this thread belongs to, if any.
+  thread-pool
   ;; Slots used as part of the multiple-value return convention.
   ;; These contain lisp values, but need to be scanned specially by the GC,
   ;; which is why they have type UB64 instead of T.

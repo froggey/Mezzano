@@ -10,10 +10,13 @@
   (:local-nicknames (:sup :mezzano.supervisor))
   (:import-from :mezzano.supervisor
                 #:wait-for-objects
-                #:get-object-event)
+                #:get-object-event
+                #:thread-pool-block)
   (:export #:wait-for-objects
            #:wait-for-objects-with-timeout
            #:get-object-event
+
+           #:thread-pool-block
 
            #:always-false-event
            #:always-true-event
@@ -40,6 +43,8 @@
            ))
 
 (in-package :mezzano.sync)
+
+(defgeneric thread-pool-block (thread-pool blocking-function &rest arguments))
 
 (defgeneric get-object-event (object))
 

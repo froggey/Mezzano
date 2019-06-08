@@ -5,6 +5,39 @@
 
 (in-package :mezzano.supervisor)
 
+;;; Thread pool support for hijacking blocking functions.
+;;; When the current thread's thread-pool slot is non-nil, the blocking
+;;; functions will call THREAD-POOL-BLOCK with the thread pool, the name
+;;; of the function and supplied arguments instead of actually blocking.
+;;; The thread's thread-pool slot will be set to NIL for the duration
+;;; of the call to THREAD-POOL-BLOCK.
+
+(defmacro thread-pool-blocking-hijack (function-name &rest arguments)
+  (let ((self (gensym "SELF"))
+        (pool (gensym "POOL")))
+    `(let* ((,self (current-thread))
+            (,pool (thread-thread-pool ,self)))
+       (when ,pool
+         (unwind-protect
+              (progn
+                (setf (thread-thread-pool ,self) nil)
+                (return-from ,function-name
+                  (thread-pool-block ,pool ',function-name ,@arguments)))
+           (setf (thread-thread-pool ,self) ,pool))))))
+
+(defmacro thread-pool-blocking-hijack-apply (function-name &rest arguments)
+  (let ((self (gensym "SELF"))
+        (pool (gensym "POOL")))
+    `(let* ((,self (current-thread))
+            (,pool (thread-thread-pool ,self)))
+       (when ,pool
+         (unwind-protect
+              (progn
+                (setf (thread-thread-pool ,self) nil)
+                (return-from ,function-name
+                  (apply #'thread-pool-block ,pool ',function-name ,@arguments)))
+           (setf (thread-thread-pool ,self) ,pool))))))
+
 ;;; Common structure for sleepable things.
 (defstruct (wait-queue
              (:area :wired))
@@ -85,6 +118,7 @@
       (ensure-interrupts-enabled)
       (unless (not *pseudo-atomic*)
         (panic "Trying to acquire mutex " mutex " while pseudo-atomic."))
+      (thread-pool-blocking-hijack acquire-mutex mutex wait-p)
       (%call-on-wired-stack-without-interrupts
        #'acquire-mutex-slow-path nil mutex self)
       t)))
@@ -217,6 +251,7 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
   (assert (mutex-held-p mutex))
   (check-mutex-release-consistence mutex)
   (ensure-interrupts-enabled)
+  (thread-pool-blocking-hijack condition-wait condition-variable mutex timeout)
   (unwind-protect
        (cond (timeout
               (with-timer (timer :relative timeout)
@@ -585,6 +620,7 @@ It is only possible for the second value to be false when wait-p is false."
     (cdr head)))
 
 (defun wait-for-objects (&rest objects)
+  (thread-pool-blocking-hijack-apply wait-for-objects objects)
   ;; Objects converted to events.
   (let* ((events (convert-objects-to-events objects))
          (wfo (make-wfo :objects objects
@@ -648,6 +684,7 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
 (defun event-wait (event)
   "Wait until EVENT's state is not NIL."
   (check-type event event)
+  (thread-pool-blocking-hijack event-wait event)
   (%run-on-wired-stack-without-interrupts (sp fp event)
     (acquire-place-spinlock *big-wait-for-objects-lock*)
     (let ((self (current-thread)))
