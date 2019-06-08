@@ -284,6 +284,7 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
     (when (and timer (timer-expired-p timer))
       (unlock-wait-queue condition-variable)
       (unlock-wait-queue mutex)
+      (release-global-thread-lock)
       (return-from condition-wait-inner))
     ;; Attach to the list.
     (push-wait-queue self condition-variable)
