@@ -887,6 +887,8 @@ Other arguments are included directly."
          (layout (sys.int::make-layout
                   :class class
                   :obsolete nil
+                  ;; FIXME: If CLASS is a funcallable instance with no slots,
+                  ;; then this will compute the wrong size (0).
                   :heap-size (loop
                                 ;; Using the effective slot locations
                                 ;; accounts for the FC instance offset.
@@ -3019,7 +3021,9 @@ has only has class specializer."
                  (list :direct-superclasses (safe-class-direct-superclasses class))
                  (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (safe-class-direct-slots class)))
                  (list :direct-default-initargs (safe-class-direct-default-initargs class))))
-  ;; Flush the EMF tables of generic functions.
+  ;; Flush the EMF tables of generic functions. (wait, why?)
+  ;; FIXME: This needs to flush the EMF tables of any accessor GFs that have
+  ;; an EMF entry for this class.
   (dolist (gf (safe-specializer-direct-generic-functions class))
     (reset-gf-emf-table gf))
   ;; Refinalize any subclasses.
