@@ -276,7 +276,7 @@
               ((null i)
                (cdr result))
            (declare (dynamic-extent result))
-           (unless (member (car i) (cdr result) :test test :key key)
+           (unless (member (funcall key (car i)) (cdr result) :test test :key key)
              (setf (cdr tail) (cons (car i) nil)
                    tail (cdr tail))))
          (do* ((result (cons nil nil))
@@ -285,7 +285,7 @@
               ((null i)
                (cdr result))
            (declare (dynamic-extent result))
-           (unless (member (car i) (cdr i) :test test :key key)
+           (unless (member (funcall key (car i)) (cdr i) :test test :key key)
              (setf (cdr tail) (cons (car i) nil)
                    tail (cdr tail))))))
     (vector
