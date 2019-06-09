@@ -1,0 +1,178 @@
+;;;; Copyright (c) 2019 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
+(defpackage :mezzano.sync.thread-pool
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor))
+  (:export #:*default-keepalive-time*
+           #:thread-pool
+           #:work-item
+           #:make-thread-pool
+           #:thread-pool-add
+           #:thread-pool-cancel-item
+           #:thread-pool-flush
+           #:thread-pool-shutdown))
+
+(in-package :mezzano.sync.thread-pool)
+
+(defparameter *default-keepalive-time* 60
+  "Default value for the idle worker thread keepalive time.")
+
+(defclass thread-pool ()
+  ((%name :initarg :name :reader thread-pool-name)
+   (%initial-bindings :initarg :initial-bindings :reader thread-pool-initial-bindings)
+   (%lock :initform (sup:make-mutex "Thread-Pool lock") :reader thread-pool-lock)
+   (%cvar :initform (sup:make-condition-variable "Thread-Pool cvar") :reader thread-pool-cvar)
+   (%pending :initform '() :accessor thread-pool-pending)
+   (%working-threads :initform '() :accessor thread-pool-working-threads)
+   (%idle-threads :initform '() :accessor thread-pool-idle-threads)
+   (%n-total-threads :initform 0 :accessor thread-pool-n-total-threads)
+   (%n-blocked-threads :initform 0 :accessor thread-pool-n-blocked-threads)
+   (%shutdown :initform nil :accessor thread-pool-shutdown-p)
+   (%keepalive-time :initarg :keepalive-time :accessor thread-pool-keepalive-time))
+  (:default-initargs :name nil :initial-bindings '()))
+
+(defclass work-item ()
+  ((%name :initarg :name :reader work-item-name)
+   (%function :initarg :function :reader work-item-function)
+   (%thread-pool :initarg :thread-pool :reader work-item-thread-pool)))
+
+(defun make-thread-pool (&key name initial-bindings (keepalive-time *default-keepalive-time*))
+  "Create a new thread-pool."
+  (check-type *default-keepalive-time* (rational 0))
+  (make-instance 'thread-pool
+                 :name name
+                 :initial-bindings initial-bindings
+                 :keepalive-time keepalive-time))
+
+(defmethod sup:thread-pool-block ((thread-pool thread-pool) blocking-function &rest arguments)
+  (declare (dynamic-extent arguments))
+  (unwind-protect
+       (progn
+         (sup:with-mutex ((thread-pool-lock thread-pool))
+           (incf (thread-pool-n-blocked-threads thread-pool)))
+         (apply blocking-function arguments))
+    (sup:with-mutex ((thread-pool-lock thread-pool))
+      (decf (thread-pool-n-blocked-threads thread-pool)))))
+
+(defun thread-pool-n-concurrent-threads (thread-pool)
+  "Return the number of threads in the pool are not blocked."
+  (- (thread-pool-n-total-threads thread-pool)
+     (thread-pool-n-blocked-threads thread-pool)))
+
+(defun thread-pool-main (thread-pool)
+  (let* ((self (sup:current-thread))
+         (thread-name (sup:thread-name self)))
+    (unwind-protect
+         (loop
+            (let ((work nil))
+              (sup:with-mutex ((thread-pool-lock thread-pool))
+                ;; Move from active to idle.
+                (setf (thread-pool-working-threads thread-pool)
+                      (remove self (thread-pool-working-threads thread-pool)))
+                (push self (thread-pool-idle-threads thread-pool))
+                (setf (third thread-name) nil)
+                (let ((start-idle-time (get-internal-run-time)))
+                  (loop
+                     (when (thread-pool-shutdown-p thread-pool)
+                       (return-from thread-pool-main))
+                     (when (not (endp (thread-pool-pending thread-pool)))
+                       (setf work (pop (thread-pool-pending thread-pool)))
+                       (setf (third thread-name) work)
+                       ;; Back to active from idle.
+                       (setf (thread-pool-idle-threads thread-pool)
+                             (remove self (thread-pool-idle-threads thread-pool)))
+                       (push self (thread-pool-working-threads thread-pool))
+                       (return))
+                     ;; If there is no work available and there are more
+                     ;; unblocked threads than cores, then terminate this thread.
+                     (when (> (thread-pool-n-concurrent-threads thread-pool)
+                              (sup:logical-core-count))
+                       (return-from thread-pool-main))
+                     (let* ((end-idle-time (+ start-idle-time (* (thread-pool-keepalive-time thread-pool) internal-time-units-per-second)))
+                            (idle-time-remaining (- end-idle-time (get-internal-run-time))))
+                       (when (minusp idle-time-remaining)
+                         (return-from thread-pool-main))
+                       (sup:condition-wait (thread-pool-cvar thread-pool)
+                                           (thread-pool-lock thread-pool)
+                                           (/ idle-time-remaining internal-time-units-per-second))))))
+              (setf (sup:thread-thread-pool self) thread-pool)
+              (funcall (work-item-function work))
+              (setf (sup:thread-thread-pool self) nil)))
+      (sup:with-mutex ((thread-pool-lock thread-pool))
+        ;; Remove this thread from the pool.
+        (setf (thread-pool-working-threads thread-pool)
+              (remove self (thread-pool-working-threads thread-pool)))
+        (setf (thread-pool-idle-threads thread-pool)
+              (remove self (thread-pool-idle-threads thread-pool)))
+        (decf (thread-pool-n-total-threads thread-pool))))))
+
+(defun thread-pool-add (function thread-pool &key name priority)
+  "Add a work item to the thread-pool.
+Functions are called concurrently and in FIFO order.
+A work item is returned, which can be passed to THREAD-POOL-CANCEL-ITEM
+to attempt cancel the work."
+  (declare (ignore priority)) ; TODO
+  (check-type function function)
+  (let ((work (make-instance 'work-item
+                             :function function
+                             :name name
+                             :thread-pool thread-pool)))
+    (sup:with-mutex ((thread-pool-lock thread-pool) :resignal-errors t)
+      (when (thread-pool-shutdown-p thread-pool)
+        (error "Attempted to add work item to shut down thread pool ~S" thread-pool))
+      (setf (thread-pool-pending thread-pool) (append (thread-pool-pending thread-pool) (list work)))
+      (when (and (endp (thread-pool-idle-threads thread-pool))
+                 (< (thread-pool-n-concurrent-threads thread-pool)
+                    (sup:logical-core-count)))
+        ;; There are no idle threads and there are more logical cores than
+        ;; currently running threads. Create a new thread for this work item.
+        ;; Push it on the active list to make the logic in T-P-MAIN work out.
+        (push (sup:make-thread (lambda () (thread-pool-main thread-pool))
+                               :name `(thread-pool-worker ,thread-pool nil)
+                               :initial-bindings (thread-pool-initial-bindings thread-pool))
+              (thread-pool-working-threads thread-pool))
+        (incf (thread-pool-n-total-threads thread-pool)))
+      (sup:condition-notify (thread-pool-cvar thread-pool)))
+    work))
+
+(defun thread-pool-cancel-item (item)
+  "Cancel a work item, removing it from its thread-pool.
+Returns true if the item was successfully cancelled,
+false if the item had finished or is currently running on a worker thread."
+  (let ((thread-pool (work-item-thread-pool item)))
+    (sup:with-mutex ((thread-pool-lock thread-pool))
+      (cond ((find item (thread-pool-pending thread-pool))
+             (setf (thread-pool-pending thread-pool) (remove item (thread-pool-pending thread-pool)))
+             t)
+            (t
+             nil)))))
+
+(defun thread-pool-flush (thread-pool)
+  "Cancel all outstanding work on THREAD-POOL.
+Returns a list of all cancelled items.
+Does not cancel work in progress."
+  (sup:with-mutex ((thread-pool-lock thread-pool))
+    (prog1
+        (thread-pool-pending thread-pool)
+      (setf (thread-pool-pending thread-pool) '()))))
+
+(defun thread-pool-shutdown (thread-pool &key abort)
+  "Shutdown THREAD-POOL.
+This cancels all outstanding work on THREAD-POOL
+and notifies the worker threads that they should
+exit once their active work is complete.
+Once a thread pool has been shut down, no further work
+can be added.
+If ABORT is true then worker threads will be terminated
+via TERMINATE-THREAD."
+  (sup:with-mutex ((thread-pool-lock thread-pool))
+    (setf (thread-pool-shutdown-p thread-pool) t)
+    (setf (thread-pool-pending thread-pool) '())
+    (when abort
+      (dolist (thread (thread-pool-working-threads thread-pool))
+        (sup:terminate-thread thread))
+      (dolist (thread (thread-pool-idle-threads thread-pool))
+        (sup:terminate-thread thread)))
+    (sup:condition-notify (thread-pool-cvar thread-pool) t))
+  (values))

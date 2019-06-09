@@ -123,6 +123,7 @@
     "system/clos/struct.lisp"
     "system/clos/method-combination.lisp"
     "system/sync.lisp"
+    "system/thread-pool.lisp"
     "system/describe.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
