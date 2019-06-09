@@ -3171,3 +3171,7 @@ Does not handle subclasses."
 ;; Update-instance-for-redefined-class
 (safe-add-dependent #'update-instance-for-redefined-class (make-instance 'initarg-cache-flusher :cache *u-i-f-r-c-initargs-cache*))
 (safe-add-dependent #'shared-initialize (make-instance 'initarg-cache-flusher :cache *u-i-f-r-c-initargs-cache*))
+
+(defmethod print-object ((instance class-reference) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~S~:[ [undefined]~;~]" (class-reference-name instance) (class-reference-class instance))))
