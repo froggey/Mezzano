@@ -45,13 +45,13 @@
 
 (defun wait-for-connections (listener)
   (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-    (let ((connections (tcp-listener-connection listener)))
-      (if connections
-          (progn
-            (setf (tcp-listener-connection listener) nil)
-            connections)
-          (mezzano.supervisor:condition-wait (tcp-listener-cvar listener)
-                                             (tcp-listener-lock listener))))))
+    (loop
+       (let ((connections (tcp-listener-connection listener)))
+         (when connections
+           (setf (tcp-listener-connection listener) nil)
+           (return connections)))
+       (mezzano.supervisor:condition-wait (tcp-listener-cvar listener)
+                                          (tcp-listener-lock listener)))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
