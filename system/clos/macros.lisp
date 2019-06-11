@@ -106,6 +106,11 @@
                  (:documentation
                   (setf documentation val))
                  (t
+                  (when (and (eql sym :type)
+                             (listp val)
+                             (eql (first val) 'quote))
+                    (warn "Type definition for slot ~S of class ~S is quoted. The argument to :TYPE is not evaluated." name class-name)
+                    (setf val (second val)))
                   (let ((existing (assoc sym others)))
                     (when (not existing)
                       (setf existing (cons sym '()))

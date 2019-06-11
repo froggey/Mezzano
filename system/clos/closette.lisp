@@ -34,6 +34,10 @@
 
 (in-package :mezzano.clos)
 
+(defconstant +slot-unbound+ '+slot-unbound+
+  "This value can be passed to (CAS SLOT-VALUE) to indicate that
+the old or new values are expected to be unbound.")
+
 ;;;
 ;;; Standard instances
 ;;;
@@ -268,6 +272,14 @@
         (t
          whole)))
 
+(defun check-slot-type (value instance slot-name)
+  (let* ((effective-slot (find-effective-slot instance slot-name))
+         (typecheck (safe-slot-definition-typecheck effective-slot)))
+    (when (and typecheck (not (funcall typecheck value)))
+      (error 'type-error
+             :datum value
+             :expected-type (safe-slot-definition-type effective-slot)))))
+
 (defun (setf std-slot-value) (value instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
@@ -275,6 +287,7 @@
       (slot-missing (class-of instance) instance slot-name 'setf value)
       (return-from std-slot-value
         value))
+    (check-slot-type value instance slot-name)
     (setf (standard-instance-access slots location) value)))
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
@@ -336,6 +349,7 @@
     (when (not location)
       (return-from std-slot-value
         (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new))))
+    (check-slot-type new instance slot-name)
     (sys.int::cas (standard-instance-access slots location) old new)))
 (defun (sys.int::cas slot-value) (old new object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
@@ -826,6 +840,12 @@ Other arguments are included directly."
 (defun (setf safe-slot-definition-type) (value slot-definition)
   (setf (std-slot-value slot-definition 'type) value))
 
+(defun safe-slot-definition-typecheck (effective-slot-definition)
+  (declare (notinline slot-value)) ; Bootstrap hack
+  (if (standard-effective-slot-definition-instance-p effective-slot-definition)
+      (std-slot-value effective-slot-definition 'typecheck)
+      (slot-definition-typecheck effective-slot-definition)))
+
 (defun safe-slot-definition-readers (direct-slot-definition)
   (if (standard-direct-slot-definition-instance-p direct-slot-definition)
       (std-slot-value direct-slot-definition 'readers)
@@ -1032,9 +1052,71 @@ Other arguments are included directly."
          (apply #'effective-slot-definition-class class initargs)
          initargs))
 
+(defun combine-direct-slot-types (direct-slots)
+  (let* ((types (remove-duplicates (remove 't (mapcar #'safe-slot-definition-type direct-slots))
+                                   :test #'sys.int::type-equal)))
+    (cond ((endp types)
+           't)
+          ((endp (rest types))
+           (first types))
+          (t
+           `(and ,@types)))))
+
+(defun compute-typecheck-function (type-specifier)
+  (when (eql type-specifier 't)
+    ;; No type check function required.
+    (return-from compute-typecheck-function nil))
+  (let* ((type-symbol (cond ((symbolp type-specifier)
+                             type-specifier)
+                            ((and (consp type-specifier)
+                                  (null (rest type-specifier)))
+                             (first type-specifier))))
+         (type-fn (and type-symbol (get type-symbol 'sys.int::type-symbol))))
+    (macrolet ((specific-type (type)
+                 `(and (sys.int::type-equal type-specifier ',type)
+                       (lambda (object)
+                         (declare (sys.int::lambda-name (typecheck ,type)))
+                         (typep object ',type))))
+               (known-type (type function)
+                 `(and (sys.int::type-equal type-specifier ',type)
+                       #',function)))
+      (cond (type-fn)
+            ;; Pick off some common and known types to avoid
+            ;; going through the compiler.
+            ;; These were picked by looking through all slot type declarations
+            ;; and picking the most common/generic looking ones.
+            ;; These are also the types required for bootstrapping, avoiding
+            ;; a call into the compiler before the compiler has been loaded.
+            ((specific-type (unsigned-byte 8)))
+            ((specific-type (unsigned-byte 16)))
+            ((specific-type (unsigned-byte 32)))
+            ((specific-type (unsigned-byte 64)))
+            ((specific-type (signed-byte 8)))
+            ((specific-type (signed-byte 16)))
+            ((specific-type (signed-byte 32)))
+            ((specific-type (signed-byte 64)))
+            ((known-type integer integerp))
+            ((specific-type (integer 0)))
+            ((known-type fixnum sys.int::fixnump))
+            ((specific-type (and fixnum (integer 0))))
+            ((specific-type boolean))
+            ((known-type simple-vector simple-vector-p))
+            ((known-type string stringp))
+            ;; Bootstrap types
+            ((specific-type (or null (integer 1)))) ; mailbox
+            (t
+             (multiple-value-bind (expansion expanded-p)
+                 (sys.int::typeexpand-1 type-specifier)
+               (if expanded-p
+                   (compute-typecheck-function expansion)
+                   (compile nil `(lambda (object)
+                                   (declare (sys.int::lambda-name (typecheck ,type-specifier)))
+                                   (typep object ',type-specifier))))))))))
+
 (defun std-compute-effective-slot-definition (class name direct-slots)
   (let ((initer (find-if-not #'null direct-slots
-                             :key #'safe-slot-definition-initfunction)))
+                             :key #'safe-slot-definition-initfunction))
+        (type (combine-direct-slot-types direct-slots)))
     (make-effective-slot-definition
      class
      :name name
@@ -1047,8 +1129,9 @@ Other arguments are included directly."
      :initargs (remove-duplicates
                 (mapappend #'safe-slot-definition-initargs
                            direct-slots))
-     :allocation (safe-slot-definition-allocation (car direct-slots)))))
-
+     :allocation (safe-slot-definition-allocation (car direct-slots))
+     :type type
+     :typecheck (compute-typecheck-function type))))
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
 ;;;
@@ -1628,13 +1711,25 @@ has only has class specializer."
           (fast-slot-read object location slot-definition)
           (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
 
+(defstruct (writer-discriminator-entry
+             :sealed)
+  location
+  typecheck
+  type)
+
 (defun compute-writer-discriminator (gf emf-table argument-offset slot-definition)
   (lambda (new-value object)
     (let* ((class (class-of object))
            (location (single-dispatch-emf-entry emf-table class)))
-      (if location
-          (fast-slot-write new-value object location slot-definition)
-          (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
+      (cond (location
+             (let ((typecheck (writer-discriminator-entry-typecheck location)))
+               (when (and typecheck (not (funcall typecheck new-value)))
+                 (error 'type-error
+                        :datum new-value
+                        :expected-type (writer-discriminator-entry-type location))))
+             (fast-slot-write new-value object (writer-discriminator-entry-location location) slot-definition))
+            (t
+             (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer))))))
 
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
   (let ((eql-table (compute-1-effective-eql-table gf argument-offset)))
@@ -1769,14 +1864,25 @@ has only has class specializer."
                 (let* ((instance (second args))
                        (slot-def (accessor-method-slot-definition (first applicable-methods)))
                        (slot-name (slot-definition-name slot-def))
-                       (effective-slot (find-effective-slot instance slot-name)))
+                       (effective-slot (find-effective-slot instance slot-name))
+                       (new-value (first args)))
                   (cond (effective-slot
-                         (let ((location (safe-slot-definition-location effective-slot)))
-                           (setf (single-dispatch-emf-entry emf-table class) location)
-                           (fast-slot-write (first args) instance location slot-def)))
+                         (let* ((location (safe-slot-definition-location effective-slot))
+                                (typecheck (safe-slot-definition-typecheck effective-slot))
+                                (type (safe-slot-definition-type effective-slot))
+                                (entry (make-writer-discriminator-entry
+                                        :location location
+                                        :typecheck typecheck
+                                        :type type)))
+                           (setf (single-dispatch-emf-entry emf-table class) entry)
+                           (when (and typecheck (not (funcall typecheck new-value)))
+                             (error 'type-error
+                                    :datum new-value
+                                    :expected-type type))
+                           (fast-slot-write new-value instance location slot-def)))
                         (t
                          ;; Slot not present, fall back on SLOT-VALUE.
-                         (setf (slot-value instance slot-name) (first args))))))
+                         (setf (slot-value instance slot-name) new-value)))))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:never-called
@@ -2291,6 +2397,10 @@ has only has class specializer."
   (:method ((slot-definition standard-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value slot-definition 'type)))
+(defgeneric slot-definition-typecheck (effective-slot-definition)
+  (:method ((slot-definition standard-effective-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'typecheck)))
 (defgeneric slot-definition-readers (direct-slot-definition)
   (:method ((direct-slot-definition standard-direct-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack

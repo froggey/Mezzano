@@ -531,6 +531,15 @@
                                   values
                                   vector))))))))
 
+(defun type-equal (type-1 type-2 &optional environment)
+  (multiple-value-bind (ok-1 valid-1)
+      (subtypep type-1 type-2 environment)
+    (multiple-value-bind (ok-2 valid-2)
+        (subtypep type-2 type-1 environment)
+      (if (and valid-1 valid-2)
+          (values (and ok-1 ok-2) t)
+          (values nil nil)))))
+
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (declare (notinline typep)) ; ### Boostrap hack.

@@ -5,6 +5,8 @@
 ;;;;
 ;;;; This file defines the standard class hierarchy.
 ;;;; It must only contain DEFCLASS forms.
+;;;;
+;;;; It is read in the MEZZANO.CLOS package.
 
 (defclass t () ()
   (:metaclass built-in-class))
@@ -83,7 +85,8 @@
    (writers :initform '() :initarg :writers)))
 
 (defclass standard-effective-slot-definition (standard-slot-definition effective-slot-definition)
-  ((location :initarg :location)))
+  ((location :initarg :location)
+   (typecheck :initform nil :initarg :typecheck)))
 
 (defclass specializer (metaobject)
   ((direct-methods :initform ())))
