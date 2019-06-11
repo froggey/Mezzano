@@ -1139,6 +1139,10 @@ Other arguments are included directly."
                 (mapappend #'safe-slot-definition-initargs
                            direct-slots))
      :allocation (safe-slot-definition-allocation (car direct-slots))
+     :documentation (loop
+                       for slot in direct-slots
+                       when (safe-slot-definition-allocation slot)
+                       do (return (safe-slot-definition-allocation slot)))
      :type type
      :typecheck (compute-typecheck-function type))))
 ;;;
@@ -2422,6 +2426,10 @@ has only has class specializer."
   (:method ((effective-slot-definition standard-effective-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value effective-slot-definition 'location)))
+(defgeneric slot-definition-documentation (slot-definition)
+  (:method ((slot-definition standard-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'documentation)))
 
 ;;; Generic function metaobject readers
 
