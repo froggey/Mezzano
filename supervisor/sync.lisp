@@ -616,6 +616,7 @@ It is only possible for the second value to be false when wait-p is false."
                      (event object)
                      (timer (timer-event object))
                      (t (get-object-event object)))))
+        (assert (event-p event))
         (setf (cdr tail) (wfo-cons event nil)
               tail (cdr tail))))
     (cdr head)))
