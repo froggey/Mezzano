@@ -11,7 +11,11 @@
            #:thread-pool-add
            #:thread-pool-cancel-item
            #:thread-pool-flush
-           #:thread-pool-shutdown))
+           #:thread-pool-shutdown
+
+           ;; Catch tag that can be used as a throw target to
+           ;; leave the current task.
+           #:terminate-work))
 
 (in-package :mezzano.sync.thread-pool)
 
@@ -97,7 +101,8 @@
                                            (thread-pool-lock thread-pool)
                                            (/ idle-time-remaining internal-time-units-per-second))))))
               (setf (sup:thread-thread-pool self) thread-pool)
-              (funcall (work-item-function work))
+              (catch 'terminate-work
+                (funcall (work-item-function work)))
               (setf (sup:thread-thread-pool self) nil)))
       (sup:with-mutex ((thread-pool-lock thread-pool))
         ;; Remove this thread from the pool.
