@@ -216,6 +216,8 @@
            #:structure-slot-definition-read-only
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align
+
+           #:+slot-unbound+
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
