@@ -118,10 +118,8 @@
         ;; 0+1 -> 1, 0+:major -> :major, 1+:major -> :major
         (setf *gc-force-major-cycle* full))
       (mezzano.supervisor:condition-notify *gc-cvar* t)
-      (loop
-         (when (not (eql epoch *gc-epoch*))
-           (return))
-         (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))))
+      (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)
+        (not (eql epoch *gc-epoch*))))))
 
 (defun gc-worker ()
   (loop
@@ -130,13 +128,11 @@
          ;; Notify any waiting threads that the GC epoch has changed.
          (mezzano.supervisor:condition-notify *gc-cvar* t)
          ;; Wait for a GC request.
-         (loop
-            (when *gc-requested*
-              (setf force-major *gc-force-major-cycle*
-                    *gc-force-major-cycle* nil)
-              (setf *gc-requested* nil)
-              (return))
-            (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))
+         (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)
+           *gc-requested*)
+         (setf force-major *gc-force-major-cycle*
+               *gc-force-major-cycle* nil)
+         (setf *gc-requested* nil))
        (when *gc-in-progress*
          (mezzano.supervisor:panic "Nested GC?!"))
        (mezzano.supervisor:with-world-stopped ()

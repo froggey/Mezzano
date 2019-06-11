@@ -96,29 +96,15 @@
                                              packet)))
 
 (defmethod receive ((connection udp4-connection) &optional timeout)
-  (cond ((not timeout)
-         ;; Wait forever.
-         (with-udp-connection-locked (connection)
-           (loop
-              (when (udp-connection-packets connection)
-                (return (pop (udp-connection-packets connection))))
-              (mezzano.supervisor:condition-wait (udp-connection-cvar connection)
-                                                 (udp-connection-lock connection)))))
-        ((zerop timeout)
-         ;; Don't wait.
-         (with-udp-connection-locked (connection)
-           (when (udp-connection-packets connection)
-             (pop (udp-connection-packets connection)))))
-        (t
-         ;; Wait for some time.
-         (let ((timeout-absolute (+ (get-universal-time) timeout)))
-           (loop
-              (with-udp-connection-locked (connection)
-                (when (udp-connection-packets connection)
-                  (return (pop (udp-connection-packets connection)))))
-              (when (> (get-universal-time) timeout-absolute)
-                (return nil))
-              (sleep 0.01))))))
+  (with-udp-connection-locked (connection)
+    (mezzano.supervisor:condition-wait-for ((udp-connection-cvar connection)
+                                            (udp-connection-lock connection)
+                                            timeout)
+      (udp-connection-packets connection))
+    (if (udp-connection-packets connection)
+        (pop (udp-connection-packets connection))
+        ;; If there is no packet pending, then a timeout must have occured.
+        nil)))
 
 (defun %udp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))

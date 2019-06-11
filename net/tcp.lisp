@@ -45,13 +45,12 @@
 
 (defun wait-for-connections (listener)
   (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-    (loop
-       (let ((connections (tcp-listener-connection listener)))
-         (when connections
-           (setf (tcp-listener-connection listener) nil)
-           (return connections)))
-       (mezzano.supervisor:condition-wait (tcp-listener-cvar listener)
-                                          (tcp-listener-lock listener)))))
+    (mezzano.supervisor:condition-wait-for ((tcp-listener-cvar listener)
+                                            (tcp-listener-lock listener))
+      (tcp-listener-connection listener))
+    (prog1
+        (tcp-listener-connection listener)
+      (setf (tcp-listener-connection listener) nil))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
@@ -577,14 +576,12 @@
 (defun refill-tcp-packet-buffer (stream)
   (let ((connection (tcp-stream-connection stream)))
     (when (null (tcp-stream-packet stream))
-      (loop
-         ;; Wait for data or for the connection to close.
-         (when (or (tcp-connection-rx-data connection)
-                   (not (member (tcp-connection-state connection)
-                                '(:established :syn-received :syn-sent))))
-           (return))
-         (mezzano.supervisor:condition-wait (tcp-connection-cvar connection)
-                                            (tcp-connection-lock connection)))
+      ;; Wait for data or for the connection to close.
+      (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                              (tcp-connection-lock connection))
+        (or (tcp-connection-rx-data connection)
+            (not (member (tcp-connection-state connection)
+                         '(:established :syn-received :syn-sent)))))
       ;; Something may have refilled while we were waiting.
       (when (tcp-stream-packet stream)
         (return-from refill-tcp-packet-buffer t))
