@@ -2883,6 +2883,10 @@ has only has class specializer."
   (print-unreadable-object (slot-definition stream :type t :identity t)
     (format stream "~S" (safe-slot-definition-name slot-definition))))
 
+(defmethod print-object ((slot-definition structure-slot-definition) stream)
+  (print-unreadable-object (slot-definition stream :type t :identity t)
+    (format stream "~S" (safe-slot-definition-name slot-definition))))
+
 (defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
   (declare (ignore direct-superclasses direct-slots direcet-default-initargs documentation))
   (apply #'std-after-initialization-for-classes class args))
