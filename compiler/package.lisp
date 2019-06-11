@@ -299,6 +299,7 @@
            #:condition-variable-p
            #:make-condition-variable
            #:condition-wait
+           #:condition-wait-for
            #:condition-notify
            #:latch
            #:latch-p

@@ -245,15 +245,71 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
              (:constructor make-condition-variable (&optional name))
              (:area :wired)))
 
+(defun %condition-wait-for (condition-variable mutex timeout predicate)
+  (cond ((eql timeout 0)
+         ;; Timeout of 0, just test the predicate.
+         (if (funcall predicate)
+             nil
+             :timeout))
+        (timeout
+         (with-timer (timer :relative timeout)
+           (loop
+              (when (funcall predicate)
+                (return))
+              (condition-wait condition-variable mutex timer)
+              (when (timer-expired-p timeout)
+                (return :timeout)))))
+        (t
+         (loop
+            (when (funcall predicate)
+              (return))
+            (condition-wait condition-variable mutex)))))
+
+(defmacro condition-wait-for ((condition-variable mutex &optional timeout) &body predicate)
+  "Evaluate PREDICATE in a loop, waiting on CONDITION-VARIABLE until PREDICATE returns true.
+Returns NIL unless a timeout occurs, then :TIMEOUT is returned. A block named NIL is defined allowing RETURN-FROM to be used within the predicate.
+Handles timeouts properly."
+  (cond (timeout
+         ;; Timeout specified, need to use the more complicated form.
+         `(block nil
+            (%condition-wait-for ,condition-variable ,mutex ,timeout
+                                 (dx-lambda () (progn ,@predicate)))))
+        (t
+         ;; With no timeout things are simple.
+         (let ((cvar-sym (gensym "CVAR"))
+               (mutex-sym (gensym "MUTEX")))
+           `(let ((,cvar-sym ,condition-variable)
+                  (,mutex-sym ,mutex))
+              (loop
+                 (when (progn ,@predicate)
+                   (return))
+                 (condition-wait ,cvar-sym ,mutex-sym)))))))
+
 (defun condition-wait (condition-variable mutex &optional timeout)
+  "Wait for a notification on CONDITION-VARIBLE.
+It is not defined if MUTEX is dropped & reacquired if TIMEOUT expires immediately.
+False wakeups can occur and calling code must account for them.
+Returns true if a normal or false wakeup occurs, false if a timeout occurs."
   (check-type condition-variable condition-variable)
   (check-type mutex mutex)
+  (check-type timeout (or null timer real))
   (assert (mutex-held-p mutex))
   (check-mutex-release-consistence mutex)
   (ensure-interrupts-enabled)
   (thread-pool-blocking-hijack condition-wait condition-variable mutex timeout)
   (unwind-protect
-       (cond (timeout
+       (cond ((timer-p timeout)
+              (assert (not (timer-cvar timeout)))
+              (unwind-protect
+                   (progn
+                     (setf (timer-cvar timeout) condition-variable)
+                     (%call-on-wired-stack-without-interrupts
+                      #'condition-wait-inner nil condition-variable mutex timeout)
+                     ;; This gets a little fuzzy with timeouts vs a legit wake...
+                     (not (timer-expired-p timeout)))
+                ;; Make sure to clear the timer's cvar slot before returning it.
+                (setf (timer-cvar timeout) nil)))
+             (timeout
               (with-timer (timer :relative timeout)
                 (unwind-protect
                      (progn
