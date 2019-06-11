@@ -1145,6 +1145,7 @@ Other arguments are included directly."
                        do (return (safe-slot-definition-allocation slot)))
      :type type
      :typecheck (compute-typecheck-function type))))
+
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
 ;;;
@@ -1291,18 +1292,39 @@ Other arguments are included directly."
          (when (fboundp function-name)
            (fmakunbound function-name))
          (setf (compiler-macro-function function-name) nil)))
+  (when (symbolp generic-function-class)
+    (setf generic-function-class (find-class generic-function-class)))
+  ;; AMOP seems to imply that METHOD-CLASS should always be a class name,
+  ;; that feels overly restrictive...
+  (when (symbolp method-class)
+    (setf method-class (find-class method-class)))
+  ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
+  (remf all-keys :generic-function-class)
   (cond ((fboundp function-name)
-         ;; This should call reinitialize-instance here, but whatever.
-         (fdefinition function-name))
+         (let ((gf (fdefinition function-name)))
+           (when (not (eql (class-of gf) generic-function-class))
+             (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
+                    function-name gf
+                    (class-of gf) generic-function-class))
+           ;; Bootstrap hack: Avoid calling REINITIALIZE-INSTANCE when
+           ;; no keys are passed in. (ENSURE-GENERIC-FUNCTION name) is
+           ;; called by DEFMETHOD-1 to fetch the generic function and
+           ;; this happens before REINITIALIZE-INSTANCE is defined.
+           (when all-keys
+             (apply #'reinitialize-instance
+                    gf
+                    :name function-name
+                    :method-class method-class
+                    all-keys))
+           gf))
         (t
-         ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
-         (remf all-keys :generic-function-class)
+
          (let ((gf (apply (if (eq generic-function-class *the-class-standard-gf*)
                               #'make-instance-standard-generic-function
                               #'make-instance)
                           generic-function-class
                           :name function-name
-                          :method-class (find-class method-class)
+                          :method-class method-class
                           all-keys)))
            ;; Not entirely sure where this should be done.
            ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
@@ -1436,35 +1458,24 @@ has only has class specializer."
 ;;; instance of standard-generic-function without falling into method lookup.
 ;;; However, it cannot be called until standard-generic-function exists.
 
-(defun initialize-instance-standard-generic-function (gf &rest initargs &key
-                                                                          name
-                                                                          lambda-list
-                                                                          method-class
-                                                                          documentation
-                                                                          method-combination
-                                                                          argument-precedence-order
-                                                                          declarations)
+(defun initialize-instance-standard-generic-function (gf &key
+                                                           name
+                                                           lambda-list
+                                                           method-class
+                                                           documentation
+                                                           method-combination
+                                                           argument-precedence-order
+                                                           declarations)
   (setf (safe-generic-function-name gf) name)
   (setf (safe-generic-function-lambda-list gf) lambda-list)
   (setf (safe-generic-function-methods gf) ())
   (setf (safe-generic-function-method-combination gf) method-combination)
   (setf (safe-generic-function-declarations gf) declarations)
+  (setf (std-slot-value gf 'documentation) documentation)
   (setf (std-slot-value gf 'dependents) '())
   (setf (classes-to-emf-table gf) nil)
   (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
-  (apply #'initialize-instance-after-standard-generic-function gf initargs))
-
-(defun initialize-instance-after-standard-generic-function (gf &key
-                                                                 name
-                                                                 lambda-list
-                                                                 method-class
-                                                                 documentation
-                                                                 method-combination
-                                                                 argument-precedence-order
-                                                                 declarations)
-  (setf (safe-generic-function-method-class gf) (if (typep method-class 'class)
-                                                    method-class
-                                                    (find-class method-class)))
+  (setf (safe-generic-function-method-class gf) method-class)
   (finalize-generic-function gf))
 
 (defun make-instance-standard-generic-function
@@ -2945,10 +2956,15 @@ has only has class specializer."
                  (method-combination-object-method-combination mc))))))
   gf)
 
-(defmethod initialize-instance :after ((gf standard-generic-function) &rest initargs &key method-class)
-  (apply #'initialize-instance-after-standard-generic-function gf initargs))
+(defmethod initialize-instance :after ((generic-function standard-generic-function) &key)
+  (finalize-generic-function generic-function))
 
-(defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key)
+(defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key argument-precedence-order lambda-list)
+  (when (and lambda-list (not argument-precedence-order))
+    ;; If :LAMBDA-LIST is supplied and :ARGUMENT-PRECEDENCE-ORDER is not, then
+    ;; ARGUMENT-PRECEDENCE-ORDER defaults to the required portion of LAMBDA-LIST.
+    ;; Setting it to NIL here will make FINALIZE-GENERIC-FUNCTION do the right thing.
+    (setf (safe-generic-function-argument-precedence-order generic-function) nil))
   (finalize-generic-function generic-function)
   ;; Update dependents
   (safe-map-dependents generic-function

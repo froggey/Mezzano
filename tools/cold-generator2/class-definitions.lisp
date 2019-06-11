@@ -25,7 +25,7 @@
   ((name :initarg :name)
    (lambda-list :initarg :lambda-list)
    (methods :initform ())
-   (method-class)
+   (method-class :initarg :method-class)
    (discriminating-function)
    (classes-to-emf-table :initform nil)
    (relevant-arguments)
@@ -39,7 +39,9 @@
   (:default-initargs
    :name nil
    :lambda-list '()
-   :method-class 'standard-method
+   ;; The cold-generator can't deal with a call to FIND-CLASS here, use
+   ;; a direct reference instead.
+   :method-class *the-class-standard-method*
    :method-combination nil
    :argument-precedence-order '())
   (:metaclass funcallable-standard-class))
