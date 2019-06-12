@@ -522,11 +522,13 @@
 (defun cross-array-element-type (environment array)
   (values (gethash array (environment-array-element-type-table environment) 't)))
 
-(defclass instance-class (standard-class)
-  ((%sdef :initarg :sdef :reader instance-class-structure-definition)))
+;; ECL seems to do some DEFCLASS processing at compile time & fails without this
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass instance-class (standard-class)
+    ((%sdef :initarg :sdef :reader instance-class-structure-definition)))
 
-(defmethod c2mop:validate-superclass ((class instance-class) (superclass standard-class))
-  t)
+  (defmethod c2mop:validate-superclass ((class instance-class) (superclass standard-class))
+    t))
 
 (defclass instance-object (standard-object)
   ()
