@@ -24,7 +24,8 @@
   %locally-nicknamed-by-list
   (%internal-symbols (make-hash-table :test 'equal))
   (%external-symbols (make-hash-table :test 'equal))
-  %shadowing-symbols)
+  %shadowing-symbols
+  documentation)
 
 (defun package-name (package)
   (package-%name (find-package-or-die package)))
@@ -429,6 +430,8 @@
            (dolist (n nicknames)
              (pushnew (cons n p) *package-list* :test #'equal)))
           (t (setf p (make-package name :nicknames nicknames))))
+    (when documentation
+      (setf (package-documentation p) documentation))
     (dolist (s shadow-list)
       (shadow-one-symbol (string s) p))
     (shadowing-import shadow-import-list p)

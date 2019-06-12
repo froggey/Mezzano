@@ -1516,8 +1516,12 @@ has only has class specializer."
 ;;; be called until standard-method exists.
 
 (defun make-instance-standard-method (method-class
-                                      &key lambda-list qualifiers
-                                           specializers function)
+                                      &key
+                                        lambda-list
+                                        qualifiers
+                                        specializers
+                                        function
+                                        documentation)
   (declare (ignore method-class))
   (let ((method (std-allocate-instance *the-class-standard-method*)))
     (setf (safe-method-lambda-list method) lambda-list)
@@ -1525,6 +1529,7 @@ has only has class specializer."
     (setf (safe-method-specializers method) specializers)
     (setf (safe-method-generic-function method) nil)
     (setf (safe-method-function method) function)
+    (setf (std-slot-value method 'documentation) documentation)
     method))
 
 (defun check-method-lambda-list-congruence (gf method)

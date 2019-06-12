@@ -20,11 +20,13 @@
                                                         (when env-binding
                                                           (list `(,env-binding ,env)))
                                                         :default-value ''*
-                                                        :permit-docstring t)))
+                                                        :permit-docstring t))
+                   ',(nth-value 2 (parse-declares body :permit-docstring t)))
          ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(defun %deftype (name expander)
+(defun %deftype (name expander documentation)
+  (set-type-docstring name documentation)
   (remprop name 'maybe-class)
   (setf (get name 'type-expander) expander))
 (defun %define-compound-type (name function)

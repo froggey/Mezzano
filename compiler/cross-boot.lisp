@@ -76,11 +76,21 @@
   (declare (ignore place old new))
   `(error "Cross-cas not supported"))
 
-(defun sys.int::%defun (name lambda)
+(defun sys.int::%defun (name lambda &optional documentation)
+  (declare (ignore documentation))
   ;; Completely ignore CAS functions when cross compiling, they're not needed.
   (unless (and (consp name) (eql (first name) 'sys.int::cas))
     (setf (fdefinition name) lambda))
   name)
+
+(defun sys.int::set-variable-docstring (name docstring)
+  (declare (ignore name docstring)))
+
+(defun sys.int::set-setf-docstring (name docstring)
+  (declare (ignore name docstring)))
+
+(defun sys.int::set-type-docstring (name docstring)
+  (declare (ignore name docstring)))
 
 (defvar *variable-types* (make-hash-table))
 

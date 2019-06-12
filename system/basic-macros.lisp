@@ -447,25 +447,32 @@
      ,@(mapcar (lambda (x) `(proclaim ',x)) declaration-specifiers)))
 
 ;;; DEFVAR.
-(defmacro defvar (name &optional (initial-value nil initial-valuep) docstring)
-  (if initial-valuep
-      `(progn
-         (declaim (special ,name))
-         (unless (boundp ',name)
-           (setq ,name ,initial-value))
-         ',name)
-      `(progn
-         (declaim (special ,name))
-         ',name)))
+(defmacro defvar (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
+  (when docstringp
+    (check-type docstring string))
+  `(progn
+     (declaim (special ,name))
+     ,@(when initial-valuep
+         `((unless (boundp ',name)
+             (setq ,name ,initial-value))))
+     ,@(when docstringp
+         `((set-variable-docstring ',name ',docstring)))
+     ',name))
 
 ;;; DEFPARAMETER.
-(defmacro defparameter (name initial-value &optional docstring)
+(defmacro defparameter (name initial-value &optional (docstring nil docstringp))
+  (when docstringp
+    (check-type docstring string))
   `(progn
      (declaim (special ,name))
      (setq ,name ,initial-value)
+     ,@(when docstringp
+         `((set-variable-docstring ',name ',docstring)))
      ',name))
 
-(defmacro defconstant (name initial-value &optional docstring)
+(defmacro defconstant (name initial-value &optional (docstring nil docstringp))
+  (when docstringp
+    (check-type docstring string))
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%defconstant ',name ,initial-value
                    ,@(when docstring `(',docstring)))))
@@ -474,16 +481,17 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%define-symbol-macro ',symbol ',expansion)))
 
-(defmacro defglobal (name &optional (initial-value nil initial-valuep) docstring)
-  (if initial-valuep
-      `(progn
-         (declaim (global ,name))
-         (unless (boundp ',name)
-           (setq ,name ,initial-value))
-         ',name)
-      `(progn
-         (declaim (global ,name))
-         ',name)))
+(defmacro defglobal (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
+  (when docstringp
+    (check-type docstring string))
+  `(progn
+     (declaim (global ,name))
+     ,@(when initial-valuep
+         `((unless (boundp ',name)
+             (setq ,name ,initial-value))))
+     ,@(when docstringp
+         `((set-variable-docstring ',name ',docstring)))
+     ',name))
 
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
@@ -501,7 +509,7 @@
            ;; Don't emit source information if there's an environment.
            ;; Currently inlining a DEFUN defined in a macrolet doesn't work.
            (%compiler-defun ',name ',(if env 'nil the-lambda)))
-         (%defun ',name ,the-lambda)
+         (%defun ',name ,the-lambda ',docstring)
          ',name)))))
 
 (defmacro prog (variables &body body)

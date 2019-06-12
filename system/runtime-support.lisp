@@ -210,13 +210,15 @@
 
 ;;; Implementations of DEFUN/etc, the cross-compiler defines these as well.
 
-(defun %defmacro (name function &optional lambda-list)
+(defun %defmacro (name function &optional lambda-list documentation)
   (setf (get name 'macro-lambda-list) lambda-list)
   (setf (macro-function name) function)
+  (set-function-docstring name documentation)
   name)
 
-(defun %define-compiler-macro (name function)
+(defun %define-compiler-macro (name function &optional documentation)
   (setf (compiler-macro-function name) function)
+  (set-compiler-macro-docstring name documentation)
   name)
 
 (defun %compiler-defun (name source-lambda)
@@ -228,8 +230,9 @@
       (setf (get sym form-name) source-lambda)))
   nil)
 
-(defun %defun (name lambda)
+(defun %defun (name lambda &optional documentation)
   (setf (fdefinition name) lambda)
+  (set-function-docstring name documentation)
   name)
 
 (defun convert-structure-definition-direct-slots (sdef)
@@ -432,7 +435,42 @@
         (t
          (setf (symbol-value name) value)))
   (setf (symbol-mode name) :constant)
+  (when docstring
+    (set-variable-docstring name docstring))
   name)
+
+;;; Documentation helpers.
+;;; Needed early because they're called before DOCUMENTATION et al is defined.
+
+(defun set-function-docstring (name docstring)
+  (check-type docstring (or null string))
+  (if docstring
+      (setf (gethash name *function-documentation*) docstring)
+      (remhash name *function-documentation*)))
+
+(defun set-compiler-macro-docstring (name docstring)
+  (check-type docstring (or null string))
+  (if docstring
+      (setf (gethash name *compiler-macro-documentation*) docstring)
+      (remhash name *compiler-macro-documentation*)))
+
+(defun set-variable-docstring (name docstring)
+  (check-type docstring (or null string))
+  (if docstring
+      (setf (gethash name *variable-documentation*) docstring)
+      (remhash name *variable-documentation*)))
+
+(defun set-setf-docstring (name docstring)
+  (check-type docstring (or string null))
+  (if docstring
+      (setf (gethash name *setf-documentation*) docstring)
+      (remhash name *setf-documentation*)))
+
+(defun set-type-docstring (name docstring)
+  (check-type docstring (or string null))
+  (if docstring
+      (setf (gethash name *type-documentation*) docstring)
+      (remhash name *type-documentation*)))
 
 ;;; Function references, FUNCTION, et al.
 
@@ -449,6 +487,11 @@
     (setf (%object-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
+
+(defun valid-function-name-p (name)
+  (typep name '(or symbol
+                (cons (member setf cas)
+                 (cons symbol null)))))
 
 (defun decode-function-name (name)
   (cond ((symbolp name)

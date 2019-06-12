@@ -114,7 +114,8 @@
    (dependents :initform '())
    (sealed :initform nil)
    (allocation-area :initform nil)
-   (constructor :initform nil))
+   (constructor :initform nil)
+   (documentation :initform nil :initarg :documentation))
   (:default-initargs :name nil))
 
 (defclass built-in-class (clos-class) ())

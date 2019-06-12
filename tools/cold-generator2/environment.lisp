@@ -39,6 +39,7 @@
            #:function-reference
            #:function-reference-name
            #:function-reference-function
+           #:function-reference-documentation
            #:make-function
            #:compile-lap
            #:cross-compiled-function
@@ -150,8 +151,9 @@
 
 (defclass function-reference ()
   ((%name :initarg :name :reader function-reference-name)
-   (%function :initarg :function :accessor function-reference-function))
-  (:default-initargs :function nil))
+   (%function :initarg :function :accessor function-reference-function)
+   (documentation :initarg :documentation :accessor function-reference-documentation))
+  (:default-initargs :function nil :documentation nil))
 
 (defmethod print-object ((object function-reference) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -449,8 +451,10 @@
 (defun function-makunbound (environment name)
   (slot-makunbound (function-reference environment name) '%function))
 
-(defun %defun (environment name value)
-  (setf (function-reference-function (function-reference environment name)) value)
+(defun %defun (environment name value &optional documentation)
+  (let ((fref (function-reference environment name)))
+    (setf (function-reference-function fref) value
+          (function-reference-documentation fref) documentation))
   name)
 
 (defun function-reference (environment name &optional (createp t))

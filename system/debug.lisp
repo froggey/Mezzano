@@ -40,6 +40,9 @@ Returns NIL if the function captures no variables."
 (defun debug-info-docstring (info)
   (ninth info))
 
+(defun (setf debug-info-docstring) (new-value info)
+  (setf (ninth info) new-value))
+
 (defun debug-info-precise-variable-data (info)
   (tenth info))
 

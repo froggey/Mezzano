@@ -151,11 +151,13 @@
                                                                      whole `(cdr ,whole)
                                                                      (when env-binding
                                                                        (list `(,env-binding ,env)))
-                                                                     :permit-docstring t)))
+                                                                     :permit-docstring t))
+                                ',(nth-value 2 (parse-declares body :permit-docstring t)))
          ',access-fn))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(defun %define-setf-expander (access-fn expander)
+(defun %define-setf-expander (access-fn expander documentation)
+  (set-setf-docstring access-fn documentation)
   (setf (get access-fn 'setf-expander) expander))
 )
 
@@ -213,7 +215,8 @@
   (multiple-value-bind (new-lambda-list env-binding)
       (fix-lambda-list-environment lambda-list)
     (let ((subforms (gensym "SUBFORMS"))
-          (env (or env-binding (gensym "ENV"))))
+          (env (or env-binding (gensym "ENV")))
+          (docstring (nth-value 2 (parse-declares body :permit-docstring t))))
       `(eval-when (:compile-toplevel :load-toplevel :execute)
          (%defsetf-long-form ',access-fn
                              ',(length store-variables)
@@ -223,10 +226,11 @@
                                (block ,access-fn
                                  (apply (lambda ,new-lambda-list
                                           ,@body)
-                                        ,subforms))))))))
+                                        ,subforms)))
+                             ',docstring)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(defun %defsetf-long-form (access-fn store-variable-count expansion-fn)
+(defun %defsetf-long-form (access-fn store-variable-count expansion-fn documentation)
   (flet ((expand (whole env)
            ;; Generate gensyms for every parameter, and for every store-variable.
            (let* ((param-syms (loop for f in (rest whole) collect (gensym "PARAM")))
@@ -238,7 +242,7 @@
                      store-syms
                      expansion
                      `(,access-fn ,@param-syms)))))
-    (setf (get access-fn 'setf-expander) #'expand))
+    (%define-setf-expander access-fn #'expand documentation))
   access-fn)
 )
 

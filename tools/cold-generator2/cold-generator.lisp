@@ -410,6 +410,11 @@
       (when (not (symbolp (env:function-reference-name fref)))
         (vector-push-extend fref fref-table)))
     (setf (env:cross-symbol-value environment 'sys.int::*initial-fref-obarray*) fref-table))
+  (let ((doclist '()))
+    (env:do-all-environment-frefs (fref environment)
+      (when (env:function-reference-documentation fref)
+        (push (list (env:function-reference-name fref) (env:function-reference-documentation fref)) doclist)))
+    (setf (env:cross-symbol-value environment 'sys.int::*initial-function-docstrings*) doclist))
   ;; Do this last, no symbols can be added after it.
   (let ((symbol-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     ;; Prod symbol to make sure it gets included.

@@ -15,11 +15,226 @@ A list of two elements, the short & long name." )
 
 (defgeneric documentation (object doc-type)
   (:argument-precedence-order doc-type object))
+
+(when (and (fboundp '(setf documentation))
+           (not (typep (fdefinition '(setf documentation))
+                       'standard-generic-function)))
+  (fmakunbound '(setf documentation)))
 (defgeneric (setf documentation) (new-value object doc-type)
   (:argument-precedence-order new-value doc-type object))
 
-(defmethod documentation (x doc-type) nil)
-(defmethod (setf documentation) (new-value x doc-type) new-value)
+;; DOCUMENTATION on function objects.
+;; FUNCTION-DOCUMENTATION is the fundamental function that
+;; retrieves documentation from the various kinds of functions.
+
+(defgeneric function-documentation (function))
+(defgeneric (setf function-documentation) (value function))
+
+(defmethod function-documentation ((function function))
+  nil)
+
+(defmethod (setf function-documentation) (new-value (function function))
+  new-value)
+
+(defmethod function-documentation ((function compiled-function))
+  (debug-info-docstring (function-debug-info function)))
+
+(defmethod (setf function-documentation) (value (function compiled-function))
+  (setf (debug-info-docstring (function-debug-info function)) value))
+
+(defmethod function-documentation ((function standard-generic-function))
+  (slot-value function 'documentation))
+
+(defmethod (setf function-documentation) (value (function standard-generic-function))
+  (setf (slot-value function 'documentation) value))
+
+(defmethod documentation ((x function) (doc-type (eql 't)))
+  (function-documentation x))
+
+(defmethod (setf documentation) (new-value (x function) (doc-type (eql 't)))
+  (setf (function-documentation x) new-value))
+
+(defmethod documentation ((x function) (doc-type (eql 'function)))
+  (function-documentation x))
+
+(defmethod (setf documentation) (new-value (x function) (doc-type (eql 'function)))
+  (setf (function-documentation x) new-value))
+
+;; DOCUMENTATION on function names.
+
+(defvar *function-documentation*)
+
+(defmethod documentation ((x list) (doc-type (eql 'function)))
+  (assert (valid-function-name-p x) (x))
+  (values (gethash x *function-documentation*)))
+
+(defmethod (setf documentation) (new-value (x list) (doc-type (eql 'function)))
+  (check-type new-value (or string null))
+  (assert (valid-function-name-p x) (x))
+  (if new-value
+      (setf (gethash x *function-documentation*) new-value)
+      (remhash x *function-documentation*))
+  new-value)
+
+(defmethod documentation ((x symbol) (doc-type (eql 'function)))
+  (assert (valid-function-name-p x) (x))
+  (values (gethash x *function-documentation*)))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'function)))
+  (check-type new-value (or string null))
+  (assert (valid-function-name-p x) (x))
+  (if new-value
+      (setf (gethash x *function-documentation*) new-value)
+      (remhash x *function-documentation*))
+  new-value)
+
+;; DOCUMENTATION on compiler macros.
+
+(defvar *compiler-macro-documentation*)
+
+(defmethod documentation ((x list) (doc-type (eql 'compiler-macro)))
+  (assert (valid-function-name-p x) (x))
+  (values (gethash x *compiler-macro-documentation*)))
+
+(defmethod (setf documentation) (new-value (x list) (doc-type (eql 'compiler-macro)))
+  (check-type new-value (or string null))
+  (assert (valid-function-name-p x) (x))
+  (if new-value
+      (setf (gethash x *compiler-macro-documentation*) new-value)
+      (remhash x *compiler-macro-documentation*))
+  new-value)
+
+(defmethod documentation ((x symbol) (doc-type (eql 'compiler-macro)))
+  (assert (valid-function-name-p x) (x))
+  (values (gethash x *compiler-macro-documentation*)))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'compiler-macro)))
+  (check-type new-value (or string null))
+  (assert (valid-function-name-p x) (x))
+  (if new-value
+      (setf (gethash x *compiler-macro-documentation*) new-value)
+      (remhash x *compiler-macro-documentation*))
+  new-value)
+
+;; DOCUMENTATION on SETF expanders.
+
+(defvar *setf-documentation*)
+
+(defmethod documentation ((x symbol) (doc-type (eql 'setf)))
+  (values (gethash x *setf-documentation*)))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'setf)))
+  (check-type new-value (or string null))
+  (if new-value
+      (setf (gethash x *setf-documentation*) new-value)
+      (remhash x *setf-documentation*))
+  new-value)
+
+;; DOCUMENTATION on method combinations.
+
+(defmethod documentation ((x method-combination) (doc-type (eql 't)))
+  (documentation x 'method-combination))
+
+(defmethod (setf documentation) (new-value (x method-combination) (doc-type (eql 't)))
+  (setf (documentation x 'method-combination) new-value))
+
+(defmethod documentation ((x method-combination) (doc-type (eql 'method-combination)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x method-combination) (doc-type (eql 'method-combination)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
+(defmethod documentation ((x symbol) (doc-type (eql 'method-combination)))
+  (let ((mc (gethash x mezzano.clos::*method-combinations*)))
+    (when mc
+      (documentation mc 'method-combination))))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'method-combination)))
+  (let ((mc (gethash x mezzano.clos::*method-combinations*)))
+    (when mc
+      (setf (documentation mc 'method-combination) new-value)))
+  new-value)
+
+;; DOCUMENTATION on methods.
+
+(defmethod documentation ((x method) (doc-type (eql 't)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x method) (doc-type (eql 't)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
+;; DOCUMENTATION on packages.
+
+(defmethod documentation ((x package) (doc-type (eql 't)))
+  (package-documentation x))
+
+(defmethod (setf documentation) (new-value (x package) (doc-type (eql 't)))
+  (check-type new-value (or string null))
+  (setf (package-documentation x) new-value))
+
+;; DOCUMENTATION on types, classes, and structure names.
+
+(defmethod documentation ((x mezzano.clos::clos-class) (doc-type (eql 't)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x mezzano.clos::clos-class) (doc-type (eql 't)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
+(defmethod documentation ((x mezzano.clos::clos-class) (doc-type (eql 'type)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x mezzano.clos::clos-class) (doc-type (eql 'type)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
+(defmethod documentation ((x symbol) (doc-type (eql 'structure)))
+  (let ((class (find-class x nil)))
+    (if (typep class 'structure-class)
+        (documentation class 'type)
+        nil)))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'structure)))
+  (check-type new-value (or string null))
+  (let ((class (find-class x nil)))
+    (when (typep class 'structure-class)
+      (setf (documentation class 'type) new-value)))
+  new-value)
+
+(defvar *type-documentation*)
+
+(defmethod documentation ((x symbol) (doc-type (eql 'type)))
+  (let ((class (find-class x nil)))
+    (if class
+        (documentation class 'type)
+        (values (gethash x *type-documentation*)))))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'type)))
+  (check-type new-value (or string null))
+  (let ((class (find-class x nil)))
+    (cond (class
+           (setf (documentation class 'type) new-value))
+          (new-value
+           (setf (gethash x *type-documentation*) new-value))
+          (t
+           (remhash x *type-documentation*))))
+  new-value)
+
+;; DOCUMENTATION on variables.
+
+(defvar *variable-documentation*)
+
+(defmethod documentation ((x symbol) (doc-type (eql 'variable)))
+  (values (gethash x *variable-documentation*)))
+
+(defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'variable)))
+  (check-type new-value (or string null))
+  (if new-value
+      (setf (gethash x *variable-documentation*) new-value)
+      (remhash x *variable-documentation*))
+  new-value)
 
 (defun map-apropos (fn string package)
   (setf string (string string))

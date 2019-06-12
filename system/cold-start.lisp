@@ -8,7 +8,8 @@
                   *additional-cold-toplevel-forms*
                   *initial-obarray*
                   *initial-keyword-obarray*
-                  *initial-fref-obarray*)
+                  *initial-fref-obarray*
+                  *initial-function-docstrings*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
@@ -269,6 +270,17 @@ structures to exist, and for memory to be allocated, but not much beyond that."
            (setf (gethash (second name) *setf-fref-table*) fref))
           ((cas)
            (setf (gethash (second name) *cas-fref-table*) fref))))))
+  ;; Create documentation hash tables.
+  (setf *function-documentation* (make-hash-table :test #'equal))
+  (setf *compiler-macro-documentation* (make-hash-table :test #'equal))
+  (setf *setf-documentation* (make-hash-table))
+  (setf *type-documentation* (make-hash-table))
+  (setf *variable-documentation* (make-hash-table))
+  ;; Transfer the initial function documentation over.
+  (loop
+     for (name doc) in *initial-function-docstrings*
+     do (set-function-docstring name doc))
+  (makunbound '*initial-function-docstrings*)
   ;; Run toplevel forms.
   (let ((*package* *package*))
     (dotimes (i (length *cold-toplevel-forms*))
