@@ -150,7 +150,7 @@
                    (sys.int::%struct-slot structure class slot-name))))
     new))
 
-(defun sys.int::make-struct-definition (name slots parent area size layout sealed)
+(defun sys.int::make-struct-definition (name slots parent area size layout sealed docstring)
   (when (and parent
              (if (structure-class-p parent)
                  (mezzano.runtime::instance-access-by-name parent 'mezzano.clos::sealed)
@@ -163,7 +163,8 @@
                                                 area
                                                 size
                                                 nil
-                                                sealed))
+                                                sealed
+                                                docstring))
          (layout-object (sys.int::make-layout
                          :class def
                          :obsolete nil
@@ -191,7 +192,7 @@
 (defstruct (structure-definition
              (:area :wired)
              (:constructor %make-struct-definition
-                           (name slots parent area size layout sealed))
+                           (name slots parent area size layout sealed docstring))
              :sealed)
   (name nil :read-only t)
   (slots nil :read-only t :type list)
@@ -200,7 +201,8 @@
   (size nil :read-only t)
   (layout nil)
   (class nil)
-  (sealed nil :read-only t))
+  (sealed nil :read-only t)
+  (docstring nil))
 
 (defstruct (structure-slot-definition
              (:area :wired)

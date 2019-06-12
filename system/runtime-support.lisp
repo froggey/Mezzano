@@ -327,7 +327,11 @@
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::allocation-area)
           (structure-definition-area sdef))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::parent)
-          parent-class)))
+          parent-class)
+    (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::constructor)
+          nil)
+    (setf (mezzano.runtime::instance-access-by-name new-class 'documentation)
+          (structure-definition-docstring sdef))))
 
 (defun convert-structure-definition-to-class (sdef)
   ;; CLOS might not be fully initialized at this point,

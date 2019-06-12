@@ -189,9 +189,10 @@
    (%size :initarg :size :reader structure-definition-size)
    (%layout :initarg :layout :accessor structure-definition-layout)
    (%sealed :initarg :sealed :reader structure-definition-sealed)
+   (%docstring :initarg :docstring :reader structure-definition-docstring)
    (%native-class :initform nil :accessor structure-definition-native-class)))
 
-(defun make-structure-definition (environment name slots parent area size layout sealed)
+(defun make-structure-definition (environment name slots parent area size layout sealed docstring)
   (declare (ignore environment))
   ;; FIXME: Copy slots list & layout to wired area.
   (check-type name symbol)
@@ -203,7 +204,8 @@
                  :area area
                  :size size
                  :layout layout
-                 :sealed sealed))
+                 :sealed sealed
+                 :docstring docstring))
 
 (defmethod print-object ((object structure-definition) stream)
   (print-unreadable-object (object stream :type t :identity t)

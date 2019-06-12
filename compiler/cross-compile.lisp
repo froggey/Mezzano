@@ -26,9 +26,10 @@
    (area :initarg :area :reader structure-definition-area)
    (size :initarg :size :reader structure-definition-size)
    (layout :initarg :layout :accessor structure-definition-layout)
-   (sealed :initarg :sealed :reader structure-definition-sealed)))
+   (sealed :initarg :sealed :reader structure-definition-sealed)
+   (docstring :initarg :docstring :reader structure-definition-docstring)))
 
-(defun sys.int::%make-struct-definition (name slots parent area size layout sealed)
+(defun sys.int::%make-struct-definition (name slots parent area size layout sealed docstring)
   (make-instance 'structure-definition
                  :name name
                  :slots slots
@@ -36,7 +37,8 @@
                  :area area
                  :size size
                  :layout layout
-                 :sealed sealed))
+                 :sealed sealed
+                 :docstring docstring))
 
 (defun sys.int::structure-definition-p (object)
   (typep object 'structure-definition))
@@ -49,8 +51,8 @@
   area
   instance-slots)
 
-(defun make-struct-definition (name slots parent area size layout sealed)
-  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed))
+(defun make-struct-definition (name slots parent area size layout sealed docstring)
+  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed docstring))
          (layout-object (make-layout
                          :class def
                          :obsolete nil
@@ -776,6 +778,7 @@
   (save-object (sys.int::layout-heap-layout (sys.int::structure-definition-layout object)) omap stream)
   ;; TODO: Include layout-instance-slots
   (save-object (sys.int::structure-definition-sealed object) omap stream)
+  (save-object (sys.int::structure-definition-docstring object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::layout) omap stream)

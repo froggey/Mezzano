@@ -487,7 +487,7 @@
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer
-                                  slot-offsets sealed)
+                                  slot-offsets sealed docstring)
   (let* ((included-structure (when included-structure-name
                                (convert-structure-class-to-structure-definition
                                 (get-structure-type included-structure-name)))))
@@ -496,7 +496,7 @@
                                  slot-descriptions
                                  included-structure
                                  included-slot-descriptions)
-      (let ((struct-type (make-struct-definition name slots included-structure area size layout sealed)))
+      (let ((struct-type (make-struct-definition name slots included-structure area size layout sealed docstring)))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))
@@ -640,7 +640,7 @@
                         print-object print-function print-object-specializer
                         named type slot-offsets sealed)
       (parse-defstruct-options name-and-options)
-    (let ((docstring nil)) ; TODO: do something with this.
+    (let ((docstring nil))
       (when (stringp (first slot-descriptions))
         (setf docstring (pop slot-descriptions)))
       (cond
@@ -648,7 +648,7 @@
          (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
                                     included-structure-name included-slot-descriptions
                                     print-object print-function print-object-specializer
-                                    slot-offsets sealed))
+                                    slot-offsets sealed docstring))
         ((eql type 'list)
          (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
                                    included-structure-name included-slot-descriptions

@@ -171,7 +171,8 @@
        (eql (structure-slot-definition-location x) (structure-slot-definition-location y))))
 
 (defun load-llf-structure-definition (stream stack)
-  (let ((sealed (vector-pop stack))
+  (let ((docstring (vector-pop stack))
+        (sealed (vector-pop stack))
         (layout (vector-pop stack))
         (size (vector-pop stack))
         (area (vector-pop stack))
@@ -179,7 +180,7 @@
         (slots (vector-pop stack))
         (name (vector-pop stack)))
     ;; Defstruct converts structure definitions to structure classes.
-    (%defstruct (make-struct-definition name slots parent area size layout sealed))))
+    (%defstruct (make-struct-definition name slots parent area size layout sealed docstring))))
 
 (defun load-llf-structure-slot-definition (stream stack)
   (let* ((align (vector-pop stack))
