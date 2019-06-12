@@ -1300,6 +1300,8 @@ Other arguments are included directly."
     (setf method-class (find-class method-class)))
   ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
   (remf all-keys :generic-function-class)
+  ;; FIXME: What to do with this?
+  (remf all-keys :environment)
   (cond ((fboundp function-name)
          (let ((gf (fdefinition function-name)))
            (when (not (eql (class-of gf) generic-function-class))
