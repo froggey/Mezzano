@@ -3,19 +3,32 @@
 
 (in-package :sys.int)
 
-(fmakunbound 'funcallable-instance-lambda-expression)
+;; Undefine the following functions if they're not generic functions.
+;; They have early non-generic definitions that these generics overwrite.
+;; Undefining them beforehand prevents problems with redefinition.
+
+(when (and (fboundp 'funcallable-instance-lambda-expression)
+           (not (typep (fdefinition 'funcallable-instance-lambda-expression)
+                       'standard-generic-function)))
+  (fmakunbound 'funcallable-instance-lambda-expression))
 (defgeneric funcallable-instance-lambda-expression (function)
   (:method ((function function))
     (declare (ignore function))
     (values nil t nil)))
 
-(fmakunbound 'funcallable-instance-debug-info)
+(when (and (fboundp 'funcallable-instance-debug-info)
+           (not (typep (fdefinition 'funcallable-instance-debug-info)
+                       'standard-generic-function)))
+  (fmakunbound 'funcallable-instance-debug-info))
 (defgeneric funcallable-instance-debug-info (function)
   (:method ((function function))
     (declare (ignore function))
     nil))
 
-(fmakunbound 'funcallable-instance-compiled-function-p)
+(when (and (fboundp 'funcallable-instance-compiled-function-p)
+           (not (typep (fdefinition 'funcallable-instance-compiled-function-p)
+                       'standard-generic-function)))
+  (fmakunbound 'funcallable-instance-compiled-function-p))
 (defgeneric funcallable-instance-compiled-function-p (function)
   (:method ((function function))
     (declare (ignore function))
