@@ -33,7 +33,8 @@
    (method-combination :initarg :method-combination)
    (argument-precedence-order :initarg :argument-precedence-order)
    (argument-reordering-table :initform nil)
-   (declarations :initarg :declarations :initform nil)
+   ;; ### AMOP says :DECLARATIONS, spec says :DECLARE?
+   (declarations :initarg :declarations :initarg :declare :initform nil)
    (documentation :initform nil :initarg :documentation)
    (dependents :initform '()))
   (:default-initargs
