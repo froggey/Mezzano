@@ -148,14 +148,17 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                                                               vector)))
 
 (defun broadcast-ipi (type vector &optional including-self)
-  ;; Disable interrupts to prevent cross-cpu migration from
-  ;; fouling up behaviour of INCLUDING-SELF.
-  (safe-without-interrupts (type vector including-self)
-    (dolist (cpu *cpus*)
-      (when (and (eql (cpu-state cpu) :online)
-                 (or including-self
-                     (not (eql cpu (local-cpu-object)))))
-        (send-ipi (cpu-apic-id cpu) type vector)))))
+  ;; BROADCAST-IPI can be called very early due to thread wakeups, before
+  ;; the lapic is mapped by INITIALIZE-CPU.
+  (when *lapic-address*
+    ;; Disable interrupts to prevent cross-cpu migration from
+    ;; fouling up behaviour of INCLUDING-SELF.
+    (safe-without-interrupts (type vector including-self)
+      (dolist (cpu *cpus*)
+        (when (and (eql (cpu-state cpu) :online)
+                   (or including-self
+                       (not (eql cpu (local-cpu-object)))))
+          (send-ipi (cpu-apic-id cpu) type vector))))))
 
 (defun broadcast-wakeup-ipi ()
   (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
@@ -850,6 +853,9 @@ This is a one-shot timer and must be reset after firing."
   (values
    (truncate (* duration-internal-time-units *lapic-timer-calibration*)
              internal-time-units-per-second)))
+
+(defun initialize-early-cpu ()
+  (setf *lapic-address* nil))
 
 (defun initialize-cpu ()
   (setf *lapic-address* (logand (sys.int::msr +msr-ia32-apic-base+)
