@@ -245,45 +245,37 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
              (:constructor make-condition-variable (&optional name))
              (:area :wired)))
 
-(defun %condition-wait-for (condition-variable mutex timeout predicate)
-  (cond ((eql timeout 0)
-         ;; Timeout of 0, just test the predicate.
-         (if (funcall predicate)
-             nil
-             :timeout))
-        (timeout
-         (with-timer (timer :relative timeout)
-           (loop
-              (when (funcall predicate)
-                (return))
-              (condition-wait condition-variable mutex timer)
-              (when (timer-expired-p timeout)
-                (return :timeout)))))
-        (t
-         (loop
-            (when (funcall predicate)
-              (return))
-            (condition-wait condition-variable mutex)))))
-
 (defmacro condition-wait-for ((condition-variable mutex &optional timeout) &body predicate)
   "Evaluate PREDICATE in a loop, waiting on CONDITION-VARIABLE until PREDICATE returns true.
-Returns NIL unless a timeout occurs, then :TIMEOUT is returned. A block named NIL is defined allowing RETURN to be used within the predicate.
+Returns the first non-NIL result of PREDICATE, or NIL if a timeout occurs.
+A block named NIL is defined allowing RETURN to be used within the predicate.
 Handles timeouts properly."
-  (cond (timeout
-         ;; Timeout specified, need to use the more complicated form.
-         `(block nil
-            (%condition-wait-for ,condition-variable ,mutex ,timeout
-                                 (dx-lambda () (progn ,@predicate)))))
-        (t
-         ;; With no timeout things are simple.
-         (let ((cvar-sym (gensym "CVAR"))
-               (mutex-sym (gensym "MUTEX")))
-           `(let ((,cvar-sym ,condition-variable)
-                  (,mutex-sym ,mutex))
-              (loop
-                 (when (progn ,@predicate)
-                   (return))
-                 (condition-wait ,cvar-sym ,mutex-sym)))))))
+  (let ((timeout-sym (gensym "TIMEOUT"))
+        (timer-sym (gensym "TIMER"))
+        (cvar-sym (gensym "CVAR"))
+        (mutex-sym (gensym "MUTEX"))
+        (predicate-fn (gensym "PREDICATE"))
+        (prediate-result-sym (gensym)))
+    `(let ((,cvar-sym ,condition-variable)
+           (,mutex-sym ,mutex)
+           (,timeout-sym ,timeout))
+       (block nil
+         (flet ((,predicate-fn () (progn ,@predicate)))
+           (cond ((eql ,timeout-sym 0)
+                  (,predicate-fn))
+                 (,timeout-sym
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                    (loop
+                       (let ((,prediate-result-sym (,predicate-fn)))
+                         (when ,prediate-result-sym (return ,prediate-result-sym)))
+                       (when (mezzano.supervisor:timer-expired-p ,timer-sym)
+                         (return nil))
+                       (condition-wait ,cvar-sym ,mutex-sym ,timer-sym))))
+                 (t
+                  (loop
+                     (let ((,prediate-result-sym (,predicate-fn)))
+                       (when ,prediate-result-sym (return ,prediate-result-sym)))
+                     (condition-wait ,cvar-sym ,mutex-sym)))))))))
 
 (defun condition-wait (condition-variable mutex &optional timeout)
   "Wait for a notification on CONDITION-VARIBLE.
