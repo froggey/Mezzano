@@ -267,7 +267,7 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
 
 (defmacro condition-wait-for ((condition-variable mutex &optional timeout) &body predicate)
   "Evaluate PREDICATE in a loop, waiting on CONDITION-VARIABLE until PREDICATE returns true.
-Returns NIL unless a timeout occurs, then :TIMEOUT is returned. A block named NIL is defined allowing RETURN-FROM to be used within the predicate.
+Returns NIL unless a timeout occurs, then :TIMEOUT is returned. A block named NIL is defined allowing RETURN to be used within the predicate.
 Handles timeouts properly."
   (cond (timeout
          ;; Timeout specified, need to use the more complicated form.
