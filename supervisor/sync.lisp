@@ -731,6 +731,33 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
             (wake-thread (pop-wait-queue event)))))
       (setf (event-%state event) value))))
 
+(defmacro event-wait-for ((event &key timeout) &body predicate)
+  "As with CONDITION-WAIT-FOR, this waits until PREDICATE is true using EVENT as a way of blocking."
+  (let ((timeout-sym (gensym "TIMEOUT"))
+        (timer-sym (gensym "TIMER"))
+        (event-sym (gensym "EVENT"))
+        (predicate-fn (gensym "PREDICATE"))
+        (prediate-result-sym (gensym)))
+    `(let ((,event-sym ,event)
+           (,timeout-sym ,timeout))
+       (block nil
+         (flet ((,predicate-fn () (progn ,@predicate)))
+           (cond ((eql ,timeout-sym 0)
+                  (,predicate-fn))
+                 (,timeout-sym
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                    (loop
+                       (let ((,prediate-result-sym (,predicate-fn)))
+                         (when ,prediate-result-sym (return ,prediate-result-sym)))
+                       (when (mezzano.supervisor:timer-expired-p ,timer-sym)
+                         (return nil))
+                       (mezzano.supervisor:wait-for-objects ,timer-sym ,event-sym))))
+                 (t
+                  (loop
+                     (let ((,prediate-result-sym (,predicate-fn)))
+                       (when ,prediate-result-sym (return ,prediate-result-sym)))
+                     (mezzano.supervisor:event-wait ,event-sym)))))))))
+
 (defun event-wait (event)
   "Wait until EVENT's state is not NIL."
   (check-type event event)
