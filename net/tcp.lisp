@@ -535,22 +535,9 @@
                       sys.gray:unread-char-mixin)
   ())
 
-(defun refill-tcp-stream-buffer (stream)
-  (let ((connection (tcp-stream-connection stream)))
-    (when (and (null (tcp-stream-packet stream))
-               (tcp-connection-rx-data connection))
-      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
-
-(defun tcp-connection-closed-p (stream)
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (let ((connection (tcp-stream-connection stream)))
-      (refill-tcp-stream-buffer stream)
-      (and (null (tcp-stream-packet stream))
-           (not (member (tcp-connection-state connection) '(:established :syn-received :syn-sent)))))))
-
 (defmethod sys.gray:stream-listen ((stream tcp-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
-    (refill-tcp-stream-buffer stream)
+    (refill-tcp-packet-buffer stream)
     (not (null (tcp-stream-packet stream)))))
 
 (defmethod sys.gray:stream-read-byte ((stream tcp-octet-stream))
@@ -583,8 +570,6 @@
             (not (member (tcp-connection-state connection)
                          '(:established :syn-received :syn-sent)))))
       ;; Something may have refilled while we were waiting.
-      (when (tcp-stream-packet stream)
-        (return-from refill-tcp-packet-buffer t))
       (when (and (null (tcp-connection-rx-data connection))
                  (not (member (tcp-connection-state connection)
                               '(:established :syn-received :syn-sent))))
@@ -667,7 +652,8 @@
   (close-tcp-connection (tcp-stream-connection stream)))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
-  (not (tcp-connection-closed-p stream)))
+  (member (tcp-connection-state (tcp-stream-connection stream))
+          '(:established :syn-received :syn-sent)))
 
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
