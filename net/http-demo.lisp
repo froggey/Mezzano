@@ -3,7 +3,7 @@
 
 (defpackage :http-demo
   (:use :cl)
-  (:export #:start-http-server))
+  (:export #:start-server #:stop-server))
 
 (in-package :http-demo)
 
@@ -115,20 +115,50 @@
                        (t (sys.net:buffered-format stream "HTTP/1.0 404 Not Found~%~%"))))
                 (t (sys.net:buffered-format stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
-(defvar *http-server-thread* nil)
-(defvar *http-server-listener* nil)
+(defclass http-server ()
+  ((%context :initarg :context :reader http-server-context)
+   (%listener-source :reader http-server-listener-source)
+   (%shutdown-state :initarg :shutdown-state :reader http-server-shutdown-state)))
 
-(defun http-server ()
-  (loop
-    (loop :for connection :in (mezzano.network.tcp:wait-for-connections *http-server-listener*) :do
-          (let ((stream (mezzano.network.tcp:tcp4-accept-connection connection)))
-            (ignore-errors (serve-request stream))))))
+(defun %start-server (server port)
+  (let* ((listener (mezzano.network.tcp:tcp-listen
+                    (mezzano.network.ip:make-ipv4-address "0.0.0.0")
+                    port))
+         (source (mezzano.sync.dispatch:make-source
+                  listener
+                  (lambda ()
+                    (let ((connection (mezzano.network.tcp:tcp-accept listener)))
+                      ;; Dispatch the new connection in the shutdown group so
+                      ;; that all connections can finished up when the server
+                      ;; is stopped.
+                      (mezzano.sync.dispatch:dispatch-async
+                       (lambda () (ignore-errors (serve-request connection)))
+                       (mezzano.sync.dispatch:global-queue)
+                       :group (http-server-shutdown-state server))))
+                  :cancellation-handler (lambda ()
+                                          (mezzano.network.tcp:close-tcp-listener listener)
+                                          (mezzano.sync.dispatch:group-leave (http-server-shutdown-state server))))))
+    (mezzano.sync.dispatch:group-enter (http-server-shutdown-state server))
+    (setf (slot-value server '%listener-source) source)))
 
-(defun start-http-server (&optional (port 80))
-  (setf *http-server-listener* (mezzano.network.tcp:tcp-listen (mezzano.network.ip:make-ipv4-address "0.0.0.0")
-                                                               port)
-        *http-server-thread* (mezzano.supervisor:make-thread (lambda () (http-server))
-                                                             :name "HTTP server")))
+(defun start-server (&key (port 80))
+  (let* ((context (mezzano.sync.dispatch:make-dispatch-context
+                   :name (format nil "HTTP server port ~D" port)))
+         (server (make-instance 'http-server
+                                :context context
+                                :shutdown-state (mezzano.sync.dispatch:make-group :context context))))
+    (mezzano.sync.dispatch:dispatch-sync
+     (lambda () (%start-server server port))
+     (mezzano.sync.dispatch:global-queue :context context))
+    server))
 
-(unless *http-server-thread*
-  (start-http-server))
+(defun stop-server (server)
+  ;; Cancel the listener source to stop further connections.
+  ;; TODO: Make pending connections cancellable.
+  (mezzano.sync.dispatch:cancel (http-server-listener-source server))
+  ;; Wait for shutdown to complete.
+  (mezzano.sync.dispatch:wait (http-server-shutdown-state server))
+  ;; Shutdown the rest of the dispatch system.
+  (mezzano.sync.dispatch:dispatch-shutdown :context (http-server-context server)))
+
+(defvar *demo-server* (start-server))
