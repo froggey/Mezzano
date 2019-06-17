@@ -421,6 +421,7 @@
            #:event-name
            #:event-state
            #:event-wait
+           #:event-wait-for
 
            #:timer
            #:timer-p

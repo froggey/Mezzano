@@ -74,6 +74,7 @@
                 #:ub64ref/be #:ub64ref/le)
   (:export #:tcp-stream-connect
            #:tcp-listen
+           #:tcp-accept
            #:tcp4-accept-connection
            #:tcp4-decline-connection
            #:wait-for-connections

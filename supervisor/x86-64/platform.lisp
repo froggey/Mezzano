@@ -11,7 +11,8 @@
 
 (defun initialize-early-platform ()
   (initialize-interrupts)
-  (initialize-i8259))
+  (initialize-i8259)
+  (initialize-early-cpu))
 
 (defun initialize-platform ()
   (let ((fadt (acpi-get-table 'acpi-fadt-table-p)))

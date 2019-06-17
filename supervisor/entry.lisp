@@ -149,10 +149,10 @@
             *pseudo-atomic* nil
             sys.int::*known-finalizers* nil
             *big-wait-for-objects-lock* (place-spinlock-initializer)))
+    (initialize-early-platform)
     (when (boundp '*boot-id*)
       (setf (event-state *boot-id*) t))
     (setf *boot-id* (make-event :name 'boot-epoch))
-    (initialize-early-platform)
     (initialize-threads)
     (initialize-disk)
     (initialize-pager)

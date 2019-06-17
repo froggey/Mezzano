@@ -100,11 +100,7 @@
     (mezzano.supervisor:condition-wait-for ((udp-connection-cvar connection)
                                             (udp-connection-lock connection)
                                             timeout)
-      (udp-connection-packets connection))
-    (if (udp-connection-packets connection)
-        (pop (udp-connection-packets connection))
-        ;; If there is no packet pending, then a timeout must have occured.
-        nil)))
+      (pop (udp-connection-packets connection)))))
 
 (defun %udp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))

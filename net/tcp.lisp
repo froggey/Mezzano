@@ -33,24 +33,26 @@
   ((local-port :accessor tcp-listener-local-port :initarg :local-port)
    (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
    (connection :accessor tcp-listener-connection :initarg :connection)
-   (lock :accessor tcp-listener-lock :initarg :lock)
-   (cvar :accessor tcp-listener-cvar :initarg :cvar))
+   (lock :reader tcp-listener-lock :initarg :lock)
+   (event :reader tcp-listener-event
+          :reader mezzano.supervisor:get-object-event
+          :initarg :event))
   (:default-initargs
    :lock (mezzano.supervisor:make-mutex "TCP listener lock")
-   :cvar (mezzano.supervisor:make-condition-variable "TCP listener cvar")))
+   :event (mezzano.supervisor:make-event :name "TCP listener event")))
 
 (defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
-(defun wait-for-connections (listener)
-  (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-    (mezzano.supervisor:condition-wait-for ((tcp-listener-cvar listener)
-                                            (tcp-listener-lock listener))
-      (tcp-listener-connection listener))
-    (prog1
-        (tcp-listener-connection listener)
-      (setf (tcp-listener-connection listener) nil))))
+(defun wait-for-connections (listener &key timeout)
+  (mezzano.supervisor:event-wait-for ((tcp-listener-event listener) :timeout timeout)
+    (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
+      (prog1
+          (tcp-listener-connection listener)
+        (setf (tcp-listener-connection listener) '())
+        ;; No more pending connections.
+        (setf (mezzano.supervisor:event-state (tcp-listener-event listener)) nil)))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
@@ -129,8 +131,10 @@
                                             :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
                                             :window-size 8192)))
              (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-               (push connection (tcp-listener-connection listener))
-               (mezzano.supervisor:condition-notify (tcp-listener-cvar listener)))
+               ;; Push on the end of the list.
+               (setf (tcp-listener-connection listener) (append (tcp-listener-connection listener)
+                                                                (list connection)))
+               (setf (mezzano.supervisor:event-state (tcp-listener-event listener)) t))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))))
           ((eql flags +tcp4-flag-syn+)
@@ -461,6 +465,20 @@
       (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
         (push listener *tcp-listeners*))
       listener)))
+
+(defun tcp-accept (listener &key timeout)
+  (mezzano.supervisor:event-wait-for ((tcp-listener-event listener) :timeout timeout)
+    (let ((connection
+           (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
+             (prog1
+                 (pop (tcp-listener-connection listener))
+               (when (endp (tcp-listener-connection listener))
+                 (setf (mezzano.supervisor:event-state
+                        (tcp-listener-event listener))
+                       nil))))))
+      (if connection
+          (tcp4-accept-connection connection)
+          nil))))
 
 (defparameter *tcp-connect-timeout* 10)
 
