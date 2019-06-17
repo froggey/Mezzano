@@ -355,3 +355,34 @@
              (random limit random-state)
              (* limit rs))))
       (double-float (* limit rd)))))
+
+;;; Heap grovelling
+
+(defun all-generic-functions ()
+  (declare (notinline typep find-class))
+  (remove (mezzano.clos:class-prototype (find-class 'standard-generic-function))
+            (get-all-objects (lambda (object) (typep object 'standard-generic-function)))))
+
+(defun get-all-objects (filter-function)
+  (let ((objects (make-array 10000 :fill-pointer 0)))
+    (loop
+       (setf (fill-pointer objects) 0)
+       (walk-area :general
+                  (lambda (object address size)
+                    (declare (ignore address size))
+                    (when (funcall filter-function object)
+                      (vector-push object objects))))
+       (walk-area :pinned
+                  (lambda (object address size)
+                    (declare (ignore address size))
+                    (when (funcall filter-function object)
+                      (vector-push object objects))))
+       (walk-area :wired
+                  (lambda (object address size)
+                    (declare (ignore address size))
+                    (when (funcall filter-function object)
+                      (vector-push object objects))))
+       (when (not (eql (fill-pointer objects) (array-dimension objects 0)))
+         (return))
+       (adjust-array objects (* (array-dimension objects 0) 2)))
+    objects))
