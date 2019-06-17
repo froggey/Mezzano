@@ -652,19 +652,23 @@ It is only possible for the second value to be false when wait-p is false."
        (when (eql (wfo-links wfo) :sleep-in-progress)
          (wfo-unregister wfo)))))
 
+(defun convert-object-to-event (object)
+  ;; Special case events to avoid the call
+  ;; through G-O-E as it is defined much later.
+  (let ((event (typecase object
+                 (event object)
+                 (timer (timer-event object))
+                 (t (get-object-event object)))))
+    (assert (event-p event))
+    event))
+
 (defun convert-objects-to-events (objects)
   ;; The event list must be wired, so do this instead of a simple mapcar.
   (let* ((head (cons nil nil))
          (tail head))
     (declare (dynamic-extent head))
     (dolist (object objects)
-      ;; Special case events to avoid the call
-      ;; through G-O-E as it is defined much later.
-      (let ((event (typecase object
-                     (event object)
-                     (timer (timer-event object))
-                     (t (get-object-event object)))))
-        (assert (event-p event))
+      (let ((event (convert-object-to-event object)))
         (setf (cdr tail) (wfo-cons event nil)
               tail (cdr tail))))
     (cdr head)))
@@ -732,13 +736,14 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
       (setf (event-%state event) value))))
 
 (defmacro event-wait-for ((event &key timeout) &body predicate)
-  "As with CONDITION-WAIT-FOR, this waits until PREDICATE is true using EVENT as a way of blocking."
+  "As with CONDITION-WAIT-FOR, this waits until PREDICATE is true using EVENT as a way of blocking.
+EVENT can be any object that supports GET-OBJECT-EVENT."
   (let ((timeout-sym (gensym "TIMEOUT"))
         (timer-sym (gensym "TIMER"))
         (event-sym (gensym "EVENT"))
         (predicate-fn (gensym "PREDICATE"))
         (prediate-result-sym (gensym)))
-    `(let ((,event-sym ,event)
+    `(let ((,event-sym (convert-object-to-event ,event))
            (,timeout-sym ,timeout))
        (block nil
          (flet ((,predicate-fn () (progn ,@predicate)))
