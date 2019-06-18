@@ -103,9 +103,12 @@
            (mezzano.runtime::%apply (%coerce-to-callable ,function-sym) ,args-sym)))
       `(mezzano.runtime::%apply (%coerce-to-callable ,function) ,arg)))
 
+(deftype function-designator ()
+  `(or function symbol))
+
 (defun apply (function arg &rest more-args)
   (declare (dynamic-extent more-args))
-  (check-type function (or function symbol) "a function-designator")
+  (check-type function function-designator)
   (when (symbolp function)
     (setf function (%coerce-to-callable function)))
   (cond (more-args

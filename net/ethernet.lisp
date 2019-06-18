@@ -3,16 +3,12 @@
 
 (in-package :mezzano.network.ethernet)
 
-(defvar *cards* '())
-
 (defconstant +ethertype-ipv4+ #x0800)
 (defconstant +ethertype-arp+  #x0806)
 (defconstant +ethertype-ipv6+ #x86DD)
 
 (defparameter *ethernet-broadcast* (make-array 6 :element-type '(unsigned-byte 8)
                                                :initial-element #xFF))
-
-(defvar *ethernet-thread* nil)
 
 (defun ethernet-mac (nic)
   (let ((mac (make-array 6 :element-type '(unsigned-byte 8)))
@@ -41,21 +37,16 @@
        (format t "IPV6 isn't supported.~%"))
       (t (format t "Unknown ethertype ~X.~%" ethertype)))))
 
-(defun ethernet-thread ()
-  (loop
-     (sys.int::log-and-ignore-errors
-      (multiple-value-bind (packet nic)
-          (mezzano.driver.network-card:receive-packet)
-        (receive-ethernet-packet nic packet)))))
-
 (defun ethernet-loopback (interface packet)
-  ;; This is a bit hacky...
-  (mezzano.driver.network-card::device-received-packet
-   interface
-   (let ((loopback-packet (make-array (sys.net::packet-length packet)
-                                      :element-type '(unsigned-byte 8))))
-     (sys.net::copy-packet loopback-packet packet)
-     loopback-packet)))
+  ;; This is a bit hacky... (less than it was before!)
+  (let ((loopback-packet (make-array (sys.net::packet-length packet)
+                                     :element-type '(unsigned-byte 8))))
+    (sys.net::copy-packet loopback-packet packet)
+    (mezzano.sync.dispatch:dispatch-async
+     (lambda ()
+       (sys.int::log-and-ignore-errors
+         (receive-ethernet-packet interface loopback-packet)))
+     sys.int::*network-serial-queue*)))
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))

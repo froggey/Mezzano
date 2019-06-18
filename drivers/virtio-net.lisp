@@ -195,7 +195,7 @@ and then some alignment.")
          (return))
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
-(defmethod nic:device-transmit-packet ((nic virtio-net) packet)
+(defmethod nic:transmit-packet ((nic virtio-net) packet)
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len

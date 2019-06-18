@@ -3,6 +3,8 @@
 
 (in-package :sys.net)
 
+(defvar *cards* '())
+
 ;;; Hardcode the qemu & virtualbox network layout for now.
 (defun net-setup (&key
                     (local-ip "10.0.2.15")
@@ -11,7 +13,7 @@
                     ;; don't run into trouble.
                     (prefix-length 24)
                     (gateway "10.0.2.2")
-                    (interface (first mezzano.network.ethernet::*cards*))
+                    (interface (first *cards*))
                     ;; Use Google DNS, as Virtualbox does not provide a DNS server within the NAT.
                     (dns-server "8.8.8.8"))
   (let ((loopback-interface (make-instance 'sys.net::loopback-interface))
@@ -43,28 +45,60 @@
           mezzano.network.dns:*dns-servers*))
   t)
 
-(defun ethernet-boot-hook ()
-  ;; delay a little to allow any NIC drivers to complete.
-  ;; TODO: Need a notification mechanism to detect when NICs are attached/detached.
-  (sleep 1)
-  (setf mezzano.network.ethernet::*cards* (copy-list mezzano.driver.network-card::*nics*)
-        mezzano.network.ip::*routing-table* '()
+;; Everything in the network stack uses a single serial queue for the moment...
+(defvar *network-serial-queue*)
+
+(defvar *receive-sources* (make-hash-table))
+
+;; TODO: This is where DHCP could be done.
+(defun nic-added (nic)
+  (push nic *cards*)
+  (setf mezzano.network.ip::*routing-table* '()
         mezzano.network.ip::*ipv4-interfaces* '()
         mezzano.network.ip::*outstanding-sends* '()
         mezzano.network.arp::*arp-table* '()
         *hosts* `(("localhost" ,(mezzano.network.ip:make-ipv4-address '(127 0 0 1)))))
   (net-setup)
-  (format t "Interfaces: ~S~%" mezzano.network.ip::*ipv4-interfaces*))
-(ethernet-boot-hook)
-(mezzano.supervisor:add-boot-hook 'ethernet-boot-hook)
+  (format t "Interfaces: ~S~%" mezzano.network.ip::*ipv4-interfaces*)
+  ;; Do receive work for this nic.
+  (let ((source (mezzano.sync.dispatch:make-source
+                 (mezzano.driver.network-card:receive-mailbox nic)
+                 (lambda ()
+                   (sys.int::log-and-ignore-errors
+                     (let ((packet (mezzano.sync:mailbox-receive
+                                    (mezzano.driver.network-card:receive-mailbox nic))))
+                       (mezzano.network.ethernet::receive-ethernet-packet
+                        nic packet))))
+                 :target *network-serial-queue*)))
+    (setf (gethash nic *receive-sources*) source)))
 
-;; Don't start the ethernet worker until the whole stack has been loaded.
-(when (not mezzano.network.ethernet::*ethernet-thread*)
-  (setf mezzano.network.ethernet::*ethernet-thread*
-        (mezzano.supervisor:make-thread 'mezzano.network.ethernet::ethernet-thread
-                                        :name "Ethernet thread"))
-  ;; ARP expiration disabled.
-  ;; It's causing the IP layer to drop packets which breaks
-  ;; long-running TCP connections.
-  #+(or)
-  (mezzano.network.arp:start-arp-expiration))
+(defun nic-removed (nic)
+  ;; Stop trying to receive packets on this interface.
+  (mezzano.sync.dispatch:cancel (gethash nic *receive-sources*))
+  (remhash nic *receive-sources*)
+  (setf *cards* (remove nic *cards*)))
+
+;; TODO: Integrate ARP expiration into this.
+(defun initialize-network-stack ()
+  (setf *network-serial-queue* (mezzano.sync.dispatch:make-queue :name "Main network stack queue" :concurrent nil))
+  ;; Create sources for NIC addition/removal.
+  (let ((nic-add-mailbox (mezzano.sync:make-mailbox :name "NIC add mailbox"))
+        (nic-rem-mailbox (mezzano.sync:make-mailbox :name "NIC rem mailbox")))
+    (mezzano.sync.dispatch:make-source
+     nic-add-mailbox
+     (lambda ()
+       (nic-added (mezzano.sync:mailbox-receive nic-add-mailbox)))
+     :target *network-serial-queue*)
+    (mezzano.sync.dispatch:make-source
+     nic-rem-mailbox
+     (lambda ()
+       (nic-removed (mezzano.sync:mailbox-receive nic-rem-mailbox)))
+     :target *network-serial-queue*)
+    (mezzano.driver.network-card:add-nic-hooks
+     (lambda (nic) (mezzano.sync:mailbox-send nic nic-add-mailbox))
+     (lambda (nic) (mezzano.sync:mailbox-send nic nic-rem-mailbox)))))
+
+(defvar *network-dispatch-context*
+  (mezzano.sync.dispatch:make-dispatch-context
+   :initial-work #'initialize-network-stack
+   :name "Network stack"))

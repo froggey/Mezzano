@@ -299,7 +299,7 @@
   (nic:register-network-card nic)
   t)
 
-(defmethod nic:device-transmit-packet ((nic rtl8168) packet)
+(defmethod nic:transmit-packet ((nic rtl8168) packet)
   (let* ((len (loop for elt in packet
                  summing (length elt)))
          (data (make-array len
