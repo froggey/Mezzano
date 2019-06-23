@@ -31,27 +31,26 @@
 (defclass tcp-listener ()
   ((local-port :accessor tcp-listener-local-port :initarg :local-port)
    (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
-   (connection :accessor tcp-listener-connection :initarg :connection)
-   (lock :reader tcp-listener-lock :initarg :lock)
-   (event :reader tcp-listener-event
-          :reader mezzano.supervisor:get-object-event
-          :initarg :event))
-  (:default-initargs
-   :lock (mezzano.supervisor:make-mutex "TCP listener lock")
-   :event (mezzano.supervisor:make-event :name "TCP listener event")))
+   (connections :reader tcp-listener-connections :initarg :connections)))
+
+(defmethod mezzano.sync:get-object-event ((object tcp-listener))
+  (mezzano.sync:get-object-event (tcp-listener-connections object)))
+
+(defmethod print-object ((instance tcp-listener) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream ":local-ip ~A :local-port ~A"
+            (tcp-listener-local-ip instance)
+            (tcp-listener-local-port instance))))
 
 (defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
     (setf *tcp-listeners* (remove listener *tcp-listeners*))))
 
 (defun wait-for-connections (listener &key timeout)
-  (mezzano.supervisor:event-wait-for ((tcp-listener-event listener) :timeout timeout)
-    (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-      (prog1
-          (tcp-listener-connection listener)
-        (setf (tcp-listener-connection listener) '())
-        ;; No more pending connections.
-        (setf (mezzano.supervisor:event-state (tcp-listener-event listener)) nil)))))
+  (mezzano.supervisor:event-wait-for ((tcp-listener-connections listener)
+                                      :timeout timeout)
+    ;; Fetch all connections from the mailbox.
+    (mezzano.sync:mailbox-flush (tcp-listener-connections listener))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
@@ -129,13 +128,15 @@
                                             :s-next 0
                                             :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
                                             :window-size 8192)))
-             (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-               ;; Push on the end of the list.
-               (setf (tcp-listener-connection listener) (append (tcp-listener-connection listener)
-                                                                (list connection)))
-               (setf (mezzano.supervisor:event-state (tcp-listener-event listener)) t))
-             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-               (push connection *tcp-connections*))))
+             ;; Drop connections that don't fit in the mailbox.
+             ;; This way a listener can limit the number of
+             ;; connections that haven't been accepted.
+             (when (mezzano.sync:mailbox-send
+                    connection
+                    (tcp-listener-connections listener)
+                    :wait-p nil)
+               (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+                 (push connection *tcp-connections*)))))
           ((eql flags +tcp4-flag-syn+)
            (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end)))))
 
@@ -449,31 +450,27 @@
 (define-condition connection-timed-out (connection-error)
   ())
 
-(defun tcp-listen (local-ip local-port)
+(defun tcp-listen (local-ip local-port &key backlog)
   (multiple-value-bind (host interface)
       (mezzano.network.ip:ipv4-route local-ip)
     (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
            (listener (make-instance 'tcp-listener
-                                    :connection nil
+                                    :connections (mezzano.sync:make-mailbox
+                                                  :name "TCP Listener"
+                                                  :capacity backlog)
                                     :local-port local-port
                                     :local-ip source-address)))
       (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
         (push listener *tcp-listeners*))
       listener)))
 
-(defun tcp-accept (listener &key timeout)
-  (mezzano.supervisor:event-wait-for ((tcp-listener-event listener) :timeout timeout)
-    (let ((connection
-           (mezzano.supervisor:with-mutex ((tcp-listener-lock listener))
-             (prog1
-                 (pop (tcp-listener-connection listener))
-               (when (endp (tcp-listener-connection listener))
-                 (setf (mezzano.supervisor:event-state
-                        (tcp-listener-event listener))
-                       nil))))))
-      (if connection
-          (tcp4-accept-connection connection)
-          nil))))
+(defun tcp-accept (listener &key (wait-p t))
+  (let ((connection (mezzano.sync:mailbox-receive
+                     (tcp-listener-connections listener)
+                     :wait-p wait-p)))
+    (if connection
+        (tcp4-accept-connection connection)
+        nil)))
 
 (defparameter *tcp-connect-timeout* 10)
 

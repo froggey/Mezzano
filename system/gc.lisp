@@ -119,7 +119,8 @@
         (setf *gc-force-major-cycle* full))
       (mezzano.supervisor:condition-notify *gc-cvar* t)
       (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)
-        (not (eql epoch *gc-epoch*))))))
+        (not (eql epoch *gc-epoch*)))))
+  (values))
 
 (defun gc-worker ()
   (loop

@@ -23,13 +23,13 @@
 
 (defun sys.int::check-connectivity ()
   ;; Make sure that there's one network card.
-  (when (null mezzano.network.ethernet::*cards*)
+  (when (null sys.net::*cards*)
     (format t "No network cards detected!~%~
 Make sure there is a virtio-net NIC attached.~%")
     (return-from sys.int::check-connectivity))
-  (when (not (null (rest mezzano.network.ethernet::*cards*)))
+  (when (not (null (rest sys.net::*cards*)))
     (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
-  (format t "Using network card ~S.~%" (first mezzano.network.ethernet::*cards*))
+  (format t "Using network card ~S.~%" (first sys.net::*cards*))
   ;; Check connectivity to the file-server.
   (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
     (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-remote-file-port*)

@@ -899,6 +899,23 @@ Other arguments are included directly."
        (equalp (sys.int::layout-instance-slots layout-a)
                (sys.int::layout-instance-slots layout-b))))
 
+(defun compute-class-heap-size (class instance-slots)
+  (declare (notinline typep)) ; bootstrap hack.
+  (cond ((and (endp instance-slots)
+              (typep class 'funcallable-standard-class))
+         ;; Funcallable instances must always be at least
+         ;; 2 words long, for the implicit leading entry
+         ;; point and function slots.
+         2)
+        (t
+         (loop
+            ;; Using the effective slot locations
+            ;; accounts for the FC instance offset.
+            for slot in instance-slots
+            for location = (mezzano.runtime::location-offset-t
+                            (safe-slot-definition-location slot))
+            maximize (1+ location)))))
+
 (defun std-finalize-inheritance (class)
   (dolist (super (safe-class-direct-superclasses class))
     (ensure-class-finalized super)
@@ -916,15 +933,7 @@ Other arguments are included directly."
          (layout (sys.int::make-layout
                   :class class
                   :obsolete nil
-                  ;; FIXME: If CLASS is a funcallable instance with no slots,
-                  ;; then this will compute the wrong size (0).
-                  :heap-size (loop
-                                ;; Using the effective slot locations
-                                ;; accounts for the FC instance offset.
-                                for slot in instance-slots
-                                for location = (mezzano.runtime::location-offset-t
-                                                (safe-slot-definition-location slot))
-                                maximize (1+ location))
+                  :heap-size (compute-class-heap-size class instance-slots)
                   :heap-layout t
                   :area (std-slot-value class 'allocation-area)
                   :instance-slots instance-slot-vector)))

@@ -337,7 +337,9 @@
       (error 'simple-reader-error :stream stream
              :format-control "Invalid ratio, dividing by zero: ~A"
              :format-arguments (list string)))
-    (/ numerator denominator)))
+    (if negativep
+        (- (/ numerator denominator))
+        (/ numerator denominator))))
 
 (defvar *exponent-markers* "DdEeFfLlSs")
 (defvar *decimal-digits* "0123456789")
