@@ -24,7 +24,7 @@
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *tcp-listeners* nil)
-(defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
+(defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP listener list"))
 (defvar *allocated-tcp-ports* nil)
 
 (defvar *server-alist* '())
