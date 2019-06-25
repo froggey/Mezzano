@@ -25,7 +25,6 @@
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *tcp-listeners* nil)
 (defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
-(defvar *allocated-tcp-ports* nil)
 
 (defvar *server-alist* '())
 
@@ -175,8 +174,7 @@
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-    (setf *tcp-connections* (remove connection *tcp-connections*)))
-  (setf *allocated-tcp-ports* (remove (tcp-connection-local-port connection) *allocated-tcp-ports*)))
+    (setf *tcp-connections* (remove connection *tcp-connections*))))
 
 (defun tcp4-receive-data (connection data-length end header-length packet seq start state)
   (cond ((= seq (tcp-connection-r-next connection))
@@ -407,13 +405,10 @@
     (setf (ub16ref/be header +tcp4-header-checksum+) checksum)
     packet))
 
-(defun allocate-local-tcp-port ()
-  (do ()
-      (nil)
-    (let ((port (+ (random 32768) 32768)))
-      (unless (find port *allocated-tcp-ports*)
-        (push port *allocated-tcp-ports*)
-        (return port)))))
+(defun allocate-local-tcp-port (local-ip ip port)
+  (loop :for local-port := (+ (random 32768) 32768)
+        :do (unless (get-tcp-connection ip port local-ip local-port)
+              (return local-port))))
 
 (defun close-tcp-connection (connection)
   (with-tcp-connection-locked connection
@@ -482,8 +477,8 @@
 (defun tcp-connect (ip port)
   (multiple-value-bind (host interface)
       (mezzano.network.ip:ipv4-route ip)
-    (let* ((source-port (allocate-local-tcp-port))
-           (source-address (mezzano.network.ip:ipv4-interface-address interface))
+    (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
+           (source-port (allocate-local-tcp-port source-address ip port))
            (seq (random #x100000000))
            (connection (make-instance 'tcp-connection
                                       :%state :syn-sent
