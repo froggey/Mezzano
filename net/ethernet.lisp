@@ -46,7 +46,7 @@
      (lambda ()
        (sys.int::log-and-ignore-errors
          (receive-ethernet-packet interface loopback-packet)))
-     sys.int::*network-serial-queue*)))
+     sys.net::*network-serial-queue*)))
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))

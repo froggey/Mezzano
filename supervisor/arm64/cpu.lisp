@@ -232,7 +232,18 @@
   idle-thread
   wired-stack
   exception-stack
-  irq-stack)
+  irq-stack
+  lapic-timer-active)
 
 (defun logical-core-count ()
   1)
+
+(defun preemption-timer-reset (time-remaining)
+  (declare (ignore time-remaining))
+  nil)
+
+(defun preemption-timer-remaining ()
+  nil)
+
+(defun stop-other-cpus-for-debug-magic-button ()
+  nil)
