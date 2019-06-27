@@ -196,20 +196,20 @@
    #(0 0 0 1 2 3)
    mezzano.network.ethernet:+ethertype-ipv4+
    packet)
-  ;; This is a bit very hacky...
-  ;; Trying to avoid recursively calling back into the receive path. The
-  ;; ethernet worker will pick packet up and deal with it normally.
-  (mezzano.supervisor:fifo-push
-   (cons interface
-         (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
-                                            :element-type '(unsigned-byte 8))))
-           (sys.net::copy-packet loopback-packet
-                                 (cons #(0 0 0 0 0 0
-                                         0 0 0 0 0 0
-                                         8 0)
-                                       packet))
-           loopback-packet))
-   mezzano.driver.network-card::*received-packets*))
+  ;; Use dispatch-async to avoid recursively calling back into the receive path.
+  (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
+                                     :element-type '(unsigned-byte 8))))
+    (sys.net::copy-packet loopback-packet
+                          (cons #(0 0 0 0 0 0
+                                  0 0 0 0 0 0
+                                  8 0)
+                                packet))
+    (mezzano.sync.dispatch:dispatch-async
+     (lambda ()
+       (sys.int::log-and-ignore-errors
+         (receive-ethernet-packet interface loopback-packet)))
+     sys.net::*network-serial-queue*)
+    loopback-packet))
 
 (defun assemble-ipv4-packet (source destination protocol payload)
   (let* ((ip-header (make-array 20 :element-type '(unsigned-byte 8)))
