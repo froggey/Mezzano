@@ -207,7 +207,8 @@
     (mezzano.sync.dispatch:dispatch-async
      (lambda ()
        (sys.int::log-and-ignore-errors
-         (receive-ethernet-packet interface loopback-packet)))
+         (mezzano.network.ethernet::receive-ethernet-packet
+          interface loopback-packet)))
      sys.net::*network-serial-queue*)
     loopback-packet))
 
