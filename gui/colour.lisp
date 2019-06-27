@@ -113,6 +113,8 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun colour-matrix-element (colour-matrix row col)
   (aref (colour-matrix-elements colour-matrix) (+ (* row 4) col)))
 
+#+x86-64
+(progn
 (deftype simd-colour ()
   ;; A 4-element ARGB single-float SIMD vector containing non-premultiplied colour.
   ;; The alpha channel is stored in lane 0, red in lane 1, green in lane 2, and
@@ -321,3 +323,4 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
   (assert (colour-matrix-p colour-matrix))
   (assert (typep colour 'colour))
   (%colour-matrix-multiply (colour-matrix-elements colour-matrix) colour))
+)

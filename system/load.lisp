@@ -62,6 +62,12 @@
     (#.+llf-arch-arm64+ :arm64)
     (t :unknown)))
 
+(defun current-architecture ()
+  #+x86-64 :x86-64
+  #+arm64 :arm64
+  #-(or x86-64 arm64)
+  (error "Define this"))
+
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
                (eql (%read-byte stream) #x4C)
@@ -76,9 +82,7 @@
             "Bad LLF version ~D, wanted version ~D, while loading ~S."
             version *llf-version* stream))
   (let ((arch (llf-architecture-name (load-integer stream))))
-    (assert (eql arch
-                 #+x86-64 :x86-64
-                 #+arm64 :arm64) ()
+    (assert (eql arch (current-architecture)) ()
             "LLF compiled for wrong architecture ~S. Wanted ~S."
             arch (current-architecture))))
 
