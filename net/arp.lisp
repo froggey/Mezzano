@@ -33,7 +33,6 @@
                (eql ptype mezzano.network.ethernet:+ethertype-ipv4+) (eql plen 4))
       (let ((spa (ub32ref/be packet spa-start))
             (tpa (ub32ref/be packet tpa-start)))
-        (format t "Got ARP packet. ~X ~X ~X ~X~%" spa tpa address oper)
         ;; If the pair <protocol type, sender protocol address> is
         ;; already in my translation table, update the sender
         ;; hardware address field of the entry with the new
@@ -66,8 +65,7 @@
             (setf (ub32ref/be packet spa-start) address
                   (ub16ref/be packet 20) +arp-op-reply+)
             (mezzano.network.ethernet:transmit-packet interface (list (subseq packet 0 44))))))
-      (mezzano.network.ip::arp-table-updated))
-    (format t "New ARP table: ~S~%" *arp-table*)))
+      (mezzano.network.ip::arp-table-updated))))
 
 (defun send-arp (interface ptype address)
   "Send an ARP packet out onto the wire."
