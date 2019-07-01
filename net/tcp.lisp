@@ -52,6 +52,7 @@
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-%state :initarg :%state)
+   (direction :accessor tcp-connection-direction :initarg :direction)
    (local-port :accessor tcp-connection-local-port :initarg :local-port)
    (local-ip :accessor tcp-connection-local-ip :initarg :local-ip)
    (remote-port :accessor tcp-connection-remote-port :initarg :remote-port)
@@ -65,6 +66,7 @@
    (lock :accessor tcp-connection-lock :initarg :lock)
    (cvar :accessor tcp-connection-cvar :initarg :cvar))
   (:default-initargs
+   :direction :sync
    :max-seg-size 1000
    :rx-data '()
    :rx-data-unordered (make-hash-table)
@@ -197,7 +199,8 @@
            (data-length (- end (+ start header-length))))
       (when (logtest flags +tcp4-flag-rst+)
         ;; Remote have sended RST , aborting connection
-        (setf (tcp-connection-state connection) :connection-aborted)
+        (setf (tcp-connection-state connection) :connection-aborted
+              (tcp-connection-direction connection) nil)
         (detach-tcp-connection connection))
       (case (tcp-connection-state connection)
         (:listen
@@ -211,6 +214,7 @@
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote have sended SYN+ACK and waiting for ACK
                 (setf (tcp-connection-state connection) :established
+                      (tcp-connection-direction connection) :io
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
                ((logtest flags +tcp4-flag-syn+)
@@ -222,7 +226,8 @@
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :connection-aborted)
+                (setf (tcp-connection-state connection) :connection-aborted
+                      (tcp-connection-direction connection) nil)
                 (detach-tcp-connection connection))))
         (:syn-received
          ;; Pasive open
@@ -230,14 +235,16 @@
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote have sended ACK , connection established
-                (setf (tcp-connection-state connection) :established))
+                (setf (tcp-connection-state connection) :established
+                      (tcp-connection-direction connection) :io))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :connection-aborted)
+                (setf (tcp-connection-state connection) :connection-aborted
+                      (tcp-connection-direction connection) nil)
                 (detach-tcp-connection connection))))
         (:established
          (if (zerop data-length)
@@ -245,6 +252,7 @@
                         (logtest flags +tcp4-flag-fin+))
                ;; Remote have sended FIN and waiting for ACK
                (setf (tcp-connection-state connection) :close-wait
+                     (tcp-connection-direction connection) :output
                      (tcp-connection-r-next connection)
                      (logand (+ (tcp-connection-r-next connection) 1)
                              #xFFFFFFFF))
@@ -275,10 +283,12 @@
                       (if (logtest flags +tcp4-flag-ack+)
                           ;; Remote saw our FIN and closed as well.
                           (progn
-                            (setf (tcp-connection-state connection) :closed)
+                            (setf (tcp-connection-state connection) :closed
+                                  (tcp-connection-direction connection) nil)
                             (detach-tcp-connection connection))
                           ;; Simultaneous close
-                          (setf (tcp-connection-state connection) :closing)))
+                          (setf (tcp-connection-state connection) :closing
+                                (tcp-connection-direction connection) nil)))
                      ((logtest flags +tcp4-flag-ack+)
                       ;; Remote saw our FIN
                       (setf (tcp-connection-state connection) :fin-wait-2))))
@@ -296,7 +306,8 @@
                                  (tcp-connection-s-next connection)
                                  (tcp-connection-r-next connection)
                                  nil)
-               (setf (tcp-connection-state connection) :closed)
+               (setf (tcp-connection-state connection) :closed
+                     (tcp-connection-direction connection) nil)
                (detach-tcp-connection connection))
              (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-2)))
         (:closing
@@ -309,7 +320,8 @@
         (t
          ;; Aborting connection
          (tcp4-send-packet connection ack seq nil :rst-p t)
-         (setf (tcp-connection-state connection) :connection-aborted)
+         (setf (tcp-connection-state connection) :connection-aborted
+               (tcp-connection-direction connection) nil)
          (detach-tcp-connection connection))))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
@@ -390,7 +402,8 @@
   (with-tcp-connection-locked connection
     (ecase (tcp-connection-state connection)
       (:syn-sent
-       (setf (tcp-connection-state connection) :closed)
+       (setf (tcp-connection-state connection) :closed
+             (tcp-connection-direction connection) nil)
        (tcp4-send-packet connection
                          (tcp-connection-s-next connection)
                          (tcp-connection-r-next connection)
@@ -398,14 +411,16 @@
                          :rst-p t)
        (detach-tcp-connection connection))
       ((:established :syn-received)
-       (setf (tcp-connection-state connection) :fin-wait-1)
+       (setf (tcp-connection-state connection) :fin-wait-1
+             (tcp-connection-direction connection) :input)
        (tcp4-send-packet connection
                          (tcp-connection-s-next connection)
                          (tcp-connection-r-next connection)
                          nil
                          :fin-p t))
       (:close-wait
-       (setf (tcp-connection-state connection) :last-ack)
+       (setf (tcp-connection-state connection) :last-ack
+             (tcp-connection-direction connection) nil)
        (tcp4-send-packet connection
                          (tcp-connection-s-next connection)
                          (tcp-connection-r-next connection)
@@ -488,8 +503,8 @@
       connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
-  (when (or (eql (tcp-connection-state connection) :established)
-            (eql (tcp-connection-state connection) :close-wait))
+  (when (or (eql (tcp-connection-direction connection) :io)
+            (eql (tcp-connection-direction connection) :output))
     (setf end (or end (length data)))
     (let ((mss (tcp-connection-max-seg-size connection)))
       (cond ((>= start end))
@@ -534,7 +549,7 @@
     (let ((connection (tcp-stream-connection stream)))
       (refill-tcp-stream-buffer stream)
       (and (null (tcp-stream-packet stream))
-           (not (member (tcp-connection-state connection) '(:established :syn-received :syn-sent)))))))
+           (not (tcp-connection-direction connection))))))
 
 (defmethod sys.gray:stream-listen ((stream tcp-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -568,14 +583,14 @@
       (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
                                               (tcp-connection-lock connection))
         (or (tcp-connection-rx-data connection)
-            (not (member (tcp-connection-state connection)
-                         '(:established :syn-received :syn-sent)))))
+            (eql (tcp-connection-direction connection) :output)
+            (not (tcp-connection-direction connection))))
       ;; Something may have refilled while we were waiting.
       (when (tcp-stream-packet stream)
         (return-from refill-tcp-packet-buffer t))
       (when (and (null (tcp-connection-rx-data connection))
-                 (not (member (tcp-connection-state connection)
-                              '(:established :syn-received :syn-sent))))
+                 (or (eql (tcp-connection-direction connection) :output)
+                     (not (tcp-connection-direction connection))))
         (return-from refill-tcp-packet-buffer nil))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
     t))
