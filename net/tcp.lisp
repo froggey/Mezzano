@@ -26,6 +26,8 @@
 (defvar *tcp-listeners* nil)
 (defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP listener list"))
 
+(defvar *server-alist* '())
+
 (defclass tcp-listener ()
   ((local-port :accessor tcp-listener-local-port :initarg :local-port)
    (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
@@ -136,7 +138,9 @@
                     (tcp-listener-connections listener)
                     :wait-p nil)
                (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-                 (push connection *tcp-connections*))))))))
+                 (push connection *tcp-connections*)))))
+          ((eql flags +tcp4-flag-syn+)
+           (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end)))))
 
 (defun tcp4-accept-connection (connection)
   (let* ((seq (random #x100000000))
@@ -149,6 +153,26 @@
 
 (defun tcp4-decline-connection (connection)
   (detach-tcp-connection connection))
+
+(defun tcp4-establish-connection (local-ip local-port remote-ip remote-port packet start end)
+  (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
+         (blah (random #x100000000))
+         (connection (make-instance 'tcp-connection
+                                    :%state :syn-received
+                                    :local-port local-port
+                                    :local-ip local-ip
+                                    :remote-port remote-port
+                                    :remote-ip remote-ip
+                                    :s-next (logand #xFFFFFFFF (1+ blah))
+                                    :r-next (logand #xFFFFFFFF (1+ seq))
+                                    :window-size 8192)))
+    (let ((server (assoc local-port *server-alist*)))
+      (cond (server
+             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (push connection *tcp-connections*))
+             (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
+                               :ack-p t :syn-p t)
+             (funcall (second server) connection))))))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
