@@ -85,16 +85,20 @@
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
+;; FIXME: This is temporary fix for recursive locking in tcp-listen
+(defun get-tcp-listener-without-lock (local-ip local-port)
+  (dolist (listener *tcp-listeners*)
+    (when (and (or (mezzano.network.ip:address-equal
+                    (tcp-listener-local-ip listener) local-ip)
+                   (mezzano.network.ip:address-equal
+                    (mezzano.network.ip:make-ipv4-address "0.0.0.0")
+                    (tcp-listener-local-ip listener)))
+               (eql (tcp-listener-local-port listener) local-port))
+      (return listener))))
+
 (defun get-tcp-listener (local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-    (dolist (listener *tcp-listeners*)
-      (when (and (or (mezzano.network.ip:address-equal
-                      (tcp-listener-local-ip listener) local-ip)
-                     (mezzano.network.ip:address-equal
-                      (mezzano.network.ip:make-ipv4-address "0.0.0.0")
-                      (tcp-listener-local-ip listener)))
-                 (eql (tcp-listener-local-port listener) local-port))
-        (return listener)))))
+    (get-tcp-listener-without-lock local-ip local-port)))
 
 (defun get-tcp-connection (remote-ip remote-port local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -461,7 +465,7 @@
                                     :local-port local-port
                                     :local-ip source-address)))
       (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-        (when (get-tcp-listener source-address local-port)
+        (when (get-tcp-listener-without-lock source-address local-port)
           (error "Server already listening on port ~D" local-port))
         (push listener *tcp-listeners*))
       listener)))
