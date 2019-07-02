@@ -451,9 +451,9 @@
                                                   :capacity backlog)
                                     :local-port local-port
                                     :local-ip source-address)))
-      (when (get-tcp-listener source-address local-port)
-        (error "Server already listening on port ~D" local-port))
       (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
+        (when (get-tcp-listener source-address local-port)
+          (error "Server already listening on port ~D" local-port))
         (push listener *tcp-listeners*))
       listener)))
 
