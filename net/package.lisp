@@ -79,6 +79,7 @@
            #:tcp4-accept-connection
            #:tcp4-decline-connection
            #:wait-for-connections
+           #:close-tcp-listener
            #:tcp-listener-local-port
            #:tcp-connection-local-port
            #:tcp-connection-local-ip

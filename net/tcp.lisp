@@ -693,10 +693,6 @@
   (declare (ignore abort))
   (close-tcp-connection (tcp-stream-connection stream)))
 
-(defmethod close ((listener tcp-listener) &key abort)
-  (declare (ignore abort))
-  (close-tcp-listener listener))
-
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (not (tcp-connection-closed-p stream)))
 
