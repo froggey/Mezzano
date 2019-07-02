@@ -359,6 +359,9 @@ an (UNSIGNED-BYTE 32) or an IPV4-ADDRESS."
           (ldb (byte 8 8) argument)
           (ldb (byte 8 0) argument)))
 
+(defun ipv4-address-to-string (ipv4-address)
+  (format-ipv4-address nil (ipv4-address-address ipv4-address)))
+
 (defmethod print-object ((object ipv4-address) stream)
   (if (or *print-readably*
           *print-escape*)

@@ -45,6 +45,7 @@
                 #:octet)
   (:export #:make-ipv4-address
            #:format-ipv4-address
+           #:ipv4-address-to-string
            #:invalid-ipv4-address
            #:parse-ipv4-address
            #:ipv4-interface-address
@@ -79,6 +80,12 @@
            #:tcp4-decline-connection
            #:wait-for-connections
            #:close-tcp-listener
+           #:tcp-listener-local-port
+           #:tcp-connection-local-port
+           #:tcp-connection-local-ip
+           #:tcp-connection-remote-port
+           #:tcp-connection-remote-ip
+           #:tcp-stream-connection
            #:network-error
            #:connection-error
            #:connection-error-host

@@ -85,16 +85,20 @@
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
+;; FIXME: This is temporary fix for recursive locking in tcp-listen
+(defun get-tcp-listener-without-lock (local-ip local-port)
+  (dolist (listener *tcp-listeners*)
+    (when (and (or (mezzano.network.ip:address-equal
+                    (tcp-listener-local-ip listener) local-ip)
+                   (mezzano.network.ip:address-equal
+                    (mezzano.network.ip:make-ipv4-address "0.0.0.0")
+                    (tcp-listener-local-ip listener)))
+               (eql (tcp-listener-local-port listener) local-port))
+      (return listener))))
+
 (defun get-tcp-listener (local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-    (dolist (listener *tcp-listeners*)
-      (when (and (or (mezzano.network.ip:address-equal
-                      (tcp-listener-local-ip listener) local-ip)
-                     (mezzano.network.ip:address-equal
-                      (mezzano.network.ip:make-ipv4-address "0.0.0.0")
-                      (tcp-listener-local-ip listener)))
-                 (eql (tcp-listener-local-port listener) local-port))
-        (return listener)))))
+    (get-tcp-listener-without-lock local-ip local-port)))
 
 (defun get-tcp-connection (remote-ip remote-port local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -461,6 +465,8 @@
                                     :local-port local-port
                                     :local-ip source-address)))
       (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
+        (when (get-tcp-listener-without-lock source-address local-port)
+          (error "Server already listening on port ~D" local-port))
         (push listener *tcp-listeners*))
       listener)))
 
@@ -556,7 +562,7 @@
     (let ((connection (tcp-stream-connection stream)))
       (refill-tcp-stream-buffer stream)
       (and (null (tcp-stream-packet stream))
-           (not (member (tcp-connection-state connection) '(:established :syn-received :syn-sent)))))))
+           (member (tcp-connection-state connection) '(:last-ack :closing :closed :connection-aborted))))))
 
 (defmethod sys.gray:stream-listen ((stream tcp-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -590,14 +596,12 @@
       (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
                                               (tcp-connection-lock connection))
         (or (tcp-connection-rx-data connection)
-            (not (member (tcp-connection-state connection)
-                         '(:established :syn-received :syn-sent)))))
+            (member (tcp-connection-state connection) '(:close-wait :last-ack :closing :closed :connection-aborted))))
       ;; Something may have refilled while we were waiting.
       (when (tcp-stream-packet stream)
         (return-from refill-tcp-packet-buffer t))
       (when (and (null (tcp-connection-rx-data connection))
-                 (not (member (tcp-connection-state connection)
-                              '(:established :syn-received :syn-sent))))
+                 (member (tcp-connection-state connection) '(:close-wait :last-ack :closing :closed :connection-aborted)))
         (return-from refill-tcp-packet-buffer nil))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
     t))
