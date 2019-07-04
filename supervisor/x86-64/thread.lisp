@@ -251,11 +251,14 @@
                                              (ash 1 8)))
   ;; Resume the thread & wait for it to stop.
   (resume-thread thread :single-step)
-  ;; FIXME: this will need to lock the thread before reading the state
-  ;; or on SMP it will wake before the saved state is written.
   (loop
-     (when (eql (thread-state thread) :stopped)
-       (return))
+     ;; Take the global thread lock when inspecting the state to
+     ;; synchronize properly with STOP-THREAD-FOR-SINGLE-STEP.
+     (let ((sync-state (safe-without-interrupts (thread)
+                         (with-global-thread-lock ()
+                           (thread-state thread)))))
+       (when (eql sync-state :stopped)
+         (return)))
      (thread-yield))
   ;; Clear the single-step bit.
   (setf (thread-state-rflags thread) (logand (thread-state-rflags thread)
