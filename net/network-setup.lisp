@@ -80,7 +80,12 @@
 
 ;; TODO: Integrate ARP expiration into this.
 (defun initialize-network-stack ()
-  (setf *network-serial-queue* (mezzano.sync.dispatch:make-queue :name "Main network stack queue" :concurrent nil))
+  (setf *network-serial-queue* (mezzano.sync.dispatch:make-queue
+                                :name "Main network stack queue"
+                                :concurrent nil
+                                ;; Start suspended so tasks aren't run
+                                ;; during initialization.
+                                :suspended t))
   ;; Create sources for NIC addition/removal.
   (let ((nic-add-mailbox (mezzano.sync:make-mailbox :name "NIC add mailbox"))
         (nic-rem-mailbox (mezzano.sync:make-mailbox :name "NIC rem mailbox")))
@@ -96,7 +101,9 @@
      :target *network-serial-queue*)
     (mezzano.driver.network-card:add-nic-hooks
      (lambda (nic) (mezzano.sync:mailbox-send nic nic-add-mailbox))
-     (lambda (nic) (mezzano.sync:mailbox-send nic nic-rem-mailbox)))))
+     (lambda (nic) (mezzano.sync:mailbox-send nic nic-rem-mailbox))))
+  ;; All initialzation work complete, now safe to run tasks.
+  (mezzano.sync.dispatch:resume *network-serial-queue*))
 
 (defvar *network-dispatch-context*
   (mezzano.sync.dispatch:make-dispatch-context
