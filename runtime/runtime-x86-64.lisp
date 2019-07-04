@@ -232,14 +232,10 @@
   "Compare X and Y."
   ENTRY-POINT
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*00 :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame :incoming-arguments :rcx)
   ;; Check arg count.
   (sys.lap-x86:cmp64 :rcx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:jne BAD-ARGUMENTS)
-  (:gc :frame)
+  (:gc :no-frame :layout #*0)
   (:debug ((x :r8 :value) (y :r9 :value)))
   ;; EQ test.
   ;; This additionally covers fixnums, characters and single-floats.
@@ -249,22 +245,17 @@
   (:debug ())
   (sys.lap-x86:mov32 :r8d t)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:leave)
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
-  (:gc :frame)
   MAYBE-NUMBER-CASE
   (:debug ((x :r8 :value) (y :r9 :value)))
   ;; Not EQ.
   ;; Both must be objects.
-  (sys.lap-x86:mov8 :al :r8l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
-  (sys.lap-x86:jne OBJECTS-UNEQUAL)
-  (sys.lap-x86:mov8 :al :r9l)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
-  (sys.lap-x86:jne OBJECTS-UNEQUAL)
+  (sys.lap-x86:lea32 :eax (:r8 #.(- sys.int::+tag-object+)))
+  (sys.lap-x86:test8 :al #b1111)
+  (sys.lap-x86:jnz OBJECTS-UNEQUAL)
+  (sys.lap-x86:lea32 :eax (:r9 #.(- sys.int::+tag-object+)))
+  (sys.lap-x86:test8 :al #b1111)
+  (sys.lap-x86:jnz OBJECTS-UNEQUAL)
   ;; Both are objects.
   ;; Test that both are the same kind of object.
   (sys.lap-x86:mov64 :rax (:object :r8 -1))
@@ -285,25 +276,17 @@
   ;; Both are numbers of the same type. Tail-call to generic-=.
   ;; RCX was set to fixnum 2 on entry.
   (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
-  (sys.lap-x86:leave)
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
-  (:gc :frame)
   OBJECTS-UNEQUAL
   ;; Objects are not EQL.
   (:debug ())
   (sys.lap-x86:mov32 :r8d nil)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:leave)
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret)
-  (:gc :frame)
   BAD-ARGUMENTS
-  (:gc :frame :incoming-arguments :rcx)
+  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
-  (sys.lap-x86:leave)
-  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 ;;; Support function for APPLY.
