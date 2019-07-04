@@ -135,6 +135,7 @@
     "system/full-eval.lisp"
     "system/fast-eval.lisp"
     "system/eval.lisp"
+    "system/external-format.lisp"
     "system/gray-streams.lisp"
     "system/standard-streams.lisp"
     "system/stream.lisp"

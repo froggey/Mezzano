@@ -54,7 +54,9 @@
                                         gray:fundamental-character-output-stream
                                         remote-file-stream
                                         gray:unread-char-mixin)
-  ())
+  ((%external-format
+    :initarg :external-format
+    :reader stream-external-format)))
 
 (defmethod print-object ((object remote-file-stream) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -218,15 +220,14 @@
           (setf size (command pathname con `(:size ,id))))))
     (let ((stream (cond ((or (eql element-type :default)
                              (subtypep element-type 'character))
-                         (assert (member external-format '(:default :utf-8))
-                                 (external-format))
                          (make-instance 'remote-file-character-stream
                                         :path path
                                         :pathname pathname
                                         :length size
                                         :host host
                                         :direction direction
-                                        :abort-action abort-action))
+                                        :abort-action abort-action
+                                        :external-format (sys.int::make-external-format 'character external-format)))
                         ((and (subtypep element-type '(unsigned-byte 8))
                               (subtypep '(unsigned-byte 8) element-type))
                          (assert (eql external-format :default) (external-format))
@@ -249,17 +250,14 @@
       (when (eql (ignore-errors (command pathname con `(:probe ,path))) :ok)
         pathname))))
 
-(defmethod gray:stream-element-type ((stream remote-file-stream))
+(defmethod stream-element-type ((stream remote-file-stream))
   '(unsigned-byte 8))
 
-(defmethod gray:stream-element-type ((stream remote-file-character-stream))
+(defmethod stream-element-type ((stream remote-file-character-stream))
   'character)
 
-(defmethod gray:stream-external-format ((stream remote-file-stream))
+(defmethod stream-external-format ((stream remote-file-stream))
   :default)
-
-(defmethod gray:stream-external-format ((stream remote-file-character-stream))
-  :utf-8)
 
 (defmethod input-stream-p ((stream remote-file-stream))
   (member (direction stream) '(:input :io)))
@@ -298,6 +296,10 @@
 
 (defmethod gray:stream-clear-input ((stream remote-file-stream))
   (flush-buffer stream))
+
+(defmethod gray:stream-clear-input ((stream remote-file-character-stream))
+  (sys.int::external-format-clear-input (stream-external-format stream))
+  (call-next-method))
 
 (defmethod gray:stream-clear-output ((stream remote-file-stream))
   ;; Not sure if this is sensible.
@@ -404,53 +406,45 @@ The file position must be less than the file length."
          (decf bytes-to-go bytes-to-read)))
     (+ start bytes-read)))
 
-(defmethod gray:stream-write-char ((stream remote-file-character-stream) char)
-  (let ((encoded (sys.net::encode-utf-8-string (string char) :eol-style :lf)))
-    (loop
-       for byte across encoded
-       do (gray:stream-write-byte stream byte))))
-
-(defun read-and-decode-char (stream)
-  (let ((leader (read-byte stream nil :eof)))
-    (when (eql leader :eof)
-      (return-from read-and-decode-char :eof))
-    (when (eql leader #x0D)
-      ;; Munch CR characters.
-      (return-from read-and-decode-char
-        (read-and-decode-char stream)))
-    (multiple-value-bind (length code-point)
-        (sys.net::utf-8-decode-leader leader)
-      (when (null length)
-        (return-from read-and-decode-char
-          #\REPLACEMENT_CHARACTER))
-      (dotimes (i length)
-        (let ((byte (read-byte stream nil)))
-          (when (or (null byte)
-                    (/= (ldb (byte 2 6) byte) #b10))
-            (return-from read-and-decode-char
-              #\REPLACEMENT_CHARACTER))
-          (setf code-point (logior (ash code-point 6)
-                                   (ldb (byte 6 0) byte)))))
-      (or (and (< code-point char-code-limit)
-               (code-char code-point))
-          #\REPLACEMENT_CHARACTER))))
-
-(defmethod gray:stream-read-sequence ((stream remote-file-character-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (cond ((stringp sequence)
-         ;; This is slightly faster than going through method dispatch, but it's not great.
-         (unless end (setf end (length sequence)))
-         (dotimes (i (- end start)
-                   end)
-           (let ((ch (read-and-decode-char stream)))
-             (when (eql ch :eof)
-               (return (+ start i)))
-             (setf (char sequence (+ start i)) ch))))
-        (t (call-next-method))))
+(defmethod gray:stream-listen ((stream remote-file-character-stream))
+  (sys.int::external-format-listen
+   (stream-external-format stream)
+   stream))
 
 (defmethod gray:stream-read-char ((stream remote-file-character-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (read-and-decode-char stream))
+  (sys.int::external-format-read-char
+   (stream-external-format stream)
+   stream))
+
+(defmethod gray:stream-read-char-no-hang ((stream remote-file-character-stream))
+  (sys.int::external-format-read-char-no-hang
+   (stream-external-format stream)
+   stream))
+
+(defmethod gray:stream-read-sequence ((stream remote-file-character-stream) sequence &optional (start 0) end)
+  ;; Like the default stream-read-sequence, default to reading characters
+  ;; unless the vector is an integer vector.
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (call-next-method)
+      (sys.int::external-format-read-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
+
+(defmethod gray:stream-write-char ((stream remote-file-character-stream) character)
+  (sys.int::external-format-write-char
+   (stream-external-format stream)
+   stream
+   character)
+  character)
+
+(defmethod gray:stream-write-sequence ((stream remote-file-character-stream) sequence &optional (start 0) end)
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (call-next-method)
+      (sys.int::external-format-write-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
 
 (defmethod gray:stream-file-position ((stream remote-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
@@ -464,6 +458,11 @@ The file position must be less than the file length."
          (setf (file-position* stream) position-spec))
         (t
          (file-position* stream))))
+
+(defmethod gray:stream-file-position ((stream remote-file-character-stream) &optional (position-spec nil position-specp))
+  (when position-specp
+    (sys.int::external-format-clear-input (stream-external-format stream)))
+  (call-next-method))
 
 (defmethod gray:stream-file-length ((stream remote-file-stream))
   (file-length* stream))

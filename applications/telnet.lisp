@@ -59,6 +59,10 @@ party to perform, the indicated option.")
 (defconstant +subnegotiation-send+ 1)
 (defconstant +subnegotiation-info+ 2)
 
+(defun vector-ub8 (&rest elements)
+  (declare (dynamic-extent elements))
+  (make-array (length elements) :element-type '(unsigned-byte 8) :initial-contents elements))
+
 (defun read-subnegotiation (connection)
   (let ((bytes (make-array 8 :element-type '(unsigned-byte 8)
                            :adjustable t :fill-pointer 0))
@@ -80,45 +84,45 @@ party to perform, the indicated option.")
              (data (read-subnegotiation connection)))
          (case option
            (#.+option-terminal-type+
-            (write-sequence (apply 'vector
+            (write-sequence (apply 'vector-ub8
                                    (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
                                            (map 'list 'char-code (terminal-type telnet))
                                            (list +command-iac+ +command-se+)))
                             connection))
-           (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
-                                      +command-iac+ +command-se+)
+           (t (write-sequence (vector-ub8 +command-iac+ +command-sb+ option +subnegotiation-is+
+                                          +command-iac+ +command-se+)
                               connection)))))
       (#.+command-do+
        (let ((option (read-byte connection)))
          (case option
            (#.+option-terminal-type+
-            (write-sequence (vector +command-iac+ +command-will+
-                                    +option-terminal-type+)
+            (write-sequence (vector-ub8 +command-iac+ +command-will+
+                                        +option-terminal-type+)
                             connection))
            (#.+option-window-size+
             (when (eql option +option-window-size+)
               (setf (do-window-size-updates telnet) t))
             (send-window-size telnet))
-           (t (write-sequence (vector +command-iac+ +command-wont+ option)
+           (t (write-sequence (vector-ub8 +command-iac+ +command-wont+ option)
                               connection)))))
       (#.+command-dont+
        (let ((option (read-byte connection)))
          (when (eql option +option-window-size+)
            (setf (do-window-size-updates telnet) nil))
-         (write-sequence (vector +command-iac+ +command-wont+
-                                 option)
+         (write-sequence (vector-ub8 +command-iac+ +command-wont+
+                                     option)
                          connection)))
       (#.+command-will+
        (read-byte connection)
-       #+nil(write-sequence (vector +command-iac+ +command-wont+
-                                    (read-byte connection))))
+       #+nil(write-sequence (vector-ub8 +command-iac+ +command-wont+
+                                        (read-byte connection))))
       (#.+command-wont+
        (read-byte connection)
-       #+nil(write-sequence (vector +command-iac+ +command-wont+
-                                    (read-byte connection)))))))
+       #+nil(write-sequence (vector-ub8 +command-iac+ +command-wont+
+                                        (read-byte connection)))))))
 
 (defun send-window-size (telnet)
-  (write-sequence (apply 'vector
+  (write-sequence (apply 'vector-ub8
                          (append (list +command-iac+ +command-sb+ +option-window-size+)
                                  (let ((width (mezzano.gui.xterm:terminal-width (xterm telnet)))
                                        (height (mezzano.gui.xterm:terminal-height (xterm telnet))))
@@ -250,8 +254,8 @@ party to perform, the indicated option.")
             (xterm (xterm telnet))
             (last-was-cr nil))
         ;; Announce capabilities.
-        (write-sequence (vector +command-iac+ +command-do+ +option-suppress-go-ahead+
-                                +command-iac+ +command-will+ +option-window-size+)
+        (write-sequence (vector-ub8 +command-iac+ +command-do+ +option-suppress-go-ahead+
+                                    +command-iac+ +command-will+ +option-window-size+)
                         connection)
         ;; FIXME: Translate from UTF-8 here. Can't use read-char on the tcp-stream because
         ;; terminal IO happens on top of the binary telnet layer.

@@ -36,7 +36,9 @@
    #:stream-write-sequence
    ;;; Binary stream methods.
    #:stream-read-byte
+   #:stream-read-byte-no-hang
    #:stream-write-byte
+   #:stream-listen-byte
    ;;; Character input stream methods.
    #:stream-peek-char
    #:stream-read-char-no-hang
@@ -57,9 +59,10 @@
    #:unread-char-mixin
    #:stream-display
    #:stream-open-p
+   #:external-format-string-length
    ))
 
-(in-package :sys.gray)
+(in-package :mezzano.gray)
 
 ;;; Gray Streams classes.
 
@@ -118,7 +121,9 @@
 (defgeneric stream-force-output (stream))
 (defgeneric stream-write-sequence (stream seq &optional start end))
 (defgeneric stream-read-byte (stream))
+(defgeneric stream-read-byte-no-hang (stream))
 (defgeneric stream-write-byte (stream integer))
+(defgeneric stream-listen-byte (stream))
 (defgeneric stream-peek-char (stream))
 (defgeneric stream-read-char-no-hang (stream))
 (defgeneric stream-read-char (stream))
@@ -211,6 +216,9 @@
 (defmethod external-format-string-length ((external-format (eql :utf-8)) string)
   (length (sys.int::encode-utf-8-string string :eol-style :lf)))
 
+(defmethod external-format-string-length ((external-format sys.int::external-format) string)
+  (length (sys.int::encode-utf-8-string string :eol-style (sys.int::external-format-eol-style external-format))))
+
 (defmethod stream-file-string-length ((stream sys.gray:fundamental-character-output-stream) string)
   (external-format-string-length (stream-external-format stream) string))
 
@@ -225,6 +233,15 @@
 
 (defmethod stream-force-output ((stream fundamental-output-stream))
   nil)
+
+(defmethod stream-read-byte-no-hang ((stream fundamental-binary-input-stream))
+  (ecase (stream-listen-byte stream)
+    ((:eof) :eof)
+    ((t) (read-byte stream nil :eof))
+    ((nil) nil)))
+
+(defmethod stream-listen-byte ((stream fundamental-binary-input-stream))
+  t)
 
 (defmethod stream-peek-char ((stream fundamental-character-input-stream))
   (let ((ch (read-char stream nil :eof)))

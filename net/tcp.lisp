@@ -186,14 +186,28 @@
           ((eql flags +tcp4-flag-syn+)
            (tcp4-establish-connection local-ip local-port remote-ip remote-port packet start end)))))
 
-(defun tcp4-accept-connection (connection)
+(defun tcp4-accept-connection (connection &key element-type external-format)
   (let* ((seq (random #x100000000))
          (ack (logand #xFFFFFFFF (1+ (tcp-connection-r-next connection)))))
     (setf (tcp-connection-state connection) :syn-received
           (tcp-connection-s-next connection) (logand #xFFFFFFFF (1+ seq))
           (tcp-connection-r-next connection) ack)
     (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)
-    (make-instance 'tcp-stream :connection connection)))
+    (cond ((or (not element-type)
+               (sys.int::type-equal element-type 'character))
+           (make-instance 'tcp-stream
+                          :connection connection
+                          :external-format (sys.int::make-external-format
+                                            (or element-type 'character)
+                                            (or external-format :default)
+                                            :eol-style :crlf)))
+          ((sys.int::type-equal element-type '(unsigned-byte 8))
+           (assert (or (not external-format)
+                       (eql external-format :default)))
+           (make-instance 'tcp-octet-stream
+                          :connection connection))
+          (t
+           (error "Unsupported element type ~S" element-type)))))
 
 (defun tcp4-decline-connection (connection)
   (detach-tcp-connection connection))
@@ -512,12 +526,12 @@
         (push listener *tcp-listeners*))
       listener)))
 
-(defun tcp-accept (listener &key (wait-p t))
+(defun tcp-accept (listener &key (wait-p t) element-type external-format)
   (let ((connection (mezzano.sync:mailbox-receive
                      (tcp-listener-connections listener)
                      :wait-p wait-p)))
     (if connection
-        (tcp4-accept-connection connection)
+        (tcp4-accept-connection connection :element-type element-type :external-format external-format)
         nil)))
 
 (defparameter *tcp-connect-timeout* 10)
@@ -582,8 +596,8 @@
                                        (subseq data start end))
                                    :psh-p t))))))))
 
-(defclass tcp-octet-stream (sys.gray:fundamental-binary-input-stream
-                            sys.gray:fundamental-binary-output-stream)
+(defclass tcp-octet-stream (gray:fundamental-binary-input-stream
+                            gray:fundamental-binary-output-stream)
   ((connection :initarg :connection :reader tcp-stream-connection)
    (current-packet :initform nil :accessor tcp-stream-packet)))
 
@@ -591,43 +605,11 @@
   (let ((conn (tcp-stream-connection object)))
     (values (tcp-connection-local-ip conn)
             (tcp-connection-local-port conn))))
-(defclass tcp-stream (sys.gray:fundamental-character-input-stream
-                      sys.gray:fundamental-character-output-stream
-                      tcp-octet-stream
-                      sys.gray:unread-char-mixin)
-  ())
-
-(defun refill-tcp-stream-buffer (stream)
-  (let ((connection (tcp-stream-connection stream)))
-    (when (and (null (tcp-stream-packet stream))
-               (tcp-connection-rx-data connection))
-      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
 (defmethod mezzano.network:remote-endpoint ((object tcp-octet-stream))
   (let ((conn (tcp-stream-connection object)))
     (values (tcp-connection-remote-ip conn)
             (tcp-connection-remote-port conn))))
-(defun tcp-connection-closed-p (stream)
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (let ((connection (tcp-stream-connection stream)))
-      (refill-tcp-stream-buffer stream)
-      (and (null (tcp-stream-packet stream))
-           (member (tcp-connection-state connection) '(:last-ack :closing :closed :connection-aborted))))))
-
-(defmethod sys.gray:stream-listen ((stream tcp-stream))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (refill-tcp-stream-buffer stream)
-    (not (null (tcp-stream-packet stream)))))
-
-(defmethod sys.gray:stream-read-byte ((stream tcp-octet-stream))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (when (not (refill-tcp-packet-buffer stream))
-      (return-from sys.gray:stream-read-byte :eof))
-    (let* ((packet (tcp-stream-packet stream))
-           (byte (aref (first packet) (second packet))))
-      (when (>= (incf (second packet)) (third packet))
-        (setf (tcp-stream-packet stream) nil))
-      byte)))
 
 (defmethod print-object ((instance tcp-octet-stream) stream)
   (print-unreadable-object (instance stream :type t :identity t)
@@ -640,34 +622,50 @@
                 local-address local-port
                 remote-address remote-port)))))
 
-(defmethod sys.gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
-  (unless end (setf end (length sequence)))
-  (let ((n (- end start)))
-    (if (and (subtypep (stream-element-type stream) 'character)
-             (or (listp sequence)
-                 (not (subtypep (array-element-type sequence) 'unsigned-byte))))
-        ;; Fall back on generic read-stream for strings.
-        (call-next-method)
-        (tcp-read-byte-sequence sequence stream start end))))
+(defclass tcp-stream (gray:fundamental-character-input-stream
+                      gray:fundamental-character-output-stream
+                      tcp-octet-stream
+                      gray:unread-char-mixin)
+  ((%external-format
+    :initarg :external-format
+    :reader stream-external-format)))
+
+(defun connection-may-have-additional-data-p (connection)
+  "Returns true if CONNECTION is in a state where it may potentially receive further data."
+  (member (tcp-connection-state connection)
+          ;; Data can only be received in these states.
+          '(:established
+            :syn-sent
+            :syn-received
+            :fin-wait-1
+            :fin-wait-2)))
 
 (defun refill-tcp-packet-buffer (stream)
   (let ((connection (tcp-stream-connection stream)))
-    (when (null (tcp-stream-packet stream))
-      ;; Wait for data or for the connection to close.
-      (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
-                                              (tcp-connection-lock connection))
-        (or (tcp-connection-rx-data connection)
-            (member (tcp-connection-state connection) '(:close-wait :last-ack :closing :closed :connection-aborted))))
-      ;; Something may have refilled while we were waiting.
+    ;; Wait for data or for the connection to close.
+    (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                            (tcp-connection-lock connection))
       (when (tcp-stream-packet stream)
+        ;; There was already data waiting or another thread refilled
+        ;; while we were waiting.
         (return-from refill-tcp-packet-buffer t))
-      (when (and (null (tcp-connection-rx-data connection))
-                 (member (tcp-connection-state connection) '(:close-wait :last-ack :closing :closed :connection-aborted)))
-        (return-from refill-tcp-packet-buffer nil))
-      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
-    t))
+      (or (tcp-connection-rx-data connection)
+          (not (connection-may-have-additional-data-p connection))))
+    (when (and (null (tcp-connection-rx-data connection))
+               (not (connection-may-have-additional-data-p connection)))
+      (return-from refill-tcp-packet-buffer nil))
+    (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
+  t)
+
+(defun refill-tcp-packet-buffer-no-hang (stream)
+  (let ((connection (tcp-stream-connection stream)))
+    (when (and (null (tcp-stream-packet stream))
+               (tcp-connection-rx-data connection))
+      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
 (defun tcp-read-byte-sequence (sequence stream start end)
+  (when (not end)
+    (setf end (length sequence)))
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (let ((position start))
       (loop (when (or (>= position end)
@@ -687,74 +685,115 @@
            (incf position bytes-to-copy)))
       position)))
 
-(defmethod sys.gray:stream-read-char ((stream tcp-stream))
-  (let ((leader (read-byte stream nil)))
-    (unless leader
-      (return-from sys.gray:stream-read-char :eof))
-    (when (eql leader #x0D)
-      (read-byte stream nil)
-      (setf leader #x0A))
-    (multiple-value-bind (length code-point)
-        (sys.net::utf-8-decode-leader leader)
-      (when (null length)
-        (return-from sys.gray:stream-read-char
-          #\REPLACEMENT_CHARACTER))
-      (dotimes (i length)
-        (let ((byte (read-byte stream nil)))
-          (when (or (null byte)
-                    (/= (ldb (byte 2 6) byte) #b10))
-            (return-from sys.gray:stream-read-char
-              #\REPLACEMENT_CHARACTER))
-          (setf code-point (logior (ash code-point 6)
-                                   (ldb (byte 6 0) byte)))))
-      (if (or (> code-point #x0010FFFF)
-              (<= #xD800 code-point #xDFFF))
-          #\REPLACEMENT_CHARACTER
-          (code-char code-point)))))
+(defmethod gray:stream-listen-byte ((stream tcp-octet-stream))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (refill-tcp-packet-buffer-no-hang stream)
+    (not (null (tcp-stream-packet stream)))))
 
-(defmethod sys.gray:stream-write-byte ((stream tcp-octet-stream) byte)
+(defmethod gray:stream-read-byte ((stream tcp-octet-stream))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (when (not (refill-tcp-packet-buffer stream))
+      (return-from gray:stream-read-byte :eof))
+    (let* ((packet (tcp-stream-packet stream))
+           (byte (aref (first packet) (second packet))))
+      (when (>= (incf (second packet)) (third packet))
+        (setf (tcp-stream-packet stream) nil))
+      byte)))
+
+(defmethod gray:stream-read-byte-no-hang ((stream tcp-octet-stream))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (refill-tcp-packet-buffer-no-hang stream)
+    (when (not (tcp-stream-packet stream))
+      (return-from gray:stream-read-byte-no-hang
+        (if (connection-may-have-additional-data-p (tcp-stream-connection stream))
+            nil
+            :eof)))
+    (let* ((packet (tcp-stream-packet stream))
+           (byte (aref (first packet) (second packet))))
+      (when (>= (incf (second packet)) (third packet))
+        (setf (tcp-stream-packet stream) nil))
+      byte)))
+
+(defmethod gray:stream-read-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
+  (tcp-read-byte-sequence sequence stream start end))
+
+(defmethod gray:stream-write-byte ((stream tcp-octet-stream) byte)
   (let ((ary (make-array 1 :element-type '(unsigned-byte 8)
                          :initial-element byte)))
     (tcp-send (tcp-stream-connection stream) ary)))
 
-(defmethod sys.gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
-  (unless end (setf end (length sequence)))
-  (unless (and (zerop start)
-               (eql end (length sequence)))
-    (setf sequence (subseq sequence start end)))
-  (tcp-send (tcp-stream-connection stream) sequence))
-
-(defmethod sys.gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
-  (unless end (setf end (length sequence)))
-  (cond ((stringp sequence)
-         (setf sequence (sys.net::encode-utf-8-string sequence :start start :end end)))
-        ((not (and (zerop start)
-                   (eql end (length sequence))))
-         (setf sequence (subseq sequence start end))))
-  (tcp-send (tcp-stream-connection stream) sequence))
-
-(defmethod sys.gray:stream-write-char ((stream tcp-stream) character)
-  (sys.gray:stream-write-sequence stream (string character))
-  character)
+(defmethod gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
+  (tcp-send (tcp-stream-connection stream) sequence start end))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
   (declare (ignore abort))
   (close-tcp-connection (tcp-stream-connection stream)))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
-  (not (tcp-connection-closed-p stream)))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (let ((connection (tcp-stream-connection stream)))
+      (refill-tcp-packet-buffer-no-hang stream)
+      (or (tcp-stream-packet stream)
+          (connection-may-have-additional-data-p connection)))))
 
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
 
-(defun tcp-stream-connect (address port &key element-type)
+(defmethod gray:stream-listen ((stream tcp-stream))
+  (sys.int::external-format-listen
+   (stream-external-format stream)
+   stream))
+
+(defmethod gray:stream-read-char ((stream tcp-stream))
+  (sys.int::external-format-read-char
+   (stream-external-format stream)
+   stream))
+
+(defmethod gray:stream-read-char-no-hang ((stream tcp-stream))
+  (sys.int::external-format-read-char-no-hang
+   (stream-external-format stream)
+   stream))
+
+(defmethod gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
+  ;; Like the default stream-read-sequence, default to reading characters
+  ;; unless the vector is an integer vector.
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (tcp-read-byte-sequence sequence stream start end)
+      (sys.int::external-format-read-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
+
+(defmethod gray:stream-write-char ((stream tcp-stream) character)
+  (sys.int::external-format-write-char
+   (stream-external-format stream)
+   stream
+   character)
+  character)
+
+(defmethod gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (tcp-send (tcp-stream-connection stream) sequence start end)
+      (sys.int::external-format-write-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
+
+(defmethod stream-element-type ((stream tcp-stream))
+  'character)
+
+(defun tcp-stream-connect (address port &key element-type external-format)
   (cond ((or (not element-type)
-             (and (subtypep element-type 'character)
-                  (subtypep 'character element-type)))
+             (sys.int::type-equal element-type 'character))
          (make-instance 'tcp-stream
-                        :connection (tcp-connect (sys.net::resolve-address address) port)))
-        ((and (subtypep element-type '(unsigned-byte 8))
-              (subtypep '(unsigned-byte 8) element-type))
+                        :connection (tcp-connect (sys.net::resolve-address address) port)
+                        :external-format (sys.int::make-external-format
+                                          (or element-type 'character)
+                                          (or external-format :default)
+                                          :eol-style :crlf)))
+        ((sys.int::type-equal element-type '(unsigned-byte 8))
+         (assert (or (not external-format)
+                     (eql external-format :default)))
          (make-instance 'tcp-octet-stream
                         :connection (tcp-connect (sys.net::resolve-address address) port)))
         (t

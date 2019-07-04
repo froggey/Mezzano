@@ -75,6 +75,7 @@
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
+  (:local-nicknames (:gray :mezzano.gray))
   (:export #:tcp-stream-connect
            #:tcp-listen
            #:tcp-accept

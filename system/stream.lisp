@@ -120,7 +120,8 @@
 
 (defun write-sequence (sequence stream &key (start 0) end)
   (sys.gray:stream-write-sequence (frob-output-stream stream) sequence
-                                  start end))
+                                  start end)
+  sequence)
 
 (defun file-position (stream &optional (position-spec nil position-spec-p))
   (check-type stream stream)

@@ -269,7 +269,7 @@
                              num-tokens
                              ;; Only for stream-output
                              so-stride so-outputs)
-  (let* ((tgsi-text-bytes (sys.net::encode-utf-8-string tgsi-text
+  (let* ((tgsi-text-bytes (sys.int::encode-utf-8-string tgsi-text
                                                         :eol-style :lf
                                                         :nul-terminate t))
          (text-words (truncate (+ (length tgsi-text-bytes) 3) 4))
