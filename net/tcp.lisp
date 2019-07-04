@@ -28,10 +28,37 @@
 
 (defvar *server-alist* '())
 
+(deftype tcp-connection-state ()
+  "Possible states that a TCP connection can have."
+  '(member
+    :closed
+    :listen
+    :syn-sent
+    :syn-received
+    :established
+    :close-wait
+    :last-ack
+    :fin-wait-1
+    :fin-wait-2
+    :closing
+    :connection-aborted))
+
+(deftype tcp-port-number ()
+  '(unsigned-byte 16))
+
+(deftype tcp-sequence-number ()
+  '(unsigned-byte 32))
+
 (defclass tcp-listener ()
-  ((local-port :accessor tcp-listener-local-port :initarg :local-port)
-   (local-ip :accessor tcp-listener-local-ip :initarg :local-ip)
-   (connections :reader tcp-listener-connections :initarg :connections)))
+  ((local-port :reader tcp-listener-local-port
+               :initarg :local-port
+               :type tcp-port-number)
+   (local-ip :reader tcp-listener-local-ip
+             :initarg :local-ip
+             :type mezzano.network.ip::ipv4-address)
+   (connections :reader tcp-listener-connections
+                :initarg :connections
+                :type mezzano.sync:mailbox)))
 
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
@@ -53,33 +80,39 @@
     (mezzano.sync:mailbox-flush (tcp-listener-connections listener))))
 
 (defclass tcp-connection ()
-  ((%state :accessor tcp-connection-%state :initarg :%state)
-   (local-port :accessor tcp-connection-local-port :initarg :local-port)
-   (local-ip :accessor tcp-connection-local-ip :initarg :local-ip)
-   (remote-port :accessor tcp-connection-remote-port :initarg :remote-port)
-   (remote-ip :accessor tcp-connection-remote-ip :initarg :remote-ip)
-   (s-next :accessor tcp-connection-s-next :initarg :s-next)
-   (r-next :accessor tcp-connection-r-next :initarg :r-next)
-   (window-size :accessor tcp-connection-window-size :initarg :window-size)
-   (max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
-   (rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
-   (rx-data-unordered :accessor tcp-connection-rx-data-unordered :initarg :rx-data-unordered)
-   (lock :accessor tcp-connection-lock :initarg :lock)
-   (cvar :accessor tcp-connection-cvar :initarg :cvar))
+  ((%state :accessor tcp-connection-state
+           :initarg :state
+           :type tcp-connection-state)
+   (%local-port :reader tcp-connection-local-port
+                :initarg :local-port
+                :type tcp-port-number)
+   (%local-ip :reader tcp-connection-local-ip
+              :initarg :local-ip
+              :type mezzano.network.ip::ipv4-address)
+   (%remote-port :reader tcp-connection-remote-port
+                 :initarg :remote-port
+                 :type tcp-port-number)
+   (%remote-ip :reader tcp-connection-remote-ip
+               :initarg :remote-ip
+               :type mezzano.network.ip::ipv4-address)
+   (%s-next :accessor tcp-connection-s-next
+            :initarg :s-next
+            :type tcp-sequence-number)
+   (%r-next :accessor tcp-connection-r-next
+            :initarg :r-next
+            :type tcp-sequence-number)
+   (%window-size :accessor tcp-connection-window-size :initarg :window-size)
+   (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
+   (%rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
+   (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initarg :rx-data-unordered)
+   (%lock :reader tcp-connection-lock :initarg :lock)
+   (%cvar :reader tcp-connection-cvar :initarg :cvar))
   (:default-initargs
    :max-seg-size 1000
    :rx-data '()
    :rx-data-unordered (make-hash-table)
    :lock (mezzano.supervisor:make-mutex "TCP connection lock")
    :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
-
-(declaim (inline tcp-connection-state (setf tcp-connection-state)))
-
-(defun tcp-connection-state (connection)
-  (tcp-connection-%state connection))
-
-(defun (setf tcp-connection-state) (value connection)
-  (setf (tcp-connection-%state connection) value))
 
 (defmacro with-tcp-connection-locked (connection &body body)
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
@@ -124,7 +157,7 @@
            (tcp4-receive connection packet start end))
           ((and listener (eql flags +tcp4-flag-syn+))
            (let ((connection (make-instance 'tcp-connection
-                                            :%state :listen
+                                            :state :listen
                                             :local-port local-port
                                             :local-ip local-ip
                                             :remote-port remote-port
@@ -160,7 +193,7 @@
   (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
          (blah (random #x100000000))
          (connection (make-instance 'tcp-connection
-                                    :%state :syn-received
+                                    :state :syn-received
                                     :local-port local-port
                                     :local-ip local-ip
                                     :remote-port remote-port
@@ -487,7 +520,7 @@
            (source-port (allocate-local-tcp-port source-address ip port))
            (seq (random #x100000000))
            (connection (make-instance 'tcp-connection
-                                      :%state :syn-sent
+                                      :state :syn-sent
                                       :local-port source-port
                                       :local-ip source-address
                                       :remote-port port
