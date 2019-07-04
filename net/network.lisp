@@ -81,6 +81,9 @@
   `(with-open-stream (,var (mezzano.network.tcp:tcp-stream-connect ,address ,port))
      ,@body))
 
+(defgeneric local-endpoint (object))
+(defgeneric remote-endpoint (object))
+
 ;;; Generics for working with packet-oriented connections.
 
 (defgeneric send (sequence connection &optional (start 0) end))

@@ -3,10 +3,12 @@
 
 (defpackage :system.networking
   (:use :cl)
-  (:nicknames :sys.net)
+  (:nicknames :sys.net :mezzano.network)
   (:export #:copy-packet #:packet-length
            #:buffered-format
            #:send #:receive
+           #:local-endpoint
+           #:remote-endpoint
            #:disconnect
            #:resolve-address
            #:octet))

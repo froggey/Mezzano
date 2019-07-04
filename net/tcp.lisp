@@ -114,6 +114,15 @@
    :lock (mezzano.supervisor:make-mutex "TCP connection lock")
    :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
 
+(defmethod print-object ((instance tcp-connection) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~A :local ~A:~A :remote ~A:~A"
+            (tcp-connection-state instance)
+            (tcp-connection-local-ip instance)
+            (tcp-connection-local-port instance)
+            (tcp-connection-remote-ip instance)
+            (tcp-connection-remote-port instance))))
+
 (defmacro with-tcp-connection-locked (connection &body body)
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
@@ -578,6 +587,10 @@
   ((connection :initarg :connection :reader tcp-stream-connection)
    (current-packet :initform nil :accessor tcp-stream-packet)))
 
+(defmethod mezzano.network:local-endpoint ((object tcp-octet-stream))
+  (let ((conn (tcp-stream-connection object)))
+    (values (tcp-connection-local-ip conn)
+            (tcp-connection-local-port conn))))
 (defclass tcp-stream (sys.gray:fundamental-character-input-stream
                       sys.gray:fundamental-character-output-stream
                       tcp-octet-stream
@@ -590,6 +603,10 @@
                (tcp-connection-rx-data connection))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
+(defmethod mezzano.network:remote-endpoint ((object tcp-octet-stream))
+  (let ((conn (tcp-stream-connection object)))
+    (values (tcp-connection-remote-ip conn)
+            (tcp-connection-remote-port conn))))
 (defun tcp-connection-closed-p (stream)
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (let ((connection (tcp-stream-connection stream)))
@@ -611,6 +628,17 @@
       (when (>= (incf (second packet)) (third packet))
         (setf (tcp-stream-packet stream) nil))
       byte)))
+
+(defmethod print-object ((instance tcp-octet-stream) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (multiple-value-bind (local-address local-port)
+        (mezzano.network:local-endpoint instance)
+      (multiple-value-bind (remote-address remote-port)
+          (mezzano.network:remote-endpoint instance)
+        (format stream "~A :Local ~A:~A :Remote ~A:~A"
+                (tcp-connection-state (tcp-stream-connection instance))
+                local-address local-port
+                remote-address remote-port)))))
 
 (defmethod sys.gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
   (unless end (setf end (length sequence)))
