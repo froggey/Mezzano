@@ -218,6 +218,9 @@
            #:structure-slot-definition-align
 
            #:+slot-unbound+
+
+           #:standard-instance-access
+           #:funcallable-standard-instance-access
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.

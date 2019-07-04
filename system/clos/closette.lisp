@@ -109,17 +109,21 @@ the old or new values are expected to be unbound.")
 (defun standard-instance-access (instance location)
   (if (consp location)
       (cdr location)
-      (mezzano.runtime::instance-access instance location)))
+      ;; Bypass INSTANCE-ACCESS because we know all locations in
+      ;; standard instances have type T
+      (sys.int::%object-ref-t instance (mezzano.runtime::location-offset-t location))))
 
 (defun (setf standard-instance-access) (new-value instance location)
   (if (consp location)
       (setf (cdr location) new-value)
-      (setf (mezzano.runtime::instance-access instance location) new-value)))
+      (setf (sys.int::%object-ref-t instance (mezzano.runtime::location-offset-t location))
+            new-value)))
 
 (defun (sys.int::cas standard-instance-access) (old new instance location)
   (if (consp location)
       (sys.int::cas (cdr location) old new)
-      (sys.int::cas (mezzano.runtime::instance-access instance location) old new)))
+      (sys.int::cas (sys.int::%object-ref-t instance (mezzano.runtime::location-offset-t location))
+                    old new)))
 
 ;; Instance and funcallable instances are accessed in the same way,
 ;; these are provided for compatibility with other MOP implementations.
@@ -942,8 +946,13 @@ Other arguments are included directly."
        for slot in instance-slots
        for slot-name = (safe-slot-definition-name slot)
        for location = (safe-slot-definition-location slot)
-       do (setf (aref instance-slot-vector i) slot-name
-                (aref instance-slot-vector (1+ i)) location))
+       do
+       ;; (funcallable-)standard-instance-access requires that all slots
+       ;; be of type T, as does the above heap layout.
+         (assert (eql (mezzano.runtime::location-type location)
+                      mezzano.runtime::+location-type-t+))
+         (setf (aref instance-slot-vector i) slot-name
+               (aref instance-slot-vector (1+ i)) location))
     ;; TODO: Should call MAKE-INSTANCES-OBSOLETE here and have that rebuild
     ;; the layout.
     (let ((prev-layout (safe-class-slot-storage-layout class)))

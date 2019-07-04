@@ -58,6 +58,7 @@
 (defun location-type (location)
   (ldb +location-type+ location))
 
+(declaim (inline location-offset-t))
 (defun location-offset-t (location)
   "Return the location offset scaled appropriately for %object-ref-t"
   (ash location -7))
