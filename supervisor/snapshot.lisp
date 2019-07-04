@@ -4,6 +4,7 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::defglobal *snapshot-in-progress* nil)
+(sys.int::defglobal *snapshot-state*)
 (sys.int::defglobal *snapshot-inhibit*)
 
 (sys.int::defglobal *snapshot-disk-request*)
@@ -388,6 +389,7 @@ Returns 4 values:
      (%disable-interrupts)
      (acquire-global-thread-lock)
      (setf *snapshot-in-progress* nil)
+     (setf (event-state *snapshot-state*) t)
      (setf (thread-state sys.int::*snapshot-thread*) :sleeping
            (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
      (%run-on-wired-stack-without-interrupts (sp fp)
@@ -411,6 +413,9 @@ Returns 4 values:
    :sparse sparse))
 
 (defun initialize-snapshot ()
+  (when (not (boundp '*snapshot-state*))
+    (setf *snapshot-state* (make-event :name 'snapshot-not-in-progress)))
+  (setf (event-state *snapshot-state*) nil)
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
   (setf *snapshot-inhibit* 1)
@@ -434,13 +439,19 @@ Returns 4 values:
   (sys.int::gc :full t)
   ;; Attempt to wake the snapshot thread, only waking it if
   ;; there is not snapshot currently in progress.
+  ;; FIXME: locking for SMP.
   (let ((did-wake (safe-without-interrupts ()
                       (let ((was-in-progress (sys.int::cas (sys.int::symbol-global-value '*snapshot-in-progress*) nil t)))
                         (when (eql was-in-progress nil)
+                          (setf (event-state *snapshot-state*) nil)
                           (wake-thread sys.int::*snapshot-thread*)
                           t)))))
     (when did-wake
       (thread-yield))))
+
+(defun wait-for-snapshot-completion ()
+  "If a snapshot is currently being take, then wait for it to complete."
+  (event-wait *snapshot-state*))
 
 (defmacro with-snapshot-inhibited (options &body body)
   `(call-with-snapshot-inhibited (dx-lambda () ,@body) ,@options))

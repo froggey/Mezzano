@@ -310,6 +310,7 @@
            #:latch-wait
            #:latch-trigger
            #:snapshot
+           #:wait-for-snapshot-completion
            #:allocate-memory-range
            #:protect-memory-range
            #:release-memory-range
