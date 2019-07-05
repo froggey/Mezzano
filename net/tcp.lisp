@@ -106,7 +106,9 @@
    (%rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initarg :rx-data-unordered)
    (%lock :reader tcp-connection-lock :initarg :lock)
-   (%cvar :reader tcp-connection-cvar :initarg :cvar))
+   (%cvar :reader tcp-connection-cvar :initarg :cvar)
+   (%receive-event :reader tcp-connection-receive-event
+                   :initform (mezzano.supervisor:make-event :name "TCP connection data available")))
   (:default-initargs
    :max-seg-size 1000
    :rx-data '()
@@ -257,7 +259,10 @@
                          (list (list packet (+ start header-length) end)))
                :do (setf (tcp-connection-r-next connection)
                          (logand (+ (tcp-connection-r-next connection) data-length)
-                                 #xFFFFFFFF))))
+                                 #xFFFFFFFF)))
+         (setf (mezzano.supervisor:event-state
+                (tcp-connection-receive-event connection))
+               t))
         ;; Add future packet to tcp-connection-rx-data-unordered
         ((> seq (tcp-connection-r-next connection))
          (unless (gethash seq (tcp-connection-rx-data-unordered connection))
@@ -611,6 +616,9 @@
     (values (tcp-connection-remote-ip conn)
             (tcp-connection-remote-port conn))))
 
+(defmethod mezzano.sync:get-object-event ((object tcp-octet-stream))
+  (tcp-connection-receive-event (tcp-stream-connection object)))
+
 (defmethod print-object ((instance tcp-octet-stream) stream)
   (print-unreadable-object (instance stream :type t :identity t)
     (multiple-value-bind (local-address local-port)
@@ -655,6 +663,13 @@
                (tcp-connection-rx-data connection))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
+(defun maybe-clear-receive-ready-event (stream)
+  (let ((connection (tcp-stream-connection stream)))
+    (when (and (null (tcp-stream-packet stream))
+               (endp (tcp-connection-rx-data connection)))
+      (setf (mezzano.supervisor:event-state
+             (tcp-connection-receive-event connection))
+            nil))))
 
 (defmethod gray:stream-listen-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -669,6 +684,7 @@
            (byte (aref (first packet) (second packet))))
       (when (>= (incf (second packet)) (third packet))
         (setf (tcp-stream-packet stream) nil))
+      (maybe-clear-receive-ready-event stream)
       byte)))
 
 (defmethod gray:stream-read-byte-no-hang ((stream tcp-octet-stream))
@@ -683,6 +699,7 @@
            (byte (aref (first packet) (second packet))))
       (when (>= (incf (second packet)) (third packet))
         (setf (tcp-stream-packet stream) nil))
+      (maybe-clear-receive-ready-event stream)
       byte)))
 
 (defmethod gray:stream-read-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
@@ -705,6 +722,7 @@
            (when (>= (incf (second packet) bytes-to-copy) (third packet))
              (setf (tcp-stream-packet stream) nil))
            (incf position bytes-to-copy)))
+      (maybe-clear-receive-ready-event stream)
       position)))
 
 (defmethod gray:stream-write-byte ((stream tcp-octet-stream) byte)
