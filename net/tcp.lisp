@@ -63,6 +63,10 @@
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
 
+(defmethod mezzano.network:local-endpoint ((object tcp-listener))
+  (values (tcp-listener-local-ip object)
+          (tcp-listener-local-port object)))
+
 (defmethod print-object ((instance tcp-listener) stream)
   (print-unreadable-object (instance stream :type t :identity t)
     (format stream ":local-ip ~A :local-port ~A"
