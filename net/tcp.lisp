@@ -519,21 +519,22 @@
 (define-condition connection-timed-out (connection-error)
   ())
 
-(defun tcp-listen (local-ip local-port &key backlog)
-  (multiple-value-bind (host interface)
-      (mezzano.network.ip:ipv4-route local-ip)
-    (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
-           (listener (make-instance 'tcp-listener
-                                    :connections (mezzano.sync:make-mailbox
-                                                  :name "TCP Listener"
-                                                  :capacity backlog)
-                                    :local-port local-port
-                                    :local-ip source-address)))
-      (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-        (when (get-tcp-listener-without-lock source-address local-port)
-          (error "Server already listening on port ~D" local-port))
-        (push listener *tcp-listeners*))
-      listener)))
+(defun tcp-listen (local-host local-port &key backlog)
+  (let ((local-ip (mezzano.network:resolve-address local-host)))
+    (multiple-value-bind (host interface)
+        (mezzano.network.ip:ipv4-route local-ip)
+      (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
+             (listener (make-instance 'tcp-listener
+                                      :connections (mezzano.sync:make-mailbox
+                                                    :name "TCP Listener"
+                                                    :capacity backlog)
+                                      :local-port local-port
+                                      :local-ip source-address)))
+        (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
+          (when (get-tcp-listener-without-lock source-address local-port)
+            (error "Server already listening on port ~D" local-port))
+          (push listener *tcp-listeners*))
+        listener))))
 
 (defun tcp-accept (listener &key (wait-p t) element-type external-format)
   (let ((connection (mezzano.sync:mailbox-receive
