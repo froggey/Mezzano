@@ -117,12 +117,13 @@
 (defconstant +object-tag-symbol-value-cell+       #b101110)
 (defconstant +object-tag-mmx-vector+              #b101111)
 (defconstant +object-tag-symbol+                  #b110000)
-;; Low two bits must match high two bits of +tag-instance-header+.
-(defconstant +object-tag-instance+                #b110001)
+;;#b110001
 ;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
 ;;#b110100
-;;#b110101
+;; Low two bits must match high two bits of +tag-instance-header+.
+;; Must be one bit different from +object-tag-funcallable-instance+.
+(defconstant +object-tag-instance+                #b110101)
 (defconstant +object-tag-function-reference+      #b110110)
 (defconstant +object-tag-interrupt-frame+         #b110111)
 ;; Conses get an object header when allocated in a non-cons area, purely
@@ -137,6 +138,7 @@
 (defconstant +object-tag-delimited-continuation+  #b111011)
 (defconstant +object-tag-function+                #b111100)
 ;; Low two bits must match high two bits of +tag-instance-header+.
+;; Must be one bit different from +object-tag-instance+.
 (defconstant +object-tag-funcallable-instance+    #b111101)
 (defconstant +object-tag-closure+                 #b111110)
 (defconstant +first-function-object-tag+ +object-tag-delimited-continuation+)

@@ -28,6 +28,14 @@
   "Test if an instance's direct layout & tag match instance-header."
   (sys.int::%fast-instance-layout-eq-p object instance-header))
 
+(declaim (inline sys.int::instance-or-funcallable-instance-p))
+(defun sys.int::instance-or-funcallable-instance-p (object)
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (sys.int::%instance-or-funcallable-instance-p object)))
+
+(defun sys.int::%instance-or-funcallable-instance-p (object)
+  (sys.int::%instance-or-funcallable-instance-p object))
+
 (declaim (inline sys.int::instance-p sys.int::funcallable-instance-p))
 
 (defun sys.int::instance-p (object)

@@ -421,8 +421,7 @@ the old or new values are expected to be unbound.")
 ;;; class-of
 
 (defun class-of (x)
-  (cond ((or (sys.int::instance-p x)
-             (sys.int::funcallable-instance-p x))
+  (cond ((sys.int::instance-or-funcallable-instance-p x)
          (let ((layout (sys.int::%instance-layout x)))
            (cond ((sys.int::layout-p layout)
                   (sys.int::layout-class layout))

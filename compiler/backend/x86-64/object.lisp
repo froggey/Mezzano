@@ -120,6 +120,29 @@
                        :inputs (list :rax)
                        :outputs '())))
 
+(define-builtin sys.int::%instance-or-funcallable-instance-p ((object) :e)
+  ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov8
+                       :operands (list :al `(:object ,object -1))
+                       :inputs (list object)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:and8
+                       :operands (list :al (ash (logxor (1- (ash 1 sys.int::+object-type-size+))
+                                                        sys.int::+object-tag-instance+
+                                                        sys.int::+object-tag-funcallable-instance+)
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:cmp8
+                       :operands (list :al (ash (logand sys.int::+object-tag-instance+
+                                                        sys.int::+object-tag-funcallable-instance+)
+                                                sys.int::+object-type-shift+))
+                       :inputs (list :rax)
+                       :outputs '())))
+
 (define-builtin sys.int::%object-tag ((object) result)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:movzx8
