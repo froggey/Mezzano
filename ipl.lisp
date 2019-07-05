@@ -104,7 +104,7 @@ Make sure there is a virtio-net NIC attached.~%")
 ;; Swank doesn't really support logical pathname shenanigans.
 (load (merge-pathnames "slime/swank-loader.lisp" (user-homedir-pathname)))
 (eval (read-from-string "(swank-loader::init)"))
-(eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
+(eval (read-from-string "(swank:create-server :style :spawn :dont-close t :interface \"0.0.0.0\")"))
 
 ;; And the GUI.
 (sys.int::cal "sys:source;gui;package.lisp")
