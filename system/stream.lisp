@@ -102,6 +102,16 @@
 (defun frob-output-stream (stream)
   (frob-stream stream *standard-output*))
 
+(defun listen-byte (&optional input-stream)
+  ;; Note: Unlike STREAM-LISTEN, STREAM-LISTEN-BYTE may return :EOF
+  ;; to indicate that the stream is at EOF. This should be equivalent to NIL.
+  ;; It is used in the default implementation of STREAM-READ-BYTE-NO-HANG.
+  (let ((result (sys.gray:stream-listen-byte (frob-input-stream input-stream))))
+    (cond ((or (eql result :eof)
+               (not result))
+           nil)
+          (t))))
+
 (defun read-byte (stream &optional (eof-error-p t) eof-value)
   (let ((b (sys.gray:stream-read-byte (frob-input-stream stream))))
     (check-type b (or integer (eql :eof)))
@@ -110,6 +120,16 @@
             (error 'end-of-file :stream stream)
             eof-value)
         b)))
+
+(defun read-byte-no-hang (stream &optional (eof-error-p t) eof-value)
+  (let* ((s (frob-input-stream stream))
+         (b (sys.gray:stream-read-byte-no-hang s)))
+    (check-type b (or integer (eql :eof) null))
+    (cond ((eql b :eof)
+           (when eof-error-p
+             (error 'end-of-file :stream s))
+           eof-value)
+          (b))))
 
 (defun write-byte (byte stream)
   (sys.gray:stream-write-byte (frob-output-stream stream) byte))
