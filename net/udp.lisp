@@ -118,3 +118,21 @@
            (mezzano.supervisor:condition-notify (udp-connection-cvar connection) t))))
       (t (format t "Ignoring UDP4 packet from ~X ~S~%" remote-ip
                  (subseq packet start end))))))
+
+(defmethod mezzano.network:local-endpoint ((object udp4-connection))
+  (values (local-address object)
+          (local-port object)))
+
+(defmethod mezzano.network:remote-endpoint ((object udp4-connection))
+  (values (remote-address object)
+          (remote-port object)))
+
+(defmethod print-object ((instance udp4-connection) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (multiple-value-bind (local-address local-port)
+        (mezzano.network:local-endpoint instance)
+      (multiple-value-bind (remote-address remote-port)
+          (mezzano.network:remote-endpoint instance)
+        (format stream ":Local ~A:~A :Remote ~A:~A"
+                local-address local-port
+                remote-address remote-port)))))
