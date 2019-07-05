@@ -829,8 +829,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (write-string type s)))
       s)))
 
-(defclass fat32-file-stream (sys.gray:fundamental-binary-input-stream
-                             sys.gray:fundamental-binary-output-stream
+(defclass fat32-file-stream (mezzano.gray:fundamental-binary-input-stream
+                             mezzano.gray:fundamental-binary-output-stream
                              file-cache-stream
                              file-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
@@ -841,11 +841,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                     :accessor buffer-position)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
-(defclass fat32-file-character-stream (sys.gray:fundamental-character-input-stream
-                                       sys.gray:fundamental-character-output-stream
+(defclass fat32-file-character-stream (mezzano.gray:fundamental-character-input-stream
+                                       mezzano.gray:fundamental-character-output-stream
                                        file-cache-character-stream
                                        fat32-file-stream
-                                       sys.gray:unread-char-mixin)
+                                       mezzano.gray:unread-char-mixin)
   ())
 
 (defmacro with-fat32-host-locked ((host) &body body)

@@ -35,17 +35,17 @@
 (defvar *default-monospace-bold-font* "DejaVuSansMono-Bold")
 (defvar *default-monospace-bold-font-size* 12)
 
-(defclass memory-file-stream (sys.gray:fundamental-binary-input-stream file-stream)
+(defclass memory-file-stream (mezzano.gray:fundamental-binary-input-stream file-stream)
   ((%vector :initarg :vector :reader memory-file-stream-vector)
    (%fpos :initform 0)))
 
 (defmethod initialize-instance :after ((stream memory-file-stream) &key vector)
   (check-type vector (array (unsigned-byte 8))))
 
-(defmethod sys.gray:stream-element-type ((stream memory-file-stream))
+(defmethod mezzano.gray:stream-element-type ((stream memory-file-stream))
   '(unsigned-byte 8))
 
-(defmethod sys.gray:stream-file-position ((stream memory-file-stream) &optional (position-spec nil position-specp))
+(defmethod mezzano.gray:stream-file-position ((stream memory-file-stream) &optional (position-spec nil position-specp))
   (with-slots (%fpos) stream
     (cond (position-specp
            (setf %fpos (case position-spec
@@ -54,10 +54,10 @@
                          (t position-spec))))
           (t %fpos))))
 
-(defmethod sys.gray:stream-file-length ((stream memory-file-stream))
+(defmethod mezzano.gray:stream-file-length ((stream memory-file-stream))
   (length (memory-file-stream-vector stream)))
 
-(defmethod sys.gray:stream-read-byte ((stream memory-file-stream))
+(defmethod mezzano.gray:stream-read-byte ((stream memory-file-stream))
   (with-slots (%fpos) stream
     (cond ((>= %fpos (length (memory-file-stream-vector stream)))
            :eof)

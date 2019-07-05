@@ -3,10 +3,10 @@
 
 (in-package :mezzano.gui.basic-repl)
 
-(defclass basic-repl (sys.gray:unread-char-mixin
+(defclass basic-repl (mezzano.gray:unread-char-mixin
                       sys.int::simple-edit-mixin
-                      sys.gray:fundamental-character-input-stream
-                      sys.gray:fundamental-character-output-stream)
+                      mezzano.gray:fundamental-character-input-stream
+                      mezzano.gray:fundamental-character-output-stream)
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
    (%thread :initarg :thread :reader thread)
@@ -43,7 +43,7 @@
          (return))
        (dispatch-event window evt))))
 
-(defmethod sys.gray:stream-read-char ((stream basic-repl))
+(defmethod mezzano.gray:stream-read-char ((stream basic-repl))
   (loop
      ;; Catch up with window manager events.
      (pump-event-loop stream)
@@ -54,7 +54,7 @@
      ;; Block until the next window event.
      (dispatch-event stream (mezzano.supervisor:fifo-pop (fifo stream)))))
 
-(defmethod sys.gray:stream-terpri ((stream basic-repl))
+(defmethod mezzano.gray:stream-terpri ((stream basic-repl))
   ;; Catch up with window manager events.
   (pump-event-loop stream)
   (let* ((x (cursor-x stream))
@@ -84,19 +84,19 @@
              (mezzano.gui::2d-array-bitset 16 win-width (background-colour stream) fb y 0)
              (mezzano.gui.compositor:damage-window window 0 y win-width 16)))))
 
-(defmethod sys.gray:stream-write-char ((stream basic-repl) character)
+(defmethod mezzano.gray:stream-write-char ((stream basic-repl) character)
   ;; Catch up with window manager events.
   (pump-event-loop stream)
   (cond
     ((eql character #\Newline)
-     (sys.gray:stream-terpri stream))
+     (mezzano.gray:stream-terpri stream))
     (t (let* ((width (sys.int::unifont-glyph-width character))
               (window (window stream))
               (fb (mezzano.gui::surface-pixels (mezzano.gui.compositor:window-buffer window)))
               (win-width (mezzano.gui.compositor:width window))
               (win-height (mezzano.gui.compositor:height window)))
          (when (> (+ (cursor-x stream) width) win-width)
-           (sys.gray:stream-terpri stream))
+           (mezzano.gray:stream-terpri stream))
          (let ((x (cursor-x stream))
                (y (cursor-y stream))
                (glyph (sys.int::map-unifont-2d character)))
@@ -108,10 +108,10 @@
            (mezzano.gui.compositor:damage-window window x y width 16)
            (incf (cursor-x stream) width))))))
 
-(defmethod sys.gray:stream-start-line-p ((stream basic-repl))
+(defmethod mezzano.gray:stream-start-line-p ((stream basic-repl))
   (zerop (cursor-x stream)))
 
-(defmethod sys.gray:stream-line-column ((stream basic-repl))
+(defmethod mezzano.gray:stream-line-column ((stream basic-repl))
   (truncate (cursor-x stream) 8))
 
 (defmethod sys.int::stream-cursor-pos ((stream basic-repl))

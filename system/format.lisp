@@ -483,11 +483,11 @@
         (at-sign
          (dotimes (i colnum)
            (write-char #\Space))
-         (let ((current (sys.gray:stream-line-column *standard-output*)))
+         (let ((current (mezzano.gray:stream-line-column *standard-output*)))
            (when current
              (dotimes (i (- colinc (rem current colinc)))
                (write-char #\Space)))))
-        (t (let ((current (sys.gray:stream-line-column *standard-output*)))
+        (t (let ((current (mezzano.gray:stream-line-column *standard-output*)))
              (cond ((not current)
                     (write-string "  "))
                    ((< current colnum)

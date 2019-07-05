@@ -3,6 +3,8 @@
 
 (defpackage :mezzano.gray
   (:use :cl)
+  ;; Deprecated - only exists because some external libraries may
+  ;; still refer to it.
   (:nicknames :sys.gray)
   (:export
    ;; Gray Streams classes.
@@ -205,7 +207,7 @@
 (defmethod interactive-stream-p ((stream fundamental-stream))
   'nil)
 
-(defmethod stream-element-type ((stream sys.gray:fundamental-character-stream))
+(defmethod stream-element-type ((stream fundamental-character-stream))
   'character)
 
 (defgeneric external-format-string-length (external-format string))
@@ -219,7 +221,7 @@
 (defmethod external-format-string-length ((external-format sys.int::external-format) string)
   (length (sys.int::encode-utf-8-string string :eol-style (sys.int::external-format-eol-style external-format))))
 
-(defmethod stream-file-string-length ((stream sys.gray:fundamental-character-output-stream) string)
+(defmethod stream-file-string-length ((stream fundamental-character-output-stream) string)
   (external-format-string-length (stream-external-format stream) string))
 
 (defmethod stream-clear-input ((stream fundamental-input-stream))

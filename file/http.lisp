@@ -22,12 +22,12 @@
   (declare (ignore host))
   ())
 
-(defclass http-binary-stream (sys.gray:fundamental-binary-input-stream
+(defclass http-binary-stream (mezzano.gray:fundamental-binary-input-stream
                               file-cache-stream
                               file-stream)
   ((path :initarg :path :reader path)))
 
-(defclass http-character-stream (sys.gray:fundamental-character-input-stream
+(defclass http-character-stream (mezzano.gray:fundamental-character-input-stream
                                  file-cache-character-stream
                                  file-stream)
   ((path :initarg :path :reader path)))

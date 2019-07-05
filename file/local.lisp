@@ -44,7 +44,7 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (file-truename object))))
 
-(defclass local-stream (sys.gray:fundamental-stream file-stream)
+(defclass local-stream (mezzano.gray:fundamental-stream file-stream)
   ((%file :initarg :file :reader local-stream-file)
    (%pathname :initarg :pathname :reader file-stream-pathname)
    (%position :initarg :position :accessor stream-position)
@@ -53,26 +53,26 @@
   (:default-initargs :superseded-file nil))
 
 (defclass local-character-stream (local-stream
-                                  sys.gray:fundamental-character-input-stream
-                                  sys.gray:fundamental-character-output-stream
-                                  sys.gray:unread-char-mixin)
+                                  mezzano.gray:fundamental-character-input-stream
+                                  mezzano.gray:fundamental-character-output-stream
+                                  mezzano.gray:unread-char-mixin)
   ())
 
 (defclass local-binary-stream (local-stream
-                               sys.gray:fundamental-binary-input-stream
-                               sys.gray:fundamental-binary-output-stream)
+                               mezzano.gray:fundamental-binary-input-stream
+                               mezzano.gray:fundamental-binary-output-stream)
   ())
 
-(defclass translating-stream (file-stream sys.gray:fundamental-character-stream)
+(defclass translating-stream (file-stream mezzano.gray:fundamental-character-stream)
   ((%underlying-stream :initarg :underlying-stream :reader translating-underlying-stream)))
 
 (defclass translating-input-stream (translating-stream
-                                    sys.gray:fundamental-character-input-stream
-                                    sys.gray:unread-char-mixin)
+                                    mezzano.gray:fundamental-character-input-stream
+                                    mezzano.gray:unread-char-mixin)
   ())
 
 (defclass translating-output-stream (translating-stream
-                                     sys.gray:fundamental-character-output-stream)
+                                     mezzano.gray:fundamental-character-output-stream)
   ())
 
 (defmacro with-host-locked ((host) &body body)
@@ -705,7 +705,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
            #:expunge-directory-using-host
 |#
 
-(defmethod sys.gray:stream-write-char ((stream local-stream) character)
+(defmethod mezzano.gray:stream-write-char ((stream local-stream) character)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -721,7 +721,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
       (incf (stream-position stream))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-(defmethod sys.gray:stream-read-char ((stream local-stream))
+(defmethod mezzano.gray:stream-read-char ((stream local-stream))
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -731,7 +731,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
                (incf (stream-position stream))))
             (t :eof)))))
 
-(defmethod sys.gray:stream-write-byte ((stream local-stream) byte)
+(defmethod mezzano.gray:stream-write-byte ((stream local-stream) byte)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -747,7 +747,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
       (incf (stream-position stream))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-(defmethod sys.gray:stream-read-byte ((stream local-stream))
+(defmethod mezzano.gray:stream-read-byte ((stream local-stream))
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -757,7 +757,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
                (incf (stream-position stream))))
             (t :eof)))))
 
-(defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
+(defmethod mezzano.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream))
         (end (or end (length sequence))))
@@ -778,7 +778,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
       (incf (stream-position stream) (- end start))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
+(defmethod mezzano.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream))
         (end (or end (length sequence))))
@@ -795,10 +795,10 @@ If ERRORP is true, then a file error will be signalled if any components are mis
         (incf (stream-position stream) n-bytes)
         (+ start n-bytes)))))
 
-(defmethod sys.gray:stream-element-type ((stream local-stream))
+(defmethod mezzano.gray:stream-element-type ((stream local-stream))
   (array-element-type (file-storage (local-stream-file stream))))
 
-(defmethod sys.gray:stream-external-format ((stream local-stream))
+(defmethod mezzano.gray:stream-external-format ((stream local-stream))
   :default)
 
 (defmethod input-stream-p ((stream local-stream))
@@ -807,10 +807,10 @@ If ERRORP is true, then a file error will be signalled if any components are mis
 (defmethod output-stream-p ((stream local-stream))
   (member (direction stream) '(:output :io)))
 
-(defmethod sys.gray:stream-file-length ((stream local-stream))
+(defmethod mezzano.gray:stream-file-length ((stream local-stream))
   (length (file-storage (local-stream-file stream))))
 
-(defmethod sys.gray:stream-file-position ((stream local-stream) &optional (position-spec nil position-specp))
+(defmethod mezzano.gray:stream-file-position ((stream local-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
          (setf (stream-position stream) (case position-spec
                                           (:start 0)
@@ -818,19 +818,19 @@ If ERRORP is true, then a file error will be signalled if any components are mis
                                           (t position-spec))))
         (t (stream-position stream))))
 
-(defmethod sys.gray:stream-line-column ((stream local-stream))
+(defmethod mezzano.gray:stream-line-column ((stream local-stream))
   nil)
 
-(defmethod sys.gray:stream-line-length ((stream local-stream))
+(defmethod mezzano.gray:stream-line-length ((stream local-stream))
   nil)
 
-(defmethod sys.gray:stream-clear-output ((stream local-stream))
+(defmethod mezzano.gray:stream-clear-output ((stream local-stream))
   nil)
 
-(defmethod sys.gray:stream-finish-output ((stream local-stream))
+(defmethod mezzano.gray:stream-finish-output ((stream local-stream))
   nil)
 
-(defmethod sys.gray:stream-force-output ((stream local-stream))
+(defmethod mezzano.gray:stream-force-output ((stream local-stream))
   nil)
 
 (defmethod close ((stream local-stream) &key abort &allow-other-keys)
@@ -877,18 +877,18 @@ If ERRORP is true, then a file error will be signalled if any components are mis
   (print-unreadable-object (instance stream :type t)
     (format stream "for ~S" (translating-underlying-stream instance))))
 
-(defmethod sys.gray:stream-external-format ((stream translating-stream))
+(defmethod mezzano.gray:stream-external-format ((stream translating-stream))
   :utf-8)
 
 (defmethod close ((stream translating-stream) &rest keys)
   (apply #'close (translating-underlying-stream stream) keys))
 
-(defmethod sys.gray:stream-file-position ((stream translating-stream) &optional (position-spec nil position-spec-p))
+(defmethod mezzano.gray:stream-file-position ((stream translating-stream) &optional (position-spec nil position-spec-p))
   (if position-spec-p
       (file-position (translating-underlying-stream stream) position-spec)
       (file-position (translating-underlying-stream stream))))
 
-(defmethod sys.gray:stream-file-length ((stream translating-stream))
+(defmethod mezzano.gray:stream-file-length ((stream translating-stream))
   (file-length (translating-underlying-stream stream)))
 
 (defmethod stream-truename ((stream translating-stream))
@@ -897,8 +897,8 @@ If ERRORP is true, then a file error will be signalled if any components are mis
 (defmethod file-stream-pathname ((stream translating-stream))
   (file-stream-pathname (translating-underlying-stream stream)))
 
-(defmethod sys.gray:stream-read-char ((stream translating-input-stream))
+(defmethod mezzano.gray:stream-read-char ((stream translating-input-stream))
   (mezzano.file-system.remote::read-and-decode-char (translating-underlying-stream stream)))
 
-(defmethod sys.gray:stream-clear-input ((stream translating-input-stream))
+(defmethod mezzano.gray:stream-clear-input ((stream translating-input-stream))
   (clear-input (translating-underlying-stream stream)))

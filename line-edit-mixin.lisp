@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.line-editor
   (:use :cl)
+  (:local-nicknames (:gray :mezzano.gray))
   (:export #:line-edit-mixin
            #:*line-editor-command-table*
 	   #:global-set-key
@@ -329,7 +330,7 @@
     (setf (current-completion-end stream) new-end)
     (setf (cursor-position stream) (current-completion-end stream))))
 
-(defmethod sys.gray:stream-unread-char ((stream line-edit-mixin) character)
+(defmethod gray:stream-unread-char ((stream line-edit-mixin) character)
   (declare (ignore character))
   (decf (output-progress stream)))
 
@@ -347,7 +348,7 @@
       (setf (line-end-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream)))
       (sys.int::stream-move-to stream cx cy))))
 
-(defmethod sys.gray:stream-read-char :around ((stream line-edit-mixin))
+(defmethod gray:stream-read-char :around ((stream line-edit-mixin))
   (cond ((and (output-progress stream)
               (not (eql (output-progress stream) (length (buffer stream)))))
          (prog1
@@ -376,7 +377,7 @@
                        (write-char #\Newline stream)
                        (setf (output-progress stream) 0)
                        (setf (last-command stream) #\Newline)
-                       (return (sys.gray:stream-read-char stream)))
+                       (return (gray:stream-read-char stream)))
                       (fn
                        (funcall fn stream)
                        (setf (last-command stream) fn)
@@ -404,6 +405,6 @@
                        (redraw-line stream)
                        (setf (last-command stream) ch))))))))
 
-(defmethod sys.gray:stream-clear-input :around ((stream line-edit-mixin))
+(defmethod gray:stream-clear-input :around ((stream line-edit-mixin))
   (when (output-progress stream)
     (setf (output-progress stream) (length (buffer stream)))))

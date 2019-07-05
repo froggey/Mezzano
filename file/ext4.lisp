@@ -702,8 +702,8 @@
                 (when (string= file-name (linked-directory-entry-name (read-linked-directory-entry block offset)))
                   (return-from find-file (linked-directory-entry-inode (read-linked-directory-entry block offset)))))))))
 
-(defclass ext-file-stream (sys.gray:fundamental-binary-input-stream
-                           sys.gray:fundamental-binary-output-stream
+(defclass ext-file-stream (mezzano.gray:fundamental-binary-input-stream
+                           mezzano.gray:fundamental-binary-output-stream
                            file-cache-stream
                            file-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
@@ -711,11 +711,11 @@
    (file-inode :initarg :file-inode :accessor file-inode)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
-(defclass ext-file-character-stream (sys.gray:fundamental-character-input-stream
-                                     sys.gray:fundamental-character-output-stream
+(defclass ext-file-character-stream (mezzano.gray:fundamental-character-input-stream
+                                     mezzano.gray:fundamental-character-output-stream
                                      file-cache-character-stream
                                      ext-file-stream
-                                     sys.gray:unread-char-mixin)
+                                     mezzano.gray:unread-char-mixin)
   ())
 
 (defmacro with-ext-host-locked ((host) &body body)

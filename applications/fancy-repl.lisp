@@ -8,7 +8,7 @@
 (in-package :mezzano.gui.fancy-repl)
 
 (defclass fancy-repl (mezzano.line-editor:line-edit-mixin
-                      sys.gray:fundamental-character-input-stream
+                      mezzano.gray:fundamental-character-input-stream
                       mezzano.gui.widgets:text-widget)
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
@@ -153,7 +153,7 @@
          (return))
        (dispatch-event window evt))))
 
-(defmethod sys.gray:stream-read-char ((stream fancy-repl))
+(defmethod mezzano.gray:stream-read-char ((stream fancy-repl))
   (unwind-protect
        (progn
          (setf (mezzano.gui.widgets:cursor-visible stream) t)
@@ -171,22 +171,22 @@
             (dispatch-event stream (mezzano.supervisor:fifo-pop (fifo stream)))))
     (setf (mezzano.gui.widgets:cursor-visible stream) nil)))
 
-(defmethod sys.gray:stream-read-char-no-hang ((stream fancy-repl))
+(defmethod mezzano.gray:stream-read-char-no-hang ((stream fancy-repl))
   ;; Catch up with window manager events.
   (pump-event-loop stream)
   (cond ((window-closed stream)
          :eof)
         (t (mezzano.supervisor:fifo-pop (input-buffer stream) nil))))
 
-(defmethod sys.gray:stream-terpri :before ((stream fancy-repl))
+(defmethod mezzano.gray:stream-terpri :before ((stream fancy-repl))
   ;; Catch up with window manager events.
   (pump-event-loop stream))
 
-(defmethod sys.gray:stream-write-char :before ((stream fancy-repl) character)
+(defmethod mezzano.gray:stream-write-char :before ((stream fancy-repl) character)
   ;; Catch up with window manager events.
   (pump-event-loop stream))
 
-(defmethod sys.gray:stream-clear-input ((stream fancy-repl))
+(defmethod mezzano.gray:stream-clear-input ((stream fancy-repl))
   ;; Catch up with window manager events.
   (pump-event-loop stream)
   ;; Munch all waiting characters.

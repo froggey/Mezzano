@@ -87,9 +87,9 @@
   (and (symbolp x)
        (typep (find-class x nil) 'structure-class)))
 (defun output-width (&optional (s *standard-output*))
-  (sys.gray:stream-line-length s))
+  (mezzano.gray:stream-line-length s))
 (defun output-position (&optional (s *standard-output*))
-  (sys.gray:stream-line-column s))
+  (mezzano.gray:stream-line-column s))
 
 (defvar *locating-circularities* nil
   "Integer if making a first pass over things to identify circularities.
@@ -317,7 +317,7 @@
 (defconstant +prefix-min-size+ 256)
 (defconstant +suffix-min-size+ 256)
 
-(defclass xp-structure (sys.gray:fundamental-character-output-stream)
+(defclass xp-structure (mezzano.gray:fundamental-character-output-stream)
   ;;The stream IO eventually goes to.
   ((base-stream :initarg :base-stream :accessor base-stream)
    ;;The line length to use for formatting.
@@ -1117,22 +1117,22 @@
                           (find c "*+<>-")))
                  (return nil)))))))
 
-(defmethod sys.gray:stream-write-char ((stream xp-structure) char)
+(defmethod mezzano.gray:stream-write-char ((stream xp-structure) char)
   (write-char+ char stream)
   char)
 
-(defmethod sys.gray:stream-write-string ((stream xp-structure) string &optional (start 0) end)
+(defmethod mezzano.gray:stream-write-string ((stream xp-structure) string &optional (start 0) end)
   (write-string+ string stream start (or end (length string)))
   string)
 
-(defmethod sys.gray:stream-terpri ((stream xp-structure))
+(defmethod mezzano.gray:stream-terpri ((stream xp-structure))
   (pprint-newline+ :unconditional stream)
   nil)
 
 ;This has to violate the XP data abstraction and fool with internal
 ;stuff, in order to find out the right info to return as the result.
 
-(defmethod sys.gray:stream-fresh-line ((stream xp-structure))
+(defmethod mezzano.gray:stream-fresh-line ((stream xp-structure))
   (attempt-to-output stream T T) ;ok because we want newline
   (when (not (zerop (LP<-BP stream)))
     (pprint-newline+ :fresh stream)
@@ -1143,17 +1143,17 @@
 ;out.  This is so that things will be in a consistent state if
 ;output continues to the stream later.
 
-(defmethod sys.gray:stream-finish-output ((stream xp-structure))
+(defmethod mezzano.gray:stream-finish-output ((stream xp-structure))
   (attempt-to-output stream T T)
   (finish-output (base-stream stream))
   nil)
 
-(defmethod sys.gray:stream-force-output ((stream xp-structure))
+(defmethod mezzano.gray:stream-force-output ((stream xp-structure))
   (attempt-to-output stream T T)
   (force-output (base-stream stream))
   nil)
 
-(defmethod sys.gray:stream-clear-output ((stream xp-structure))
+(defmethod mezzano.gray:stream-clear-output ((stream xp-structure))
   (let ((*locating-circularities* 0)) ;hack to prevent visible output
     (attempt-to-output stream T T)
     (clear-output (base-stream stream)))

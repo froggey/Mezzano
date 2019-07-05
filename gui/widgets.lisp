@@ -391,7 +391,7 @@
                    win
                    :mode :move)))))))
 
-(defclass text-widget (sys.gray:fundamental-character-output-stream)
+(defclass text-widget (mezzano.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
    (%x-position :initarg :x-position :reader x-position)
    (%y-position :initarg :y-position :reader y-position)
@@ -448,7 +448,7 @@
          (when ,state
            (setf (cursor-visible ,stream-sym) t))))))
 
-(defmethod sys.gray:stream-terpri ((stream text-widget))
+(defmethod mezzano.gray:stream-terpri ((stream text-widget))
   (with-cursor-hidden (stream)
     (let* ((x (cursor-x stream))
            (y (cursor-y stream))
@@ -490,10 +490,10 @@
                                    fb left (+ top y))
                (funcall (damage-function stream) left (+ top y) win-width line-height))))))
 
-(defmethod sys.gray:stream-write-char ((stream text-widget) character)
+(defmethod mezzano.gray:stream-write-char ((stream text-widget) character)
   (cond
     ((eql character #\Newline)
-     (sys.gray:stream-terpri stream))
+     (mezzano.gray:stream-terpri stream))
     (t (with-cursor-hidden (stream)
          (let* ((glyph (character-to-glyph (font stream) character))
                 (mask (glyph-mask glyph))
@@ -504,7 +504,7 @@
                 (left (x-position stream))
                 (top (y-position stream)))
            (when (> (+ (cursor-x stream) advance) win-width)
-             (sys.gray:stream-terpri stream))
+             (mezzano.gray:stream-terpri stream))
            ;; Fetch x/y after terpri.
            (let ((x (cursor-x stream))
                  (y (cursor-y stream)))
@@ -523,10 +523,10 @@
              (incf (cursor-x stream) advance)
              (incf (cursor-column stream))))))))
 
-(defmethod sys.gray:stream-start-line-p ((stream text-widget))
+(defmethod mezzano.gray:stream-start-line-p ((stream text-widget))
   (zerop (cursor-x stream)))
 
-(defmethod sys.gray:stream-line-column ((stream text-widget))
+(defmethod mezzano.gray:stream-line-column ((stream text-widget))
   (cursor-column stream))
 
 (defmethod sys.int::stream-cursor-pos ((stream text-widget))
@@ -611,7 +611,7 @@
 (defun align-down (value alignment)
   (- value (rem value alignment)))
 
-(defmethod sys.gray:stream-display ((stream text-widget) (object mezzano.gui:surface))
+(defmethod mezzano.gray:stream-display ((stream text-widget) (object mezzano.gui:surface))
   (with-cursor-hidden (stream)
     (let* ((framebuffer (framebuffer stream))
            (win-width (width stream))
@@ -647,7 +647,7 @@
              (let ((object-width (min win-width (mezzano.gui:surface-width object)))
                    (object-height (mezzano.gui:surface-height object)))
                (when (> (+ (cursor-x stream) object-width) win-width)
-                 (sys.gray:stream-terpri stream))
+                 (mezzano.gray:stream-terpri stream))
                ;; Fetch x/y after terpri.
                (let ((x (cursor-x stream))
                      (y (cursor-y stream)))

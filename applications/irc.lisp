@@ -468,11 +468,11 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
   (:default-initargs :current-channel nil :joined-channels '() :nickname nil :connection nil))
 
 (defclass irc-input-pane (mezzano.line-editor:line-edit-mixin
-                          sys.gray:fundamental-character-input-stream
+                          mezzano.gray:fundamental-character-input-stream
                           mezzano.gui.widgets:text-widget)
   ((%irc :initarg :irc :reader irc)))
 
-(defmethod sys.gray:stream-read-char ((stream irc-input-pane))
+(defmethod mezzano.gray:stream-read-char ((stream irc-input-pane))
   (let* ((irc (irc stream))
          (fifo (fifo irc)))
     (unwind-protect

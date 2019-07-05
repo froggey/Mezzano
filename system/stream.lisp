@@ -5,8 +5,8 @@
 
 ;;; I/O customization variables.
 
-(defclass cold-stream (sys.gray:fundamental-character-input-stream
-                       sys.gray:fundamental-character-output-stream)
+(defclass cold-stream (mezzano.gray:fundamental-character-input-stream
+                       mezzano.gray:fundamental-character-output-stream)
   ())
 
 (defparameter *cold-stream* (make-instance 'cold-stream))
@@ -29,28 +29,28 @@
 
 ;;; Cold stream methods.
 
-(defmethod sys.gray:stream-read-char ((stream cold-stream))
+(defmethod mezzano.gray:stream-read-char ((stream cold-stream))
   (or (cold-read-char stream) :eof))
 
-(defmethod sys.gray:stream-listen ((stream cold-stream))
+(defmethod mezzano.gray:stream-listen ((stream cold-stream))
   (cold-listen stream))
 
-(defmethod sys.gray:stream-unread-char ((stream cold-stream) character)
+(defmethod mezzano.gray:stream-unread-char ((stream cold-stream) character)
   (cold-unread-char character stream))
 
-(defmethod sys.gray:stream-write-char ((stream cold-stream) character)
+(defmethod mezzano.gray:stream-write-char ((stream cold-stream) character)
   (cold-write-char character stream))
 
-(defmethod sys.gray:stream-clear-input ((stream cold-stream))
+(defmethod mezzano.gray:stream-clear-input ((stream cold-stream))
   (cold-clear-input stream))
 
-(defmethod sys.gray:stream-start-line-p ((stream cold-stream))
+(defmethod mezzano.gray:stream-start-line-p ((stream cold-stream))
   (cold-start-line-p stream))
 
-(defmethod sys.gray:stream-line-column ((stream cold-stream))
+(defmethod mezzano.gray:stream-line-column ((stream cold-stream))
   (cold-line-column stream))
 
-(defmethod sys.gray:stream-line-length ((stream cold-stream))
+(defmethod mezzano.gray:stream-line-length ((stream cold-stream))
   (cold-line-length stream))
 
 (defun streamp (object)
@@ -106,14 +106,14 @@
   ;; Note: Unlike STREAM-LISTEN, STREAM-LISTEN-BYTE may return :EOF
   ;; to indicate that the stream is at EOF. This should be equivalent to NIL.
   ;; It is used in the default implementation of STREAM-READ-BYTE-NO-HANG.
-  (let ((result (sys.gray:stream-listen-byte (frob-input-stream input-stream))))
+  (let ((result (mezzano.gray:stream-listen-byte (frob-input-stream input-stream))))
     (cond ((or (eql result :eof)
                (not result))
            nil)
           (t))))
 
 (defun read-byte (stream &optional (eof-error-p t) eof-value)
-  (let ((b (sys.gray:stream-read-byte (frob-input-stream stream))))
+  (let ((b (mezzano.gray:stream-read-byte (frob-input-stream stream))))
     (check-type b (or integer (eql :eof)))
     (if (eql b :eof)
         (if eof-error-p
@@ -123,7 +123,7 @@
 
 (defun read-byte-no-hang (stream &optional (eof-error-p t) eof-value)
   (let* ((s (frob-input-stream stream))
-         (b (sys.gray:stream-read-byte-no-hang s)))
+         (b (mezzano.gray:stream-read-byte-no-hang s)))
     (check-type b (or integer (eql :eof) null))
     (cond ((eql b :eof)
            (when eof-error-p
@@ -132,14 +132,14 @@
           (b))))
 
 (defun write-byte (byte stream)
-  (sys.gray:stream-write-byte (frob-output-stream stream) byte))
+  (mezzano.gray:stream-write-byte (frob-output-stream stream) byte))
 
 (defun read-sequence (sequence stream &key (start 0) end)
-  (sys.gray:stream-read-sequence (frob-input-stream stream) sequence
+  (mezzano.gray:stream-read-sequence (frob-input-stream stream) sequence
                                  start end))
 
 (defun write-sequence (sequence stream &key (start 0) end)
-  (sys.gray:stream-write-sequence (frob-output-stream stream) sequence
+  (mezzano.gray:stream-write-sequence (frob-output-stream stream) sequence
                                   start end)
   sequence)
 
@@ -147,20 +147,20 @@
   (check-type stream stream)
   (cond (position-spec-p
          (check-type position-spec (or (integer 0) (member :start :end)))
-         (sys.gray:stream-file-position stream position-spec))
+         (mezzano.gray:stream-file-position stream position-spec))
         (t
-         (sys.gray:stream-file-position stream))))
+         (mezzano.gray:stream-file-position stream))))
 
 (defun file-length (stream)
   (check-type stream stream)
-  (sys.gray:stream-file-length stream))
+  (mezzano.gray:stream-file-length stream))
 
 (defun file-string-length (stream object)
   (check-type stream stream)
   (check-type object (or string character))
   (when (characterp object)
     (setf object (string object)))
-  (sys.gray:stream-file-string-length stream object))
+  (mezzano.gray:stream-file-string-length stream object))
 
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
@@ -179,7 +179,7 @@
 (defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
   (let* ((s (frob-input-stream stream))
-         (c (sys.gray:stream-read-char s)))
+         (c (mezzano.gray:stream-read-char s)))
     (check-type c (or character (eql :eof)))
     (cond ((eql c :eof)
            (when eof-error-p
@@ -190,7 +190,7 @@
 (defun read-char-no-hang (&optional stream (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
   (let* ((s (frob-input-stream stream))
-         (c (sys.gray:stream-read-char-no-hang s)))
+         (c (mezzano.gray:stream-read-char-no-hang s)))
     (check-type c (or character (eql :eof) null))
     (cond ((eql c :eof)
            (when eof-error-p
@@ -202,7 +202,7 @@
   (declare (ignore recursive-p))
   (setf input-stream (frob-input-stream input-stream))
   (multiple-value-bind (line missing-newline-p)
-      (sys.gray:stream-read-line input-stream)
+      (mezzano.gray:stream-read-line input-stream)
     (if (and (zerop (length line))
              missing-newline-p)
         (if eof-error-p
@@ -213,14 +213,14 @@
 (defun unread-char (character &optional stream)
   (let ((s (frob-input-stream stream)))
     (check-type character character)
-    (sys.gray:stream-unread-char s character)
+    (mezzano.gray:stream-unread-char s character)
     nil))
 
 (defun peek-char (&optional peek-type stream (eof-error-p t) eof-value recursive-p)
   (check-type peek-type (or (eql t) (eql nil) character))
   (let ((s (frob-input-stream stream)))
     (cond ((eql peek-type nil)
-           (let ((ch (sys.gray:stream-peek-char s)))
+           (let ((ch (mezzano.gray:stream-peek-char s)))
              (cond ((eql ch :eof)
                     (if eof-error-p
                         (error 'end-of-file :stream s)
@@ -248,43 +248,43 @@
                                      eof-value))))))))
 
 (defun clear-input (&optional stream)
-  (sys.gray:stream-clear-input (frob-input-stream stream))
+  (mezzano.gray:stream-clear-input (frob-input-stream stream))
   nil)
 
 (defun finish-output (&optional output-stream)
-  (sys.gray:stream-finish-output (frob-output-stream output-stream))
+  (mezzano.gray:stream-finish-output (frob-output-stream output-stream))
   nil)
 
 (defun force-output (&optional output-stream)
-  (sys.gray:stream-force-output (frob-output-stream output-stream))
+  (mezzano.gray:stream-force-output (frob-output-stream output-stream))
   nil)
 
 (defun clear-output (&optional output-stream)
-  (sys.gray:stream-clear-output (frob-output-stream output-stream))
+  (mezzano.gray:stream-clear-output (frob-output-stream output-stream))
   nil)
 
 (defun write-char (character &optional stream)
   (let ((s (frob-output-stream stream)))
     (check-type character character)
-    (sys.gray:stream-write-char s character)
+    (mezzano.gray:stream-write-char s character)
     character))
 
 (defun start-line-p (&optional stream)
-  (sys.gray:stream-start-line-p (frob-output-stream stream)))
+  (mezzano.gray:stream-start-line-p (frob-output-stream stream)))
 
 (defun advance-to-column (column &optional stream)
-  (sys.gray:stream-advance-to-column (frob-output-stream stream) column))
+  (mezzano.gray:stream-advance-to-column (frob-output-stream stream) column))
 
 (defun line-column (&optional stream)
-  (sys.gray:stream-line-column (frob-output-stream stream)))
+  (mezzano.gray:stream-line-column (frob-output-stream stream)))
 
 (defun line-length (&optional stream)
-  (sys.gray:stream-line-length (frob-output-stream stream)))
+  (mezzano.gray:stream-line-length (frob-output-stream stream)))
 
 (defun listen (&optional input-stream)
-  (sys.gray:stream-listen (frob-input-stream input-stream)))
+  (mezzano.gray:stream-listen (frob-input-stream input-stream)))
 
-(defclass case-correcting-stream (sys.gray:fundamental-character-output-stream)
+(defclass case-correcting-stream (mezzano.gray:fundamental-character-output-stream)
   ((stream :initarg :stream)
    (case :initarg :case)
    (position :initform :initial))
@@ -330,7 +330,7 @@ CASE may be one of:
              (write-char character (slot-value stream 'stream)))
          (write-char (char-downcase character) (slot-value stream 'stream))))))
 
-(defmethod sys.gray:stream-write-char ((stream case-correcting-stream) character)
+(defmethod mezzano.gray:stream-write-char ((stream case-correcting-stream) character)
   (case-correcting-write character stream))
 
 (defclass simple-edit-mixin ()
@@ -338,7 +338,7 @@ CASE may be one of:
    (edit-offset :initform nil)
    (edit-handler :initform nil)))
 
-(defmethod sys.gray:stream-read-char :around ((stream simple-edit-mixin))
+(defmethod mezzano.gray:stream-read-char :around ((stream simple-edit-mixin))
   (let ((buffer (slot-value stream 'edit-buffer))
         (offset (slot-value stream 'edit-offset)))
     (if (and buffer (< offset (fill-pointer buffer)))
@@ -356,7 +356,7 @@ CASE may be one of:
                      (when (slot-value stream 'edit-handler)
                        (funcall (slot-value stream 'edit-handler) ch))))))))))
 
-(defmethod sys.gray:stream-clear-input :before ((stream simple-edit-mixin))
+(defmethod mezzano.gray:stream-clear-input :before ((stream simple-edit-mixin))
   (when (slot-value stream 'edit-buffer)
     (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
           (slot-value stream 'edit-offset) 0)))
@@ -430,12 +430,12 @@ CASE may be one of:
 
 (defun write-string (string &optional stream &key (start 0) end)
   (check-type string string)
-  (sys.gray:stream-write-string (frob-output-stream stream) string start end)
+  (mezzano.gray:stream-write-string (frob-output-stream stream) string start end)
   string)
 
 (defun terpri (&optional stream)
-  (sys.gray:stream-terpri (frob-output-stream stream))
+  (mezzano.gray:stream-terpri (frob-output-stream stream))
   nil)
 
 (defun fresh-line (&optional stream)
-  (sys.gray:stream-fresh-line (frob-output-stream stream)))
+  (mezzano.gray:stream-fresh-line (frob-output-stream stream)))
