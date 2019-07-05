@@ -40,7 +40,7 @@
   (package-%used-by-list (find-package-or-die package)))
 
 (defun package-shadowing-symbols (package)
-  (package-%used-by-list (find-package-or-die package)))
+  (package-%shadowing-symbols (find-package-or-die package)))
 
 (defun list-all-packages ()
   (remove-duplicates (mapcar 'cdr *package-list*)))
