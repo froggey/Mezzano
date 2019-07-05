@@ -52,11 +52,10 @@
 
 (defclass remote-file-character-stream (gray:fundamental-character-input-stream
                                         gray:fundamental-character-output-stream
+                                        sys.int::external-format-mixin
                                         remote-file-stream
                                         gray:unread-char-mixin)
-  ((%external-format
-    :initarg :external-format
-    :reader stream-external-format)))
+  ())
 
 (defmethod print-object ((object remote-file-stream) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -253,9 +252,6 @@
 (defmethod stream-element-type ((stream remote-file-stream))
   '(unsigned-byte 8))
 
-(defmethod stream-element-type ((stream remote-file-character-stream))
-  'character)
-
 (defmethod stream-external-format ((stream remote-file-stream))
   :default)
 
@@ -296,10 +292,6 @@
 
 (defmethod gray:stream-clear-input ((stream remote-file-stream))
   (flush-buffer stream))
-
-(defmethod gray:stream-clear-input ((stream remote-file-character-stream))
-  (sys.int::external-format-clear-input (stream-external-format stream))
-  (call-next-method))
 
 (defmethod gray:stream-clear-output ((stream remote-file-stream))
   ;; Not sure if this is sensible.
@@ -406,46 +398,6 @@ The file position must be less than the file length."
          (decf bytes-to-go bytes-to-read)))
     (+ start bytes-read)))
 
-(defmethod gray:stream-listen ((stream remote-file-character-stream))
-  (sys.int::external-format-listen
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-char ((stream remote-file-character-stream))
-  (sys.int::external-format-read-char
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-char-no-hang ((stream remote-file-character-stream))
-  (sys.int::external-format-read-char-no-hang
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-sequence ((stream remote-file-character-stream) sequence &optional (start 0) end)
-  ;; Like the default stream-read-sequence, default to reading characters
-  ;; unless the vector is an integer vector.
-  (if (typep sequence '(vector (unsigned-byte 8)))
-      (call-next-method)
-      (sys.int::external-format-read-sequence
-       (stream-external-format stream)
-       stream
-       sequence start end)))
-
-(defmethod gray:stream-write-char ((stream remote-file-character-stream) character)
-  (sys.int::external-format-write-char
-   (stream-external-format stream)
-   stream
-   character)
-  character)
-
-(defmethod gray:stream-write-sequence ((stream remote-file-character-stream) sequence &optional (start 0) end)
-  (if (typep sequence '(vector (unsigned-byte 8)))
-      (call-next-method)
-      (sys.int::external-format-write-sequence
-       (stream-external-format stream)
-       stream
-       sequence start end)))
-
 (defmethod gray:stream-file-position ((stream remote-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
          (when (eql position-spec :start)
@@ -458,11 +410,6 @@ The file position must be less than the file length."
          (setf (file-position* stream) position-spec))
         (t
          (file-position* stream))))
-
-(defmethod gray:stream-file-position ((stream remote-file-character-stream) &optional (position-spec nil position-specp))
-  (when position-specp
-    (sys.int::external-format-clear-input (stream-external-format stream)))
-  (call-next-method))
 
 (defmethod gray:stream-file-length ((stream remote-file-stream))
   (file-length* stream))

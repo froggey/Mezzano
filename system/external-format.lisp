@@ -303,3 +303,59 @@
                         :start start
                         :end end
                         :eol-style (external-format-eol-style external-format))))
+
+(defclass external-format-mixin ()
+  ((%external-format :initarg :external-format :reader stream-external-format)))
+
+(defmethod mezzano.gray:stream-listen ((stream external-format-mixin))
+  (external-format-listen
+   (stream-external-format stream)
+   stream))
+
+(defmethod mezzano.gray:stream-read-char ((stream external-format-mixin))
+  (external-format-read-char
+   (stream-external-format stream)
+   stream))
+
+(defmethod mezzano.gray:stream-read-char-no-hang ((stream external-format-mixin))
+  (external-format-read-char-no-hang
+   (stream-external-format stream)
+   stream))
+
+(defmethod mezzano.gray:stream-read-sequence ((stream external-format-mixin) sequence &optional (start 0) end)
+  ;; Like the default stream-read-sequence, default to reading characters
+  ;; unless the vector is an integer vector.
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (call-next-method)
+      (external-format-read-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
+
+(defmethod mezzano.gray:stream-write-char ((stream external-format-mixin) character)
+  (external-format-write-char
+   (stream-external-format stream)
+   stream
+   character)
+  character)
+
+(defmethod mezzano.gray:stream-write-sequence ((stream external-format-mixin) sequence &optional (start 0) end)
+  (if (typep sequence '(vector (unsigned-byte 8)))
+      (call-next-method)
+      (external-format-write-sequence
+       (stream-external-format stream)
+       stream
+       sequence start end)))
+
+(defmethod stream-element-type ((stream external-format-mixin))
+  'character)
+
+(defmethod mezzano.gray:stream-clear-input :after ((stream external-format-mixin))
+  (external-format-clear-input (stream-external-format stream)))
+
+(defmethod mezzano.gray:stream-file-position :after ((stream external-format-mixin) &optional (position-spec nil position-specp))
+  (when position-specp
+    (external-format-clear-input (stream-external-format stream))))
+
+(defmethod mezzano.gray:external-format-string-length ((external-format external-format) string)
+  (length (encode-utf-8-string string :eol-style (external-format-eol-style external-format))))

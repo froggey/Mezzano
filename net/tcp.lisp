@@ -622,14 +622,6 @@
                 local-address local-port
                 remote-address remote-port)))))
 
-(defclass tcp-stream (gray:fundamental-character-input-stream
-                      gray:fundamental-character-output-stream
-                      tcp-octet-stream
-                      gray:unread-char-mixin)
-  ((%external-format
-    :initarg :external-format
-    :reader stream-external-format)))
-
 (defun connection-may-have-additional-data-p (connection)
   "Returns true if CONNECTION is in a state where it may potentially receive further data."
   (member (tcp-connection-state connection)
@@ -663,27 +655,6 @@
                (tcp-connection-rx-data connection))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
-(defun tcp-read-byte-sequence (sequence stream start end)
-  (when (not end)
-    (setf end (length sequence)))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (let ((position start))
-      (loop (when (or (>= position end)
-                      (not (refill-tcp-packet-buffer stream)))
-              (return))
-         (let* ((packet (tcp-stream-packet stream))
-                (pkt-data (first packet))
-                (pkt-offset (second packet))
-                (pkt-length (third packet))
-                (bytes-to-copy (min (- end position) (- pkt-length pkt-offset))))
-           (replace sequence pkt-data
-                    :start1 position
-                    :start2 pkt-offset
-                    :end2 (+ pkt-offset bytes-to-copy))
-           (when (>= (incf (second packet) bytes-to-copy) (third packet))
-             (setf (tcp-stream-packet stream) nil))
-           (incf position bytes-to-copy)))
-      position)))
 
 (defmethod gray:stream-listen-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -715,7 +686,26 @@
       byte)))
 
 (defmethod gray:stream-read-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
-  (tcp-read-byte-sequence sequence stream start end))
+  (when (not end)
+    (setf end (length sequence)))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (let ((position start))
+      (loop (when (or (>= position end)
+                      (not (refill-tcp-packet-buffer stream)))
+              (return))
+         (let* ((packet (tcp-stream-packet stream))
+                (pkt-data (first packet))
+                (pkt-offset (second packet))
+                (pkt-length (third packet))
+                (bytes-to-copy (min (- end position) (- pkt-length pkt-offset))))
+           (replace sequence pkt-data
+                    :start1 position
+                    :start2 pkt-offset
+                    :end2 (+ pkt-offset bytes-to-copy))
+           (when (>= (incf (second packet) bytes-to-copy) (third packet))
+             (setf (tcp-stream-packet stream) nil))
+           (incf position bytes-to-copy)))
+      position)))
 
 (defmethod gray:stream-write-byte ((stream tcp-octet-stream) byte)
   (let ((ary (make-array 1 :element-type '(unsigned-byte 8)
@@ -739,48 +729,12 @@
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
 
-(defmethod gray:stream-listen ((stream tcp-stream))
-  (sys.int::external-format-listen
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-char ((stream tcp-stream))
-  (sys.int::external-format-read-char
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-char-no-hang ((stream tcp-stream))
-  (sys.int::external-format-read-char-no-hang
-   (stream-external-format stream)
-   stream))
-
-(defmethod gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
-  ;; Like the default stream-read-sequence, default to reading characters
-  ;; unless the vector is an integer vector.
-  (if (typep sequence '(vector (unsigned-byte 8)))
-      (tcp-read-byte-sequence sequence stream start end)
-      (sys.int::external-format-read-sequence
-       (stream-external-format stream)
-       stream
-       sequence start end)))
-
-(defmethod gray:stream-write-char ((stream tcp-stream) character)
-  (sys.int::external-format-write-char
-   (stream-external-format stream)
-   stream
-   character)
-  character)
-
-(defmethod gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
-  (if (typep sequence '(vector (unsigned-byte 8)))
-      (tcp-send (tcp-stream-connection stream) sequence start end)
-      (sys.int::external-format-write-sequence
-       (stream-external-format stream)
-       stream
-       sequence start end)))
-
-(defmethod stream-element-type ((stream tcp-stream))
-  'character)
+(defclass tcp-stream (gray:fundamental-character-input-stream
+                      gray:fundamental-character-output-stream
+                      sys.int::external-format-mixin
+                      tcp-octet-stream
+                      gray:unread-char-mixin)
+  ())
 
 (defun tcp-stream-connect (address port &key element-type external-format)
   (cond ((or (not element-type)

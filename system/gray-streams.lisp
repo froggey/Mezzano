@@ -218,9 +218,6 @@
 (defmethod external-format-string-length ((external-format (eql :utf-8)) string)
   (length (sys.int::encode-utf-8-string string :eol-style :lf)))
 
-(defmethod external-format-string-length ((external-format sys.int::external-format) string)
-  (length (sys.int::encode-utf-8-string string :eol-style (sys.int::external-format-eol-style external-format))))
-
 (defmethod stream-file-string-length ((stream fundamental-character-output-stream) string)
   (external-format-string-length (stream-external-format stream) string))
 
