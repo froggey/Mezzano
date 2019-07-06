@@ -264,10 +264,9 @@ Interrupts must be off and the global thread lock must be held."
   ;; Cancel the preemption timer, only used for scheduling normal threads.
   (preemption-timer-reset nil)
   (let ((current (current-thread)))
-    (when (eql current (local-cpu-idle-thread))
-      (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
     ;; Return the current thread to the run queue and fetch the next thread.
-    (when (and (not (eql current *world-stopper*))
+    (when (and (not (eql current (local-cpu-idle-thread)))
+               (not (eql current *world-stopper*))
                (eql (thread-state current) :runnable))
       (push-run-queue current))
     (cond (*world-stopper*
@@ -295,6 +294,22 @@ Interrupts must be off and the global thread lock must be held."
                     ;; Fall back on idle.
                     (local-cpu-idle-thread))))))))
 
+(defun update-run-queue ()
+  "Return the current thread to the run queue, if required and pick a new thread to run."
+  (ensure-global-thread-lock-held)
+  (let ((current (current-thread)))
+    (ensure (not (eql (thread-state current) :active))
+            "Current thread " current " has wrong state " (thread-state current))
+    (let ((next (%update-run-queue)))
+      (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next))
+      (setf (thread-state next) :active)
+      (when (<= (car sys.int::*exception-stack*)
+                (thread-stack-pointer next)
+                (1- (+ (car sys.int::*exception-stack*)
+                       (cdr sys.int::*exception-stack*))))
+        (panic "Other thread " next " stopped on exception stack!!!"))
+      next)))
+
 ;;; Thread switching.
 
 (defun thread-yield ()
@@ -310,32 +325,23 @@ Interrupts must be off and the global thread lock must be held."
   ;; Interrupts must be off and the global thread lock must be held.
   ;; Releases the thread lock and reenables interrupts.
   (ensure-global-thread-lock-held)
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    (when (eql next current)
-      ;; Staying on the same thread, unlock and return.
-      (release-global-thread-lock)
-      (%%return-to-same-thread sp fp)
-      (panic "unreachable"))
-    (when (<= (car sys.int::*exception-stack*)
-              (thread-stack-pointer next)
-              (1- (+ (car sys.int::*exception-stack*)
-                     (cdr sys.int::*exception-stack*))))
-      (panic "Other thread " next " stopped on exception stack!!!"))
-    (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next))
-    (setf (thread-state next) :active)
-    (%%switch-to-thread-via-wired-stack current sp fp next)))
+  (let ((next (update-run-queue))
+        (current (current-thread)))
+    (cond ((eql next current)
+           ;; Staying on the same thread, unlock and return.
+           (release-global-thread-lock)
+           (%%return-to-same-thread sp fp))
+          (t
+           (%%switch-to-thread-via-wired-stack current sp fp next)))
+    (panic "unreachable")))
 
 (defun %reschedule-via-interrupt (interrupt-frame)
   ;; Switch to the next thread saving the full state.
   ;; Interrupts must be off and the global thread lock must be held.
   ;; Releases the thread lock and reenables interrupts.
   (ensure-global-thread-lock-held)
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    (when (not (eql next current))
-      (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next)))
-    (setf (thread-state next) :active)
+  (let ((next (update-run-queue))
+        (current (current-thread)))
     (%%switch-to-thread-via-interrupt current interrupt-frame next)))
 
 (defun maybe-preempt-via-interrupt (interrupt-frame)
@@ -529,39 +535,29 @@ not and WAIT-P is false."
 (defun idle-thread ()
   (%disable-interrupts)
   (decrement-n-running-cpus)
-  (loop
-     ;; Must be running on the right CPU.
-     (ensure (eql (current-thread) (local-cpu-idle-thread)))
-     ;; Make sure the preemption timer has been properly switched off when
-     ;; the system idles. Not needed to be correct, but reduces activity
-     ;; when idle.
-     (ensure (not (preemption-timer-remaining)))
-     ;; Look for a thread to switch to.
-     (acquire-global-thread-lock)
-     (let ((next (cond (*world-stopper*
-                        (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
-                              ((eql (thread-state *world-stopper*) :runnable)
-                               *world-stopper*)
-                              (t nil)))
-                       (t
-                        (pop-run-queue)))))
-       (cond (next
-              (ensure (not (eql next (local-cpu-idle-thread))))
-              (when (and (not *world-stopper*) ; No preemption when running with the world stopped.
-                         (other-threads-ready-to-run-p))
-                (preemption-timer-reset *timeslice-length*))
-              (increment-n-running-cpus)
-              ;; Switch to thread.
-              (setf (thread-state next) :active)
-              (setf (thread-state (local-cpu-idle-thread)) :runnable)
-              (%run-on-wired-stack-without-interrupts (sp fp next)
-                (%%switch-to-thread-via-wired-stack (local-cpu-idle-thread) sp fp next))
-              (%disable-interrupts)
-              (decrement-n-running-cpus))
-             (t ;; Wait for an interrupt.
-              (release-global-thread-lock)
-              (%wait-for-interrupt)
-              (%disable-interrupts))))))
+  (let ((self (current-thread)))
+    (loop
+       ;; Must be running on the right CPU.
+       (ensure (eql self (local-cpu-idle-thread)))
+       ;; Make sure the preemption timer has been properly switched off when
+       ;; the system idles. Not needed to be correct, but reduces activity
+       ;; when idle.
+       (ensure (not (preemption-timer-remaining)))
+       ;; Look for a thread to switch to.
+       (acquire-global-thread-lock)
+       (setf (thread-state self) :runnable)
+       (let ((next (update-run-queue)))
+         (cond ((not (eql next self))
+                (increment-n-running-cpus)
+                ;; Switch to thread.
+                (%run-on-wired-stack-without-interrupts (sp fp next self)
+                  (%%switch-to-thread-via-wired-stack self sp fp next))
+                (%disable-interrupts)
+                (decrement-n-running-cpus))
+               (t ;; Wait for an interrupt.
+                (release-global-thread-lock)
+                (%wait-for-interrupt)
+                (%disable-interrupts)))))))
 
 (defun increment-n-running-cpus ()
   (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* 1)))
