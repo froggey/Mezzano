@@ -523,6 +523,7 @@
   (let ((local-ip (mezzano.network:resolve-address local-host)))
     (multiple-value-bind (host interface)
         (mezzano.network.ip:ipv4-route local-ip)
+      (declare (ignore host))
       (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
              (listener (make-instance 'tcp-listener
                                       :connections (mezzano.sync:make-mailbox
@@ -549,6 +550,7 @@
 (defun tcp-connect (ip port)
   (multiple-value-bind (host interface)
       (mezzano.network.ip:ipv4-route ip)
+    (declare (ignore host))
     (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
            (source-port (allocate-local-tcp-port source-address ip port))
            (seq (random #x100000000))
@@ -564,21 +566,21 @@
       (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
         (push connection *tcp-connections*))
       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-      ;; FIXME: Better timeout mechanism.
-      (let ((timeout (+ (get-universal-time) *tcp-connect-timeout*)))
-        (loop
-          (when (not (eql (tcp-connection-state connection) :syn-sent))
-            (when (eql (tcp-connection-state connection) :connection-aborted)
-              (error 'connection-aborted
-                     :host ip
-                     :port port))
-            (return))
-          (when (> (get-universal-time) timeout)
-            (close-tcp-connection connection)
-            (error 'connection-timed-out
-                   :host ip
-                   :port port))
-          (sleep 0.01)))
+      (with-tcp-connection-locked connection
+        (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                                       (tcp-connection-lock connection)
+                                                       *tcp-connect-timeout*)
+                 (not (eql (tcp-connection-state connection) :syn-sent)))
+               (when (eql (tcp-connection-state connection) :connection-aborted)
+                 (error 'connection-aborted
+                        :host ip
+                        :port port)))
+              (t
+               ;; wait-for returned false, timeout occured.
+               (close-tcp-connection connection)
+               (error 'connection-timed-out
+                      :host ip
+                      :port port))))
       connection)))
 
 (defun tcp-send (connection data &optional (start 0) end)
