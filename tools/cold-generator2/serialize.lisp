@@ -183,6 +183,7 @@ Must not call SERIALIZE-OBJECT."))
   (assert (eql (env:object-area environment (env:cross-symbol-name environment object)) :wired))
   (setf (object-slot image value sys.int::+symbol-package+)
         (serialize-object (env:cross-symbol-package environment object) image environment))
+  ;; TODO: Only save the value cell if it is referenced by other objects.
   (setf (object-slot image value sys.int::+symbol-value+)
         (serialize-object (env:symbol-global-value-cell environment object) image environment))
   (setf (object-slot image value sys.int::+symbol-function+)

@@ -88,9 +88,25 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (setf (sys.int::%object-ref-t symbol sys.int::+symbol-package+) value))
 
+(defun make-symbol-global-value-cell (symbol)
+  (let ((global-value (%allocate-object sys.int::+object-tag-symbol-value-cell+
+                                    4 4 :wired)))
+    (setf (sys.int::%object-ref-t global-value sys.int::+symbol-value-cell-symbol+) global-value)
+    (setf (sys.int::%object-ref-t global-value sys.int::+symbol-value-cell-value+) (sys.int::%unbound-value))
+    (setf (sys.int::%object-ref-t global-value 3) symbol)
+    global-value))
+
 (defun symbol-global-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
+  (let ((cell (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
+    (or cell
+        (let ((new-cell (make-symbol-global-value-cell symbol)))
+          ;; Try to atomically update the value cell.
+          (multiple-value-bind (successp old-value)
+              (%cas-object symbol +symbol-value+ nil new-cell)
+            (if successp
+                new-cell
+                old-value))))))
 
 (defun symbol-type (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
