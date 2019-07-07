@@ -14,11 +14,10 @@
   (cond ((and (constant-value-p symbol 'symbol)
               (eql (sys.int::symbol-mode (fetch-constant-value symbol)) :global))
          ;; This is a known global symbol, return the global value cell.
-         (emit (make-instance 'x86-instruction
-                              :opcode 'lap:mov64
-                              :operands (list result `(:object ,symbol ,sys.int::+symbol-value+))
-                              :inputs (list symbol)
-                              :outputs (list result))))
+         (emit (make-instance 'ir:constant-instruction
+                              :value (mezzano.runtime::symbol-global-value-cell
+                                      (fetch-constant-value symbol))
+                              :destination result)))
         (t
          (let ((is-global (make-instance 'ir:label :name :symbol-cache-global))
                (not-global (make-instance 'ir:label :name :symbol-cache-not-global))
@@ -28,38 +27,43 @@
                (global-cell (make-instance 'ir:virtual-register))
                (cache-temp (make-instance 'ir:virtual-register))
                (miss-result (make-instance 'ir:virtual-register)))
-           (emit (make-instance 'x86-instruction
-                                :opcode 'lap:mov64
-                                :operands (list global-cell `(:object ,symbol ,sys.int::+symbol-value+))
-                                :inputs (list symbol)
-                                :outputs (list global-cell)))
-           (when (not (constant-value-p symbol 'symbol))
-             ;; For global symbols, don't even look at the cache.
-             ;; Cache entries exist on the stack, which may not be paged in.
-             (emit (make-instance 'x86-instruction
-                                  :opcode 'lap:mov8
-                                  :operands (list :al `(,symbol ,(+ (- sys.int::+tag-object+) 1)))
-                                  :inputs (list symbol)
-                                  :outputs (list :rax)))
-             (emit (make-instance 'x86-instruction
-                                  :opcode 'lap:and8
-                                  :operands (list :al #b111)
-                                  :inputs (list :rax)
-                                  :outputs (list :rax)))
-             (emit (make-instance 'x86-instruction
-                                  :opcode 'lap:cmp8
-                                  :operands (list :al sys.int::+symbol-mode-global+)
-                                  :inputs (list :rax)
-                                  :outputs '()))
-             (emit (make-instance 'x86-branch-instruction
-                                  :opcode 'lap:jne
-                                  :true-target not-global
-                                  :false-target is-global))
-             (emit is-global)
-             (emit (make-instance 'ir:jump-instruction
-                                  :target resume
-                                  :values (list global-cell)))
-             (emit not-global))
+           ;; Fetch the symbol's global cell - the cache is keyed on this.
+           (cond ((constant-value-p symbol 'symbol)
+                  (emit (make-instance 'ir:constant-instruction
+                                       :value (mezzano.runtime::symbol-global-value-cell
+                                               (fetch-constant-value symbol))
+                                       :destination global-cell)))
+                 (t
+                  (emit (make-instance 'ir:call-instruction
+                                       :function 'mezzano.runtime::symbol-global-value-cell
+                                       :result global-cell
+                                       :arguments (list symbol)))
+                  ;; For global symbols, don't even look at the cache.
+                  ;; Cache entries exist on the stack, which may not be paged in.
+                  (emit (make-instance 'x86-instruction
+                                       :opcode 'lap:mov8
+                                       :operands (list :al `(,symbol ,(+ (- sys.int::+tag-object+) 1)))
+                                       :inputs (list symbol)
+                                       :outputs (list :rax)))
+                  (emit (make-instance 'x86-instruction
+                                       :opcode 'lap:and8
+                                       :operands (list :al #b111)
+                                       :inputs (list :rax)
+                                       :outputs (list :rax)))
+                  (emit (make-instance 'x86-instruction
+                                       :opcode 'lap:cmp8
+                                       :operands (list :al sys.int::+symbol-mode-global+)
+                                       :inputs (list :rax)
+                                       :outputs '()))
+                  (emit (make-instance 'x86-branch-instruction
+                                       :opcode 'lap:jne
+                                       :true-target not-global
+                                       :false-target is-global))
+                  (emit is-global)
+                  (emit (make-instance 'ir:jump-instruction
+                                       :target resume
+                                       :values (list global-cell)))
+                  (emit not-global)))
            ;; Compute symbol hash. Symbols are wired, so use the address.
            ;; Ignore the low 4 bits.
            (emit (make-instance 'ir:move-instruction
@@ -106,9 +110,9 @@
            (emit cache-miss)
            ;; Call the slow function.
            (emit (make-instance 'ir:call-instruction
-                                :function 'mezzano.runtime::symbol-value-cell
+                                :function 'mezzano.runtime::%symbol-value-cell-by-cell
                                 :result miss-result
-                                :arguments (list symbol)))
+                                :arguments (list global-cell)))
            ;; Log a cache miss.
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:add64
@@ -142,3 +146,8 @@
                                 :values (list miss-result)))
            ;; Done.
            (emit resume)))))
+
+(define-builtin mezzano.runtime::symbol-global-value-cell (((:constant symbol symbol)) result)
+  (emit (make-instance 'ir:constant-instruction
+                       :destination result
+                       :value (mezzano.runtime::symbol-global-value-cell symbol))))

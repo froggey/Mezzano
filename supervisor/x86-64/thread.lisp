@@ -49,8 +49,7 @@
   ;; This must be done here, not in %%switch-to-thread-common to prevent
   ;; another CPU from switching on to the old thread's stack while it is
   ;; still in use.
-  (sys.lap-x86:mov64 :r9 (:constant *global-thread-lock*))
-  (sys.lap-x86:mov64 :r9 (:object :r9 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r9 (:symbol-global-cell *global-thread-lock*))
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.sys.int::+symbol-value-cell-value+) :r10)
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
@@ -77,8 +76,7 @@
   ;; This must be done here, not in %%switch-to-thread-common to prevent
   ;; another CPU from switching on to the old thread's stack while it is
   ;; still in use.
-  (sys.lap-x86:mov64 :r9 (:constant *global-thread-lock*))
-  (sys.lap-x86:mov64 :r9 (:object :r9 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r9 (:symbol-global-cell *global-thread-lock*))
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.sys.int::+symbol-value-cell-value+) :r10)
   ;; Restore stack pointer.

@@ -176,8 +176,7 @@
   (lap:mov64 :rbx (:object :r9 2))
   (lap:mov64 (:object :r9 2) 0)
   ;; Set the tag to a value that will never be aborted to.
-  (lap:mov64 :r11 (:constant *ignore-prompt-tag*))
-  (lap:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
+  (lap:mov64 :r11 (:symbol-global-cell *ignore-prompt-tag*))
   (lap:mov64 :r11 (:object :r11 #.sys.int::+symbol-value-cell-value+))
   (lap:mov64 (:object :r9 1) :r11)
   ;; Continuation is now ready for use.

@@ -498,10 +498,8 @@ the GC must be deferred during FILL-WORDS."
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; R8 = tag; R9 = data; R10 = words.
   ;; Fetch symbol value cells.
-  (sys.lap-x86:mov64 :r13 (:constant sys.int::*general-area-gen0-bump*))
-  (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r11 (:constant sys.int::*general-area-gen0-limit*))
-  (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r13 (:symbol-global-cell sys.int::*general-area-gen0-bump*))
+  (sys.lap-x86:mov64 :r11 (:symbol-global-cell sys.int::*general-area-gen0-limit*))
     ;; R13 = bump. R11 = limit.
   ;; Assemble the final header value in RDI.
   (sys.lap-x86:mov64 :rdi :r9)
@@ -557,8 +555,7 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0)
   ;; Update allocation meter.
   ;; *BYTES-CONSED* is updated elsewhere.
-  (sys.lap-x86:mov64 :rbx (:constant *general-allocation-count*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *general-allocation-count*))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Try the real fast allocator.
@@ -567,8 +564,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
-  (sys.lap-x86:mov64 :rbx (:constant *general-fast-path-hits*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *general-fast-path-hits*))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
@@ -587,10 +583,8 @@ the GC must be deferred during FILL-WORDS."
   ;; Returns (values car cdr t) on failure, just the cons on success.
   ;; R8 = car; R9 = cdr
   ;; Fetch symbol value cells.
-  (sys.lap-x86:mov64 :r13 (:constant sys.int::*cons-area-gen0-bump*))
-  (sys.lap-x86:mov64 :r13 (:object :r13 #.sys.int::+symbol-value+))
-  (sys.lap-x86:mov64 :r11 (:constant sys.int::*cons-area-gen0-limit*))
-  (sys.lap-x86:mov64 :r11 (:object :r11 #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :r13 (:symbol-global-cell sys.int::*cons-area-gen0-bump*))
+  (sys.lap-x86:mov64 :r11 (:symbol-global-cell sys.int::*cons-area-gen0-limit*))
   ;; R13 = bump. R11 = limit.
   (:gc :no-frame :layout #*0 :restart t)
   ;; Fetch and increment the current bump pointer.
@@ -635,22 +629,18 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
   (:gc :no-frame :layout #*0)
   ;; Update allocation meter.
-  (sys.lap-x86:mov64 :rbx (:constant *cons-allocation-count*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *cons-allocation-count*))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:mov64 :rbx (:constant *bytes-consed*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *bytes-consed*))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 16 sys.int::+n-fixnum-bits+))
   ;; Check *ENABLE-ALLOCATION-PROFILING*
-  (sys.lap-x86:mov64 :rbx (:constant *enable-allocation-profiling*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *enable-allocation-profiling*))
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
   ;; Check *GC-IN-PROGRESS*.
-  (sys.lap-x86:mov64 :rbx (:constant sys.int::*gc-in-progress*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell sys.int::*gc-in-progress*))
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
   ;; Try the real fast allocator.
@@ -659,8 +649,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
-  (sys.lap-x86:mov64 :rbx (:constant *cons-fast-path-hits*))
-  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:symbol-global-cell *cons-fast-path-hits*))
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))

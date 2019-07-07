@@ -386,6 +386,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
          ;; Transform (:function foo) into (:rip (:constant-address (fref foo)))
          (values nil nil nil nil (list :constant-address (funcall sys.lap:*function-reference-resolver* (second form))) t))
         ((and (= (length form) 2)
+              (eql (first form) :symbol-global-cell))
+         ;; Transform (:symbol-global-cell foo) into (:rip (:constant-address (fref foo)))
+         (values nil nil nil nil (list :constant-address (mezzano.runtime::symbol-global-value-cell (second form))) t))
+        ((and (= (length form) 2)
               (eql (first form) :stack)
               (integerp (second form)))
          ;; Transform (:stack n) into (:rbp (- (* (1+ n) 8))).

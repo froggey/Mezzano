@@ -59,7 +59,6 @@
 (declaim (inline symbolp
                  symbol-name
                  symbol-package (setf symbol-package)
-                 symbol-global-value-cell
                  sys.int::symbol-global-value
                  (setf sys.int::symbol-global-value)
                  (sys.int::cas sys.int::symbol-global-value)
@@ -130,20 +129,28 @@
          (sys.int::%%unreachable))
        (fast-symbol-value-cell ,sym))))
 
+#+x86-64
+(defun fast-symbol-value-cell (symbol)
+  (fast-symbol-value-cell symbol))
+
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (when (symbol-global-p symbol)
     (return-from symbol-value-cell
-      (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
+      (symbol-global-value-cell symbol)))
   ;; Walk the special stack, looking for an associated binding.
   (do ((global-cell (symbol-global-value-cell symbol))
        (ssp (sys.int::%%special-stack-pointer)
             (sys.int::%object-ref-t ssp 0)))
       ((null ssp)
        ;; Fall back on the global cell.
-       (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
+       global-cell)
     (when (eq (sys.int::%object-ref-t ssp 1) global-cell)
       (return ssp))))
+
+(defun %symbol-value-cell-by-cell (symbol-value-cell)
+  (declare (notinline symbol-value-cell))
+  (symbol-value-cell (symbol-value-cell-symbol symbol-value-cell)))
 
 (defun symbol-value (symbol)
   (symbol-value-cell-value (symbol-value-cell symbol)))

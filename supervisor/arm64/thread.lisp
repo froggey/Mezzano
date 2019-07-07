@@ -86,8 +86,7 @@
   ;; This must be done here, not in %%switch-to-thread-common to prevent
   ;; another CPU from switching on to the old thread's stack while it is
   ;; still in use.
-  (mezzano.lap.arm64:ldr :x1 (:constant *global-thread-lock*))
-  (mezzano.lap.arm64:ldr :x1 (:object :x1 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x1 (:symbol-global-cell *global-thread-lock*))
   (mezzano.lap.arm64:ldr :x2 (:constant :unlocked))
   (mezzano.lap.arm64:str :x2 (:object :x1 #.sys.int::+symbol-value-cell-value+))
   ;; Switch back to SP_EL0, restoring the original value of SP_EL1.
@@ -124,8 +123,7 @@
   ;; This must be done here, not in %%switch-to-thread-common to prevent
   ;; another CPU from switching on to the old thread's stack while it is
   ;; still in use.
-  (mezzano.lap.arm64:ldr :x1 (:constant *global-thread-lock*))
-  (mezzano.lap.arm64:ldr :x1 (:object :x1 #.sys.int::+symbol-value+))
+  (mezzano.lap.arm64:ldr :x1 (:symbol-global-cell *global-thread-lock*))
   (mezzano.lap.arm64:ldr :x2 (:constant :unlocked))
   (mezzano.lap.arm64:str :x2 (:object :x1 #.sys.int::+symbol-value-cell-value+))
   ;; Switch back to SP_EL0, restoring the original value of SP_EL1.
