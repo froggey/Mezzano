@@ -18,6 +18,8 @@
 (defvar *compile-parallel* nil)
 (defvar *top-level-form-number* nil)
 
+(defvar *fixup-table* nil)
+
 (defun expand-macrolet-function (function)
   (destructuring-bind (name lambda-list &body body) function
     (let ((whole (gensym "WHOLE"))
@@ -205,8 +207,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (error "Cannot save complicated function ~S" object))
   (dotimes (i (function-pool-size object))
     (save-object (function-pool-object object i) omap stream))
-  ;; FIXME: This should be the fixup list.
-  (save-object nil omap stream)
+  (multiple-value-bind (fixups validp)
+      (gethash object *fixup-table*)
+    (when (not validp)
+      (error "Missing fixups for function ~S" object))
+    (save-object fixups omap stream))
   (write-byte +llf-function+ stream)
   (write-byte (function-tag object) stream)
   (save-integer (- (function-code-size object) 16) stream)
@@ -744,7 +749,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
            (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*))
-           (*gensym-counter* 0))
+           (*gensym-counter* 0)
+           (*fixup-table* (make-hash-table :synchronized nil)))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))
@@ -827,6 +833,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (format t ";; Writing compiler builtins to ~A.~%" output-file)
     (write-llf-header output-stream output-file)
     (let* ((*llf-forms* nil)
+           (*fixup-table* (make-hash-table :synchronized nil))
            (sys.c::*use-new-compiler* nil)
            (omap (make-hash-table)))
       (loop
@@ -870,4 +877,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                           (:symbol-binding-cache-sentinel . :fixup))
        :info (list name debug-info))
     (declare (ignore symbols))
-    (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
+    (let ((fn (make-function sys.int::+object-tag-function+
+                             mc fixups constants gc-data wired)))
+      (when *fixup-table*
+        (setf (gethash fn *fixup-table*) fixups))
+      fn)))

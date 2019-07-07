@@ -635,7 +635,7 @@
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
 
-(defun sys.int::make-function-with-fixups (tag machine-code fixups constants gc-info &optional wired)
+(defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
          (gc-info-size (ceiling (length gc-info) 8))
          (pool-size (length constants))
@@ -684,9 +684,6 @@
         (dotimes (i (length gc-info))
           (setf (sys.int::memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
       object)))
-
-(defun sys.int::make-function (machine-code constants gc-info &optional wired)
-  (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
 (defun sys.int::%allocate-instance (layout)
   (%allocate-object sys.int::+object-tag-instance+

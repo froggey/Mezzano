@@ -156,7 +156,7 @@
     (%read-sequence mc stream)
     ;; Read gc-info bytes.
     (%read-sequence gc-info stream)
-    (make-function-with-fixups tag mc fixups constants gc-info *load-wired*)))
+    (make-function tag mc fixups constants gc-info *load-wired*)))
 
 (defun load-llf-vector (stream stack)
   (let* ((len (load-integer stream))
