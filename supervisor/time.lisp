@@ -131,7 +131,7 @@
 (defstruct (timer
              (:constructor %make-timer)
              (:area :wired))
-  (name nil :read-only t)
+  name
   (next :unlinked)
   (prev :unlinked)
   %deadline
@@ -242,6 +242,7 @@ Will wait forever if TIMER has not been armed."
 
 (defun push-timer-pool (timer)
   (timer-disarm timer)
+  (setf (timer-name timer) 'pooled-timer)
   (with-mutex (*timer-pool-lock*)
     (when (< *timer-pool-size* *timer-pool-limit*)
       (setf (timer-next timer) *timer-pool*
@@ -264,10 +265,11 @@ Will wait forever if TIMER has not been armed."
     (or (alloc)
         (make-timer :name 'pooled-timer))))
 
-(defmacro with-timer ((timer &key relative absolute) &body body)
+(defmacro with-timer ((timer &key relative absolute name) &body body)
   "Allocate & arm a timer from the timer pool."
   (let ((timer-actual (gensym "TIMER")))
     `(let ((,timer-actual (pop-timer-pool)))
+       (setf (timer-name ,timer-actual) ,name)
        (unwind-protect
             (progn
               ,(when relative
@@ -279,6 +281,6 @@ Will wait forever if TIMER has not been armed."
 
 (defun sleep (seconds)
   (check-type seconds (real 0))
-  (with-timer (timer :relative seconds)
+  (with-timer (timer :relative seconds :name 'sleep)
     (timer-wait timer))
   nil)

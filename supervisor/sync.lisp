@@ -276,7 +276,8 @@ Handles timeouts properly."
            (cond ((eql ,timeout-sym 0)
                   (,predicate-fn))
                  (,timeout-sym
-                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym
+                                                             :name ,cvar-sym)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
                          (when ,prediate-result-sym (return ,prediate-result-sym)))
@@ -314,7 +315,7 @@ Returns true if a normal or false wakeup occurs, false if a timeout occurs."
                 ;; Make sure to clear the timer's cvar slot before returning it.
                 (setf (timer-cvar timeout) nil)))
              (timeout
-              (with-timer (timer :relative timeout)
+              (with-timer (timer :relative timeout :name condition-variable)
                 (unwind-protect
                      (progn
                        (setf (timer-cvar timer) condition-variable)
@@ -762,7 +763,7 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
            (cond ((eql ,timeout-sym 0)
                   (,predicate-fn))
                  (,timeout-sym
-                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym :name event)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
                          (when ,prediate-result-sym (return ,prediate-result-sym)))
