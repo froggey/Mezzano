@@ -182,13 +182,14 @@
 
 (defun %allocate-from-pinned-area-1 (tag data words)
   (mezzano.supervisor:without-footholds
-    (mezzano.supervisor:with-mutex (*allocator-lock*)
-      (mezzano.supervisor:with-pseudo-atomic
-        (when *paranoid-allocation*
-          (verify-freelist sys.int::*pinned-area-freelist* sys.int::*pinned-area-base* sys.int::*pinned-area-bump*))
-        (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
-          (when address
-            (sys.int::%%assemble-value address sys.int::+tag-object+)))))))
+    (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+      (mezzano.supervisor:with-mutex (*allocator-lock*)
+        (mezzano.supervisor:with-pseudo-atomic
+          (when *paranoid-allocation*
+            (verify-freelist sys.int::*pinned-area-freelist* sys.int::*pinned-area-base* sys.int::*pinned-area-bump*))
+          (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
+            (when address
+              (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
 
 (defun finish-expand-pinned-area (grow-by)
   (let ((len (truncate grow-by 8))
@@ -253,8 +254,9 @@
            (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
                                  grow-by))
            (mezzano.supervisor:without-footholds
-             (mezzano.supervisor:with-mutex (*allocator-lock*)
-               (mezzano.supervisor:with-pseudo-atomic
+             (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+               (mezzano.supervisor:with-mutex (*allocator-lock*)
+                 (mezzano.supervisor:with-pseudo-atomic
                    (when (mezzano.supervisor:allocate-memory-range
                           sys.int::*pinned-area-bump*
                           grow-by
@@ -266,7 +268,7 @@
                        (mezzano.supervisor:debug-print-line "Expanded pinned area by " grow-by))
                      ;; Success.
                      (finish-expand-pinned-area grow-by)
-                     (setf inhibit-gc t)))))))
+                     (setf inhibit-gc t))))))))
        (when (> i *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (cond (inhibit-gc
@@ -288,9 +290,10 @@
     (return-from %allocate-from-wired-area-1
       (%allocate-from-wired-area-unlocked tag data words)))
   (mezzano.supervisor:without-footholds
-    (mezzano.supervisor:with-mutex (*allocator-lock*)
-      (mezzano.supervisor:with-pseudo-atomic
-        (%allocate-from-wired-area-unlocked tag data words)))))
+    (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+      (mezzano.supervisor:with-mutex (*allocator-lock*)
+        (mezzano.supervisor:with-pseudo-atomic
+          (%allocate-from-wired-area-unlocked tag data words))))))
 
 (defun %allocate-from-wired-area (tag data words)
   (loop
@@ -449,31 +452,32 @@
     (tagbody
      OUTER-LOOP
        (mezzano.supervisor:without-footholds
-         (mezzano.supervisor:with-mutex (*allocator-lock*)
-           (mezzano.supervisor:with-pseudo-atomic
-             (tagbody
-              INNER-LOOP
-                (multiple-value-bind (result ignore1 ignore2 failurep)
-                    (%do-allocate-from-general-area tag data words)
-                  (declare (ignore ignore1 ignore2))
-                  (when (not failurep)
-                    (return-from %slow-allocate-from-general-area
-                      result)))
-                ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                ;; Running the GC cannot be done when pseudo-atomic.
-                (cond ((expand-allocation-area :general
-                                               (* words 8)
-                                               '*general-area-expansion-granularity*
-                                               'sys.int::*general-area-gen0-limit*
-                                               sys.int::+address-tag-general+)
-                       ;; Successfully expanded the area. Retry the allocation.
-                       (go INNER-LOOP))
-                      (t
-                       ;; No memory do expand, bail out and run the GC.
-                       ;; This cannot be done when pseudo-atomic.
-                       (when sys.int::*gc-enable-logging*
-                         (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
-                       (go DO-GC)))))))
+         (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+           (mezzano.supervisor:with-mutex (*allocator-lock*)
+             (mezzano.supervisor:with-pseudo-atomic
+               (tagbody
+                INNER-LOOP
+                  (multiple-value-bind (result ignore1 ignore2 failurep)
+                      (%do-allocate-from-general-area tag data words)
+                    (declare (ignore ignore1 ignore2))
+                    (when (not failurep)
+                      (return-from %slow-allocate-from-general-area
+                        result)))
+                  ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+                  ;; Running the GC cannot be done when pseudo-atomic.
+                  (cond ((expand-allocation-area :general
+                                                 (* words 8)
+                                                 '*general-area-expansion-granularity*
+                                                 'sys.int::*general-area-gen0-limit*
+                                                 sys.int::+address-tag-general+)
+                         ;; Successfully expanded the area. Retry the allocation.
+                         (go INNER-LOOP))
+                        (t
+                         ;; No memory do expand, bail out and run the GC.
+                         ;; This cannot be done when pseudo-atomic.
+                         (when sys.int::*gc-enable-logging*
+                           (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
+                         (go DO-GC))))))))
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
@@ -542,31 +546,32 @@
     (tagbody
      OUTER-LOOP
        (mezzano.supervisor:without-footholds
-         (mezzano.supervisor:with-mutex (*allocator-lock*)
-           (mezzano.supervisor:with-pseudo-atomic
-             (tagbody
-              INNER-LOOP
-                ;; Call the real allocator.
-                (multiple-value-bind (result blah failurep)
-                    (do-cons car cdr)
-                  (declare (ignore blah))
-                  (when (not failurep)
-                    (return-from slow-cons result)))
-                ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                ;; Running the GC cannot be done when pseudo-atomic.
-                (cond ((expand-allocation-area :cons
-                                               16
-                                               '*cons-area-expansion-granularity*
-                                               'sys.int::*cons-area-gen0-limit*
-                                               sys.int::+address-tag-cons+)
-                       ;; Successfully expanded the area Retry the allocation.
-                       (go INNER-LOOP))
-                      (t
-                       ;; No memory do expand, bail out and run the GC.
-                       ;; This cannot be done when pseudo-atomic.
-                       (when sys.int::*gc-enable-logging*
-                         (mezzano.supervisor:debug-print-line "Cons area expansion failed, performing GC."))
-                       (go DO-GC)))))))
+         (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+           (mezzano.supervisor:with-mutex (*allocator-lock*)
+             (mezzano.supervisor:with-pseudo-atomic
+               (tagbody
+                INNER-LOOP
+                  ;; Call the real allocator.
+                  (multiple-value-bind (result blah failurep)
+                      (do-cons car cdr)
+                    (declare (ignore blah))
+                    (when (not failurep)
+                      (return-from slow-cons result)))
+                  ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+                  ;; Running the GC cannot be done when pseudo-atomic.
+                  (cond ((expand-allocation-area :cons
+                                                 16
+                                                 '*cons-area-expansion-granularity*
+                                                 'sys.int::*cons-area-gen0-limit*
+                                                 sys.int::+address-tag-cons+)
+                         ;; Successfully expanded the area Retry the allocation.
+                         (go INNER-LOOP))
+                        (t
+                         ;; No memory do expand, bail out and run the GC.
+                         ;; This cannot be done when pseudo-atomic.
+                         (when sys.int::*gc-enable-logging*
+                           (mezzano.supervisor:debug-print-line "Cons area expansion failed, performing GC."))
+                         (go DO-GC))))))))
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
@@ -786,44 +791,45 @@
     (tagbody
      RETRY
        (mezzano.supervisor:without-footholds
-         (unwind-protect
-              (progn
-                ;; Don't acquire the allocator lock if the world is stopped.
-                ;; This happens when allocating stacks for CPUs during boot.
-                (when (not (eql mezzano.supervisor::*world-stopper* (mezzano.supervisor:current-thread)))
-                  (acquire-mutex mezzano.runtime::*allocator-lock*))
-                (when (< (mezzano.runtime::bytes-remaining) size)
-                  (go DO-GC))
-                ;; This is where the stack starts in virtual memory.
-                (let* ((bump (+ +stack-guard-size+
-                                (if wired
-                                    sys.int::*wired-stack-area-bump*
-                                    sys.int::*stack-area-bump*)))
-                       (addr (logior bump
-                                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
-                  ;; Allocate backing mmory.
-                  (when (not (allocate-memory-range addr size
-                                                    (logior sys.int::+block-map-present+
-                                                            sys.int::+block-map-writable+
-                                                            sys.int::+block-map-zero-fill+
-                                                            (if wired
-                                                                sys.int::+block-map-wired+
-                                                                0))))
+         (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+           (unwind-protect
+                (progn
+                  ;; Don't acquire the allocator lock if the world is stopped.
+                  ;; This happens when allocating stacks for CPUs during boot.
+                  (when (not (eql mezzano.supervisor::*world-stopper* (mezzano.supervisor:current-thread)))
+                    (acquire-mutex mezzano.runtime::*allocator-lock*))
+                  (when (< (mezzano.runtime::bytes-remaining) size)
                     (go DO-GC))
-                  ;; Memory actually allocated, now update bump pointers.
-                  (if wired
-                      (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
-                      (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
-                  (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
-                  (setf (stack-base stack) addr
-                        ;; Notify the finalizer that the stack has been allocated & should be freed.
-                        stack-address addr)
-                  ;; Flush the stack object so it doesn't get held live by the finalizer closure.
-                  (let ((s stack))
-                    (setf stack nil)
-                    (return-from %allocate-stack s))))
-           (when (mutex-held-p mezzano.runtime::*allocator-lock*)
-             (release-mutex mezzano.runtime::*allocator-lock*))))
+                  ;; This is where the stack starts in virtual memory.
+                  (let* ((bump (+ +stack-guard-size+
+                                  (if wired
+                                      sys.int::*wired-stack-area-bump*
+                                      sys.int::*stack-area-bump*)))
+                         (addr (logior bump
+                                       (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
+                    ;; Allocate backing mmory.
+                    (when (not (allocate-memory-range addr size
+                                                      (logior sys.int::+block-map-present+
+                                                              sys.int::+block-map-writable+
+                                                              sys.int::+block-map-zero-fill+
+                                                              (if wired
+                                                                  sys.int::+block-map-wired+
+                                                                  0))))
+                      (go DO-GC))
+                    ;; Memory actually allocated, now update bump pointers.
+                    (if wired
+                        (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
+                        (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
+                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
+                    (setf (stack-base stack) addr
+                          ;; Notify the finalizer that the stack has been allocated & should be freed.
+                          stack-address addr)
+                    ;; Flush the stack object so it doesn't get held live by the finalizer closure.
+                    (let ((s stack))
+                      (setf stack nil)
+                      (return-from %allocate-stack s))))
+             (when (mutex-held-p mezzano.runtime::*allocator-lock*)
+               (release-mutex mezzano.runtime::*allocator-lock*)))))
      DO-GC
        (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
          (error 'storage-condition))

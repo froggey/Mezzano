@@ -442,6 +442,7 @@
 
            #:thread-thread-pool
            #:thread-pool-block
+           #:inhibit-thread-pool-blocking-hijack
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

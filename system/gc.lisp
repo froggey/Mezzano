@@ -110,16 +110,20 @@
 (defun gc (&key full)
   "Run a garbage-collection cycle."
   (check-type full (or boolean (member 0 1)))
-  (mezzano.supervisor:with-mutex (*gc-lock*)
-    (let ((epoch *gc-epoch*))
-      (setf *gc-requested* t)
-      (when full
-        ;; TODO: Merge full and the current force cycle.
-        ;; 0+1 -> 1, 0+:major -> :major, 1+:major -> :major
-        (setf *gc-force-major-cycle* full))
-      (mezzano.supervisor:condition-notify *gc-cvar* t)
-      (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)
-        (not (eql epoch *gc-epoch*)))))
+  ;; Clear the thread pool over this bit so that CONDITION-WAIT
+  ;; doesn't try to call THREAD-POOL-BLOCK. T-P-B allocates and
+  ;; that could cause a recursive call back into GC.
+  (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+    (mezzano.supervisor:with-mutex (*gc-lock*)
+      (let ((epoch *gc-epoch*))
+        (setf *gc-requested* t)
+        (when full
+          ;; TODO: Merge full and the current force cycle.
+          ;; 0+1 -> 1, 0+:major -> :major, 1+:major -> :major
+          (setf *gc-force-major-cycle* full))
+        (mezzano.supervisor:condition-notify *gc-cvar* t)
+        (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)
+                                               (not (eql epoch *gc-epoch*))))))
   (values))
 
 (defun gc-worker ()

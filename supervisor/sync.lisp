@@ -38,6 +38,18 @@
                   (apply #'thread-pool-block ,pool ',function-name ,@arguments)))
            (setf (thread-thread-pool ,self) ,pool))))))
 
+(defmacro inhibit-thread-pool-blocking-hijack (&body body)
+  "Run body with the thread's thread-pool unset."
+  (let ((self (gensym "SELF"))
+        (pool (gensym "POOL")))
+    `(let* ((,self (current-thread))
+            (,pool (thread-thread-pool ,self)))
+       (unwind-protect
+            (progn
+              (setf (thread-thread-pool ,self) nil)
+              ,@body)
+         (setf (thread-thread-pool ,self) ,pool)))))
+
 ;;; Common structure for sleepable things.
 (defstruct (wait-queue
              (:area :wired))
