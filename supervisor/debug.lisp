@@ -287,7 +287,9 @@
   ;; Try to bring all the other CPUs to a complete stop before doing anything.
   (setf *debug-magic-button-hold-variable* t)
   (stop-other-cpus-for-debug-magic-button)
+  (debug-print-line "---- Begin magic button dump ----")
   (debug-dump-threads)
+  (debug-print-line "---- End magic button dump ----")
   (setf *debug-magic-button-hold-variable* nil))
 
 (defun panic-1 (things extra)
