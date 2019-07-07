@@ -514,31 +514,35 @@
                   :expected-type 'function-name
                   :datum name))))
 
-(defun function-reference (name)
-  "Convert a function name to a function reference."
+(defun function-reference (name &optional (create t))
+  "Convert a function name to a function reference.
+If no function-reference exists for NAME and CREATE is true, a new
+fref will be created and associated with the name. If CREATE is false
+then NIL will be returned."
   (multiple-value-bind (name-root location)
       (decode-function-name name)
     (ecase location
       (symbol
        (or (%object-ref-t name-root +symbol-function+)
            ;; No fref, create one and add it to the function.
-           (let ((new-fref (make-function-reference name-root)))
-             ;; Try to atomically update the function cell.
-             (multiple-value-bind (successp old-value)
-                 (%cas-object name-root +symbol-function+ nil new-fref)
-               (if successp
-                   new-fref
-                   old-value)))))
+           (and create
+                (let ((new-fref (make-function-reference name-root)))
+                  ;; Try to atomically update the function cell.
+                  (multiple-value-bind (successp old-value)
+                      (%cas-object name-root +symbol-function+ nil new-fref)
+                    (if successp
+                        new-fref
+                        old-value))))))
       (setf
        (let ((fref (gethash name-root *setf-fref-table*)))
-         (unless fref
+         (when (and (not fref) create)
            (let ((new-fref (make-function-reference name)))
              (setf fref (or (cas (gethash name-root *setf-fref-table*) nil new-fref)
                             new-fref))))
          fref))
       (cas
        (let ((fref (gethash name-root *cas-fref-table*)))
-         (unless fref
+         (when (and (not fref) create)
            (let ((new-fref (make-function-reference name)))
              (setf fref (or (cas (gethash name-root *cas-fref-table*) nil new-fref)
                             new-fref))))
@@ -597,7 +601,8 @@ VALUE may be nil to make the fref unbound."
   value)
 
 (defun fdefinition (name)
-  (let ((fn (function-reference-function (function-reference name))))
+  (let* ((fref (function-reference name nil))
+         (fn (and fref (function-reference-function fref))))
     (when (not fn)
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
@@ -624,20 +629,25 @@ VALUE may be nil to make the fref unbound."
     (setf (function-reference-function fref) value)))
 
 (defun fboundp (name)
-  (not (null (function-reference-function (function-reference name)))))
+  ;; Avoid allocating a fref just for the test.
+  (let ((fref (function-reference name nil)))
+    (and fref
+         (not (null (function-reference-function fref))))))
 
 (defun fmakunbound (name)
-  ;; Check for and update any existing TRACE-WRAPPER.
-  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
-  (let* ((fref (function-reference name))
-         (existing (function-reference-function fref)))
-    (when (locally
-              (declare (notinline typep)) ; bootstrap hack.
-            (typep existing 'trace-wrapper))
-      ;; Untrace the function.
-      (%untrace (function-reference-name fref)))
-    (setf (function-reference-function (function-reference name)) nil)
-    name))
+  (let ((fref (function-reference name nil)))
+    ;; Don't allocate a new fref if the function is already unbound.
+    (when fref
+      ;; Check for and update any existing TRACE-WRAPPER.
+      ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+      (let ((existing (function-reference-function fref)))
+        (when (locally
+                  (declare (notinline typep)) ; bootstrap hack.
+                (typep existing 'trace-wrapper))
+          ;; Untrace the function.
+          (%untrace (function-reference-name fref)))
+        (setf (function-reference-function (function-reference name)) nil))))
+  name)
 
 (defun symbol-function (symbol)
   (check-type symbol symbol)
