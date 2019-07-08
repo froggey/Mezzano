@@ -252,6 +252,13 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *hash-table-unbound-value* (list "unbound hash-table entry")
         *hash-table-tombstone* (list "hash-table tombstone")
         *deferred-%defpackage-calls* '())
+  ;; System tables.
+  (setf *macros* (make-hash-table :test #'eq))
+  (setf *symbol-function-info* (make-hash-table :test #'eq)
+        *setf-function-info* (make-hash-table :test #'eq)
+        *cas-function-info* (make-hash-table :test #'eq))
+  (setf *setf-expanders* (make-hash-table :test #'eq))
+  (setf *type-info* (make-hash-table :test #'eq))
   ;; Put initial classes into the class table.
   (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq))
   (loop
@@ -274,7 +281,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *function-documentation* (make-hash-table :test #'equal))
   (setf *compiler-macro-documentation* (make-hash-table :test #'equal))
   (setf *setf-documentation* (make-hash-table))
-  (setf *type-documentation* (make-hash-table))
   (setf *variable-documentation* (make-hash-table))
   ;; Transfer the initial function documentation over.
   (loop

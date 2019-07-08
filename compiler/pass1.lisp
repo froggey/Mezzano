@@ -565,8 +565,7 @@
 (defun non-type-type-declaration-p (declaration)
   "Test if DECLARATION should be treated as a type declaration."
   (and (symbolp declaration)
-       (or (get declaration 'sys.int::type-expander)
-           (get declaration 'sys.int::type-symbol))))
+       (sys.int::type-specifier-p declaration)))
 
 (defun fake-type-declarations-for (declares name)
   (dolist (dec declares '())

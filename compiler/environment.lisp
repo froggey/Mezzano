@@ -124,11 +124,7 @@
            do (loop for name in names do (add-decl name type)))
         (loop
            for (what . names) in declarations
-           when (and (symbolp what)
-                     (or (get what 'sys.int::type-expander)
-                         (get what 'sys.int::compound-type)
-                         (get what 'sys.int::type-symbol)
-                         (get what 'sys.int::maybe-class)))
+           when (non-type-type-declaration-p what)
            do (loop for name in names do (add-decl name what)))
         (loop
            for (name var) in variables

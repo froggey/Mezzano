@@ -25,28 +25,64 @@
          ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defstruct type-info
+  docstring
+  maybe-class
+  type-symbol
+  type-expander
+  compound-type
+  compound-type-optimizer
+  numeric-supertype)
+
+;; Initialized here for the cold generator and in cold-start for normal operation
+(defvar *type-info* (make-hash-table))
+
+(defun type-info-for (name &optional (create t))
+  (check-type name symbol)
+  (let ((entry (gethash name *type-info*)))
+    (when (and (not entry) create)
+      (let ((new-entry (make-type-info)))
+        (setf entry (or (cas (gethash name *type-info*) nil new-entry)
+                        new-entry))))
+    entry))
+
 (defun %deftype (name expander documentation)
-  (set-type-docstring name documentation)
-  (remprop name 'maybe-class)
-  (setf (get name 'type-expander) expander))
+  (let ((info (type-info-for name)))
+    (setf (type-info-docstring info) documentation
+          (type-info-maybe-class info) nil
+          (type-info-type-expander info) expander)))
 (defun %define-compound-type (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'compound-type) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-compound-type info) function)))
 (defun %define-compound-type-optimizer (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'compound-type-optimizer) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-compound-type-optimizer info) function)))
 (defun %define-type-symbol (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'type-symbol) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-type-symbol info) function)))
 
 (defun %compiler-defclass (name)
   ;; If name exists as a type, do nothing.
   ;; Otherwise, mark it as a potential class.
-  (unless (or (get name 'type-expander)
-              (get name 'compound-type)
-              (get name 'type-symbol))
-    (setf (get name 'maybe-class) t))
+  (let ((info (type-info-for name)))
+    (unless (or (type-info-type-expander info)
+                (type-info-compound-type info)
+                (type-info-type-symbol info))
+      (setf (type-info-maybe-class info) t)))
   name)
+
+(defun type-specifier-p (name)
+  (let ((info (type-info-for name nil)))
+    (let ((info (sys.int::type-info-for name nil)))
+      (and info
+           (or (sys.int::type-info-type-expander info)
+               (sys.int::type-info-compound-type info)
+               (sys.int::type-info-type-symbol info)
+               (sys.int::type-info-maybe-class info))))))
 )
 
 (deftype bit ()
@@ -99,10 +135,12 @@
   (when (not (or (symbolp type)
                  (listp type)))
     (return-from typeexpand-1 (values type nil)))
-  (let ((expander (get (if (symbolp type)
-                           type
-                           (first type))
-                       'type-expander)))
+  (let ((expander (let ((info (type-info-for
+                               (if (symbolp type)
+                                   type
+                                   (first type))
+                               nil)))
+                    (and info (type-info-type-expander info)))))
     (cond (expander
            (when (symbolp type)
              (setf type (list type)))
@@ -454,7 +492,9 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun set-numeric-supertype (type supertype)
   "Set the supertype of a numeric type."
-  (setf (get type 'numeric-supertype) supertype))
+  (setf (type-info-numeric-supertype
+         (type-info-for type))
+        supertype))
 
 (set-numeric-supertype 'fixnum 'integer)
 (set-numeric-supertype 'bignum 'integer)
@@ -470,12 +510,16 @@
 (set-numeric-supertype 'complex 'number)
 (set-numeric-supertype 'number 't)
 
+(defun numeric-supertype (type)
+  (let ((info (type-info-for type nil)))
+    (and info (type-info-numeric-supertype info))))
+
 (defun numeric-subtypep (t1 t2)
   (and (symbolp t1) (symbolp t2)
-       (get t1 'numeric-supertype)
-       (get t2 'numeric-supertype)
+       (numeric-supertype t1)
+       (numeric-supertype t2)
        (or (eql t1 t2)
-           (numeric-subtypep (get t1 'numeric-supertype) t2))))
+           (numeric-subtypep (numeric-supertype t1) t2))))
 
 (defun real-subtype-p (type)
   (numeric-subtypep type 'real))
@@ -734,7 +778,9 @@
                                  (null (rest type-specifier)))
                             (first type-specifier)))))
     (when type-symbol
-      (let ((test (get type-symbol 'type-symbol)))
+      (let ((test (let ((info (type-info-for type-symbol nil)))
+                         (and info
+                              (type-info-type-symbol info)))))
         (when test
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
@@ -744,10 +790,13 @@
                      (structure-type-p object class)
                      (class-typep object class)))
         (return-from typep t))))
-  (let ((compound-test (get (if (symbolp type-specifier)
-                                type-specifier
-                                (first type-specifier))
-                            'compound-type)))
+  (let ((compound-test (let ((info (type-info-for
+                                    (if (symbolp type-specifier)
+                                        type-specifier
+                                        (first type-specifier))
+                                    nil)))
+                         (and info
+                              (type-info-compound-type info)))))
     (when compound-test
       (return-from typep (funcall compound-test object type-specifier))))
   (multiple-value-bind (expansion expanded-p)
@@ -795,13 +844,17 @@
             ((eql type-symbol 'nil)
              (return-from compile-typep-expression `(progn ,object 'nil)))
             (t
-             (let ((test (get type-symbol 'type-symbol)))
+             (let ((test (let ((info (type-info-for type-symbol nil)))
+                           (and info
+                                (type-info-type-symbol info)))))
                (when test
                  (return-from compile-typep-expression
                    `(funcall ',test ,object))))))))
   (when (and (listp type-specifier)
              (symbolp (first type-specifier)))
-    (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
+    (let ((compiler (let ((info (type-info-for (first type-specifier) nil)))
+                      (and info
+                           (type-info-compound-type-optimizer info)))))
       (when compiler
         (let* ((sym (gensym))
                (code (funcall compiler sym type-specifier)))
@@ -823,7 +876,9 @@
                           (mezzano.clos:class-layout struct-type)))))
               `(structure-type-p ,object ',struct-type))))))
   (when (and (symbolp type-specifier)
-             (get type-specifier 'sys.int::maybe-class nil))
+             (let ((info (type-info-for type-specifier nil)))
+               (and info
+                    (type-info-maybe-class info))))
     (return-from compile-typep-expression
       (let ((class (gensym "CLASS")))
         `(let ((,class (mezzano.clos:find-class-in-reference

@@ -426,7 +426,7 @@
 (set-pprint-dispatch+ '(cons (member with-open-stream)) 'block-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member with-output-to-string)) 'block-like '(0) *IPD*)
 
-(defun pprint-dispatch-print (xp table)
+(defmethod describe-object ((table pprint-dispatch-table) xp)
   (let ((stuff (copy-list (others table))))
     (maphash (lambda (key val) (declare (ignore key))
                      (push val stuff))
@@ -435,17 +435,13 @@
                      (push val stuff))
              (structures table))
     (setf stuff (sort stuff 'priority-> :key (lambda (x) (car (full-spec x)))))
-    (pprint-logical-block (xp stuff :prefix "#<" :suffix ">")
-      (format xp (formatter "pprint dispatch table containing ~A entries: ")
-              (length stuff))
+    (pprint-logical-block (xp stuff)
+      (format xp "~A is a pprint dispatch table containing ~A entries: "
+              table (length stuff))
       (loop (pprint-exit-if-list-exhausted)
             (let ((entry (pprint-pop)))
               (format xp (formatter "~{~_P=~4D ~W~} F=~W ")
                       (full-spec entry) (fn entry)))))))
-
-(setf (get 'pprint-dispatch 'structure-printer) 'pprint-dispatch-print)
-
-(set-pprint-dispatch+ 'pprint-dispatch 'pprint-dispatch-print '(0) *IPD*)
 
 ;so only happens first time is loaded.
 (when (member *print-pprint-dispatch* '(nil T))

@@ -197,7 +197,12 @@
             named type slot-offsets sealed)))
 
 (defun compute-struct-slot-accessor-and-size (type)
-  (cond ((subtypep type '(unsigned-byte 8))
+  (cond ((eql type 't)
+         ;; Cross compiler hack: Loading type.lisp defines a struct
+         ;; before subtypep is loaded, but all slots have type T,
+         ;; so this bypasses the calls to SUBTYPEP below.
+         (values mezzano.runtime::+location-type-t+ 8))
+        ((subtypep type '(unsigned-byte 8))
          (values mezzano.runtime::+location-type-unsigned-byte-8+ 1))
         ((subtypep type '(unsigned-byte 16))
          (values mezzano.runtime::+location-type-unsigned-byte-16+ 2))

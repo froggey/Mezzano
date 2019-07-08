@@ -1097,7 +1097,9 @@ Other arguments are included directly."
                             ((and (consp type-specifier)
                                   (null (rest type-specifier)))
                              (first type-specifier))))
-         (type-fn (and type-symbol (get type-symbol 'sys.int::type-symbol))))
+         (type-fn (and type-symbol
+                       (let ((info (sys.int::type-info-for type-symbol nil)))
+                         (and info (sys.int::type-info-type-symbol info))))))
     (macrolet ((specific-type (type)
                  `(and (sys.int::type-equal type-specifier ',type)
                        (lambda (object)

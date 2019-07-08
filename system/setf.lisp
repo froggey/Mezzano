@@ -7,6 +7,10 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
+;; This is also initialized by cold-start.
+;; Initializing here is just for the sake of the cold generator.
+(defvar *setf-expanders* (make-hash-table))
+
 (defun expand-setf-function-call (place environment)
   ;; Generate an expansion for a function call form place.
   (loop
@@ -27,7 +31,7 @@
 (defun get-setf-expansion (place &optional environment)
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-                           (get (car place) 'setf-expander))))
+                           (gethash (car place) *setf-expanders*))))
         (cond
           (expander
            ;; Invoke the exansion function.
@@ -158,7 +162,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander documentation)
   (set-setf-docstring access-fn documentation)
-  (setf (get access-fn 'setf-expander) expander))
+  (setf (gethash access-fn *setf-expanders*) expander))
 )
 
 (define-modify-macro incf (&optional (delta 1)) +)

@@ -980,6 +980,7 @@
             type)
         (cond (printer (funcall printer xp object))
               ((maybe-print-fast xp object))
+              #+(or)
               ((and *print-pretty*
                     (symbolp (setf type (type-of object)))
                     (setf printer (get type 'structure-printer))
