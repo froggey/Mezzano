@@ -341,10 +341,12 @@
 (defmethod object-area (environment object)
   (values (gethash object (environment-object-area-table environment))))
 
-(defun symbol-global-value-cell (environment symbol)
+(defun symbol-global-value-cell (environment symbol &optional (create t))
   (check-type symbol symbol)
   (let ((cell (gethash symbol (environment-symbol-global-value-cell-table environment))))
-    (when (not cell)
+    (when (and (not cell)
+               (or (keywordp symbol)
+                   create))
       (setf cell (make-instance 'symbol-value-cell :symbol symbol)
             (gethash symbol (environment-symbol-global-value-cell-table environment)) cell)
       (when (keywordp symbol)
@@ -358,10 +360,14 @@
   (setf (symbol-value-cell-value (symbol-global-value-cell environment symbol)) value))
 
 (defun symbol-global-boundp (environment symbol)
-  (slot-boundp (symbol-global-value-cell environment symbol) '%value))
+  (let ((cell (symbol-global-value-cell environment symbol nil)))
+    (and cell
+         (slot-boundp cell '%value))))
 
 (defun symbol-global-makunbound (environment symbol)
-  (slot-makunbound (symbol-global-value-cell environment symbol) '%value))
+  (let ((cell (symbol-global-value-cell environment symbol nil)))
+    (when cell
+      (slot-makunbound cell '%value))))
 
 (defun cross-symbol-name (environment symbol)
   ;; Make sure symbol names are in the wired area.
