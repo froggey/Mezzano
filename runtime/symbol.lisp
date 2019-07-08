@@ -57,18 +57,12 @@
 ;; Symbol functions.
 
 (declaim (inline symbolp
-                 symbol-name
-                 symbol-package (setf symbol-package)
                  sys.int::symbol-global-value
                  (setf sys.int::symbol-global-value)
                  (sys.int::cas sys.int::symbol-global-value)
                  sys.int::symbol-value
                  (setf sys.int::symbol-value)
                  (sys.int::cas sys.int::symbol-value)
-                 symbol-plist (setf symbol-plist)
-                 boundp makunbound
-                 sys.int::symbol-global-boundp
-                 sys.int::symbol-global-makunbound
                  symbol-global-p
                  symbol-constant-p
                  modifying-symbol-value))
@@ -96,17 +90,18 @@
     (setf (sys.int::%object-ref-t global-value 3) symbol)
     global-value))
 
-(defun symbol-global-value-cell (symbol)
+(defun symbol-global-value-cell (symbol &optional (create t))
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (let ((cell (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
     (or cell
-        (let ((new-cell (make-symbol-global-value-cell symbol)))
-          ;; Try to atomically update the value cell.
-          (multiple-value-bind (successp old-value)
-              (%cas-object symbol +symbol-value+ nil new-cell)
-            (if successp
-                new-cell
-                old-value))))))
+        (and create
+             (let ((new-cell (make-symbol-global-value-cell symbol)))
+               ;; Try to atomically update the value cell.
+               (multiple-value-bind (successp old-value)
+                   (sys.int::%cas-object symbol sys.int::+symbol-value+ nil new-cell)
+                 (if successp
+                     new-cell
+                     old-value)))))))
 
 (defun symbol-type (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
@@ -194,21 +189,14 @@
   (setf (sys.int::%object-ref-t symbol sys.int::+symbol-plist+) value))
 
 (defun boundp (symbol)
-  (symbol-value-cell-boundp (symbol-value-cell symbol)))
+  (when (symbol-global-value-cell symbol nil)
+    (symbol-value-cell-boundp (symbol-value-cell symbol))))
 
 (defun makunbound (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
-  (symbol-value-cell-makunbound (symbol-value-cell symbol))
-  symbol)
-
-(defun sys.int::symbol-global-boundp (symbol)
-  (symbol-value-cell-boundp (symbol-global-value-cell symbol)))
-
-(defun sys.int::symbol-global-makunbound (symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (modifying-symbol-value symbol)
-  (symbol-value-cell-makunbound (symbol-global-value-cell symbol))
+  (when (symbol-global-value-cell symbol nil)
+    (symbol-value-cell-makunbound (symbol-value-cell symbol)))
   symbol)
 
 (defun symbol-constant-p (symbol)
