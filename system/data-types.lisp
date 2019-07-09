@@ -150,8 +150,7 @@
 (defconstant +symbol-package+ 1)
 (defconstant +symbol-value+ 2) ; actually the global symbol-value-cell
 (defconstant +symbol-function+ 3) ; actually an fref
-(defconstant +symbol-plist+ 4)
-(defconstant +symbol-type+ 5)
+(defconstant +symbol-type+ 4)
 
 (defconstant +symbol-value-cell-symbol+ 1)
 (defconstant +symbol-value-cell-value+ 2)

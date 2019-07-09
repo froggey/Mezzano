@@ -601,7 +601,7 @@
 (defun make-symbol (name)
   (check-type name string)
   ;; FIXME: Copy name into the wired area and unicode normalize it.
-  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 6 :wired)))
+  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-name+) name)
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-value+) nil)
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-function+) nil

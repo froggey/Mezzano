@@ -179,14 +179,20 @@
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
                 old new))
 
+(defvar *symbol-plists*
+  (make-hash-table :test #'eq))
+
 (defun symbol-plist (symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (sys.int::%object-ref-t symbol sys.int::+symbol-plist+))
+  (check-type symbol symbol)
+  (values (gethash symbol *symbol-plists*)))
 
 ;; TODO: What kind of type-checking should be done here?
 (defun (setf symbol-plist) (value symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (setf (sys.int::%object-ref-t symbol sys.int::+symbol-plist+) value))
+  (check-type symbol symbol)
+  (if (endp value)
+      (remhash symbol *symbol-plists*)
+      (setf (gethash symbol *symbol-plists*) value))
+  value)
 
 (defun boundp (symbol)
   (when (symbol-global-value-cell symbol nil)

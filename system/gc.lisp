@@ -945,7 +945,7 @@ This is required to make the GC interrupt safe."
       #.+object-tag-ratio+)
      (scan-generic object 3 cycle-kind))
     (#.+object-tag-symbol+
-     (scan-generic object 8 cycle-kind))
+     (scan-generic object 6 cycle-kind))
     ((#.+object-tag-instance+
       #.+object-tag-funcallable-instance+)
      (flet ((scan-layout (layout)
@@ -1253,7 +1253,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-sse-vector+
           4)
          (#.+object-tag-symbol+
-          8)
+          6)
          ((#.+object-tag-instance+
            #.+object-tag-funcallable-instance+)
           (let ((direct-layout (%instance-layout object)))
@@ -1589,7 +1589,7 @@ Additionally update the card table offset fields."
       #.+object-tag-ratio+)
      (verify-generic object 3 gen))
     (#.+object-tag-symbol+
-     (verify-generic object 8 gen))
+     (verify-generic object 6 gen))
     ((#.+object-tag-instance+
       #.+object-tag-funcallable-instance+)
      (let ((direct-layout (%instance-layout object)))
