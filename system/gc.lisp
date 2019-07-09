@@ -2365,10 +2365,11 @@ No type information will be provided."
   (flet ((pop-finalizer ()
            (loop
               for f = *pending-finalizers*
-              when (eql (cas (symbol-global-value '*pending-finalizers*)
-                             f
-                             (%object-ref-t f +weak-pointer-finalizer-link+))
-                        f)
+              when (or (not f)
+                       (eql (cas (symbol-global-value '*pending-finalizers*)
+                                 f
+                                 (%object-ref-t f +weak-pointer-finalizer-link+))
+                            f))
               do (return f))))
     (loop
        for finalizer = (pop-finalizer)
