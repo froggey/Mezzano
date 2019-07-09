@@ -379,6 +379,12 @@
            (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
           (t (panic "Undefined function " (symbol-name name))))))
 
+(defun sys.int::make-deferred-undefined-function (fref)
+  (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))
+    (cond ((consp name)
+           (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
+          (t (panic "Undefined function " (symbol-name name))))))
+
 (defun sys.int::raise-unbound-error (symbol)
   (panic "Unbound symbol " (symbol-name symbol)))
 
