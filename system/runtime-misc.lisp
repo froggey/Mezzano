@@ -197,6 +197,10 @@
   (print-unreadable-object (object stream :identity t :type t)
     (format stream "~:A" (mezzano.supervisor::wfo-objects object))))
 
+(defmethod print-object ((o instance-header) stream)
+  (print-unreadable-object (o stream :type t)
+    (format stream "for ~S" (mezzano.runtime::%unpack-instance-header o))))
+
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
 To be run this in the basic repl after ipl completes."

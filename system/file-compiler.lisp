@@ -445,12 +445,12 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                   for keys being the hash-keys in object using (hash-value value)
                   collect `(setf (gethash ',keys ',object) ',value)))))
 
+(defmethod save-one-object ((object instance-header) omap stream)
+  (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
+               omap stream)
+  (write-byte +llf-instance-header+ stream))
+
 (defmethod save-one-object (object omap stream)
-  (when (%value-has-tag-p object +tag-instance-header+)
-    (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
-                 omap stream)
-    (write-byte +llf-instance-header+ stream)
-    (return-from save-one-object))
   ;; Use COMPILE-LAMBDA here instead of COMPILE to get the correct L-T-V behaviour.
   (let ((sys.c::*load-time-value-hook*
          (lambda (form read-only-p)

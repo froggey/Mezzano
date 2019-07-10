@@ -494,6 +494,7 @@ the old or new values are expected to be unbound.")
     (mezzano.simd:mmx-vector                       (find-class-cached 'mezzano.simd:mmx-vector))
     (mezzano.simd:sse-vector                       (find-class-cached 'mezzano.simd:sse-vector))
     (mezzano.runtime::symbol-value-cell            (find-class-cached 'mezzano.runtime::symbol-value-cell))
+    (sys.int::instance-header                      (find-class-cached 'sys.int::instance-header))
     ;; TODO: Replace this with an error. Every object in the system should
     ;; have a sensible class.
     (t                                             (find-class-cached 't))))
