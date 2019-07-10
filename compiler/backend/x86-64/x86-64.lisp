@@ -124,6 +124,54 @@
                         ,(x86-atomic-index instruction)
                         ,(x86-atomic-rhs instruction))))
 
+;;; Dedicated CMPXCHG instruction, it interacts oddly with the GC.
+;;; Only needed when doing CMPXCHG with objects.
+;;; Not atomic by default.
+(defclass x86-cmpxchg-instruction (ir:backend-instruction)
+  ((%result :initarg :result :accessor x86-cmpxchg-result)
+   (%object :initarg :object :accessor x86-cmpxchg-object)
+   (%index :initarg :index :accessor x86-cmpxchg-index)
+   (%old :initarg :old :accessor x86-cmpxchg-old)
+   (%new :initarg :new :accessor x86-cmpxchg-new)
+   (%prefix :initarg :prefix :accessor x86-instruction-prefix))
+  (:default-initargs :prefix nil))
+
+(defmethod ra:instruction-clobbers ((instruction x86-cmpxchg-instruction) (architecture sys.c:x86-64-target))
+  '(:rax))
+
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-cmpxchg-instruction) (architecture sys.c:x86-64-target))
+  t)
+
+(defmethod ir:instruction-inputs ((instruction x86-cmpxchg-instruction))
+  (if (integerp (x86-cmpxchg-index instruction))
+      (list (x86-cmpxchg-object instruction)
+            (x86-cmpxchg-old instruction)
+            (x86-cmpxchg-new instruction))
+      (list (x86-cmpxchg-object instruction)
+            (x86-cmpxchg-index instruction)
+            (x86-cmpxchg-old instruction)
+            (x86-cmpxchg-new instruction))))
+
+(defmethod ir:instruction-outputs ((instruction x86-cmpxchg-instruction))
+  (list (x86-cmpxchg-result instruction)))
+
+(defmethod ir:replace-all-registers ((instruction x86-cmpxchg-instruction) substitution-function)
+  (setf (x86-cmpxchg-result instruction) (funcall substitution-function (x86-cmpxchg-result instruction)))
+  (setf (x86-cmpxchg-object instruction) (funcall substitution-function (x86-cmpxchg-object instruction)))
+  (setf (x86-cmpxchg-index instruction) (funcall substitution-function (x86-cmpxchg-index instruction)))
+  (setf (x86-cmpxchg-old instruction) (funcall substitution-function (x86-cmpxchg-old instruction)))
+  (setf (x86-cmpxchg-new instruction) (funcall substitution-function (x86-cmpxchg-new instruction))))
+
+(defmethod ir:print-instruction ((instruction x86-cmpxchg-instruction))
+  (format t "   ~S~%"
+          `(:x86-cmpxchg ,(x86-instruction-prefix instruction)
+                        ,(x86-instruction-opcode instruction)
+                        ,(x86-cmpxchg-result instruction)
+                        ,(x86-cmpxchg-object instruction)
+                        ,(x86-cmpxchg-index instruction)
+                        ,(x86-cmpxchg-old instruction)
+                        ,(x86-cmpxchg-new instruction))))
+
 ;;; Wrapper around x86 branch instructions.
 (defclass x86-branch-instruction (ir:terminator-instruction)
   ((%opcode :initarg :opcode :accessor x86-instruction-opcode)

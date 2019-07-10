@@ -467,6 +467,22 @@
                                         (t op)))))
     (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
+(defmethod emit-lap (backend-function (instruction x86-cmpxchg-instruction) uses defs)
+  (emit `(lap:mov64 :rax ,(x86-cmpxchg-old instruction)))
+  (emit-gc-info :extra-registers :rax)
+  (when (x86-instruction-prefix instruction)
+    (emit (x86-instruction-prefix instruction)))
+  (if (integerp (x86-cmpxchg-index instruction))
+      (emit `(lap:cmpxchg (:object ,(x86-cmpxchg-object instruction)
+                                   ,(x86-cmpxchg-index instruction))
+                          ,(x86-cmpxchg-new instruction)))
+      (emit `(lap:cmpxchg (:object ,(x86-cmpxchg-object instruction)
+                                   0
+                                   ,(x86-cmpxchg-index instruction)
+                                   4)
+                          ,(x86-cmpxchg-new instruction))))
+  (emit `(lap:mov64 ,(x86-cmpxchg-result instruction) :rax)))
+
 (defun invert-branch (opcode)
   (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
                                    :key 'third))))

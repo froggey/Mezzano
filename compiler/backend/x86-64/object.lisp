@@ -495,3 +495,14 @@
                                   offset)
                        :rhs new
                        :result result)))
+
+(define-builtin sys.int::%cas-object ((object offset old new) (:z result))
+  (emit (make-instance 'x86-cmpxchg-instruction
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :old old
+                       :new new
+                       :result result
+                       :prefix '(lap:lock))))
