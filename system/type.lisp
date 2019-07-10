@@ -874,7 +874,14 @@
                        ,object-sym
                        ',(mezzano.runtime::%make-instance-header
                           (mezzano.clos:class-layout struct-type)))))
-              `(structure-type-p ,object ',struct-type))))))
+              `(let ((,object-sym ,object))
+                 (or
+                  (and (%value-has-tag-p ,object-sym ,+tag-object+)
+                       (%fast-instance-layout-eq-p
+                        ,object-sym
+                        ',(mezzano.runtime::%make-instance-header
+                           (mezzano.clos:class-layout struct-type))))
+                  (structure-type-p ,object-sym ',struct-type))))))))
   (when (and (symbolp type-specifier)
              (let ((info (type-info-for type-specifier nil)))
                (and info
