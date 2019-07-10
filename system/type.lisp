@@ -981,7 +981,7 @@
            (#b110001 'object-tag-110001)
            (#b110010 'object-tag-110010)
            (#b110011 'mezzano.simd:sse-vector)
-           (#b110100 'object-tag-110100)
+           (#b110100 'weak-pointer-vector)
            (#b110101 (class-name (class-of object)))
            (#b110110 'function-reference)
            (#b110111 'interrupt-frame)

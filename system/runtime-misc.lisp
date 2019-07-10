@@ -119,6 +119,19 @@
             (t
              (format stream "dead"))))))
 
+(defmethod print-object ((o weak-pointer-vector) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (let ((entries (loop
+                      for i below (weak-pointer-vector-length o)
+                      collect (multiple-value-bind (key value livep)
+                                  (weak-pointer-vector-pair o i)
+                                (if livep
+                                    (if (and key (eql key value))
+                                        key
+                                        (cons key value))
+                                    nil)))))
+      (format stream "~:S" entries))))
+
 (defmethod print-object ((o byte) stream)
   (print-unreadable-object (o stream :type t)
     (format stream ":Size ~D :Position ~D"

@@ -120,7 +120,7 @@
 ;;#b110001
 ;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
-;;#b110100
+(defconstant +object-tag-weak-pointer-vector+     #b110100)
 ;; Low two bits must match high two bits of +tag-instance-header+.
 ;; Must be one bit different from +object-tag-funcallable-instance+.
 (defconstant +object-tag-instance+                #b110101)
@@ -133,8 +133,7 @@
 (defconstant +object-tag-cons+                    #b111000)
 (defconstant +object-tag-freelist-entry+          #b111001)
 (defconstant +object-tag-weak-pointer+            #b111010)
-(defconstant +first-misc-object-tag+ +object-tag-mmx-vector+)
-(defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
+;; Function objects.
 (defconstant +object-tag-delimited-continuation+  #b111011)
 (defconstant +object-tag-function+                #b111100)
 ;; Low two bits must match high two bits of +tag-instance-header+.

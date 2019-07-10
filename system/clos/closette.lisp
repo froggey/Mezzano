@@ -487,6 +487,7 @@ the old or new values are expected to be unbound.")
     (function                                      (find-class-cached 'function))
     (sys.int::function-reference                   (find-class-cached 'sys.int::function-reference))
     (sys.int::weak-pointer                         (find-class-cached 'sys.int::weak-pointer))
+    (sys.int::weak-pointer-vector                  (find-class-cached 'sys.int::weak-pointer-vector))
     ;; FIXME: Should return LARGE-BYTE for large bytes.
     ;; LARGE-BYTE needs to be a subclass of BYTE.
     (byte                                          (find-class-cached 'byte))
