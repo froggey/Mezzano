@@ -5,7 +5,8 @@
 
 (in-package :sys.int)
 
-;;; FIXME: Should be a class.
+;;; FIXME: Should be a class, but this is much faster.
+;;; ### Specialize in TYPEP?
 (deftype sequence ()
   '(or vector list))
 
@@ -15,16 +16,25 @@
     (error "TEST and TEST-NOT specified")))
 
 (defun length (sequence)
-  (etypecase sequence
-    (list (or (list-length sequence)
-              (error 'simple-type-error
-                     :expected-type 'sequence
-                     :datum sequence
-                     :format-control "List ~S is circular."
-                     :format-arguments (list sequence))))
-    (vector (if (array-has-fill-pointer-p sequence)
-                (fill-pointer sequence)
-                (array-dimension sequence 0)))))
+  (cond ((null sequence) 0)
+        ((consp sequence)
+         (or (list-length sequence)
+             (error 'simple-type-error
+                    :expected-type 'sequence
+                    :datum sequence
+                    :format-control "List ~S is circular."
+                    :format-arguments (list sequence))))
+        ((%simple-1d-array-p sequence)
+         (%object-header-data sequence))
+        ((and (complex-array-p sequence)
+              (eql (%object-header-data sequence) 1)) ; rank 1
+         (let ((fill-pointer (%object-ref-t sequence +complex-array-fill-pointer+)))
+           (or fill-pointer
+               (%object-ref-t sequence +complex-array-axis-0+))))
+        (t
+         (error 'type-error
+                :expected-type 'sequence
+                :datum sequence))))
 
 (defun elt (sequence index)
   (check-type sequence sequence)
@@ -442,49 +452,83 @@
                      (funcall key (aref vector i))
                      (funcall key (aref vector (1+ i)))))))
 
-(defun concatenate (result-type &rest sequences)
+;; FIXME: This should also extract the length and return it too.
+(defun vector-type-element-type (type &optional environment)
+  (let ((expanded-type (typeexpand type environment)))
+    (cond ((and (listp expanded-type)
+                (member (first expanded-type) '(vector simple-array array))
+                (>= (length expanded-type) 2)
+                (not (eql (second expanded-type) '*)))
+           (second expanded-type))
+          ((subtypep expanded-type 'base-string environment)
+           'base-char)
+          ((subtypep expanded-type 'string environment)
+           'character)
+          ((subtypep expanded-type 'bit-vector environment)
+           'bit)
+          (t 't))))
+
+(define-compiler-macro concatenate (&whole whole &environment environment result-type &rest sequences)
+  (flet ((bail () (return-from concatenate whole)))
+    (when (not (and (consp result-type)
+                    (eql (first result-type) 'quote)
+                    (consp (rest result-type))
+                    (null (cddr result-type))))
+      (bail))
+    (let ((type (second result-type)))
+      (cond ((and (not (subtypep type 'null environment))
+                  (subtypep type 'list environment))
+             `(%concatenate-list ,@sequences))
+            ((subtypep type 'vector environment)
+             `(%concatenate-vector ',(upgraded-array-info
+                                      (vector-type-element-type type environment))
+                                   ,@sequences))
+            (t (bail))))))
+
+(defun %concatenate-vector (array-info &rest sequences)
   (declare (dynamic-extent sequences))
   ;; Compute total length.
-  (let ((true-result-type (typeexpand result-type))
-        (total-length (apply #'+ (mapcar #'length sequences))))
-    (cond
-      ((subtypep true-result-type 'null)
-       (if (= total-length 0)
-           nil
-           (error "Too many elements for result-type NULL.")))
-      ((subtypep true-result-type 'list)
-       (let* ((result (cons nil nil))
-              (tail result))
-         (declare (dynamic-extent result))
-         (dolist (seq sequences)
-           (if (listp seq)
-               (dolist (elt seq)
-                 (setf (cdr tail) (cons elt nil)
-                       tail (cdr tail)))
-               (dotimes (i (length seq))
-                 (setf (cdr tail) (cons (aref seq i) nil)
-                       tail (cdr tail)))))
-         (cdr result)))
-      ((subtypep true-result-type 'vector)
-       (let* ((element-type (cond ((and (listp true-result-type)
-                                        (member (first true-result-type) '(vector simple-array array))
-                                        (>= (length true-result-type) 2)
-                                        (not (eql (second true-result-type) '*)))
-                                   (second true-result-type))
-                                  ((subtypep true-result-type 'base-string)
-                                   'base-char)
-                                  ((subtypep true-result-type 'string)
-                                   'character)
-                                  ((subtypep true-result-type 'bit-vector)
-                                   'bit)
-                                  (t 't)))
-              (result (make-array total-length :element-type element-type))
-              (position 0))
-         (dolist (seq sequences)
-           (setf (subseq result position) seq)
-           (incf position (length seq)))
-         result))
-      (t (error "Don't understand result-type ~S." result-type)))))
+  (let* ((total-length (loop for seq in sequences summing (length seq)))
+         (result (if (specialized-array-definition-tag array-info)
+                     (make-simple-array-1 total-length array-info nil)
+                     (make-array total-length
+                                 :element-type (specialized-array-definition-type array-info))))
+         (position 0))
+    (dolist (seq sequences)
+      (setf (subseq result position) seq)
+      (incf position (length seq)))
+    result))
+
+(defun %concatenate-list (&rest sequences)
+  (declare (dynamic-extent sequences))
+  (let* ((result (cons nil nil))
+         (tail result))
+    (declare (dynamic-extent result))
+    (dolist (seq sequences)
+      (if (listp seq)
+          (dolist (elt seq)
+            (setf (cdr tail) (cons elt nil)
+                  tail (cdr tail)))
+          (dotimes (i (length seq))
+            (setf (cdr tail) (cons (aref seq i) nil)
+                  tail (cdr tail)))))
+    (cdr result)))
+
+(defun concatenate (result-type &rest sequences)
+  (declare (dynamic-extent sequences))
+  (cond
+    ((subtypep result-type 'null)
+     (let ((total-length (loop for seq in sequences summing (length seq))))
+       (when (not (eql total-length 0))
+         (error "Too many elements for result-type NULL."))
+       nil))
+    ((subtypep result-type 'list)
+     (apply #'%concatenate-list sequences))
+    ((subtypep result-type 'vector)
+     (apply #'%concatenate-vector
+            (upgraded-array-info (vector-type-element-type result-type))
+            sequences))
+    (t (error "Don't understand result-type ~S." result-type))))
 
 (define-compiler-macro every (predicate first-seq &rest more-sequences)
   (let* ((predicate-sym (gensym "PREDICATE"))
@@ -545,7 +589,7 @@
 (defun notevery (predicate first-sequence &rest more-sequences)
   (not (apply 'every predicate first-sequence more-sequences)))
 
-(defun replace (sequence-1 sequence-2 &key (start1 0) end1 (start2 0) end2)
+(defun replace-known-args (sequence-1 sequence-2 start1 end1 start2 end2)
   (unless end1 (setf end1 (length sequence-1)))
   (unless end2 (setf end2 (length sequence-2)))
   (assert (<= 0 start1 end1 (length sequence-1)))
@@ -566,7 +610,7 @@
                    (and (<= start2 start1) (< start1 end2))
                    (and (< start2 end1) (<= end1 end2))))
       (when (eql start1 start2)
-        (return-from replace sequence-1))
+        (return-from replace-known-args sequence-1))
       (setf copy-backwards t))
     (macrolet ((fast-vector (type)
                  `(if (and (typep sequence-1 '(array ,type (*)))
@@ -619,6 +663,10 @@
                       (dotimes (i n)
                         (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i)))))))))))
   sequence-1)
+
+(declaim (inline replace))
+(defun replace (sequence-1 sequence-2 &key (start1 0) end1 (start2 0) end2)
+  (replace-known-args sequence-1 sequence-2 start1 end1 start2 end2))
 
 (defmacro object-type-dispatch (object &body body)
   "Fast CASE on (%OBJECT-TAG object)"
