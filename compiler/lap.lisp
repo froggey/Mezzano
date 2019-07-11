@@ -497,8 +497,20 @@ a vector of constants and an alist of symbols & addresses."
                              (push (cons k v) alist))
                            *symbol-table*)
                   alist)
-                (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
-                       (mapcar 'encode-gc-info (reverse result-gcmd))))))))
+                ;; Avoid (apply #'concatenate ...) here, slower and functions with many GC entries
+                ;; may exceed CALL-ARGUMENTS-LIMIT.
+                (let* ((encoded-gcmd-entries (mapcar 'encode-gc-info (reverse result-gcmd)))
+                       (total-length (loop
+                                        for entry in encoded-gcmd-entries
+                                        summing (length entry)))
+                       (gcmd (make-array total-length :element-type '(unsigned-byte 8))))
+                  (loop
+                     with position = 0
+                     for entry in encoded-gcmd-entries
+                     do
+                       (setf (subseq gcmd position) entry)
+                       (incf position (length entry)))
+                  gcmd))))))
 
 (defun emit-d8 (&rest args)
   (dolist (a args)
