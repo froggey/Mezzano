@@ -146,22 +146,21 @@
 
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (when (symbol-global-p symbol)
-    (return-from symbol-value-cell
-      (symbol-global-value-cell symbol)))
-  ;; Walk the special stack, looking for an associated binding.
-  (do ((global-cell (symbol-global-value-cell symbol))
-       (ssp (sys.int::%%special-stack-pointer)
-            (sys.int::%object-ref-t ssp 0)))
-      ((null ssp)
-       ;; Fall back on the global cell.
-       global-cell)
-    (when (eq (sys.int::%object-ref-t ssp 1) global-cell)
-      (return ssp))))
+  (%symbol-value-cell-by-cell (symbol-global-value-cell symbol)))
 
 (defun %symbol-value-cell-by-cell (symbol-value-cell)
-  (declare (notinline symbol-value-cell))
-  (symbol-value-cell (symbol-value-cell-symbol symbol-value-cell)))
+  (let ((symbol (symbol-value-cell-symbol symbol-value-cell)))
+    (when (symbol-global-p symbol)
+      (return-from %symbol-value-cell-by-cell
+        symbol-value-cell))
+    ;; Walk the special stack, looking for an associated binding.
+    (do ((ssp (sys.int::%%special-stack-pointer)
+              (sys.int::%object-ref-t ssp 0)))
+        ((null ssp)
+         ;; Fall back on the global cell.
+         symbol-value-cell)
+      (when (eq (sys.int::%object-ref-t ssp 1) symbol-value-cell)
+        (return ssp)))))
 
 (defun symbol-value (symbol)
   (symbol-value-cell-value (symbol-value-cell symbol)))
