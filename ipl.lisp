@@ -193,6 +193,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;ext4.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
+(sys.int::cal "sys:source;system;lldb.lisp")
 
 ;; Load the desktop image and start the desktop.
 (sys.int::copy-file (merge-pathnames "19377769093_c9cb23b4d3_b.jpg" (user-homedir-pathname))
