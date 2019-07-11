@@ -43,7 +43,10 @@
     mezzano.runtime::%allocate-from-pinned-area
     mezzano.runtime::%allocate-from-wired-area
     mezzano.supervisor::%call-on-wired-stack-without-interrupts
-    mezzano.supervisor::call-with-mutex))
+    mezzano.supervisor::call-with-mutex
+    ;; Hidden to prevent infinite rehash loops, printing instructions can cause GC cycles.
+    sys.int::find-hash-table-slot
+    ))
 
 (defun single-step-wrapper (&rest args &closure call-me)
   (declare (dynamic-extent args))
@@ -208,6 +211,12 @@
                (memref-unsigned-byte-64 sp (1+ i)))))
 
 (defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t))
+  "Trace the execution of FUNCTION.
+If FULL-DUMP is true, then the register state of the thread will be printed each instruction.
+If RUN-FOREVER is false, then TRACE-EXECUTION will prompt to continue execution every few thousand instructions.
+If PRINT-INSTRUCTIONS is true, then every instruction executed will be printed.
+If TRACE-CALL-MODE is true, then calls and returns will be printed in an easy-to-parse way, otherwise they will be printed in a human-readable way.
+If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace program will be hidden."
   (check-type function function)
   (let* ((next-stop-boundary 10000)
          (stopped nil)
