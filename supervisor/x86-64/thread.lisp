@@ -239,6 +239,17 @@
           (thread-wait-item self) :single-step-trap))
     (%reschedule-via-interrupt interrupt-frame))
 
+(defun wait-for-thread-stop (thread)
+  (loop
+     ;; Take the global thread lock when inspecting the state to
+     ;; synchronize properly with STOP-THREAD-FOR-SINGLE-STEP.
+     (let ((sync-state (safe-without-interrupts (thread)
+                         (with-global-thread-lock ()
+                           (thread-state thread)))))
+       (when (member sync-state '(:stopped :dead))
+         (return)))
+     (thread-yield)))
+
 (defun single-step-thread (thread)
   (check-type thread thread)
   (assert (eql (thread-state thread) :stopped))
@@ -249,15 +260,7 @@
                                              (ash 1 8)))
   ;; Resume the thread & wait for it to stop.
   (resume-thread thread :single-step)
-  (loop
-     ;; Take the global thread lock when inspecting the state to
-     ;; synchronize properly with STOP-THREAD-FOR-SINGLE-STEP.
-     (let ((sync-state (safe-without-interrupts (thread)
-                         (with-global-thread-lock ()
-                           (thread-state thread)))))
-       (when (eql sync-state :stopped)
-         (return)))
-     (thread-yield))
+  (wait-for-thread-stop thread)
   ;; Clear the single-step bit.
   (setf (thread-state-rflags thread) (logand (thread-state-rflags thread)
                                              (lognot (ash 1 8))))

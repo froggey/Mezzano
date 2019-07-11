@@ -71,10 +71,7 @@
                  (mezzano.supervisor:thread-state-rip thread) (%object-ref-unsigned-byte-64 #'single-step-wrapper +function-entry-point+))
            (mezzano.supervisor::resume-thread thread)
            ;; Wait for the thread to stop or die.
-           (loop
-              (when (member (mezzano.supervisor::thread-state thread) '(:stopped :dead))
-                (return))
-              (mezzano.supervisor::thread-yield)))
+           (mezzano.supervisor::wait-for-thread-stop thread))
           (t
            (mezzano.supervisor::single-step-thread thread)))))
 
