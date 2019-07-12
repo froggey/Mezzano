@@ -54,7 +54,8 @@
     (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)
     (#.+llf-if+ 'if)
     (#.+llf-else+ 'else)
-    (#.+llf-fi+ 'fi)))
+    (#.+llf-fi+ 'fi)
+    (#.+llf-layout+ 'layout)))
 
 (defun llf-architecture-name (id)
   (case id
