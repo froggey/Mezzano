@@ -89,9 +89,12 @@
               (fn (return-address-to-function rip)))
          (when (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
            (format t "Entered function ~S with arguments ~:S.~%"
-                   (if (eql fn (%funcallable-instance-trampoline))
-                       (mezzano.supervisor:thread-state-rbx-value thread)
-                       (or (function-name fn) fn))
+                   (cond ((eql fn (%funcallable-instance-trampoline))
+                          (mezzano.supervisor:thread-state-rbx-value thread))
+                         ((eql fn (%closure-trampoline))
+                          (mezzano.supervisor:thread-state-r13-value thread))
+                         (t
+                          (or (function-name fn) fn)))
                    (fetch-thread-function-arguments thread))
            (return))
          (when (not (eql fn prev-fn))
@@ -309,9 +312,12 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (terpri))
                                       (t
                                        (format t "Entered function ~S with arguments ~:A.~%"
-                                               (if (eql fn (%funcallable-instance-trampoline))
-                                                   (mezzano.supervisor:thread-state-rbx-value thread)
-                                                   (or (function-name fn) fn))
+                                               (cond ((eql fn (%funcallable-instance-trampoline))
+                                                      (mezzano.supervisor:thread-state-rbx-value thread))
+                                                     ((eql fn (%closure-trampoline))
+                                                      (mezzano.supervisor:thread-state-r13-value thread))
+                                                     (t
+                                                      (or (function-name fn) fn)))
                                                (mapcar #'print-safely-to-string
                                                        (fetch-thread-function-arguments thread))))))
                                (t
