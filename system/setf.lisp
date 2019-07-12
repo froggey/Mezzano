@@ -262,9 +262,18 @@
                  (rest syms))
        ,(first syms))))
 
-;; Just for now.
 (define-setf-expander the (value-type form &environment env)
-  (get-setf-expansion form env))
+  (multiple-value-bind (temp-vars temp-forms store-vars store-form read-form)
+      (get-setf-expansion form env)
+    (let ((the-store-vars (loop for v in store-vars collect (gensym))))
+      (values temp-vars
+              temp-forms
+              the-store-vars
+              `(multiple-value-bind ,store-vars
+                   (the ,value-type (values ,@the-store-vars))
+                 nil
+                 ,store-form)
+              `(the ,value-type ,read-form)))))
 
 (define-setf-expander apply (function &rest arguments &environment env)
   ;; 5.1.2.5 APPLY Forms as Places.
