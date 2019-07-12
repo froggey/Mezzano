@@ -219,8 +219,12 @@
 
 (defvar *compiling-class-constructor* nil)
 
+(sys.int::defglobal *standard-class-constructor-location*)
+
 (defun std-class-constructor (class)
-  (let ((ctor (std-slot-value class 'constructor)))
+  (let ((ctor (if (standard-class-instance-p class)
+                  (standard-instance-access class *standard-class-constructor-location*)
+                  (std-slot-value class 'constructor))))
     (cond ((eql ctor :unsupported)
            (return-from std-class-constructor nil))
           (ctor
@@ -250,6 +254,6 @@
   (std-class-constructor class))
 
 (defun safe-class-constructor (class)
-  (if (std-class-p class)
+  (if (standard-class-instance-p class)
       (std-class-constructor class)
       (class-constructor class)))
