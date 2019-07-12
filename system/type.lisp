@@ -77,12 +77,11 @@
 
 (defun type-specifier-p (name)
   (let ((info (type-info-for name nil)))
-    (let ((info (sys.int::type-info-for name nil)))
-      (and info
-           (or (sys.int::type-info-type-expander info)
-               (sys.int::type-info-compound-type info)
-               (sys.int::type-info-type-symbol info)
-               (sys.int::type-info-maybe-class info))))))
+    (and info
+         (or (type-info-type-expander info)
+             (type-info-compound-type info)
+             (type-info-type-symbol info)
+             (type-info-maybe-class info)))))
 )
 
 (deftype bit ()
