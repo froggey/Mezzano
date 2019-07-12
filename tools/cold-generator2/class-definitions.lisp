@@ -165,6 +165,7 @@
 ;; FIXME: This doesn't quite work with large bytes.
 (defclass byte (t) () (:metaclass built-in-class))
 (defclass sys.int::instance-header (t) () (:metaclass built-in-class))
+(defclass sys.int::interrupt-frame (t) () (:metaclass built-in-class))
 
 (defclass sequence (t) () (:metaclass built-in-class))
 (defclass list (sequence) () (:metaclass built-in-class))
