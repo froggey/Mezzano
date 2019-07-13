@@ -220,21 +220,34 @@
   args)
 
 (defun copy-list-in-area (list &optional area)
-  (check-type list list)
-  (cond (list
-         (do* ((result (cons-in-area nil nil area))
+  (cond ((null list) '())
+        ((consp list)
+         (do* ((result (cons nil nil))
                (tail result)
                (l list (cdr l)))
               ((not (consp l))
                (setf (cdr tail) l)
                (cdr result))
+           (declare (dynamic-extent result))
            (setf (cdr tail) (cons-in-area (car l) nil area)
                  tail (cdr tail))))
         (t
-         nil)))
+         (error 'type-error :datum list :expected-type 'list))))
 
 (defun copy-list (list)
-  (copy-list-in-area list))
+  (cond ((null list) '())
+        ((consp list)
+         (do* ((result (cons nil nil))
+               (tail result)
+               (l list (cdr l)))
+              ((not (consp l))
+               (setf (cdr tail) l)
+               (cdr result))
+           (declare (dynamic-extent result))
+           (setf (cdr tail) (cons (car l) nil)
+                 tail (cdr tail))))
+        (t
+         (error 'type-error :datum list :expected-type 'list))))
 
 ;;; Will be overriden later in the init process.
 (when (not (fboundp 'funcallable-instance-lambda-expression))
