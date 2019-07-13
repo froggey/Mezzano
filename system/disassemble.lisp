@@ -286,6 +286,9 @@
       (dolist (an annotations)
         (format t ", ~A" an)))))
 
+(defun decode-seg (reg)
+  (elt #(:es :cs :ss :ds :fs :gs :invalid :invalid) reg))
+
 (defun decode-gpr8 (reg rex-field)
   (elt #(:al :cl :dl :bl :spl :bpl :sil :dil
          :r8l :r9l :r10l :r11l :r12l :r13l :r14l :r15l)
@@ -700,9 +703,9 @@
     (decode-ev-gv sys.lap-x86:mov16 sys.lap-x86:mov32 sys.lap-x86:mov64)
     (decode-gb-eb sys.lap-x86:mov8)
     (decode-gv-ev sys.lap-x86:mov16 sys.lap-x86:mov32 sys.lap-x86:mov64)
-    (decode-ev-sw sys.lap-x86:movseg)
+    (decode-ev-sw)
     (decode-gv-ev nil sys.lap-x86:lea32 sys.lap-x86:lea64)
-    (decode-sw-ew sys.lap-x86:movseg)
+    (decode-sw-ev)
     (decode-group-1a)
     (decode-xchg+r) ; 90
     (decode-xchg+r)
@@ -1143,6 +1146,11 @@
                     (decode-gpr64 (ldb (byte 3 0) (getf info :opcode))
                                   (rex-b info))))
 
+(defun decode-ib (context info opcode)
+  (declare (ignore info))
+  (make-instruction opcode
+                    (consume-sb8 context)))
+
 (defun decode-iz (context info opcode)
   (declare (ignore info))
   (make-instruction opcode
@@ -1180,8 +1188,32 @@
 (define-modr/m-decoder decode-ev-gv (context info opcode r/m reg)
   (make-instruction opcode r/m reg))
 
+(defun decode-ev-sw (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (make-instruction 'sys.lap-x86:movseg
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64-or-mem r/m (rex-b info)))
+                        (32 (decode-gpr32-or-mem r/m (rex-b info)))
+                        (16 (decode-gpr16-or-mem r/m (rex-b info))))
+                      (decode-seg reg))))
+
+(defun decode-sw-ev (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (make-instruction 'sys.lap-x86:movseg
+                      (decode-seg reg)
+                      (ecase (operand-size info)
+                        (64 (decode-gpr64-or-mem r/m (rex-b info)))
+                        (32 (decode-gpr32-or-mem r/m (rex-b info)))
+                        (16 (decode-gpr16-or-mem r/m (rex-b info)))))))
+
 (define-modr/m-decoder decode-gv-ev-ib (context info opcode r/m reg)
   (let ((imm (consume-sb8 context)))
+    (make-instruction opcode reg r/m imm)))
+
+(define-modr/m-decoder decode-gv-ev-iz (context info opcode r/m reg)
+  (let ((imm (consume-sb32/le context)))
     (make-instruction opcode reg r/m imm)))
 
 (define-modr/m-decoder decode-gv-ev (context info opcode r/m reg)
