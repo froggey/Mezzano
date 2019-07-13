@@ -123,7 +123,9 @@
       (parse-ordinary-lambda-list lambda-list)
     (when (or enable-keys keys allow-other-keys aux)
       (error "&KEYS and &AUX not permitted in define-modify-macro lambda list"))
-    (let ((reference (gensym "PLACE"))
+    ;; Use MAKE-SYMBOL instead of GENSYM to avoid producing a name like PLACE1234.
+    ;; This is visible in the lambda list and is shown by Slime.
+    (let ((reference (make-symbol "PLACE"))
           (env (gensym)))
       `(defmacro ,name (&environment ,env ,reference ,@lambda-list)
          ,documentation
