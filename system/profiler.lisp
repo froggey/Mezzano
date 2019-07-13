@@ -127,7 +127,8 @@
     mezzano.compiler::call-with-metering
     mezzano.supervisor::call-with-mutex
     sys.int::%%closure-trampoline
-    sys.int::%%funcallable-instance-trampoline))
+    sys.int::%%funcallable-instance-trampoline
+    mezzano.runtime::%allocate-object))
 
 (defclass profile-data ()
   ((%data :initarg :data :reader profile-data)))

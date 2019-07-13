@@ -54,7 +54,7 @@
        (apply call-me args)
     (mezzano.supervisor::stop-current-thread)))
 
-(defun safe-single-step-thread (thread)
+(defun safe-single-step-thread (thread &key report-skipped-functions)
   (check-type thread mezzano.supervisor:thread)
   (assert (eql (mezzano.supervisor:thread-state thread) :stopped))
   ;; If the thread is not in the full-save state, then convert it.
@@ -68,7 +68,8 @@
                      fn)
              (mezzano.supervisor::single-step-thread thread)
              (return-from safe-single-step-thread))
-           (format t "Stepping over special function ~S.~%" fn)
+           (when report-skipped-functions
+             (format t "Stepping over special function ~S.~%" fn))
            ;; Point RIP at single-step-wrapper and RBX (&CLOSURE) at the function to wrap.
            (setf (mezzano.supervisor:thread-state-rbx-value thread) fn
                  (mezzano.supervisor:thread-state-rip thread) (%object-ref-unsigned-byte-64 #'single-step-wrapper +function-entry-point+))
@@ -217,7 +218,7 @@
                (memref-unsigned-byte-64 sp i)
                (memref-unsigned-byte-64 sp (1+ i)))))
 
-(defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t))
+(defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t) report-call-counts)
   "Trace the execution of FUNCTION.
 If FULL-DUMP is true, then the register state of the thread will be printed each instruction.
 If RUN-FOREVER is false, then TRACE-EXECUTION will prompt to continue execution every few thousand instructions.
@@ -259,7 +260,9 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
          (single-step-wrapper-sp nil)
          (prestart trim-stepper-noise)
          (entry-sp nil)
-         (fundamental-function (mezzano.disassemble::peel-function function)))
+         (fundamental-function (mezzano.disassemble::peel-function function))
+         (call-counts (make-hash-table :synchronized nil))
+         (execution-counts (make-hash-table :synchronized nil)))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
@@ -277,7 +280,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
               (return))
             (when full-dump
               (dump-thread-state thread))
-            (safe-single-step-thread thread)
+            (safe-single-step-thread thread :report-skipped-functions print-instructions)
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
                   (return-address-to-function rip)
@@ -301,6 +304,14 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                        (when (and prev-fn
                                   (not (eql fn prev-fn)))
                          (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                                (incf (gethash (cond ((eql fn (%funcallable-instance-trampoline))
+                                                      (mezzano.supervisor:thread-state-rbx-value thread))
+                                                     ((eql fn (%closure-trampoline))
+                                                      (mezzano.supervisor:thread-state-r13-value thread))
+                                                     (t
+                                                      fn))
+                                               call-counts
+                                               0))
                                 (cond (trace-call-mode
                                        (write-char #\>)
                                        (write-char #\Space)
@@ -310,7 +321,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (write-char #\Space)
                                        (write (function-name fn))
                                        (terpri))
-                                      (t
+                                      (print-instructions
                                        (format t "Entered function ~S with arguments ~:A.~%"
                                                (cond ((eql fn (%funcallable-instance-trampoline))
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
@@ -330,7 +341,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (write-char #\Space)
                                        (write (function-name prev-fn))
                                        (terpri))
-                                      (t
+                                      (print-instructions
                                        (format t "Returning from function ~S to ~S with results ~:A.~%"
                                                (or (function-name prev-fn) prev-fn)
                                                (or (function-name fn) fn)
@@ -345,13 +356,29 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                              (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
                            (terpri)))
                        (incf instructions-stepped)
+                       (incf (gethash fn execution-counts 0))
                        (setf prev-fn fn)))
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
                            (not (eql offset 16)))
                   (setf prestart t)))))
       (mezzano.supervisor:terminate-thread thread)
       (ignore-errors
-        (mezzano.supervisor::resume-thread thread)))))
+        (mezzano.supervisor::resume-thread thread)))
+    (when report-call-counts
+      (format t "Call counts:~%")
+      (let ((counts '()))
+        (maphash (lambda (fn count)
+                   (push (cons fn count) counts))
+                 call-counts)
+        (setf counts (sort counts #'< :key #'cdr))
+        (loop for (fn . count) in counts do (format t "~S: ~D~%" fn count)))
+      (format t "Instruction counts:~%")
+      (let ((counts '()))
+        (maphash (lambda (fn count)
+                   (push (cons fn count) counts))
+                 execution-counts)
+        (setf counts (sort counts #'< :key #'cdr))
+        (loop for (fn . count) in counts do (format t "~S: ~D~%" fn count))))))
 
 (defun profile-execution (function &key (sample-interval 1/100))
   (check-type function function)
