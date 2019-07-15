@@ -496,7 +496,13 @@
   ())
 
 (defun tcp-listen (local-host local-port &key backlog)
-  (let ((local-ip (mezzano.network:resolve-address local-host)))
+  (let* ((local-ip (mezzano.network:resolve-address local-host))
+         (local-port (if (zerop local-port)
+                         ;; find a suitable port number
+                         (loop :for local-port := (+ (random 32768) 32768)
+                               :do (unless (get-tcp-listener local-ip local-port)
+                                     (return local-port)))
+                         local-port)))
     (multiple-value-bind (host interface)
         (mezzano.network.ip:ipv4-route local-ip)
       (declare (ignore host))
