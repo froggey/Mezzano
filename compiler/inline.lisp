@@ -6,8 +6,7 @@
 (in-package :sys.c)
 
 (defun inline-functions (lambda architecture)
-  (with-metering (:inlining)
-    (il-form lambda architecture)))
+  (il-form lambda architecture))
 
 (defgeneric il-form (form architecture))
 
@@ -141,7 +140,6 @@
   (let ((inlined-form (expand-inline-function form (name form) (arguments form) architecture)))
     (cond (inlined-form
            (change-made)
-           (log-event :inlined-function)
            inlined-form)
           (t form))))
 

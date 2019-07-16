@@ -101,10 +101,7 @@
            #:ast-protected-form
            #:ast-cleanup-function
            #:ast-arguments
-           #:ast-targets
-
-           #:with-metering
-           #:reset-meters)
+           #:ast-targets)
   (:use :cl))
 
 (defpackage :mezzano.compiler.codegen.x86-64

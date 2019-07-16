@@ -7,9 +7,8 @@
 
 (defun simplify (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:simplify-ast)
-    (detect-uses lambda)
-    (simp-form lambda)))
+  (detect-uses lambda)
+  (simp-form lambda))
 
 (defgeneric simp-form (form))
 

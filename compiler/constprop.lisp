@@ -13,10 +13,9 @@
 
 (defun constprop (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:constant-propagation)
-    (detect-uses lambda)
-    (let ((*known-variables* '()))
-      (cp-form lambda))))
+  (detect-uses lambda)
+  (let ((*known-variables* '()))
+    (cp-form lambda)))
 
 (defgeneric cp-form (form))
 

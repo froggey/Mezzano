@@ -7,9 +7,8 @@
   "Simplify lambda lists so that no lambda argument is special and
 so that no &OPTIONAL argument has a non-constant init-form.
 Must be run after keywords have been lowered."
-  (with-metering (:lower-arguments)
-    (lower-arguments-1 form)
-    form))
+  (lower-arguments-1 form)
+  form)
 
 (defgeneric lower-arguments-1 (form))
 

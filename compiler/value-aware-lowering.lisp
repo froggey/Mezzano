@@ -10,9 +10,8 @@
 
 (defun value-aware-lowering (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:value-aware-lowering)
-    (let ((*rename-list* '()))
-      (value-aware-lowering-1 lambda :single))))
+  (let ((*rename-list* '()))
+    (value-aware-lowering-1 lambda :single)))
 
 (defgeneric value-aware-lowering-1 (form mode))
 

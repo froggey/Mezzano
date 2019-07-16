@@ -479,9 +479,8 @@
 
 (defun detect-uses (form)
   "Walk form, refreshing variable use counts & locations."
-  (with-metering (:detect-uses)
-    (detect-uses-1 form)
-    form))
+  (detect-uses-1 form)
+  form)
 
 (defgeneric detect-uses-1 (form))
 

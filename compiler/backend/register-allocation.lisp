@@ -1130,27 +1130,26 @@ Returns the interference graph and the set of spilled virtual registers."
     (values locations slot-classes)))
 
 (defun allocate-registers (backend-function arch &key ordering)
-  (sys.c:with-metering (:backend-register-allocation)
-    (when *log*
-      (format *log* "~S" (format nil "~A" (ir::backend-function-name backend-function))))
-    ;(sb-ext:gc :full t)
-    (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
-      (build-live-ranges allocator)
-      (linear-scan-allocate allocator)
-      (multiple-value-bind (spill-locations stack-layout)
-          (multiple-value-bind (interference-graph spilled-vregs)
-              (build-interference-graph allocator)
-            (assign-stack-slots allocator interference-graph spilled-vregs))
-        (rewrite-after-allocation allocator)
-        (cond ((= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
-               (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
-              (t
-               (rebuild-debug-map allocator)))
-        (when *log*
-          (terpri *log*)
-          (finish-output *log*))
-        ;; Return the updated debug map and the stack layout.
-        (values (allocator-debug-variable-value-map allocator)
-                spill-locations
-                stack-layout
-                allocator)))))
+  (when *log*
+    (format *log* "~S" (format nil "~A" (ir::backend-function-name backend-function))))
+  ;(sb-ext:gc :full t)
+  (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
+    (build-live-ranges allocator)
+    (linear-scan-allocate allocator)
+    (multiple-value-bind (spill-locations stack-layout)
+        (multiple-value-bind (interference-graph spilled-vregs)
+            (build-interference-graph allocator)
+          (assign-stack-slots allocator interference-graph spilled-vregs))
+      (rewrite-after-allocation allocator)
+      (cond ((= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
+             (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
+            (t
+             (rebuild-debug-map allocator)))
+      (when *log*
+        (terpri *log*)
+        (finish-output *log*))
+      ;; Return the updated debug map and the stack layout.
+      (values (allocator-debug-variable-value-map allocator)
+              spill-locations
+              stack-layout
+              allocator))))
