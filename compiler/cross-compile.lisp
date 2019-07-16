@@ -1208,7 +1208,7 @@
             (pathname-type p))))
 
 (defun function-inline-info (name)
-  (values (gethash name cross-support::*inline-modes*)
+  (values (eql (gethash name cross-support::*inline-modes*) t)
           (gethash name cross-support::*inline-forms*)))
 
 (defun sys.int::convert-structure-class-to-structure-definition (def)

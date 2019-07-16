@@ -176,6 +176,9 @@
     (notinline
      (dolist (name (rest declaration-specifier))
        (setf (gethash name *inline-modes*) nil)))
+    (sys.int::maybe-inline
+     (dolist (name (rest declaration-specifier))
+       (setf (gethash name *inline-modes*) :maybe)))
     (type
      (destructuring-bind (typespec &rest vars)
          (rest declaration-specifier)

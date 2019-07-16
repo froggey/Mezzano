@@ -24,8 +24,8 @@
            (entry (gethash name-root table)))
       (when (and (not entry) create)
         (let ((new-entry (make-function-info)))
-             (setf entry (or (cas (gethash name-root table) nil new-entry)
-                             new-entry))))
+          (setf entry (or (cas (gethash name-root table) nil new-entry)
+                          new-entry))))
       entry)))
 
 (defun proclaim-symbol-mode (symbol new-mode)
@@ -68,6 +68,11 @@
        (setf (function-info-inline-mode
               (function-info-for name))
              nil)))
+    (maybe-inline
+     (dolist (name (rest declaration-specifier))
+       (setf (function-info-inline-mode
+              (function-info-for name))
+             :maybe)))
     (type
      (destructuring-bind (typespec &rest vars)
          (rest declaration-specifier)
@@ -100,7 +105,7 @@
 (defun sys.c::function-inline-info (name)
   (let ((info (function-info-for name nil)))
     (if info
-        (values (function-info-inline-mode info)
+        (values (eql (function-info-inline-mode info) 't)
                 (function-info-inline-form info))
         (values nil nil))))
 
@@ -200,7 +205,7 @@
   (cond (environment
          (sys.c::compiler-macro-function-in-environment name environment))
         (t
-         (let ((info (function-info-for name)))
+         (let ((info (function-info-for name nil)))
            (if info
                (function-info-compiler-macro info)
                nil)))))
