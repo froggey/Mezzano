@@ -378,7 +378,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                    (push (cons fn count) counts))
                  execution-counts)
         (setf counts (sort counts #'< :key #'cdr))
-        (loop for (fn . count) in counts do (format t "~S: ~D~%" fn count))))))
+        (loop for (fn . count) in counts do (format t "~S: ~D ~D%~%" fn count (* (/ count instructions-stepped) 100.0)))))))
 
 (defun profile-execution (function &key (sample-interval 1/100))
   (check-type function function)
