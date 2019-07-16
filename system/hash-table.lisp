@@ -19,6 +19,8 @@
   (synchronized t)
   (lock (error "No lock provided.")))
 
+(declaim (inline %make-hash-table))
+
 (defun hash-table-size (hash-table)
   (ash (%object-header-data (hash-table-storage hash-table)) -1))
 
