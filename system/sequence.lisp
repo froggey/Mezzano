@@ -402,7 +402,7 @@
 ;; Heapsort implementation from https://en.wikipedia.org/wiki/Heapsort
 (defun sort-vector (sequence predicate key)
   (labels ((i-parent (i)
-             (floor (1- i) 2))
+             (truncate (1- i) 2))
            (i-left-child (i)
              (+ (* i 2) 1))
            (i-right-child (i)
@@ -413,7 +413,9 @@
                     (sift-down start (1- (length sequence)))
                     (decf start))))
            (cmp (a b)
-             (funcall predicate (funcall key (aref sequence a)) (funcall key (aref sequence b))))
+             (funcall predicate
+                      (funcall key (aref sequence a))
+                      (funcall key (aref sequence b))))
            (sift-down (start end)
              (let ((root start))
                (loop while (<= (i-left-child root) end) do
