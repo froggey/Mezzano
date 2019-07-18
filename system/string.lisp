@@ -5,6 +5,9 @@
 
 (in-package :sys.int)
 
+(deftype string-designator ()
+  `(or string symbol character))
+
 (defun string (x)
   (etypecase x
     (string x)

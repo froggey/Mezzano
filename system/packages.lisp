@@ -49,16 +49,28 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (setq *package* (find-package-or-die ',name))))
 
+(deftype package-designator ()
+  `(or package (and string-designator (satisfies package-designator-p))))
+
+(defun package-designator-p (object)
+  (or (packagep object)
+      (and (typep object 'string-designator)
+           (find-package object))))
+
 (defun find-global-package (name)
+  (check-type name (or package string-designator))
   (if (packagep name)
       name
       (cdr (assoc (string name) *package-list* :test 'string=))))
 
 (defun find-global-package-or-die (name)
   (or (find-global-package name)
-      (error "No package named ~S." name)))
+      (error 'unknown-package-error
+             :datum name
+             :expected-type 'package-designator)))
 
 (defun find-package (name)
+  (check-type name (or package string-designator))
   (cond ((packagep name)
          name)
         ((not (and (boundp '*package*)
@@ -74,7 +86,9 @@
 
 (defun find-package-or-die (name)
   (or (find-package name)
-      (error "No package named ~S." name)))
+      (error 'unknown-package-error
+             :datum name
+             :expected-type 'package-designator)))
 
 (defun use-one-package (package-to-use package)
   (when (eql package-to-use *keyword-package*)

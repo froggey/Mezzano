@@ -152,6 +152,12 @@
 (define-condition simple-type-error (simple-condition type-error)
   ())
 
+(define-condition unknown-package-error (type-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "No package named ~S"
+                     (type-error-datum condition)))))
+
 (define-condition unbound-variable (cell-error)
   ()
   (:report (lambda (condition stream)
