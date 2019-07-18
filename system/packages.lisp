@@ -373,13 +373,18 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-symbols ((var &optional (package '*package*) result-form) &body body)
-  `(block nil
-     (map-symbols (lambda (,var) (tagbody ,@body)) ,package)
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-symbols (lambda (,var)
+                      (declare ,@declares)
+                      (tagbody ,@body-forms))
+                    ,package)
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun map-external-symbols (fn package)
   (with-package-iterator (itr (list package) :external)
@@ -388,13 +393,18 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
-  `(block nil
-     (map-external-symbols (lambda (,var) (tagbody ,@body)) ,package)
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-external-symbols (lambda (,var)
+                               (declare ,@declares)
+                               (tagbody ,@body-forms))
+                             ,package)
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun map-all-symbols (fn)
   (with-package-iterator (itr (list-all-packages) :internal :external)
@@ -403,13 +413,17 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-all-symbols ((var &optional result-form) &body body)
-  `(block nil
-     (map-all-symbols (lambda (,var) (tagbody ,@body)))
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-all-symbols (lambda (,var)
+                          (declare ,@declares)
+                          (tagbody ,@body-forms)))
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun find-all-symbols (string)
   (setf string (string string))
@@ -604,15 +618,6 @@
     (setf (package-%name package) new-name
           (package-%nicknames package) new-nicknames))
   package)
-
-(defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
-  (let ((name-sym (gensym "name")))
-    `(block nil
-       (maphash (lambda (,name-sym ,var)
-                  (declare (ignore ,name-sym))
-                  ,@body)
-                (package-%external-symbols (find-package-or-die ,package)))
-       ,result-form)))
 
 (defun shadow-one-symbol (symbol-name package)
   (multiple-value-bind (symbol presentp)
