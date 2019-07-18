@@ -11,7 +11,7 @@
 (defvar *arp-expiration-time* 600)
 (defvar *arp-expiration-timer* nil)
 ;;; The ARP table is a list of lists. Each list holds:
-;;; (protocol-type protocol-address network-address age)
+;;; (protocol-type protocol-address network-address expiration-time)
 (defvar *arp-table* '())
 (defvar *arp-lock* (mezzano.supervisor:make-mutex "ARP routing table."))
 
