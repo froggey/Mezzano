@@ -98,6 +98,9 @@
   ((package :initarg :package
             :reader package-error-package)))
 
+(define-condition simple-package-error (simple-condition package-error)
+  ())
+
 (define-condition parse-error (error)
   ())
 
@@ -152,7 +155,7 @@
 (define-condition simple-type-error (simple-condition type-error)
   ())
 
-(define-condition unknown-package-error (type-error)
+(define-condition unknown-package-error (type-error package-error)
   ()
   (:report (lambda (condition stream)
              (format stream "No package named ~S"
