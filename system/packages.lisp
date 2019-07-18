@@ -104,6 +104,20 @@
         (use-one-package (find-package-or-die packages-to-use) p)))
   t)
 
+(defun unuse-one-package (package-to-unuse package)
+  (setf (package-%use-list package)
+        (remove package-to-unuse (package-%use-list package)))
+  (setf (package-%used-by-list package-to-unuse)
+        (remove package (package-%used-by-list package-to-unuse))))
+
+(defun unuse-package (packages-to-unuse &optional (package *package*))
+  (let ((package (find-package-or-die package)))
+    (if (listp packages-to-unuse)
+        (dolist (unuse-package packages-to-unuse)
+          (unuse-one-package (find-package-or-die unuse-package) package))
+        (unuse-one-package (find-package-or-die packages-to-unuse) package)))
+  t)
+
 (defun make-package (package-name &key nicknames use)
   (when (find-global-package package-name)
     (error "A package named ~S already exists." package-name))
