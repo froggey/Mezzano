@@ -927,78 +927,124 @@
         ((consp object)
          'cons)
         ((%value-has-tag-p object +tag-object+)
-         (ecase (%object-tag object)
-           (#b000000 `(simple-vector ,(array-dimension object 0)))
-           (#b000001 `(simple-array fixnum (,(array-dimension object 0))))
-           (#b000010 `(simple-bit-vector ,(array-dimension object 0)))
-           (#b000011 `(simple-array (unsigned-byte 2) (,(array-dimension object 0))))
-           (#b000100 `(simple-array (unsigned-byte 4) (,(array-dimension object 0))))
-           (#b000101 `(simple-array (unsigned-byte 8) (,(array-dimension object 0))))
-           (#b000110 `(simple-array (unsigned-byte 16) (,(array-dimension object 0))))
-           (#b000111 `(simple-array (unsigned-byte 32) (,(array-dimension object 0))))
-           (#b001000 `(simple-array (unsigned-byte 64) (,(array-dimension object 0))))
-           (#b001001 `(simple-array (signed-byte 1) (,(array-dimension object 0))))
-           (#b001010 `(simple-array (signed-byte 2) (,(array-dimension object 0))))
-           (#b001011 `(simple-array (signed-byte 4) (,(array-dimension object 0))))
-           (#b001100 `(simple-array (signed-byte 8) (,(array-dimension object 0))))
-           (#b001101 `(simple-array (signed-byte 16) (,(array-dimension object 0))))
-           (#b001110 `(simple-array (signed-byte 32) (,(array-dimension object 0))))
-           (#b001111 `(simple-array (signed-byte 64) (,(array-dimension object 0))))
-           (#b010000 `(simple-array single-float (,(array-dimension object 0))))
-           (#b010001 `(simple-array double-float (,(array-dimension object 0))))
-           (#b010010 `(simple-array short-float (,(array-dimension object 0))))
-           (#b010011 `(simple-array long-float (,(array-dimension object 0))))
-           (#b010100 `(simple-array (complex single-float) (,(array-dimension object 0))))
-           (#b010101 `(simple-array (complex double-float) (,(array-dimension object 0))))
-           (#b010110 `(simple-array (complex short-float) (,(array-dimension object 0))))
-           (#b010111 `(simple-array (complex long-float) (,(array-dimension object 0))))
-           (#b011000 'object-tag-011000)
-           (#b011001 'object-tag-011001)
-           (#b011010 'object-tag-011010)
-           (#b011100 (if (eql (array-rank object) 1)
-                         `(simple-string ,(array-dimension object 0))
-                         `(simple-array character ,(array-dimensions object))))
-           (#b011101 (if (eql (array-rank object) 1)
-                         `(string ,(array-dimension object 0))
-                         `(array character ,(array-dimensions object))))
-           (#b011110 `(simple-array ,(array-element-type object) ,(array-dimensions object)))
-           (#b011111 `(array ,(array-element-type object) ,(array-dimensions object)))
-           (#b100000 'bignum)
-           (#b100001 'ratio)
-           (#b100010 'double-float)
-           (#b100011 'short-float)
-           (#b100100 'long-float)
-           (#b100101 '(complex rational))
-           (#b100110 '(complex single-float))
-           (#b100111 '(complex double-float))
-           (#b101000 '(complex short-float))
-           (#b101001 '(complex long-float))
-           (#b101010 'object-tag-101010)
-           (#b101011 'object-tag-101011)
-           (#b101100 'object-tag-101100)
-           (#b101101 'object-tag-101101)
-           (#b101110 'mezzano.runtime::symbol-value-cell)
-           (#b101111 'mezzano.simd:mmx-vector)
-           (#b110000
+         (case (%object-tag object)
+           (#.+object-tag-array-t+
+            `(simple-vector ,(array-dimension object 0)))
+           (#.+object-tag-array-fixnum+
+            `(simple-array fixnum (,(array-dimension object 0))))
+           (#.+object-tag-array-bit+
+            `(simple-bit-vector ,(array-dimension object 0)))
+           (#.+object-tag-array-unsigned-byte-2+
+            `(simple-array (unsigned-byte 2) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-4+
+            `(simple-array (unsigned-byte 4) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-8+
+            `(simple-array (unsigned-byte 8) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-16+
+            `(simple-array (unsigned-byte 16) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-32+
+            `(simple-array (unsigned-byte 32) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-64+
+            `(simple-array (unsigned-byte 64) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-1+
+            `(simple-array (signed-byte 1) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-2+
+            `(simple-array (signed-byte 2) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-4+
+            `(simple-array (signed-byte 4) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-8+
+            `(simple-array (signed-byte 8) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-16+
+            `(simple-array (signed-byte 16) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-32+
+            `(simple-array (signed-byte 32) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-64+
+            `(simple-array (signed-byte 64) (,(array-dimension object 0))))
+           (#.+object-tag-array-single-float+
+            `(simple-array single-float (,(array-dimension object 0))))
+           (#.+object-tag-array-double-float+
+            `(simple-array double-float (,(array-dimension object 0))))
+           (#.+object-tag-array-short-float+
+            `(simple-array short-float (,(array-dimension object 0))))
+           (#.+object-tag-array-long-float+
+            `(simple-array long-float (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-single-float+
+            `(simple-array (complex single-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-double-float+
+            `(simple-array (complex double-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-short-float+
+            `(simple-array (complex short-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-long-float+
+            `(simple-array (complex long-float) (,(array-dimension object 0))))
+           (#.+object-tag-simple-string+
+            (if (eql (array-rank object) 1)
+                `(simple-string ,(array-dimension object 0))
+                `(simple-array character ,(array-dimensions object))))
+           (#.+object-tag-string+
+            (if (eql (array-rank object) 1)
+                `(string ,(array-dimension object 0))
+                `(array character ,(array-dimensions object))))
+           (#.+object-tag-simple-array+
+            `(simple-array ,(array-element-type object) ,(array-dimensions object)))
+           (#.+object-tag-array+
+            `(array ,(array-element-type object) ,(array-dimensions object)))
+           (#.+object-tag-bignum+
+            'bignum)
+           (#.+object-tag-ratio+
+            'ratio)
+           (#.+object-tag-double-float+
+            'double-float)
+           (#.+object-tag-short-float+
+            'short-float)
+           (#.+object-tag-long-float+
+            'long-float)
+           (#.+object-tag-complex-rational+
+            '(complex rational))
+           (#.+object-tag-complex-single-float+
+            '(complex single-float))
+           (#.+object-tag-complex-double-float+
+            '(complex double-float))
+           (#.+object-tag-complex-short-float+
+            '(complex short-float))
+           (#.+object-tag-complex-long-float+
+            '(complex long-float))
+           (#.+object-tag-symbol-value-cell+
+            'mezzano.runtime::symbol-value-cell)
+           (#.+object-tag-mmx-vector+
+            'mezzano.simd:mmx-vector)
+           (#.+object-tag-symbol+
             (cond ((eql object 'nil) 'null)
                   ((eql object 't) 'boolean)
                   ((keywordp object) 'keyword)
                   (t 'symbol)))
-           (#b110001 'object-tag-110001)
-           (#b110010 'object-tag-110010)
-           (#b110011 'mezzano.simd:sse-vector)
-           (#b110100 'weak-pointer-vector)
-           (#b110101 (class-name (class-of object)))
-           (#b110110 'function-reference)
-           (#b110111 'interrupt-frame)
-           (#b111000 'pinned-cons)
-           (#b111001 'freelist-entry)
-           (#b111010 'weak-pointer)
-           (#b111011 'mezzano.delimited-continuations:delimited-continuation)
-           (#b111100 'compiled-function)
-           (#b111101 (class-name (class-of object)))
-           (#b111110 'closure)
-           (#b111111 'object-tag-111111)))
+           (#.+object-tag-sse-vector+
+            'mezzano.simd:sse-vector)
+           (#.+object-tag-weak-pointer-vector+
+            'weak-pointer-vector)
+           ((#.+object-tag-instance+
+             #.+object-tag-funcallable-instance+)
+            (let* ((class (class-of object))
+                   (name (class-name class)))
+              (if (eql class (find-class name nil))
+                  name
+                  class)))
+           (#.+object-tag-function-reference+
+            'function-reference)
+           (#.+object-tag-interrupt-frame+
+            'interrupt-frame)
+           (#.+object-tag-cons+
+            'pinned-cons)
+           (#.+object-tag-freelist-entry+
+            'freelist-entry)
+           (#.+object-tag-weak-pointer+
+            'weak-pointer)
+           (#.+object-tag-delimited-continuation+
+            'mezzano.delimited-continuations:delimited-continuation)
+           (#.+object-tag-function+
+            'compiled-function)
+           (#.+object-tag-closure+ 'closure)
+           (t
+            `(invalid-object ,(%object-tag object)))))
         ((%value-has-tag-p object +tag-instance-header+)
          'instance-header)
         ;; Invalid objects, these shouldn't be seen in the machine.
@@ -1007,4 +1053,4 @@
         ((%value-has-tag-p object +tag-gc-forward+)
          'gc-forwarding-pointer)
         (t
-         (intern (format nil "TAG-~4,'0B" (%tag-field object)) :sys.int))))
+         `(invalid-value ,(%tag-field object)))))
