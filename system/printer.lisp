@@ -134,33 +134,34 @@
 
 (defun write-case-escaped-string (string stream)
   "Print STRING while obeying readtable case, *PRINT-CASE* and *PRINT-BASE*."
-  (ecase *print-case*
-    (:upcase
-     (let ((need-escaping (or (some (lambda (c)
-                                      (or (and (upper-case-p c)
-                                               (digit-char-p c *print-base*))
-                                          (member c '(#\| #\\))
-                                          (lower-case-p c)))
-                                    string)
-                              (zerop (length string)))))
+  (let ((need-escaping (or (some (lambda (c)
+                                   (or (and (upper-case-p c)
+                                            (digit-char-p c *print-base*))
+                                       (member c '(#\| #\\))
+                                       (lower-case-p c)))
+                                 string)
+                           (zerop (length string)))))
+    (ecase *print-case*
+      (:upcase
        (when need-escaping
          (write-char #\| stream))
        (write-string string stream)
        (when need-escaping
-         (write-char #\| stream))))
-    (:downcase
-     (let ((output-string (make-array (length string) :element-type 'character :adjustable t :fill-pointer 0)))
-       (dotimes (i (length string))
-         (let ((c (char string i)))
-           (cond ((or (and (upper-case-p c)
-                           (digit-char-p c *print-base*))
-                      (member c '(#\| #\\))
-                      (lower-case-p c))
-                  (vector-push-extend #\\ output-string)
-                  (vector-push-extend c output-string))
-                 (t
-                  (vector-push-extend (char-downcase c) output-string)))))
-       (write-string output-string stream)))))
+         (write-char #\| stream)))
+      (:downcase
+       (cond (need-escaping
+              (write-char #\| stream)
+              (write-string string stream)
+              (write-char #\| stream))
+             (t
+              (write-string (string-downcase string) stream))))
+      (:capitalize
+       (cond (need-escaping
+              (write-char #\| stream)
+              (write-string string stream)
+              (write-char #\| stream))
+             (t
+              (write-string (string-capitalize string) stream)))))))
 
 (defun write-symbol (object stream)
   (when (or *print-escape* *print-readably*)
