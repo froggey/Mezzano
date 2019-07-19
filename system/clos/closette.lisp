@@ -554,6 +554,8 @@ the old or new values are expected to be unbound.")
               (find-class-cached 'simple-array))
              ((bit-vector-p x)
               (find-class-cached 'bit-vector))
+             ((vectorp x)
+              (find-class-cached 'vector))
              ((arrayp x)
               (find-class-cached 'array))
              (t
