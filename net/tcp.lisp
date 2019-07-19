@@ -21,6 +21,10 @@
 (defconstant +tcp4-flag-ece+ #b01000000)
 (defconstant +tcp4-flag-cwr+ #b10000000)
 
+;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
+(defparameter +ip-wildcard+ (mezzano.network.ip:make-ipv4-address "0.0.0.0"))
+(defconstant +port-wildcard+ 0)
+
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *tcp-listeners* nil)
@@ -137,8 +141,7 @@
     (when (and (or (mezzano.network.ip:address-equal
                     (tcp-listener-local-ip listener) local-ip)
                    (mezzano.network.ip:address-equal
-                    (mezzano.network.ip:make-ipv4-address "0.0.0.0")
-                    (tcp-listener-local-ip listener)))
+                    (tcp-listener-local-ip listener) +ip-wildcard+))
                (eql (tcp-listener-local-port listener) local-port))
       (return listener))))
 
@@ -496,28 +499,28 @@
   ())
 
 (defun tcp-listen (local-host local-port &key backlog)
-  (let* ((local-ip (mezzano.network:resolve-address local-host))
-         (local-port (if (zerop local-port)
-                         ;; find a suitable port number
-                         (loop :for local-port := (+ (random 32768) 32768)
-                               :do (unless (get-tcp-listener local-ip local-port)
-                                     (return local-port)))
-                         local-port)))
-    (multiple-value-bind (host interface)
-        (mezzano.network.ip:ipv4-route local-ip)
-      (declare (ignore host))
+  (multiple-value-bind (host interface)
+      (mezzano.network.ip:ipv4-route (mezzano.network:resolve-address local-host))
+    (declare (ignore host))
+    (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
       (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
-             (listener (make-instance 'tcp-listener
-                                      :connections (mezzano.sync:make-mailbox
-                                                    :name "TCP Listener"
-                                                    :capacity backlog)
-                                      :local-port local-port
-                                      :local-ip source-address)))
-        (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-          (when (get-tcp-listener-without-lock source-address local-port)
-            (error "Server already listening on port ~D" local-port))
-          (push listener *tcp-listeners*))
-        listener))))
+             (local-port (cond ((= local-port +port-wildcard+)
+                                ;; find a suitable port number
+                                (loop :for local-port := (+ (random 32768) 32768)
+                                      :unless (get-tcp-listener-without-lock source-address local-port)
+                                      :do(return local-port)))
+                               ((get-tcp-listener-without-lock source-address local-port)
+                                (error "Server already listening on port ~D" local-port))
+                               (t
+                                local-port))))
+        (let ((listener (make-instance 'tcp-listener
+                                       :connections (mezzano.sync:make-mailbox
+                                                     :name "TCP Listener"
+                                                     :capacity backlog)
+                                       :local-port local-port
+                                       :local-ip source-address)))
+          (push listener *tcp-listeners*)
+          listener)))))
 
 (defun tcp-accept (listener &key (wait-p t) element-type external-format)
   (let ((connection (mezzano.sync:mailbox-receive
