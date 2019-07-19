@@ -533,7 +533,9 @@
         (make-instance 'ast-let
                        :environment env
                        :bindings (mapcar (lambda (b)
-                                           (list (third b) (pass1-form (wrap-initform-with-the (second b) (third b) declares) env)))
+                                           (list (third b)
+                                                 (wrap-type-check (third b)
+                                                                  (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
                                          variables)
                        :body (pass1-form `(progn ,@body)
                                          (extend-environment env
@@ -598,7 +600,7 @@
               (check-variable-bindable var)
               (setf (body inner) (make-instance 'ast-let
                                                 :environment env
-                                                :bindings (list (list var (pass1-form (wrap-initform-with-the init-form var declares) env)))
+                                                :bindings (list (list var (wrap-type-check var (pass1-form (wrap-initform-with-the init-form var declares) env))))
                                                 :body (make-instance 'ast-quote :value 'nil))
                     inner (body inner)
                     env (extend-environment env
