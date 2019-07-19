@@ -178,6 +178,9 @@
                                          framebuffer end-y 0)
            (mezzano.gui.compositor:damage-window window 0 end-y end-x 16)))))
 
+(defmethod interactive-stream-p ((stream basic-repl))
+  't)
+
 (defun repl-main (&key width height)
   (let* ((fifo (mezzano.supervisor:make-fifo 50))
          (window (mezzano.gui.compositor:make-window fifo (or width 640) (or height 480)))

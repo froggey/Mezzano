@@ -194,6 +194,9 @@
      (when (not (mezzano.supervisor:fifo-pop (input-buffer stream) nil))
        (return))))
 
+(defmethod interactive-stream-p ((stream fancy-repl))
+  't)
+
 (defun repl-main (&optional initial-function title width height)
   (let ((font (mezzano.gui.font:open-font
                mezzano.gui.font:*default-monospace-font*
