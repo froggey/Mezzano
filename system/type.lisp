@@ -767,6 +767,10 @@
 
 (defun typep (object type-specifier &optional environment)
   (declare (notinline find-class)) ; ### Boostrap hack.
+  (when (or (eql type-specifier 'values)
+            (and (consp type-specifier)
+                 (member (first type-specifier) '(values function))))
+    (error "Type specifier ~S cannot be used with TYPEP" type-specifier))
   (when (and (instance-p type-specifier)
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
