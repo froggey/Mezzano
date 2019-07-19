@@ -991,7 +991,9 @@
            (#.+object-tag-simple-array+
             `(simple-array ,(array-element-type object) ,(array-dimensions object)))
            (#.+object-tag-array+
-            `(array ,(array-element-type object) ,(array-dimensions object)))
+            (if (eql (array-rank object) 1)
+                `(vector ,(array-element-type object) ,(array-dimension object 0))
+                `(array ,(array-element-type object) ,(array-dimensions object))))
            (#.+object-tag-bignum+
             'bignum)
            (#.+object-tag-ratio+
