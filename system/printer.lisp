@@ -94,7 +94,7 @@
     (setf float (- float)))
   (multiple-value-bind (integer-part decimal-part)
       (truncate float)
-    (write integer-part :stream stream :base 10)
+    (write integer-part :stream stream :base 10 :radix nil)
     (write-char #\. stream)
     ;; Print the decimal part number-by-number to ensure
     ;; proper leading zeros.
@@ -118,9 +118,9 @@
                                 (truncate val 10)
                               (frob quot (1+ digit-position))
                               (when (>= digit-position trailing-zeros)
-                                (write rem :stream stream :base 10))))))
+                                (write rem :stream stream :base 10 :radix nil))))))
                  (frob adjusted-decimal 0))))))
-  (when (not (eql (type-of float) *read-default-float-format*))
+  (when (not (typep float *read-default-float-format*))
     (etypecase float
       (single-float
        (write-string "F0" stream))
