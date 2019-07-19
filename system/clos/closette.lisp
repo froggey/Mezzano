@@ -745,7 +745,14 @@ Other arguments are included directly."
                      &key
                        &allow-other-keys)
   (apply #'ensure-class-using-class
-         (find-class name nil)
+         ;; Ignore any existing class if the proper name does not
+         ;; match the supplied name.
+         ;; SBCL does this check here in ENSURE-CLASS, CLISP does it
+         ;; in ENSURE-CLASS-USING-CLASS. Both options seem valid.
+         (let ((class (find-class name nil)))
+           (if (and class (eql name (class-name class)))
+               class
+               nil))
          name
          all-keys))
 
