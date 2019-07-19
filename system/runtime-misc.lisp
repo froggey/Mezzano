@@ -274,3 +274,16 @@ The file will only be recompiled if the source is newer than the output file, or
              (defconstant-uneql-name condition)
              (defconstant-uneql-old-value condition)
              (defconstant-uneql-new-value condition)))))
+
+(deftype radix () '(integer 2 36))
+(declaim (type radix *read-base*))
+(declaim (type (member short-float single-float double-float long-float)
+               *read-default-float-format*))
+(declaim (type radix *print-base*))
+(declaim (type (member :upcase :downcase :capitalize) *print-case*))
+(declaim (type (or null (integer 0))
+               *print-length*
+               *print-level*
+               *print-lines*
+               *print-miser-width*
+               *print-right-margin*))
