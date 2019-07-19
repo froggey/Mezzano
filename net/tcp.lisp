@@ -218,7 +218,7 @@
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*))))
 
-(defun tcp4-receive-data (connection data-length end header-length packet seq start state)
+(defun tcp4-receive-data (connection data-length end header-length packet seq start)
   (cond ((= seq (tcp-connection-r-next connection))
          ;; Send data to the user layer
          (if (tcp-connection-rx-data connection)
@@ -318,7 +318,7 @@
                      (logand (+ (tcp-connection-r-next connection) 1)
                              #xFFFFFFFF))
                (tcp4-send-packet connection ack seq nil :ack-p t))
-             (tcp4-receive-data connection data-length end header-length packet seq start :established)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
@@ -351,7 +351,7 @@
                      ((logtest flags +tcp4-flag-ack+)
                       ;; Remote saw our FIN
                       (setf (tcp-connection-state connection) :fin-wait-2))))
-             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-1)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (if (zerop data-length)
@@ -367,7 +367,7 @@
                                  nil)
                (setf (tcp-connection-state connection) :closed)
                (detach-tcp-connection connection))
-             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-2)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:closing
          ;; Waiting for ACK
          (when (and (eql seq (tcp-connection-r-next connection))
