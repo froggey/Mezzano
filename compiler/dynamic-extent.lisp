@@ -55,11 +55,12 @@
   (setf (bindings form) (loop
                            for (var initform) in (bindings form)
                            collect (list var
-                                         (if (and (lexical-variable-p var)
-                                                  (lexical-variable-dynamic-extent var)
-                                                  (typep initform 'ast-call))
-                                             (convert-dx-initializer initform)
-                                             initform))))
+                                         (convert-dx
+                                          (if (and (lexical-variable-p var)
+                                                   (lexical-variable-dynamic-extent var)
+                                                   (typep initform 'ast-call))
+                                              (convert-dx-initializer initform)
+                                              initform)))))
   (setf (body form) (convert-dx (body form)))
   form)
 

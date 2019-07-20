@@ -49,11 +49,10 @@
 
 (defun (setf find-class) (new-value symbol &optional (errorp t) environment)
   (declare (ignore errorp environment))
-  (let ((reference (class-reference symbol)))
-    (cond (new-value
-           (setf (get symbol 'sys.int::maybe-class) t))
-          (t
-           (remprop symbol 'sys.int::maybe-class)))
+  (let ((reference (class-reference symbol))
+        (type-info (sys.int::type-info-for symbol)))
+    (setf (sys.int::type-info-maybe-class type-info)
+          (if new-value t nil))
     (setf (class-reference-class reference) new-value)))
 
 (sys.int::defglobal *next-class-hash-value*)
@@ -142,11 +141,14 @@
           *standard-class-finalized-p-location* (primordial-slot-location-in-layout s-c-layout 'finalized-p)
           *standard-class-precedence-list-location* (primordial-slot-location-in-layout s-c-layout 'precedence-list)
           *standard-class-direct-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'direct-default-initargs)
-          *standard-class-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'default-initargs)))
+          *standard-class-default-initargs-location* (primordial-slot-location-in-layout s-c-layout 'default-initargs)
+          *standard-class-constructor-location* (primordial-slot-location-in-layout s-c-layout 'constructor)))
   (let ((s-e-s-d-layout (primordial-slot-value (find-class 'standard-effective-slot-definition) 'slot-storage-layout)))
     (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
     (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
-          *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location))))
+          *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location)))
+  (let ((b-i-c-layout (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
+    (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list))))
 
 ;; Initial version of class-constructor, replaced after the compiler is loaded.
 (defun safe-class-constructor (class)

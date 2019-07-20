@@ -204,6 +204,10 @@
      (values :pc :pc
              `(:constant-address ,(funcall sys.lap:*function-reference-resolver*
                                            (second address)))))
+    (:symbol-global-cell
+     (values :pc :pc
+             `(:constant-address ,(mezzano.runtime::symbol-global-value-cell
+                                   (second address)))))
     (:object
      (destructuring-bind (base &optional (slot 0))
          (rest address)

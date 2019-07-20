@@ -72,9 +72,23 @@
       (setf (gethash name *inline-forms*) source-lambda))
   nil)
 
+(defun cas-hash-table (key hash-table default old new)
+  ;; This isn't a truely thread-safe implementation, but the cold
+  ;; generator is single threaded anyway.
+  (let ((existing (gethash key hash-table default)))
+    (when (eql old existing)
+      (setf (gethash key hash-table) new))
+    existing))
+
 (defmacro sys.int::cas (place old new)
-  (declare (ignore place old new))
-  `(error "Cross-cas not supported"))
+  ;; As a special cross-build exception, support hash-tables.
+  (cond ((and (consp place)
+              (eql (first place) 'gethash))
+         (destructuring-bind (key hash-table &optional default)
+             (rest place)
+           `(cas-hash-table ,key ,hash-table ,default ,old ,new)))
+        (t
+         `(error "Cross-cas ~S not supported" place))))
 
 (defun sys.int::%defun (name lambda &optional documentation)
   (declare (ignore documentation))
@@ -162,6 +176,9 @@
     (notinline
      (dolist (name (rest declaration-specifier))
        (setf (gethash name *inline-modes*) nil)))
+    (sys.int::maybe-inline
+     (dolist (name (rest declaration-specifier))
+       (setf (gethash name *inline-modes*) :maybe)))
     (type
      (destructuring-bind (typespec &rest vars)
          (rest declaration-specifier)

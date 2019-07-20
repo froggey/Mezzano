@@ -54,7 +54,8 @@
     (#.+llf-symbol-global-value-cell+ 'symbol-global-value-cell)
     (#.+llf-if+ 'if)
     (#.+llf-else+ 'else)
-    (#.+llf-fi+ 'fi)))
+    (#.+llf-fi+ 'fi)
+    (#.+llf-layout+ 'layout)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -156,7 +157,7 @@
     (%read-sequence mc stream)
     ;; Read gc-info bytes.
     (%read-sequence gc-info stream)
-    (make-function-with-fixups tag mc fixups constants gc-info *load-wired*)))
+    (make-function tag mc fixups constants gc-info *load-wired*)))
 
 (defun load-llf-vector (stream stack)
   (let* ((len (load-integer stream))
@@ -175,7 +176,8 @@
        (eql (structure-slot-definition-location x) (structure-slot-definition-location y))))
 
 (defun load-llf-structure-definition (stream stack)
-  (let ((docstring (vector-pop stack))
+  (let ((has-standard-constructor (vector-pop stack))
+        (docstring (vector-pop stack))
         (sealed (vector-pop stack))
         (layout (vector-pop stack))
         (size (vector-pop stack))
@@ -184,7 +186,15 @@
         (slots (vector-pop stack))
         (name (vector-pop stack)))
     ;; Defstruct converts structure definitions to structure classes.
-    (%defstruct (make-struct-definition name slots parent area size layout sealed docstring))))
+    (%defstruct (make-struct-definition name
+                                        slots
+                                        parent
+                                        area
+                                        size
+                                        layout
+                                        sealed
+                                        docstring
+                                        has-standard-constructor))))
 
 (defun load-llf-structure-slot-definition (stream stack)
   (let* ((align (vector-pop stack))

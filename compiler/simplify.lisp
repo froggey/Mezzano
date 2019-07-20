@@ -7,9 +7,8 @@
 
 (defun simplify (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:simplify-ast)
-    (detect-uses lambda)
-    (simp-form lambda)))
+  (detect-uses lambda)
+  (simp-form lambda))
 
 (defgeneric simp-form (form))
 
@@ -1186,11 +1185,11 @@ First return value is a list of elements, second is the final dotted component (
          (change-made)
          (first (arguments form)))
         ;; (list* x . y) => (cons x (list* . y))
-        ((and (eql (name form) 'list)
+        ((and (eql (name form) 'list*)
               (rest (arguments form)))
          (change-made)
          (ast `(call cons ,(first (arguments form))
-                     (call list ,@(rest (arguments form))))
+                     (call list* ,@(rest (arguments form))))
               form))
         ;; (%struct-slot s 'def 'slot) => fast-reader
         ((and (eql (name form) 'sys.int::%struct-slot)

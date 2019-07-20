@@ -27,9 +27,10 @@
    (size :initarg :size :reader structure-definition-size)
    (layout :initarg :layout :accessor structure-definition-layout)
    (sealed :initarg :sealed :reader structure-definition-sealed)
-   (docstring :initarg :docstring :reader structure-definition-docstring)))
+   (docstring :initarg :docstring :reader structure-definition-docstring)
+   (has-standard-constructor :initarg :has-standard-constructor :reader structure-definition-has-standard-constructor)))
 
-(defun sys.int::%make-struct-definition (name slots parent area size layout sealed docstring)
+(defun sys.int::%make-struct-definition (name slots parent area size layout sealed docstring has-standard-constructor)
   (make-instance 'structure-definition
                  :name name
                  :slots slots
@@ -38,7 +39,8 @@
                  :size size
                  :layout layout
                  :sealed sealed
-                 :docstring docstring))
+                 :docstring docstring
+                 :has-standard-constructor has-standard-constructor))
 
 (defun sys.int::structure-definition-p (object)
   (typep object 'structure-definition))
@@ -51,8 +53,8 @@
   area
   instance-slots)
 
-(defun make-struct-definition (name slots parent area size layout sealed docstring)
-  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed docstring))
+(defun make-struct-definition (name slots parent area size layout sealed docstring has-standard-constructor)
+  (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed docstring has-standard-constructor))
          (layout-object (make-layout
                          :class def
                          :obsolete nil
@@ -779,6 +781,7 @@
   ;; TODO: Include layout-instance-slots
   (save-object (sys.int::structure-definition-sealed object) omap stream)
   (save-object (sys.int::structure-definition-docstring object) omap stream)
+  (save-object (sys.int::structure-definition-has-standard-constructor object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object sys.int::layout) omap stream)
@@ -1208,7 +1211,7 @@
             (pathname-type p))))
 
 (defun function-inline-info (name)
-  (values (gethash name cross-support::*inline-modes*)
+  (values (eql (gethash name cross-support::*inline-modes*) t)
           (gethash name cross-support::*inline-forms*)))
 
 (defun sys.int::convert-structure-class-to-structure-definition (def)

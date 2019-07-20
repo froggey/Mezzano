@@ -7,6 +7,10 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
+;; This is also initialized by cold-start.
+;; Initializing here is just for the sake of the cold generator.
+(defvar *setf-expanders* (make-hash-table))
+
 (defun expand-setf-function-call (place environment)
   ;; Generate an expansion for a function call form place.
   (loop
@@ -27,7 +31,7 @@
 (defun get-setf-expansion (place &optional environment)
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-                           (get (car place) 'setf-expander))))
+                           (gethash (car place) *setf-expanders*))))
         (cond
           (expander
            ;; Invoke the exansion function.
@@ -119,7 +123,9 @@
       (parse-ordinary-lambda-list lambda-list)
     (when (or enable-keys keys allow-other-keys aux)
       (error "&KEYS and &AUX not permitted in define-modify-macro lambda list"))
-    (let ((reference (gensym "PLACE"))
+    ;; Use MAKE-SYMBOL instead of GENSYM to avoid producing a name like PLACE1234.
+    ;; This is visible in the lambda list and is shown by Slime.
+    (let ((reference (make-symbol "PLACE"))
           (env (gensym)))
       `(defmacro ,name (&environment ,env ,reference ,@lambda-list)
          ,documentation
@@ -158,7 +164,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander documentation)
   (set-setf-docstring access-fn documentation)
-  (setf (get access-fn 'setf-expander) expander))
+  (setf (gethash access-fn *setf-expanders*) expander))
 )
 
 (define-modify-macro incf (&optional (delta 1)) +)
@@ -258,9 +264,18 @@
                  (rest syms))
        ,(first syms))))
 
-;; Just for now.
 (define-setf-expander the (value-type form &environment env)
-  (get-setf-expansion form env))
+  (multiple-value-bind (temp-vars temp-forms store-vars store-form read-form)
+      (get-setf-expansion form env)
+    (let ((the-store-vars (loop for v in store-vars collect (gensym))))
+      (values temp-vars
+              temp-forms
+              the-store-vars
+              `(multiple-value-bind ,store-vars
+                   (the ,value-type (values ,@the-store-vars))
+                 nil
+                 ,store-form)
+              `(the ,value-type ,read-form)))))
 
 (define-setf-expander apply (function &rest arguments &environment env)
   ;; 5.1.2.5 APPLY Forms as Places.

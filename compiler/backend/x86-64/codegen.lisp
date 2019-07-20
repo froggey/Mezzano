@@ -467,6 +467,22 @@
                                         (t op)))))
     (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
+(defmethod emit-lap (backend-function (instruction x86-cmpxchg-instruction) uses defs)
+  (emit `(lap:mov64 :rax ,(x86-cmpxchg-old instruction)))
+  (emit-gc-info :extra-registers :rax)
+  (when (x86-instruction-prefix instruction)
+    (emit (x86-instruction-prefix instruction)))
+  (if (integerp (x86-cmpxchg-index instruction))
+      (emit `(lap:cmpxchg (:object ,(x86-cmpxchg-object instruction)
+                                   ,(x86-cmpxchg-index instruction))
+                          ,(x86-cmpxchg-new instruction)))
+      (emit `(lap:cmpxchg (:object ,(x86-cmpxchg-object instruction)
+                                   0
+                                   ,(x86-cmpxchg-index instruction)
+                                   4)
+                          ,(x86-cmpxchg-new instruction))))
+  (emit `(lap:mov64 ,(x86-cmpxchg-result instruction) :rax)))
+
 (defun invert-branch (opcode)
   (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
                                    :key 'third))))
@@ -805,25 +821,41 @@
   (let ((contours (ir::dynamic-contours backend-function)))
     ;; Allocate dx-root & stack pointer save slots
     (let ((dx-root (allocate-stack-slots 1))
-          (saved-stack-pointer (allocate-stack-slots 1 :livep nil)))
+          (saved-stack-pointer (allocate-stack-slots 1 :livep nil))
+          (register-only-area (allocate-stack-slots 6)))
       (setf (gethash instruction *saved-multiple-values*)
-            (cons dx-root saved-stack-pointer))
+            (list dx-root saved-stack-pointer register-only-area))
       (dolist (region (gethash instruction contours))
         (when (typep region 'ir:begin-nlx-instruction)
           (push dx-root (gethash region *dx-root-visibility*)))))))
 
 (defmethod emit-lap (backend-function (instruction ir:save-multiple-instruction) uses defs)
   (let* ((save-data (gethash instruction *saved-multiple-values*))
-         (sv-save-area (car save-data))
-         (saved-stack-pointer (cdr save-data))
+         (sv-save-area (first save-data))
+         (saved-stack-pointer (second save-data))
+         (register-only-area (third save-data))
          (save-done (sys.lap:make-label :values-save-done))
-         (save-loop-head (sys.lap:make-label :values-save-loop)))
+         (save-loop-head (sys.lap:make-label :values-save-loop))
+         (full-save (sys.lap:make-label :full-save)))
+    ;; Save RSP, this gets unconditionally restored to simplify other paths.
+    (emit `(lap:mov64 (:stack ,saved-stack-pointer) :rsp))
+    ;; Try a fast register-only save first.
+    (emit `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 5)))
+    (emit `(lap:ja ,full-save))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) :rcx))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 1)) :r8))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 2)) :r9))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 3)) :r10))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 4)) :r11))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 5)) :r12))
+    (emit `(lap:jmp ,save-done))
+    ;; Slow path
+    (emit full-save)
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) nil))
     ;; Allocate an appropriately sized DX simple vector.
     ;; Add one for the header, then round the count up to an even number.
     (emit `(lap:lea64 :rax (:rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 2))))
     (emit `(lap:and64 :rax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (lognot 1))))
-    ;; Save RSP.
-    (emit `(lap:mov64 (:stack ,saved-stack-pointer) :rsp))
     ;; Adjust RSP. rax to raw * 8.
     (emit `(lap:shl64 :rax ,(- 3 sys.int::+n-fixnum-bits+)))
     (emit `(lap:sub64 :rsp :rax))
@@ -879,8 +911,22 @@
 
 (defmethod emit-lap (backend-function (instruction ir:restore-multiple-instruction) uses defs)
   (let* ((save-data (gethash (ir:restore-multiple-context instruction) *saved-multiple-values*))
-         (sv-save-area (car save-data))
-         (saved-stack-pointer (cdr save-data)))
+         (sv-save-area (first save-data))
+         (saved-stack-pointer (second save-data))
+         (register-only-area (third save-data))
+         (full-restore (sys.lap:make-label :values-full-restore))
+         (restore-done (sys.lap:make-label :values-restore-done)))
+    ;; See if the fast register path was used.
+    (emit `(lap:cmp64 (:stack ,(+ register-only-area 0)) nil))
+    (emit `(lap:je ,full-restore))
+    (emit `(lap:mov64 :rcx (:stack ,(+ register-only-area 0))))
+    (emit `(lap:mov64 :r8 (:stack ,(+ register-only-area 1))))
+    (emit `(lap:mov64 :r9 (:stack ,(+ register-only-area 2))))
+    (emit `(lap:mov64 :r10 (:stack ,(+ register-only-area 3))))
+    (emit `(lap:mov64 :r11 (:stack ,(+ register-only-area 4))))
+    (emit `(lap:mov64 :r12 (:stack ,(+ register-only-area 5))))
+    (emit `(lap:jmp ,restore-done))
+    (emit full-restore)
     ;; Create a normal object from the saved dx root.
     (emit `(lap:mov64 :rax (:stack ,sv-save-area)))
     (emit `(lap:lea64 :r8 (:rax ,(- sys.int::+tag-object+
@@ -890,17 +936,23 @@
     (emit `(lap:mov64 :r13 (:function sys.int::values-simple-vector)))
     (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
     (emit-gc-info :multiple-values 0)
-    ;; Kill the dx root and restore the old stack pointer.
+    (emit restore-done)
+    ;; Kill the dx root, restore the old stack pointer, and wipe the register area
     (emit `(lap:mov64 (:stack ,sv-save-area) nil))
-    (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))))
+    (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))
+    (dotimes (i 6)
+      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) nil)))))
 
 (defmethod emit-lap (backend-function (instruction ir:forget-multiple-instruction) uses defs)
   (let* ((save-data (gethash (ir:forget-multiple-context instruction) *saved-multiple-values*))
-         (sv-save-area (car save-data))
-         (saved-stack-pointer (cdr save-data)))
-    ;; Kill the dx root and restore the old stack pointer.
+         (sv-save-area (first save-data))
+         (saved-stack-pointer (second save-data))
+         (register-only-area (third save-data)))
+    ;; Kill the dx root, restore the old stack pointer, and wipe the register area
     (emit `(lap:mov64 (:stack ,sv-save-area) nil))
-    (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))))
+    (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))
+    (dotimes (i 6)
+      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) nil)))))
 
 (defmethod emit-lap (backend-function (instruction ir:multiple-value-bind-instruction) uses defs)
   (loop

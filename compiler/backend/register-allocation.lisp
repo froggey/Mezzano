@@ -3,7 +3,7 @@
 
 (in-package :mezzano.compiler.backend.register-allocator)
 
-(defvar *log* (make-broadcast-stream))
+(defvar *log* nil)
 
 (defgeneric target-argument-registers (target))
 (defgeneric target-return-register (target))
@@ -393,10 +393,11 @@
                                                  real-vreg-ranges)
           (slot-value allocator '%vreg-hints) vreg-move-hint
           (allocator-range-starts allocator) starts)
-    (format *log* ",~D,~D,~D"
-            (length (allocator-remaining-ranges allocator))
-            (hash-table-count (allocator-vreg-to-id-table allocator))
-            (length ordering)))
+    (when *log*
+      (format *log* ",~D,~D,~D"
+              (length (allocator-remaining-ranges allocator))
+              (hash-table-count (allocator-vreg-to-id-table allocator))
+              (length ordering))))
   (when (not ir::*shut-up*)
     (format t "Live ranges: ~:S~%" (allocator-remaining-ranges allocator)))
   (values))
@@ -1092,8 +1093,9 @@ Returns the interference graph and the set of spilled virtual registers."
       (loop for val across result do
            (when (arrayp val)
              (incf size (length val))))
-      (format *log* ",~D,~D"
-              size (length spilled-ranges))
+      (when *log*
+        (format *log* ",~D,~D"
+                size (length spilled-ranges)))
       #+(or)
       (format t "Interference graph has ~:D entries for ~:D spilled ranges~%" size (length spilled-ranges)))
     (values result spilled-vregs)))
@@ -1128,25 +1130,26 @@ Returns the interference graph and the set of spilled virtual registers."
     (values locations slot-classes)))
 
 (defun allocate-registers (backend-function arch &key ordering)
-  (sys.c:with-metering (:backend-register-allocation)
-    (format *log* "~S" (format nil "~A" (ir::backend-function-name backend-function)))
-    ;(sb-ext:gc :full t)
-    (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
-      (build-live-ranges allocator)
-      (linear-scan-allocate allocator)
-      (multiple-value-bind (spill-locations stack-layout)
-          (multiple-value-bind (interference-graph spilled-vregs)
-              (build-interference-graph allocator)
-            (assign-stack-slots allocator interference-graph spilled-vregs))
-        (rewrite-after-allocation allocator)
-        (cond ((= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
-               (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
-              (t
-               (rebuild-debug-map allocator)))
+  (when *log*
+    (format *log* "~S" (format nil "~A" (ir::backend-function-name backend-function))))
+  ;(sb-ext:gc :full t)
+  (let ((allocator (make-linear-allocator backend-function arch :ordering ordering)))
+    (build-live-ranges allocator)
+    (linear-scan-allocate allocator)
+    (multiple-value-bind (spill-locations stack-layout)
+        (multiple-value-bind (interference-graph spilled-vregs)
+            (build-interference-graph allocator)
+          (assign-stack-slots allocator interference-graph spilled-vregs))
+      (rewrite-after-allocation allocator)
+      (cond ((= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
+             (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
+            (t
+             (rebuild-debug-map allocator)))
+      (when *log*
         (terpri *log*)
-        (finish-output *log*)
-        ;; Return the updated debug map and the stack layout.
-        (values (allocator-debug-variable-value-map allocator)
-                spill-locations
-                stack-layout
-                allocator)))))
+        (finish-output *log*))
+      ;; Return the updated debug map and the stack layout.
+      (values (allocator-debug-variable-value-map allocator)
+              spill-locations
+              stack-layout
+              allocator))))

@@ -67,61 +67,60 @@
     (values bb-inputs bb-outputs basic-blocks terminator-to-bb)))
 
 (defun compute-liveness (backend-function target)
-  (sys.c:with-metering (:backend-compute-liveness)
-    (let ((live-in (make-hash-table :test 'eq :synchronized nil))
-          (live-in* (make-hash-table :test 'eq :synchronized nil))
-          (live-out (make-hash-table :test 'eq :synchronized nil))
-          (live-out* (make-hash-table :test 'eq :synchronized nil))
-          (actual-successors (compute-actual-successors backend-function))
-          (mv-regs (list* (mezzano.compiler.backend.register-allocator:target-count-register target)
-                          (mezzano.compiler.backend.register-allocator:target-argument-registers target))))
-      (multiple-value-bind (bb-inputs bb-outputs basic-blocks terminator-to-bb)
-          (compute-basic-block-input-output-sets backend-function mv-regs)
-        ;; Iterate basic-blocks in reverse order, this distantly approximates
-        ;; a reverse post-order traversal of the CFG.
-        (setf basic-blocks (reverse basic-blocks))
-        ;; Iteratively solve for liveness over basic blocks.
-        ;; in[n] = use[n] U (out[n] - def[n])
-        ;; out[n] = union in[s] forall s in successors[n]
-        (loop
-           (dolist (inst basic-blocks)
-             (setf (gethash inst live-in*) (gethash inst live-in)
-                   (gethash inst live-out*) (gethash inst live-out))
-             (let ((uses (gethash inst bb-inputs))
-                   (defs (gethash inst bb-outputs)))
-               (setf (gethash inst live-out) '())
-               (dolist (succ (gethash inst actual-successors))
-                 (setf (gethash inst live-out) (union (gethash inst live-out)
-                                                      (gethash succ live-in))))
-               (setf (gethash inst live-in) (union uses
-                                                   (set-difference (gethash inst live-out)
-                                                                   defs)))))
-           (when (dolist (inst basic-blocks t)
-                   (when (not (and (set-equal (gethash inst live-in) (gethash inst live-in*))
-                                   (set-equal (gethash inst live-out) (gethash inst live-out*))))
-                     (return nil)))
-             (return)))
-        ;; Compute liveness for individual instructions.
-        ;; This requires no iteration as control flow in a basic block is linear.
-        (do-reversed-instructions (inst backend-function)
-          (let ((uses (instruction-inputs inst))
-                (defs (instruction-outputs inst)))
-            (when (produces-multiple-p inst)
-              (setf defs (union defs mv-regs)))
-            (when (consumes-multiple-p inst)
-              (setf uses (union uses mv-regs)))
-            (typecase inst
-              (terminator-instruction
-               ;; Use live-out information from the basic block.
-               (setf (gethash inst live-out)
-                     (gethash (gethash inst terminator-to-bb) live-out)))
-              (t
-               (setf (gethash inst live-out)
-                     (gethash (next-instruction backend-function inst) live-in))))
-            (setf (gethash inst live-in) (union uses
-                                                (set-difference (gethash inst live-out)
-                                                                defs)))))
-        (values live-in live-out)))))
+  (let ((live-in (make-hash-table :test 'eq :synchronized nil))
+        (live-in* (make-hash-table :test 'eq :synchronized nil))
+        (live-out (make-hash-table :test 'eq :synchronized nil))
+        (live-out* (make-hash-table :test 'eq :synchronized nil))
+        (actual-successors (compute-actual-successors backend-function))
+        (mv-regs (list* (mezzano.compiler.backend.register-allocator:target-count-register target)
+                        (mezzano.compiler.backend.register-allocator:target-argument-registers target))))
+    (multiple-value-bind (bb-inputs bb-outputs basic-blocks terminator-to-bb)
+        (compute-basic-block-input-output-sets backend-function mv-regs)
+      ;; Iterate basic-blocks in reverse order, this distantly approximates
+      ;; a reverse post-order traversal of the CFG.
+      (setf basic-blocks (reverse basic-blocks))
+      ;; Iteratively solve for liveness over basic blocks.
+      ;; in[n] = use[n] U (out[n] - def[n])
+      ;; out[n] = union in[s] forall s in successors[n]
+      (loop
+         (dolist (inst basic-blocks)
+           (setf (gethash inst live-in*) (gethash inst live-in)
+                 (gethash inst live-out*) (gethash inst live-out))
+           (let ((uses (gethash inst bb-inputs))
+                 (defs (gethash inst bb-outputs)))
+             (setf (gethash inst live-out) '())
+             (dolist (succ (gethash inst actual-successors))
+               (setf (gethash inst live-out) (union (gethash inst live-out)
+                                                    (gethash succ live-in))))
+             (setf (gethash inst live-in) (union uses
+                                                 (set-difference (gethash inst live-out)
+                                                                 defs)))))
+         (when (dolist (inst basic-blocks t)
+                 (when (not (and (set-equal (gethash inst live-in) (gethash inst live-in*))
+                                 (set-equal (gethash inst live-out) (gethash inst live-out*))))
+                   (return nil)))
+           (return)))
+      ;; Compute liveness for individual instructions.
+      ;; This requires no iteration as control flow in a basic block is linear.
+      (do-reversed-instructions (inst backend-function)
+        (let ((uses (instruction-inputs inst))
+              (defs (instruction-outputs inst)))
+          (when (produces-multiple-p inst)
+            (setf defs (union defs mv-regs)))
+          (when (consumes-multiple-p inst)
+            (setf uses (union uses mv-regs)))
+          (typecase inst
+            (terminator-instruction
+             ;; Use live-out information from the basic block.
+             (setf (gethash inst live-out)
+                   (gethash (gethash inst terminator-to-bb) live-out)))
+            (t
+             (setf (gethash inst live-out)
+                   (gethash (next-instruction backend-function inst) live-in))))
+          (setf (gethash inst live-in) (union uses
+                                              (set-difference (gethash inst live-out)
+                                                              defs)))))
+      (values live-in live-out))))
 
 (defun build-use/def-maps (backend-function)
   (let ((uses (make-hash-table :test 'eq :synchronized nil))

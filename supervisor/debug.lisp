@@ -141,7 +141,9 @@
               (debug-write (thread-name thing) (1+ depth)))
              ((mutex-p thing)
               (debug-write-string " Mutex ")
-              (debug-write (wait-queue-name thing) (1+ depth)))
+              (debug-write (wait-queue-name thing) (1+ depth))
+              (debug-write-string " :Owner ")
+              (debug-write (mutex-owner thing) (1+ depth)))
              ((condition-variable-p thing)
               (debug-write-string " Condition-Variable ")
               (debug-write (wait-queue-name thing) (1+ depth)))
@@ -287,7 +289,9 @@
   ;; Try to bring all the other CPUs to a complete stop before doing anything.
   (setf *debug-magic-button-hold-variable* t)
   (stop-other-cpus-for-debug-magic-button)
+  (debug-print-line "---- Begin magic button dump ----")
   (debug-dump-threads)
+  (debug-print-line "---- End magic button dump ----")
   (setf *debug-magic-button-hold-variable* nil))
 
 (defun panic-1 (things extra)
@@ -372,6 +376,12 @@
 
 (defun sys.int::raise-undefined-function (&rest args sys.int::&fref fref)
   (declare (ignore args))
+  (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))
+    (cond ((consp name)
+           (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
+          (t (panic "Undefined function " (symbol-name name))))))
+
+(defun sys.int::make-deferred-undefined-function (fref)
   (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))
     (cond ((consp name)
            (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))

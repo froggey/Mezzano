@@ -101,10 +101,7 @@
            #:ast-protected-form
            #:ast-cleanup-function
            #:ast-arguments
-           #:ast-targets
-
-           #:with-metering
-           #:reset-meters)
+           #:ast-targets)
   (:use :cl))
 
 (defpackage :mezzano.compiler.codegen.x86-64
@@ -442,6 +439,7 @@
 
            #:thread-thread-pool
            #:thread-pool-block
+           #:inhibit-thread-pool-blocking-hijack
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

@@ -49,16 +49,29 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (setq *package* (find-package-or-die ',name))))
 
+(deftype package-designator ()
+  `(or package (and string-designator (satisfies package-designator-p))))
+
+(defun package-designator-p (object)
+  (or (packagep object)
+      (and (typep object 'string-designator)
+           (find-package object))))
+
 (defun find-global-package (name)
+  (check-type name (or package string-designator))
   (if (packagep name)
       name
       (cdr (assoc (string name) *package-list* :test 'string=))))
 
 (defun find-global-package-or-die (name)
   (or (find-global-package name)
-      (error "No package named ~S." name)))
+      (error 'unknown-package-error
+             :package name
+             :datum name
+             :expected-type 'package-designator)))
 
 (defun find-package (name)
+  (check-type name (or package string-designator))
   (cond ((packagep name)
          name)
         ((not (and (boundp '*package*)
@@ -74,11 +87,17 @@
 
 (defun find-package-or-die (name)
   (or (find-package name)
-      (error "No package named ~S." name)))
+      (error 'unknown-package-error
+             :package name
+             :datum name
+             :expected-type 'package-designator)))
 
 (defun use-one-package (package-to-use package)
   (when (eql package-to-use *keyword-package*)
-    (error "Cannot use the KEYWORD package."))
+    (error 'simple-package-error
+           :package package
+           :format-control "Cannot use the KEYWORD package."
+           :format-arguments '()))
   (pushnew package-to-use (package-%use-list package))
   (pushnew package (package-%used-by-list package-to-use)))
 
@@ -90,12 +109,32 @@
         (use-one-package (find-package-or-die packages-to-use) p)))
   t)
 
+(defun unuse-one-package (package-to-unuse package)
+  (setf (package-%use-list package)
+        (remove package-to-unuse (package-%use-list package)))
+  (setf (package-%used-by-list package-to-unuse)
+        (remove package (package-%used-by-list package-to-unuse))))
+
+(defun unuse-package (packages-to-unuse &optional (package *package*))
+  (let ((package (find-package-or-die package)))
+    (if (listp packages-to-unuse)
+        (dolist (unuse-package packages-to-unuse)
+          (unuse-one-package (find-package-or-die unuse-package) package))
+        (unuse-one-package (find-package-or-die packages-to-unuse) package)))
+  t)
+
 (defun make-package (package-name &key nicknames use)
   (when (find-global-package package-name)
-    (error "A package named ~S already exists." package-name))
+    (error 'simple-package-error
+           :package package-name
+           :format-control "A package named ~S already exists."
+           :format-arguments (list package-name)))
   (dolist (n nicknames)
     (when (find-global-package n)
-      (error "A package named ~S already exists." n)))
+      (error 'simple-package-error
+             :package n
+             :format-control "A package named ~S already exists."
+             :format-arguments (list n))))
   (let ((use-list (mapcar 'find-package use))
         (package (%make-package (string package-name)
                                 (mapcar (lambda (x) (string x)) nicknames))))
@@ -142,7 +181,9 @@
       (ecase existing-mode
         (:inherited
          (restart-case
-             (error "Newly imported symbol ~S conflicts with inherited symbol ~S." symbol existing-symbol)
+             (error 'simple-package-error
+                    :format-control "Newly imported symbol ~S conflicts with inherited symbol ~S."
+                    :format-arguments (list symbol existing-symbol))
            (shadow-symbol ()
              :report "Replace the inherited symbol."
              (shadow (list symbol) package))
@@ -151,7 +192,10 @@
              (return-from import-one-symbol))))
         ((:internal :external)
          (restart-case
-             (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol)
+             (error 'simple-package-error
+                    :package package
+                    :format-control "Newly imported symbol ~S conflicts with present symbol ~S."
+                    :format-arguments (list symbol existing-symbol))
            (unintern-old-symbol ()
              :report "Unintern and replace the old symbol."
              (unintern symbol package))
@@ -186,7 +230,10 @@
                  status
                  (not (member other-symbol (package-%shadowing-symbols q))))
         (restart-case
-            (error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q)
+            (error 'simple-package-error
+                   :package package
+                   :format-control "Newly exported symbol ~S conflicts with symbol ~S in package ~S."
+                   :format-arguments (list symbol other-symbol q))
           (shadow-symbol ()
             :report "Leave the existing symbol as shadowing symbol."
             (shadow (list other-symbol) q))
@@ -213,6 +260,7 @@
   (let* ((name (symbol-name symbol)))
     (multiple-value-bind (sym mode)
         (find-symbol name package)
+      (declare (ignore sym))
       (case mode
         (:external
          ;; Remove the symbol from the external symbols
@@ -221,7 +269,10 @@
          (setf (gethash name (package-%internal-symbols package)) symbol))
         ((:internal :inherited))
         (t
-         (error "Cannot unexport unaccessable symbol ~S for package ~S." symbol package)))))
+         (error 'simple-package-error
+                :package package
+                :format-control "Cannot unexport unaccessable symbol ~S for package ~S."
+                :format-arguments (list symbol package))))))
   t)
 
 (defun unexport (symbols &optional (package *package*))
@@ -300,7 +351,15 @@
   (funcall iterator))
 
 (defmacro with-package-iterator ((name package-list-form &rest symbol-types) &body body)
-  (assert (every (lambda (x) (member x '(:internal :external :inherited))) symbol-types))
+  (when (endp symbol-types)
+    (error 'simple-program-error
+           :format-control "No symbol types specified"
+           :format-arguments '()))
+  (dolist (symbol-type symbol-types)
+    (when (not (member symbol-type '(:internal :external :inherited)))
+      (error 'simple-program-error
+           :format-control "Unknown symbol type ~S"
+           :format-arguments (list symbol-type))))
   (let ((iterator (gensym "PACKAGE-ITERATOR")))
     `(let ((,iterator (make-package-iterator ,package-list-form ',symbol-types)))
        (macrolet ((,name ()
@@ -314,13 +373,18 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-symbols ((var &optional (package '*package*) result-form) &body body)
-  `(block nil
-     (map-symbols (lambda (,var) (tagbody ,@body)) ,package)
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-symbols (lambda (,var)
+                      (declare ,@declares)
+                      (tagbody ,@body-forms))
+                    ,package)
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun map-external-symbols (fn package)
   (with-package-iterator (itr (list package) :external)
@@ -329,13 +393,18 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
-  `(block nil
-     (map-external-symbols (lambda (,var) (tagbody ,@body)) ,package)
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-external-symbols (lambda (,var)
+                               (declare ,@declares)
+                               (tagbody ,@body-forms))
+                             ,package)
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun map-all-symbols (fn)
   (with-package-iterator (itr (list-all-packages) :internal :external)
@@ -344,13 +413,17 @@
             (when (not valid) (return))
             (funcall fn symbol)))))
 
-;; FIXME: Declares
 (defmacro do-all-symbols ((var &optional result-form) &body body)
-  `(block nil
-     (map-all-symbols (lambda (,var) (tagbody ,@body)))
-     (let ((,var nil))
-       (declare (ignorable ,var))
-       ,result-form)))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (map-all-symbols (lambda (,var)
+                          (declare ,@declares)
+                          (tagbody ,@body-forms)))
+       (let ((,var nil))
+         (declare (ignorable ,var)
+                  ,@declares)
+         ,result-form))))
 
 (defun find-all-symbols (string)
   (setf string (string string))
@@ -377,28 +450,32 @@
       (import (list symbol) p)
       (when (eql p *keyword-package*)
         (setf (symbol-mode symbol) :special)
-        (when (not (eq (mezzano.runtime::fast-symbol-value-cell symbol)
-                       (mezzano.runtime::symbol-global-value-cell symbol)))
-          ;; Fault to preserve the state as much as possible.
-          (sys.int::%%unreachable))
         (setf (symbol-value symbol) symbol)
         (setf (symbol-mode symbol) :constant)
         (export (list symbol) p))
       (values symbol nil))))
 
 (defun delete-package (package)
+  (when (and (packagep package)
+             (not (package-%name package)))
+    (return-from delete-package nil))
   (let ((p (find-package-or-die package)))
     (when (package-used-by-list p)
-      (error "Package ~S is in use." package))
+      (error 'simple-package-error
+             :package package
+             :format-control "Package ~S is in use."
+             :format-arguments (list package)))
     ;; Remove the package from the use list.
     (dolist (other (package-use-list p))
       (setf (package-%used-by-list other) (remove p (package-used-by-list other))))
     ;; Remove all symbols.
     (maphash (lambda (name symbol)
+               (declare (ignore name))
                (when (eq (symbol-package symbol) package)
                  (setf (symbol-package symbol) nil)))
              (package-%internal-symbols p))
     (maphash (lambda (name symbol)
+               (declare (ignore name))
                (when (eq (symbol-package symbol) package)
                  (setf (symbol-package symbol) nil)))
              (package-%external-symbols p))
@@ -426,7 +503,10 @@
            (dolist (n nicknames)
              (when (and (find-package n)
                         (not (eql (find-package n) p)))
-               (error "A package named ~S already exists." n)))
+               (error 'simple-package-error
+                      :package p
+                      :format-control "A package named ~S already exists."
+                      :format-arguments (list n))))
            (dolist (n nicknames)
              (pushnew (cons n p) *package-list* :test #'equal)))
           (t (setf p (make-package name :nicknames nicknames))))
@@ -539,21 +619,14 @@
           (package-%nicknames package) new-nicknames))
   package)
 
-(defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
-  (let ((name-sym (gensym "name")))
-    `(block nil
-       (maphash (lambda (,name-sym ,var)
-                  (declare (ignore ,name-sym))
-                  ,@body)
-                (package-%external-symbols (find-package-or-die ,package)))
-       ,result-form)))
-
 (defun shadow-one-symbol (symbol-name package)
   (multiple-value-bind (symbol presentp)
       (gethash symbol-name (package-%internal-symbols package))
+    (declare (ignore symbol))
     (when presentp (return-from shadow-one-symbol)))
   (multiple-value-bind (symbol presentp)
       (gethash symbol-name (package-%external-symbols package))
+    (declare (ignore symbol))
     (when presentp (return-from shadow-one-symbol)))
   (let ((new-symbol (make-symbol symbol-name)))
     (push new-symbol (package-%shadowing-symbols package))

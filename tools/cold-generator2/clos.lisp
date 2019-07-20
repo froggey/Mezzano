@@ -332,10 +332,17 @@
     (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::default-initargs))
           (primordial-compute-default-initargs environment class))
     (cond ((eql (primordial-slot-value (primordial-class-of class) (env:translate-symbol environment 'mezzano.clos::name)) 'structure-class)
-           (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent))
-                 (if (eql (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name)) 'structure-object)
-                     nil
-                     (second (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list))))))
+           (let* ((class-name (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::name)))
+                  (class-initargs (gethash class-name *primordial-class-table*))
+                  (sdef (getf class-initargs :structure-definition)))
+             (cond ((eql class-name 'structure-object)
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent)) nil)
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::has-standard-constructor)) nil))
+                   (t
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent))
+                          (second (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list))))
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::has-standard-constructor))
+                          (env:structure-definition-has-standard-constructor sdef))))))
           (t
            (let ((instance-slots (remove-if-not (lambda (x) (eql (primordial-slot-value x (env:translate-symbol environment 'mezzano.clos::allocation)) :instance))
                                                 (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::effective-slots))))

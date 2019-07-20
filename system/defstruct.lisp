@@ -197,7 +197,12 @@
             named type slot-offsets sealed)))
 
 (defun compute-struct-slot-accessor-and-size (type)
-  (cond ((subtypep type '(unsigned-byte 8))
+  (cond ((eql type 't)
+         ;; Cross compiler hack: Loading type.lisp defines a struct
+         ;; before subtypep is loaded, but all slots have type T,
+         ;; so this bypasses the calls to SUBTYPEP below.
+         (values mezzano.runtime::+location-type-t+ 8))
+        ((subtypep type '(unsigned-byte 8))
          (values mezzano.runtime::+location-type-unsigned-byte-8+ 1))
         ((subtypep type '(unsigned-byte 16))
          (values mezzano.runtime::+location-type-unsigned-byte-16+ 2))
@@ -277,45 +282,47 @@
         (t
          (let ((initargs (gensym "INITARGS"))
                (tmp (gensym "INSTANCE")))
-           `(defun ,name (&rest ,initargs)
-              (declare (dynamic-extent ,initargs))
-              ;; Check for allow-other-keys, invalid keys & odd-length initargs list.
-              (let ((aok nil))
-                (do ((itr ,initargs (cddr itr)))
-                    ((endp itr))
-                  (when (null (cdr itr))
-                    (error "Odd number of arguments")))
-                (do ((itr ,initargs (cddr itr)))
-                    ((endp itr))
-                  (when (eql (car itr) :allow-other-keys)
-                    (setf aok (cadr itr))
-                    (return)))
-                (when (not aok)
+           `(progn
+              (declaim (maybe-inline ,name))
+              (defun ,name (&rest ,initargs)
+                (declare (dynamic-extent ,initargs))
+                ;; Check for allow-other-keys, invalid keys & odd-length initargs list.
+                (let ((aok nil))
                   (do ((itr ,initargs (cddr itr)))
                       ((endp itr))
-                    (when (not (member (car itr) ',(loop
-                                                      for s in (structure-definition-slots struct-type)
-                                                      collect (intern (symbol-name (structure-slot-definition-name s)) "KEYWORD"))))
-                      (error "Invalid initarg ~S" (car itr))))))
-              (let ((,tmp (%allocate-struct ',struct-name)))
-                ,@(loop
-                     for s in (structure-definition-slots struct-type)
-                     collect (if (structure-slot-definition-fixed-vector s)
-                                 (let ((itr (gensym))
-                                       (value (gensym)))
-                                   `(let ((,value (%get-slot-initarg ,initargs
-                                                                     ,(structure-slot-definition-name s)
-                                                                     ,(structure-slot-definition-type s)
-                                                                     ,(structure-slot-definition-initform s))))
-                                      (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
-                                        (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
-                                              ,value))))
-                                 `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
-                                        (%get-slot-initarg ,initargs
-                                                           ,(structure-slot-definition-name s)
-                                                           ,(structure-slot-definition-type s)
-                                                           ,(structure-slot-definition-initform s)))))
-                ,tmp))))))
+                    (when (null (cdr itr))
+                      (error "Odd number of arguments")))
+                  (do ((itr ,initargs (cddr itr)))
+                      ((endp itr))
+                    (when (eql (car itr) :allow-other-keys)
+                      (setf aok (cadr itr))
+                      (return)))
+                  (when (not aok)
+                    (do ((itr ,initargs (cddr itr)))
+                        ((endp itr))
+                      (when (not (member (car itr) ',(loop
+                                                        for s in (structure-definition-slots struct-type)
+                                                        collect (intern (symbol-name (structure-slot-definition-name s)) "KEYWORD"))))
+                        (error "Invalid initarg ~S" (car itr))))))
+                (let ((,tmp (%allocate-struct ',struct-name)))
+                  ,@(loop
+                       for s in (structure-definition-slots struct-type)
+                       collect (if (structure-slot-definition-fixed-vector s)
+                                   (let ((itr (gensym))
+                                         (value (gensym)))
+                                     `(let ((,value (%get-slot-initarg ,initargs
+                                                                       ,(structure-slot-definition-name s)
+                                                                       ,(structure-slot-definition-type s)
+                                                                       ,(structure-slot-definition-initform s))))
+                                        (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
+                                          (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
+                                                ,value))))
+                                   `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
+                                          (%get-slot-initarg ,initargs
+                                                             ,(structure-slot-definition-name s)
+                                                             ,(structure-slot-definition-type s)
+                                                             ,(structure-slot-definition-initform s)))))
+                  ,tmp)))))))
 
 (defun generate-defstruct-constructor (struct-name struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -333,34 +340,36 @@
                                    (mapcar #'first aux)))
            (default-slots (set-difference (mapcar #'structure-slot-definition-name (structure-definition-slots struct-type)) assigned-slots))
            (tmp (gensym)))
-      `(defun ,name ,lambda-list
-         ,@(loop
-              for s in (structure-definition-slots struct-type)
-              when (not (member (structure-slot-definition-name s) default-slots))
-              collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
-         (let ((,tmp (%allocate-struct ',struct-name)))
+      `(progn
+         (declaim (maybe-inline ,name))
+         (defun ,name ,lambda-list
            ,@(loop
                 for s in (structure-definition-slots struct-type)
-                collect (if (structure-slot-definition-fixed-vector s)
-                            (let ((itr (gensym))
-                                  (value (gensym)))
-                              `(let ((,value ,(if (member (structure-slot-definition-name s) default-slots)
-                                                  (let ((val (gensym (string (structure-slot-definition-name s)))))
-                                                    `(let ((,val ,(structure-slot-definition-initform s)))
-                                                       (check-type ,val ,(structure-slot-definition-type s))
-                                                       ,val))
-                                                  (structure-slot-definition-name s))))
-                                 (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
-                                   (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
-                                         ,value))))
-                            `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
-                                   ,(if (member (structure-slot-definition-name s) default-slots)
-                                        (let ((val (gensym (string (structure-slot-definition-name s)))))
-                                          `(let ((,val ,(structure-slot-definition-initform s)))
-                                             (check-type ,val ,(structure-slot-definition-type s))
-                                             ,val))
-                                        (structure-slot-definition-name s)))))
-           ,tmp)))))
+                when (not (member (structure-slot-definition-name s) default-slots))
+                collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
+           (let ((,tmp (%allocate-struct ',struct-name)))
+             ,@(loop
+                  for s in (structure-definition-slots struct-type)
+                  collect (if (structure-slot-definition-fixed-vector s)
+                              (let ((itr (gensym))
+                                    (value (gensym)))
+                                `(let ((,value ,(if (member (structure-slot-definition-name s) default-slots)
+                                                    (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                                      `(let ((,val ,(structure-slot-definition-initform s)))
+                                                         (check-type ,val ,(structure-slot-definition-type s))
+                                                         ,val))
+                                                    (structure-slot-definition-name s))))
+                                   (dotimes (,itr ,(structure-slot-definition-fixed-vector s))
+                                     (setf (%struct-vector-slot ,tmp ',struct-name ',(structure-slot-definition-name s) ,itr)
+                                           ,value))))
+                              `(setf (%struct-slot ,tmp ',struct-name ',(structure-slot-definition-name s))
+                                     ,(if (member (structure-slot-definition-name s) default-slots)
+                                          (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                            `(let ((,val ,(structure-slot-definition-initform s)))
+                                               (check-type ,val ,(structure-slot-definition-type s))
+                                               ,val))
+                                          (structure-slot-definition-name s)))))
+             ,tmp))))))
 
 (defun generate-defstruct-list/vector-constructor (leader-name slots name lambda-list construction-function)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -496,7 +505,15 @@
                                  slot-descriptions
                                  included-structure
                                  included-slot-descriptions)
-      (let ((struct-type (make-struct-definition name slots included-structure area size layout sealed docstring)))
+      (let ((struct-type (make-struct-definition name
+                                                 slots
+                                                 included-structure
+                                                 area
+                                                 size
+                                                 layout
+                                                 sealed
+                                                 docstring
+                                                 (some #'symbolp constructors))))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))

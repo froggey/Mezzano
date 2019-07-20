@@ -38,6 +38,18 @@
                   (apply #'thread-pool-block ,pool ',function-name ,@arguments)))
            (setf (thread-thread-pool ,self) ,pool))))))
 
+(defmacro inhibit-thread-pool-blocking-hijack (&body body)
+  "Run body with the thread's thread-pool unset."
+  (let ((self (gensym "SELF"))
+        (pool (gensym "POOL")))
+    `(let* ((,self (current-thread))
+            (,pool (thread-thread-pool ,self)))
+       (unwind-protect
+            (progn
+              (setf (thread-thread-pool ,self) nil)
+              ,@body)
+         (setf (thread-thread-pool ,self) ,pool)))))
+
 ;;; Common structure for sleepable things.
 (defstruct (wait-queue
              (:area :wired))
@@ -264,7 +276,8 @@ Handles timeouts properly."
            (cond ((eql ,timeout-sym 0)
                   (,predicate-fn))
                  (,timeout-sym
-                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym
+                                                             :name ,cvar-sym)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
                          (when ,prediate-result-sym (return ,prediate-result-sym)))
@@ -302,7 +315,7 @@ Returns true if a normal or false wakeup occurs, false if a timeout occurs."
                 ;; Make sure to clear the timer's cvar slot before returning it.
                 (setf (timer-cvar timeout) nil)))
              (timeout
-              (with-timer (timer :relative timeout)
+              (with-timer (timer :relative timeout :name condition-variable)
                 (unwind-protect
                      (progn
                        (setf (timer-cvar timer) condition-variable)
@@ -750,7 +763,7 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
            (cond ((eql ,timeout-sym 0)
                   (,predicate-fn))
                  (,timeout-sym
-                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym)
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym :name event)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
                          (when ,prediate-result-sym (return ,prediate-result-sym)))

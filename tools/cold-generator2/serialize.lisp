@@ -173,10 +173,11 @@ Must not call SERIALIZE-OBJECT."))
   (setf (object-slot image object -1) (make-object-header type data)))
 
 (defmethod allocate-object ((object symbol) image environment)
-  (allocate 8 image :wired sys.int::+tag-object+))
+  (allocate 6 image :wired sys.int::+tag-object+))
 
 (defmethod initialize-object ((object symbol) value image environment)
   ;; TODO: Include symbol mode.
+  ;; TODO: Include plist.
   (initialize-object-header image value sys.int::+object-tag-symbol+ 0)
   (setf (object-slot image value sys.int::+symbol-name+)
         (serialize-object (env:cross-symbol-name environment object) image environment))
@@ -184,11 +185,9 @@ Must not call SERIALIZE-OBJECT."))
   (setf (object-slot image value sys.int::+symbol-package+)
         (serialize-object (env:cross-symbol-package environment object) image environment))
   (setf (object-slot image value sys.int::+symbol-value+)
-        (serialize-object (env:symbol-global-value-cell environment object) image environment))
+        (serialize-object (env:symbol-global-value-cell environment object nil) image environment))
   (setf (object-slot image value sys.int::+symbol-function+)
         (serialize-object (env:function-reference environment object nil) image environment))
-  (setf (object-slot image value sys.int::+symbol-plist+)
-        (serialize-object (env:cross-symbol-plist environment object) image environment))
   (setf (object-slot image value sys.int::+symbol-type+)
         (serialize-object (env:cross-symbol-type environment object) image environment)))
 

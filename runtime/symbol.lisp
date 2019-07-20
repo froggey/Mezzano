@@ -57,19 +57,12 @@
 ;; Symbol functions.
 
 (declaim (inline symbolp
-                 symbol-name
-                 symbol-package (setf symbol-package)
-                 symbol-global-value-cell
                  sys.int::symbol-global-value
                  (setf sys.int::symbol-global-value)
                  (sys.int::cas sys.int::symbol-global-value)
                  sys.int::symbol-value
                  (setf sys.int::symbol-value)
                  (sys.int::cas sys.int::symbol-value)
-                 symbol-plist (setf symbol-plist)
-                 boundp makunbound
-                 sys.int::symbol-global-boundp
-                 sys.int::symbol-global-makunbound
                  symbol-global-p
                  symbol-constant-p
                  modifying-symbol-value))
@@ -89,9 +82,26 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (setf (sys.int::%object-ref-t symbol sys.int::+symbol-package+) value))
 
-(defun symbol-global-value-cell (symbol)
+(defun make-symbol-global-value-cell (symbol)
+  (let ((global-value (%allocate-object sys.int::+object-tag-symbol-value-cell+
+                                    4 4 :wired)))
+    (setf (sys.int::%object-ref-t global-value sys.int::+symbol-value-cell-symbol+) global-value)
+    (setf (sys.int::%object-ref-t global-value sys.int::+symbol-value-cell-value+) (sys.int::%unbound-value))
+    (setf (sys.int::%object-ref-t global-value 3) symbol)
+    global-value))
+
+(defun symbol-global-value-cell (symbol &optional (create t))
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
+  (let ((cell (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
+    (or cell
+        (and create
+             (let ((new-cell (make-symbol-global-value-cell symbol)))
+               ;; Try to atomically update the value cell.
+               (multiple-value-bind (successp old-value)
+                   (sys.int::%cas-object symbol sys.int::+symbol-value+ nil new-cell)
+                 (if successp
+                     new-cell
+                     old-value)))))))
 
 (defun symbol-type (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
@@ -130,20 +140,27 @@
          (sys.int::%%unreachable))
        (fast-symbol-value-cell ,sym))))
 
+#+x86-64
+(defun fast-symbol-value-cell (symbol)
+  (fast-symbol-value-cell symbol))
+
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (when (symbol-global-p symbol)
-    (return-from symbol-value-cell
-      (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
-  ;; Walk the special stack, looking for an associated binding.
-  (do ((global-cell (symbol-global-value-cell symbol))
-       (ssp (sys.int::%%special-stack-pointer)
-            (sys.int::%object-ref-t ssp 0)))
-      ((null ssp)
-       ;; Fall back on the global cell.
-       (sys.int::%object-ref-t symbol sys.int::+symbol-value+))
-    (when (eq (sys.int::%object-ref-t ssp 1) global-cell)
-      (return ssp))))
+  (%symbol-value-cell-by-cell (symbol-global-value-cell symbol)))
+
+(defun %symbol-value-cell-by-cell (symbol-value-cell)
+  (let ((symbol (symbol-value-cell-symbol symbol-value-cell)))
+    (when (symbol-global-p symbol)
+      (return-from %symbol-value-cell-by-cell
+        symbol-value-cell))
+    ;; Walk the special stack, looking for an associated binding.
+    (do ((ssp (sys.int::%%special-stack-pointer)
+              (sys.int::%object-ref-t ssp 0)))
+        ((null ssp)
+         ;; Fall back on the global cell.
+         symbol-value-cell)
+      (when (eq (sys.int::%object-ref-t ssp 1) symbol-value-cell)
+        (return ssp)))))
 
 (defun symbol-value (symbol)
   (symbol-value-cell-value (symbol-value-cell symbol)))
@@ -161,31 +178,30 @@
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
                 old new))
 
+(defvar *symbol-plists*
+  (make-hash-table :test #'eq))
+
 (defun symbol-plist (symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (sys.int::%object-ref-t symbol sys.int::+symbol-plist+))
+  (check-type symbol symbol)
+  (values (gethash symbol *symbol-plists*)))
 
 ;; TODO: What kind of type-checking should be done here?
 (defun (setf symbol-plist) (value symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (setf (sys.int::%object-ref-t symbol sys.int::+symbol-plist+) value))
+  (check-type symbol symbol)
+  (if (endp value)
+      (remhash symbol *symbol-plists*)
+      (setf (gethash symbol *symbol-plists*) value))
+  value)
 
 (defun boundp (symbol)
-  (symbol-value-cell-boundp (symbol-value-cell symbol)))
+  (when (symbol-global-value-cell symbol nil)
+    (symbol-value-cell-boundp (symbol-value-cell symbol))))
 
 (defun makunbound (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
-  (symbol-value-cell-makunbound (symbol-value-cell symbol))
-  symbol)
-
-(defun sys.int::symbol-global-boundp (symbol)
-  (symbol-value-cell-boundp (symbol-global-value-cell symbol)))
-
-(defun sys.int::symbol-global-makunbound (symbol)
-  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
-  (modifying-symbol-value symbol)
-  (symbol-value-cell-makunbound (symbol-global-value-cell symbol))
+  (when (symbol-global-value-cell symbol nil)
+    (symbol-value-cell-makunbound (symbol-value-cell symbol)))
   symbol)
 
 (defun symbol-constant-p (symbol)

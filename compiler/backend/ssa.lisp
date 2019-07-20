@@ -44,102 +44,101 @@ Virtual registers must be defined exactly once."
 (defun deconstruct-ssa (backend-function)
   "Deconstruct SSA form, replacing phi nodes with moves."
   (check-ssa backend-function)
-  (sys.c:with-metering (:backend-deconstruct-ssa)
-    (let ((n-moves-inserted 0)
-          (n-phis-converted 0)
-          (uses (build-use/def-maps backend-function))
-          (contours (dynamic-contours backend-function)))
-      (do-instructions (inst backend-function)
-        (when (typep inst 'jump-instruction)
-          ;; Phi nodes have parallel assignment semantics.
-          ;; Try to reduce the number of moves inserted.
-          ;; Before:
-          ;;   jump foo (a c b x)
-          ;;   label foo (a b c d)
-          ;; After:
-          ;;   move t1 b [temporaries generated for parallel assignment]
-          ;;   move t2 c
-          ;;   [move from a to a elided]
-          ;;   move b t2
-          ;;   move c t1
-          ;;   move d x
-          ;;   jump foo ()
-          ;;   label foo ()
-          (labels ((need-debug-update (phi use)
-                     ;; HACK!
-                     ;; Walk backward over update instructions looking for the
-                     ;; label. If this label defines the phi, then a debug
-                     ;; update should be inserted.
-                     ;; This should track debug info instead...
-                     (let ((label use))
-                       (loop
-                          (when (not (typep label 'debug-update-variable-instruction))
-                            (return))
-                          (setf label (prev-instruction backend-function label)))
-                       (and (typep label 'label)
-                            (member phi (label-phis label)))))
-                   (debug-update (phi value)
-                     (let ((inserted-variables '()))
-                       (dolist (use (gethash phi uses))
-                         (when (and (typep use 'debug-update-variable-instruction)
-                                    (member (debug-variable use) (gethash inst contours))
-                                    (not (member (debug-variable use) inserted-variables)))
-                           (push (debug-variable use) inserted-variables)
-                           (when (need-debug-update phi use)
-                             (insert-before backend-function inst
-                                            (make-instance 'debug-update-variable-instruction
-                                                           :variable (debug-variable use)
-                                                           :value value)))))))
-                   (insert-move (phi source dest)
-                     ;; Insert a move related to the eventual value of PHI,
-                     ;; updating debug info along the way.
-                     (insert-before backend-function inst
-                                    (make-instance 'move-instruction
-                                                   :source source
-                                                   :destination dest))
-                     (debug-update phi dest)))
-            (let* ((conflicts (loop
+  (let ((n-moves-inserted 0)
+        (n-phis-converted 0)
+        (uses (build-use/def-maps backend-function))
+        (contours (dynamic-contours backend-function)))
+    (do-instructions (inst backend-function)
+      (when (typep inst 'jump-instruction)
+        ;; Phi nodes have parallel assignment semantics.
+        ;; Try to reduce the number of moves inserted.
+        ;; Before:
+        ;;   jump foo (a c b x)
+        ;;   label foo (a b c d)
+        ;; After:
+        ;;   move t1 b [temporaries generated for parallel assignment]
+        ;;   move t2 c
+        ;;   [move from a to a elided]
+        ;;   move b t2
+        ;;   move c t1
+        ;;   move d x
+        ;;   jump foo ()
+        ;;   label foo ()
+        (labels ((need-debug-update (phi use)
+                   ;; HACK!
+                   ;; Walk backward over update instructions looking for the
+                   ;; label. If this label defines the phi, then a debug
+                   ;; update should be inserted.
+                   ;; This should track debug info instead...
+                   (let ((label use))
+                     (loop
+                        (when (not (typep label 'debug-update-variable-instruction))
+                          (return))
+                        (setf label (prev-instruction backend-function label)))
+                     (and (typep label 'label)
+                          (member phi (label-phis label)))))
+                 (debug-update (phi value)
+                   (let ((inserted-variables '()))
+                     (dolist (use (gethash phi uses))
+                       (when (and (typep use 'debug-update-variable-instruction)
+                                  (member (debug-variable use) (gethash inst contours))
+                                  (not (member (debug-variable use) inserted-variables)))
+                         (push (debug-variable use) inserted-variables)
+                         (when (need-debug-update phi use)
+                           (insert-before backend-function inst
+                                          (make-instance 'debug-update-variable-instruction
+                                                         :variable (debug-variable use)
+                                                         :value value)))))))
+                 (insert-move (phi source dest)
+                   ;; Insert a move related to the eventual value of PHI,
+                   ;; updating debug info along the way.
+                   (insert-before backend-function inst
+                                  (make-instance 'move-instruction
+                                                 :source source
+                                                 :destination dest))
+                   (debug-update phi dest)))
+          (let* ((conflicts (loop
+                               for phi in (label-phis (jump-target inst))
+                               for value in (jump-values inst)
+                               ;; A phi conflicts if it is used as a source or
+                               ;; destination by another value in this jump/label.
+                               when (loop
+                                       for other-phi in (label-phis (jump-target inst))
+                                       for other-value in (jump-values inst)
+                                       when (and (not (eql phi other-phi))
+                                                 (or (eql other-phi value)
+                                                     (eql other-value phi)))
+                                       do (return t)
+                                       finally (return nil))
+                               collect phi))
+                 (real-values (loop
                                  for phi in (label-phis (jump-target inst))
                                  for value in (jump-values inst)
-                                 ;; A phi conflicts if it is used as a source or
-                                 ;; destination by another value in this jump/label.
-                                 when (loop
-                                         for other-phi in (label-phis (jump-target inst))
-                                         for other-value in (jump-values inst)
-                                         when (and (not (eql phi other-phi))
-                                                   (or (eql other-phi value)
-                                                       (eql other-value phi)))
-                                         do (return t)
-                                         finally (return nil))
-                                 collect phi))
-                   (real-values (loop
-                                   for phi in (label-phis (jump-target inst))
-                                   for value in (jump-values inst)
-                                   collect (cond ((member value conflicts)
-                                                  (let ((new-reg (make-instance 'virtual-register :kind (virtual-register-kind phi))))
-                                                    (incf n-moves-inserted)
-                                                    (insert-move phi value new-reg)
-                                                    new-reg))
-                                                 (t
-                                                  value)))))
-              (loop
-                 for phi in (label-phis (jump-target inst))
-                 for value in real-values
-                 do
-                   (cond ((eql phi value)
-                          ;; No change, but insert a debug update anyway.
-                          (debug-update phi value))
-                         (t
-                          (incf n-moves-inserted)
-                          (insert-move phi value phi))))
-              (setf (jump-values inst) '())))))
-      (do-instructions (inst backend-function)
-        (when (typep inst 'label)
-          (incf n-phis-converted (length (label-phis inst)))
-          (setf (label-phis inst) '())))
-      (when (not *shut-up*)
-        (format t "Deconstructed ~D phi variables, inserted ~D moves.~%"
-                n-phis-converted n-moves-inserted)))))
+                                 collect (cond ((member value conflicts)
+                                                (let ((new-reg (make-instance 'virtual-register :kind (virtual-register-kind phi))))
+                                                  (incf n-moves-inserted)
+                                                  (insert-move phi value new-reg)
+                                                  new-reg))
+                                               (t
+                                                value)))))
+            (loop
+               for phi in (label-phis (jump-target inst))
+               for value in real-values
+               do
+                 (cond ((eql phi value)
+                        ;; No change, but insert a debug update anyway.
+                        (debug-update phi value))
+                       (t
+                        (incf n-moves-inserted)
+                        (insert-move phi value phi))))
+            (setf (jump-values inst) '())))))
+    (do-instructions (inst backend-function)
+      (when (typep inst 'label)
+        (incf n-phis-converted (length (label-phis inst)))
+        (setf (label-phis inst) '())))
+    (when (not *shut-up*)
+      (format t "Deconstructed ~D phi variables, inserted ~D moves.~%"
+              n-phis-converted n-moves-inserted))))
 
 (defun test-deconstruct-function ()
   (let* ((x (make-instance 'virtual-register :name :x))
@@ -405,18 +404,17 @@ Virtual registers must be defined exactly once."
 
 (defun construct-ssa (backend-function)
   "Convert locals to SSA registers."
-  (sys.c:with-metering (:backend-construct-ssa)
-    (multiple-value-bind (simple-transforms full-transforms rejected-transforms)
-        (discover-ssa-conversion-candidates backend-function)
-      (when (not *shut-up*)
-        (format t "Directly converting ~:S~%" simple-transforms)
-        (format t "Fully converting ~:S~%" full-transforms)
-        (format t "Rejected converting ~:S~%" rejected-transforms))
-      (let ((debugp (/= (sys.c::optimize-quality (ast backend-function) 'debug) 0)))
-        (when (not (endp simple-transforms))
-          (ssa-convert-simple-locals backend-function simple-transforms debugp))
-        (when (not (endp full-transforms))
-          (ssa-convert-locals backend-function full-transforms debugp))))))
+  (multiple-value-bind (simple-transforms full-transforms rejected-transforms)
+      (discover-ssa-conversion-candidates backend-function)
+    (when (not *shut-up*)
+      (format t "Directly converting ~:S~%" simple-transforms)
+      (format t "Fully converting ~:S~%" full-transforms)
+      (format t "Rejected converting ~:S~%" rejected-transforms))
+    (let ((debugp (/= (sys.c::optimize-quality (ast backend-function) 'debug) 0)))
+      (when (not (endp simple-transforms))
+        (ssa-convert-simple-locals backend-function simple-transforms debugp))
+      (when (not (endp full-transforms))
+        (ssa-convert-locals backend-function full-transforms debugp)))))
 
 (defun remove-unused-phis (backend-function)
   (multiple-value-bind (uses defs)

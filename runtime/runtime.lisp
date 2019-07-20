@@ -144,6 +144,9 @@
                           (car values)
                           (%unbound-value))))
            (check-type symbol symbol)
+           (mezzano.runtime::modifying-symbol-value symbol)
+           (when values
+             (mezzano.runtime::check-symbol-value-type value symbol))
            (%%bind (mezzano.runtime::symbol-global-value-cell symbol) value)
            (multiple-value-prog1
                (%progv (cdr symbols) (cdr values) fn)

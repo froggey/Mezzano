@@ -479,9 +479,8 @@
 
 (defun detect-uses (form)
   "Walk form, refreshing variable use counts & locations."
-  (with-metering (:detect-uses)
-    (detect-uses-1 form)
-    form))
+  (detect-uses-1 form)
+  form)
 
 (defgeneric detect-uses-1 (form))
 
@@ -622,6 +621,14 @@
                                  (lexical-variable-name variable)
                                  variable)
                              (unparse-compiler-form init-form)))
+        ,@(if (some (lambda (x) (and (typep (first x) 'lexical-variable)
+                                     (lexical-variable-dynamic-extent (first x))))
+                    (bindings form))
+              (list `(declare (dynamic-extent ,@(loop for (variable init-form) in (bindings form)
+                                                   when (and (typep variable 'lexical-variable)
+                                                             (lexical-variable-dynamic-extent variable))
+                                                   collect (lexical-variable-name variable)))))
+              '())
         ,(unparse-compiler-form (body form))))
     (ast-multiple-value-bind
      `(multiple-value-bind ,(mapcar #'unparse-compiler-form (bindings form))

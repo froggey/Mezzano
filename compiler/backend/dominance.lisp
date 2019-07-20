@@ -162,27 +162,26 @@
     tree))
 
 (defun compute-dominance (backend-function)
-  (sys.c:with-metering (:backend-compute-dominance)
-    (multiple-value-bind (basic-blocks bb-preds bb-succs)
-        (mezzano.compiler.backend::build-cfg backend-function)
-      (let ((dominance (make-instance 'dominance)))
-        (cond (*use-simple-dominator-algorithm*
-               (let ((dominators (build-dominator-sets backend-function basic-blocks bb-preds)))
-                 (setf (slot-value dominance '%dominators) dominators)
-                 (multiple-value-bind (dom-tree idoms)
-                     (build-dominator-tree backend-function basic-blocks dominators)
-                   (setf (slot-value dominance '%dominator-tree) dom-tree)
-                   (setf (slot-value dominance '%immediate-dominators) idoms))))
-              (t
-               (let ((idoms (lengauer-tarjan-dominators (first basic-blocks) bb-preds bb-succs)))
-                 (setf (slot-value dominance '%immediate-dominators) idoms)
-                 (setf (slot-value dominance '%dominator-tree) (build-dom-tree-from-idoms idoms)))))
-        (setf (slot-value dominance '%dominance-frontier)
-              (build-dominance-frontier backend-function
-                                        (slot-value dominance '%dominator-tree)
-                                        (slot-value dominance '%immediate-dominators)
-                                        bb-succs))
-        dominance))))
+  (multiple-value-bind (basic-blocks bb-preds bb-succs)
+      (mezzano.compiler.backend::build-cfg backend-function)
+    (let ((dominance (make-instance 'dominance)))
+      (cond (*use-simple-dominator-algorithm*
+             (let ((dominators (build-dominator-sets backend-function basic-blocks bb-preds)))
+               (setf (slot-value dominance '%dominators) dominators)
+               (multiple-value-bind (dom-tree idoms)
+                   (build-dominator-tree backend-function basic-blocks dominators)
+                 (setf (slot-value dominance '%dominator-tree) dom-tree)
+                 (setf (slot-value dominance '%immediate-dominators) idoms))))
+            (t
+             (let ((idoms (lengauer-tarjan-dominators (first basic-blocks) bb-preds bb-succs)))
+               (setf (slot-value dominance '%immediate-dominators) idoms)
+               (setf (slot-value dominance '%dominator-tree) (build-dom-tree-from-idoms idoms)))))
+      (setf (slot-value dominance '%dominance-frontier)
+            (build-dominance-frontier backend-function
+                                      (slot-value dominance '%dominator-tree)
+                                      (slot-value dominance '%immediate-dominators)
+                                      bb-succs))
+      dominance)))
 
 (defun dominatep (dominance dominator basic-block)
   "Is BASIC-BLOCK dominated by DOMINATOR?"

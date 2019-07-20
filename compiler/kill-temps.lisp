@@ -14,9 +14,8 @@
 
 (defun kill-temporaries (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:kill-temporaries)
-    (detect-uses lambda)
-    (kt-form lambda)))
+  (detect-uses lambda)
+  (kt-form lambda))
 
 (defgeneric kt-form (form &optional target-variable replacement-form))
 

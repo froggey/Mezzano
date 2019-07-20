@@ -5,14 +5,28 @@
 
 (setf sys.lap:*function-reference-resolver* #'function-reference)
 
-(defun inline-info-location-for-name (name)
-  (if (symbolp name)
-      (values name 'inline-mode 'inline-form)
-      (case (first name)
-        ((setf)
-         (values (second name) 'setf-inline-mode 'setf-inline-form))
-        ((cas)
-         (values (second name) 'cas-inline-mode 'cas-inline-form)))))
+(defstruct function-info
+  compiler-macro
+  inline-form
+  inline-mode)
+
+(defvar *symbol-function-info*)
+(defvar *setf-function-info*)
+(defvar *cas-function-info*)
+
+(defun function-info-for (name &optional (create t))
+  (multiple-value-bind (name-root location)
+      (decode-function-name name)
+    (let* ((table (ecase location
+                    (symbol *symbol-function-info*)
+                    (setf *setf-function-info*)
+                    (cas *cas-function-info*)))
+           (entry (gethash name-root table)))
+      (when (and (not entry) create)
+        (let ((new-entry (make-function-info)))
+          (setf entry (or (cas (gethash name-root table) nil new-entry)
+                          new-entry))))
+      entry)))
 
 (defun proclaim-symbol-mode (symbol new-mode)
   (check-type symbol symbol)
@@ -46,14 +60,19 @@
        (proclaim-symbol-mode var :global)))
     (inline
      (dolist (name (rest declaration-specifier))
-       (multiple-value-bind (sym indicator)
-           (inline-info-location-for-name name)
-         (setf (get sym indicator) t))))
+       (setf (function-info-inline-mode
+              (function-info-for name))
+             t)))
     (notinline
      (dolist (name (rest declaration-specifier))
-       (multiple-value-bind (sym indicator)
-           (inline-info-location-for-name name)
-         (setf (get sym indicator) nil))))
+       (setf (function-info-inline-mode
+              (function-info-for name))
+             nil)))
+    (maybe-inline
+     (dolist (name (rest declaration-specifier))
+       (setf (function-info-inline-mode
+              (function-info-for name))
+             :maybe)))
     (type
      (destructuring-bind (typespec &rest vars)
          (rest declaration-specifier)
@@ -73,9 +92,7 @@
          (check-type value (member 0 1 2 3))
          (setf (getf sys.c::*optimize-policy* quality) value))))
     (t
-     (cond ((or (get (first declaration-specifier) 'type-expander)
-                (get (first declaration-specifier) 'compound-type)
-                (get (first declaration-specifier) 'type-symbol))
+     (cond ((type-specifier-p (first declaration-specifier))
             ;; Actually a type declaration.
             (proclaim-type (first declaration-specifier)
                            (rest declaration-specifier)))
@@ -86,10 +103,11 @@
   (symbol-mode symbol))
 
 (defun sys.c::function-inline-info (name)
-  (multiple-value-bind (sym mode-name form-name)
-      (inline-info-location-for-name name)
-    (values (get sym mode-name)
-            (get sym form-name))))
+  (let ((info (function-info-for name nil)))
+    (if info
+        (values (eql (function-info-inline-mode info) 't)
+                (function-info-inline-form info))
+        (values nil nil))))
 
 ;;; Turn (APPLY fn args...) into (%APPLY fn (list* args...)), bypassing APPLY's
 ;;; rest-list generation.
@@ -141,38 +159,63 @@
     (declare (ignore arguments))
     value))
 
+(defstruct macro-definition
+  function
+  lambda-list)
+
+(defvar *macros*)
+
 (defun macro-function (symbol &optional env)
+  (check-type symbol symbol)
   (cond (env
          (sys.c::macro-function-in-environment symbol env))
         (t
-         (get symbol '%macro-function))))
+         (let ((entry (gethash symbol *macros*)))
+           (when entry
+             (macro-definition-function entry))))))
+
+(defun get-macro-definition (symbol)
+  (let ((entry (gethash symbol *macros*)))
+    (when (not entry)
+      (let ((new-entry (make-macro-definition)))
+        (setf entry (or (cas (gethash symbol *macros*) nil new-entry)
+                        new-entry))))
+    entry))
 
 (defun (setf macro-function) (value symbol &optional env)
+  (check-type value function)
+  (check-type symbol symbol)
   (when env
     (error "TODO: (Setf Macro-function) in environment."))
   (setf (symbol-function symbol) (lambda (&rest r)
                                    (declare (ignore r))
-                                   (error 'undefined-function :name symbol))
-        (get symbol '%macro-function) value))
+                                   (error 'undefined-function :name symbol)))
+  (let ((entry (get-macro-definition symbol)))
+    (setf (macro-definition-function entry) value
+          (macro-definition-lambda-list entry) nil))
+  value)
+
+(defun macro-function-lambda-list (symbol)
+  (check-type symbol symbol)
+  (let ((entry (gethash symbol *macros*)))
+    (when entry
+      (macro-definition-lambda-list entry))))
 
 (defun compiler-macro-function (name &optional environment)
   (cond (environment
          (sys.c::compiler-macro-function-in-environment name environment))
         (t
-         (multiple-value-bind (sym indicator)
-             (if (symbolp name)
-                 (values name '%compiler-macro-function)
-                 (values (second name) '%setf-compiler-macro-function))
-           (get sym indicator)))))
+         (let ((info (function-info-for name nil)))
+           (if info
+               (function-info-compiler-macro info)
+               nil)))))
 
 (defun (setf compiler-macro-function) (value name &optional environment)
+  (check-type value (or function null))
   (when environment
     (error "TODO: (Setf Compiler-Macro-function) in environment."))
-  (multiple-value-bind (sym indicator)
-      (if (symbolp name)
-          (values name '%compiler-macro-function)
-          (values (second name) '%setf-compiler-macro-function))
-    (setf (get sym indicator) value)))
+  (setf (function-info-compiler-macro (function-info-for name)) value)
+  value)
 
 (defun list-in-area (area &rest args)
   (declare (dynamic-extent args))
@@ -182,21 +225,34 @@
   args)
 
 (defun copy-list-in-area (list &optional area)
-  (check-type list list)
-  (cond (list
-         (do* ((result (cons-in-area nil nil area))
+  (cond ((null list) '())
+        ((consp list)
+         (do* ((result (cons nil nil))
                (tail result)
                (l list (cdr l)))
               ((not (consp l))
                (setf (cdr tail) l)
                (cdr result))
+           (declare (dynamic-extent result))
            (setf (cdr tail) (cons-in-area (car l) nil area)
                  tail (cdr tail))))
         (t
-         nil)))
+         (error 'type-error :datum list :expected-type 'list))))
 
 (defun copy-list (list)
-  (copy-list-in-area list))
+  (cond ((null list) '())
+        ((consp list)
+         (do* ((result (cons nil nil))
+               (tail result)
+               (l list (cdr l)))
+              ((not (consp l))
+               (setf (cdr tail) l)
+               (cdr result))
+           (declare (dynamic-extent result))
+           (setf (cdr tail) (cons (car l) nil)
+                 tail (cdr tail))))
+        (t
+         (error 'type-error :datum list :expected-type 'list))))
 
 ;;; Will be overriden later in the init process.
 (when (not (fboundp 'funcallable-instance-lambda-expression))
@@ -214,8 +270,10 @@
 ;;; Implementations of DEFUN/etc, the cross-compiler defines these as well.
 
 (defun %defmacro (name function &optional lambda-list documentation)
-  (setf (get name 'macro-lambda-list) lambda-list)
+  (check-type name symbol)
+  (check-type function function)
   (setf (macro-function name) function)
+  (setf (macro-definition-lambda-list (get-macro-definition name)) lambda-list)
   (set-function-docstring name documentation)
   name)
 
@@ -226,11 +284,11 @@
 
 (defun %compiler-defun (name source-lambda)
   "Compile-time defun code. Store the inline form if required."
-  (multiple-value-bind (sym mode-name form-name)
-      (inline-info-location-for-name name)
-    (when (or (get sym mode-name)
-              (get sym form-name))
-      (setf (get sym form-name) source-lambda)))
+  (let ((info (function-info-for name nil)))
+    (when (and info
+               (or (function-info-inline-mode info)
+                   (function-info-inline-form info)))
+      (setf (function-info-inline-form info) source-lambda)))
   nil)
 
 (defun %defun (name lambda &optional documentation)
@@ -334,7 +392,9 @@
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::constructor)
           nil)
     (setf (mezzano.runtime::instance-access-by-name new-class 'documentation)
-          (structure-definition-docstring sdef))))
+          (structure-definition-docstring sdef))
+    (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::has-standard-constructor)
+          (structure-definition-has-standard-constructor sdef))))
 
 (defun convert-structure-definition-to-class (sdef)
   ;; CLOS might not be fully initialized at this point,
@@ -473,12 +533,6 @@
       (setf (gethash name *setf-documentation*) docstring)
       (remhash name *setf-documentation*)))
 
-(defun set-type-docstring (name docstring)
-  (check-type docstring (or string null))
-  (if docstring
-      (setf (gethash name *type-documentation*) docstring)
-      (remhash name *type-documentation*)))
-
 ;;; Function references, FUNCTION, et al.
 
 (deftype function-name ()
@@ -514,31 +568,35 @@
                   :expected-type 'function-name
                   :datum name))))
 
-(defun function-reference (name)
-  "Convert a function name to a function reference."
+(defun function-reference (name &optional (create t))
+  "Convert a function name to a function reference.
+If no function-reference exists for NAME and CREATE is true, a new
+fref will be created and associated with the name. If CREATE is false
+then NIL will be returned."
   (multiple-value-bind (name-root location)
       (decode-function-name name)
     (ecase location
       (symbol
        (or (%object-ref-t name-root +symbol-function+)
            ;; No fref, create one and add it to the function.
-           (let ((new-fref (make-function-reference name-root)))
-             ;; Try to atomically update the function cell.
-             (multiple-value-bind (successp old-value)
-                 (%cas-object name-root +symbol-function+ nil new-fref)
-               (if successp
-                   new-fref
-                   old-value)))))
+           (and create
+                (let ((new-fref (make-function-reference name-root)))
+                  ;; Try to atomically update the function cell.
+                  (multiple-value-bind (successp old-value)
+                      (%cas-object name-root +symbol-function+ nil new-fref)
+                    (if successp
+                        new-fref
+                        old-value))))))
       (setf
        (let ((fref (gethash name-root *setf-fref-table*)))
-         (unless fref
+         (when (and (not fref) create)
            (let ((new-fref (make-function-reference name)))
              (setf fref (or (cas (gethash name-root *setf-fref-table*) nil new-fref)
                             new-fref))))
          fref))
       (cas
        (let ((fref (gethash name-root *cas-fref-table*)))
-         (unless fref
+         (when (and (not fref) create)
            (let ((new-fref (make-function-reference name)))
              (setf fref (or (cas (gethash name-root *cas-fref-table*) nil new-fref)
                             new-fref))))
@@ -597,7 +655,8 @@ VALUE may be nil to make the fref unbound."
   value)
 
 (defun fdefinition (name)
-  (let ((fn (function-reference-function (function-reference name))))
+  (let* ((fref (function-reference name nil))
+         (fn (and fref (function-reference-function fref))))
     (when (not fn)
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
@@ -613,6 +672,8 @@ VALUE may be nil to make the fref unbound."
   (check-type value function)
   ;; Check for and update any existing TRACE-WRAPPER.
   ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+  (when (symbolp name)
+    (remhash name *macros*))
   (let* ((fref (function-reference name))
          (existing (function-reference-function fref)))
     (when (locally
@@ -624,20 +685,27 @@ VALUE may be nil to make the fref unbound."
     (setf (function-reference-function fref) value)))
 
 (defun fboundp (name)
-  (not (null (function-reference-function (function-reference name)))))
+  ;; Avoid allocating a fref just for the test.
+  (let ((fref (function-reference name nil)))
+    (and fref
+         (not (null (function-reference-function fref))))))
 
 (defun fmakunbound (name)
-  ;; Check for and update any existing TRACE-WRAPPER.
-  ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
-  (let* ((fref (function-reference name))
-         (existing (function-reference-function fref)))
-    (when (locally
-              (declare (notinline typep)) ; bootstrap hack.
-            (typep existing 'trace-wrapper))
-      ;; Untrace the function.
-      (%untrace (function-reference-name fref)))
-    (setf (function-reference-function (function-reference name)) nil)
-    name))
+  (when (symbolp name)
+    (remhash name *macros*))
+  (let ((fref (function-reference name nil)))
+    ;; Don't allocate a new fref if the function is already unbound.
+    (when fref
+      ;; Check for and update any existing TRACE-WRAPPER.
+      ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
+      (let ((existing (function-reference-function fref)))
+        (when (locally
+                  (declare (notinline typep)) ; bootstrap hack.
+                (typep existing 'trace-wrapper))
+          ;; Untrace the function.
+          (%untrace (function-reference-name fref)))
+        (setf (function-reference-function (function-reference name)) nil))))
+  name)
 
 (defun symbol-function (symbol)
   (check-type symbol symbol)

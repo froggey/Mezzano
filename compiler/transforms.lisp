@@ -4,8 +4,7 @@
 (in-package :sys.c)
 
 (defun apply-transforms (lambda target-architecture)
-  (with-metering (:type-transforms)
-    (apply-transforms-1 lambda target-architecture)))
+  (apply-transforms-1 lambda target-architecture))
 
 (defgeneric apply-transforms-1 (form target-architecture))
 

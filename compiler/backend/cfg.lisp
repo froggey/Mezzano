@@ -200,24 +200,23 @@ does not visit unreachable blocks."
     total))
 
 (defun simplify-cfg (backend-function)
-  (sys.c:with-metering (:backend-simplify-cfg)
-    (remove-unreachable-basic-blocks backend-function)
-    (multiple-value-bind (uses defs)
-        (build-use/def-maps backend-function)
-      (let ((total 0))
-        (loop
-           (let ((n (+ (simplify-cfg-1 backend-function)
-                       (branch-pushback backend-function uses)
-                       (remove-trivially-constant-branches backend-function uses defs)
-                       ;; Not technically part of CFG simplification, but helps the other passes.
-                       (remove-unused-instructions-1 backend-function uses))))
-             (when (zerop n)
-               (return))
-             (remove-unreachable-basic-blocks backend-function)
-             (incf total n)))
-        ;; TODO: Break critical edges.
-        (check-cfg backend-function)
-        total))))
+  (remove-unreachable-basic-blocks backend-function)
+  (multiple-value-bind (uses defs)
+      (build-use/def-maps backend-function)
+    (let ((total 0))
+      (loop
+         (let ((n (+ (simplify-cfg-1 backend-function)
+                     (branch-pushback backend-function uses)
+                     (remove-trivially-constant-branches backend-function uses defs)
+                     ;; Not technically part of CFG simplification, but helps the other passes.
+                     (remove-unused-instructions-1 backend-function uses))))
+           (when (zerop n)
+             (return))
+           (remove-unreachable-basic-blocks backend-function)
+           (incf total n)))
+      ;; TODO: Break critical edges.
+      (check-cfg backend-function)
+      total)))
 
 (defun check-cfg (backend-function)
   "Check the validity of the CFG.

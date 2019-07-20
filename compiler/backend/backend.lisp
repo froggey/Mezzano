@@ -215,8 +215,7 @@
   ;; Undo that.
   (simplify-cfg backend-function)
   (multiple-value-bind (lap environment-slot)
-      (sys.c:with-metering (:backend-lap-generation)
-        (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target))
+      (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target)
     (when sys.c::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (dolist (inst lap)
@@ -227,29 +226,28 @@
                  (format t "~S~%" inst))
                 (t
                  (format t "  ~S~%" inst))))))
-    (sys.c:with-metering (:lap-assembly)
-      (sys.int::assemble-lap
-       lap
-       (backend-function-name backend-function)
-       (let* ((ast-lambda (ast backend-function)))
-         (list :debug-info
-               (backend-function-name backend-function) ; name
-               nil ; local variable stack positions
-               ;; Environment index
-               environment-slot
-               ;; Environment layout
-               (second (sys.c:lambda-information-environment-layout ast-lambda))
-               ;; Source file
-               (if *compile-file-pathname*
-                   (namestring *compile-file-pathname*)
-                   nil)
-               ;; Top-level form number
-               sys.int::*top-level-form-number*
-               (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-               (sys.c:lambda-information-docstring ast-lambda) ; docstring
-               nil)) ; precise debug info
-       nil
-       target))))
+    (sys.int::assemble-lap
+     lap
+     (backend-function-name backend-function)
+     (let* ((ast-lambda (ast backend-function)))
+       (list :debug-info
+             (backend-function-name backend-function) ; name
+             nil ; local variable stack positions
+             ;; Environment index
+             environment-slot
+             ;; Environment layout
+             (second (sys.c:lambda-information-environment-layout ast-lambda))
+             ;; Source file
+             (if *compile-file-pathname*
+                 (namestring *compile-file-pathname*)
+                 nil)
+             ;; Top-level form number
+             sys.int::*top-level-form-number*
+             (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
+             (sys.c:lambda-information-docstring ast-lambda) ; docstring
+             nil)) ; precise debug info
+     nil
+     target)))
 
 (defun compile-backend-function (backend-function target)
   (compile-backend-function-1 backend-function target)

@@ -43,7 +43,10 @@
     mezzano.runtime::%allocate-from-pinned-area
     mezzano.runtime::%allocate-from-wired-area
     mezzano.supervisor::%call-on-wired-stack-without-interrupts
-    mezzano.supervisor::call-with-mutex))
+    mezzano.supervisor::call-with-mutex
+    ;; Hidden to prevent infinite rehash loops, printing instructions can cause GC cycles.
+    sys.int::find-hash-table-slot
+    ))
 
 (defun single-step-wrapper (&rest args &closure call-me)
   (declare (dynamic-extent args))
@@ -51,7 +54,7 @@
        (apply call-me args)
     (mezzano.supervisor::stop-current-thread)))
 
-(defun safe-single-step-thread (thread)
+(defun safe-single-step-thread (thread &key report-skipped-functions)
   (check-type thread mezzano.supervisor:thread)
   (assert (eql (mezzano.supervisor:thread-state thread) :stopped))
   ;; If the thread is not in the full-save state, then convert it.
@@ -65,16 +68,14 @@
                      fn)
              (mezzano.supervisor::single-step-thread thread)
              (return-from safe-single-step-thread))
-           (format t "Stepping over special function ~S.~%" fn)
+           (when report-skipped-functions
+             (format t "Stepping over special function ~S.~%" fn))
            ;; Point RIP at single-step-wrapper and RBX (&CLOSURE) at the function to wrap.
            (setf (mezzano.supervisor:thread-state-rbx-value thread) fn
                  (mezzano.supervisor:thread-state-rip thread) (%object-ref-unsigned-byte-64 #'single-step-wrapper +function-entry-point+))
            (mezzano.supervisor::resume-thread thread)
            ;; Wait for the thread to stop or die.
-           (loop
-              (when (member (mezzano.supervisor::thread-state thread) '(:stopped :dead))
-                (return))
-              (mezzano.supervisor::thread-yield)))
+           (mezzano.supervisor::wait-for-thread-stop thread))
           (t
            (mezzano.supervisor::single-step-thread thread)))))
 
@@ -88,7 +89,14 @@
        (let* ((rip (mezzano.supervisor:thread-state-rip thread))
               (fn (return-address-to-function rip)))
          (when (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
-           (format t "Entered function ~S with arguments ~:S.~%" fn (fetch-thread-function-arguments thread))
+           (format t "Entered function ~S with arguments ~:S.~%"
+                   (cond ((eql fn (%funcallable-instance-trampoline))
+                          (mezzano.supervisor:thread-state-rbx-value thread))
+                         ((eql fn (%closure-trampoline))
+                          (mezzano.supervisor:thread-state-r13-value thread))
+                         (t
+                          (or (function-name fn) fn)))
+                   (fetch-thread-function-arguments thread))
            (return))
          (when (not (eql fn prev-fn))
            (format t "Returning from function ~S to ~S with results ~:S.~%"
@@ -210,7 +218,13 @@
                (memref-unsigned-byte-64 sp i)
                (memref-unsigned-byte-64 sp (1+ i)))))
 
-(defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t))
+(defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t) report-call-counts)
+  "Trace the execution of FUNCTION.
+If FULL-DUMP is true, then the register state of the thread will be printed each instruction.
+If RUN-FOREVER is false, then TRACE-EXECUTION will prompt to continue execution every few thousand instructions.
+If PRINT-INSTRUCTIONS is true, then every instruction executed will be printed.
+If TRACE-CALL-MODE is true, then calls and returns will be printed in an easy-to-parse way, otherwise they will be printed in a human-readable way.
+If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace program will be hidden."
   (check-type function function)
   (let* ((next-stop-boundary 10000)
          (stopped nil)
@@ -246,7 +260,11 @@
          (single-step-wrapper-sp nil)
          (prestart trim-stepper-noise)
          (entry-sp nil)
-         (fundamental-function (mezzano.disassemble::peel-function function)))
+         (fundamental-function (mezzano.disassemble::peel-function function))
+         (call-counts (make-hash-table :synchronized nil))
+         (execution-counts (make-hash-table :synchronized nil))
+         (callers (make-hash-table :synchronized nil))
+         (callees (make-hash-table :synchronized nil)))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
     (unwind-protect
@@ -264,7 +282,7 @@
               (return))
             (when full-dump
               (dump-thread-state thread))
-            (safe-single-step-thread thread)
+            (safe-single-step-thread thread :report-skipped-functions print-instructions)
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
                   (return-address-to-function rip)
@@ -288,6 +306,24 @@
                        (when (and prev-fn
                                   (not (eql fn prev-fn)))
                          (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                                (incf (gethash (cond ((eql fn (%funcallable-instance-trampoline))
+                                                      (mezzano.supervisor:thread-state-rbx-value thread))
+                                                     ((eql fn (%closure-trampoline))
+                                                      (mezzano.supervisor:thread-state-r13-value thread))
+                                                     (t
+                                                      fn))
+                                               call-counts
+                                               0))
+                                (let ((tbl (gethash fn callers)))
+                                  (when (not tbl)
+                                    (setf tbl (make-hash-table :synchronized nil)
+                                          (gethash fn callers) tbl))
+                                  (incf (gethash prev-fn tbl 0)))
+                                (let ((tbl (gethash prev-fn callees)))
+                                  (when (not tbl)
+                                    (setf tbl (make-hash-table :synchronized nil)
+                                          (gethash prev-fn callees) tbl))
+                                  (incf (gethash fn tbl 0)))
                                 (cond (trace-call-mode
                                        (write-char #\>)
                                        (write-char #\Space)
@@ -297,9 +333,14 @@
                                        (write-char #\Space)
                                        (write (function-name fn))
                                        (terpri))
-                                      (t
+                                      (print-instructions
                                        (format t "Entered function ~S with arguments ~:A.~%"
-                                               (or (function-name fn) fn)
+                                               (cond ((eql fn (%funcallable-instance-trampoline))
+                                                      (mezzano.supervisor:thread-state-rbx-value thread))
+                                                     ((eql fn (%closure-trampoline))
+                                                      (mezzano.supervisor:thread-state-r13-value thread))
+                                                     (t
+                                                      (or (function-name fn) fn)))
                                                (mapcar #'print-safely-to-string
                                                        (fetch-thread-function-arguments thread))))))
                                (t
@@ -312,7 +353,7 @@
                                        (write-char #\Space)
                                        (write (function-name prev-fn))
                                        (terpri))
-                                      (t
+                                      (print-instructions
                                        (format t "Returning from function ~S to ~S with results ~:A.~%"
                                                (or (function-name prev-fn) prev-fn)
                                                (or (function-name fn) fn)
@@ -327,13 +368,48 @@
                              (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
                            (terpri)))
                        (incf instructions-stepped)
+                       (incf (gethash fn execution-counts 0))
                        (setf prev-fn fn)))
                 (when (and (eql entry-sp (mezzano.supervisor:thread-state-rsp thread))
                            (not (eql offset 16)))
                   (setf prestart t)))))
       (mezzano.supervisor:terminate-thread thread)
       (ignore-errors
-        (mezzano.supervisor::resume-thread thread)))))
+        (mezzano.supervisor::resume-thread thread)))
+    (when report-call-counts
+      (format t "Call counts:~%")
+      (let ((counts '()))
+        (maphash (lambda (fn count)
+                   (push (cons fn count) counts))
+                 call-counts)
+        (setf counts (sort counts #'< :key #'cdr))
+        (loop for (fn . count) in counts do (format t "~S: ~D~%" fn count)))
+      (format t "Caller counts:~%")
+      (maphash (lambda (fn callers)
+                 (format t "~S:~%" fn)
+                 (maphash (lambda (caller count)
+                            (format t "  ~S: ~D~%" caller count))
+                          callers))
+               callers)
+      (format t "Callee counts:~%")
+      (maphash (lambda (fn callees)
+                 (format t "~S:~%" fn)
+                 (maphash (lambda (callee count)
+                            (format t "  ~S: ~D~%" callee count))
+                          callees))
+               callees)
+      (format t "Instruction counts:~%")
+      (let ((counts '()))
+        (maphash (lambda (fn count)
+                   (push (cons fn count) counts))
+                 execution-counts)
+        (setf counts (sort counts #'< :key #'cdr))
+        (loop
+           for (fn . count) in counts
+           do (format t "~S: ~D ~D% ~D per call~%"
+                      fn count
+                      (* (/ count instructions-stepped) 100.0)
+                      (float (/ count (gethash fn call-counts 1)))))))))
 
 (defun profile-execution (function &key (sample-interval 1/100))
   (check-type function function)

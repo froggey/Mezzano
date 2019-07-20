@@ -455,7 +455,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
         ((or (sys.int::ratiop x) (sys.int::ratiop y))
          (/ (* (numerator x) (denominator y))
             (* (denominator x) (numerator y))))
-        (t (error "Argument complex ~S and ~S not supported." x y))))
+        (t (check-type x number)
+           (check-type y number)
+           (error "Argument combination ~S and ~S not supported." x y))))
 
 (defun sys.int::full-+ (x y)
   (cond ((and (sys.int::fixnump x)

@@ -771,6 +771,36 @@
         (setf current-dim (elt current-dim 0))))
     (make-array dimensions :initial-contents object)))
 
+(defun read-#-struct (stream ch p)
+  (declare (notinline slot-value make-instance)) ; bootstrap hack
+  (ignore-#-argument ch p)
+  (cond (*read-suppress*
+         (read stream t nil t)
+         nil)
+        (*read-eval*
+         (let* ((form (read stream t nil t))
+                (structure-name (first form))
+                (class (find-class structure-name nil)))
+           (when (or (not class)
+                     (not (typep class 'structure-class)))
+             (error 'simple-reader-error :stream stream
+                    :format-control "~S does not name a structure class"
+                    :format-arguments (list structure-name)))
+           (when (not (slot-value class 'mezzano.clos::has-standard-constructor))
+             (error 'simple-reader-error :stream stream
+                    :format-control "Structure class ~S does not have a standard constructor"
+                    :format-arguments (list structure-name)))
+           (apply #'make-instance class
+                  ;; Convert slot names to keywords.
+                  (loop
+                     for (slot value) on (rest form) by #'cddr
+                     collect (intern (string slot) (find-package 'keyword))
+                     collect value))))
+        ;; The #S syntax is equivalent to #., so presumably obeys *READ-EVAL*.
+        (t (error 'simple-reader-error :stream stream
+                  :format-control "Cannot #S when *READ-EVAL* is false."
+                  :format-arguments '()))))
+
 (defun read-#-pathname (stream ch p)
   (ignore-#-argument ch p)
   (cond (*read-suppress*

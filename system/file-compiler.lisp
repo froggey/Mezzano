@@ -18,6 +18,8 @@
 (defvar *compile-parallel* nil)
 (defvar *top-level-form-number* nil)
 
+(defvar *fixup-table* nil)
+
 (defun expand-macrolet-function (function)
   (destructuring-bind (name lambda-list &body body) function
     (let ((whole (gensym "WHOLE"))
@@ -205,8 +207,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (error "Cannot save complicated function ~S" object))
   (dotimes (i (function-pool-size object))
     (save-object (function-pool-object object i) omap stream))
-  ;; FIXME: This should be the fixup list.
-  (save-object nil omap stream)
+  (multiple-value-bind (fixups validp)
+      (gethash object *fixup-table*)
+    (when (not validp)
+      (error "Missing fixups for function ~S" object))
+    (save-object fixups omap stream))
   (write-byte +llf-function+ stream)
   (write-byte (function-tag object) stream)
   (save-integer (- (function-code-size object) 16) stream)
@@ -322,7 +327,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
    (layout-heap-size (mezzano.clos:class-layout class))
    (layout-heap-layout (mezzano.clos:class-layout class))
    (mezzano.clos:class-sealed class)
-   (documentation class t)))
+   (documentation class t)
+   (slot-value class 'mezzano.clos::has-standard-constructor)))
 
 (defmethod save-one-object ((object structure-class) omap stream)
   (save-one-object (convert-structure-class-to-structure-definition object)
@@ -341,6 +347,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (layout-heap-layout (structure-definition-layout object)) omap stream)
   (save-object (structure-definition-sealed object) omap stream)
   (save-object (structure-definition-docstring object) omap stream)
+  (save-object (structure-definition-has-standard-constructor object) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object structure-slot-definition) omap stream)
@@ -440,12 +447,12 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                   for keys being the hash-keys in object using (hash-value value)
                   collect `(setf (gethash ',keys ',object) ',value)))))
 
+(defmethod save-one-object ((object instance-header) omap stream)
+  (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
+               omap stream)
+  (write-byte +llf-instance-header+ stream))
+
 (defmethod save-one-object (object omap stream)
-  (when (%value-has-tag-p object +tag-instance-header+)
-    (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
-                 omap stream)
-    (write-byte +llf-instance-header+ stream)
-    (return-from save-one-object))
   ;; Use COMPILE-LAMBDA here instead of COMPILE to get the correct L-T-V behaviour.
   (let ((sys.c::*load-time-value-hook*
          (lambda (form read-only-p)
@@ -744,7 +751,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
            (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*))
-           (*gensym-counter* 0))
+           (*gensym-counter* 0)
+           (*fixup-table* (make-hash-table :synchronized nil)))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))
@@ -827,6 +835,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (format t ";; Writing compiler builtins to ~A.~%" output-file)
     (write-llf-header output-stream output-file)
     (let* ((*llf-forms* nil)
+           (*fixup-table* (make-hash-table :synchronized nil))
            (sys.c::*use-new-compiler* nil)
            (omap (make-hash-table)))
       (loop
@@ -870,4 +879,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                           (:symbol-binding-cache-sentinel . :fixup))
        :info (list name debug-info))
     (declare (ignore symbols))
-    (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
+    (let ((fn (make-function sys.int::+object-tag-function+
+                             mc fixups constants gc-data wired)))
+      (when *fixup-table*
+        (setf (gethash fn *fixup-table*) fixups))
+      fn)))

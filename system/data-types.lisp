@@ -120,7 +120,7 @@
 ;;#b110001
 ;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
-;;#b110100
+(defconstant +object-tag-weak-pointer-vector+     #b110100)
 ;; Low two bits must match high two bits of +tag-instance-header+.
 ;; Must be one bit different from +object-tag-funcallable-instance+.
 (defconstant +object-tag-instance+                #b110101)
@@ -133,8 +133,7 @@
 (defconstant +object-tag-cons+                    #b111000)
 (defconstant +object-tag-freelist-entry+          #b111001)
 (defconstant +object-tag-weak-pointer+            #b111010)
-(defconstant +first-misc-object-tag+ +object-tag-mmx-vector+)
-(defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
+;; Function objects.
 (defconstant +object-tag-delimited-continuation+  #b111011)
 (defconstant +object-tag-function+                #b111100)
 ;; Low two bits must match high two bits of +tag-instance-header+.
@@ -148,10 +147,9 @@
 ;;; Layout of symbols.
 (defconstant +symbol-name+ 0)
 (defconstant +symbol-package+ 1)
-(defconstant +symbol-value+ 2)
-(defconstant +symbol-function+ 3)
-(defconstant +symbol-plist+ 4)
-(defconstant +symbol-type+ 5)
+(defconstant +symbol-value+ 2) ; actually the global symbol-value-cell
+(defconstant +symbol-function+ 3) ; actually an fref
+(defconstant +symbol-type+ 4)
 
 (defconstant +symbol-value-cell-symbol+ 1)
 (defconstant +symbol-value-cell-value+ 2)
@@ -291,7 +289,7 @@ When the page is written to, the corresponding dirty bit in the card table will 
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 29)
+(defparameter *llf-version* 30)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)

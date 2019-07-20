@@ -1199,7 +1199,8 @@ Only works when the window is active."
                                          ;; relative time to try to get a more consistent frame rate.
                                          :absolute (+ *last-frame-timestamp*
                                                        (truncate
-                                                        (* *compositor-update-interval* internal-time-units-per-second))))
+                                                        (* *compositor-update-interval* internal-time-units-per-second)))
+                                         :name 'compositor-redisplay)
            (mezzano.sync:wait-for-objects frame-timer
                                           *event-queue*
                                           (mezzano.supervisor:framebuffer-boot-id *main-screen*))))

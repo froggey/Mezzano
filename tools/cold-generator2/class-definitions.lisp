@@ -128,7 +128,8 @@
 (defclass funcallable-standard-class (std-class) ())
 
 (defclass structure-class (instance-class)
-  ((parent))
+  ((parent)
+   (has-standard-constructor))
   (:area :wired)
   (:sealed t))
 
@@ -161,8 +162,11 @@
 (defclass sys.int::function-reference (t) () (:metaclass built-in-class))
 (defclass mezzano.runtime::symbol-value-cell (t) () (:metaclass built-in-class))
 (defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
+(defclass sys.int::weak-pointer-vector (t) () (:metaclass built-in-class))
 ;; FIXME: This doesn't quite work with large bytes.
 (defclass byte (t) () (:metaclass built-in-class))
+(defclass sys.int::instance-header (t) () (:metaclass built-in-class))
+(defclass sys.int::interrupt-frame (t) () (:metaclass built-in-class))
 
 (defclass sequence (t) () (:metaclass built-in-class))
 (defclass list (sequence) () (:metaclass built-in-class))

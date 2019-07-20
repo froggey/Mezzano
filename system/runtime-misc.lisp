@@ -119,6 +119,19 @@
             (t
              (format stream "dead"))))))
 
+(defmethod print-object ((o weak-pointer-vector) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (let ((entries (loop
+                      for i below (weak-pointer-vector-length o)
+                      collect (multiple-value-bind (key value livep)
+                                  (weak-pointer-vector-pair o i)
+                                (if livep
+                                    (if (and key (eql key value))
+                                        key
+                                        (cons key value))
+                                    nil)))))
+      (format stream "~:S" entries))))
+
 (defmethod print-object ((o byte) stream)
   (print-unreadable-object (o stream :type t)
     (format stream ":Size ~D :Position ~D"
@@ -183,6 +196,10 @@
 (defmethod print-object ((object mezzano.supervisor::wfo) stream)
   (print-unreadable-object (object stream :identity t :type t)
     (format stream "~:A" (mezzano.supervisor::wfo-objects object))))
+
+(defmethod print-object ((o instance-header) stream)
+  (print-unreadable-object (o stream :type t)
+    (format stream "for ~S" (mezzano.runtime::%unpack-instance-header o))))
 
 (defun snapshot-and-exit ()
   "Terminate the current thread and take a snapshot.
@@ -257,3 +274,16 @@ The file will only be recompiled if the source is newer than the output file, or
              (defconstant-uneql-name condition)
              (defconstant-uneql-old-value condition)
              (defconstant-uneql-new-value condition)))))
+
+(deftype radix () '(integer 2 36))
+(declaim (type radix *read-base*))
+(declaim (type (member short-float single-float double-float long-float)
+               *read-default-float-format*))
+(declaim (type radix *print-base*))
+(declaim (type (member :upcase :downcase :capitalize) *print-case*))
+(declaim (type (or null (integer 0))
+               *print-length*
+               *print-level*
+               *print-lines*
+               *print-miser-width*
+               *print-right-margin*))

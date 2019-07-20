@@ -203,23 +203,23 @@ A list of two elements, the short & long name." )
       (setf (documentation class 'type) new-value)))
   new-value)
 
-(defvar *type-documentation*)
-
 (defmethod documentation ((x symbol) (doc-type (eql 'type)))
   (let ((class (find-class x nil)))
     (if class
         (documentation class 'type)
-        (values (gethash x *type-documentation*)))))
+        (let ((info (type-info-for x nil)))
+          (if info
+              (type-info-docstring info)
+              nil)))))
 
 (defmethod (setf documentation) (new-value (x symbol) (doc-type (eql 'type)))
   (check-type new-value (or string null))
   (let ((class (find-class x nil)))
     (cond (class
            (setf (documentation class 'type) new-value))
-          (new-value
-           (setf (gethash x *type-documentation*) new-value))
           (t
-           (remhash x *type-documentation*))))
+           (setf (type-info-docstring (type-info-for x))
+                 new-value))))
   new-value)
 
 ;; DOCUMENTATION on variables.

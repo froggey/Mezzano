@@ -25,28 +25,63 @@
          ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defstruct type-info
+  docstring
+  maybe-class
+  type-symbol
+  type-expander
+  compound-type
+  compound-type-optimizer
+  numeric-supertype)
+
+;; Initialized here for the cold generator and in cold-start for normal operation
+(defvar *type-info* (make-hash-table))
+
+(defun type-info-for (name &optional (create t))
+  (check-type name symbol)
+  (let ((entry (gethash name *type-info*)))
+    (when (and (not entry) create)
+      (let ((new-entry (make-type-info)))
+        (setf entry (or (cas (gethash name *type-info*) nil new-entry)
+                        new-entry))))
+    entry))
+
 (defun %deftype (name expander documentation)
-  (set-type-docstring name documentation)
-  (remprop name 'maybe-class)
-  (setf (get name 'type-expander) expander))
+  (let ((info (type-info-for name)))
+    (setf (type-info-docstring info) documentation
+          (type-info-maybe-class info) nil
+          (type-info-type-expander info) expander)))
 (defun %define-compound-type (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'compound-type) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-compound-type info) function)))
 (defun %define-compound-type-optimizer (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'compound-type-optimizer) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-compound-type-optimizer info) function)))
 (defun %define-type-symbol (name function)
-  (remprop name 'maybe-class)
-  (setf (get name 'type-symbol) function))
+  (let ((info (type-info-for name)))
+    (setf (type-info-maybe-class info) nil
+          (type-info-type-symbol info) function)))
 
 (defun %compiler-defclass (name)
   ;; If name exists as a type, do nothing.
   ;; Otherwise, mark it as a potential class.
-  (unless (or (get name 'type-expander)
-              (get name 'compound-type)
-              (get name 'type-symbol))
-    (setf (get name 'maybe-class) t))
+  (let ((info (type-info-for name)))
+    (unless (or (type-info-type-expander info)
+                (type-info-compound-type info)
+                (type-info-type-symbol info))
+      (setf (type-info-maybe-class info) t)))
   name)
+
+(defun type-specifier-p (name)
+  (let ((info (type-info-for name nil)))
+    (and info
+         (or (type-info-type-expander info)
+             (type-info-compound-type info)
+             (type-info-type-symbol info)
+             (type-info-maybe-class info)))))
 )
 
 (deftype bit ()
@@ -99,10 +134,12 @@
   (when (not (or (symbolp type)
                  (listp type)))
     (return-from typeexpand-1 (values type nil)))
-  (let ((expander (get (if (symbolp type)
-                           type
-                           (first type))
-                       'type-expander)))
+  (let ((expander (let ((info (type-info-for
+                               (if (symbolp type)
+                                   type
+                                   (first type))
+                               nil)))
+                    (and info (type-info-type-expander info)))))
     (cond (expander
            (when (symbolp type)
              (setf type (list type)))
@@ -454,7 +491,9 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun set-numeric-supertype (type supertype)
   "Set the supertype of a numeric type."
-  (setf (get type 'numeric-supertype) supertype))
+  (setf (type-info-numeric-supertype
+         (type-info-for type))
+        supertype))
 
 (set-numeric-supertype 'fixnum 'integer)
 (set-numeric-supertype 'bignum 'integer)
@@ -470,12 +509,16 @@
 (set-numeric-supertype 'complex 'number)
 (set-numeric-supertype 'number 't)
 
+(defun numeric-supertype (type)
+  (let ((info (type-info-for type nil)))
+    (and info (type-info-numeric-supertype info))))
+
 (defun numeric-subtypep (t1 t2)
   (and (symbolp t1) (symbolp t2)
-       (get t1 'numeric-supertype)
-       (get t2 'numeric-supertype)
+       (numeric-supertype t1)
+       (numeric-supertype t2)
        (or (eql t1 t2)
-           (numeric-subtypep (get t1 'numeric-supertype) t2))))
+           (numeric-subtypep (numeric-supertype t1) t2))))
 
 (defun real-subtype-p (type)
   (numeric-subtypep type 'real))
@@ -724,6 +767,10 @@
 
 (defun typep (object type-specifier &optional environment)
   (declare (notinline find-class)) ; ### Boostrap hack.
+  (when (or (eql type-specifier 'values)
+            (and (consp type-specifier)
+                 (member (first type-specifier) '(values function))))
+    (error "Type specifier ~S cannot be used with TYPEP" type-specifier))
   (when (and (instance-p type-specifier)
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
@@ -734,7 +781,9 @@
                                  (null (rest type-specifier)))
                             (first type-specifier)))))
     (when type-symbol
-      (let ((test (get type-symbol 'type-symbol)))
+      (let ((test (let ((info (type-info-for type-symbol nil)))
+                         (and info
+                              (type-info-type-symbol info)))))
         (when test
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
@@ -744,10 +793,13 @@
                      (structure-type-p object class)
                      (class-typep object class)))
         (return-from typep t))))
-  (let ((compound-test (get (if (symbolp type-specifier)
-                                type-specifier
-                                (first type-specifier))
-                            'compound-type)))
+  (let ((compound-test (let ((info (type-info-for
+                                    (if (symbolp type-specifier)
+                                        type-specifier
+                                        (first type-specifier))
+                                    nil)))
+                         (and info
+                              (type-info-compound-type info)))))
     (when compound-test
       (return-from typep (funcall compound-test object type-specifier))))
   (multiple-value-bind (expansion expanded-p)
@@ -795,13 +847,17 @@
             ((eql type-symbol 'nil)
              (return-from compile-typep-expression `(progn ,object 'nil)))
             (t
-             (let ((test (get type-symbol 'type-symbol)))
+             (let ((test (let ((info (type-info-for type-symbol nil)))
+                           (and info
+                                (type-info-type-symbol info)))))
                (when test
                  (return-from compile-typep-expression
                    `(funcall ',test ,object))))))))
   (when (and (listp type-specifier)
              (symbolp (first type-specifier)))
-    (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
+    (let ((compiler (let ((info (type-info-for (first type-specifier) nil)))
+                      (and info
+                           (type-info-compound-type-optimizer info)))))
       (when compiler
         (let* ((sym (gensym))
                (code (funcall compiler sym type-specifier)))
@@ -821,9 +877,18 @@
                        ,object-sym
                        ',(mezzano.runtime::%make-instance-header
                           (mezzano.clos:class-layout struct-type)))))
-              `(structure-type-p ,object ',struct-type))))))
+              `(let ((,object-sym ,object))
+                 (or
+                  (and (%value-has-tag-p ,object-sym ,+tag-object+)
+                       (%fast-instance-layout-eq-p
+                        ,object-sym
+                        ',(mezzano.runtime::%make-instance-header
+                           (mezzano.clos:class-layout struct-type))))
+                  (structure-type-p ,object-sym ',struct-type))))))))
   (when (and (symbolp type-specifier)
-             (get type-specifier 'sys.int::maybe-class nil))
+             (let ((info (type-info-for type-specifier nil)))
+               (and info
+                    (type-info-maybe-class info))))
     (return-from compile-typep-expression
       (let ((class (gensym "CLASS")))
         `(let ((,class (mezzano.clos:find-class-in-reference
@@ -866,78 +931,126 @@
         ((consp object)
          'cons)
         ((%value-has-tag-p object +tag-object+)
-         (ecase (%object-tag object)
-           (#b000000 `(simple-vector ,(array-dimension object 0)))
-           (#b000001 `(simple-array fixnum (,(array-dimension object 0))))
-           (#b000010 `(simple-bit-vector ,(array-dimension object 0)))
-           (#b000011 `(simple-array (unsigned-byte 2) (,(array-dimension object 0))))
-           (#b000100 `(simple-array (unsigned-byte 4) (,(array-dimension object 0))))
-           (#b000101 `(simple-array (unsigned-byte 8) (,(array-dimension object 0))))
-           (#b000110 `(simple-array (unsigned-byte 16) (,(array-dimension object 0))))
-           (#b000111 `(simple-array (unsigned-byte 32) (,(array-dimension object 0))))
-           (#b001000 `(simple-array (unsigned-byte 64) (,(array-dimension object 0))))
-           (#b001001 `(simple-array (signed-byte 1) (,(array-dimension object 0))))
-           (#b001010 `(simple-array (signed-byte 2) (,(array-dimension object 0))))
-           (#b001011 `(simple-array (signed-byte 4) (,(array-dimension object 0))))
-           (#b001100 `(simple-array (signed-byte 8) (,(array-dimension object 0))))
-           (#b001101 `(simple-array (signed-byte 16) (,(array-dimension object 0))))
-           (#b001110 `(simple-array (signed-byte 32) (,(array-dimension object 0))))
-           (#b001111 `(simple-array (signed-byte 64) (,(array-dimension object 0))))
-           (#b010000 `(simple-array single-float (,(array-dimension object 0))))
-           (#b010001 `(simple-array double-float (,(array-dimension object 0))))
-           (#b010010 `(simple-array short-float (,(array-dimension object 0))))
-           (#b010011 `(simple-array long-float (,(array-dimension object 0))))
-           (#b010100 `(simple-array (complex single-float) (,(array-dimension object 0))))
-           (#b010101 `(simple-array (complex double-float) (,(array-dimension object 0))))
-           (#b010110 `(simple-array (complex short-float) (,(array-dimension object 0))))
-           (#b010111 `(simple-array (complex long-float) (,(array-dimension object 0))))
-           (#b011000 'object-tag-011000)
-           (#b011001 'object-tag-011001)
-           (#b011010 'object-tag-011010)
-           (#b011100 (if (eql (array-rank object) 1)
-                         `(simple-string ,(array-dimension object 0))
-                         `(simple-array character ,(array-dimensions object))))
-           (#b011101 (if (eql (array-rank object) 1)
-                         `(string ,(array-dimension object 0))
-                         `(array character ,(array-dimensions object))))
-           (#b011110 `(simple-array ,(array-element-type object) ,(array-dimensions object)))
-           (#b011111 `(array ,(array-element-type object) ,(array-dimensions object)))
-           (#b100000 'bignum)
-           (#b100001 'ratio)
-           (#b100010 'double-float)
-           (#b100011 'short-float)
-           (#b100100 'long-float)
-           (#b100101 '(complex rational))
-           (#b100110 '(complex single-float))
-           (#b100111 '(complex double-float))
-           (#b101000 '(complex short-float))
-           (#b101001 '(complex long-float))
-           (#b101010 'object-tag-101010)
-           (#b101011 'object-tag-101011)
-           (#b101100 'object-tag-101100)
-           (#b101101 'object-tag-101101)
-           (#b101110 'mezzano.runtime::symbol-value-cell)
-           (#b101111 'mezzano.simd:mmx-vector)
-           (#b110000
+         (case (%object-tag object)
+           (#.+object-tag-array-t+
+            `(simple-vector ,(array-dimension object 0)))
+           (#.+object-tag-array-fixnum+
+            `(simple-array fixnum (,(array-dimension object 0))))
+           (#.+object-tag-array-bit+
+            `(simple-bit-vector ,(array-dimension object 0)))
+           (#.+object-tag-array-unsigned-byte-2+
+            `(simple-array (unsigned-byte 2) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-4+
+            `(simple-array (unsigned-byte 4) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-8+
+            `(simple-array (unsigned-byte 8) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-16+
+            `(simple-array (unsigned-byte 16) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-32+
+            `(simple-array (unsigned-byte 32) (,(array-dimension object 0))))
+           (#.+object-tag-array-unsigned-byte-64+
+            `(simple-array (unsigned-byte 64) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-1+
+            `(simple-array (signed-byte 1) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-2+
+            `(simple-array (signed-byte 2) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-4+
+            `(simple-array (signed-byte 4) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-8+
+            `(simple-array (signed-byte 8) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-16+
+            `(simple-array (signed-byte 16) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-32+
+            `(simple-array (signed-byte 32) (,(array-dimension object 0))))
+           (#.+object-tag-array-signed-byte-64+
+            `(simple-array (signed-byte 64) (,(array-dimension object 0))))
+           (#.+object-tag-array-single-float+
+            `(simple-array single-float (,(array-dimension object 0))))
+           (#.+object-tag-array-double-float+
+            `(simple-array double-float (,(array-dimension object 0))))
+           (#.+object-tag-array-short-float+
+            `(simple-array short-float (,(array-dimension object 0))))
+           (#.+object-tag-array-long-float+
+            `(simple-array long-float (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-single-float+
+            `(simple-array (complex single-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-double-float+
+            `(simple-array (complex double-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-short-float+
+            `(simple-array (complex short-float) (,(array-dimension object 0))))
+           (#.+object-tag-array-complex-long-float+
+            `(simple-array (complex long-float) (,(array-dimension object 0))))
+           (#.+object-tag-simple-string+
+            (if (eql (array-rank object) 1)
+                `(simple-string ,(array-dimension object 0))
+                `(simple-array character ,(array-dimensions object))))
+           (#.+object-tag-string+
+            (if (eql (array-rank object) 1)
+                `(string ,(array-dimension object 0))
+                `(array character ,(array-dimensions object))))
+           (#.+object-tag-simple-array+
+            `(simple-array ,(array-element-type object) ,(array-dimensions object)))
+           (#.+object-tag-array+
+            (if (eql (array-rank object) 1)
+                `(vector ,(array-element-type object) ,(array-dimension object 0))
+                `(array ,(array-element-type object) ,(array-dimensions object))))
+           (#.+object-tag-bignum+
+            'bignum)
+           (#.+object-tag-ratio+
+            'ratio)
+           (#.+object-tag-double-float+
+            'double-float)
+           (#.+object-tag-short-float+
+            'short-float)
+           (#.+object-tag-long-float+
+            'long-float)
+           (#.+object-tag-complex-rational+
+            '(complex rational))
+           (#.+object-tag-complex-single-float+
+            '(complex single-float))
+           (#.+object-tag-complex-double-float+
+            '(complex double-float))
+           (#.+object-tag-complex-short-float+
+            '(complex short-float))
+           (#.+object-tag-complex-long-float+
+            '(complex long-float))
+           (#.+object-tag-symbol-value-cell+
+            'mezzano.runtime::symbol-value-cell)
+           (#.+object-tag-mmx-vector+
+            'mezzano.simd:mmx-vector)
+           (#.+object-tag-symbol+
             (cond ((eql object 'nil) 'null)
                   ((eql object 't) 'boolean)
                   ((keywordp object) 'keyword)
                   (t 'symbol)))
-           (#b110001 'object-tag-110001)
-           (#b110010 'object-tag-110010)
-           (#b110011 'mezzano.simd:sse-vector)
-           (#b110100 'object-tag-110100)
-           (#b110101 (class-name (class-of object)))
-           (#b110110 'function-reference)
-           (#b110111 'interrupt-frame)
-           (#b111000 'pinned-cons)
-           (#b111001 'freelist-entry)
-           (#b111010 'weak-pointer)
-           (#b111011 'mezzano.delimited-continuations:delimited-continuation)
-           (#b111100 'compiled-function)
-           (#b111101 (class-name (class-of object)))
-           (#b111110 'closure)
-           (#b111111 'object-tag-111111)))
+           (#.+object-tag-sse-vector+
+            'mezzano.simd:sse-vector)
+           (#.+object-tag-weak-pointer-vector+
+            'weak-pointer-vector)
+           ((#.+object-tag-instance+
+             #.+object-tag-funcallable-instance+)
+            (let* ((class (class-of object))
+                   (name (class-name class)))
+              (if (eql class (find-class name nil))
+                  name
+                  class)))
+           (#.+object-tag-function-reference+
+            'function-reference)
+           (#.+object-tag-interrupt-frame+
+            'interrupt-frame)
+           (#.+object-tag-cons+
+            'pinned-cons)
+           (#.+object-tag-freelist-entry+
+            'freelist-entry)
+           (#.+object-tag-weak-pointer+
+            'weak-pointer)
+           (#.+object-tag-delimited-continuation+
+            'mezzano.delimited-continuations:delimited-continuation)
+           (#.+object-tag-function+
+            'compiled-function)
+           (#.+object-tag-closure+ 'closure)
+           (t
+            `(invalid-object ,(%object-tag object)))))
         ((%value-has-tag-p object +tag-instance-header+)
          'instance-header)
         ;; Invalid objects, these shouldn't be seen in the machine.
@@ -946,4 +1059,4 @@
         ((%value-has-tag-p object +tag-gc-forward+)
          'gc-forwarding-pointer)
         (t
-         (intern (format nil "TAG-~4,'0B" (%tag-field object)) :sys.int))))
+         `(invalid-value ,(%tag-field object)))))

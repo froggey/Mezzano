@@ -13,8 +13,7 @@
 
 (defun blexit (lambda architecture)
   (declare (ignore architecture))
-  (with-metering (:block-exit)
-    (blexit-1 lambda '())))
+  (blexit-1 lambda '()))
 
 (defmethod blexit-1 ((form lexical-variable) live-block-list)
   (declare (ignore live-block-list))

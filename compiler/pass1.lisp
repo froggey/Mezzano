@@ -78,9 +78,7 @@
 
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
-  (with-metering (:pass1)
-    (log-event :pass1-toplevel)
-    (pass1-lambda-inner lambda env)))
+  (pass1-lambda-inner lambda env))
 
 (defun pass1-lambda-inner (lambda env)
   (multiple-value-bind (body lambda-list declares name docstring)
@@ -535,7 +533,9 @@
         (make-instance 'ast-let
                        :environment env
                        :bindings (mapcar (lambda (b)
-                                           (list (third b) (pass1-form (wrap-initform-with-the (second b) (third b) declares) env)))
+                                           (list (third b)
+                                                 (wrap-type-check (third b)
+                                                                  (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
                                          variables)
                        :body (pass1-form `(progn ,@body)
                                          (extend-environment env
@@ -565,8 +565,7 @@
 (defun non-type-type-declaration-p (declaration)
   "Test if DECLARATION should be treated as a type declaration."
   (and (symbolp declaration)
-       (or (get declaration 'sys.int::type-expander)
-           (get declaration 'sys.int::type-symbol))))
+       (sys.int::type-specifier-p declaration)))
 
 (defun fake-type-declarations-for (declares name)
   (dolist (dec declares '())
@@ -601,7 +600,7 @@
               (check-variable-bindable var)
               (setf (body inner) (make-instance 'ast-let
                                                 :environment env
-                                                :bindings (list (list var (pass1-form (wrap-initform-with-the init-form var declares) env)))
+                                                :bindings (list (list var (wrap-type-check var (pass1-form (wrap-initform-with-the init-form var declares) env))))
                                                 :body (make-instance 'ast-quote :value 'nil))
                     inner (body inner)
                     env (extend-environment env

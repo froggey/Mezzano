@@ -876,38 +876,39 @@ not and WAIT-P is false."
     (when *pseudo-atomic*
       (panic "Stopping world while pseudo-atomic!"))
     (ensure-interrupts-enabled)
-    (with-world-stop-lock ()
-      ;; First, try to position ourselves as the next thread to stop the world.
-      ;; This prevents any more threads from becoming PA.
-      (loop
-         (when (null *world-stop-pending*)
-           (setf *world-stop-pending* self)
-           (return))
-         ;; Wait for the world to unstop.
-         ;; FIXME: This can still cause deadlocks when reacquiring the lock.
-         (condition-wait *world-stop-cvar* *world-stop-lock*))
-      ;; Now wait for any PA threads to finish.
-      (loop
-         (when (zerop *pseudo-atomic-thread-count*)
-           (return))
-         ;; FIXME: Same here.
-         (condition-wait *world-stop-cvar* *world-stop-lock*))
-      (safe-without-interrupts (self)
-        (acquire-global-thread-lock)
-        (setf *world-stopper* self
-              *world-stop-pending* nil)
-        (release-global-thread-lock))
-      (quiesce-cpus-for-world-stop))
-    (unwind-protect
-        (funcall thunk)
+    (inhibit-thread-pool-blocking-hijack
       (with-world-stop-lock ()
-        ;; Release the dogs!
-        (safe-without-interrupts ()
-          (acquire-global-thread-lock)
-          (setf *world-stopper* nil)
-          (release-global-thread-lock))
-        (condition-notify *world-stop-cvar* t)
-        (broadcast-wakeup-ipi)))))
+        ;; First, try to position ourselves as the next thread to stop the world.
+        ;; This prevents any more threads from becoming PA.
+        (loop
+           (when (null *world-stop-pending*)
+             (setf *world-stop-pending* self)
+             (return))
+           ;; Wait for the world to unstop.
+           ;; FIXME: This can still cause deadlocks when reacquiring the lock.
+           (condition-wait *world-stop-cvar* *world-stop-lock*))
+        ;; Now wait for any PA threads to finish.
+        (loop
+           (when (zerop *pseudo-atomic-thread-count*)
+             (return))
+           ;; FIXME: Same here.
+           (condition-wait *world-stop-cvar* *world-stop-lock*))
+        (safe-without-interrupts (self)
+                                 (acquire-global-thread-lock)
+                                 (setf *world-stopper* self
+                                       *world-stop-pending* nil)
+                                 (release-global-thread-lock))
+        (quiesce-cpus-for-world-stop))
+      (unwind-protect
+           (funcall thunk)
+        (with-world-stop-lock ()
+          ;; Release the dogs!
+          (safe-without-interrupts ()
+                                   (acquire-global-thread-lock)
+                                   (setf *world-stopper* nil)
+                                   (release-global-thread-lock))
+          (condition-notify *world-stop-cvar* t)
+          (broadcast-wakeup-ipi))))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
@@ -920,22 +921,23 @@ not and WAIT-P is false."
   (when (eql *world-stopper* (current-thread))
     (panic "Going PA with world stopped!"))
   (ensure-interrupts-enabled)
-  (with-world-stop-lock ()
-    (loop
-       (when (null *world-stop-pending*)
-         (return))
-       ;; Don't go PA if there is a thread waiting to stop the world.
-       ;; FIXME: Can deadlock...
-       (condition-wait *world-stop-cvar* *world-stop-lock*))
-    ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
-    ;; from being inspected.
-    (incf *pseudo-atomic-thread-count*))
-  (unwind-protect
-       (let ((*pseudo-atomic* t))
-         (funcall thunk))
+  (inhibit-thread-pool-blocking-hijack
     (with-world-stop-lock ()
-      (decf *pseudo-atomic-thread-count*)
-      (condition-notify *world-stop-cvar* t))))
+      (loop
+         (when (null *world-stop-pending*)
+           (return))
+         ;; Don't go PA if there is a thread waiting to stop the world.
+         ;; FIXME: Can deadlock...
+         (condition-wait *world-stop-cvar* *world-stop-lock*))
+      ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
+      ;; from being inspected.
+      (incf *pseudo-atomic-thread-count*))
+    (unwind-protect
+         (let ((*pseudo-atomic* t))
+           (funcall thunk))
+      (with-world-stop-lock ()
+        (decf *pseudo-atomic-thread-count*)
+        (condition-notify *world-stop-cvar* t)))))
 
 (defmacro with-pseudo-atomic (&body body)
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))

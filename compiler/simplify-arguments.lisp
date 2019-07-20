@@ -7,9 +7,8 @@
   "Simplify lambda lists so that no lambda argument is special and
 so that no &OPTIONAL argument has a non-constant init-form.
 Must be run after keywords have been lowered."
-  (with-metering (:lower-arguments)
-    (lower-arguments-1 form)
-    form))
+  (lower-arguments-1 form)
+  form)
 
 (defgeneric lower-arguments-1 (form))
 
@@ -77,27 +76,47 @@ Must be run after keywords have been lowered."
 
 (defmethod lower-arguments-1 ((form lexical-variable)))
 
+(defun wrap-type-check (variable value)
+  "Wrap a type check around VALUE, based on VARIABLE's type."
+  (cond ((or (eql (optimize-quality value 'safety) 0)
+             (lexical-variable-p variable)
+             (eql (mezzano.runtime::symbol-type (name variable)) 't))
+         value)
+        (t
+         (ast `(let ((val ,value))
+                 (if (source-fragment (typep val ',(mezzano.runtime::symbol-type (name variable))))
+                     val
+                     (progn
+                       (call raise-binding-type-error
+                             ',(name variable)
+                             ',(mezzano.runtime::symbol-type (name variable))
+                             val)
+                       (call sys.int::%%unreachable))))
+              value))))
+
 (defmethod lower-arguments-1 ((form lambda-information))
-  (flet ((new-var (name)
-           (make-instance 'lexical-variable
-                          :inherit form
-                          :name (gensym name)
-                          :definition-point *current-lambda*)))
-    (let* ((*current-lambda* form)
-           (extra-bindings '()))
+  (let* ((*current-lambda* form)
+         (extra-bindings '()))
+    (labels ((new-var (name)
+               (make-instance 'lexical-variable
+                              :inherit form
+                              :name (gensym name)
+                              :definition-point *current-lambda*))
+             (update-one (arg)
+               (etypecase arg
+                 (special-variable
+                  (let ((temp (new-var (string (name arg)))))
+                    (push (list arg (wrap-type-check arg temp)) extra-bindings)
+                    temp))
+                 (lexical-variable
+                  arg))))
       (when (lambda-information-enable-keys form)
         (error "Keyword arguments not lowered!"))
       ;; Eliminate special required arguments.
       (setf (lambda-information-required-args form)
             (loop
                for arg in (lambda-information-required-args form)
-               collect (etypecase arg
-                         (special-variable
-                          (let ((temp (new-var (string (name arg)))))
-                            (push (list arg temp) extra-bindings)
-                            temp))
-                         (lexical-variable
-                          arg))))
+               collect (update-one arg)))
       ;; Eliminate special optional arguments & non-constant init-forms.
       (setf (lambda-information-optional-args form)
             (loop
@@ -110,6 +129,8 @@ Must be run after keywords have been lowered."
                                                (lexical-variable
                                                 suppliedp)))
                               (trivial-init-form (and (typep init-form 'ast-quote)
+                                                      (or (lexical-variable-p arg)
+                                                          (eql (mezzano.runtime::symbol-type (name arg)) 't))
                                                       (or (not *use-new-compiler*)
                                                           (eql (ast-value init-form) nil))))
                               (new-arg (etypecase arg
@@ -124,41 +145,26 @@ Must be run after keywords have been lowered."
                                                  (ast '(quote nil) init-form))))
                          (when (or (not trivial-init-form)
                                    (typep arg 'special-variable))
-                           (push (list arg (ast `(if ,new-suppliedp
-                                                     ,new-arg
-                                                     ,init-form)
-                                                init-form))
+                           (push (list arg (wrap-type-check arg
+                                                            (ast `(if ,new-suppliedp
+                                                                      ,new-arg
+                                                                      ,init-form)
+                                                                 init-form)))
                                  extra-bindings))
                          (when (and (not (null suppliedp))
                                     (typep suppliedp 'special-variable))
-                           (push (list suppliedp new-suppliedp)
+                           (push (list suppliedp (wrap-type-check suppliedp new-suppliedp))
                                  extra-bindings))
                          (list new-arg new-init-form new-suppliedp))))
       ;; And eliminate special rest args.
-      (when (and (lambda-information-rest-arg form)
-                 (typep (lambda-information-rest-arg form) 'special-variable))
-        (let ((new-rest (new-var (string (name (lambda-information-rest-arg form))))))
-          (push (list (lambda-information-rest-arg form) new-rest)
-                extra-bindings)
-          (setf (lambda-information-rest-arg form) new-rest)))
-      (when (and (lambda-information-fref-arg form)
-                 (typep (lambda-information-fref-arg form) 'special-variable))
-        (let ((new-fref (new-var (string (name (lambda-information-fref-arg form))))))
-          (push (list (lambda-information-fref-arg form) new-fref)
-                extra-bindings)
-          (setf (lambda-information-fref-arg form) new-fref)))
-      (when (and (lambda-information-closure-arg form)
-                 (typep (lambda-information-closure-arg form) 'special-variable))
-        (let ((new-closure (new-var (string (name (lambda-information-closure-arg form))))))
-          (push (list (lambda-information-closure-arg form) new-closure)
-                extra-bindings)
-          (setf (lambda-information-closure-arg form) new-closure)))
-      (when (and (lambda-information-count-arg form)
-                 (typep (lambda-information-count-arg form) 'special-variable))
-        (let ((new-count (new-var (string (name (lambda-information-count-arg form))))))
-          (push (list (lambda-information-count-arg form) new-count)
-                extra-bindings)
-          (setf (lambda-information-count-arg form) new-count)))
+      (when (lambda-information-rest-arg form)
+        (setf (lambda-information-rest-arg form) (update-one (lambda-information-rest-arg form))))
+      (when (lambda-information-fref-arg form)
+        (setf (lambda-information-fref-arg form) (update-one (lambda-information-fref-arg form))))
+      (when (lambda-information-closure-arg form)
+        (setf (lambda-information-closure-arg form) (update-one (lambda-information-closure-arg form))))
+      (when (lambda-information-count-arg form)
+        (setf (lambda-information-count-arg form) (update-one (lambda-information-count-arg form))))
       (when extra-bindings
         ;; Bindings were added.
         (setf (lambda-information-body form)

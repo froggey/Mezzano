@@ -54,7 +54,7 @@
 
 (defmethod initialize-instance :before ((class structure-class) &rest initargs)
   (declare (ignore initargs))
-  (error "Cannot reinitialize structure classes."))
+  (error "Cannot initialize structure classes."))
 
 (defmethod reinitialize-instance :before ((class structure-class) &rest initargs)
   (declare (ignore initargs))
@@ -130,11 +130,42 @@
   (check-update-instance-for-redefined-class-initargs instance added-slots discarded-slots property-list initargs)
   (apply #'shared-initialize instance added-slots initargs))
 
-(defmethod shared-initialize ((instance structure-object) slot-names &rest initargs)
-  (declare (ignore initargs))
+(defmethod shared-initialize ((instance structure-object) slot-names &rest all-keys)
   (dolist (slot (class-slots (class-of instance)))
     (let ((slot-name (slot-definition-name slot)))
-      (when (or (eq slot-names t)
-                (member slot-name slot-names))
-        (setf (slot-value instance slot-name) (eval (slot-definition-initform slot))))))
+      (multiple-value-bind (init-key init-value foundp)
+            (get-properties
+             all-keys
+             (list (intern (string slot-name) 'keyword)))
+         (declare (ignore init-key))
+         (cond (foundp
+                (setf (slot-value instance slot-name) init-value))
+               ((or (eq slot-names t)
+                    (member slot-name slot-names))
+                (setf (slot-value instance slot-name) (eval (slot-definition-initform slot))))))))
   instance)
+
+(defmethod make-instance ((class structure-class) &rest initargs &key &allow-other-keys)
+  (when (not (slot-value class 'has-standard-constructor))
+    (error "Structure class ~S does not have a standard constructor" class))
+  ;; TODO: Permit initargs based on allocate-instance/initialize-instance/shared-initialize as well, like STD-CLASS.
+  (unless (getf initargs :allow-other-keys)
+    (let ((invalid-initargs
+           (loop
+              with slots = (class-slots class)
+              for (name value) on initargs by #'cddr
+              unless (or (eql name :allow-other-keys)
+                         (and (keywordp name)
+                              (find name slots
+                                    :key #'slot-definition-name
+                                    :test #'string=)))
+              collect name)))
+      (when invalid-initargs
+        (error "Invalid initargs ~:S when creating instance of ~S (~S)"
+               invalid-initargs class (class-name class)))))
+  (let ((instance (apply #'allocate-instance class initargs)))
+    (apply #'initialize-instance instance initargs)
+    instance))
+
+(defmethod initialize-instance ((instance structure-object) &rest initargs)
+  (apply #'shared-initialize instance t initargs))
