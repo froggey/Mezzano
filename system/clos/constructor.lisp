@@ -166,7 +166,7 @@
                ,@(loop
                     for (initarg form fn) in (class-default-initargs class)
                     collect `(when (not (property-present-p ,supplied-initargs ',initarg))
-                               (setf ,initargs (list* ',initarg (funcall ',fn) ,initargs))))
+                               (setf ,initargs (append ,initargs (list ',initarg (funcall ',fn))))))
                ;; Check key validity.
                ,(when (not (or allocate-aok initialize-aok))
                   `(when (not (getf ,initargs :allow-other-keys))
