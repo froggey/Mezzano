@@ -109,7 +109,8 @@
            (tagbody ,head
               (if (null ,itr)
                   (return (let ((,var nil))
-                            (declare ,@declares)
+                            (declare ,@declares
+                                     (ignorable ,var))
                             ,result-form)))
               (let ((,var (car ,itr)))
                 (declare ,@declares)
