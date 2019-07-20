@@ -454,6 +454,7 @@
                      (funcall key (aref vector i))
                      (funcall key (aref vector (1+ i)))))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute) ; needed for x-compiler
 ;; FIXME: This should also extract the length and return it too.
 (defun vector-type-element-type (type &optional environment)
   (let ((expanded-type (typeexpand type environment)))
@@ -469,6 +470,7 @@
           ((subtypep expanded-type 'bit-vector environment)
            'bit)
           (t 't))))
+)
 
 (define-compiler-macro concatenate (&whole whole &environment environment result-type &rest sequences)
   (flet ((bail () (return-from concatenate whole)))
