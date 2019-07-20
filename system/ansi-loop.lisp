@@ -48,13 +48,10 @@
 
 ;;;; LOOP Iteration Macro
 
-(defpackage :sys.loop
+(defpackage :mezzano.loop
   (:use #:cl))
 
-#+allegro
-(in-package :excl)
-#-allegro
-(in-package #:sys.loop)
+(in-package #:mezzano.loop)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 #+ignore(provide :loop)
