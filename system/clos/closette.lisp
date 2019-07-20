@@ -2861,8 +2861,9 @@ has only has class specializer."
          (list 'shared-initialize (class-prototype class) t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs class (class-name class) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs class (class-name class) initargs valid-initargs)))))
 
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
@@ -2899,8 +2900,9 @@ has only has class specializer."
          (list 'shared-initialize object t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs object (class-name (class-of object)) initargs valid-initargs)))))
 
 (defgeneric reinitialize-instance (instance &key &allow-other-keys))
 (defmethod reinitialize-instance ((instance standard-object) &rest initargs)
@@ -2968,8 +2970,9 @@ has only has class specializer."
          (list 'shared-initialize new t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs new (class-name (class-of new)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid: ~:S"
+            :format-initargs (list invalid-initargs new (class-name (class-of new)) initargs valid-initargs)))))
 
 (defgeneric update-instance-for-different-class (old new &key &allow-other-keys))
 (defmethod update-instance-for-different-class ((old standard-object)
@@ -3387,8 +3390,9 @@ has only has class specializer."
          (list 'shared-initialize object added-slots))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs object (class-name (class-of object)) initargs valid-initargs)))))
 
 (defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
 

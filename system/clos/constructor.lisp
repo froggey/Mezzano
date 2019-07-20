@@ -176,8 +176,9 @@
                                                           (not (member key ',all-keys)))
                                                 collect key)))
                        (when invalid-initargs
-                         (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
-                                invalid-initargs ',class ',(class-name class) ,initargs ',all-keys)))))
+                         (error 'sys.int::simple-program-error
+                                :format-control "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+                                :format-arguments (list invalid-initargs ',class ',(class-name class) ,initargs ',all-keys))))))
                ;; Allocate & initialize instance.
                (let ((,instance ,allocate-form))
                  ,initialize-form
