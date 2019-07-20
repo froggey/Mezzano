@@ -2753,9 +2753,6 @@ has only has class specializer."
 
 (defgeneric compute-default-initargs (class))
 (defmethod compute-default-initargs ((class std-class))
-  (std-compute-default-initargs class))
-
-(defun std-compute-default-initargs (class)
   (let ((default-initargs '()))
     (dolist (c (safe-class-precedence-list class))
       (loop
