@@ -143,7 +143,8 @@
                        (loader-allocation-area loader))))
 
 (defun load-structure-definition (loader)
-  (let* ((docstring (stack-pop loader))
+  (let* ((has-standard-constructor (stack-pop loader))
+         (docstring (stack-pop loader))
          (sealed (stack-pop loader))
          (layout (stack-pop loader))
          (size (stack-pop loader))
@@ -153,7 +154,15 @@
          (name (stack-pop loader))
          (sdef (env:make-structure-definition
                 (loader-environment loader)
-                name slots parent area size layout sealed docstring)))
+                name
+                slots
+                parent
+                area
+                size
+                layout
+                sealed
+                docstring
+                has-standard-constructor)))
     (env:register-structure-definition (loader-environment loader) sdef)))
 
 (defun load-structure-slot-definition (loader)

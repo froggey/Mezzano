@@ -505,7 +505,15 @@
                                  slot-descriptions
                                  included-structure
                                  included-slot-descriptions)
-      (let ((struct-type (make-struct-definition name slots included-structure area size layout sealed docstring)))
+      (let ((struct-type (make-struct-definition name
+                                                 slots
+                                                 included-structure
+                                                 area
+                                                 size
+                                                 layout
+                                                 sealed
+                                                 docstring
+                                                 (some #'symbolp constructors))))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%defstruct ',struct-type))

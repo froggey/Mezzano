@@ -59,6 +59,8 @@
            ;; Heap layout, not a layout object.
            #:structure-definition-layout
            #:structure-definition-sealed
+           #:structure-definition-docstring
+           #:structure-definition-has-standard-constructor
            #:make-structure-slot-definition
            #:structure-slot-definition
            #:structure-slot-definition-name
@@ -190,9 +192,10 @@
    (%layout :initarg :layout :accessor structure-definition-layout)
    (%sealed :initarg :sealed :reader structure-definition-sealed)
    (%docstring :initarg :docstring :reader structure-definition-docstring)
+   (%has-standard-constructor :initarg :has-standard-constructor :reader structure-definition-has-standard-constructor)
    (%native-class :initform nil :accessor structure-definition-native-class)))
 
-(defun make-structure-definition (environment name slots parent area size layout sealed docstring)
+(defun make-structure-definition (environment name slots parent area size layout sealed docstring has-standard-constructor)
   (declare (ignore environment))
   ;; FIXME: Copy slots list & layout to wired area.
   (check-type name symbol)
@@ -205,7 +208,8 @@
                  :size size
                  :layout layout
                  :sealed sealed
-                 :docstring docstring))
+                 :docstring docstring
+                 :has-standard-constructor has-standard-constructor))
 
 (defmethod print-object ((object structure-definition) stream)
   (print-unreadable-object (object stream :type t :identity t)

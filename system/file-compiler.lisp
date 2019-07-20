@@ -327,7 +327,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
    (layout-heap-size (mezzano.clos:class-layout class))
    (layout-heap-layout (mezzano.clos:class-layout class))
    (mezzano.clos:class-sealed class)
-   (documentation class t)))
+   (documentation class t)
+   (slot-value class 'mezzano.clos::has-standard-constructor)))
 
 (defmethod save-one-object ((object structure-class) omap stream)
   (save-one-object (convert-structure-class-to-structure-definition object)
@@ -346,6 +347,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (layout-heap-layout (structure-definition-layout object)) omap stream)
   (save-object (structure-definition-sealed object) omap stream)
   (save-object (structure-definition-docstring object) omap stream)
+  (save-object (structure-definition-has-standard-constructor object) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object structure-slot-definition) omap stream)

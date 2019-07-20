@@ -392,7 +392,9 @@
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::constructor)
           nil)
     (setf (mezzano.runtime::instance-access-by-name new-class 'documentation)
-          (structure-definition-docstring sdef))))
+          (structure-definition-docstring sdef))
+    (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::has-standard-constructor)
+          (structure-definition-has-standard-constructor sdef))))
 
 (defun convert-structure-definition-to-class (sdef)
   ;; CLOS might not be fully initialized at this point,

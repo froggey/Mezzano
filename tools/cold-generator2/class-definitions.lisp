@@ -128,7 +128,8 @@
 (defclass funcallable-standard-class (std-class) ())
 
 (defclass structure-class (instance-class)
-  ((parent))
+  ((parent)
+   (has-standard-constructor))
   (:area :wired)
   (:sealed t))
 
