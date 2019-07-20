@@ -172,10 +172,11 @@
                   `(when (not (getf ,initargs :allow-other-keys))
                      (let ((invalid-initargs (loop
                                                 for key in ,initargs by #'cddr
-                                                when (not (member key ',all-keys))
+                                                when (and (not (eql key :allow-other-keys))
+                                                          (not (member key ',all-keys)))
                                                 collect key)))
                        (when invalid-initargs
-                         (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S"
+                         (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
                                 invalid-initargs ',class ',(class-name class) ,initargs ',all-keys)))))
                ;; Allocate & initialize instance.
                (let ((,instance ,allocate-form))
