@@ -59,7 +59,7 @@
       (when (cdr stores) (error "Can't expand this."))
       ;; Return the setf expansion for LDB as five values.
       (values (append temps (list btemp))       ;Temporary variables.
-              (append temps (list bit))          ;Value forms.
+              (append vals (list bit))          ;Value forms.
               (list store)             ;Store variables.
               `(let ((,stemp (set-char-bit ,access-form ,btemp ,store)))
                  ,store-form
