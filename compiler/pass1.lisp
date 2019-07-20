@@ -530,19 +530,24 @@
                                       (check-variable-bindable var)
                                       (list name init-form var))))
                                 bindings)))
-        (make-instance 'ast-let
-                       :environment env
-                       :bindings (mapcar (lambda (b)
-                                           (list (third b)
-                                                 (wrap-type-check (third b)
-                                                                  (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
-                                         variables)
-                       :body (pass1-form `(progn ,@body)
-                                         (extend-environment env
-                                                             :variables (mapcar (lambda (b)
-                                                                                  (list (first b) (third b)))
-                                                                                variables)
-                                                             :declarations declares)))))))
+        (prog1
+            (make-instance 'ast-let
+                           :environment env
+                           :bindings (mapcar (lambda (b)
+                                               (list (third b)
+                                                     (wrap-type-check (third b)
+                                                                      (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
+                                             variables)
+                           :body (pass1-form `(progn ,@body)
+                                             (extend-environment env
+                                                                 :variables (mapcar (lambda (b)
+                                                                                      (list (first b) (third b)))
+                                                                                    variables)
+                                                                 :declarations declares)))
+          (loop
+             for (name init-form var) in variables
+             when (lexical-variable-p var)
+             do (check-variable-usage var)))))))
 
 (defun find-type-declaration (symbol declares)
   (dolist (dec declares 't)
@@ -591,7 +596,8 @@
                                                          :environment env
                                                          :value 'nil)))
              (inner result)
-             (var-names '()))
+             (var-names '())
+             (vars '()))
         (dolist (b bindings)
           (multiple-value-bind (name init-form)
               (parse-let-binding b)
@@ -605,9 +611,13 @@
                     inner (body inner)
                     env (extend-environment env
                                             :variables (list (list name var))
-                                            :declarations (fake-type-declarations-for declares name))))))
+                                            :declarations (fake-type-declarations-for declares name)))
+              (push var vars))))
         (setf (body inner) (pass1-form `(progn ,@body)
                                        (extend-environment env :declarations declares)))
+        (dolist (var vars)
+          (when (lexical-variable-p var)
+            (check-variable-usage var)))
         (body result)))))
 
 (defun pass1-load-time-value (form env)
