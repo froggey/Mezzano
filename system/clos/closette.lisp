@@ -2945,12 +2945,13 @@ has only has class specializer."
           (setf (slot-value old-copy slot-name)
                 (slot-value old-instance slot-name)))))
     ;; Initialize the new instance with the old slots.
-    (dolist (slot-name (mapcar #'safe-slot-definition-name
-                               (safe-class-slots new-class)))
-      (when (and (slot-exists-p old-instance slot-name)
-                 (slot-boundp old-instance slot-name))
-        (setf (slot-value new-instance slot-name)
-              (slot-value old-instance slot-name))))
+    (dolist (new-slot (safe-class-slots new-class))
+      (when (instance-slot-p new-slot)
+        (let ((slot-name (safe-slot-definition-name new-slot)))
+          (when (and (slot-exists-p old-instance slot-name)
+                     (slot-boundp old-instance slot-name))
+            (setf (slot-value new-instance slot-name)
+                  (slot-value old-instance slot-name))))))
     ;; Obsolete the old instance, replacing it with the new instance.
     (mezzano.runtime::supersede-instance old-instance new-instance)
     (apply #'update-instance-for-different-class
