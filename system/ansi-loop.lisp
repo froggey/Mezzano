@@ -325,32 +325,11 @@ constructed.
 
 
 (defvar *loop-minimax-type-infinities-alist*
-	;;@@@@ This is the sort of value this should take on for a Lisp that has
-	;; "eminently usable" infinities.  n.b. there are neither constants nor
-	;; printed representations for infinities defined by CL.
-	;;@@@@ This grotesque read-from-string below is to help implementations
-	;; which croak on the infinity character when it appears in a token, even
-	;; conditionalized out.
-	#+Genera
-	  '#.(read-from-string
-	      "((fixnum 	most-positive-fixnum	 most-negative-fixnum)
-		(short-float 	+1s			 -1s)
-		(single-float	+1f			 -1f)
-		(double-float	+1d			 -1d)
-		(long-float	+1l			 -1l))")
-	;;This is how the alist should look for a lisp that has no infinities.  In
-	;; that case, MOST-POSITIVE-x-FLOAT really IS the most positive.
-	#+(or CLOE-Runtime Minima)
-	  '((fixnum   		most-positive-fixnum		most-negative-fixnum)
-	    (short-float	most-positive-short-float	most-negative-short-float)
-	    (single-float	most-positive-single-float	most-negative-single-float)
-	    (double-float	most-positive-double-float	most-negative-double-float)
-	    (long-float		most-positive-long-float	most-negative-long-float))
-	;;If we don't know, then we cannot provide "infinite" initial values for any of the
-	;; types but FIXNUM:
-	#-(or Genera CLOE-Runtime Minima)
-	  '((fixnum   		most-positive-fixnum		most-negative-fixnum))
-	  )
+  '((fixnum   		most-positive-fixnum		most-negative-fixnum)
+    (short-float	sys.int::short-float-positive-infinity	sys.int::short-float-negative-infinity)
+    (single-float	sys.int::single-float-positive-infinity	sys.int::single-float-negative-infinity)
+    (double-float	sys.int::double-float-positive-infinity	sys.int::double-float-negative-infinity)
+    (long-float		sys.int::long-float-positive-infinity	sys.int::long-float-negative-infinity)))
 
 
 (defun make-loop-minimax (answer-variable type)
