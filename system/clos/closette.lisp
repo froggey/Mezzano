@@ -3063,6 +3063,34 @@ has only has class specializer."
 (defmethod initialize-instance :after ((generic-function standard-generic-function) &key)
   (finalize-generic-function generic-function))
 
+(defmethod reinitialize-instance :before ((generic-function standard-generic-function) &key (lambda-list nil lambda-list-p))
+  (when lambda-list-p
+    (let ((gf-ll (analyze-lambda-list lambda-list)))
+      (dolist (method (generic-function-methods generic-function))
+        ;; Make sure that the new lambda-list is congruent with existing methods.
+        (let ((method-ll (analyze-lambda-list (safe-method-lambda-list method))))
+          (assert (eql (length (getf gf-ll :required-args))
+                       (length (getf method-ll :required-args)))
+                  (generic-function method)
+                  "New lambda-list ~:S for generic function ~S and method ~S have differing required arguments."
+                  lambda-list generic-function method)
+          (assert (eql (length (getf gf-ll :optional-args))
+                       (length (getf method-ll :optional-args)))
+                  (generic-function method)
+                  "New lambda-list ~:S for generic function ~S and method ~S have differing optional arguments."
+                  lambda-list generic-function method)
+          (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
+                                            (member '&key lambda-list)))
+                (method-accepts-key-or-rest (or (getf method-ll :rest-var)
+                                                (member '&key (safe-method-lambda-list method)))))
+            (assert (or (and gf-accepts-key-or-rest
+                             method-accepts-key-or-rest)
+                        (and (not gf-accepts-key-or-rest)
+                             (not method-accepts-key-or-rest)))
+                    (generic-function method)
+                    "New lambda-list ~:S for generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
+                    lambda-list generic-function method)))))))
+
 (defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key argument-precedence-order lambda-list)
   (when (and lambda-list (not argument-precedence-order))
     ;; If :LAMBDA-LIST is supplied and :ARGUMENT-PRECEDENCE-ORDER is not, then
