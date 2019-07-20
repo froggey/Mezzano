@@ -149,18 +149,20 @@
   (when (not (slot-value class 'has-standard-constructor))
     (error "Structure class ~S does not have a standard constructor" class))
   ;; TODO: Permit initargs based on allocate-instance/initialize-instance/shared-initialize as well, like STD-CLASS.
-  (let ((invalid-initargs
-         (loop
-            with slots = (class-slots class)
-            for (name value) on initargs by #'cddr
-            when (or (not (keywordp name))
-                     (not (find name slots
-                                :key #'slot-definition-name
-                                :test #'string=)))
-            collect name)))
-    (when invalid-initargs
-     (error "Invalid initargs ~:S when creating instance of ~S (~S)"
-            invalid-initargs class (class-name class))))
+  (unless (getf initargs :allow-other-keys)
+    (let ((invalid-initargs
+           (loop
+              with slots = (class-slots class)
+              for (name value) on initargs by #'cddr
+              unless (or (eql name :allow-other-keys)
+                         (and (keywordp name)
+                              (find name slots
+                                    :key #'slot-definition-name
+                                    :test #'string=)))
+              collect name)))
+      (when invalid-initargs
+        (error "Invalid initargs ~:S when creating instance of ~S (~S)"
+               invalid-initargs class (class-name class)))))
   (let ((instance (apply #'allocate-instance class initargs)))
     (apply #'initialize-instance instance initargs)
     instance))
