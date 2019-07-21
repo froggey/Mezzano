@@ -89,7 +89,8 @@
                                   'single-float-positive-infinity
                                   'double-float-positive-infinity)))
     (return-from write-float))
-  (when (< float 0.0)
+  (when (or (< float 0.0)
+            (eql (float -0.0 float) float))
     (write-char #\- stream)
     (setf float (- float)))
   (multiple-value-bind (integer-part decimal-part)
