@@ -396,11 +396,9 @@ the old or new values are expected to be unbound.")
 (defun std-slot-makunbound (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
-      (return-from std-slot-makunbound
-        (values (slot-missing (class-of instance) instance
-                              slot-name 'slot-makunbound))))
-    (setf (standard-instance-access slots location) *secret-unbound-value*))
+    (if location
+        (setf (standard-instance-access slots location) *secret-unbound-value*)
+        (slot-missing (class-of instance) instance slot-name 'slot-makunbound)))
   instance)
 (defun slot-makunbound (object slot-name)
   (let ((metaclass (class-of (class-of object))))
@@ -408,9 +406,11 @@ the old or new values are expected to be unbound.")
            (std-slot-makunbound object slot-name))
           (t
            (let ((slot (find-effective-slot object slot-name)))
-             (if slot
-                 (slot-makunbound-using-class (class-of object) object slot)
-                 (values (slot-missing (class-of object) object slot-name 'slot-makunbound))))))))
+             (cond (slot
+                    (slot-makunbound-using-class (class-of object) object slot))
+                   (t
+                    (slot-missing (class-of object) object slot-name 'slot-makunbound)
+                    object)))))))
 
 (defun slot-exists-p (instance slot-name)
   (not (null (find-effective-slot instance slot-name))))
