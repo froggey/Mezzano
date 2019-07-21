@@ -555,7 +555,8 @@
         (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
                                                        (tcp-connection-lock connection)
                                                        *tcp-connect-timeout*)
-                 (not (eql (tcp-connection-state connection) :syn-sent)))
+                 (not (or (eql (tcp-connection-state connection) :syn-sent)
+                          (eql (tcp-connection-state connection) :syn-received))))
                (when (eql (tcp-connection-state connection) :connection-aborted)
                  (error 'connection-aborted
                         :host ip
