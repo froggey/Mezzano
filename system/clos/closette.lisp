@@ -1511,9 +1511,12 @@ has only has class specializer."
     (when (endp argument-precedence)
       (setf argument-precedence (copy-list required-args)
             (safe-generic-function-argument-precedence-order gf) argument-precedence))
-    (assert (eql (length required-args) (length argument-precedence)))
-    (assert (endp (set-difference required-args argument-precedence)))
-    (assert (endp (set-difference argument-precedence required-args)))
+    (when (or (not (eql (length required-args) (length argument-precedence)))
+              (set-difference required-args argument-precedence)
+              (set-difference argument-precedence required-args))
+      (error 'sys.int::simple-program-error
+             :format-control "Argument precedence list ~:S does not match required arguments ~:S"
+             :format-arguments (list argument-precedence required-args)))
     (cond ((every #'eql required-args argument-precedence)
            ;; No argument reordering required.
            (setf (argument-reordering-table gf) nil))
