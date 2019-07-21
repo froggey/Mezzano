@@ -77,50 +77,374 @@
                                        ((or null single-float) 'single-float)
                                        (double-float 'double-float))))))
 
+(defun sys.int::float-nan-p (float)
+  (etypecase float
+    (single-float
+     (let* ((bits (sys.int::%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (not (zerop sig)))))
+    (double-float
+     (let* ((bits (sys.int::%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (not (zerop sig)))))))
+
+(defun sys.int::float-trapping-nan-p (float)
+  (etypecase float
+    (single-float
+     (let* ((bits (sys.int::%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (not (zerop sig))
+            (not (logbitp 22 sig)))))
+    (double-float
+     (let* ((bits (sys.int::%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (not (zerop sig))
+            (not (logbitp 51 sig)))))))
+
+(defun sys.int::float-infinity-p (float)
+  (etypecase float
+    (single-float
+     (let* ((bits (sys.int::%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (zerop sig))))
+    (double-float
+     (let* ((bits (sys.int::%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (zerop sig))))))
+
+(defmacro number-dispatch (value &body body)
+  (let ((object-tags (make-array 64 :initial-element nil))
+        (value-sym (gensym))
+        (targets '())
+        (fixnum-target nil)
+        (single-float-target nil)
+        (error-target (gensym "ERROR"))
+        (block-name (gensym)))
+    (destructuring-bind (value &key (expected-type 'number))
+        (if (consp value)
+            value
+            (list value))
+      (loop
+         for (keys . forms) in body
+         for sym = (gensym)
+         do
+           (when (not (listp keys))
+             (setf keys (list keys)))
+           (dolist (key keys)
+             (cond ((eql key 'fixnum)
+                    (when fixnum-target
+                      (error "Duplicate key ~S" key))
+                    (setf fixnum-target sym))
+                   ((eql key 'single-float)
+                    (when single-float-target
+                      (error "Duplicate key ~S" key))
+                    (setf single-float-target sym))
+                   (t
+                    (let ((tag (ecase key
+                                 ((fixnum single-float) (error "impossible"))
+                                 (bignum sys.int::+object-tag-bignum+)
+                                 (ratio sys.int::+object-tag-ratio+)
+                                 (double-float sys.int::+object-tag-double-float+)
+                                 (sys.int::complex-rational sys.int::+object-tag-complex-rational+)
+                                 (sys.int::complex-single-float sys.int::+object-tag-complex-single-float+)
+                                 (sys.int::complex-double-float sys.int::+object-tag-complex-double-float+))))
+                      (when (aref object-tags tag)
+                        (error "Duplicate key ~S~%" key))
+                      (setf (aref object-tags tag) sym)))))
+           (push sym targets)
+           (if (equal forms '(:error))
+               (push `(go ,error-target) targets)
+               (push `(return-from ,block-name (progn ,@forms)) targets)))
+      `(let ((,value-sym ,value))
+         (block ,block-name
+           (tagbody
+              (cond ((sys.int::fixnump ,value-sym)
+                     (go ,(or fixnum-target error-target)))
+                    ((sys.int::single-float-p ,value-sym)
+                     (go ,(or single-float-target error-target)))
+                    ((sys.int::%value-has-tag-p ,value-sym sys.int::+tag-object+)
+                     (sys.int::%jump-table (sys.int::%object-tag ,value-sym)
+                                           ,@(loop
+                                                for target across object-tags
+                                                collect `(go ,(or target error-target)))))
+                    (t (go ,error-target)))
+              ,@(reverse targets)
+              ,error-target
+              (error 'type-error :datum ,value-sym :expected-type ',expected-type)))))))
+
+(declaim (inline ratio-<))
+(defun ratio-< (x y)
+  (< (* (numerator x) (denominator y))
+     (* (numerator y) (denominator x))))
+
+(defmacro fixnum-float-compare (the-fixnum the-float float-type swap-args)
+  (multiple-value-bind (float< float= truncate-float fix-to-float float-zero)
+      (ecase float-type
+        (single-float
+         (values 'sys.int::%%single-float-<
+                 'sys.int::%%single-float-=
+                 'sys.int::%%truncate-single-float
+                 '%%coerce-fixnum-to-single-float
+                 0.0f0))
+        (double-float
+         (values 'sys.int::%%double-float-<
+                 'sys.int::%%double-float-=
+                 'sys.int::%%truncate-double-float
+                 '%%coerce-fixnum-to-double-float
+                 0.0d0)))
+    (let ((fix (gensym "FIX")))
+      ;; Go through great pains to get the effect of (< fixnum (rational float))
+      ;; but relatively quickly and with minimal consing.
+      ;; Be careful with NaNs too.
+      `(cond
+         ;; These two tests catch infinities as well.
+         ;; Anything smaller than this cannot be represented as a fixnum.
+         ;; M-N-F is exactly representable with a float.
+         ((,float< ,the-float ,(float most-negative-fixnum float-zero))
+          ;; Smaller than every possible fixnum
+          ,(if swap-args t nil))
+         ;; Watch out. Boundary condition:
+         ;; m-p-f = (1- (expt 2 62))
+         ;; (f m-p-f) = (expt 2 62)
+         ;; (f (truncate m-p-f 2)) = (expt 2 61)
+         ;; If the value is larger than (expt 2 61), then it must be
+         ;; (expt 2 62) or larger, which is just greater than M-P-F.
+         ((,float< ,(float (truncate most-positive-fixnum 2) float-zero)
+                   ,the-float)
+          ;; Larger than every possible fixnum
+          ,(if swap-args nil t))
+         ((sys.int::float-nan-p ,the-float) nil)
+         (t
+          ;; The integer part must fit in the fixnum range.
+          (let ((,fix (,truncate-float ,the-float)))
+            (cond ((%fixnum-< ,the-fixnum ,fix) ,(if swap-args nil t))
+                  ((%fixnum-< ,fix ,the-fixnum) ,(if swap-args t nil))
+                  ;; Integer parts are equal.
+                  ((,float= (,fix-to-float ,fix) ,the-float)
+                   ;; No fractional part, the two are equal.
+                   nil)
+                  ((,float< ,the-float ,float-zero)
+                   ;; Float is less than zero and has a fractional part.
+                   ;; This makes it more negative than the fixnum.
+                   ,(if swap-args t nil))
+                  (t
+                   ;; Float must be positive and have a fractional part.
+                   ;; This makes it more positive.
+                   ,(if swap-args nil t)))))))))
+
+;; TODO: These should directly create a bignum, blat the value directly in,
+;; and then canonicalize the result.
+(defun %%truncate-single-float-to-integer (single-float)
+  (let* ((bits (sys.int::%single-float-as-integer single-float))
+         (sig (logior (ldb (byte 23 0) bits)
+                      (ash 1 23)))
+         (exp (- (ldb (byte 8 23) bits) 127))
+         (r (ash sig (- exp 23))))
+    (if (logbitp 31 bits)
+        (- r)
+        r)))
+
+(defun %%truncate-double-float-to-integer (double-float)
+  (let* ((bits (sys.int::%double-float-as-integer double-float))
+         (sig (logior (ldb (byte 52 0) bits)
+                      (ash 1 52)))
+         (exp (- (ldb (byte 11 52) bits) 1023))
+         (r (ash sig (- exp 52))))
+    (if (logbitp 63 bits)
+        (- r)
+        r)))
+
+;; TODO: bignums vs float infinity/nan
 (defun sys.int::generic-< (x y)
-  (cond
-    ((or (and (sys.int::single-float-p x)
-              (sys.int::fixnump y))
-         (and (sys.int::fixnump x)
-              (sys.int::single-float-p y))
-         (and (sys.int::single-float-p x)
-              (sys.int::single-float-p y)))
-     (let ((x* (if (sys.int::single-float-p y)
-                   (float x y)
-                   x))
-           (y* (if (sys.int::single-float-p x)
-                   (float y x)
-                   y)))
-       (sys.int::%%single-float-< x* y*)))
-    (t (sys.int::full-< x y))))
+  (number-dispatch (x :expected-type 'real)
+    (fixnum
+     (number-dispatch (y :expected-type 'real)
+       (fixnum (%fixnum-< x y))
+       (bignum (sys.int::%%bignum-< (sys.int::%make-bignum-from-fixnum x) y))
+       (ratio (ratio-< x y))
+       (single-float
+        (fixnum-float-compare x y single-float nil))
+       (double-float
+        (fixnum-float-compare x y double-float nil))))
+    (bignum
+     (number-dispatch (y :expected-type 'real)
+       (fixnum (sys.int::%%bignum-< x (sys.int::%make-bignum-from-fixnum y)))
+       (bignum (sys.int::%%bignum-< x y))
+       (ratio (ratio-< x y))
+       (single-float
+        (< x (%%truncate-single-float-to-integer y)))
+       (double-float
+        (< x (%%truncate-double-float-to-integer y)))))
+    (ratio
+     (number-dispatch (y :expected-type 'real)
+       ((fixnum bignum ratio) (ratio-< x y))
+       ((single-float double-float)
+        (ratio-< x (rational y)))))
+    (single-float
+     (number-dispatch (y :expected-type 'real)
+       (fixnum
+        (fixnum-float-compare y x single-float t))
+       (bignum
+        (< (%%truncate-single-float-to-integer x) y))
+       (ratio
+        (ratio-< (rational x) y))
+       (single-float
+        (sys.int::%%single-float-< x y))
+       (double-float
+        (sys.int::%%double-float-< (float x 0.0d0) y))))
+    (double-float
+     (number-dispatch (y :expected-type 'real)
+       (fixnum
+        (fixnum-float-compare y x double-float t))
+       (bignum
+        (< (%%truncate-double-float-to-integer x) y))
+       (ratio
+        (ratio-< (rational x) y))
+       (single-float
+        (sys.int::%%double-float-< x (float y 0.0d0)))
+       (double-float
+        (sys.int::%%double-float-< x y))))))
 
-;; Implement these in terms of <.
-(defun sys.int::generic->= (x y)
-  (not (sys.int::generic-< x y)))
-
+;; Implement these in terms of the other directions.
+;; FIXME: One of these should have a complete implementation so that floating point
+;; NaN values are correctly ordered.
 (defun sys.int::generic-> (x y)
   (sys.int::generic-< y x))
+
+(defun sys.int::generic->= (x y)
+  (not (sys.int::generic-< x y)))
 
 (defun sys.int::generic-<= (x y)
   (not (sys.int::generic-< y x)))
 
+(declaim (inline ratio-= complex-=))
+(defun ratio-= (x y)
+  (and (= (numerator x) (numerator y))
+       (= (denominator x) (denominator y))))
+
+(defun complex-= (x y)
+  (and (= (realpart x) (realpart y))
+       (= (imagpart x) (imagpart y))))
+
+(declaim (inline fixnum-fits-in-single-float-p
+                 fixnum-fits-in-double-float-p))
+(defun fixnum-fits-in-single-float-p (fixnum)
+  (eq (sys.int::%%truncate-single-float
+       (%%coerce-fixnum-to-single-float fixnum))
+      fixnum))
+
+(defun fixnum-fits-in-double-float-p (fixnum)
+  ;; Do a comparison here to avoid creating a boxed double float for really
+  ;; large values.
+  (or (typep fixnum '(signed-byte 54))
+      (eq (sys.int::%%truncate-double-float
+           (%%coerce-fixnum-to-double-float fixnum))
+          fixnum)))
+
+;; TODO: bignums vs float infinity/nan
 (defun sys.int::generic-= (x y)
-  (cond
-    ((or (and (sys.int::single-float-p x)
-              (sys.int::fixnump y))
-         (and (sys.int::fixnump x)
-              (sys.int::single-float-p y))
-         (and (sys.int::single-float-p x)
-              (sys.int::single-float-p y)))
-     ;; Convert both arguments to the same kind of float.
-     (let ((x* (if (sys.int::single-float-p y)
-                   (float x y)
-                   x))
-           (y* (if (sys.int::single-float-p x)
-                   (float y x)
-                   y)))
-       (sys.int::%%single-float-= x* y*)))
-    (t (sys.int::full-= x y))))
+  (number-dispatch x
+    (fixnum
+     (number-dispatch y
+       (fixnum (eql x y))
+       (bignum nil)
+       (ratio nil)
+       (single-float
+        (and (fixnum-fits-in-single-float-p x)
+             (sys.int::%%single-float-= (float x 0.0f0) y)))
+       (double-float
+        (and (fixnum-fits-in-double-float-p x)
+             (sys.int::%%double-float-= (float x 0.0d0) y)))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (bignum
+     (number-dispatch y
+       (fixnum nil)
+       (bignum (sys.int::%%bignum-= x y))
+       (ratio nil)
+       (single-float
+        (= x (%%truncate-single-float-to-integer y)))
+       (double-float
+        (= x (%%truncate-double-float-to-integer y)))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (ratio
+     (number-dispatch y
+       (fixnum nil)
+       (bignum nil)
+       (ratio (ratio-= x y))
+       ((single-float double-float)
+        (ratio-= x (rational y)))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (single-float
+     (number-dispatch y
+       (fixnum
+        (and (fixnum-fits-in-single-float-p y)
+             (sys.int::%%single-float-= x (float y 0.0f0))))
+       (bignum
+        (= (%%truncate-single-float-to-integer x) y))
+       (ratio
+        (ratio-= (rational x) y))
+       (single-float
+        (sys.int::%%single-float-= x y))
+       (double-float
+        (sys.int::%%double-float-= (float x 0.0d0) y))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (double-float
+     (number-dispatch y
+       (fixnum
+        (and (fixnum-fits-in-double-float-p y)
+             (sys.int::%%double-float-= x (float y 0.0d0))))
+       (bignum
+        (= (%%truncate-double-float-to-integer x) y))
+       (ratio
+        (ratio-= (rational x) y))
+       (single-float
+        (sys.int::%%double-float-= x (float y 0.0d0)))
+       (double-float
+        (sys.int::%%double-float-= x y))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (sys.int::complex-rational
+     (number-dispatch y
+       ((fixnum bignum ratio single-float double-float)
+        nil)
+       ((sys.int::complex-rational
+         sys.int::complex-single-float
+         sys.int::complex-double-float)
+        (complex-= x y))))
+    ((sys.int::complex-single-float
+      sys.int::complex-double-float)
+     (complex-= x y))))
 
 (defun sys.int::generic-truncate (number divisor)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
@@ -138,9 +462,9 @@
          (and (sys.int::single-float-p number)
               (sys.int::single-float-p divisor)))
      (let* ((val (/ number divisor))
-            (integer-part (if (< most-negative-fixnum
-                                 val
-                                 most-positive-fixnum)
+            (integer-part (if (<= #.(float most-negative-fixnum 0.0f0)
+                                  val
+                                  #.(float (truncate most-positive-fixnum 2) 0.0f0))
                               ;; Fits in a fixnum, convert quickly.
                               (sys.int::%%truncate-single-float val)
                               ;; Grovel inside the float

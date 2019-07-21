@@ -196,53 +196,6 @@
 (defun deposit-field (newbyte bytespec integer)
   (%deposit-field newbyte (byte-size bytespec) (byte-position bytespec) integer))
 
-(defun float-nan-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (not (zerop sig)))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (not (zerop sig)))))))
-
-(defun float-trapping-nan-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (not (zerop sig))
-            (not (logbitp 22 sig)))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (not (zerop sig))
-            (not (logbitp 51 sig)))))))
-
-(defun float-infinity-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (zerop sig))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (zerop sig))))))
-
 (defun %double-float-as-integer (double-float)
   (%object-ref-unsigned-byte-64 double-float 0))
 
@@ -294,56 +247,6 @@
       (funcall single-fn
                (float x 1.0f0)
                (float y 1.0f0))))
-
-(defun sys.int::full-< (x y)
-  (check-type x real)
-  (check-type y real)
-  (cond
-    ((and (sys.int::fixnump x)
-          (sys.int::fixnump y))
-     ;; Should be handled by binary-<.
-     (error "FIXNUM/FIXNUM case hit GENERIC-<"))
-    ((and (sys.int::fixnump x)
-          (sys.int::bignump y))
-     (sys.int::%%bignum-< (sys.int::%make-bignum-from-fixnum x) y))
-    ((and (sys.int::bignump x)
-          (sys.int::fixnump y))
-     (sys.int::%%bignum-< x (sys.int::%make-bignum-from-fixnum y)))
-    ((and (sys.int::bignump x)
-          (sys.int::bignump y))
-     (sys.int::%%bignum-< x y))
-    ((or (floatp x)
-         (floatp y))
-     (call-with-float-contagion x y #'%%single-float-< #'%%double-float-<))
-    ((or (sys.int::ratiop x)
-         (sys.int::ratiop y))
-       (< (* (numerator x) (denominator y))
-          (* (numerator y) (denominator x))))
-    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
-
-(defun sys.int::full-= (x y)
-  (check-type x number)
-  (check-type y number)
-  ;; Must not use EQ when the arguments are floats.
-  (cond
-    ((or (complexp x)
-         (complexp y))
-     (and (= (realpart x) (realpart y))
-          (= (imagpart x) (imagpart y))))
-    ((or (floatp x)
-         (floatp y))
-     (call-with-float-contagion x y #'%%single-float-= #'%%double-float-=))
-    ((or (sys.int::fixnump x)
-         (sys.int::fixnump y))
-     (eq x y))
-    ((and (sys.int::bignump x)
-          (sys.int::bignump y))
-     (or (eq x y) (sys.int::%%bignum-= x y)))
-    ((or (sys.int::ratiop x)
-         (sys.int::ratiop y))
-     (and (= (numerator x) (numerator y))
-          (= (denominator x) (denominator y))))
-    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
 
 (defun %%bignum-truncate (a b)
   "Divide two integers.
@@ -596,11 +499,21 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun abs (number)
   (check-type number number)
   (etypecase number
-    (complex (sqrt (+ (expt (realpart number) 2)
-                      (expt (imagpart number) 2))))
-    (real (if (minusp number)
-              (- number)
-              number))))
+    (complex
+     (sqrt (+ (expt (realpart number) 2)
+              (expt (imagpart number) 2))))
+    (single-float
+     (%integer-as-single-float
+      (logand #x7FFFFFFF
+              (%single-float-as-integer number))))
+    (double-float
+     (%integer-as-double-float
+      (logand #x7FFFFFFFFFFFFFFF
+              (%double-float-as-integer number))))
+    (real
+     (if (minusp number)
+         (- number)
+         number))))
 
 (defun sqrt (number)
   (check-type number number)

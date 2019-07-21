@@ -628,8 +628,8 @@
     (setf (sys.int::%object-ref-signed-byte-64 bignum 0) n)
     bignum))
 
-(defun sys.int::%make-bignum-of-length (words &optional area)
-  (%allocate-object sys.int::+object-tag-bignum+ words words area))
+(defun sys.int::%make-bignum-of-length (words)
+  (%allocate-object sys.int::+object-tag-bignum+ words words nil))
 
 (defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
