@@ -43,6 +43,7 @@
                                                ',layout)
                                              `(sys.int::%allocate-instance ',layout)))
                          (,unbound-marker-sym *secret-unbound-value*))
+                     (declare (ignorable ,unbound-marker-sym))
                      ;; Initialize all boxed heap slots to the unbound value.
                      ,@(loop
                           for i from (if funcallablep 2 0) below (sys.int::layout-heap-size layout)

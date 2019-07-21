@@ -2705,10 +2705,12 @@ has only has class specializer."
 
 (defgeneric direct-slot-definition-class (class &rest initargs))
 (defmethod direct-slot-definition-class ((class std-class) &rest initargs)
+  (declare (ignore initargs))
   *the-class-standard-direct-slot-definition*)
 
 (defgeneric effective-slot-definition-class (class &rest initargs))
 (defmethod effective-slot-definition-class ((class std-class) &rest initargs)
+  (declare (ignore initargs))
   *the-class-standard-effective-slot-definition*)
 
 (defgeneric function-keywords (method))
@@ -3019,7 +3021,7 @@ has only has class specializer."
     (format stream "~S" (safe-slot-definition-name slot-definition))))
 
 (defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
-  (declare (ignore direct-superclasses direct-slots direcet-default-initargs documentation))
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation area sealed))
   (apply #'std-after-initialization-for-classes class args))
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
@@ -3169,14 +3171,17 @@ has only has class specializer."
 (defmethod update-instance-for-different-class :after ((old forward-referenced-class) (new std-class)
                                                        &rest initargs
                                                        &key direct-superclasses direct-slots direct-default-initargs documentation)
+  (declare (ignore initargs direct-superclasses direct-slots direct-default-initargs documentation))
   nil)
 
 (defmethod update-instance-for-different-class :before
-           ((old forward-referenced-class) (new standard-class) &rest initargs)
+    ((old forward-referenced-class) (new standard-class) &rest initargs)
+  (declare (ignore initargs))
   (setf (safe-class-direct-superclasses new) (list (find-class 'standard-class))))
 
 (defmethod update-instance-for-different-class :before
-           ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
+    ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
+  (declare (ignore initargs))
   (setf (safe-class-direct-superclasses new) (list (find-class 'funcallable-standard-class))))
 
 (defgeneric ensure-class-using-class (class name &key &allow-other-keys))
@@ -3344,7 +3349,7 @@ has only has class specializer."
     (error "Cannot reinitialize sealed classes.")))
 
 (defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
-  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation area sealed))
   (apply #'std-after-reinitialization-for-classes class args))
 
 (defun remove-reader-method (class reader slot-name)
