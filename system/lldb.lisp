@@ -492,7 +492,12 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
 
 (defun print-safely-to-string (obj)
   (handler-case
-      (format nil "~S" obj)
+      (if (bignump obj)
+          ;; Bignums may be non-canonical, which can cause issues.
+          (with-output-to-string (s)
+            (print-unreadable-object (obj s :identity t)
+              (format s "a bignum")))
+          (format nil "~S" obj))
     (error ()
       (with-output-to-string (s)
         (print-unreadable-object (obj s :identity t)
