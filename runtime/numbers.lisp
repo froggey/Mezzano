@@ -276,7 +276,35 @@
                     (1- (* (sys.int::%object-header-data bignum) 2)))))
     (logtest #x80000000 sign-word)))
 
-;; TODO: bignums vs float infinity/nan
+(defmacro bignum-float-compare (the-bignum the-float float-type swap-args)
+  (multiple-value-bind (float< float= truncate-float m-p-f-float m-n-f-float p-inf n-inf)
+      (ecase float-type
+        (single-float
+         (values 'sys.int::%%single-float-<
+                 'sys.int::%%single-float-=
+                 '%%truncate-single-float-to-integer
+                 sys.int::most-positive-fixnum-single-float
+                 sys.int::most-negative-fixnum-single-float))
+        (double-float
+         (values 'sys.int::%%double-float-<
+                 'sys.int::%%double-float-=
+                 '%%truncate-double-float-to-integer
+                 sys.int::most-positive-fixnum-double-float
+                 sys.int::most-negative-fixnum-double-float)))
+    `(cond ((sys.int::float-nan-p ,the-float) nil)
+           ((sys.int::%%bignum-negative-p ,the-bignum)
+            (cond ((,float< ,the-float ,m-n-f-float)
+                   (if (,float= ,the-float ,n-inf)
+                       ,(if swap-args t nil)
+                       (,(if swap-args '> '<) ,the-bignum (,truncate-float ,the-float))))
+                  (t ,(if swap-args nil t))))
+           (t
+            (cond ((,float< ,m-p-f-float ,the-float)
+                   (if (,float= ,the-float ,p-inf)
+                       ,(if swap-args nil t)
+                       (,(if swap-args '> '<) ,the-bignum (,truncate-float ,the-float))))
+                  (t ,(if swap-args t nil)))))))
+
 (defun sys.int::generic-< (x y)
   (number-dispatch (x :expected-type 'real)
     (fixnum
@@ -294,9 +322,9 @@
        (bignum (sys.int::%%bignum-< x y))
        (ratio (ratio-< x y))
        (single-float
-        (< x (%%truncate-single-float-to-integer y)))
+        (bignum-float-compare x y single-float nil))
        (double-float
-        (< x (%%truncate-double-float-to-integer y)))))
+        (bignum-float-compare x y double-float nil))))
     (ratio
      (number-dispatch (y :expected-type 'real)
        ((fixnum bignum ratio) (ratio-< x y))
@@ -307,7 +335,7 @@
        (fixnum
         (fixnum-float-compare y x single-float t))
        (bignum
-        (< (%%truncate-single-float-to-integer x) y))
+        (bignum-float-compare y x single-float t))
        (ratio
         (ratio-< (rational x) y))
        (single-float
@@ -319,7 +347,7 @@
        (fixnum
         (fixnum-float-compare y x double-float t))
        (bignum
-        (< (%%truncate-double-float-to-integer x) y))
+        (bignum-float-compare y x double-float t))
        (ratio
         (ratio-< (rational x) y))
        (single-float
@@ -363,7 +391,6 @@
            (%%coerce-fixnum-to-double-float fixnum))
           fixnum)))
 
-;; TODO: bignums vs float infinity/nan
 (defun sys.int::generic-= (x y)
   (number-dispatch x
     (fixnum
@@ -388,9 +415,19 @@
        (bignum (sys.int::%%bignum-= x y))
        (ratio nil)
        (single-float
-        (= x (%%truncate-single-float-to-integer y)))
+        ;; Check if the value falls outside the fixnum range.
+        ;; These tests will always be false for NaNs
+        (if (and (or (sys.int::%%single-float-< sys.int::most-negative-fixnum-single-float y)
+                     (sys.int::%%single-float-< y sys.int::most-positive-fixnum-single-float))
+                 (not (sys.int::float-infinity-p y)))
+            (= x (%%truncate-single-float-to-integer y))
+            nil))
        (double-float
-        (= x (%%truncate-double-float-to-integer y)))
+        (if (and (or (sys.int::%%double-float-< sys.int::most-negative-fixnum-double-float y)
+                     (sys.int::%%double-float-< y sys.int::most-positive-fixnum-double-float))
+                 (not (sys.int::float-infinity-p y)))
+            (= x (%%truncate-double-float-to-integer y))
+            nil))
        (sys.int::complex-rational nil)
        ((sys.int::complex-single-float
          sys.int::complex-double-float)
@@ -414,7 +451,11 @@
         (and (fixnum-fits-in-single-float-p y)
              (sys.int::%%single-float-= x (float y 0.0f0))))
        (bignum
-        (= (%%truncate-single-float-to-integer x) y))
+        (if (and (or (sys.int::%%single-float-< sys.int::most-negative-fixnum-single-float x)
+                     (sys.int::%%single-float-< x sys.int::most-positive-fixnum-single-float))
+                 (not (sys.int::float-infinity-p x)))
+            (= (%%truncate-single-float-to-integer x) y)
+            nil))
        (ratio
         (ratio-= (rational x) y))
        (single-float
@@ -432,7 +473,11 @@
         (and (fixnum-fits-in-double-float-p y)
              (sys.int::%%double-float-= x (float y 0.0d0))))
        (bignum
-        (= (%%truncate-double-float-to-integer x) y))
+        (if (and (or (sys.int::%%double-float-< sys.int::most-negative-fixnum-double-float x)
+                     (sys.int::%%double-float-< x sys.int::most-positive-fixnum-double-float))
+                 (not (sys.int::float-infinity-p x)))
+            (= (%%truncate-double-float-to-integer x) y)
+            nil))
        (ratio
         (ratio-= (rational x) y))
        (single-float
