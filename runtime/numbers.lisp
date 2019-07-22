@@ -268,13 +268,21 @@
         (- r)
         r)))
 
+(declaim (inline sys.int::%%bignum-negative-p))
+(defun sys.int::%%bignum-negative-p (bignum)
+  ;; Use a UB32 access to avoid creating an intermediate bignum.
+  (let ((sign-word (sys.int::%object-ref-unsigned-byte-32
+                    bignum
+                    (1- (* (sys.int::%object-header-data bignum) 2)))))
+    (logtest #x80000000 sign-word)))
+
 ;; TODO: bignums vs float infinity/nan
 (defun sys.int::generic-< (x y)
   (number-dispatch (x :expected-type 'real)
     (fixnum
      (number-dispatch (y :expected-type 'real)
        (fixnum (%fixnum-< x y))
-       (bignum (sys.int::%%bignum-< (sys.int::%make-bignum-from-fixnum x) y))
+       (bignum (not (sys.int::%%bignum-negative-p y)))
        (ratio (ratio-< x y))
        (single-float
         (fixnum-float-compare x y single-float nil))
@@ -282,7 +290,7 @@
         (fixnum-float-compare x y double-float nil))))
     (bignum
      (number-dispatch (y :expected-type 'real)
-       (fixnum (sys.int::%%bignum-< x (sys.int::%make-bignum-from-fixnum y)))
+       (fixnum (sys.int::%%bignum-negative-p x))
        (bignum (sys.int::%%bignum-< x y))
        (ratio (ratio-< x y))
        (single-float
