@@ -47,6 +47,12 @@
               name typespec (symbol-value name)))
     (setf (mezzano.runtime::symbol-type name) typespec)))
 
+(defun known-declaration-p (declaration)
+  (or (member declaration '(special constant global inline notinline
+                            maybe-inline type ftype declaration optimize))
+      (type-specifier-p declaration)
+      (member declaration *known-declarations*)))
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special
@@ -96,7 +102,7 @@
             ;; Actually a type declaration.
             (proclaim-type (first declaration-specifier)
                            (rest declaration-specifier)))
-           ((not (find (first declaration-specifier) *known-declarations*))
+           ((known-declaration-p (first declaration-specifier))
             (warn "Unknown declaration ~S" declaration-specifier))))))
 
 (defun variable-information (symbol)

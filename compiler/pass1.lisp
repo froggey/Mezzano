@@ -57,6 +57,16 @@
                (find name (rest decl)))
       (return t))))
 
+(defun check-known-declarations (declares)
+  (dolist (decl declares)
+    (when (not (and (symbolp (first decl))
+                    (or (sys.int::known-declaration-p (first decl))
+                        (member (first decl) '(dynamic-extent sys.int::lambda-name
+                                               ignore ignorable)))))
+      (warn 'sys.int::simple-style-warning
+            :format-control "Unknown declaration ~S."
+            :format-arguments (list decl)))))
+
 (defun check-variable-usage (variable)
   "Warn if VARIABLE was not used and not declared IGNORE or IGNORABLE."
   (when (and (not (lexical-variable-ignore variable))
@@ -83,6 +93,7 @@
 (defun pass1-lambda-inner (lambda env)
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
+    (check-known-declarations declares)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((optimize-env (extend-environment env :declarations declares))
@@ -409,6 +420,7 @@
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let ((bindings '())
             (env (extend-environment env
                                      :declarations (remove-if-not (lambda (x) (eql x 'optimize))
@@ -472,6 +484,7 @@
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       ;; Generate variables & lambda expressions for each function.
       (let* ((raw-bindings (mapcar (lambda (x)
                                      (multiple-value-list (frob-flet-function x)))
@@ -516,6 +529,7 @@
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let* ((names (loop for binding in bindings collect (parse-let-binding binding)))
              (env (extend-environment env
                                       :declarations (append
@@ -585,6 +599,7 @@
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let* ((env (extend-environment env
                                       :declarations (remove-if-not (lambda (x) (eql x 'optimize))
                                                                    declares
@@ -628,6 +643,7 @@
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
+    (check-known-declarations declares)
     (pass1-form `(progn ,@body) (extend-environment env :declarations declares))))
 
 (defun pass1-locally (form env)
@@ -782,6 +798,7 @@
             "Bad SYMBOL-MACROLET definition.")
     (multiple-value-bind (body declares)
         (sys.int::parse-declares body)
+      (check-known-declarations declares)
       (let* ((defs (loop
                       for (name expansion) in definitions
                       do
