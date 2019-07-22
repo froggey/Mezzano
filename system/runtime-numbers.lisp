@@ -1364,7 +1364,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (float
      (multiple-value-bind (significand exponent sign)
          (integer-decode-float number)
-       (* significand (expt (float-radix number) exponent) sign)))))
+       (if (eql significand 0)
+           0
+           (let ((signed-significand (if (minusp sign)
+                                         (- significand)
+                                         significand)))
+             (if (minusp exponent)
+                 (* signed-significand (/ (ash 1 (- exponent))))
+                 (ash signed-significand exponent))))))))
 
 (defun rationalize (number)
   (rational number))
