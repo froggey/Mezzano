@@ -368,7 +368,7 @@
   (number-dispatch x
     (fixnum
      (number-dispatch y
-       (fixnum (eql x y))
+       (fixnum (eq x y))
        (bignum nil)
        (ratio nil)
        (single-float
