@@ -161,7 +161,7 @@
 (defmacro case (keyform &body cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
-       (declare (ignoreable ,test-key))
+       (declare (ignorable ,test-key))
        (cond
          ,@(mapcar (lambda (clause)
                      (declare (type cons clause))
@@ -239,7 +239,7 @@
   (let ((test-key (gensym "CASE-KEY"))
         (all-keys '()))
     `(let ((,test-key ,keyform))
-       (declare (ignoreable ,test-key))
+       (declare (ignorable ,test-key))
        (cond
          ,@(mapcar (lambda (clause)
                      (declare (type cons clause))
@@ -360,7 +360,7 @@
 (defmacro typecase (keyform &rest cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
-       (declare (ignoreable ,test-key))
+       (declare (ignorable ,test-key))
        (cond
          ,@(mapcar (lambda (clause)
                      (declare (type cons clause))
@@ -376,7 +376,7 @@
 (defmacro etypecase (keyform &rest cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
-       (declare (ignoreable ,test-key))
+       (declare (ignorable ,test-key))
        (cond
          ,@(mapcar (lambda (clause)
                      (declare (type cons clause))
