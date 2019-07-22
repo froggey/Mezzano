@@ -470,9 +470,9 @@
                               ;; Fits in a fixnum, convert quickly.
                               (sys.int::%%truncate-single-float val)
                               ;; Grovel inside the float
-                              (multiple-value-bind (significand exponent)
+                              (multiple-value-bind (significand exponent sign)
                                   (integer-decode-float val)
-                                (ash significand exponent)))))
+                                (* (ash significand exponent) sign)))))
        (values integer-part (* (- val integer-part) divisor))))
     (t (sys.int::full-truncate number divisor))))
 
