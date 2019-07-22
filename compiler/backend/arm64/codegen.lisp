@@ -1096,8 +1096,7 @@
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
 
 (defmethod emit-lap (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
-  (let* ((slots (gethash instruction *prepass-data*))
-         (words 2))
+  (let* ((slots (gethash instruction *prepass-data*)))
     ;; Generate pointer.
     (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 2 -1))
                          sys.int::+tag-cons+))

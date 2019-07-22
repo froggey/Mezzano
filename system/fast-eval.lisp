@@ -100,8 +100,7 @@
   ;; Don't use FDEFINITION, poke directly in the fref to stop trace wrappers
   ;; from being hidden.
   (let ((fn (sys.int::function-reference-function
-             (sys.int::function-reference (first form))))
-        (args (rest form)))
+             (sys.int::function-reference (first form)))))
     (cond (fn
            (apply fn
                   (mapcar (lambda (f) (eval-in-lexenv f env))

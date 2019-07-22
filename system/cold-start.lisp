@@ -45,12 +45,14 @@
   (cold-start-line-p stream))
 
 (defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)
+  (declare (ignore eof-error-p eof-value recursive-p))
   (cold-read-char stream))
 
 (defun unread-char (character &optional stream)
   (cold-unread-char character stream))
 
 (defun peek-char (&optional peek-type s (eof-error-p t) eof-value recursive-p)
+  (declare (ignore eof-error-p eof-value recursive-p))
   (cond ((eql peek-type nil)
          (let ((ch (cold-read-char s)))
            (cold-unread-char ch s)
@@ -96,9 +98,11 @@
   (eql object :cold-stream))
 
 (defun %with-stream-editor (stream recursive-p function)
+  (declare (ignore stream recursive-p))
   (funcall function))
 
 (defun make-case-correcting-stream (stream case)
+  (declare (ignore case))
   stream)
 
 ;;; Initial PRINT-OBJECT, replaced when CLOS is loaded.
@@ -107,9 +111,14 @@
 
 ;;; Pathname stuff before pathnames exist (file.lisp defines real pathnames).
 
-(defun pathnamep (x) nil)
-(defun pathnames-equal (x y) nil)
+(defun pathnamep (x)
+  (declare (ignore x))
+  nil)
+(defun pathnames-equal (x y)
+  (declare (ignore x y))
+  nil)
 (defun hash-pathname (pathname depth)
+  (declare (ignore pathname depth))
   (error "Early call to hash-pathname"))
 
 (declaim (special * ** ***))
@@ -199,6 +208,7 @@
 
 ;;; Needed for IN-PACKAGE before the package system is bootstrapped.
 (defun find-package-or-die (name)
+  (declare (ignore name))
   t)
 
 ;;; Early FIND-CLASS, needed for typep.

@@ -66,8 +66,7 @@
                    (sys.int::decode-precise-debug-info
                     function
                     (sys.int::debug-info-precise-variable-data
-                     (sys.int::function-debug-info function)))))
-        (true-end (sys.int::function-code-size function)))
+                     (sys.int::function-debug-info function))))))
     (loop
        for decoded across (context-instructions context)
        do
@@ -442,7 +441,6 @@
   ;; Returns reg, r/m, len.
   ;; r/m will either be an undecoded register or a decoded effective address.
   (let* ((modr/m (consume-ub8 context))
-         (mod (ldb +modr/m-mod+ modr/m))
          (rex-b (rex-b info))
          (rex-x (rex-x info))
          (asize (getf info :asize)))
@@ -1515,6 +1513,7 @@
                             (consume-sb16/le context))))))
 
 (defun decode-al-ob (context info opcode)
+  (declare (ignore info))
   (make-instruction opcode
                     :al
                     (make-instance 'effective-address
@@ -1532,6 +1531,7 @@
                                      :disp (consume-sb64/le context)))))
 
 (defun decode-ob-al (context info opcode)
+  (declare (ignore info))
   (make-instruction opcode
                     (make-instance 'effective-address
                                    :disp (consume-sb64/le context))

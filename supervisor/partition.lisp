@@ -251,8 +251,7 @@
 
 (defun detect-iso9660-partition-table (disk)
   (let* ((sector-size (disk-sector-size disk))
-         (pages-per-sector (ceiling sector-size +4k-page-size+))
-         (found-table-p nil))
+         (pages-per-sector (ceiling sector-size +4k-page-size+)))
     (when (not (eql sector-size 2048))
       (return-from detect-iso9660-partition-table nil))
     (with-pages (page-addr pages-per-sector

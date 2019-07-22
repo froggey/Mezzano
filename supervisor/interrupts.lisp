@@ -329,6 +329,7 @@ RETURN-FROM/GO must not be used to leave this form."
     simple-irq))
 
 (defun simple-irq-attach (simple-irq)
+  (declare (ignore simple-irq))
   (values))
 
 (defun simple-irq-mask (simple-irq)

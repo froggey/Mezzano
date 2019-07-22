@@ -573,13 +573,14 @@
              (existing (read-directory-entry dir name "directory")))
         (when (not existing)
           (setf createdp t)
-          (setf existing (make-file dir
-                                    (make-pathname :name name
-                                                   :type "directory"
-                                                   :version 1
-                                                   :defaults dir-path)
-                                    't))
-          (setf (file-storage existing) (make-array 1 :initial-element (make-hash-table :test 'equalp))))
+          (let ((path (make-pathname :name name
+                                     :type "directory"
+                                     :version 1
+                                     :defaults dir-path)))
+            (setf existing (make-file dir path 't))
+            (setf (file-storage existing) (make-array 1 :initial-element (make-hash-table :test 'equalp)))
+            (when verbose
+              (format t "Created directory ~S~%" path))))
         (setf dir existing)))))
 
 (defun walk-directory (host pathname &key (errorp t))

@@ -226,7 +226,7 @@
                                              (t (keymap-unshifted-map keymap))))))))
     (when (and key shift2 shift)
       (setf key (char-upcase key)))
-    (if (and key (member :caps-lock modifier-state))
+    (if (and key caps)
         (if shift
             (char-downcase key)
             (char-upcase key))
@@ -374,8 +374,8 @@ A passive drag sends no drag events to the window.")
 
 (defun compute-resized-window-geometry ()
   (let* ((win *drag-window*)
-         (old-width (width *drag-window*))
-         (old-height (height *drag-window*)))
+         (old-width (width win))
+         (old-height (height win)))
     (ecase *resize-origin*
       (:top-left
        (values :bottom-right

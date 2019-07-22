@@ -251,6 +251,7 @@
                              payload)))))
 
 (defun ipv4-receive (interface packet start end)
+  (declare (ignore interface))
   (let ((actual-length (- end start)))
     (when (< actual-length 20)
       ;; Runt packet with an incomplete header.
@@ -270,6 +271,7 @@
            (protocol (aref packet (+ start +ipv4-header-protocol+)))
            (source-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-source-ip+))))
            (dest-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-destination-ip+)))))
+      (declare (ignore ttl))
       (when (not (eql version 4))
         (format t "Discarding IPv4 packet with bad version ~D.~%" version)
         (return-from ipv4-receive))

@@ -227,6 +227,7 @@
       (when (>= extended-cpuid-max #x80000001)
         (multiple-value-bind (a b c d)
             (sys.int::cpuid #x80000001)
+          (declare (ignore a b))
           (setf features (nconc (scan-feature-bits *cpuid-ext-1-ecx-features* c)
                                 (scan-feature-bits *cpuid-ext-1-edx-features* d)
                                 features)))))

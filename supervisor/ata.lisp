@@ -571,6 +571,7 @@ This is used to implement the INTRQ_Wait state."
       (ata-issue-lba28-command device lba count command28)))
 
 (defun ata-read-pio (controller device lba count mem-addr)
+  (declare (ignore controller))
   (when (not (ata-issue-lba-command device lba count
                                     +ata-command-read-sectors+
                                     +ata-command-read-sectors-ext+))
@@ -605,6 +606,7 @@ This is used to implement the INTRQ_Wait state."
                   :read #'ata-read-dma #'ata-read-pio))
 
 (defun ata-write-pio (controller device lba count mem-addr)
+  (declare (ignore controller))
   (when (not (ata-issue-lba-command device lba count
                                     +ata-command-write-sectors+
                                     +ata-command-write-sectors-ext+))
@@ -758,8 +760,7 @@ This is used to implement the INTRQ_Wait state."
              0)))))
 
 (defun ata-issue-dma-packet-command (device cdb result-buffer-phys result-len)
-  (let* ((controller (atapi-device-controller device))
-         (command-base (ata-controller-command controller)))
+  (let* ((controller (atapi-device-controller device)))
     (ata-configure-prdt controller result-buffer-phys result-len :read)
     (when (not (ata-submit-packet-command device cdb result-len t :device-to-host))
       (return-from ata-issue-dma-packet-command nil))

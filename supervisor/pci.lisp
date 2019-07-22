@@ -558,9 +558,8 @@
   (pci-find-vendor-name (pci-device-vendor-id device)))
 
 (defun pci-device-device-name (device)
-  (multiple-value-bind (vendor-name device-name)
-      (pci-find-device-name (pci-device-vendor-id device) (pci-device-device-id device))
-    device-name))
+  (nth-value 1 (pci-find-device-name (pci-device-vendor-id device)
+                                     (pci-device-device-id device))))
 
 (defun pci-get-vendor-capability (device subid)
   (when (logbitp +pci-status-capabilities-list+

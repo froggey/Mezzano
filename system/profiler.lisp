@@ -149,6 +149,7 @@
 :PATH - Path to write th profiler report to, if NIL then the samples will be returned.
 :PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call.
 :IGNORE-FUNCTIONS - A list of function names to be removed from the call stack."
+  (declare (ignore buffer-size path thread verbosity prune ignore-functions repeat order-by))
   `(call-with-profiling (lambda () ,@body) ,@options))
 
 (defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*) repeat order-by)
@@ -261,6 +262,7 @@ thread states & call-stacks."
 
 (defmacro with-allocation-profiling ((&whole options &key repeat) &body body)
   "Profile BODY."
+  (declare (ignore repeat))
   `(call-with-allocation-profiling (lambda () ,@body) ,@options))
 
 (defun log-allocation-profile-entry (buffer words)
@@ -371,8 +373,7 @@ thread states & call-stacks."
          (incf (tree-branch-count current-branch)))
         (t
          (let* ((current (elt call-stack (1- position)))
-                (fn (car current))
-                (offset (cdr current)))
+                (fn (car current)))
            ;; Ignore truncated or unmapped samples.
            (when (functionp fn)
              (let ((branch (gethash fn (tree-branch-branches current-branch))))

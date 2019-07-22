@@ -134,6 +134,7 @@
     (virtio:virtio-device-register dev)))
 
 (defun sup::virtio-mmio-fdt-register (fdt-node address-cells size-cells)
+  (declare (ignore size-cells))
   (let* ((reg (sup::fdt-get-property fdt-node "reg"))
          (address (sup::fdt-read-integer reg address-cells 0))
          (interrupts (sup::fdt-get-property fdt-node "interrupts"))

@@ -276,8 +276,6 @@ A list of two elements, the short & long name." )
                 (read s nil))))
       (1+ (file-position s)))))
 
-(defun ed-function-location (function))
-
 (defparameter *ed-hook* nil)
 
 (defun ed (&optional x)

@@ -9,6 +9,7 @@
 (in-package :mezzano.driver.intel-hda)
 
 (defmacro define-register (name (size position) &rest slots-and-docstring)
+  (declare (ignore size))
   (let ((docstring (when (stringp (first slots-and-docstring))
                      (pop slots-and-docstring)))
         (reg-offset-constant (intern (format nil "+~A+" name))))
@@ -709,8 +710,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (command (hda node) (cad node) (nid node) (make-parameter parameter)))
 
 (defmethod initialize-instance :after ((node root-node) &key)
-  (let* ((subs (parameter node +parameter-subordinates+))
-         (viddid (parameter node +parameter-viddid+))
+  (let* ((viddid (parameter node +parameter-viddid+))
          (revision (parameter node +parameter-revision+)))
     (setf (slot-value node 'vendor-id) (parameter-viddid-vendor viddid)
           (slot-value node 'device-id) (parameter-viddid-device viddid)

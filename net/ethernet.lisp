@@ -18,6 +18,7 @@
     mac))
 
 (defun format-mac-address (stream mac &optional colon-p at-sign-p)
+  (declare (ignore colon-p at-sign-p))
   (format stream "~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X"
           (ldb (byte 8 0) mac)
           (ldb (byte 8 8) mac)

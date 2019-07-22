@@ -664,7 +664,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun sin-single-float (d)
   (let ((q 0)
-        (u 0.0f0)
         (s 0.0f0))
     (setf q (sleef-rintf (* d (/ (float pi 0.0f0)))))
 
@@ -682,7 +681,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun cos-single-float (d)
   (let ((q 0)
-        (u 0.0f0)
         (s 0.0f0))
     (setf q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
 
@@ -713,7 +711,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun sin-double-float (d)
   (let ((q 0)
-        (u 0.0d0)
         (s 0.0d0))
     (setf q (sleef-rint (* d (/ (float pi 0.0d0)))))
 
@@ -731,7 +728,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun cos-double-float (d)
   (let ((q 0)
-        (u 0.0d0)
         (s 0.0d0))
     (setf q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
 

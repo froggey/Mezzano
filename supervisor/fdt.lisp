@@ -55,7 +55,7 @@
          (tagbody
             ,loop-head
             (when (not ,node-sym)
-              (return (let ((,child-node nil)) (progn ,result-form))))
+              (return (let ((,child-node nil)) ,child-node (progn ,result-form))))
             (let ((,child-node ,node-sym))
               ,@body)
             (setf ,node-sym (fdt-next-sibling-node ,node-sym))

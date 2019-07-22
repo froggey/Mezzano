@@ -376,6 +376,7 @@ CASE may be one of:
            (do () (nil)
             again
              (flet ((handler (ch)
+                      (declare (ignore ch))
                       (when (> (fill-pointer buffer) 0)
                         (decf (fill-pointer buffer))
                         (multiple-value-bind (x y)

@@ -798,7 +798,7 @@
     (let* ((version (ahci-global-register ahci +ahci-register-VS+))
            (major (ldb (byte +ahci-VS-MJR-size+ +ahci-VS-MJR-position+) version))
            (minor (ldb (byte +ahci-VS-MNR-size+ +ahci-VS-MNR-position+) version)))
-      (sup:debug-print-line "AHCI HBA version " version)
+      (sup:debug-print-line "AHCI HBA version " major "." minor)
       (when (not (eql major 1))
         (sup:debug-print-line "Major version " major " not supported.")
         (return-from pci::ahci-pci-register)))

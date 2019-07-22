@@ -2316,7 +2316,6 @@ has only has class specializer."
   (multiple-value-bind (keywords suppress-keyword-checking)
       (applicable-methods-keywords gf methods)
     (let* ((method-args (gensym "ARGS"))
-           (next-emfun (gensym "NEXT-EMFUN"))
            (gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
            (key-arg-index (+ (length (getf gf-lambda-list-info :required-names))
                              (length (getf gf-lambda-list-info :optional-args)))))
@@ -2410,7 +2409,6 @@ has only has class specializer."
     ;; the generic function is not a standard-generic-function and mc is the standard method combination.
     (cond (mc
            (let* ((mc-object (method-combination-object-method-combination mc))
-                  (mc-args (method-combination-object-arguments mc))
                   (effective-method-body (compute-effective-method gf mc methods))
                   (name (generate-method-combination-effective-method-name gf mc-object methods)))
              (eval (generate-method-combination-effective-method name effective-method-body gf methods))))

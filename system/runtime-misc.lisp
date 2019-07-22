@@ -36,8 +36,7 @@
 
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
-  (let ((contents (list (type-of object)))
-        (class (class-of object)))
+  (let ((class (class-of object)))
     (write (list* (class-name class)
                   (loop
                      for slot in (mezzano.clos:class-slots class)

@@ -349,4 +349,5 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
   (mailbox-capacity fifo))
 
 (defun sup:fifo-element-type (fifo)
+  (declare (ignore fifo))
   't)

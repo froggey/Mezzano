@@ -193,6 +193,7 @@
 (defspecial eval-when (&environment env situation &body body)
   (multiple-value-bind (compile load eval)
       (sys.int::parse-eval-when-situation situation)
+    (declare (ignore compile load))
     (when eval
       (eval-progn-body body env))))
 
@@ -242,6 +243,7 @@
          for (name var) in functions
          do (multiple-value-bind (name fn)
                 (frob-flet-function def env)
+              (declare (ignore name))
               (setf (variable-value var) fn)))
       (eval-progn-body body env))))
 

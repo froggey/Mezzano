@@ -159,6 +159,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defvar *llf-dry-run*)
 
 (defun write-llf-header (output-stream input-file)
+  (declare (ignore input-file))
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream) ; LLF\x01
   (save-integer *llf-version* output-stream)

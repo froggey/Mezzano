@@ -977,6 +977,7 @@
         ;;avoid possible double check in handle-logical-block.
         (setf object (cons (car object) (cdr object))))
       (let ((printer (if *print-pretty* (get-printer object *print-pprint-dispatch*) nil))
+            #+(or)
             type)
         (cond (printer (funcall printer xp object))
               ((maybe-print-fast xp object))

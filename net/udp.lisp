@@ -64,6 +64,7 @@
   (let ((remote-address (sys.net:resolve-address remote-host)))
     (multiple-value-bind (host interface)
         (mezzano.network.ip:ipv4-route remote-address)
+      (declare (ignore host))
       (let* ((source-port (allocate-local-udp-port))
              (source-address (mezzano.network.ip:ipv4-interface-address interface))
              (connection (make-instance 'udp4-connection
@@ -86,7 +87,7 @@
          (destination (remote-address connection))
          (destination-port (remote-port connection))
          (header (make-array 8 :element-type '(unsigned-byte 8)))
-         (packet (list header sequence)))
+         (packet (list header (subseq sequence start end))))
     (setf (ub16ref/be header 0) source-port
           (ub16ref/be header 2) destination-port
           (ub16ref/be header 4) (sys.net:packet-length packet)

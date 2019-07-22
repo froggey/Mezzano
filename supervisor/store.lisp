@@ -313,6 +313,7 @@
   (loop
      (multiple-value-bind (last-entry-offset next-block)
          (process-one-freelist-block freelist-block)
+       (declare (ignore last-entry-offset))
        (when (not next-block)
          (return))
        (setf freelist-block next-block)))

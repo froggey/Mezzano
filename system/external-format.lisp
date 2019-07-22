@@ -354,6 +354,7 @@
   (external-format-clear-input (stream-external-format stream)))
 
 (defmethod mezzano.gray:stream-file-position :after ((stream external-format-mixin) &optional (position-spec nil position-specp))
+  (declare (ignore position-spec))
   (when position-specp
     (external-format-clear-input (stream-external-format stream))))
 

@@ -389,7 +389,7 @@
                      (array-size 28 :ub32/le)
                      (last-level 32 :ub32/le)
                      (nr-samples 36 :ub32/le)
-                     (flags 40 :ub32/le))
+                     (cmd-flags 40 :ub32/le))
     :command-size 48)
 
 ;; Cares about context

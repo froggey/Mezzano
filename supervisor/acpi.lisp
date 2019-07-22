@@ -457,6 +457,7 @@
           (if (acpi-rsdp-xsdt-address rsdp)
               (read-acpi-xsdt (acpi-rsdp-xsdt-address rsdp))
               (read-acpi-rsdt (acpi-rsdp-rsdt-address rsdp)))
+        (declare (ignore root-header))
         (debug-print-line "Read " (sys.int::simple-vector-length table-addresses) " tables.")
         (let ((tables (sys.int::make-simple-vector (sys.int::simple-vector-length table-addresses)
                                                    :wired)))

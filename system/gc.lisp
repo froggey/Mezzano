@@ -1133,7 +1133,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun really-transport-object (object cycle-kind)
   (let* ((address (ash (%pointer-field object) 4))
-         (first-word (memref-t address 0))
          (start-time (tsc))
          (length nil)
          (new-address nil))
@@ -2208,7 +2207,7 @@ Additionally update the card table offset fields."
           (gen1-size (+ *general-area-gen1-limit* *cons-area-gen1-limit*))
           (gen2-size (+ *general-area-limit* *cons-area-limit*))
           (remaining (mezzano.runtime::bytes-remaining)))
-      (cond ((>= (mezzano.runtime::bytes-remaining) (* 32 1024 1024))
+      (cond ((>= remaining (* 32 1024 1024))
              (setf target-generation 0))
             ((< (+ gen0-size gen1-size) (* gen2-size *generation-size-ratio*)) ; kinda arbitrary
              (setf force-major t))

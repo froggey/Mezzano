@@ -111,7 +111,7 @@
 
 ;;; Turn (APPLY fn args...) into (%APPLY fn (list* args...)), bypassing APPLY's
 ;;; rest-list generation.
-(define-compiler-macro apply (&whole whole function arg &rest more-args)
+(define-compiler-macro apply (function arg &rest more-args)
   (if more-args
       (let ((function-sym (gensym))
             (args-sym (gensym)))

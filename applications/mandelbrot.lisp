@@ -175,7 +175,6 @@
                  (let ((framebuffer (mezzano.gui.compositor:window-buffer window))
                        (width (- (mezzano.gui.compositor:width window) left right))
                        (height (- (mezzano.gui.compositor:height window) top bottom))
-                       (pixel-count 0)
                        (hue-offset (/ (rem (get-universal-time) 360) 360.0)))
                    ;; Render a line at a time, should do this in a seperate thread really...
                    ;; More than one thread, even.
