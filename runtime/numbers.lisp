@@ -190,20 +190,24 @@
      (* (numerator y) (denominator x))))
 
 (defmacro fixnum-float-compare (the-fixnum the-float float-type swap-args)
-  (multiple-value-bind (float< float= truncate-float fix-to-float float-zero)
+  (multiple-value-bind (float< float= truncate-float fix-to-float float-zero m-p-f-float m-n-f-float)
       (ecase float-type
         (single-float
          (values 'sys.int::%%single-float-<
                  'sys.int::%%single-float-=
                  'sys.int::%%truncate-single-float
                  '%%coerce-fixnum-to-single-float
-                 0.0f0))
+                 0.0f0
+                 sys.int::most-positive-fixnum-single-float
+                 sys.int::most-negative-fixnum-single-float))
         (double-float
          (values 'sys.int::%%double-float-<
                  'sys.int::%%double-float-=
                  'sys.int::%%truncate-double-float
                  '%%coerce-fixnum-to-double-float
-                 0.0d0)))
+                 0.0d0
+                 sys.int::most-positive-fixnum-double-float
+                 sys.int::most-negative-fixnum-double-float)))
     (let ((fix (gensym "FIX")))
       ;; Go through great pains to get the effect of (< fixnum (rational float))
       ;; but relatively quickly and with minimal consing.
@@ -212,17 +216,15 @@
          ;; These two tests catch infinities as well.
          ;; Anything smaller than this cannot be represented as a fixnum.
          ;; M-N-F is exactly representable with a float.
-         ((,float< ,the-float ,(float most-negative-fixnum float-zero))
+         ((,float< ,the-float ,m-n-f-float)
           ;; Smaller than every possible fixnum
           ,(if swap-args t nil))
          ;; Watch out. Boundary condition:
          ;; m-p-f = (1- (expt 2 62))
          ;; (f m-p-f) = (expt 2 62)
-         ;; (f (truncate m-p-f 2)) = (expt 2 61)
-         ;; If the value is larger than (expt 2 61), then it must be
-         ;; (expt 2 62) or larger, which is just greater than M-P-F.
-         ((,float< ,(float (truncate most-positive-fixnum 2) float-zero)
-                   ,the-float)
+         ;; We want the float that is one less (in float units) than (expt 2 62)
+         ;; because this is an inclusive test.
+         ((,float< ,m-p-f-float ,the-float)
           ;; Larger than every possible fixnum
           ,(if swap-args nil t))
          ((sys.int::float-nan-p ,the-float) nil)
@@ -462,9 +464,9 @@
          (and (sys.int::single-float-p number)
               (sys.int::single-float-p divisor)))
      (let* ((val (/ number divisor))
-            (integer-part (if (<= #.(float most-negative-fixnum 0.0f0)
+            (integer-part (if (<= sys.int::most-negative-fixnum-single-float
                                   val
-                                  #.(float (truncate most-positive-fixnum 2) 0.0f0))
+                                  sys.int::most-positive-fixnum-single-float)
                               ;; Fits in a fixnum, convert quickly.
                               (sys.int::%%truncate-single-float val)
                               ;; Grovel inside the float
