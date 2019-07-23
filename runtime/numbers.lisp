@@ -649,20 +649,29 @@
            (sys.int::%%single-float-* x* y*)))
         (t (sys.int::full-* x y))))
 
+(defun %fixnum-integer-length (integer)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type fixnum integer))
+  (do ((len 0 (1+ len)))
+      ((or (eq integer 0) (eq integer -1))
+       len)
+    (declare (type fixnum len))
+    (setf integer (ash integer -1))))
+
+(defun %bignum-integer-length (integer)
+  (do* ((n-fragments (sys.int::%n-bignum-fragments integer))
+        (last (sys.int::%object-ref-signed-byte-64 integer (1- n-fragments)))
+        (len 0 (1+ len)))
+       ((or (eq last 0) (eq last -1))
+        (+ (* (1- n-fragments) 64) len))
+    (setf last (ash last -1))))
+
 (defun integer-length (integer)
-  (let ((negativep (minusp integer)))
-    (when negativep
-      (setf integer (- integer)))
-    (do ((len 0 (1+ len))
-         (original integer))
-        ((zerop integer)
-         ;; Negative powers of two require one less bit.
-         (if (and negativep
-                  ;; Test if original is power-of-two.
-                  (zerop (logand original (1- original))))
-             (1- len)
-             len))
-      (setf integer (ash integer -1)))))
+  (cond ((sys.int::fixnump integer)
+         (%fixnum-integer-length integer))
+        ((sys.int::bignump integer)
+         (%bignum-integer-length integer))
+        (t (error 'type-error :expected-type 'integer :datum integer))))
 
 (declaim (inline left-shift right-shift))
 
