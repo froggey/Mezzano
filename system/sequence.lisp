@@ -904,28 +904,34 @@
                  :count count
                  :from-end from-end))
 
-(defun nsubstitute-if (newitem predicate sequence &key key (start 0) end from-end)
+(defun nsubstitute-if (newitem predicate sequence &key key (start 0) end from-end count)
   (unless key (setf key 'identity))
   (unless end (setf end (length sequence)))
+  (check-type count (or null integer))
   (cond (from-end
          (dotimes (i (- end start))
-           (when (funcall predicate (funcall key (elt sequence (- end i 1))))
+           (when (and (funcall predicate (funcall key (elt sequence (- end i 1))))
+                      (or (null count)
+                          (>= (decf count) 0)))
              (setf (elt sequence (- end i 1)) newitem))))
         (t
          (dotimes (i (- end start))
-           (when (funcall predicate (funcall key (elt sequence (+ start i))))
+           (when (and (funcall predicate (funcall key (elt sequence (+ start i))))
+                      (or (null count)
+                          (>= (decf count) 0)))
              (setf (elt sequence (+ start i)) newitem)))))
   sequence)
 
-(defun nsubstitute-if-not (newitem predicate sequence &key key (start 0) end from-end)
+(defun nsubstitute-if-not (newitem predicate sequence &key key (start 0) end from-end count)
   (nsubstitute-if newitem (complement predicate) sequence
                   :key key
                   :start start
                   :end end
                   :count count
-                  :from-end from-end))
+                  :from-end from-end
+                  :count count))
 
-(defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end from-end)
+(defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end from-end count)
   (check-test-test-not test test-not)
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
@@ -935,7 +941,8 @@
                  :key key
                  :start start
                  :end end
-                 :from-end from-end))
+                 :from-end from-end
+                 :count count))
 
 (defun reduce (function sequence &key key (initial-value nil initial-valuep) from-end (start 0) end)
   (check-type key (or null symbol function))
