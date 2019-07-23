@@ -1248,3 +1248,9 @@
 
 (defun mezzano.clos:ensure-class (name &rest initargs)
   (apply #'c2mop:ensure-class name initargs))
+
+(defun sys.int::known-declaration-p (declaration)
+  ;; The normal version also checks type specifiers, but I don't like that style.
+  ;; Always use (type foo ..)  over (foo ..)
+  (member declaration '(special constant sys.int::global inline notinline
+                        sys.int::maybe-inline type ftype declaration optimize)))
