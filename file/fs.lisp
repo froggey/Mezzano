@@ -18,6 +18,7 @@
            #:ensure-directories-exist-using-host
            #:rename-file-using-host
            #:file-write-date-using-host
+           #:file-author-using-host
            #:delete-file-using-host
            #:expunge-directory-using-host
            #:file-stream-pathname
@@ -629,6 +630,8 @@ NAMESTRING as the second."
     (values dest source dest)))
 
 (defgeneric file-write-date-using-host (host path))
+(defmethod file-write-date-using-host (host path)
+  nil)
 
 (defun file-write-date (pathspec)
   (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
@@ -636,6 +639,8 @@ NAMESTRING as the second."
     (file-write-date-using-host (pathname-host path) path)))
 
 (defgeneric file-author-using-host (host path))
+(defmethod file-author-using-host (host path)
+  nil)
 
 (defun file-author (pathspec)
   (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
