@@ -496,6 +496,7 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
 
 (defun name-char (name)
   "Returns the character whose name is NAME or NIL if no such character exists."
+  (check-type name string-designator)
   (let ((start 0)
         (control nil) (meta nil) (super nil) (hyper nil))
     ;; TODO: Allow prefixes in any order.
