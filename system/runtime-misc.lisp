@@ -170,7 +170,7 @@
 (defmethod print-object ((object array) stream)
   (cond (*print-array*
          (write-char #\# stream)
-         (write (array-rank object) :stream stream :base 10)
+         (write (array-rank object) :stream stream :base 10 :radix nil)
          (write-char #\A stream)
          (labels ((print-level (dims index)
                     (cond ((null dims)
