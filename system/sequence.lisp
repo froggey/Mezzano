@@ -126,7 +126,7 @@
         (dolist (e sequence)
           (when (funcall predicate (funcall key e))
             (incf n)))
-        (dotimes (i (length sequence) nil)
+        (dotimes (i (length sequence))
           (when (funcall predicate (funcall key (elt sequence i)))
             (incf n))))
     n))
@@ -847,12 +847,13 @@
                  result-vector)))
             (t (error "~S is not a subtype of SEQUENCE." result-type))))))
 
-(defun substitute-if (newitem predicate sequence &key key (start 0) end count) ; from-end
+(defun substitute-if (newitem predicate sequence &key key (start 0) end count from-end)
   (check-type count (or null integer))
   (unless key (setf key 'identity))
   (cond ((and (listp sequence)
               (zerop start)
-              (null end))
+              (null end)
+              (not from-end))
          (mapcar (lambda (x)
                    (if (and (funcall predicate (funcall key x))
                             (or (null count)
@@ -860,27 +861,37 @@
                        newitem
                        x))
                  sequence))
-        (t (unless end (setf end (length sequence)))
-           (let ((new-sequence (if (listp sequence)
-                                   (copy-list sequence)
-                                   (make-array (length sequence)
-                                               :element-type (array-element-type sequence)
-                                               :initial-contents sequence))))
-             (dotimes (i (- end start))
-               (when (and (funcall predicate (funcall key (elt new-sequence (+ start i))))
-                          (or (null count)
-                              (>= (decf count) 0)))
-                 (setf (elt new-sequence (+ start i)) newitem)))
-             new-sequence))))
+        (t
+         (unless end (setf end (length sequence)))
+         (let ((new-sequence (if (listp sequence)
+                                 (copy-list sequence)
+                                 (make-array (length sequence)
+                                             :element-type (array-element-type sequence)
+                                             :initial-contents sequence))))
+           (cond (from-end
+                  (dotimes (i (- end start))
+                    (when (and (funcall predicate (funcall key (elt new-sequence (- end i 1))))
+                               (or (null count)
+                                   (>= (decf count) 0)))
+                      (setf (elt new-sequence (- end i 1)) newitem)))
+                  )
+                 (t
+                  (dotimes (i (- end start))
+                    (when (and (funcall predicate (funcall key (elt new-sequence (+ start i))))
+                               (or (null count)
+                                   (>= (decf count) 0)))
+                      (setf (elt new-sequence (+ start i)) newitem)))))
+           new-sequence))))
 
-(defun substitute-if-not (newitem predicate sequence &key key (start 0) end count) ; from-end
+(defun substitute-if-not (newitem predicate sequence &key key (start 0) end count from-end)
   (substitute-if newitem (complement predicate) sequence
                  :key key
                  :start start
                  :end end
-                 :count count))
+                 :count count
+                 :from-end from-end))
 
-(defun substitute (newitem olditem sequence &key test test-not key (start 0) end count) ; from-end
+(defun substitute (newitem olditem sequence &key test test-not key (start 0) end count from-end)
   (check-test-test-not test test-not)
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
@@ -890,41 +901,31 @@
                  :key key
                  :start start
                  :end end
-                 :count count))
+                 :count count
+                 :from-end from-end))
 
-(defun nsubstitute-if (newitem predicate sequence &key key (start 0) end) ; from-end
+(defun nsubstitute-if (newitem predicate sequence &key key (start 0) end from-end)
   (unless key (setf key 'identity))
-  (cond ((and (listp sequence)
-              (zerop start)
-              (null end))
-         (mapcar (lambda (x)
-                   (if (funcall predicate (funcall key x))
-                       newitem
-                       x))
-                 sequence))
-        (t (unless end (setf end (length sequence)))
-           (dotimes (i (- end start))
-             (when (funcall predicate (funcall key (elt sequence (+ start i))))
-               (setf (elt sequence (+ start i)) newitem)))
-           sequence)))
+  (unless end (setf end (length sequence)))
+  (cond (from-end
+         (dotimes (i (- end start))
+           (when (funcall predicate (funcall key (elt sequence (- end i 1))))
+             (setf (elt sequence (- end i 1)) newitem))))
+        (t
+         (dotimes (i (- end start))
+           (when (funcall predicate (funcall key (elt sequence (+ start i))))
+             (setf (elt sequence (+ start i)) newitem)))))
+  sequence)
 
-(defun nsubstitute-if-not (newitem predicate sequence &key key (start 0) end) ; from-end
-  (unless key (setf key 'identity))
-  (cond ((and (listp sequence)
-              (zerop start)
-              (null end))
-         (mapcar (lambda (x)
-                   (if (not (funcall predicate (funcall key x)))
-                       newitem
-                       x))
-                 sequence))
-        (t (unless end (setf end (length sequence)))
-           (dotimes (i (- end start))
-             (when (not (funcall predicate (funcall key (elt sequence (+ start i)))))
-               (setf (elt sequence (+ start i)) newitem)))
-           sequence)))
+(defun nsubstitute-if-not (newitem predicate sequence &key key (start 0) end from-end)
+  (nsubstitute-if newitem (complement predicate) sequence
+                  :key key
+                  :start start
+                  :end end
+                  :count count
+                  :from-end from-end))
 
-(defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
+(defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end from-end)
   (check-test-test-not test test-not)
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
@@ -933,7 +934,8 @@
                  sequence
                  :key key
                  :start start
-                 :end end))
+                 :end end
+                 :from-end from-end))
 
 (defun reduce (function sequence &key key (initial-value nil initial-valuep) from-end (start 0) end)
   (check-type key (or null symbol function))
