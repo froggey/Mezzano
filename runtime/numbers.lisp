@@ -691,16 +691,17 @@
 
 (defun generic-left-shift (integer count)
   (cond ((not (sys.int::fixnump count))
+         (check-type integer integer)
          (check-type count integer)
-         (error "TODO: Bignum LEFT-SHIFT count not implemented yet."))
+         ;; The result of shifting any non-zero value left by a
+         ;; bignum won't fit in the machine. Don't even bother trying.
+         (if (zerop integer)
+             0
+             (error 'storage-condition)))
         ((sys.int::fixnump integer)
          (%fixnum-left-shift integer count))
         ((sys.int::bignump integer)
-         (multiple-value-bind (quot rem)
-             (truncate count 32)
-           (dotimes (i quot)
-             (setf integer (sys.int::%%bignum-left-shift integer 32)))
-           (sys.int::%%bignum-left-shift integer rem)))
+         (sys.int::%bignum-left-shift integer count))
         (t
          (check-type integer integer))))
 
@@ -714,17 +715,7 @@
         ((sys.int::fixnump integer)
          (%fixnum-right-shift integer count))
         ((sys.int::bignump integer)
-         (multiple-value-bind (quot rem)
-             (truncate count 32)
-           (dotimes (i quot)
-             (setf integer (sys.int::%%bignum-right-shift integer 32))
-             (cond ((eql integer 0)
-                    (return-from generic-right-shift 0))
-                   ((eql integer -1)
-                    (return-from generic-right-shift -1))
-                   ((sys.int::fixnump integer)
-                    (setf integer (sys.int::%make-bignum-from-fixnum integer)))))
-           (sys.int::%%bignum-right-shift integer rem)))
+         (sys.int::%bignum-right-shift integer count))
         (t
          (check-type integer integer))))
 

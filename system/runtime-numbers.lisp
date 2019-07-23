@@ -1371,3 +1371,23 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun rationalize (number)
   (rational number))
+
+(defun %bignum-left-shift (integer count)
+  (multiple-value-bind (quot rem)
+      (truncate count 32)
+    (dotimes (i quot)
+      (setf integer (%%bignum-left-shift integer 32)))
+    (%%bignum-left-shift integer rem)))
+
+(defun %bignum-right-shift (integer count)
+  (multiple-value-bind (quot rem)
+      (truncate count 32)
+    (dotimes (i quot
+              (%%bignum-right-shift integer rem))
+      (setf integer (%%bignum-right-shift integer 32))
+      (cond ((eql integer 0)
+             (return 0))
+            ((eql integer -1)
+             (return -1))
+            ((fixnump integer)
+             (setf integer (%make-bignum-from-fixnum integer)))))))
