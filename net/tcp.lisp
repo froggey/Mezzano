@@ -135,7 +135,6 @@
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
-;; FIXME: This is temporary fix for recursive locking in tcp-listen
 (defun get-tcp-listener-without-lock (local-ip local-port)
   (dolist (listener *tcp-listeners*)
     (when (and (or (mezzano.network.ip:address-equal
