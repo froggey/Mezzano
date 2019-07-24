@@ -459,31 +459,30 @@
               (return local-port))))
 
 (defun close-tcp-connection (connection)
-  (with-tcp-connection-locked connection
-    (ecase (tcp-connection-state connection)
-      (:syn-sent
-       (setf (tcp-connection-state connection) :closed)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :rst-p t)
-       (detach-tcp-connection connection))
-      ((:established :syn-received)
-       (setf (tcp-connection-state connection) :fin-wait-1)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :fin-p t))
-      (:close-wait
-       (setf (tcp-connection-state connection) :last-ack)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :fin-p t))
-      (:closed))))
+  (ecase (tcp-connection-state connection)
+    (:syn-sent
+     (setf (tcp-connection-state connection) :closed)
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :rst-p t)
+     (detach-tcp-connection connection))
+    ((:established :syn-received)
+     (setf (tcp-connection-state connection) :fin-wait-1)
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :fin-p t))
+    (:close-wait
+     (setf (tcp-connection-state connection) :last-ack)
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :fin-p t))
+    (:closed)))
 
 (define-condition network-error (error)
   ())
@@ -728,7 +727,8 @@
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
   (declare (ignore abort))
-  (close-tcp-connection (tcp-stream-connection stream)))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (close-tcp-connection (tcp-stream-connection stream))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
