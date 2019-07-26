@@ -38,16 +38,25 @@
                (gethash v best))
              (link (p n)
                (setf (gethash n ancestor) p
-                     (gethash n best) n))
-             (dfs (p n)
-               (when (eql (gethash n dfnum 0) 0)
-                 (setf (gethash n dfnum) n*)
-                 (vector-push-extend n vertex)
-                 (setf (gethash n parent) p)
-                 (incf n*)
-                 (dolist (w (gethash n bb-succs))
-                   (dfs n w)))))
-      (dfs nil entry-basic-block)
+                     (gethash n best) n)))
+      ;; Non-recursive depth-first search over the blocks to number them.
+      (let ((dfs-stack (make-array 100 :fill-pointer 0 :adjustable t)))
+        (vector-push-extend nil dfs-stack)
+        (vector-push-extend entry-basic-block dfs-stack)
+        (loop
+           (when (eql (length dfs-stack) 0) (return))
+           (let* ((n (vector-pop dfs-stack))
+                  (p (vector-pop dfs-stack)))
+             (when (eql (gethash n dfnum 0) 0)
+               (setf (gethash n dfnum) n*)
+               (vector-push-extend n vertex)
+               (setf (gethash n parent) p)
+               (incf n*)
+               ;; This is reversed to maintain the same traversal order as
+               ;; the original recursive implementation.
+               (dolist (w (reverse (gethash n bb-succs)))
+                 (vector-push-extend n dfs-stack)
+                 (vector-push-extend w dfs-stack))))))
       (loop for i from (1- n*) downto 1 do
            (let* ((n (aref vertex i))
                   (p (gethash n parent))
