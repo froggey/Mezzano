@@ -268,14 +268,6 @@
         (- r)
         r)))
 
-(declaim (inline sys.int::%%bignum-negative-p))
-(defun sys.int::%%bignum-negative-p (bignum)
-  ;; Use a UB32 access to avoid creating an intermediate bignum.
-  (let ((sign-word (sys.int::%object-ref-unsigned-byte-32
-                    bignum
-                    (1- (* (sys.int::%object-header-data bignum) 2)))))
-    (logtest #x80000000 sign-word)))
-
 (defmacro bignum-float-compare (the-bignum the-float float-type swap-args)
   (multiple-value-bind (float< float= truncate-float m-p-f-float m-n-f-float p-inf n-inf)
       (ecase float-type
@@ -292,7 +284,7 @@
                  sys.int::most-positive-fixnum-double-float
                  sys.int::most-negative-fixnum-double-float)))
     `(cond ((sys.int::float-nan-p ,the-float) nil)
-           ((sys.int::%%bignum-negative-p ,the-bignum)
+           ((sys.int::%bignum-negative-p ,the-bignum)
             (cond ((,float< ,the-float ,m-n-f-float)
                    (if (,float= ,the-float ,n-inf)
                        ,(if swap-args t nil)
@@ -310,7 +302,7 @@
     (fixnum
      (number-dispatch (y :expected-type 'real)
        (fixnum (%fixnum-< x y))
-       (bignum (not (sys.int::%%bignum-negative-p y)))
+       (bignum (not (sys.int::%bignum-negative-p y)))
        (ratio (ratio-< x y))
        (single-float
         (fixnum-float-compare x y single-float nil))
@@ -318,7 +310,7 @@
         (fixnum-float-compare x y double-float nil))))
     (bignum
      (number-dispatch (y :expected-type 'real)
-       (fixnum (sys.int::%%bignum-negative-p x))
+       (fixnum (sys.int::%bignum-negative-p x))
        (bignum (sys.int::%%bignum-< x y))
        (ratio (ratio-< x y))
        (single-float
@@ -658,19 +650,11 @@
     (declare (type fixnum len))
     (setf integer (ash integer -1))))
 
-(defun %bignum-integer-length (integer)
-  (do* ((n-fragments (sys.int::%n-bignum-fragments integer))
-        (last (sys.int::%object-ref-signed-byte-64 integer (1- n-fragments)))
-        (len 0 (1+ len)))
-       ((or (eq last 0) (eq last -1))
-        (+ (* (1- n-fragments) 64) len))
-    (setf last (ash last -1))))
-
 (defun integer-length (integer)
   (cond ((sys.int::fixnump integer)
          (%fixnum-integer-length integer))
         ((sys.int::bignump integer)
-         (%bignum-integer-length integer))
+         (sys.int::%bignum-integer-length integer))
         (t (error 'type-error :expected-type 'integer :datum integer))))
 
 (declaim (inline left-shift right-shift))
