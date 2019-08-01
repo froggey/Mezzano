@@ -34,7 +34,6 @@
   "Possible states that a TCP connection can have."
   '(member
     :closed
-    :listen
     :syn-sent
     :syn-received
     :established
@@ -58,9 +57,16 @@
    (local-ip :reader tcp-listener-local-ip
              :initarg :local-ip
              :type mezzano.network.ip::ipv4-address)
+   (semaphore :reader tcp-listener-semaphore
+              :initarg :semaphore
+              :type mezzano.sync:semaphore)
    (connections :reader tcp-listener-connections
                 :initarg :connections
-                :type mezzano.sync:mailbox)))
+                :type mezzano.sync:mailbox)
+   (backlog :reader tcp-listener-backlog
+            :initarg :backlog
+            :type integer))
+  (:default-initargs :semaphore (mezzano.sync:make-semaphore)))
 
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
@@ -170,48 +176,57 @@
          (listener (get-tcp-listener local-ip local-port)))
     (cond (connection
            (tcp4-receive connection packet start end))
-          ((and listener (eql flags +tcp4-flag-syn+))
-           (let ((connection (make-instance 'tcp-connection
-                                            :state :listen
-                                            :local-port local-port
-                                            :local-ip local-ip
-                                            :remote-port remote-port
-                                            :remote-ip remote-ip
-                                            :s-next 0
-                                            :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
-                                            :window-size 8192)))
-             ;; Drop connections that don't fit in the mailbox.
-             ;; This way a listener can limit the number of
-             ;; connections that haven't been accepted.
-             (when (mezzano.sync:mailbox-send
-                    connection
-                    (tcp-listener-connections listener)
-                    :wait-p nil)
-               (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-                 (push connection *tcp-connections*))))))))
+          ;; Drop unestablished connections if they surpassed listener backlog
+          ((and listener
+                (eql flags +tcp4-flag-syn+)
+                (< (mezzano.sync:semaphore-value (tcp-listener-semaphore listener))
+                   (tcp-listener-backlog listener)))
+           (mezzano.sync:semaphore-up (tcp-listener-semaphore listener))
+           (let* ((seq (random #x100000000))
+                  (ack (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
+                  (connection (make-instance 'tcp-connection
+                                             :state :syn-received
+                                             :local-port local-port
+                                             :local-ip local-ip
+                                             :remote-port remote-port
+                                             :remote-ip remote-ip
+                                             :s-next (logand #xFFFFFFFF (1+ seq))
+                                             :r-next ack
+                                             :window-size 8192)))
+             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (push connection *tcp-connections*))
+             (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)
+             (mezzano.sync.dispatch:dispatch-async
+              (lambda ()
+                (with-tcp-connection-locked connection
+                  (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                                                 (tcp-connection-lock connection)
+                                                                 *tcp-connect-timeout*)
+                           (not (eql (tcp-connection-state connection) :syn-received)))
+                         (unless (eql (tcp-connection-state connection) :connection-aborted)
+                           (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
+                        (t
+                         ;; wait-for returned false, timeout occured.
+                         (close-tcp-connection connection))))
+                (mezzano.sync:semaphore-down (tcp-listener-semaphore listener)))
+              sys.net::*unestablished-connections-queue*))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
-  (let* ((seq (random #x100000000))
-         (ack (logand #xFFFFFFFF (1+ (tcp-connection-r-next connection)))))
-    (setf (tcp-connection-state connection) :syn-received
-          (tcp-connection-s-next connection) (logand #xFFFFFFFF (1+ seq))
-          (tcp-connection-r-next connection) ack)
-    (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)
-    (cond ((or (not element-type)
-               (sys.int::type-equal element-type 'character))
-           (make-instance 'tcp-stream
-                          :connection connection
-                          :external-format (sys.int::make-external-format
-                                            (or element-type 'character)
-                                            (or external-format :default)
-                                            :eol-style :crlf)))
-          ((sys.int::type-equal element-type '(unsigned-byte 8))
-           (assert (or (not external-format)
-                       (eql external-format :default)))
-           (make-instance 'tcp-octet-stream
-                          :connection connection))
-          (t
-           (error "Unsupported element type ~S" element-type)))))
+  (cond ((or (not element-type)
+             (sys.int::type-equal element-type 'character))
+         (make-instance 'tcp-stream
+                        :connection connection
+                        :external-format (sys.int::make-external-format
+                                          (or element-type 'character)
+                                          (or external-format :default)
+                                          :eol-style :crlf)))
+        ((sys.int::type-equal element-type '(unsigned-byte 8))
+         (assert (or (not external-format)
+                     (eql external-format :default)))
+         (make-instance 'tcp-octet-stream
+                        :connection connection))
+        (t
+         (error "Unsupported element type ~S" element-type))))
 
 (defun tcp4-decline-connection (connection)
   (detach-tcp-connection connection))
@@ -271,10 +286,6 @@
         (setf (tcp-connection-state connection) :connection-aborted)
         (detach-tcp-connection connection))
       (case (tcp-connection-state connection)
-        (:listen
-         ;; Remote has start new connection.
-         ;; Not much to do here, just waiting for the application to accept or decline new connection.
-         )
         (:syn-sent
          ;; Active open
          (cond ((and (logtest flags +tcp4-flag-ack+)
@@ -515,6 +526,7 @@
                                        :connections (mezzano.sync:make-mailbox
                                                      :name "TCP Listener"
                                                      :capacity backlog)
+                                       :backlog backlog
                                        :local-port local-port
                                        :local-ip source-address)))
           (push listener *tcp-listeners*)
@@ -626,8 +638,6 @@
   (member (tcp-connection-state connection)
           ;; Data can only be received in these states.
           '(:established
-            :syn-sent
-            :syn-received
             :fin-wait-1
             :fin-wait-2)))
 

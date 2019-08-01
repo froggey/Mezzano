@@ -47,6 +47,7 @@
 
 ;; Everything in the network stack uses a single serial queue for the moment...
 (defvar *network-serial-queue*)
+(defvar *unestablished-connections-queue*)
 
 (defvar *receive-sources* (make-hash-table))
 
@@ -86,7 +87,10 @@
                                 :concurrent nil
                                 ;; Start suspended so tasks aren't run
                                 ;; during initialization.
-                                :suspended t))
+                                :suspended t)
+        *unestablished-connections-queue* (mezzano.sync.dispatch:make-queue
+                                           :name "Yest queue"
+                                           :concurrent nil))
   ;; Create sources for NIC addition/removal.
   (let ((nic-add-mailbox (mezzano.sync:make-mailbox :name "NIC add mailbox"))
         (nic-rem-mailbox (mezzano.sync:make-mailbox :name "NIC rem mailbox"))
