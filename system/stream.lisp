@@ -395,6 +395,56 @@ CASE may be one of:
             (slot-value stream 'edit-offset) old-offset
             (slot-value stream 'edit-handler) old-handler))))
 
+(defclass binary-output-stream (mezzano.gray:fundamental-binary-output-stream)
+  ((element-type :initarg :element-type :reader binary-output-stream-element-type)
+   (vector :initarg :vector :accessor binary-output-stream-vector))
+  (:default-initargs :vector nil))
+
+(defun make-binary-output-stream (&key (element-type '(unsigned-byte 8)) (vector nil vectorp))
+  (when vectorp
+    (when (not (and (vectorp vector)
+                    (array-has-fill-pointer-p vectorp)))
+      (error "~S must be a vector with a fill-pointer" vectorp)))
+  (when (not (subtypep element-type 'integer))
+    (error "Element-type ~S must be a subtype of INTEGER" element-type))
+  (make-instance 'binary-output-stream :element-type element-type :vector vector))
+
+(defun get-output-stream-vector (binary-output-stream)
+  (check-type binary-output-stream binary-output-stream)
+  (prog1 (or (binary-output-stream-vector binary-output-stream)
+             (make-array 0 :element-type (vector-output-stream-element-type binary-output-stream)))
+    (setf (binary-output-stream-vector binary-output-stream) nil)))
+
+(defmethod mezzano.gray:stream-write-byte ((stream binary-output-stream) integer)
+  (unless (binary-output-stream-vector stream)
+    (setf (binary-output-stream-vector stream)
+          (make-array 8
+                      :element-type (binary-output-stream-element-type stream)
+                      :adjustable t
+                      :fill-pointer 0)))
+  (vector-push-extend integer (binary-output-stream-vector stream)))
+
+(defmethod mezzano.gray:stream-write-sequence ((stream binary-output-stream) seq &optional (start 0) end)
+  (setf end (or end (length seq)))
+  (let ((n-bytes (- end start)))
+    (unless (binary-output-stream-vector stream)
+      (setf (binary-output-stream-vector stream)
+            (make-array (max n-bytes 8)
+                        :element-type (binary-output-stream-element-type stream)
+                        :adjustable t
+                        :fill-pointer 0)))
+    (let* ((output (binary-output-stream-vector stream))
+           (current-length (length output))
+           (new-length (+ (length output) n-bytes)))
+      (when (< (array-dimension output 0) new-length)
+        (adjust-array output new-length))
+      (setf (fill-pointer output) new-length)
+      (replace output seq
+               :start1 current-length
+               :start2 start
+               :end2 end)
+      seq)))
+
 (defun y-or-n-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
   (when control
