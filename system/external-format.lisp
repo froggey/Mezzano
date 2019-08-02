@@ -3,6 +3,28 @@
 
 (in-package :sys.int)
 
+(defparameter *default-external-format* :utf-8)
+
+(defun string-to-octets (sequence &key (start 0) end (eol-style :crlf) nul-terminate coding)
+  (when (or (not coding) (eql coding :default))
+    (setf coding *default-external-format*))
+  (ecase coding
+    (:utf-8 (encode-utf-8-string sequence
+                                 :start start
+                                 :end end
+                                 :eol-style eol-style
+                                 :nul-terminate nul-terminate))))
+
+(defun octets-to-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate coding)
+  (when (or (not coding) (eql coding :default))
+    (setf coding *default-external-format*))
+  (ecase coding
+    (:utf-8 (decode-utf-8-string sequence
+                                 :start start
+                                 :end end
+                                 :eol-style eol-style
+                                 :nul-terminate nul-terminate))))
+
 (defun utf-8-decode-leader (leader)
   "Break a UTF-8 leader byte apart into sequence length (minus one) and code-point so far."
   (cond ((eql (logand leader #b10000000) 0)
@@ -63,7 +85,80 @@
       (vector-push-extend 0 bytes))
     bytes))
 
-(defparameter *default-external-format* :utf-8)
+(defun decode-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
+  (setf end (or end (length sequence)))
+  (let ((position start)
+        (string (make-array (- end start)
+                            :element-type 'character
+                            :adjustable t
+                            :fill-pointer 0))
+        (eol-state nil))
+    (flet ((next ()
+             (cond ((< position end)
+                    (prog1
+                        (elt sequence position)
+                      (incf position)))
+                   (t nil))))
+      (loop
+         (let ((leader (next)))
+           (when (not leader)
+             ;; End of text.
+             (when (and nul-terminate
+                        (not (eql (length string) 0))
+                        (eql (char string (1- (length string))) (code-char 0)))
+               (vector-pop string))
+             (return string))
+           (multiple-value-bind (len code-point)
+               (utf-8-decode-leader leader)
+             (dotimes (i len)
+               (let ((byte (next)))
+                 (when (or (not byte)
+                           (not (utf-8-continuation-byte-p byte)))
+                   (setf code-point (char-code #\REPLACEMENT_CHARACTER))
+                   (return))
+                 (setf code-point (logior (ash code-point 6)
+                                          (ldb (byte 6 0) byte)))))
+             (when (not (unicode-scalar-value-p code-point))
+               (setf code-point (char-code #\REPLACEMENT_CHARACTER)))
+             (let ((char (or (code-char code-point)
+                             #\REPLACEMENT_CHARACTER)))
+             (ecase eol-style
+               (:cr
+                (when (eql char #\Cr) (setf char #\Newline))
+                (vector-push-extend char string))
+               (:lf
+                (when (eql char #\Lf) (setf char #\Newline))
+                (vector-push-extend char string))
+               (:crlf
+                (cond (eol-state
+                       ;; Saw CR, expecing LF.
+                       (setf eol-state nil)
+                       (cond ((eql char #\Lf)
+                              (vector-push-extend #\Newline string))
+                             (t
+                              ;; Something else, release the Cr and whatever this is.
+                              (vector-push-extend #\Cr string)
+                              (vector-push-extend char string))))
+                      (t
+                       (cond ((eql char #\Cr)
+                              (setf eol-state t))
+                             (t
+                              (vector-push-extend char string))))))
+               (:lfcr
+                (cond (eol-state
+                       ;; Saw LF, expecing CR.
+                       (setf eol-state nil)
+                       (cond ((eql char #\Cr)
+                              (vector-push-extend #\Newline string))
+                             (t
+                              ;; Something else, release the Lf and whatever this is.
+                              (vector-push-extend #\Lf string)
+                              (vector-push-extend char string))))
+                      (t
+                       (cond ((eql char #\Lf)
+                              (setf eol-state t))
+                             (t
+                              (vector-push-extend char string))))))))))))))
 
 (defclass external-format ()
   ((%coding :initarg :coding :reader external-format-coding)
