@@ -62,7 +62,8 @@
     (when (not (and (symbolp (first decl))
                     (or (sys.int::known-declaration-p (first decl))
                         (member (first decl) '(dynamic-extent sys.int::lambda-name
-                                               ignore ignorable)))))
+                                               ignore ignorable closure-allocation
+                                               sys.int::suppress-ssp-checking)))))
       (warn 'sys.int::simple-style-warning
             :format-control "Unknown declaration ~S."
             :format-arguments (list decl)))))

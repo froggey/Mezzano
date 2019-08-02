@@ -239,7 +239,7 @@
     )
   (setq form (sys.int::macroexpand form env))
   (flet ((cdr-wrap (form n)
-	   (declare (fixnum n))
+	   (declare (type fixnum n))
 	   (do () ((<= n 4) (setq form `(,(case n
 					    (1 'cdr)
 					    (2 'cddr)
@@ -770,7 +770,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
     ;; This outer loop iterates once for each not-first-time flag test generated
     ;; plus once more for the forms that don't need a flag test
     (do ((threshold (loop-code-duplication-threshold env))) (nil)
-      (declare (fixnum threshold))
+      (declare (type fixnum threshold))
       ;; Go backwards from the ends of before-loop and after-loop merging all the equivalent
       ;; forms into the body.
       (do () ((or (null rbefore) (not (equal (car rbefore) (car rafter)))))
@@ -819,7 +819,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 (defun duplicatable-code-p (expr env)
   (if (null expr) 0
       (let ((ans (estimate-code-size expr env)))
-	(declare (fixnum ans))
+	(declare (type fixnum ans))
 	;;@@@@ Use (DECLARATION-INFORMATION 'OPTIMIZE ENV) here to get an alist of
 	;; optimize quantities back to help quantify how much code we are willing to
 	;; duplicate.
@@ -864,7 +864,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 (defun estimate-code-size-1 (x env)
   (flet ((list-size (l)
 	   (let ((n 0))
-	     (declare (fixnum n))
+	     (declare (type fixnum n))
 	     (dolist (x l n) (incf n (estimate-code-size-1 x env))))))
     ;;@@@@ ???? (declare (function list-size (list) fixnum))
     (cond ((constantp x #+Genera env) 1)
@@ -873,7 +873,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 	  ((atom x) 1)				;??? self-evaluating???
 	  ((symbolp (car x))
 	   (let ((fn (car x)) (tem nil) (n 0))
-	     (declare (symbol fn) (fixnum n))
+	     (declare (type symbol fn) (type fixnum n))
 	     (macrolet ((f (overhead &optional (args nil args-p))
 			  `(the fixnum (+ (the fixnum ,overhead)
 					  (the fixnum (list-size ,(if args-p args '(cdr x))))))))
@@ -1579,7 +1579,7 @@ collected result will be returned as the value of the LOOP."
 	     (other-test first-test)
 	     (step `(,var (aref ,vector-var ,index-var)))
 	     (pstep `(,index-var (1+ ,index-var))))
-	(declare (fixnum length))
+	(declare (type fixnum length))
 	(when constantp
 	  (setq first-test (= length 0))
 	  (when (<= length 1)
@@ -1753,7 +1753,7 @@ collected result will be returned as the value of the LOOP."
 ;;; i.e., this is part of our extended ansi-loop interface.
 (defun named-variable (name)
   (let ((tem (loop-tassoc name *loop-named-variables*)))
-    (declare (list tem))
+    (declare (type list tem))
     (cond ((null tem) (values (loop-gentemp) nil))
 	  (t (setq *loop-named-variables* (delete tem *loop-named-variables*))
 	     (values (cdr tem) t)))))
@@ -1772,7 +1772,7 @@ collected result will be returned as the value of the LOOP."
 		   initial-phrases))
 	 (used-prepositions (mapcar #'car initial-phrases)))
 	((null *loop-source-code*) (nreverse prepositional-phrases))
-      (declare (symbol this-prep))
+      (declare (type symbol this-prep))
       (setq token (car *loop-source-code*))
       (dolist (group preposition-groups)
 	(when (setq this-prep (in-group-p token group))
