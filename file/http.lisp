@@ -121,10 +121,6 @@
                  (vector-push-extend (char hex-digit (ldb (byte 4 0) byte)) result))))
     result))
 
-(defun type-equal (x y)
-  (and (subtypep x y)
-       (subtypep y x)))
-
 (defun decode-status-line (line)
   (let* ((version-end (position #\Space line))
          (code-end (position #\Space line :start (1+ version-end)))
@@ -203,7 +199,7 @@
     (read-http-response con)))
 
 (defun make-http-stream (pathname body element-type external-format)
-  (if (type-equal element-type 'character)
+  (if (sys.int::type-equal element-type 'character)
       (make-instance 'http-character-stream
                      :path pathname
                      :direction :input
@@ -233,8 +229,8 @@
   (check-type direction (member :input :probe))
   (assert (not (eql if-does-not-exist :create)) (if-does-not-exist)
           ":IF-DOES-NOT-EXIST :CREATE not supported.")
-  (when (and (not (type-equal element-type '(unsigned-byte 8)))
-             (not (type-equal element-type 'character)))
+  (when (and (not (sys.int::type-equal element-type '(unsigned-byte 8)))
+             (not (sys.int::type-equal element-type 'character)))
     (error "Only (UNSIGNED-BYTE 8) and CHARACTER element types supported."))
   (let (version status-code reason-phrase headers body
         (redirect-count 0))
