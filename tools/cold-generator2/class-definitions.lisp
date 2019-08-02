@@ -156,9 +156,6 @@
 (defclass mezzano.delimited-continuations:delimited-continuation (function) () (:metaclass built-in-class))
 (defclass symbol (t) () (:metaclass built-in-class))
 (defclass character (t) () (:metaclass built-in-class))
-;; Streams are ordinary objects with no special representation,
-;; they don't need to be BUILT-IN-CLASSes.
-(defclass stream (t) ())
 (defclass sys.int::function-reference (t) () (:metaclass built-in-class))
 (defclass mezzano.runtime::symbol-value-cell (t) () (:metaclass built-in-class))
 (defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
