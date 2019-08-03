@@ -200,25 +200,25 @@
              ;; If there are no required parameters, then don't generate a lower-bound check.
              (when (ir:argument-setup-required instruction)
                ;; Minimum number of arguments.
-               (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+               (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                      `(lap:jnl ,args-ok))
                (emit-arg-error)))
             ((and (ir:argument-setup-required instruction)
                   (ir:argument-setup-optional instruction))
              ;; A range.
              (emit `(lap:mov32 :eax :ecx)
-                   `(lap:sub32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
-                   `(lap:cmp32 :eax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+                   `(lap:sub32 :eax ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                   `(lap:cmp32 :eax ,(sys.c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
             ((ir:argument-setup-optional instruction)
              ;; Maximum number of arguments.
-             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+             (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
             ((ir:argument-setup-required instruction)
              ;; Exact number of arguments.
-             (emit `(lap:cmp32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+             (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                    `(lap:je ,args-ok))
              (emit-arg-error))
             ;; No arguments
@@ -301,20 +301,20 @@
            (emit `(sys.lap-x86:test64 :rcx :rcx))
            (emit `(sys.lap-x86:jz ,rest-list-done)))
           (t
-           (emit `(sys.lap-x86:sub64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw regular-argument-count)))
+           (emit `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw regular-argument-count)))
            (emit `(sys.lap-x86:jle ,rest-list-done))))
     ;; Save the length.
     (emit `(sys.lap-x86:mov64 :rdx :rcx))
     ;; Double it, each cons takes two words.
     (emit `(sys.lap-x86:shl64 :rdx 1))
     ;; Add a header word and word of padding so it can be treated like a simple-vector.
-    (emit `(sys.lap-x86:add64 :rdx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 2)))
+    (emit `(sys.lap-x86:add64 :rdx ,(sys.c::fixnum-to-raw 2)))
     ;; Fixnum to raw integer * 8.
     (emit `(sys.lap-x86:shl64 :rdx ,(- 3 sys.int::+n-fixnum-bits+)))
     ;; Allocate on the stack.
     (emit `(sys.lap-x86:sub64 :rsp :rdx))
     ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
-    (emit `(sys.lap-x86:lea64 :rdx ((:rcx 2) ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
+    (emit `(sys.lap-x86:lea64 :rdx ((:rcx 2) ,(sys.c::fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
     (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(sys.lap-x86:mov64 (:rsp) :rdx))
     ;; Clear the padding slot.
@@ -327,7 +327,7 @@
     (emit `(sys.lap-x86:lea64 :rax (:rdi ,(+ 16 sys.int::+tag-cons+))))
     (emit `(sys.lap-x86:mov64 (:rdi 8) :rax)) ; cdr
     (emit `(sys.lap-x86:add64 :rdi 16))
-    (emit `(sys.lap-x86:sub64 :rdx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+    (emit `(sys.lap-x86:sub64 :rdx ,(sys.c::fixnum-to-raw 1)))
     (emit `(sys.lap-x86:ja ,rest-clear-loop-head))
     ;; Set the cdr of the final cons to NIL.
     (emit `(sys.lap-x86:mov64 (:rdi -8) nil))
@@ -341,7 +341,7 @@
        for reg in (nthcdr regular-argument-count '(:r8 :r9 :r10 :r11 :r12))
        do (emit `(sys.lap-x86:mov64 (:rdi) ,reg)
                 `(sys.lap-x86:add64 :rdi 16)
-                `(sys.lap-x86:sub64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1))
+                `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw 1))
                 `(sys.lap-x86:jz ,rest-loop-end)))
     ;; Now add the stack arguments.
     ;; Skip past required/optional arguments on the stack, the saved frame pointer and the return address.
@@ -355,7 +355,7 @@
     (emit `(sys.lap-x86:add64 :rsi 8))
     (emit `(sys.lap-x86:add64 :rdi 16))
     ;; Stop when no more arguments.
-    (emit `(sys.lap-x86:sub64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+    (emit `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw 1)))
     (emit `(sys.lap-x86:jnz ,rest-loop-head))
     (emit rest-loop-end)
     ;; There were &REST arguments, create the cons.
@@ -523,14 +523,14 @@
             ((member value '(nil t))
              (emit `(lap:mov32 ,(lap::convert-width dest 32) ,value)))
             ((sys.c::fixnump value)
-             (load-int (mezzano.compiler.codegen.x86-64::fixnum-to-raw value)))
+             (load-int (sys.c::fixnum-to-raw value)))
             ((characterp value)
-             (load-int (mezzano.compiler.codegen.x86-64::character-to-raw value)))
+             (load-int (sys.c::character-to-raw value)))
             (t
              (emit `(lap:mov64 ,dest (:constant ,value))))))))
 
 (defmethod emit-lap (backend-function (instruction ir:return-instruction) uses defs)
-  (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1))
+  (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw 1))
         `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0)
@@ -587,9 +587,9 @@
       ((eql 0)
        (emit `(lap:xor32 :ecx :ecx)))
       ((unsigned-byte 30)
-       (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length call-arguments)))))
+       (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw (length call-arguments)))))
       (t
-       (emit `(lap:mov64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (length call-arguments))))))))
+       (emit `(lap:mov64 :rcx ,(sys.c::fixnum-to-raw (length call-arguments))))))))
 
 (defun call-argument-teardown (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))
@@ -840,7 +840,7 @@
     ;; Save RSP, this gets unconditionally restored to simplify other paths.
     (emit `(lap:mov64 (:stack ,saved-stack-pointer) :rsp))
     ;; Try a fast register-only save first.
-    (emit `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 5)))
+    (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw 5)))
     (emit `(lap:ja ,full-save))
     (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) :rcx))
     (emit `(lap:mov64 (:stack ,(+ register-only-area 1)) :r8))
@@ -854,8 +854,8 @@
     (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) nil))
     ;; Allocate an appropriately sized DX simple vector.
     ;; Add one for the header, then round the count up to an even number.
-    (emit `(lap:lea64 :rax (:rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 2))))
-    (emit `(lap:and64 :rax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (lognot 1))))
+    (emit `(lap:lea64 :rax (:rcx ,(sys.c::fixnum-to-raw 2))))
+    (emit `(lap:and64 :rax ,(sys.c::fixnum-to-raw (lognot 1))))
     ;; Adjust RSP. rax to raw * 8.
     (emit `(lap:shl64 :rax ,(- 3 sys.int::+n-fixnum-bits+)))
     (emit `(lap:sub64 :rsp :rax))
@@ -873,7 +873,7 @@
       (emit `(lap:xor32 :eax :eax))
       (emit clear-loop-head)
       (emit `(lap:stos64))
-      (emit `(lap:sub64 :rdx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+      (emit `(lap:sub64 :rdx ,(sys.c::fixnum-to-raw 1)))
       (emit `(lap:jnz ,clear-loop-head))
       (emit clear-loop-end))
     ;; Create & save the DX root value.
@@ -884,14 +884,14 @@
        for reg in '(:r8 :r9 :r10 :r11 :r12)
        for offset from 0
        do
-         (emit `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw offset)))
+         (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw offset)))
          (emit `(lap:jle ,save-done))
        ;; 1+ to skip header.
          (emit `(lap:mov64 (:rsp ,(* (1+ offset) 8)) ,reg)))
     ;; Save values in the MV area.
     ;; Number of values remaining.
     (emit `(lap:mov64 :rax :rcx))
-    (emit `(lap:sub64 :rax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 5)))
+    (emit `(lap:sub64 :rax ,(sys.c::fixnum-to-raw 5)))
     (emit `(lap:jle ,save-done))
     ;; Save into the simple-vector.
     (emit `(lap:lea64 :rdi (:rsp ,(* 6 8)))) ; skip header and registers.
@@ -904,7 +904,7 @@
     (emit `(lap:mov64 (:rdi) :rbx))
     (emit `(lap:add64 :rsi 1))
     (emit `(lap:add64 :rdi 8))
-    (emit `(lap:sub64 :rax ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+    (emit `(lap:sub64 :rax ,(sys.c::fixnum-to-raw 1)))
     (emit `(lap:jnz ,save-loop-head))
     ;; Finished saving values.
     (emit save-done)))
@@ -932,7 +932,7 @@
     (emit `(lap:lea64 :r8 (:rax ,(- sys.int::+tag-object+
                                             sys.int::+tag-dx-root-object+))))
     ;; Call helper.
-    (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+    (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw 1)))
     (emit `(lap:mov64 :r13 (:function sys.int::values-simple-vector)))
     (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
     (emit-gc-info :multiple-values 0)
@@ -962,11 +962,11 @@
      do
        (cond (regs
               (let ((reg (pop regs)))
-                (emit `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw i))
+                (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw i))
                       `(lap:cmov64le ,reg (:constant nil)))))
              (t
               (emit `(lap:mov64 :r13 nil)
-                    `(lap:cmp64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw i))
+                    `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw i))
                     `(lap:gs)
                     `(lap:cmov64nle :r13 (,(+ (- 8 sys.int::+tag-object+)
                                              (* (+ mezzano.supervisor::+thread-mv-slots+
@@ -979,7 +979,7 @@
          (emit `(lap:mov64 :r8 nil)
                `(lap:xor32 :ecx :ecx)))
         (t
-         (emit `(lap:mov32 :ecx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
+         (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
          (loop
             for value in (nthcdr 5 (ir:values-values instruction))
             for i from 0
@@ -991,7 +991,7 @@
                                      (* i 8)))
                                 :r13))
               (emit-gc-info :multiple-values 1)
-              (emit `(lap:add64 :rcx ,(mezzano.compiler.codegen.x86-64::fixnum-to-raw 1)))
+              (emit `(lap:add64 :rcx ,(sys.c::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
 
 (defmethod lap-prepass (backend-function (instruction ir:push-special-stack-instruction) uses defs)

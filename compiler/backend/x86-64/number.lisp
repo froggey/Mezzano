@@ -504,7 +504,7 @@
                                        :outputs '(:rdx)))
                   (emit (make-instance 'x86-instruction
                                        :opcode 'lap:and64
-                                       :operands `(:rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                                       :operands `(:rdx ,(sys.c::fixnum-to-raw -1))
                                        :inputs '(:rdx)
                                        :outputs '(:rdx)))
                   (emit (make-instance 'ir:move-instruction
@@ -526,7 +526,7 @@
                                          :opcode 'lap:and64
                                          :result temp2
                                          :lhs temp1
-                                         :rhs (- (ash 1 sys.int::+n-fixnum-bits+))))
+                                         :rhs (sys.c::fixnum-to-raw -1)))
                   (emit (make-instance 'ir:move-instruction
                                        :destination result
                                        :source temp2)))))))
