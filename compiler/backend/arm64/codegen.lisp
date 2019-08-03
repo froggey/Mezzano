@@ -1014,7 +1014,7 @@
     (emit-object-load frame-reg :x28 :slot mezzano.supervisor::+thread-special-stack-pointer+)
     (emit-stack-store frame-reg (+ slots 2))
     ;; Generate pointer.
-    (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 3))
+    (load-literal :x9 (+ (control-stack-frame-offset (+ slots 3))
                          sys.int::+tag-object+))
     (emit `(lap:add ,frame-reg :x29 :x9))
     ;; Push.
@@ -1088,7 +1088,7 @@
     (load-literal :x9 (ash size sys.int::+object-data-shift+))
     (emit-stack-store :x9 (+ slots words -1))
     ;; Generate pointer.
-    (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots words -1))
+    (load-literal :x9 (+ (control-stack-frame-offset (+ slots words -1))
                          sys.int::+tag-object+))
     (emit `(lap:add ,(ir:make-dx-simple-vector-result instruction) :x29 :x9))))
 
@@ -1098,7 +1098,7 @@
 (defmethod emit-lap (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
   (let* ((slots (gethash instruction *prepass-data*)))
     ;; Generate pointer.
-    (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 2 -1))
+    (load-literal :x9 (+ (control-stack-frame-offset (+ slots 2 -1))
                          sys.int::+tag-cons+))
     (emit `(lap:add ,(ir:make-dx-cons-result instruction) :x29 :x9))))
 
@@ -1119,7 +1119,7 @@
     (emit-stack-store (ir:make-dx-closure-function instruction) (+ slots 1))
     (emit-stack-store (ir:make-dx-closure-environment instruction) (+ slots 0))
     ;; Generate pointer.
-    (load-literal :x9 (+ (mezzano.compiler.codegen.arm64::control-stack-frame-offset (+ slots 3))
+    (load-literal :x9 (+ (control-stack-frame-offset (+ slots 3))
                          sys.int::+tag-object+))
     (emit `(lap:add ,(ir:make-dx-closure-result instruction) :x29 :x9))))
 
