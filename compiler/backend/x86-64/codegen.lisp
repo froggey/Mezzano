@@ -483,6 +483,26 @@
                           ,(x86-cmpxchg-new instruction))))
   (emit `(lap:mov64 ,(x86-cmpxchg-result instruction) :rax)))
 
+(defmethod emit-lap (backend-function (instruction x86-cmpxchg16b-instruction) uses defs)
+  (emit `(lap:mov64 :rbx ,(x86-cmpxchg16b-new-1 instruction)))
+  (emit `(lap:mov64 :rax ,(x86-cmpxchg16b-old-1 instruction)))
+  (emit-gc-info :extra-registers :rax)
+  (emit `(lap:mov64 :rcx ,(x86-cmpxchg16b-new-2 instruction)))
+  (emit-gc-info :extra-registers :rax-rcx)
+  (emit `(lap:mov64 :rdx ,(x86-cmpxchg16b-old-2 instruction)))
+  (emit-gc-info :extra-registers :rax-rcx-rdx)
+  (when (x86-instruction-prefix instruction)
+    (emit (x86-instruction-prefix instruction)))
+  (if (integerp (x86-cmpxchg16b-index instruction))
+      (emit `(lap:cmpxchg16b (:object ,(x86-cmpxchg16b-object instruction)
+                                      ,(x86-cmpxchg16b-index instruction))))
+      (emit `(lap:cmpxchg16b (:object ,(x86-cmpxchg16b-object instruction)
+                                      0
+                                      ,(x86-cmpxchg16b-index instruction)
+                                      4))))
+  (emit `(lap:mov64 ,(x86-cmpxchg16b-result-1 instruction) :rax))
+  (emit `(lap:mov64 ,(x86-cmpxchg16b-result-2 instruction) :rdx)))
+
 (defun invert-branch (opcode)
   (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
                                    :key 'third))))

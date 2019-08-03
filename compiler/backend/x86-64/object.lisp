@@ -506,3 +506,30 @@
                        :new new
                        :result result
                        :prefix '(lap:lock))))
+
+;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
+;; Returns the two old slot values and a success boolean.
+;; (defun dcas (object offset old-1 old-2 new-1 new-2)
+;;   (let ((slot-value-1 (%object-ref-t object slot))
+;;         (slot-value-2 (%object-ref-t object (1+ slot))))
+;;     (values (cond ((and (eq slot-value-1 old-1)
+;;                         (eq slot-value-2 old-2))
+;;                    (setf (%object-ref-t object slot) new-1
+;;                          (%object-ref-t object (1+ slot)) new-2)
+;;                    t)
+;;                   (t nil))
+;;             slot-value-1
+;;             slot-value-2)))
+(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2) (:z result-1 result-2))
+  (emit (make-instance 'x86-cmpxchg16b-instruction
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :old-1 old-1
+                       :old-2 old-2
+                       :new-1 new-1
+                       :new-2 new-2
+                       :result-1 result-1
+                       :result-2 result-2
+                       :prefix '(lap:lock))))
