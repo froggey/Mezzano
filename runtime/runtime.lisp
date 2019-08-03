@@ -8,6 +8,13 @@
              (:area :wired))
   tag)
 
+(defun sys.int::%%special-stack-pointer ()
+  (sys.int::%%special-stack-pointer))
+
+(defun (setf sys.int::%%special-stack-pointer) (value)
+  (declare (sys.int::suppress-ssp-checking))
+  (setf (sys.int::%%special-stack-pointer) value))
+
 (defun sys.int::%%unwind-to (target-special-stack-pointer)
   (declare (sys.int::suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (sys.int::%%special-stack-pointer))
@@ -255,6 +262,10 @@ thread's stack if this function is called from normal code."
   (cas (%memref-signed-byte-64 base index) old new))
 
 (declaim (inline (sys.int::cas %object-ref-t)))
+(defun %object-ref-t (object index)
+  (%object-ref-t object index))
+(defun (setf %object-ref-t) (value object index)
+  (setf (%object-ref-t object index) value))
 (defun (sys.int::cas %object-ref-t) (old new object index)
   (multiple-value-bind (successp actual-value)
       (sys.int::%cas-object object index old new)
@@ -282,6 +293,13 @@ thread's stack if this function is called from normal code."
   (check-type value (unsigned-byte 32))
   (setf (%%object-ref-unsigned-byte-32 object index) value))
 
+(declaim (inline %object-ref-unsigned-byte-64 (setf %object-ref-unsigned-byte-64)))
+(defun %object-ref-unsigned-byte-64 (object index)
+  (%%object-ref-unsigned-byte-64 object index))
+(defun (setf %object-ref-unsigned-byte-64) (value object index)
+  (check-type value (unsigned-byte 64))
+  (setf (%%object-ref-unsigned-byte-64 object index) value))
+
 (declaim (inline %object-ref-signed-byte-8 (setf %object-ref-signed-byte-8)))
 (defun %object-ref-signed-byte-8 (object index)
   (%%object-ref-signed-byte-8 object index))
@@ -302,6 +320,13 @@ thread's stack if this function is called from normal code."
 (defun (setf %object-ref-signed-byte-32) (value object index)
   (check-type value (signed-byte 32))
   (setf (%%object-ref-signed-byte-32 object index) value))
+
+(declaim (inline %object-ref-signed-byte-64 (setf %object-ref-signed-byte-64)))
+(defun %object-ref-signed-byte-64 (object index)
+  (%%object-ref-signed-byte-64 object index))
+(defun (setf %object-ref-signed-byte-64) (value object index)
+  (check-type value (signed-byte 64))
+  (setf (%%object-ref-signed-byte-64 object index) value))
 
 (declaim (inline %object-ref-single-float (setf %object-ref-single-float)))
 (defun %object-ref-single-float (object index)
@@ -349,6 +374,13 @@ thread's stack if this function is called from normal code."
   (check-type value (unsigned-byte 32))
   (setf (%%object-ref-unsigned-byte-32-unscaled object index) value))
 
+(declaim (inline %object-ref-unsigned-byte-64-unscaled (setf %object-ref-unsigned-byte-64-unscaled)))
+(defun %object-ref-unsigned-byte-64-unscaled (object index)
+  (%%object-ref-unsigned-byte-64-unscaled object index))
+(defun (setf %object-ref-unsigned-byte-64-unscaled) (value object index)
+  (check-type value (unsigned-byte 64))
+  (setf (%%object-ref-unsigned-byte-64-unscaled object index) value))
+
 (declaim (inline %object-ref-signed-byte-8-unscaled (setf %object-ref-signed-byte-8-unscaled)))
 (defun %object-ref-signed-byte-8-unscaled (object index)
   (%%object-ref-signed-byte-8-unscaled object index))
@@ -369,6 +401,13 @@ thread's stack if this function is called from normal code."
 (defun (setf %object-ref-signed-byte-32-unscaled) (value object index)
   (check-type value (signed-byte 32))
   (setf (%%object-ref-signed-byte-32-unscaled object index) value))
+
+(declaim (inline %object-ref-signed-byte-64-unscaled (setf %object-ref-signed-byte-64-unscaled)))
+(defun %object-ref-signed-byte-64-unscaled (object index)
+  (%%object-ref-signed-byte-64-unscaled object index))
+(defun (setf %object-ref-signed-byte-64-unscaled) (value object index)
+  (check-type value (signed-byte 64))
+  (setf (%%object-ref-signed-byte-64-unscaled object index) value))
 
 (declaim (inline %object-ref-single-float-unscaled (setf %object-ref-single-float-unscaled)))
 (defun %object-ref-single-float-unscaled (object index)
@@ -403,3 +442,35 @@ thread's stack if this function is called from normal code."
   (unless (< (the fixnum slot) (the fixnum (%object-header-data object)))
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
+
+(defun %unbound-value () (%unbound-value))
+(defun %unbound-value-p (object) (%unbound-value-p object))
+(defun %undefined-function () (%undefined-function))
+(defun %undefined-function-p (object) (%undefined-function-p object))
+(defun %closure-trampoline () (%closure-trampoline))
+(defun %closure-trampoline-p (object) (%closure-trampoline-p object))
+(defun %funcallable-instance-trampoline () (%funcallable-instance-trampoline))
+(defun %funcallable-instance-trampoline-p (object) (%funcallable-instance-trampoline-p object))
+(defun %symbol-binding-cache-sentinel () (%symbol-binding-cache-sentinel))
+(defun %symbol-binding-cache-sentinel-p (object) (%symbol-binding-cache-sentinel-p object))
+
+(defun eq (x y) (eq x y))
+
+(defun %object-header-data (object)
+  (%object-header-data object))
+(defun (setf %object-header-data) (value object)
+  (setf (%object-header-data object) value))
+
+(defun %cas-object (object offset old new)
+  (%cas-object object offset old new))
+(defun %dcas-object (object offset old-1 old-2 new-1 new-2)
+  (%dcas-object object offset old-1 old-2 new-1 new-2))
+
+(defun lisp-object-address (value)
+  (lisp-object-address value))
+(defun %%assemble-value (pointer tag)
+  (%%assemble-value pointer tag))
+(defun %pointer-field (value)
+  (%pointer-field value))
+(defun %tag-field (value)
+  (%tag-field value))

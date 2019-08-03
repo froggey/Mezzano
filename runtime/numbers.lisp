@@ -3,6 +3,36 @@
 
 (in-package :mezzano.runtime)
 
+(defun sys.int::fixnump (object)
+  (sys.int::fixnump object))
+
+(defun %fixnum-+ (x y)
+  (%fixnum-+ x y))
+
+(defun %fixnum-- (x y)
+  (%fixnum-- x y))
+
+(defun %fixnum-* (x y)
+  (%fixnum-* x y))
+
+(defun %fixnum-truncate (x y)
+  (%fixnum-truncate x y))
+
+(defun %fixnum-logand (x y)
+  (%fixnum-logand x y))
+
+(defun %fixnum-logior (x y)
+  (%fixnum-logior x y))
+
+(defun %fixnum-logxor (x y)
+  (%fixnum-logxor x y))
+
+(defun %fixnum-< (x y)
+  (%fixnum-< x y))
+
+(defun %fixnum-right-shift (x y)
+  (%fixnum-right-shift x y))
+
 (declaim (inline integerp))
 (defun integerp (object)
   (or (sys.int::fixnump object)
