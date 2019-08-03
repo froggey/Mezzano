@@ -68,6 +68,88 @@
                          :source temp
                          :destination result))))
 
+(define-builtin (setf sys.int::%memref-unsigned-byte-8) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (index-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov8
+                                :operands (list `(,address-unboxed ,(fetch-constant-value index)) :al)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source index
+                                :destination index-unboxed))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov8
+                                :operands (list `(,address-unboxed ,index-unboxed) :al)
+                                :inputs (list address-unboxed index-unboxed :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%memref-unsigned-byte-16 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movzx16
+                                :operands (list temp `(,address-unboxed ,(* (fetch-constant-value index) 2)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movzx16
+                                :operands (list temp `(,address-unboxed ,index))
+                                :inputs (list address-unboxed index)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-unsigned-byte-16) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov16
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 2)) :ax)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov16
+                                :operands (list `(,address-unboxed ,index) :ax)
+                                :inputs (list address-unboxed index :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
 (define-builtin sys.int::%memref-unsigned-byte-32 ((address index) result)
   (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
         (temp (make-instance 'ir:virtual-register :kind :integer)))
@@ -93,6 +175,34 @@
                          :destination temp))
     (emit (make-instance 'ir:box-fixnum-instruction
                          :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-unsigned-byte-32) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov32
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 4)) :eax)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov32
+                                :operands (list `(,address-unboxed (,index 2)) :eax)
+                                :inputs (list address-unboxed index :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
                          :destination result))))
 
 (define-builtin (sys.int::cas sys.int::%memref-unsigned-byte-32) ((old-value new-value address index) result)
@@ -136,4 +246,256 @@
                          :destination result-unboxed))
     (emit (make-instance 'ir:box-fixnum-instruction
                          :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%memref-unsigned-byte-64 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list temp `(,address-unboxed ,(* (fetch-constant-value index) 8)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list temp `(,address-unboxed (,index 4)))
+                                :inputs (list address-unboxed index)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-unsigned-byte-64) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 8)) temp)
+                                :inputs (list address-unboxed temp)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list `(,address-unboxed (,index 4)) temp)
+                                :inputs (list address-unboxed index temp)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%memref-signed-byte-8 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (index-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx8
+                                :operands (list temp `(,address-unboxed ,(fetch-constant-value index)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source index
+                                :destination index-unboxed))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx8
+                                :operands (list temp `(,address-unboxed ,index-unboxed))
+                                :inputs (list address-unboxed index-unboxed)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-signed-byte-8) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (index-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov8
+                                :operands (list `(,address-unboxed ,(fetch-constant-value index)) :al)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source index
+                                :destination index-unboxed))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov8
+                                :operands (list `(,address-unboxed ,index-unboxed) :al)
+                                :inputs (list address-unboxed index-unboxed :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%memref-signed-byte-16 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx16
+                                :operands (list temp `(,address-unboxed ,(* (fetch-constant-value index) 2)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx16
+                                :operands (list temp `(,address-unboxed ,index))
+                                :inputs (list address-unboxed index)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-signed-byte-16) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov16
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 2)) :ax)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov16
+                                :operands (list `(,address-unboxed ,index) :ax)
+                                :inputs (list address-unboxed index :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%memref-signed-byte-32 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx32
+                                :operands (list temp `(,address-unboxed ,(* (fetch-constant-value index) 4)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:movsx32
+                                :operands (list temp `(,address-unboxed (,index 2)))
+                                :inputs (list address-unboxed index)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-signed-byte-32) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov32
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 4)) :eax)
+                                :inputs (list address-unboxed :rax)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov32
+                                :operands (list `(,address-unboxed (,index 2)) :eax)
+                                :inputs (list address-unboxed index :rax)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
+                         :destination result))))
+
+(define-builtin sys.int::%memref-signed-byte-64 ((address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list temp `(,address-unboxed ,(* (fetch-constant-value index) 8)))
+                                :inputs (list address-unboxed)
+                                :outputs (list temp))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list temp `(,address-unboxed (,index 4)))
+                                :inputs (list address-unboxed index)
+                                :outputs (list temp)))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin (setf sys.int::%memref-signed-byte-64) ((value address index) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (cond ((constant-value-p index '(signed-byte 29))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list `(,address-unboxed ,(* (fetch-constant-value index) 8)) temp)
+                                :inputs (list address-unboxed temp)
+                                :outputs (list))))
+          (t
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:mov64
+                                :operands (list `(,address-unboxed (,index 4)) temp)
+                                :inputs (list address-unboxed index temp)
+                                :outputs (list)))))
+    (emit (make-instance 'ir:move-instruction
+                         :source value
                          :destination result))))

@@ -531,7 +531,73 @@
                                        :destination result
                                        :source temp2)))))))
         (t
-         (give-up))))
+         (let ((done (make-instance 'ir:label
+                                    :name :right-shift-done
+                                    :phis (list result)))
+               (sign-extend (make-instance 'ir:label :name :right-shift-sign-extend))
+               (do-shift (make-instance 'ir:label :name :right-shift-do-shift))
+               (count-unboxed (make-instance 'ir:virtual-register :kind :integer))
+               (temp0 (make-instance 'ir:virtual-register :kind :integer))
+               (temp1 (make-instance 'ir:virtual-register :kind :integer))
+               (temp2 (make-instance 'ir:virtual-register :kind :integer))
+               (temp3 (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'ir:move-instruction
+                                :destination temp0
+                                :source integer))
+           ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:cmp64
+                                :operands (list count (sys.c::fixnum-to-raw 64))
+                                :inputs (list count)
+                                :outputs (list)))
+           (emit (make-instance 'x86-branch-instruction
+                                :opcode 'lap:jae
+                                :true-target sign-extend
+                                :false-target do-shift))
+           (emit do-shift)
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination count-unboxed))
+           (emit (make-instance 'ir:move-instruction
+                                :source count-unboxed
+                                :destination :rcx))
+           ;; Do the shift.
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sar64
+                                :result temp1
+                                :lhs temp0
+                                :rhs :cl))
+           ;; Make sure the result really is a fixnum.
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:and64
+                                :result temp2
+                                :lhs temp1
+                                :rhs (sys.c::fixnum-to-raw -1)))
+           ;; Done
+           (emit (make-instance 'ir:jump-instruction
+                                :target done
+                                :values (list temp2)))
+           (emit sign-extend)
+           (emit (make-instance 'ir:move-instruction
+                                :destination :rax
+                                :source temp0))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:cqo
+                                :operands '()
+                                :inputs '(:rax)
+                                :outputs '(:rdx)))
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:and64
+                                :operands `(:rdx ,(sys.c::fixnum-to-raw -1))
+                                :inputs '(:rdx)
+                                :outputs '(:rdx)))
+           (emit (make-instance 'ir:move-instruction
+                                :destination temp3
+                                :source :rdx))
+           (emit (make-instance 'ir:jump-instruction
+                                :target done
+                                :values (list temp3)))
+           (emit done)))))
 
 (define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
   (cond ((constant-value-p count '(integer 0))
