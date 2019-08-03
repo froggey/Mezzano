@@ -39,8 +39,6 @@
 (defun emit-gc-info (&rest metadata)
   (emit `(:gc :frame :layout ,*current-frame-layout* ,@metadata)))
 
-(defparameter *missed-builtins* (make-hash-table :test 'equal))
-
 (defgeneric lap-prepass (backend-function instruction uses defs)
   (:method (backend-function instruction uses defs) nil))
 (defgeneric emit-lap (backend-function instruction uses defs))
@@ -618,13 +616,8 @@
     (when (not (zerop n-stack-args))
       (emit `(lap:add :sp :sp ,(* n-stack-args 8))))))
 
-(defun maybe-log-missed-builtin (fn)
-  (when (gethash fn mezzano.compiler.codegen.arm64::*builtins*)
-    (incf (gethash fn *missed-builtins* 0))))
-
 (defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
   (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
   (emit `(lap:blr :x9))
@@ -632,7 +625,6 @@
 
 (defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
   (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
   (emit `(lap:blr :x9))
@@ -641,7 +633,6 @@
 
 (defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
   (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
   (cond ((<= (length (ir:call-arguments instruction)) 5)

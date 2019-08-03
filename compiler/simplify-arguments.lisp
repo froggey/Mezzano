@@ -131,8 +131,7 @@ Must be run after keywords have been lowered."
                               (trivial-init-form (and (typep init-form 'ast-quote)
                                                       (or (lexical-variable-p arg)
                                                           (eql (mezzano.runtime::symbol-type (name arg)) 't))
-                                                      (or (not *use-new-compiler*)
-                                                          (eql (ast-value init-form) nil))))
+                                                      (eql (ast-value init-form) nil)))
                               (new-arg (etypecase arg
                                          (special-variable
                                           (new-var (string (name arg))))

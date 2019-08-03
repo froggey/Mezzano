@@ -102,9 +102,8 @@
                                     :destination tmp
                                     :value nil))
     (funcall emitter (make-instance 'x86-fake-three-operand-instruction
-                                    :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-cmov-instruction
-                                             (mezzano.compiler.codegen.x86-64::predicate-info
-                                              predicate))
+                                    :opcode (predicate-instruction-cmov-instruction
+                                             (predicate-info predicate))
                                     :result result
                                     :lhs tmp
                                     :rhs '(:constant t)))))
@@ -131,9 +130,8 @@
             (ir:insert-before
              backend-function inst
              (make-instance 'x86-branch-instruction
-                            :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
-                                     (mezzano.compiler.codegen.x86-64::predicate-info
-                                      pred))
+                            :opcode (predicate-instruction-jump-instruction
+                                     (predicate-info pred))
                             :true-target (ir:branch-true-target next-inst)
                             :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))

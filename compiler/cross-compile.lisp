@@ -1163,20 +1163,6 @@
               (write-byte (car cmd) *output-fasl*)))))
       (write-byte sys.int::+llf-end-of-load+ *output-fasl*))))
 
-(defun save-compiler-builtins (path target-architecture)
-  (format t ";; Writing compiler builtins to ~A.~%" path)
-  (let* ((builtins (ecase target-architecture
-                     (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
-                     (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
-         (*use-new-compiler* nil)
-         (*target-architecture* target-architecture))
-    (save-custom-compiled-file path
-                               (lambda ()
-                                 (if builtins
-                                     (let ((b (pop builtins)))
-                                       `(sys.int::%defun ',(first b) ,(second b)))
-                                     (values))))))
-
 (deftype sys.int::non-negative-fixnum ()
   `(integer 0 ,most-positive-fixnum))
 

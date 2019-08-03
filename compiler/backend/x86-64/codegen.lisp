@@ -51,8 +51,6 @@
 (defun emit-gc-info (&rest metadata)
   (emit `(:gc :frame :layout ,*current-frame-layout* ,@metadata)))
 
-(defparameter *missed-builtins* (make-hash-table :test 'equal))
-
 (defgeneric lap-prepass (backend-function instruction uses defs)
   (:method (backend-function instruction uses defs) nil))
 (defgeneric emit-lap (backend-function instruction uses defs))
@@ -503,11 +501,61 @@
   (emit `(lap:mov64 ,(x86-cmpxchg16b-result-1 instruction) :rax))
   (emit `(lap:mov64 ,(x86-cmpxchg16b-result-2 instruction) :rdx)))
 
+(defstruct predicate-instruction
+  inverse jump-instruction cmov-instruction)
+
+(defparameter *predicate-instructions-1*
+  '((:o  :no  sys.lap-x86:jo   sys.lap-x86:cmov64o)
+    (:no :o   sys.lap-x86:jno  sys.lap-x86:cmov64no)
+    (:b  :nb  sys.lap-x86:jb   sys.lap-x86:cmov64b)
+    (:nb :b   sys.lap-x86:jnb  sys.lap-x86:cmov64nb)
+    (:c  :nc  sys.lap-x86:jc   sys.lap-x86:cmov64c)
+    (:nc :c   sys.lap-x86:jnc  sys.lap-x86:cmov64nc)
+    (:ae :nae sys.lap-x86:jae  sys.lap-x86:cmov64ae)
+    (:nae :ae sys.lap-x86:jnae sys.lap-x86:cmov64nae)
+    (:e  :ne  sys.lap-x86:je   sys.lap-x86:cmov64e)
+    (:ne :e   sys.lap-x86:jne  sys.lap-x86:cmov64ne)
+    (:z  :nz  sys.lap-x86:jz   sys.lap-x86:cmov64z)
+    (:nz :z   sys.lap-x86:jnz  sys.lap-x86:cmov64nz)
+    (:be :nbe sys.lap-x86:jbe  sys.lap-x86:cmov64be)
+    (:nbe :be sys.lap-x86:jnbe sys.lap-x86:cmov64nbe)
+    (:a  :na  sys.lap-x86:ja   sys.lap-x86:cmov64a)
+    (:na :a   sys.lap-x86:jna  sys.lap-x86:cmov64na)
+    (:s  :ns  sys.lap-x86:js   sys.lap-x86:cmov64s)
+    (:ns :s   sys.lap-x86:jns  sys.lap-x86:cmov64ns)
+    (:p  :np  sys.lap-x86:jp   sys.lap-x86:cmov64p)
+    (:np :p   sys.lap-x86:jnp  sys.lap-x86:cmov64np)
+    (:pe :po  sys.lap-x86:jpe  sys.lap-x86:cmov64pe)
+    (:po :pe  sys.lap-x86:jpo  sys.lap-x86:cmov64po)
+    (:l  :nl  sys.lap-x86:jl   sys.lap-x86:cmov64l)
+    (:nl :l   sys.lap-x86:jnl  sys.lap-x86:cmov64nl)
+    (:ge :nge sys.lap-x86:jge  sys.lap-x86:cmov64ge)
+    (:nge :ge sys.lap-x86:jnge sys.lap-x86:cmov64nge)
+    (:le :nle sys.lap-x86:jle  sys.lap-x86:cmov64le)
+    (:nle :le sys.lap-x86:jnle sys.lap-x86:cmov64nle)
+    (:g  :ng  sys.lap-x86:jg   sys.lap-x86:cmov64g)
+    (:ng :g   sys.lap-x86:jng  sys.lap-x86:cmov64ng)))
+
+(defparameter *predicate-instructions*
+  (let ((ht (make-hash-table :test 'eq)))
+    (mapc (lambda (i)
+            (setf (gethash (first i) ht)
+                  (make-predicate-instruction
+                   :inverse (second i)
+                   :jump-instruction (third i)
+                   :cmov-instruction (fourth i))))
+          *predicate-instructions-1*)
+    ht))
+
+(defun predicate-info (pred)
+  (or (gethash pred *predicate-instructions*)
+      (error "Unknown predicate ~S." pred)))
+
 (defun invert-branch (opcode)
-  (let ((inverse-pred (second (find opcode mezzano.compiler.codegen.x86-64::*predicate-instructions-1*
-                                   :key 'third))))
-    (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
-     (mezzano.compiler.codegen.x86-64::predicate-info inverse-pred))))
+  (let ((inverse-pred (second (find opcode *predicate-instructions-1*
+                                    :key 'third))))
+    (predicate-instruction-jump-instruction
+     (predicate-info inverse-pred))))
 
 (defun emit-branch (backend-function instruction opcode true-target false-target)
   (cond ((eql (ir:next-instruction backend-function instruction) true-target)
@@ -619,20 +667,14 @@
     (when (not (zerop n-stack-args))
       (emit `(lap:add64 :rsp ,(* n-stack-args 8))))))
 
-(defun maybe-log-missed-builtin (fn)
-  (when (gethash fn mezzano.compiler.codegen.x86-64::*builtins*)
-    (incf (gethash fn *missed-builtins* 0))))
-
 (defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
         `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
   (emit-gc-info :multiple-values 0)
@@ -640,7 +682,6 @@
 
 (defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (maybe-log-missed-builtin (ir:call-function instruction))
   (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction))))
   (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:leave)
