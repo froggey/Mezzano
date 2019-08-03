@@ -142,9 +142,9 @@
               (values advance t))))))))
 
 (defun lower-builtin (backend-function inst defs)
-  (let ((builtin (and (typep inst '(or
-                                    ir:call-instruction
-                                    ir:call-multiple-instruction))
+  (let ((builtin (and (typep inst '(or ir:call-instruction
+                                       ir:call-multiple-instruction
+                                       ir:tail-call-instruction))
                       (match-builtin (ir:call-function inst)
                                      (length (ir:call-arguments inst))))))
     (when builtin
@@ -188,13 +188,17 @@
                                         (ir:insert-before
                                          backend-function inst new-inst))))))
         ;; Fix up multiple values.
-        (when (typep inst 'ir:call-multiple-instruction)
+        (when (typep inst '(or ir:call-multiple-instruction ir:tail-call-instruction))
           (ir:insert-before
            backend-function inst
            (make-instance 'ir:values-instruction
                           :values (if (endp (builtin-result-list builtin))
                                       '()
                                       result-regs))))
+        (when (typep inst 'ir:tail-call-instruction)
+          (ir:insert-before
+           backend-function inst
+           (make-instance 'ir:return-multiple-instruction)))
         (let ((advance (ir:next-instruction backend-function inst)))
           (ir:remove-instruction backend-function inst)
           advance)))))
