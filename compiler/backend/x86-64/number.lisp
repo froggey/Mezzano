@@ -599,7 +599,7 @@
                                 :values (list temp3)))
            (emit done)))))
 
-(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
+(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result :has-wrapper nil)
   (cond ((constant-value-p count '(integer 0))
          (let ((count-value (fetch-constant-value count)))
            (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))

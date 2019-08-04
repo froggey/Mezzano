@@ -700,10 +700,6 @@ The values in the other lanes of the vector are indeterminate and may not be zer
          (sse-vector
           (check-type rhs sse-vector)
           (,sse-function lhs rhs))))
-     (defun ,mmx-function (lhs rhs)
-       (,mmx-function lhs rhs))
-     (defun ,sse-function (lhs rhs)
-       (,sse-function lhs rhs))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
@@ -733,10 +729,6 @@ The values in the other lanes of the vector are indeterminate and may not be zer
              (sse-vector
               (check-type rhs (or sse-vector (unsigned-byte 8)))
               (,sse-function lhs rhs)))))
-     (defun ,mmx-function (lhs rhs)
-       (,mmx-function lhs rhs))
-     (defun ,sse-function (lhs rhs)
-       (,sse-function lhs rhs))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
@@ -763,8 +755,6 @@ The values in the other lanes of the vector are indeterminate and may not be zer
          (sse-vector
           (check-type rhs sse-vector)
           (,sse-function lhs rhs))))
-     (defun ,sse-function (lhs rhs)
-       (,sse-function lhs rhs))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
@@ -780,8 +770,6 @@ The values in the other lanes of the vector are indeterminate and may not be zer
        (etypecase value
          (sse-vector
           (,sse-function value))))
-     (defun ,sse-function (value)
-       (,sse-function value))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((value sse-vector))
@@ -798,8 +786,6 @@ The values in the other lanes of the vector are indeterminate and may not be zer
          (sse-vector
           (check-type rhs sse-vector)
           (,sse-function lhs rhs))))
-     (defun ,sse-function (lhs rhs)
-       (,sse-function lhs rhs))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
        (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))

@@ -175,7 +175,9 @@
            ;; Done.
            (emit resume)))))
 
-(define-builtin mezzano.runtime::symbol-global-value-cell (((:constant symbol symbol)) result)
+(define-builtin mezzano.runtime::symbol-global-value-cell (((:constant symbol symbol))
+                                                           result
+                                                           :has-wrapper nil)
   (emit (make-instance 'ir:constant-instruction
                        :destination result
                        :value (mezzano.runtime::symbol-global-value-cell symbol))))

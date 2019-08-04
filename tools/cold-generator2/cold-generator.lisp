@@ -271,6 +271,14 @@
         (sys.c::cross-compile-file path :output-file llf-path :package package)))
     llf-path))
 
+;; Ugh.
+(defun load-compiler-builtins (environment)
+  (let ((llf-path (merge-pathnames "%%compiler-builtins.llf"
+                                   (build-directory environment))))
+    (ensure-directories-exist llf-path)
+    (sys.c::save-compiler-builtins llf-path (env:environment-target environment))
+    (load-compiled-file environment llf-path :eval t :wired t)))
+
 (defun load-source-file (environment file &key eval wired force-recompile package)
   (load-compiled-file
    environment
@@ -299,6 +307,7 @@
   (setf (env:cross-symbol-value environment 'sys.int::*cold-toplevel-forms*)
         (concatenate
          'vector
+         (load-compiler-builtins environment)
          (load-source-files environment *supervisor-source-files* :eval t :wired t)
          (load-source-files environment *source-files* :eval t))))
 

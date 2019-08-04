@@ -8,9 +8,7 @@
              (:area :wired))
   tag)
 
-(defun sys.int::%%special-stack-pointer ()
-  (sys.int::%%special-stack-pointer))
-
+;; Custom wrapper function because of the declaration.
 (defun (setf sys.int::%%special-stack-pointer) (value)
   (declare (sys.int::suppress-ssp-checking))
   (setf (sys.int::%%special-stack-pointer) value))
@@ -119,6 +117,9 @@
   (unless (sys.int::%object-of-type-p object object-tag)
     (sys.int::raise-type-error object expected-type)
     (sys.int::%%unreachable)))
+
+(defun sys.int::%value-has-tag-p (value tag)
+  (eql (sys.int::%tag-field value) tag))
 
 (defun sys.int::%value-has-immediate-tag-p (object immediate-tag)
   (and (sys.int::%value-has-tag-p object sys.int::+tag-immediate+)
@@ -442,35 +443,3 @@ thread's stack if this function is called from normal code."
   (unless (< (the fixnum slot) (the fixnum (%object-header-data object)))
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
-
-(defun %unbound-value () (%unbound-value))
-(defun %unbound-value-p (object) (%unbound-value-p object))
-(defun %undefined-function () (%undefined-function))
-(defun %undefined-function-p (object) (%undefined-function-p object))
-(defun %closure-trampoline () (%closure-trampoline))
-(defun %closure-trampoline-p (object) (%closure-trampoline-p object))
-(defun %funcallable-instance-trampoline () (%funcallable-instance-trampoline))
-(defun %funcallable-instance-trampoline-p (object) (%funcallable-instance-trampoline-p object))
-(defun %symbol-binding-cache-sentinel () (%symbol-binding-cache-sentinel))
-(defun %symbol-binding-cache-sentinel-p (object) (%symbol-binding-cache-sentinel-p object))
-
-(defun eq (x y) (eq x y))
-
-(defun %object-header-data (object)
-  (%object-header-data object))
-(defun (setf %object-header-data) (value object)
-  (setf (%object-header-data object) value))
-
-(defun %cas-object (object offset old new)
-  (%cas-object object offset old new))
-(defun %dcas-object (object offset old-1 old-2 new-1 new-2)
-  (%dcas-object object offset old-1 old-2 new-1 new-2))
-
-(defun lisp-object-address (value)
-  (lisp-object-address value))
-(defun %%assemble-value (pointer tag)
-  (%%assemble-value pointer tag))
-(defun %pointer-field (value)
-  (%pointer-field value))
-(defun %tag-field (value)
-  (%tag-field value))

@@ -37,7 +37,9 @@
                        :destination result
                        :source value)))
 
-(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :z)
+(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4))))
+                                           :z
+                                           :has-wrapper nil)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:lea64
@@ -50,7 +52,9 @@
                          :inputs (list temp)
                          :outputs '()))))
 
-(define-builtin sys.int::%value-has-immediate-tag-p ((object (:constant tag (typep tag '(unsigned-byte 2)))) :z)
+(define-builtin sys.int::%value-has-immediate-tag-p ((object (:constant tag (typep tag '(unsigned-byte 2))))
+                                                     :z
+                                                     :has-wrapper nil)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:lea64
@@ -63,7 +67,9 @@
                          :inputs (list temp)
                          :outputs '()))))
 
-(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
+(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6))))
+                                                     :e
+                                                     :has-wrapper nil)
   (cond ((eql object-tag 0)
          (emit (make-instance 'x86-instruction
                               :opcode 'lap:test8
@@ -93,7 +99,8 @@
 (define-builtin mezzano.runtime::%%object-of-type-range-p ((object
                                                             (:constant first-tag (typep first-tag '(unsigned-byte 6)))
                                                             (:constant last-tag (typep last-tag '(unsigned-byte 6))))
-                                                           :be)
+                                                           :be
+                                                           :has-wrapper nil)
   ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov8
