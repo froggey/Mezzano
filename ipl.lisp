@@ -23,6 +23,14 @@
 
 (defun sys.int::check-connectivity ()
   ;; Make sure that there's one network card.
+  (loop
+     with timeout = 30.0
+     do
+       (when (or mezzano.network.ip::*ipv4-interfaces*
+                 (minusp timeout))
+         (return))
+       (sleep 0.1)
+       (decf timeout 0.1))
   (when (null mezzano.network.ip::*ipv4-interfaces*)
     (format t "No network cards detected!~%~
 Make sure there is a virtio-net NIC attached.~%")
