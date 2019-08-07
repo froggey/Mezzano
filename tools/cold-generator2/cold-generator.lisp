@@ -215,6 +215,7 @@
     "net/udp.lisp"
     "net/tcp.lisp"
     "net/dns.lisp"
+    "net/dhcp.lisp"
     "net/network-setup.lisp"
     "file/fs.lisp"
     "file/remote.lisp"

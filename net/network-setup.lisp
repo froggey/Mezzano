@@ -10,7 +10,10 @@
 (defvar *interface-config* (make-hash-table))
 
 (defvar *static-configurations*
-  '((t ; match all interfaces
+  '((t :dhcp) ; match all interfaces
+    ;; This is the old static IP configuration, for use in VirtualBox/qemu.
+    #+(or)
+    (t ; match all interfaces
      :static
      :local-ip "10.0.2.15"
      ;; Use a prefix-length of 24 instead of 8, so people
@@ -27,12 +30,6 @@
     (when (or (eql (first conf) t) ; wildcard configuration
               (equal (first conf) (mezzano.driver.network-card:mac-address interface)))
       (return (rest conf)))))
-
-(defgeneric configure-interface (interface configuration-type &key)
-  (:documentation "Begin acquiring an IP address/routes/etc for INTERFACE."))
-(defgeneric deconfigure-interface (interface configuration-type &key)
-  (:documentation "Remove IP addresses/routes/etc associated with INTERFACE.
-This is called with the same options CONFIGURE-INTERFACE was originally called with."))
 
 (defmethod configure-interface (interface (configuration-type (eql :static)) &key local-ip prefix-length gateway dns-servers)
   (let ((local-ip (mezzano.network.ip:make-ipv4-address local-ip)))
@@ -66,7 +63,6 @@ This is called with the same options CONFIGURE-INTERFACE was originally called w
       (mezzano.network.dns:remove-dns-server dns-server interface))
     (mezzano.network.ip::ifdown interface)))
 
-;; TODO: This is where DHCP could be done.
 (defun nic-added (nic)
   ;; Do receive work for this nic.
   (let ((source (mezzano.sync.dispatch:make-source
