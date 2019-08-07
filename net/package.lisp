@@ -115,7 +115,9 @@
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
   (:export #:resolve-address
-           #:*dns-servers*))
+           #:*dns-servers*
+           #:add-dns-server
+           #:remove-dns-server))
 
 (defpackage :mezzano.network.dhcp
   (:use :cl)

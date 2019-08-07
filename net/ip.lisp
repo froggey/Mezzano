@@ -28,9 +28,16 @@
 
 ;;; Routing.
 
+;; A short note on locking:
+;; Routes and the list of routes is immutable, it is never modified in-place.
+;; When routes are added/removed a new list is constructed and completely
+;; replaces the previous value of *ROUTING-TABLE*. This allows IPV4-ROUTE
+;; to read the value of *ROUTING-TABLE* once and then use that list safely
+;; without it being modified. The list may become stale if routes are modified
+;; while routing, but that's not an issue.
+(defvar *routing-table-lock* (mezzano.supervisor:make-mutex "IPv4 routing table."))
 ;; Sorted from longest prefix to shortest.
 ;; Default route has a prefix of 0.
-(defvar *routing-table-lock* (mezzano.supervisor:make-mutex "IPv4 routing table."))
 (defvar *routing-table* nil)
 
 (defclass ipv4-route ()
@@ -38,16 +45,19 @@
   ;; 192.168.0.0/24  network/prefix-length
   ((%network :initarg :network :reader route-network)
    (%prefix-length :initarg :prefix-length :reader route-prefix-length)
-   (%gateway :initarg :gateway :reader route-gateway)))
+   (%gateway :initarg :gateway :reader route-gateway)
+   (%tag :initarg :tag :reader route-tag)))
 
-(defun add-route (network prefix-length gateway)
+(defun add-route (network prefix-length gateway &optional tag)
+  (setf network (make-ipv4-address network))
   (if prefix-length
       (assert (eql (ipv4-address-address (address-host network prefix-length)) 0))
       (setf prefix-length 32))
   (let ((route (make-instance 'ipv4-route
                               :network (make-ipv4-address network)
                               :prefix-length prefix-length
-                              :gateway gateway)))
+                              :gateway gateway
+                              :tag tag)))
     (mezzano.supervisor:with-mutex (*routing-table-lock*)
       (setf *routing-table*
             (merge 'list
@@ -60,12 +70,18 @@
                    :key #'route-prefix-length))
       route)))
 
-(defun remove-route (network prefix-length)
+(defun remove-route (network prefix-length &optional tag)
+  (setf network (make-ipv4-address network))
+  (if prefix-length
+      (assert (eql (ipv4-address-address (address-host network prefix-length)) 0))
+      (setf prefix-length 32))
   (mezzano.supervisor:with-mutex (*routing-table-lock*)
     (setf *routing-table*
           (remove-if (lambda (x)
                        (and (address-equal network (route-network x))
-                            (eql prefix-length (route-prefix-length x))))
+                            (eql prefix-length (route-prefix-length x))
+                            (or (eql tag t)
+                                (eql tag (route-tag x)))))
                      *routing-table*))))
 
 (defun ipv4-route (destination &optional gateway-lookup)
@@ -92,12 +108,18 @@
 (defvar *ipv4-interfaces* '())
 
 (defun ifup (nic address)
+  "Set NIC's IPv4 address to ADDRESS.
+ADDRESS must be an ipv4-address designator."
+  (setf address (make-ipv4-address address))
   (let ((existing (find nic *ipv4-interfaces* :key #'car)))
     (if existing
         (setf (cdr existing) address)
         (push (cons nic address) *ipv4-interfaces*))))
 
 (defun ifdown (nic)
+  (setf *outstanding-sends*
+        (remove nic *outstanding-sends*
+                :key #'second))
   (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'car)))
 
 (defun ipv4-interface-address (nic &optional (errorp t))
