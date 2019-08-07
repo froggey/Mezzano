@@ -290,7 +290,7 @@
         (return-from external-format-cr/lf-processing ch)))
     (setf (slot-value external-format '%accumulated-eol) t))
   ;; Saw the first char, waiting for the second
-  (let ((ch (slot-value external-format '%accumulated-eol)))
+  (let ((ch (external-format-read-internal-code-point external-format source read-fn)))
     (cond ((not ch)
            ;; waiting for character.
            nil)
