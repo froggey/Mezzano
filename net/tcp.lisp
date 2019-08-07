@@ -50,6 +50,7 @@
 (deftype tcp-sequence-number ()
   '(unsigned-byte 32))
 
+;; FIXME: Inbount connections need to timeout if state :syn-received don't change.
 (defclass tcp-listener ()
   ((local-port :reader tcp-listener-local-port
                :initarg :local-port
@@ -175,7 +176,7 @@
          (connection (get-tcp-connection remote-ip remote-port local-ip local-port))
          (listener (get-tcp-listener local-ip local-port)))
     (cond (connection
-           (tcp4-receive connection packet start end))
+           (tcp4-receive connection packet start end listener))
           ;; Drop unestablished connections if they surpassed listener backlog
           ((and listener
                 (eql flags +tcp4-flag-syn+)
@@ -195,21 +196,7 @@
                                              :window-size 8192)))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
-             (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)
-             (mezzano.sync.dispatch:dispatch-async
-              (lambda ()
-                (with-tcp-connection-locked connection
-                  (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
-                                                                 (tcp-connection-lock connection)
-                                                                 *tcp-connect-timeout*)
-                           (not (eql (tcp-connection-state connection) :syn-received)))
-                         (unless (eql (tcp-connection-state connection) :connection-aborted)
-                           (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
-                        (t
-                         ;; wait-for returned false, timeout occured.
-                         (close-tcp-connection connection))))
-                (mezzano.sync:semaphore-down (tcp-listener-semaphore listener)))
-              sys.net::*unestablished-connections-queue*))))))
+             (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
   (cond ((or (not element-type)
@@ -272,7 +259,7 @@
                            nil
                            :ack-p t))))
 
-(defun tcp4-receive (connection packet &optional (start 0) end)
+(defun tcp4-receive (connection packet &optional (start 0) end listener)
   (unless end (setf end (length packet)))
   (with-tcp-connection-locked connection
     (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
@@ -312,7 +299,10 @@
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote have sended ACK , connection established
-                (setf (tcp-connection-state connection) :established))
+                (setf (tcp-connection-state connection) :established)
+                (when listener
+                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))
+                  (mezzano.sync:semaphore-down (tcp-listener-semaphore listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
@@ -320,7 +310,9 @@
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
-                (detach-tcp-connection connection))))
+                (detach-tcp-connection connection)
+                (when listener
+                  (mezzano.sync:semaphore-down (tcp-listener-semaphore listener))))))
         (:established
          (if (zerop data-length)
              (when (and (= seq (tcp-connection-r-next connection))
@@ -521,16 +513,16 @@
                                ((get-tcp-listener-without-lock source-address local-port)
                                 (error "Server already listening on port ~D" local-port))
                                (t
-                                local-port))))
-        (let ((listener (make-instance 'tcp-listener
-                                       :connections (mezzano.sync:make-mailbox
-                                                     :name "TCP Listener"
-                                                     :capacity backlog)
-                                       :backlog backlog
-                                       :local-port local-port
-                                       :local-ip source-address)))
-          (push listener *tcp-listeners*)
-          listener)))))
+                                local-port)))
+             (listener (make-instance 'tcp-listener
+                                      :connections (mezzano.sync:make-mailbox
+                                                    :name "TCP Listener"
+                                                    :capacity backlog)
+                                      :backlog backlog
+                                      :local-port local-port
+                                      :local-ip source-address)))
+        (push listener *tcp-listeners*)
+        listener))))
 
 (defun tcp-accept (listener &key (wait-p t) element-type external-format)
   (let ((connection (mezzano.sync:mailbox-receive
