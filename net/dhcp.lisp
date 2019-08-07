@@ -157,7 +157,7 @@
 								      #.+opt-custom-mezzano-server+)))
 	       xid)
     (unwind-protect
-	 (let ((offer (sys.net:receive connection 4)))
+	 (let ((offer (sys.net:receive connection :timeout 4)))
 	   (when offer
 	     (let* ((siaddr (ub32ref/be offer 20))
 		    (yiaddr (ub32ref/be offer 16))
@@ -174,7 +174,7 @@
 				      (make-dhcp-option +opt-dhcp-server+ dhcpserver))
 				xid
 				:siaddr siaddr)
-		     (let ((ack (sys.net:receive connection 4)))
+                     (let ((ack (sys.net:receive connection :timeout 4)))
 		       (when ack
 			 (let* ((ack-options (decode-all-options ack))
 				(confirmation (get-option ack-options +opt-dhcp-message-type+)))
@@ -186,7 +186,6 @@
 					      :mezzano-server (get-option options +opt-custom-mezzano-server+)
 					      :lease-timestamp (get-universal-time)
 					      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
-		       
 			       nil)))))))))
       (sys.net:disconnect connection))))
 
@@ -204,7 +203,7 @@
     (unwind-protect
 	 (progn
 	   (sys.net:send packet connection)
-	   (let ((reply (sys.net:receive connection 4)))
+	   (let ((reply (sys.net:receive connection :timeout 4)))
 	     (if reply
 		 (let ((reply-options (decode-all-options reply)))
 		   (setf (lease-timestamp lease) (get-universal-time)

@@ -214,7 +214,7 @@
             (sys.net:send (build-dns-packet id +dns-standard-query+
                                             :questions `((,domain :a :in)))
                           conn)
-            (let ((response (sys.net:receive conn 10)))
+            (let ((response (sys.net:receive conn :timeout 10)))
               (when response
                 (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
                     (decode-dns-packet response)

@@ -29,8 +29,8 @@
 
 ;;; Generics for working with packet-oriented connections.
 
-(defgeneric send (sequence connection &optional (start 0) end))
-(defgeneric receive (connection &optional timeout))
+(defgeneric send (sequence connection &key (start 0) end))
+(defgeneric receive (connection &key timeout))
 (defgeneric disconnect (connection))
 
 ;;; High-level address resolution.

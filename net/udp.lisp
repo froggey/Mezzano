@@ -81,7 +81,7 @@
     (setf *udp-connections* (remove connection *udp-connections*))
     (setf *allocated-udp-ports* (remove (local-port connection) *allocated-udp-ports*))))
 
-(defmethod send (sequence (connection udp4-connection) &optional (start 0) end)
+(defmethod send (sequence (connection udp4-connection) &key (start 0) end)
   (let* ((source (local-address connection))
          (source-port (local-port connection))
          (destination (remote-address connection))
@@ -96,7 +96,7 @@
                                              mezzano.network.ip:+ip-protocol-udp+
                                              packet)))
 
-(defmethod receive ((connection udp4-connection) &optional timeout)
+(defmethod receive ((connection udp4-connection) &key timeout)
   (with-udp-connection-locked (connection)
     (mezzano.supervisor:condition-wait-for ((udp-connection-cvar connection)
                                             (udp-connection-lock connection)
