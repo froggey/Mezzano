@@ -179,9 +179,11 @@
           ;; Drop unestablished connections if they surpassed listener backlog
           ((and listener
                 (eql flags +tcp4-flag-syn+)
-                (< (tcp-listener-n-pending-connections listener)
-                   (tcp-listener-backlog listener)))
-           (incf (tcp-listener-n-pending-connections listener))
+                (or (not (tcp-listener-backlog listener))
+                    (< (tcp-listener-n-pending-connections listener)
+                       (tcp-listener-backlog listener))))
+           (when (tcp-listener-backlog listener)
+             (incf (tcp-listener-n-pending-connections listener)))
            (let* ((seq (random #x100000000))
                   (ack (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
                   (connection (make-instance 'tcp-connection
@@ -301,7 +303,8 @@
                 (setf (tcp-connection-state connection) :established)
                 (when listener
                   (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))
-                  (decf (tcp-listener-n-pending-connections listener))))
+                  (when (tcp-listener-backlog listener)
+                    (decf (tcp-listener-n-pending-connections listener)))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
@@ -310,7 +313,8 @@
                 (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection)
-                (when listener
+                (when (and listener
+                           (tcp-listener-backlog listener))
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (if (zerop data-length)
