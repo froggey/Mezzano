@@ -34,6 +34,8 @@
 (defconstant +tag-fixnum-111+       #b1110)
 (defconstant +tag-gc-forward+       #b1111)
 
+(defconstant +tag-field+ (byte 4 0))
+
 (defconstant +immediate-tag+ (byte 2 4))
 (defconstant +immediate-tag-character+ #b00)
 (defconstant +immediate-tag-single-float+ #b01)

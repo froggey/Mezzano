@@ -24,8 +24,6 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3 speed 1))
 
-(defvar *use-new-compiler* t)
-
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
@@ -39,8 +37,7 @@ be generated instead.")
                    *optimize-restrictions*
                    *optimize-policy*
                    *verify-special-stack*
-                   *constprop-lambda-copy-limit*
-                   *use-new-compiler*)))
+                   *constprop-lambda-copy-limit*)))
     (loop
        for sym in symbols
        collect (list sym (symbol-value sym)))))
@@ -71,22 +68,10 @@ be generated instead.")
   (let ((target (canonicalize-target target-architecture)))
     (codegen-lambda (compile-lambda-2 ast target) target)))
 
-(defgeneric codegen-lambda-using-target (lambda target))
-
 (defun codegen-lambda (lambda &optional target-architecture)
-  (if *use-new-compiler*
-      (mezzano.compiler.backend:compile-backend-function
+  (mezzano.compiler.backend:compile-backend-function
        (mezzano.compiler.backend.ast-convert:convert lambda)
-       (canonicalize-target target-architecture))
-      (codegen-lambda-using-target
-       lambda
-       (canonicalize-target target-architecture))))
-
-(defmethod codegen-lambda-using-target (lambda (target x86-64-target))
-  (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))
-
-(defmethod codegen-lambda-using-target (lambda (target arm64-target))
-  (mezzano.compiler.codegen.arm64:codegen-lambda lambda))
+       (canonicalize-target target-architecture)))
 
 (defun compile-lambda-1 (lambda &optional env target-architecture)
   (let ((target (canonicalize-target target-architecture)))
@@ -249,3 +234,17 @@ be generated instead.")
   (multiple-value-bind (successp validp)
       (compiler-type-equal-p type-1 type-2 environment)
     (and (not successp) validp)))
+
+(defun fixnum-to-raw (integer)
+  (check-type integer (signed-byte 63))
+  (ash integer sys.int::+n-fixnum-bits+))
+
+(defun character-to-raw (character)
+  (check-type character character)
+  (logior (ash (char-int character)
+               (+ (byte-position sys.int::+immediate-tag+)
+                  (byte-size sys.int::+immediate-tag+)))
+          (dpb sys.int::+immediate-tag-character+
+               sys.int::+immediate-tag+
+               0)
+          sys.int::+tag-immediate+))

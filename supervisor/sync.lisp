@@ -763,7 +763,7 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
            (cond ((eql ,timeout-sym 0)
                   (,predicate-fn))
                  (,timeout-sym
-                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym :name event)
+                  (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym :name ,event-sym)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
                          (when ,prediate-result-sym (return ,prediate-result-sym)))

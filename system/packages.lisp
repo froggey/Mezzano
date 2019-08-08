@@ -536,7 +536,8 @@
         (intern-list '())
         (shadow-list '())
         (shadow-import-list '())
-        (local-nicknames '()))
+        (local-nicknames '())
+        (size nil))
     (dolist (o options)
       (ecase (first o)
         (:nicknames
@@ -544,10 +545,14 @@
            (pushnew (string n) nicknames)))
         (:documentation
          (when documentation
-           (error "Multiple documentation options in DEFPACKAGE form."))
+           (error 'simple-program-error
+                  :format-control "Multiple documentation options in DEFPACKAGE form."
+                  :format-arguments '()))
          (unless (or (eql 2 (length o))
                      (not (stringp (second o))))
-           (error "Invalid documentation option in DEFPACKAGE form."))
+           (error 'simple-program-error
+                  :format-control "Invalid documentation option in DEFPACKAGE form."
+                  :format-arguments '()))
          (setf documentation (second o)))
         (:use
          (dolist (u (rest o))
@@ -579,7 +584,17 @@
                (unless status
                  (error "No such symbol ~S in package ~S." (string name) package))
                (pushnew symbol shadow-import-list)))))
-        (:size)
+        (:size
+         (when size
+           (error 'simple-program-error
+                  :format-control "Multiple size options in DEFPACKAGE form."
+                  :format-arguments '()))
+         (unless (or (eql 2 (length o))
+                     (not (integerp (second o))))
+           (error 'simple-program-error
+                  :format-control "Invalid size option in DEFPACKAGE form."
+                  :format-arguments '()))
+         (setf size (second o)))
         (:local-nicknames
          (setf local-nicknames (append local-nicknames (rest o))))))
     `(eval-when (:compile-toplevel :load-toplevel :execute)

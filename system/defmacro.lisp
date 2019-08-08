@@ -7,6 +7,7 @@
 
 (defun expand-destructuring-lambda-list (lambda-list name body whole current-value initial-bindings &key default-value permit-docstring)
   (let ((bindings '())
+        (extra-declares '())
         (macro-lambda-list-keywords '(&environment &whole &optional &rest &body &key &allow-other-keys &aux)))
     (labels ((check-sublist (list lambda-list req-count opt-count)
                `(unless ,(cond
@@ -19,11 +20,11 @@
                           (t `(<= ,req-count (dotted-list-length ,list) ,(+ req-count opt-count))))
                   (error "~S does not match destructuring sublist ~S." ,list ',lambda-list)))
              (handle-sublist (sublist whole)
-               ;; FIXME: This should be marked as ignorable
                (let* ((x (gensym "SUBLIST"))
                       (sublist-binding (list x nil))
                       (y (gensym)))
                  (push sublist-binding bindings)
+                 (push `(ignorable ,x) extra-declares)
                  (multiple-value-bind (req-count opt-count)
                      (handle-one-level sublist x x)
                    ;; Update sublist binding now that lengths are known.
@@ -105,25 +106,26 @@
                         ;; Generate code for keyword parsing.
                         (let ((keyword-args (gensym "KEYWORDS"))
                               (barf (gensym)))
+                          (push `(ignorable ,keyword-args) extra-declares)
                           ;; Validate the keyword list and skip over &allow-other-keys if present.
-                          (if (eq (car ll) '&allow-other-keys)
-                              (progn
-                                (push (list keyword-args `(progn
-                                                            (when (oddp (list-length ,current))
-                                                              (error "Odd number of keyword arguments."))
-                                                            ,current))
-                                      bindings)
-                                (setf ll (cdr ll)))
-                              (push (list keyword-args `(progn
-                                                          (when (oddp (list-length ,current))
-                                                            (error "Odd number of keyword arguments."))
-                                                          (unless (cadr (member :allow-other-keys ,current))
-                                                            (do ((,barf ,current (cddr ,barf)))
-                                                                ((null ,barf))
-                                                              (unless (member (car ,barf) ',(mapcar #'caar keywords))
-                                                                (error "Invalid keyword ~S. Wanted one of ~S." (car ,barf) ',(mapcar #'caar keywords)))))
-                                                          ,current))
-                                    bindings))
+                          (cond ((eql (car ll) '&allow-other-keys)
+                                 (push (list keyword-args `(progn
+                                                             (when (oddp (list-length ,current))
+                                                               (error "Odd number of keyword arguments."))
+                                                             ,current))
+                                       bindings)
+                                 (setf ll (cdr ll)))
+                                (t
+                                 (push (list keyword-args `(progn
+                                                             (when (oddp (list-length ,current))
+                                                               (error "Odd number of keyword arguments."))
+                                                             (unless (cadr (member :allow-other-keys ,current))
+                                                               (do ((,barf ,current (cddr ,barf)))
+                                                                   ((null ,barf))
+                                                                 (unless (member (car ,barf) ',(mapcar #'caar keywords))
+                                                                   (error "Invalid keyword ~S. Wanted one of ~S." (car ,barf) ',(mapcar #'caar keywords)))))
+                                                             ,current))
+                                       bindings)))
                           (do ((i (nreverse keywords) (cdr i)))
                               ((endp i))
                             (let* ((keyword (caaar i))
@@ -150,10 +152,12 @@
                                (var (if (consp (caar ll))
                                         (cadaar ll)
                                         (caar ll)))
-                               (init-form (cadar ll))
+                               (init-form (if (cdar ll)
+                                              (cadar ll)
+                                              default-value))
                                (suppliedp (caddar ll)))
                            (push (list (list keyword var) init-form suppliedp) keywords))
-                         (push (list (list (intern (symbol-name (car ll)) "KEYWORD") (car ll)) nil nil) keywords))
+                         (push (list (list (intern (symbol-name (car ll)) "KEYWORD") (car ll)) default-value nil) keywords))
                      (setf ll (cdr ll))))
                  ;; &AUX args.
                  (when (eq (car ll) '&aux)
@@ -195,7 +199,7 @@
                                                   (push `(ignore ,sym) declares)
                                                   sym)))
                                        init-form)))
-               (declare ,@declares)
+               (declare ,@declares ,@extra-declares)
                ,(if name
                     `(block ,name
                        ,@body)

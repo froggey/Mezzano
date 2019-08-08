@@ -210,7 +210,7 @@ Calls FN with each output character."
            (ldb (byte 8 0) colour))) ; Blue
         *xterm-default-background-colour*)))
 
-(defmethod initialize-instance :after ((term xterm-terminal) &key width height font)
+(defmethod initialize-instance :after ((term xterm-terminal) &key width height)
   (let* ((fb (terminal-framebuffer term)))
     (setf (slot-value term 'width) (truncate width (cell-pixel-width term))
           (slot-value term 'height) (truncate height (cell-pixel-height term)))
@@ -485,6 +485,7 @@ Calls FN with each output character."
 
 (defun adjust-ansi-mode (terminal mode value)
   "Set an ANSI mode. '<Esc>[Pn;Pm...h' or '<Esc>[Pn;Pm...l'"
+  (declare (ignore terminal value))
   (case mode
     (t (format t "Unsupported ANSI mode ~D.~%" mode))))
 

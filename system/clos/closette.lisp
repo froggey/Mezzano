@@ -396,11 +396,9 @@ the old or new values are expected to be unbound.")
 (defun std-slot-makunbound (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
-    (when (not location)
-      (return-from std-slot-makunbound
-        (values (slot-missing (class-of instance) instance
-                              slot-name 'slot-makunbound))))
-    (setf (standard-instance-access slots location) *secret-unbound-value*))
+    (if location
+        (setf (standard-instance-access slots location) *secret-unbound-value*)
+        (slot-missing (class-of instance) instance slot-name 'slot-makunbound)))
   instance)
 (defun slot-makunbound (object slot-name)
   (let ((metaclass (class-of (class-of object))))
@@ -408,9 +406,11 @@ the old or new values are expected to be unbound.")
            (std-slot-makunbound object slot-name))
           (t
            (let ((slot (find-effective-slot object slot-name)))
-             (if slot
-                 (slot-makunbound-using-class (class-of object) object slot)
-                 (values (slot-missing (class-of object) object slot-name 'slot-makunbound))))))))
+             (cond (slot
+                    (slot-makunbound-using-class (class-of object) object slot))
+                   (t
+                    (slot-missing (class-of object) object slot-name 'slot-makunbound)
+                    object)))))))
 
 (defun slot-exists-p (instance slot-name)
   (not (null (find-effective-slot instance slot-name))))
@@ -1511,9 +1511,12 @@ has only has class specializer."
     (when (endp argument-precedence)
       (setf argument-precedence (copy-list required-args)
             (safe-generic-function-argument-precedence-order gf) argument-precedence))
-    (assert (eql (length required-args) (length argument-precedence)))
-    (assert (endp (set-difference required-args argument-precedence)))
-    (assert (endp (set-difference argument-precedence required-args)))
+    (when (or (not (eql (length required-args) (length argument-precedence)))
+              (set-difference required-args argument-precedence)
+              (set-difference argument-precedence required-args))
+      (error 'sys.int::simple-program-error
+             :format-control "Argument precedence list ~:S does not match required arguments ~:S"
+             :format-arguments (list argument-precedence required-args)))
     (cond ((every #'eql required-args argument-precedence)
            ;; No argument reordering required.
            (setf (argument-reordering-table gf) nil))
@@ -1657,8 +1660,17 @@ has only has class specializer."
                   (and (not gf-accepts-key-or-rest)
                        (not method-accepts-key-or-rest)))
               (gf method)
-            "Generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
-            gf method))))
+              "Generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
+              gf method))
+    ;; If a method accepts keywords, then it must accept all the keywords that the generic function accepts
+    (when (and (member '&key (safe-method-lambda-list method))
+               (not (member '&allow-other-keys (safe-method-lambda-list method))))
+      (let ((missing-keywords (set-difference (getf gf-ll :keywords)
+                                              (getf method-ll :keywords))))
+        (assert (endp missing-keywords)
+                (gf method)
+                "Method ~S must accept all keywords accepted by generic function ~S. It is missing ~:S"
+                method gf missing-keywords)))))
 
 ;;; add-method
 
@@ -2304,7 +2316,6 @@ has only has class specializer."
   (multiple-value-bind (keywords suppress-keyword-checking)
       (applicable-methods-keywords gf methods)
     (let* ((method-args (gensym "ARGS"))
-           (next-emfun (gensym "NEXT-EMFUN"))
            (gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
            (key-arg-index (+ (length (getf gf-lambda-list-info :required-names))
                              (length (getf gf-lambda-list-info :optional-args)))))
@@ -2398,7 +2409,6 @@ has only has class specializer."
     ;; the generic function is not a standard-generic-function and mc is the standard method combination.
     (cond (mc
            (let* ((mc-object (method-combination-object-method-combination mc))
-                  (mc-args (method-combination-object-arguments mc))
                   (effective-method-body (compute-effective-method gf mc methods))
                   (name (generate-method-combination-effective-method-name gf mc-object methods)))
              (eval (generate-method-combination-effective-method name effective-method-body gf methods))))
@@ -2693,10 +2703,12 @@ has only has class specializer."
 
 (defgeneric direct-slot-definition-class (class &rest initargs))
 (defmethod direct-slot-definition-class ((class std-class) &rest initargs)
+  (declare (ignore initargs))
   *the-class-standard-direct-slot-definition*)
 
 (defgeneric effective-slot-definition-class (class &rest initargs))
 (defmethod effective-slot-definition-class ((class std-class) &rest initargs)
+  (declare (ignore initargs))
   *the-class-standard-effective-slot-definition*)
 
 (defgeneric function-keywords (method))
@@ -2861,8 +2873,9 @@ has only has class specializer."
          (list 'shared-initialize (class-prototype class) t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs class (class-name class) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs class (class-name class) initargs valid-initargs)))))
 
 (defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
@@ -2899,8 +2912,9 @@ has only has class specializer."
          (list 'shared-initialize object t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~S when reinitializing ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs object (class-name (class-of object)) initargs valid-initargs)))))
 
 (defgeneric reinitialize-instance (instance &key &allow-other-keys))
 (defmethod reinitialize-instance ((instance standard-object) &rest initargs)
@@ -2943,12 +2957,13 @@ has only has class specializer."
           (setf (slot-value old-copy slot-name)
                 (slot-value old-instance slot-name)))))
     ;; Initialize the new instance with the old slots.
-    (dolist (slot-name (mapcar #'safe-slot-definition-name
-                               (safe-class-slots new-class)))
-      (when (and (slot-exists-p old-instance slot-name)
-                 (slot-boundp old-instance slot-name))
-        (setf (slot-value new-instance slot-name)
-              (slot-value old-instance slot-name))))
+    (dolist (new-slot (safe-class-slots new-class))
+      (when (instance-slot-p new-slot)
+        (let ((slot-name (safe-slot-definition-name new-slot)))
+          (when (and (slot-exists-p old-instance slot-name)
+                     (slot-boundp old-instance slot-name))
+            (setf (slot-value new-instance slot-name)
+                  (slot-value old-instance slot-name))))))
     ;; Obsolete the old instance, replacing it with the new instance.
     (mezzano.runtime::supersede-instance old-instance new-instance)
     (apply #'update-instance-for-different-class
@@ -2968,8 +2983,9 @@ has only has class specializer."
          (list 'shared-initialize new t))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs new (class-name (class-of new)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when updating ~S (~S) for different class.~%Supplied: ~:S~%valid: ~:S"
+            :format-initargs (list invalid-initargs new (class-name (class-of new)) initargs valid-initargs)))))
 
 (defgeneric update-instance-for-different-class (old new &key &allow-other-keys))
 (defmethod update-instance-for-different-class ((old standard-object)
@@ -3003,7 +3019,7 @@ has only has class specializer."
     (format stream "~S" (safe-slot-definition-name slot-definition))))
 
 (defmethod initialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
-  (declare (ignore direct-superclasses direct-slots direcet-default-initargs documentation))
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation area sealed))
   (apply #'std-after-initialization-for-classes class args))
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
@@ -3063,6 +3079,43 @@ has only has class specializer."
 (defmethod initialize-instance :after ((generic-function standard-generic-function) &key)
   (finalize-generic-function generic-function))
 
+(defmethod reinitialize-instance :before ((generic-function standard-generic-function) &key (lambda-list nil lambda-list-p))
+  (when lambda-list-p
+    (let ((gf-ll (analyze-lambda-list lambda-list)))
+      (dolist (method (generic-function-methods generic-function))
+        ;; Make sure that the new lambda-list is congruent with existing methods.
+        (let ((method-ll (analyze-lambda-list (safe-method-lambda-list method))))
+          (assert (eql (length (getf gf-ll :required-args))
+                       (length (getf method-ll :required-args)))
+                  (generic-function method)
+                  "New lambda-list ~:S for generic function ~S and method ~S have differing required arguments."
+                  lambda-list generic-function method)
+          (assert (eql (length (getf gf-ll :optional-args))
+                       (length (getf method-ll :optional-args)))
+                  (generic-function method)
+                  "New lambda-list ~:S for generic function ~S and method ~S have differing optional arguments."
+                  lambda-list generic-function method)
+          (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
+                                            (member '&key lambda-list)))
+                (method-accepts-key-or-rest (or (getf method-ll :rest-var)
+                                                (member '&key (safe-method-lambda-list method)))))
+            (assert (or (and gf-accepts-key-or-rest
+                             method-accepts-key-or-rest)
+                        (and (not gf-accepts-key-or-rest)
+                             (not method-accepts-key-or-rest)))
+                    (generic-function method)
+                    "New lambda-list ~:S for generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
+                    lambda-list generic-function method))
+          ;; If a method accepts keywords, then it must accept all the keywords that the generic function accepts
+          (when (and (member '&key (safe-method-lambda-list method))
+                     (not (member '&allow-other-keys (safe-method-lambda-list method))))
+            (let ((missing-keywords (set-difference (getf gf-ll :keywords)
+                                                    (getf method-ll :keywords))))
+              (assert (endp missing-keywords)
+                      (generic-function method)
+                      "Method ~S must accept all keywords accepted by new lambda-list ~:S for generic function ~S. It is missing ~:S"
+                      method lambda-list generic-function missing-keywords))))))))
+
 (defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key argument-precedence-order lambda-list)
   (when (and lambda-list (not argument-precedence-order))
     ;; If :LAMBDA-LIST is supplied and :ARGUMENT-PRECEDENCE-ORDER is not, then
@@ -3116,14 +3169,17 @@ has only has class specializer."
 (defmethod update-instance-for-different-class :after ((old forward-referenced-class) (new std-class)
                                                        &rest initargs
                                                        &key direct-superclasses direct-slots direct-default-initargs documentation)
+  (declare (ignore initargs direct-superclasses direct-slots direct-default-initargs documentation))
   nil)
 
 (defmethod update-instance-for-different-class :before
-           ((old forward-referenced-class) (new standard-class) &rest initargs)
+    ((old forward-referenced-class) (new standard-class) &rest initargs)
+  (declare (ignore initargs))
   (setf (safe-class-direct-superclasses new) (list (find-class 'standard-class))))
 
 (defmethod update-instance-for-different-class :before
-           ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
+    ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
+  (declare (ignore initargs))
   (setf (safe-class-direct-superclasses new) (list (find-class 'funcallable-standard-class))))
 
 (defgeneric ensure-class-using-class (class name &key &allow-other-keys))
@@ -3291,7 +3347,7 @@ has only has class specializer."
     (error "Cannot reinitialize sealed classes.")))
 
 (defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses direct-slots direct-default-initargs documentation area sealed)
-  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation))
+  (declare (ignore direct-superclasses direct-slots direct-default-initargs documentation area sealed))
   (apply #'std-after-reinitialization-for-classes class args))
 
 (defun remove-reader-method (class reader slot-name)
@@ -3359,8 +3415,9 @@ has only has class specializer."
          (list 'shared-initialize object added-slots))
    initargs
    (lambda (valid-initargs invalid-initargs)
-     (error "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid: ~:S"
-            invalid-initargs object (class-name (class-of object)) initargs valid-initargs))))
+     (error 'sys.int::simple-program-error
+            :format-control "Invalid initargs ~:S when updating ~S (~S) for redefined class.~%Supplied: ~:S~%valid: ~:S"
+            :format-arguments (list invalid-initargs object (class-name (class-of object)) initargs valid-initargs)))))
 
 (defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
 

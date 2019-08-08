@@ -8,6 +8,18 @@
 (defvar +dns-port+ 53)
 (defvar +dns-standard-query+ #x0100)
 
+(defun add-dns-server (server &optional tag)
+  (push (cons (mezzano.network.ip:make-ipv4-address server) tag) *dns-servers*))
+
+(defun remove-dns-server (server &optional tag)
+  (setf server (mezzano.network.ip:make-ipv4-address server))
+  (setf *dns-servers*
+        (remove-if (lambda (x)
+                     (and (mezzano.network.ip:address-equal (car x) server)
+                          (or (eql tag t)
+                              (eql (cdr x) tag))))
+                   *dns-servers*)))
+
 (defun encode-dns-type (type)
   (ecase type
     (:a 1)
@@ -195,18 +207,19 @@
 
 (defun resolve-address (domain)
   (dotimes (i 3) ; UDP is unreliable.
-    (dolist (server *dns-servers*)
-      (let ((id (random (expt 2 16))))
-        (mezzano.network.udp:with-udp-connection (conn server +dns-port+)
-          (sys.net:send (build-dns-packet id +dns-standard-query+
-                                          :questions `((,domain :a :in)))
-                        conn)
-          (let ((response (sys.net:receive conn 10)))
-            (when response
-              (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
-                  (decode-dns-packet response)
-                (when (eql rx-id id)
-                  (dolist (a answers)
-                    (when (eql (second a) :a)
-                      (return-from resolve-address
-                        (mezzano.network.ip:make-ipv4-address (fifth a))))))))))))))
+    (loop
+       for (server . tag) in *dns-servers*
+       for id = (random (expt 2 16))
+       do (mezzano.network.udp:with-udp-connection (conn server +dns-port+)
+            (sys.net:send (build-dns-packet id +dns-standard-query+
+                                            :questions `((,domain :a :in)))
+                          conn)
+            (let ((response (sys.net:receive conn :timeout 10)))
+              (when response
+                (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
+                    (decode-dns-packet response)
+                  (when (eql rx-id id)
+                    (dolist (a answers)
+                      (when (eql (second a) :a)
+                        (return-from resolve-address
+                          (mezzano.network.ip:make-ipv4-address (fifth a)))))))))))))

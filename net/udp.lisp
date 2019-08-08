@@ -64,6 +64,7 @@
   (let ((remote-address (sys.net:resolve-address remote-host)))
     (multiple-value-bind (host interface)
         (mezzano.network.ip:ipv4-route remote-address)
+      (declare (ignore host))
       (let* ((source-port (allocate-local-udp-port))
              (source-address (mezzano.network.ip:ipv4-interface-address interface))
              (connection (make-instance 'udp4-connection
@@ -80,13 +81,13 @@
     (setf *udp-connections* (remove connection *udp-connections*))
     (setf *allocated-udp-ports* (remove (local-port connection) *allocated-udp-ports*))))
 
-(defmethod send (sequence (connection udp4-connection) &optional (start 0) end)
+(defmethod send (sequence (connection udp4-connection) &key (start 0) end)
   (let* ((source (local-address connection))
          (source-port (local-port connection))
          (destination (remote-address connection))
          (destination-port (remote-port connection))
          (header (make-array 8 :element-type '(unsigned-byte 8)))
-         (packet (list header sequence)))
+         (packet (list header (subseq sequence start end))))
     (setf (ub16ref/be header 0) source-port
           (ub16ref/be header 2) destination-port
           (ub16ref/be header 4) (sys.net:packet-length packet)
@@ -95,7 +96,7 @@
                                              mezzano.network.ip:+ip-protocol-udp+
                                              packet)))
 
-(defmethod receive ((connection udp4-connection) &optional timeout)
+(defmethod receive ((connection udp4-connection) &key timeout)
   (with-udp-connection-locked (connection)
     (mezzano.supervisor:condition-wait-for ((udp-connection-cvar connection)
                                             (udp-connection-lock connection)

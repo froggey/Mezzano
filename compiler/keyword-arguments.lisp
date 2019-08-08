@@ -92,10 +92,6 @@
                              :inherit form
                              :name (gensym "ALLOW-OTHER-KEYS")
                              :definition-point *current-lambda*))
-         (aok-itr (make-instance 'lexical-variable
-                                 :inherit form
-                                 :name (gensym)
-                                 :definition-point *current-lambda*))
          (itr (make-instance 'lexical-variable
                              :inherit form
                              :name (gensym)

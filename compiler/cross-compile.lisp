@@ -1166,7 +1166,8 @@
 (defun save-compiler-builtins (path target-architecture)
   (format t ";; Writing compiler builtins to ~A.~%" path)
   (let* ((builtins (ecase target-architecture
-                     (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))
+                     (:x86-64 (mezzano.compiler.backend.x86-64::generate-builtin-functions))
+                     #+(or)
                      (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
          (*use-new-compiler* nil)
          (*target-architecture* target-architecture))
@@ -1248,3 +1249,9 @@
 
 (defun mezzano.clos:ensure-class (name &rest initargs)
   (apply #'c2mop:ensure-class name initargs))
+
+(defun sys.int::known-declaration-p (declaration)
+  ;; The normal version also checks type specifiers, but I don't like that style.
+  ;; Always use (type foo ..)  over (foo ..)
+  (member declaration '(special constant sys.int::global inline notinline
+                        sys.int::maybe-inline type ftype declaration optimize)))

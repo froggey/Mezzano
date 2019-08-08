@@ -125,6 +125,12 @@
   (irq-fifo-reset *ps/2-key-fifo*)
   (irq-fifo-reset *ps/2-aux-fifo*))
 
+(defun check-ps/2-response (response)
+  (ps/2-output-wait)
+  (let ((data (sys.int::io-port/8 +ps/2-data-port+)))
+    (unless (= response data)
+      (panic "Invalid mouse response expected " response " got " data))))
+
 (defun probe-ps/2 ()
   (debug-print-line "Probing PS/2")
   (setf *ps/2-present* t)
@@ -142,14 +148,25 @@
     (setf (sys.int::io-port/8 +ps/2-control-port+) +ps/2-write-config-byte+)
     (ps/2-input-wait)
     (setf (sys.int::io-port/8 +ps/2-data-port+) config))
+
   ;; Enable mouse defaults & reporting.
-  (ps/2-aux-write #xF6)
-  ;; Read response.
-  (ps/2-output-wait)
-  (sys.int::io-port/8 +ps/2-data-port+)
-  (ps/2-aux-write #xF4)
-  (ps/2-output-wait)
-  (sys.int::io-port/8 +ps/2-data-port+)
+  (ps/2-aux-write #xF6)                 ; Set defaults (reset)
+  (check-ps/2-response #xFA)
+
+  (ps/2-aux-write #xF4)                 ; Mouse enable (streaming mode)
+  (check-ps/2-response #xFA)
+
+
+  (ps/2-aux-write #xF3)                 ; Intellimouse magic sequence i.e.,
+  (ps/2-aux-write #xC8)                 ; support wheel mouse
+  (check-ps/2-response #xFA)            ; see documentation in
+  (ps/2-aux-write #xF3)                 ; gui/input-drivers.lisp
+  (ps/2-aux-write #x64)
+  (check-ps/2-response #xFA)
+  (ps/2-aux-write #xF3)
+  (ps/2-aux-write #x50)
+  (check-ps/2-response #xFA)
+
   ;; Enable both IRQs.
   (irq-attach (platform-irq +ps/2-key-irq+)
               'ps/2-key-irq-handler

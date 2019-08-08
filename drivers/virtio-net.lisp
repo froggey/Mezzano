@@ -140,7 +140,6 @@ and then some alignment.")
        (let* ((ring-entry (rem (virtio:virtqueue-last-seen-used tx-queue)
                                (virtio:virtqueue-size tx-queue)))
               (id (virtio:virtio-ring-used-elem-id tx-queue ring-entry))
-              (len (virtio:virtio-ring-used-elem-len tx-queue ring-entry))
               (cons (virtio-net-tx-buffer-freelist nic)))
          (setf (virtio-net-tx-buffer-freelist nic) (cdr cons))
          ;; Packet sent. Add the descriptor back to the freelist.
@@ -248,8 +247,7 @@ and then some alignment.")
 (defun virtio-net-allocate-rx-descriptors (nic)
   ;; Populate the receive virtqueue.
   ;; Throw in 32 buffers, just because.
-  (let* ((dev (virtio-net-virtio-device nic))
-         (rx-queue (virtio:virtio-virtqueue (virtio-net-virtio-device nic) +virtio-net-receiveq+))
+  (let* ((rx-queue (virtio:virtio-virtqueue (virtio-net-virtio-device nic) +virtio-net-receiveq+))
          (n-rx-buffers (min +virtio-net-n-rx-buffers+ (truncate (virtio:virtqueue-size rx-queue) 2)))
          ;; Allocate as a single large chunk.
          (frame (or (sup::allocate-physical-pages (ceiling (* n-rx-buffers +virtio-net-rx-buffer-size+) sup::+4k-page-size+))

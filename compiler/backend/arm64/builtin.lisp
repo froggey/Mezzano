@@ -94,15 +94,51 @@
                   (not (eql (first out-uses) consumer)))
           (return nil))))))
 
+(defstruct predicate-instruction
+  inverse jump-instruction cmov-instruction)
+
+(defparameter *predicate-instructions-1*
+  '((:eq  :ne lap:b.eq lap:csel.eq)
+    (:ne  :eq lap:b.ne lap:csel.ne)
+    (:cs  :cc lap:b.cs lap:csel.cs)
+    (:cc  :cs lap:b.cc lap:csel.cc)
+    (:mi  :pl lap:b.mi lap:csel.mi)
+    (:pl  :mi lap:b.pl lap:csel.pl)
+    (:vs  :vc lap:b.vs lap:csel.vs)
+    (:vc  :vs lap:b.vc lap:csel.vc)
+    (:hi  :ls lap:b.hi lap:csel.hi)
+    (:ls  :hi lap:b.ls lap:csel.ls)
+    (:ge  :lt lap:b.ge lap:csel.ge)
+    (:lt  :ge lap:b.lt lap:csel.lt)
+    (:gt  :le lap:b.gt lap:csel.gt)
+    (:le  :ge lap:b.le lap:csel.le)))
+
+(defparameter *predicate-instructions*
+  (let ((ht (make-hash-table :test 'eq)))
+    (mapc (lambda (i)
+            (setf (gethash (first i) ht)
+                  (make-predicate-instruction
+                   :inverse (second i)
+                   :jump-instruction (third i)
+                   :cmov-instruction (fourth i))))
+          *predicate-instructions-1*)
+    ht))
+
+(defun predicate-info (pred)
+  (or (gethash pred *predicate-instructions*)
+      (error "Unknown predicate ~S." pred)))
+
+(defun invert-predicate (pred)
+  (predicate-instruction-inverse (predicate-info pred)))
+
 (defun reify-predicate (predicate result emitter)
   (let ((tmp (make-instance 'ir:virtual-register)))
     (funcall emitter (make-instance 'ir:constant-instruction
                                     :destination tmp
                                     :value t))
     (funcall emitter (make-instance 'arm64-instruction
-                                    :opcode (mezzano.compiler.codegen.arm64::predicate-instruction-cmov-instruction
-                                             (mezzano.compiler.codegen.arm64::predicate-info
-                                              predicate))
+                                    :opcode (predicate-instruction-cmov-instruction
+                                             (predicate-info predicate))
                                     :operands (list result tmp :x26)
                                     :inputs (list tmp)
                                     :outputs (list result)))))
@@ -129,9 +165,8 @@
             (ir:insert-before
              backend-function inst
              (make-instance 'arm64-branch-instruction
-                            :opcode (mezzano.compiler.codegen.arm64::predicate-instruction-jump-instruction
-                                     (mezzano.compiler.codegen.arm64::predicate-info
-                                      pred))
+                            :opcode (predicate-instruction-jump-instruction
+                                     (predicate-info pred))
                             :true-target (ir:branch-true-target next-inst)
                             :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))

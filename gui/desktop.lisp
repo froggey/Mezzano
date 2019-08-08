@@ -102,9 +102,14 @@
        when (consp icon-repr)
        do
          (destructuring-bind (icon name fn) icon-repr
+           (declare (ignore fn icon))
            (when (not (gethash name cache))
              (setf (gethash name cache) (rasterize-string name font colour)))))
     cache))
+
+(defparameter *icon-vertical-space* 20)
+(defparameter *icon-horizontal-offset* 20)
+(defparameter *icon-image/text-space* 10)
 
 (defun icon-geometry (icon-data text-cache)
   (let* ((icon (first icon-data))
@@ -115,10 +120,6 @@
                *icon-image/text-space*
                (gui:surface-width text))
             (gui:surface-height image))))
-
-(defparameter *icon-vertical-space* 20)
-(defparameter *icon-horizontal-offset* 20)
-(defparameter *icon-image/text-space* 10)
 
 (defun get-icon-at-point (desktop x y)
   (let* ((font (font desktop))

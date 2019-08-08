@@ -244,10 +244,15 @@
       (and (sys.int::%value-has-tag-p x sys.int::+tag-object+)
            (sys.int::%value-has-tag-p y sys.int::+tag-object+)
            (eq (sys.int::%object-tag x) (sys.int::%object-tag y))
-           (<= sys.int::+first-numeric-object-tag+
-               (sys.int::%object-tag x)
-               sys.int::+last-numeric-object-tag+)
-           (= x y))))
+           (or
+            (and (sys.int::double-float-p x)
+                 (eql (sys.int::%object-ref-unsigned-byte-64 x 0)
+                      (sys.int::%object-ref-unsigned-byte-64 y 0)))
+            (and
+             (<= sys.int::+first-numeric-object-tag+
+                 (sys.int::%object-tag x)
+                 sys.int::+last-numeric-object-tag+)
+             (= x y))))))
 
 ;; ARM makes it difficult to detect overflow when shifting left.
 (declaim (inline %fixnum-left-shift))

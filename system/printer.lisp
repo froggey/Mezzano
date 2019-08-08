@@ -89,7 +89,8 @@
                                   'single-float-positive-infinity
                                   'double-float-positive-infinity)))
     (return-from write-float))
-  (when (< float 0.0)
+  (when (or (< float 0.0)
+            (eql (float -0.0 float) float))
     (write-char #\- stream)
     (setf float (- float)))
   (multiple-value-bind (integer-part decimal-part)
@@ -225,18 +226,17 @@
 
 (defun write-cons (object stream)
   (with-printer-level/length (stream)
-    (let ((length *print-length*))
-      (write-char #\( stream)
-      (when (output (car object))
-        (do ((i (cdr object) (cdr i)))
-            ((atom i)
-             (when i
-               (write-string " . " stream)
-               (write i :stream stream)))
-          (write-char #\Space stream)
-          (when (not (output (car i)))
-            (return))))
-      (write-char #\) stream))))
+    (write-char #\( stream)
+    (when (output (car object))
+      (do ((i (cdr object) (cdr i)))
+          ((atom i)
+           (when i
+             (write-string " . " stream)
+             (write i :stream stream)))
+        (write-char #\Space stream)
+        (when (not (output (car i)))
+          (return))))
+    (write-char #\) stream)))
 
 (defun write-vector (object stream)
   (with-printer-level/length (stream)
@@ -385,6 +385,7 @@
     object))
 
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
+  (declare (ignore type identity))
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
 
 (defun %print-unreadable-object (fn object stream &key type identity)

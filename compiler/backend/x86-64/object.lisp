@@ -37,7 +37,9 @@
                        :destination result
                        :source value)))
 
-(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :z)
+(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4))))
+                                           :z
+                                           :has-wrapper nil)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:lea64
@@ -50,7 +52,9 @@
                          :inputs (list temp)
                          :outputs '()))))
 
-(define-builtin sys.int::%value-has-immediate-tag-p ((object (:constant tag (typep tag '(unsigned-byte 2)))) :z)
+(define-builtin sys.int::%value-has-immediate-tag-p ((object (:constant tag (typep tag '(unsigned-byte 2))))
+                                                     :z
+                                                     :has-wrapper nil)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:lea64
@@ -63,7 +67,9 @@
                          :inputs (list temp)
                          :outputs '()))))
 
-(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :e)
+(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6))))
+                                                     :e
+                                                     :has-wrapper nil)
   (cond ((eql object-tag 0)
          (emit (make-instance 'x86-instruction
                               :opcode 'lap:test8
@@ -93,7 +99,8 @@
 (define-builtin mezzano.runtime::%%object-of-type-range-p ((object
                                                             (:constant first-tag (typep first-tag '(unsigned-byte 6)))
                                                             (:constant last-tag (typep last-tag '(unsigned-byte 6))))
-                                                           :be)
+                                                           :be
+                                                           :has-wrapper nil)
   ;; TODO: Use an integer vreg instead of rax here. x86-instruction must be extended to support converting allocated pregs to their 8-bit counterparts.
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:mov8
@@ -163,6 +170,8 @@
                        :source :rax
                        :destination result)))
 
+;;; Constructing and deconstructing Lisp values.
+
 (define-builtin sys.int::lisp-object-address ((value) result)
   (emit (make-instance 'x86-instruction
                        :opcode 'lap:lea64
@@ -208,19 +217,57 @@
                                 :lhs raw-pointer
                                 :rhs raw-tag))))))
 
-(define-builtin sys.int::%unbound-value-p ((object) :e)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp64
-                       :operands (list object :unbound-value)
-                       :inputs (list object)
-                       :outputs (list))))
+(define-builtin sys.int::%pointer-field ((value) result)
+  (let ((temp (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:and64
+                         :result temp
+                         :lhs value
+                         :rhs -16))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:sar64
+                         :result result
+                         :lhs temp
+                         :rhs (- (byte-size sys.int::+tag-field+)
+                                 sys.int::+n-fixnum-bits+)))))
 
-(define-builtin sys.int::%undefined-function-p ((object) :e)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:cmp64
-                       :operands (list object :undefined-function)
-                       :inputs (list object)
-                       :outputs (list))))
+(define-builtin sys.int::%tag-field ((value) result)
+  (let ((temp (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:shl64
+                         :result temp
+                         :lhs value
+                         :rhs sys.int::+n-fixnum-bits+))
+    (emit (make-instance 'x86-fake-three-operand-instruction
+                         :opcode 'lap:and64
+                         :result result
+                         :lhs temp
+                         :rhs (ash (1- (ash 1 (byte-size sys.int::+tag-field+)))
+                                   sys.int::+n-fixnum-bits+)))))
+
+;;; Support objects
+
+(defmacro define-support-object (name symbol)
+  (let ((predicate-name (intern (format nil "~A-P" name) (symbol-package name))))
+    `(progn
+       (define-builtin ,predicate-name ((object) :e)
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list object ,symbol)
+                              :inputs (list object)
+                              :outputs (list))))
+       (define-builtin ,name (() result)
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:mov64
+                              :operands (list result ,symbol)
+                              :inputs (list)
+                              :outputs (list result)))))))
+
+(define-support-object sys.int::%unbound-value :unbound-value)
+(define-support-object sys.int::%undefined-function :undefined-function)
+(define-support-object sys.int::%closure-trampoline :closure-trampoline)
+(define-support-object sys.int::%funcallable-instance-trampoline :funcallable-instance-trampoline)
+(define-support-object sys.int::%symbol-binding-cache-sentinel :symbol-binding-cache-sentinel)
 
 (define-builtin eq ((lhs rhs) :e)
   (cond ((constant-value-p rhs '(eql nil))
@@ -255,33 +302,42 @@
                               :inputs (list lhs rhs)
                               :outputs '())))))
 
+(defmacro with-builtin-object-access ((effective-address additional-inputs object index scale) &body body)
+  "Generate an effective address that deals properly with scaling and constant indices."
+  (check-type scale (member 1 2 4 8))
+  `(cond ((constant-value-p ,index '(signed-byte 29))
+          (let ((,effective-address `(:object-unscaled ,,object ,(* (fetch-constant-value ,index) ,scale)))
+                (,additional-inputs (list ,object)))
+            ,@body))
+         (t
+          ,(if (eql scale 1)
+               (let ((unboxed-index (gensym)))
+                 `(let ((,unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
+                    (emit (make-instance 'ir:unbox-fixnum-instruction
+                                         :source ,index
+                                         :destination ,unboxed-index))
+                    (let ((,effective-address `(:object ,,object 0 ,,unboxed-index 1))
+                          (,additional-inputs (list ,object ,unboxed-index)))
+                      ,@body)))
+               `(let ((,effective-address `(:object ,,object 0 ,,index ,',(/ scale 2)))
+                      (,additional-inputs (list ,object ,index)))
+                  ,@body)))))
+
 (define-builtin sys.int::%object-ref-t ((object index) result)
-  (cond ((constant-value-p index '(signed-byte 29))
-         (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list result `(:object ,object ,(fetch-constant-value index)))
-                       :inputs (list object)
-                       :outputs (list result))))
-        (t
-         (emit (make-instance 'x86-instruction
-                              :opcode 'lap:mov64
-                              :operands (list result `(:object ,object 0 ,index 4))
-                              :inputs (list object index)
-                              :outputs (list result))))))
+  (with-builtin-object-access (ea ea-inputs object index 8)
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list result ea)
+                         :inputs ea-inputs
+                         :outputs (list result)))))
 
 (define-builtin (setf sys.int::%object-ref-t) ((value object index) result)
-  (cond ((constant-value-p index '(signed-byte 29))
-         (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list `(:object ,object ,(fetch-constant-value index)) value)
-                       :inputs (list value object)
-                       :outputs (list))))
-        (t
-         (emit (make-instance 'x86-instruction
-                              :opcode 'lap:mov64
-                              :operands (list `(:object ,object 0 ,index 4) value)
-                              :inputs (list value object index)
-                              :outputs (list)))))
+  (with-builtin-object-access (ea ea-inputs object index 8)
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list ea value)
+                         :inputs (list* value ea-inputs)
+                         :outputs (list))))
   (emit (make-instance 'ir:move-instruction
                        :source value
                        :destination result)))
@@ -304,6 +360,34 @@
                          :result result
                          :lhs temp2
                          :rhs (- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))))
+
+(define-builtin (setf sys.int::%object-header-data) ((value object) result)
+  (emit (make-instance 'ir:move-instruction
+                       :destination :rax
+                       :source value))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:shl64
+                       :operands (list :rax (- sys.int::+object-data-shift+
+                                               sys.int::+n-fixnum-bits+))
+                       :inputs (list :rax)
+                       :outputs (list :rax)
+                       :clobbers (list :rax)))
+  ;; low 8 bits of the header only.
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov8
+                       :operands (list :al `(:object ,object -1))
+                       :inputs (list :rax object)
+                       :outputs (list :rax)
+                       :clobbers (list :rax)))
+  (emit (make-instance 'x86-instruction
+                       :opcode 'lap:mov64
+                       :operands (list `(:object ,object -1) :rax)
+                       :inputs (list :rax object)
+                       :outputs (list)
+                       :clobbers (list)))
+  (emit (make-instance 'ir:move-instruction
+                       :destination result
+                       :source value)))
 
 (define-builtin sys.int::%instance-layout ((object) result)
   (let ((temp1 (make-instance 'ir:virtual-register)))
@@ -348,118 +432,70 @@
                          :inputs (list temp2 instance-header)
                          :outputs '()))))
 
-(define-builtin sys.int::%%object-ref-unsigned-byte-8 ((object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer))
-        (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
-    ;; Need to use :eax and a temporary here because it's currently impossible
-    ;; to replace vregs with non-64-bit gprs.
-    ;; Using a temporary & a move before the box allows the box to safely
-    ;; eliminated.
-    (emit (make-instance 'ir:unbox-fixnum-instruction
-                         :source index
-                         :destination unboxed-index))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:movzx8
-                         :operands (list :eax `(:object ,object 0 ,unboxed-index 1))
-                         :inputs (list object unboxed-index)
-                         :outputs (list :rax)
-                         :clobbers '(:rax)))
-    (emit (make-instance 'ir:move-instruction
-                         :source :rax
-                         :destination temp))
-    (emit (make-instance 'ir:box-fixnum-instruction
-                         :source temp
-                         :destination result))))
+(defmacro define-object-ref-integer-accessor (name read-op write-op reg scale box-op unbox-op)
+  `(progn
+     (define-builtin ,name ((object index) result)
+       (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+         ;; Need to use :eax and a temporary here because it's currently impossible
+         ;; to replace vregs with non-64-bit gprs.
+         ;; Using a temporary & a move before the box allows the box to safely
+         ;; eliminated.
+         (with-builtin-object-access (ea ea-inputs object index ,scale)
+           (emit (make-instance 'x86-instruction
+                                :opcode ',read-op
+                                :operands (list ,(if (eql read-op 'lap:mov32) reg 'temp) ea)
+                                :inputs ea-inputs
+                                :outputs (list ,(if (eql read-op 'lap:mov32) :rax 'temp))
+                                :clobbers ,(if (eql read-op 'lap:mov32) ''(:rax) 'nil))))
+         ,@(when (eql read-op 'lap:mov32)
+             `((emit (make-instance 'ir:move-instruction
+                                    :source :rax
+                                    :destination temp))))
+         (emit (make-instance ',box-op
+                              :source temp
+                              :destination result))))
+     (define-builtin (setf ,name) ((value object index) result)
+       (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+         ;; Need to use :eax and a temporary here because it's currently impossible
+         ;; to replace vregs with non-64-bit gprs.
+         ;; Using a temporary & a move before the box allows the box to safely
+         ;; eliminated.
+         (emit (make-instance ',unbox-op
+                              :source value
+                              :destination temp))
+         ,@(when reg
+             `((emit (make-instance 'ir:move-instruction
+                                    :source temp
+                                    :destination :rax))))
+         (with-builtin-object-access (ea ea-inputs object index ,scale)
+           (emit (make-instance 'x86-instruction
+                                :opcode ',write-op
+                                :operands (list ea ,(or reg 'temp))
+                                :inputs (list* ,(if reg :rax 'temp) ea-inputs)
+                                :outputs (list))))
+         (emit (make-instance 'ir:move-instruction
+                              :source value
+                              :destination result))))))
 
-(define-builtin (setf sys.int::%%object-ref-unsigned-byte-8) ((value object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer))
-        (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
-    ;; Need to use :eax and a temporary here because it's currently impossible
-    ;; to replace vregs with non-64-bit gprs.
-    ;; Using a temporary & a move before the box allows the box to safely
-    ;; eliminated.
-    (emit (make-instance 'ir:unbox-fixnum-instruction
-                         :source value
-                         :destination temp))
-    (emit (make-instance 'ir:unbox-fixnum-instruction
-                         :source index
-                         :destination unboxed-index))
-    (emit (make-instance 'ir:move-instruction
-                         :source temp
-                         :destination :rax))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov8
-                         :operands (list `(:object ,object 0 ,unboxed-index 1) :al)
-                         :inputs (list object unboxed-index :rax)
-                         :outputs (list)))
-    (emit (make-instance 'ir:move-instruction
-                         :source value
-                         :destination result))))
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-8  lap:movzx8  lap:mov8  :al  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-16 lap:movzx16 lap:mov16 :ax  2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-32 lap:mov32   lap:mov32 :eax 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-64 lap:mov64   lap:mov64 nil  8 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-builtin sys.int::%%object-ref-unsigned-byte-32 ((object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
-    ;; Need to use :eax and a temporary here because it's currently impossible
-    ;; to replace vregs with non-64-bit gprs.
-    ;; Using a temporary & a move before the box allows the box to safely
-    ;; eliminated.
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov32
-                         :operands (list :eax `(:object ,object 0 ,index 2))
-                         :inputs (list object index)
-                         :outputs (list :rax)
-                         :clobbers '(:rax)))
-    (emit (make-instance 'ir:move-instruction
-                         :source :rax
-                         :destination temp))
-    (emit (make-instance 'ir:box-fixnum-instruction
-                         :source temp
-                         :destination result))))
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-8    lap:movsx8  lap:mov8  :al  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-16   lap:movsx16 lap:mov16 :ax  2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-32   lap:movsx32 lap:mov32 :eax  4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-64   lap:mov64   lap:mov64 nil  8 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
 
-(define-builtin (setf sys.int::%%object-ref-unsigned-byte-32) ((value object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
-    ;; Need to use :eax and a temporary here because it's currently impossible
-    ;; to replace vregs with non-64-bit gprs.
-    ;; Using a temporary & a move before the box allows the box to safely
-    ;; eliminated.
-    (emit (make-instance 'ir:unbox-fixnum-instruction
-                         :source value
-                         :destination temp))
-    (emit (make-instance 'ir:move-instruction
-                         :source temp
-                         :destination :rax))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov32
-                         :operands (list `(:object ,object 0 ,index 2) :eax)
-                         :inputs (list object index :rax)
-                         :outputs (list)))
-    (emit (make-instance 'ir:move-instruction
-                         :source value
-                         :destination result))))
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-8-unscaled  lap:movzx8  lap:mov8  :al  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-16-unscaled lap:movzx16 lap:mov16 :ax  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-32-unscaled lap:mov32   lap:mov32 :eax 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-unsigned-byte-64-unscaled lap:mov64   lap:mov64 nil  1 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-builtin sys.int::%%object-ref-unsigned-byte-64 ((object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list temp `(:object ,object 0 ,index 4))
-                         :inputs (list object index)
-                         :outputs (list temp)))
-    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
-                         :source temp
-                         :destination result))))
-
-(define-builtin (setf sys.int::%%object-ref-unsigned-byte-64) ((value object index) result)
-  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
-    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
-                         :source value
-                         :destination temp))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list `(:object ,object 0 ,index 4) temp)
-                         :inputs (list object index temp)
-                         :outputs (list)))
-    (emit (make-instance 'ir:move-instruction
-                         :source value
-                         :destination result))))
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-8-unscaled    lap:movsx8  lap:mov8  :al  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-16-unscaled   lap:movsx16 lap:mov16 :ax  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-32-unscaled   lap:movsx32 lap:mov32 :eax  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-64-unscaled   lap:mov64   lap:mov64 nil  1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
 
 ;;; Atomic operations.
 ;;; These functions index into the object like %OBJECT-REF-T.
@@ -496,6 +532,16 @@
                        :rhs new
                        :result result)))
 
+;; If the value in SLOT matches OLD, set it to NEW; otherwise do nothing.
+;; Returns true as the primary value if the slot was modified, false otherwise.
+;; Additionally returns the old value of SLOT as the second value.
+;; (defun cas (object offset old new)
+;;   (let ((slot-value (%object-ref-t object slot)))
+;;     (values (cond ((eq slot-value old)
+;;                    (setf (%object-ref-t object slot) new)
+;;                    t)
+;;                   (t nil))
+;;             slot-value)))
 (define-builtin sys.int::%cas-object ((object offset old new) (:z result))
   (emit (make-instance 'x86-cmpxchg-instruction
                        :object object
@@ -505,4 +551,31 @@
                        :old old
                        :new new
                        :result result
+                       :prefix '(lap:lock))))
+
+;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
+;; Returns the two old slot values and a success boolean.
+;; (defun dcas (object offset old-1 old-2 new-1 new-2)
+;;   (let ((slot-value-1 (%object-ref-t object slot))
+;;         (slot-value-2 (%object-ref-t object (1+ slot))))
+;;     (values (cond ((and (eq slot-value-1 old-1)
+;;                         (eq slot-value-2 old-2))
+;;                    (setf (%object-ref-t object slot) new-1
+;;                          (%object-ref-t object (1+ slot)) new-2)
+;;                    t)
+;;                   (t nil))
+;;             slot-value-1
+;;             slot-value-2)))
+(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2) (:z result-1 result-2))
+  (emit (make-instance 'x86-cmpxchg16b-instruction
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :old-1 old-1
+                       :old-2 old-2
+                       :new-1 new-1
+                       :new-2 new-2
+                       :result-1 result-1
+                       :result-2 result-2
                        :prefix '(lap:lock))))

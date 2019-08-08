@@ -279,6 +279,7 @@
 
 (define-command break-into-debugger (stream #\C-C)
   "Enter the debugger using BREAK."
+  (declare (ignore stream))
   (break))
 
 (define-command abort-input (stream #\C-G)

@@ -159,6 +159,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defvar *llf-dry-run*)
 
 (defun write-llf-header (output-stream input-file)
+  (declare (ignore input-file))
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream) ; LLF\x01
   (save-integer *llf-version* output-stream)
@@ -826,43 +827,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defmacro with-compilation-unit ((&key override) &body body)
   `(progn ,override ,@body))
-
-(defun sys.c::save-compiler-builtins (output-file target-architecture)
-  (with-open-file (output-stream output-file
-                                 :element-type '(unsigned-byte 8)
-                                 :if-exists :supersede
-                                 :direction :output)
-    (format t ";; Writing compiler builtins to ~A.~%" output-file)
-    (write-llf-header output-stream output-file)
-    (let* ((*llf-forms* nil)
-           (*fixup-table* (make-hash-table :synchronized nil))
-           (sys.c::*use-new-compiler* nil)
-           (omap (make-hash-table)))
-      (loop
-         for (name lambda) in (ecase target-architecture
-                                (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions)))
-         for form = `(sys.int::%defun ',name ,lambda)
-         do
-           (let ((*print-length* 3)
-                 (*print-level* 3))
-             (declare (special *print-length* *print-level*))
-             (format t ";; Compiling form ~S.~%" form))
-           (compile-top-level-form form nil))
-      ;; Now write everything to the fasl.
-      ;; Do two passes to detect circularity.
-      (let ((commands (reverse *llf-forms*)))
-        (let ((*llf-dry-run* t))
-          (dolist (cmd commands)
-            (dolist (o (cdr cmd))
-              (save-object o omap (make-broadcast-stream)))))
-        (let ((*llf-dry-run* nil))
-          (dolist (cmd commands)
-            (dolist (o (cdr cmd))
-              (save-object o omap output-stream))
-            (when (car cmd)
-              (write-byte (car cmd) output-stream)))))
-      (write-byte +llf-end-of-load+ output-stream))
-    (values (truename output-stream) nil nil)))
 
 (defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)

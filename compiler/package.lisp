@@ -104,20 +104,9 @@
            #:ast-targets)
   (:use :cl))
 
-(defpackage :mezzano.compiler.codegen.x86-64
-  (:use :cl :mezzano.compiler)
-  (:export #:codegen-lambda
-           #:generate-builtin-functions))
-
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
   (:use :cl))
-
-(defpackage :mezzano.compiler.codegen.arm64
-  (:use :cl :mezzano.compiler)
-  (:local-nicknames (:lap :mezzano.lap.arm64))
-  (:export #:codegen-lambda
-           #:generate-builtin-functions))
 
 (defpackage :system.internals
   (:nicknames :sys.int)

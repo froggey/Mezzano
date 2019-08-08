@@ -631,7 +631,7 @@
 (defun check-vector-has-fill-pointer (vector)
   (unless (array-has-fill-pointer-p vector)
     (error 'simple-type-error
-           :expected-type 'vector
+           :expected-type '(and vector (satisfies array-has-fill-pointer-p))
            :datum vector
            :format-control "VECTOR ~S is not a VECTOR with a fill-pointer."
            :format-arguments (list vector))))

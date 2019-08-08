@@ -243,6 +243,7 @@
   (sys.lap-x86:jne MAYBE-NUMBER-CASE)
   ;; Objects are EQ.
   (:debug ())
+  OBJECTS-EQUAL
   (sys.lap-x86:mov32 :r8d t)
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
@@ -273,10 +274,24 @@
                                   sys.int::+first-numeric-object-tag+)
                                sys.int::+object-type-shift+))
   (sys.lap-x86:ja OBJECTS-UNEQUAL)
-  ;; Both are numbers of the same type. Tail-call to generic-=.
+  ;; Both are numbers of the same type.
+  ;; Handle double-floats specifically. They have different behaviour
+  ;; for negative 0.0 compared to =
+  (sys.lap-x86:cmp8 :al #.(ash (- sys.int::+object-tag-double-float+
+                                  sys.int::+first-numeric-object-tag+)
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:je COMPARE-DOUBLE-FLOATS)
+  ;; Tail-call to generic-=.
   ;; RCX was set to fixnum 2 on entry.
   (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
+  ;; Compare the two values directly.
+  ;; This means +0.0 and -0.0 will be different and that NaNs can be EQL
+  ;; if they have the same representation.
+  COMPARE-DOUBLE-FLOATS
+  (sys.lap-x86:mov64 :rax (:object :r8 0))
+  (sys.lap-x86:cmp64 :rax (:object :r9 0))
+  (sys.lap-x86:je OBJECTS-EQUAL)
   OBJECTS-UNEQUAL
   ;; Objects are not EQL.
   (:debug ())
@@ -661,3 +676,44 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:mov64 :r13 (:function slow-cons))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
+(declaim (inline sys.int::msr (setf sys.int::msr)))
+(defun sys.int::msr (register)
+  (check-type register (unsigned-byte 32))
+  (sys.int::%msr register))
+(defun (setf sys.int::msr) (value register)
+  (check-type register (unsigned-byte 32))
+  (check-type value (unsigned-byte 64))
+  (setf (sys.int::%msr register) value))
+
+(declaim (inline sys.int::io-port/8 (setf sys.int::io-port/8)))
+(defun sys.int::io-port/8 (port)
+  (check-type port (unsigned-byte 16))
+  (sys.int::%io-port/8 port))
+(defun (setf sys.int::io-port/8) (value port)
+  (check-type port (unsigned-byte 16))
+  (check-type value (unsigned-byte 8))
+  (setf (sys.int::%io-port/8 port) value))
+
+(declaim (inline sys.int::io-port/16 (setf sys.int::io-port/16)))
+(defun sys.int::io-port/16 (port)
+  (check-type port (unsigned-byte 16))
+  (sys.int::%io-port/16 port))
+(defun (setf sys.int::io-port/16) (value port)
+  (check-type port (unsigned-byte 16))
+  (check-type value (unsigned-byte 16))
+  (setf (sys.int::%io-port/16 port) value))
+
+(declaim (inline sys.int::io-port/32 (setf sys.int::io-port/32)))
+(defun sys.int::io-port/32 (port)
+  (check-type port (unsigned-byte 16))
+  (sys.int::%io-port/32 port))
+(defun (setf sys.int::io-port/32) (value port)
+  (check-type port (unsigned-byte 16))
+  (check-type value (unsigned-byte 32))
+  (setf (sys.int::%io-port/32 port) value))
+
+;; TODO...
+(defun mezzano.runtime::%fixnum-left-shift (integer count)
+  (dotimes (i count integer)
+    (setf integer (+ integer integer))))

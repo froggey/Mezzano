@@ -96,6 +96,7 @@
     "system/string.lisp"
     "system/hash-table.lisp"
     "system/runtime-numbers.lisp"
+    "system/bignum.lisp"
     ("system/bignum-x86-64.lisp" :x86-64)
     ("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
@@ -159,24 +160,6 @@
     "compiler/keyword-arguments.lisp"
     "compiler/simplify-arguments.lisp"
     "compiler/dynamic-extent.lisp"
-    "compiler/codegen-x86-64.lisp"
-    "compiler/builtins-x86-64/builtins.lisp"
-    "compiler/builtins-x86-64/array.lisp"
-    "compiler/builtins-x86-64/cons.lisp"
-    "compiler/builtins-x86-64/memory.lisp"
-    "compiler/builtins-x86-64/misc.lisp"
-    "compiler/builtins-x86-64/numbers.lisp"
-    "compiler/builtins-x86-64/objects.lisp"
-    "compiler/builtins-x86-64/unwind.lisp"
-    "compiler/branch-tension.lisp"
-    "compiler/codegen-arm64.lisp"
-    "compiler/builtins-arm64/builtins.lisp"
-    "compiler/builtins-arm64/cons.lisp"
-    "compiler/builtins-arm64/memory.lisp"
-    "compiler/builtins-arm64/misc.lisp"
-    "compiler/builtins-arm64/numbers.lisp"
-    "compiler/builtins-arm64/objects.lisp"
-    "compiler/builtins-arm64/unwind.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"
@@ -232,6 +215,7 @@
     "net/udp.lisp"
     "net/tcp.lisp"
     "net/dns.lisp"
+    "net/dhcp.lisp"
     "net/network-setup.lisp"
     "file/fs.lisp"
     "file/remote.lisp"
@@ -339,12 +323,7 @@
   (loop
      with result = (env:make-array environment 0 :adjustable t :fill-pointer 0 :area :pinned)
      for file in (filter-files-by-architecture *warm-source-files* (env:environment-target environment))
-     ;; HACK! Force use of the new compiler building the SIMD/float functions.
-     for compiled-file = (let ((sys.c::*use-new-compiler* (if (member file '("runtime/simd.lisp"
-                                                                             "runtime/float-x86-64.lisp"))
-                                                              t
-                                                              sys.c::*use-new-compiler*)))
-                           (maybe-compile-file file environment))
+     for compiled-file = (maybe-compile-file file environment)
      do
        (format t ";; Warm loading ~A.~%" compiled-file)
        (with-open-file (stream compiled-file :element-type '(unsigned-byte 8))

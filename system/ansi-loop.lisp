@@ -48,13 +48,10 @@
 
 ;;;; LOOP Iteration Macro
 
-(defpackage :sys.loop
+(defpackage :mezzano.loop
   (:use #:cl))
 
-#+allegro
-(in-package :excl)
-#-allegro
-(in-package #:sys.loop)
+(in-package #:mezzano.loop)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 #+ignore(provide :loop)
@@ -242,7 +239,7 @@
     )
   (setq form (sys.int::macroexpand form env))
   (flet ((cdr-wrap (form n)
-	   (declare (fixnum n))
+	   (declare (type fixnum n))
 	   (do () ((<= n 4) (setq form `(,(case n
 					    (1 'cdr)
 					    (2 'cddr)
@@ -325,32 +322,11 @@ constructed.
 
 
 (defvar *loop-minimax-type-infinities-alist*
-	;;@@@@ This is the sort of value this should take on for a Lisp that has
-	;; "eminently usable" infinities.  n.b. there are neither constants nor
-	;; printed representations for infinities defined by CL.
-	;;@@@@ This grotesque read-from-string below is to help implementations
-	;; which croak on the infinity character when it appears in a token, even
-	;; conditionalized out.
-	#+Genera
-	  '#.(read-from-string
-	      "((fixnum 	most-positive-fixnum	 most-negative-fixnum)
-		(short-float 	+1s			 -1s)
-		(single-float	+1f			 -1f)
-		(double-float	+1d			 -1d)
-		(long-float	+1l			 -1l))")
-	;;This is how the alist should look for a lisp that has no infinities.  In
-	;; that case, MOST-POSITIVE-x-FLOAT really IS the most positive.
-	#+(or CLOE-Runtime Minima)
-	  '((fixnum   		most-positive-fixnum		most-negative-fixnum)
-	    (short-float	most-positive-short-float	most-negative-short-float)
-	    (single-float	most-positive-single-float	most-negative-single-float)
-	    (double-float	most-positive-double-float	most-negative-double-float)
-	    (long-float		most-positive-long-float	most-negative-long-float))
-	;;If we don't know, then we cannot provide "infinite" initial values for any of the
-	;; types but FIXNUM:
-	#-(or Genera CLOE-Runtime Minima)
-	  '((fixnum   		most-positive-fixnum		most-negative-fixnum))
-	  )
+  '((fixnum   		most-positive-fixnum		most-negative-fixnum)
+    (short-float	sys.int::short-float-positive-infinity	sys.int::short-float-negative-infinity)
+    (single-float	sys.int::single-float-positive-infinity	sys.int::single-float-negative-infinity)
+    (double-float	sys.int::double-float-positive-infinity	sys.int::double-float-negative-infinity)
+    (long-float		sys.int::long-float-positive-infinity	sys.int::long-float-negative-infinity)))
 
 
 (defun make-loop-minimax (answer-variable type)
@@ -794,7 +770,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
     ;; This outer loop iterates once for each not-first-time flag test generated
     ;; plus once more for the forms that don't need a flag test
     (do ((threshold (loop-code-duplication-threshold env))) (nil)
-      (declare (fixnum threshold))
+      (declare (type fixnum threshold))
       ;; Go backwards from the ends of before-loop and after-loop merging all the equivalent
       ;; forms into the body.
       (do () ((or (null rbefore) (not (equal (car rbefore) (car rafter)))))
@@ -843,7 +819,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 (defun duplicatable-code-p (expr env)
   (if (null expr) 0
       (let ((ans (estimate-code-size expr env)))
-	(declare (fixnum ans))
+	(declare (type fixnum ans))
 	;;@@@@ Use (DECLARATION-INFORMATION 'OPTIMIZE ENV) here to get an alist of
 	;; optimize quantities back to help quantify how much code we are willing to
 	;; duplicate.
@@ -888,7 +864,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 (defun estimate-code-size-1 (x env)
   (flet ((list-size (l)
 	   (let ((n 0))
-	     (declare (fixnum n))
+	     (declare (type fixnum n))
 	     (dolist (x l n) (incf n (estimate-code-size-1 x env))))))
     ;;@@@@ ???? (declare (function list-size (list) fixnum))
     (cond ((constantp x #+Genera env) 1)
@@ -897,7 +873,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
 	  ((atom x) 1)				;??? self-evaluating???
 	  ((symbolp (car x))
 	   (let ((fn (car x)) (tem nil) (n 0))
-	     (declare (symbol fn) (fixnum n))
+	     (declare (type symbol fn) (type fixnum n))
 	     (macrolet ((f (overhead &optional (args nil args-p))
 			  `(the fixnum (+ (the fixnum ,overhead)
 					  (the fixnum (list-size ,(if args-p args '(cdr x))))))))
@@ -1603,7 +1579,7 @@ collected result will be returned as the value of the LOOP."
 	     (other-test first-test)
 	     (step `(,var (aref ,vector-var ,index-var)))
 	     (pstep `(,index-var (1+ ,index-var))))
-	(declare (fixnum length))
+	(declare (type fixnum length))
 	(when constantp
 	  (setq first-test (= length 0))
 	  (when (<= length 1)
@@ -1777,7 +1753,7 @@ collected result will be returned as the value of the LOOP."
 ;;; i.e., this is part of our extended ansi-loop interface.
 (defun named-variable (name)
   (let ((tem (loop-tassoc name *loop-named-variables*)))
-    (declare (list tem))
+    (declare (type list tem))
     (cond ((null tem) (values (loop-gentemp) nil))
 	  (t (setq *loop-named-variables* (delete tem *loop-named-variables*))
 	     (values (cdr tem) t)))))
@@ -1796,7 +1772,7 @@ collected result will be returned as the value of the LOOP."
 		   initial-phrases))
 	 (used-prepositions (mapcar #'car initial-phrases)))
 	((null *loop-source-code*) (nreverse prepositional-phrases))
-      (declare (symbol this-prep))
+      (declare (type symbol this-prep))
       (setq token (car *loop-source-code*))
       (dolist (group preposition-groups)
 	(when (setq this-prep (in-group-p token group))

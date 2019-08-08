@@ -196,53 +196,6 @@
 (defun deposit-field (newbyte bytespec integer)
   (%deposit-field newbyte (byte-size bytespec) (byte-position bytespec) integer))
 
-(defun float-nan-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (not (zerop sig)))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (not (zerop sig)))))))
-
-(defun float-trapping-nan-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (not (zerop sig))
-            (not (logbitp 22 sig)))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (not (zerop sig))
-            (not (logbitp 51 sig)))))))
-
-(defun float-infinity-p (float)
-  (etypecase float
-    (single-float
-     (let* ((bits (%single-float-as-integer float))
-            (exp (ldb (byte 8 23) bits))
-            (sig (ldb (byte 23 0) bits)))
-       (and (eql exp #xFF)
-            (zerop sig))))
-    (double-float
-     (let* ((bits (%double-float-as-integer float))
-            (exp (ldb (byte 11 52) bits))
-            (sig (ldb (byte 52 0) bits)))
-       (and (eql exp #x7FF)
-            (zerop sig))))))
-
 (defun %double-float-as-integer (double-float)
   (%object-ref-unsigned-byte-64 double-float 0))
 
@@ -251,38 +204,6 @@
                  sys.int::+object-tag-double-float+ 0 1 nil)))
     (setf (%object-ref-unsigned-byte-64 result 0) integer)
     result))
-
-(declaim (inline bignump
-                 %n-bignum-fragments
-                 %bignum-fragment
-                 (setf %bignum-fragment)))
-
-(defun bignump (object)
-  (%object-of-type-p object +object-tag-bignum+))
-
-(defun %n-bignum-fragments (bignum)
-  (%object-header-data bignum))
-
-;; Watch out - this can create another bignum to hold the fragment.
-(defun %bignum-fragment (bignum n)
-  (%object-ref-unsigned-byte-64 bignum n))
-
-(defun (setf %bignum-fragment) (value bignum n)
-  (setf (%object-ref-unsigned-byte-64 bignum n) value))
-
-(defun bignum-to-float (bignum float-zero digits)
-  (let* ((negative (minusp bignum))
-         (bignum (if negative (- bignum) bignum))
-         (length (integer-length bignum))
-         (sig (ldb (byte digits (- length digits)) bignum))
-         (exp (expt (float 2 float-zero) (- length digits))))
-    (* (float sig float-zero) exp)))
-
-(defun mezzano.runtime::%%coerce-bignum-to-single-float (bignum)
-  (bignum-to-float bignum 0.0f0 24))
-
-(defun mezzano.runtime::%%coerce-bignum-to-double-float (bignum)
-  (bignum-to-float bignum 0.0d0 53))
 
 (declaim (inline call-with-float-contagion))
 (defun call-with-float-contagion (x y single-fn double-fn)
@@ -294,90 +215,6 @@
       (funcall single-fn
                (float x 1.0f0)
                (float y 1.0f0))))
-
-(defun sys.int::full-< (x y)
-  (check-type x real)
-  (check-type y real)
-  (cond
-    ((and (sys.int::fixnump x)
-          (sys.int::fixnump y))
-     ;; Should be handled by binary-<.
-     (error "FIXNUM/FIXNUM case hit GENERIC-<"))
-    ((and (sys.int::fixnump x)
-          (sys.int::bignump y))
-     (sys.int::%%bignum-< (sys.int::%make-bignum-from-fixnum x) y))
-    ((and (sys.int::bignump x)
-          (sys.int::fixnump y))
-     (sys.int::%%bignum-< x (sys.int::%make-bignum-from-fixnum y)))
-    ((and (sys.int::bignump x)
-          (sys.int::bignump y))
-     (sys.int::%%bignum-< x y))
-    ((or (floatp x)
-         (floatp y))
-     (call-with-float-contagion x y #'%%single-float-< #'%%double-float-<))
-    ((or (sys.int::ratiop x)
-         (sys.int::ratiop y))
-       (< (* (numerator x) (denominator y))
-          (* (numerator y) (denominator x))))
-    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
-
-(defun sys.int::full-= (x y)
-  (check-type x number)
-  (check-type y number)
-  ;; Must not use EQ when the arguments are floats.
-  (cond
-    ((or (complexp x)
-         (complexp y))
-     (and (= (realpart x) (realpart y))
-          (= (imagpart x) (imagpart y))))
-    ((or (floatp x)
-         (floatp y))
-     (call-with-float-contagion x y #'%%single-float-= #'%%double-float-=))
-    ((or (sys.int::fixnump x)
-         (sys.int::fixnump y))
-     (eq x y))
-    ((and (sys.int::bignump x)
-          (sys.int::bignump y))
-     (or (eq x y) (sys.int::%%bignum-= x y)))
-    ((or (sys.int::ratiop x)
-         (sys.int::ratiop y))
-     (and (= (numerator x) (numerator y))
-          (= (denominator x) (denominator y))))
-    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
-
-(defun %%bignum-truncate (a b)
-  "Divide two integers.
-Implements the dumb mp_div algorithm from BigNum Math."
-  (when (eql b 0)
-    (error 'division-by-zero
-           :operands (list a b)
-           :operation 'truncate))
-  (let ((ta (abs a))
-        (tb (abs b))
-        (tq 1)
-        (q 0)
-        (n nil))
-    ;; Check for the easy case. |a| < |b| => 0, a
-    (when (< ta tb)
-      (return-from %%bignum-truncate
-        (values 0 a)))
-    (setf n (- (integer-length ta) (integer-length tb)))
-    (setf tb (ash tb n))
-    (setf tq (ash tq n))
-    ;; Divide bit-by-bit.
-    (dotimes (i (1+ n))
-      (when (not (> tb ta))
-        (setf ta (- ta tb))
-        (setf q (+ tq q)))
-      (setf tb (ash tb -1)
-            tq (ash tq -1)))
-    ;; Quotient in Q, remainder in TA.
-    ;; Correct sign.
-    (when (not (eql (minusp a) (minusp b)))
-      (setf q (- q)))
-    (when (minusp a)
-      (setf ta (- ta)))
-    (values q ta)))
 
 (defun sys.int::full-truncate (number divisor)
   (check-type number real)
@@ -408,16 +245,21 @@ Implements the dumb mp_div algorithm from BigNum Math."
                                     (double-float
                                      (%%truncate-double-float val)))
                                   ;; Grovel inside the float
-                                  (multiple-value-bind (significand exponent)
+                                  (multiple-value-bind (significand exponent sign)
                                       (integer-decode-float val)
-                                    (ash significand exponent)))))
+                                    (* (ash significand exponent) sign)))))
            (values integer-part (* (- val integer-part) divisor))))
         ((or (sys.int::ratiop number)
              (sys.int::ratiop divisor))
-         (let ((val (/ number divisor)))
-           (multiple-value-bind (quot rem)
-               (truncate (numerator val) (denominator val))
-             (values quot (/ rem (denominator val))))))
+         (cond ((integerp number)
+                (multiple-value-bind (quot rem)
+                    (truncate (* number (denominator divisor))
+                              (numerator divisor))
+                  (values quot (/ rem (denominator divisor)))))
+               (t
+                (let ((q (truncate (numerator number)
+                                   (* (denominator number) divisor))))
+                  (values q (- number (* q divisor)))))))
         (t (check-type number number)
            (check-type divisor number)
            (error "Argument combination ~S and ~S not supported." number divisor))))
@@ -517,52 +359,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
 
-(defun %%bignum-multiply-unsigned (a b)
-  (assert (bignump a))
-  (assert (bignump b))
-  (let* ((digs (+ (%n-bignum-fragments a)
-                  (%n-bignum-fragments b)
-                  1))
-         (c (%make-bignum-of-length digs)))
-    (dotimes (i digs)
-      (setf (%bignum-fragment c i) 0))
-    (loop for ix from 0 below (%n-bignum-fragments a) do
-         (let ((u 0)
-               (pb (min (%n-bignum-fragments b)
-                        (- digs ix))))
-           (when (< pb 1)
-             (return))
-           (loop for iy from 0 to (1- pb) do
-                (let ((r-hat (+ (%bignum-fragment c (+ iy ix))
-                                (%%bignum-multiply-step
-                                 (%bignum-fragment a ix)
-                                 (%bignum-fragment b iy))
-                                u)))
-                  (setf (%bignum-fragment c (+ iy ix))
-                        (ldb (byte 64 0) r-hat))
-                  (setf u (ash r-hat -64))))
-           (when (< (+ ix pb) digs)
-             (setf (%bignum-fragment c (+ ix pb)) u))))
-    (%%canonicalize-bignum c)))
-
-(defun %%bignum-multiply-signed (a b)
-  "Multiply two integers together. A and B can be bignums or fixnums."
-  (let ((a-negative (< a 0))
-        (b-negative (< b 0))
-        (c nil))
-    (when a-negative
-      (setf a (- a)))
-    (when b-negative
-      (setf b (- b)))
-    (when (fixnump a)
-      (setf a (%make-bignum-from-fixnum a)))
-    (when (fixnump b)
-      (setf b (%make-bignum-from-fixnum b)))
-    (setf c (%%bignum-multiply-unsigned a b))
-    (when (not (eql a-negative b-negative))
-      (setf c (- c)))
-    c))
-
 (defun sys.int::full-* (x y)
   (cond ((and (sys.int::fixnump x)
               (sys.int::fixnump y))
@@ -596,11 +392,21 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun abs (number)
   (check-type number number)
   (etypecase number
-    (complex (sqrt (+ (expt (realpart number) 2)
-                      (expt (imagpart number) 2))))
-    (real (if (minusp number)
-              (- number)
-              number))))
+    (complex
+     (sqrt (+ (expt (realpart number) 2)
+              (expt (imagpart number) 2))))
+    (single-float
+     (%integer-as-single-float
+      (logand #x7FFFFFFF
+              (%single-float-as-integer number))))
+    (double-float
+     (%integer-as-double-float
+      (logand #x7FFFFFFFFFFFFFFF
+              (%double-float-as-integer number))))
+    (real
+     (if (minusp number)
+         (- number)
+         number))))
 
 (defun sqrt (number)
   (check-type number number)
@@ -751,7 +557,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun sin-single-float (d)
   (let ((q 0)
-        (u 0.0f0)
         (s 0.0f0))
     (setf q (sleef-rintf (* d (/ (float pi 0.0f0)))))
 
@@ -769,7 +574,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun cos-single-float (d)
   (let ((q 0)
-        (u 0.0f0)
         (s 0.0f0))
     (setf q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
 
@@ -800,7 +604,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun sin-double-float (d)
   (let ((q 0)
-        (u 0.0d0)
         (s 0.0d0))
     (setf q (sleef-rint (* d (/ (float pi 0.0d0)))))
 
@@ -818,7 +621,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun cos-double-float (d)
   (let ((q 0)
-        (u 0.0d0)
         (s 0.0d0))
     (setf q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
 
@@ -1392,11 +1194,11 @@ Implements the dumb mp_div algorithm from BigNum Math."
                    (single-float +single-float-digits+)
                    (double-float +double-float-digits+)))
          (scale 0))
-    (declare (fixnum digits scale))
+    (declare (type fixnum digits scale))
     ;; Strip any trailing zeros from the denominator and move it into the scale
     ;; factor (to minimize the size of the operands.)
     (let ((den-twos (1- (integer-length (logxor den (1- den))))))
-      (declare (fixnum den-twos))
+      (declare (type fixnum den-twos))
       (decf scale den-twos)
       (setq den (ash den (- den-twos))))
     ;; Guess how much we need to scale by from the magnitudes of the numerator
@@ -1406,7 +1208,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
            (delta (- den-len num-len))
            (shift (1+ (the fixnum (+ delta digits))))
            (shifted-num (ash num shift)))
-      (declare (fixnum delta shift))
+      (declare (type fixnum delta shift))
       (decf scale delta)
       (labels ((float-and-scale (bits)
                  (let* ((bits (ash bits -1))
@@ -1427,7 +1229,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
           (multiple-value-bind (fraction-and-guard rem)
               (truncate shifted-num den)
             (let ((extra (- (integer-length fraction-and-guard) digits)))
-              (declare (fixnum extra))
+              (declare (type fixnum extra))
               (cond ((/= extra 1)
                      (assert (> extra 1)))
                     ((oddp fraction-and-guard)
@@ -1451,7 +1253,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (float
      (multiple-value-bind (significand exponent sign)
          (integer-decode-float number)
-       (* significand (expt (float-radix number) exponent) sign)))))
+       (if (eql significand 0)
+           0
+           (let ((signed-significand (if (minusp sign)
+                                         (- significand)
+                                         significand)))
+             (if (minusp exponent)
+                 (* signed-significand (/ (ash 1 (- exponent))))
+                 (ash signed-significand exponent))))))))
 
 (defun rationalize (number)
   (rational number))

@@ -66,9 +66,13 @@
 
 (in-package :mezzano.gray)
 
+;;; The standard stream class.
+
+(defclass stream () ())
+
 ;;; Gray Streams classes.
 
-(defclass fundamental-stream (stream standard-object)
+(defclass fundamental-stream (stream)
   ((%openp :initform t :accessor stream-open-p))
   (:documentation "The base class for all Gray streams."))
 

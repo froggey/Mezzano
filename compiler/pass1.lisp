@@ -57,6 +57,17 @@
                (find name (rest decl)))
       (return t))))
 
+(defun check-known-declarations (declares)
+  (dolist (decl declares)
+    (when (not (and (symbolp (first decl))
+                    (or (sys.int::known-declaration-p (first decl))
+                        (member (first decl) '(dynamic-extent sys.int::lambda-name
+                                               ignore ignorable closure-allocation
+                                               sys.int::suppress-ssp-checking)))))
+      (warn 'sys.int::simple-style-warning
+            :format-control "Unknown declaration ~S."
+            :format-arguments (list decl)))))
+
 (defun check-variable-usage (variable)
   "Warn if VARIABLE was not used and not declared IGNORE or IGNORABLE."
   (when (and (not (lexical-variable-ignore variable))
@@ -83,6 +94,7 @@
 (defun pass1-lambda-inner (lambda env)
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
+    (check-known-declarations declares)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((optimize-env (extend-environment env :declarations declares))
@@ -409,6 +421,7 @@
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let ((bindings '())
             (env (extend-environment env
                                      :declarations (remove-if-not (lambda (x) (eql x 'optimize))
@@ -472,6 +485,7 @@
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       ;; Generate variables & lambda expressions for each function.
       (let* ((raw-bindings (mapcar (lambda (x)
                                      (multiple-value-list (frob-flet-function x)))
@@ -516,6 +530,7 @@
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let* ((names (loop for binding in bindings collect (parse-let-binding binding)))
              (env (extend-environment env
                                       :declarations (append
@@ -530,19 +545,24 @@
                                       (check-variable-bindable var)
                                       (list name init-form var))))
                                 bindings)))
-        (make-instance 'ast-let
-                       :environment env
-                       :bindings (mapcar (lambda (b)
-                                           (list (third b)
-                                                 (wrap-type-check (third b)
-                                                                  (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
-                                         variables)
-                       :body (pass1-form `(progn ,@body)
-                                         (extend-environment env
-                                                             :variables (mapcar (lambda (b)
-                                                                                  (list (first b) (third b)))
-                                                                                variables)
-                                                             :declarations declares)))))))
+        (prog1
+            (make-instance 'ast-let
+                           :environment env
+                           :bindings (mapcar (lambda (b)
+                                               (list (third b)
+                                                     (wrap-type-check (third b)
+                                                                      (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
+                                             variables)
+                           :body (pass1-form `(progn ,@body)
+                                             (extend-environment env
+                                                                 :variables (mapcar (lambda (b)
+                                                                                      (list (first b) (third b)))
+                                                                                    variables)
+                                                                 :declarations declares)))
+          (loop
+             for (name init-form var) in variables
+             when (lexical-variable-p var)
+             do (check-variable-usage var)))))))
 
 (defun find-type-declaration (symbol declares)
   (dolist (dec declares 't)
@@ -580,6 +600,7 @@
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
         (sys.int::parse-declares forms)
+      (check-known-declarations declares)
       (let* ((env (extend-environment env
                                       :declarations (remove-if-not (lambda (x) (eql x 'optimize))
                                                                    declares
@@ -591,7 +612,8 @@
                                                          :environment env
                                                          :value 'nil)))
              (inner result)
-             (var-names '()))
+             (var-names '())
+             (vars '()))
         (dolist (b bindings)
           (multiple-value-bind (name init-form)
               (parse-let-binding b)
@@ -605,9 +627,13 @@
                     inner (body inner)
                     env (extend-environment env
                                             :variables (list (list name var))
-                                            :declarations (fake-type-declarations-for declares name))))))
+                                            :declarations (fake-type-declarations-for declares name)))
+              (push var vars))))
         (setf (body inner) (pass1-form `(progn ,@body)
                                        (extend-environment env :declarations declares)))
+        (dolist (var vars)
+          (when (lexical-variable-p var)
+            (check-variable-usage var)))
         (body result)))))
 
 (defun pass1-load-time-value (form env)
@@ -618,6 +644,7 @@
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
+    (check-known-declarations declares)
     (pass1-form `(progn ,@body) (extend-environment env :declarations declares))))
 
 (defun pass1-locally (form env)
@@ -772,6 +799,7 @@
             "Bad SYMBOL-MACROLET definition.")
     (multiple-value-bind (body declares)
         (sys.int::parse-declares body)
+      (check-known-declarations declares)
       (let* ((defs (loop
                       for (name expansion) in definitions
                       do

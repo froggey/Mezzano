@@ -8,6 +8,11 @@
              (:area :wired))
   tag)
 
+;; Custom wrapper function because of the declaration.
+(defun (setf sys.int::%%special-stack-pointer) (value)
+  (declare (sys.int::suppress-ssp-checking))
+  (setf (sys.int::%%special-stack-pointer) value))
+
 (defun sys.int::%%unwind-to (target-special-stack-pointer)
   (declare (sys.int::suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (sys.int::%%special-stack-pointer))
@@ -112,6 +117,9 @@
   (unless (sys.int::%object-of-type-p object object-tag)
     (sys.int::raise-type-error object expected-type)
     (sys.int::%%unreachable)))
+
+(defun sys.int::%value-has-tag-p (value tag)
+  (eql (sys.int::%tag-field value) tag))
 
 (defun sys.int::%value-has-immediate-tag-p (object immediate-tag)
   (and (sys.int::%value-has-tag-p object sys.int::+tag-immediate+)
@@ -255,6 +263,10 @@ thread's stack if this function is called from normal code."
   (cas (%memref-signed-byte-64 base index) old new))
 
 (declaim (inline (sys.int::cas %object-ref-t)))
+(defun %object-ref-t (object index)
+  (%object-ref-t object index))
+(defun (setf %object-ref-t) (value object index)
+  (setf (%object-ref-t object index) value))
 (defun (sys.int::cas %object-ref-t) (old new object index)
   (multiple-value-bind (successp actual-value)
       (sys.int::%cas-object object index old new)
@@ -282,6 +294,13 @@ thread's stack if this function is called from normal code."
   (check-type value (unsigned-byte 32))
   (setf (%%object-ref-unsigned-byte-32 object index) value))
 
+(declaim (inline %object-ref-unsigned-byte-64 (setf %object-ref-unsigned-byte-64)))
+(defun %object-ref-unsigned-byte-64 (object index)
+  (%%object-ref-unsigned-byte-64 object index))
+(defun (setf %object-ref-unsigned-byte-64) (value object index)
+  (check-type value (unsigned-byte 64))
+  (setf (%%object-ref-unsigned-byte-64 object index) value))
+
 (declaim (inline %object-ref-signed-byte-8 (setf %object-ref-signed-byte-8)))
 (defun %object-ref-signed-byte-8 (object index)
   (%%object-ref-signed-byte-8 object index))
@@ -302,6 +321,13 @@ thread's stack if this function is called from normal code."
 (defun (setf %object-ref-signed-byte-32) (value object index)
   (check-type value (signed-byte 32))
   (setf (%%object-ref-signed-byte-32 object index) value))
+
+(declaim (inline %object-ref-signed-byte-64 (setf %object-ref-signed-byte-64)))
+(defun %object-ref-signed-byte-64 (object index)
+  (%%object-ref-signed-byte-64 object index))
+(defun (setf %object-ref-signed-byte-64) (value object index)
+  (check-type value (signed-byte 64))
+  (setf (%%object-ref-signed-byte-64 object index) value))
 
 (declaim (inline %object-ref-single-float (setf %object-ref-single-float)))
 (defun %object-ref-single-float (object index)
@@ -349,6 +375,13 @@ thread's stack if this function is called from normal code."
   (check-type value (unsigned-byte 32))
   (setf (%%object-ref-unsigned-byte-32-unscaled object index) value))
 
+(declaim (inline %object-ref-unsigned-byte-64-unscaled (setf %object-ref-unsigned-byte-64-unscaled)))
+(defun %object-ref-unsigned-byte-64-unscaled (object index)
+  (%%object-ref-unsigned-byte-64-unscaled object index))
+(defun (setf %object-ref-unsigned-byte-64-unscaled) (value object index)
+  (check-type value (unsigned-byte 64))
+  (setf (%%object-ref-unsigned-byte-64-unscaled object index) value))
+
 (declaim (inline %object-ref-signed-byte-8-unscaled (setf %object-ref-signed-byte-8-unscaled)))
 (defun %object-ref-signed-byte-8-unscaled (object index)
   (%%object-ref-signed-byte-8-unscaled object index))
@@ -369,6 +402,13 @@ thread's stack if this function is called from normal code."
 (defun (setf %object-ref-signed-byte-32-unscaled) (value object index)
   (check-type value (signed-byte 32))
   (setf (%%object-ref-signed-byte-32-unscaled object index) value))
+
+(declaim (inline %object-ref-signed-byte-64-unscaled (setf %object-ref-signed-byte-64-unscaled)))
+(defun %object-ref-signed-byte-64-unscaled (object index)
+  (%%object-ref-signed-byte-64-unscaled object index))
+(defun (setf %object-ref-signed-byte-64-unscaled) (value object index)
+  (check-type value (signed-byte 64))
+  (setf (%%object-ref-signed-byte-64-unscaled object index) value))
 
 (declaim (inline %object-ref-single-float-unscaled (setf %object-ref-single-float-unscaled)))
 (defun %object-ref-single-float-unscaled (object index)

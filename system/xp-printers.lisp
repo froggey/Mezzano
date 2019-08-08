@@ -303,7 +303,7 @@
   ;; We must print out the string as a string, in order to prevent
   ;; circularity testing
   (let ((code (bq-struct-code obj)))
-    (declare (simple-string code))
+    (declare (type simple-string code))
     (write-string++ code xp 0 (length code))
     (write+ (bq-struct-data obj) xp)))
 

@@ -93,8 +93,7 @@
                   ;; Promote to full hash-table
                   (let* ((storage (make-array *default-single-dispatch-emf-table-size* :initial-element nil))
                          (existing-entry (single-dispatch-emf-table-table emf-table))
-                         (existing-class (car existing-entry))
-                         (existing-value (cdr existing-entry)))
+                         (existing-class (car existing-entry)))
                     (multiple-value-bind (existing-slot slot-offset)
                         (get-single-dispatch-emf-table-slot-offset storage existing-class)
                       (declare (ignore existing-slot))

@@ -176,6 +176,7 @@
        (eql (structure-slot-definition-location x) (structure-slot-definition-location y))))
 
 (defun load-llf-structure-definition (stream stack)
+  (declare (ignore stream))
   (let ((has-standard-constructor (vector-pop stack))
         (docstring (vector-pop stack))
         (sealed (vector-pop stack))
@@ -197,6 +198,7 @@
                                         has-standard-constructor))))
 
 (defun load-llf-structure-slot-definition (stream stack)
+  (declare (ignore stream))
   (let* ((align (vector-pop stack))
          (fixed-vector (vector-pop stack))
          (location (vector-pop stack))

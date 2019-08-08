@@ -29,8 +29,8 @@
 
 ;;; Generics for working with packet-oriented connections.
 
-(defgeneric send (sequence connection &optional (start 0) end))
-(defgeneric receive (connection &optional timeout))
+(defgeneric send (sequence connection &key (start 0) end))
+(defgeneric receive (connection &key timeout))
 (defgeneric disconnect (connection))
 
 ;;; High-level address resolution.
@@ -53,6 +53,14 @@
           (when errorp
             (error "Unknown host ~S." address))))
         (t address)))
+
+;;; Inteface configuration.
+
+(defgeneric configure-interface (interface configuration-type &key)
+  (:documentation "Begin acquiring an IP address/routes/etc for INTERFACE."))
+(defgeneric deconfigure-interface (interface configuration-type &key)
+  (:documentation "Remove IP addresses/routes/etc associated with INTERFACE.
+This is called with the same options CONFIGURE-INTERFACE was originally called with."))
 
 ;;; Loopback adapter.
 

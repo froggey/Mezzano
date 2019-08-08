@@ -277,7 +277,7 @@
                  ,store-form)
               `(the ,value-type ,read-form)))))
 
-(define-setf-expander apply (function &rest arguments &environment env)
+(define-setf-expander apply (function &rest arguments)
   ;; 5.1.2.5 APPLY Forms as Places.
   ;; FUNCTION must look like #'SYMBOL.
   (unless (and (listp function)

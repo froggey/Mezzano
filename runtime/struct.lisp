@@ -24,8 +24,8 @@
   (or (find slot-name (mezzano.clos:class-slots class)
             :key #'mezzano.clos:slot-definition-name)
       (if errorp
-          (error "Slot ~S missing from structure definition ~S."
-                 slot-name definition)
+          (error "Slot ~S missing from structure ~S."
+                 slot-name class)
           nil)))
 
 (defun sys.int::%struct-slot (object class-name slot-name)

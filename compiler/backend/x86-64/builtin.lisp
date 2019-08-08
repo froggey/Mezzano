@@ -3,7 +3,7 @@
 
 (in-package :mezzano.compiler.backend.x86-64)
 
-(defmacro define-builtin (name (lambda-list results) &body body)
+(defmacro define-builtin (name (lambda-list results &key (has-wrapper t)) &body body)
   (when (not (listp results))
     (setf results (list results)))
   (let ((backend-function (gensym))
@@ -20,6 +20,7 @@
        for real-arg in real-lambda-list
        when (consp arg)
        do
+         (assert (not has-wrapper))
          (assert (eql (first arg) :constant))
          (destructuring-bind (name &optional (predicate t))
              (rest arg)
@@ -51,15 +52,30 @@
                                (ir:constant-value (first (gethash value ,defs)))))
                         (declare (ignorable #'emit #'give-up #'finish #'constant-value-p #'fetch-constant-value))
                         ,@body
-                        t))))))
+                        t)))
+                  ',has-wrapper)))
 
 (defclass builtin ()
   ((%name :initarg :name :reader builtin-name)
    (%lambda-list :initarg :lambda-list :reader builtin-lambda-list)
    (%result-list :initarg :result-list :reader builtin-result-list)
-   (%generator :initarg :generator :reader builtin-generator)))
+   (%generator :initarg :generator :reader builtin-generator)
+   (%has-wrapper :initarg :has-wrapper :reader builtin-has-wrapper)))
 
 (defvar *builtins* (make-hash-table :test 'equal))
+
+;; Produce an alist of symbol names and their associated functions.
+(defun generate-builtin-functions ()
+  (let ((functions '()))
+    (maphash (lambda (name info)
+               (when (builtin-has-wrapper info)
+                 (push (list name
+                             `(lambda ,(builtin-lambda-list info)
+                                (declare (sys.int::lambda-name ,name))
+                                (funcall #',name ,@(builtin-lambda-list info))))
+                       functions)))
+             *builtins*)
+    functions))
 
 (defun match-builtin (name n-arguments)
   (let ((builtin (gethash name *builtins*)))
@@ -68,13 +84,14 @@
         builtin
         nil)))
 
-(defun %defbuiltin (name lambda-list result-list generator)
+(defun %defbuiltin (name lambda-list result-list generator has-wrapper)
   (setf (gethash name *builtins*)
         (make-instance 'builtin
                        :name name
                        :lambda-list lambda-list
                        :result-list result-list
-                       :generator generator))
+                       :generator generator
+                       :has-wrapper has-wrapper))
   name)
 
 (defun consumed-by-p (definition consumer uses defs)
@@ -102,9 +119,8 @@
                                     :destination tmp
                                     :value nil))
     (funcall emitter (make-instance 'x86-fake-three-operand-instruction
-                                    :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-cmov-instruction
-                                             (mezzano.compiler.codegen.x86-64::predicate-info
-                                              predicate))
+                                    :opcode (predicate-instruction-cmov-instruction
+                                             (predicate-info predicate))
                                     :result result
                                     :lhs tmp
                                     :rhs '(:constant t)))))
@@ -131,9 +147,8 @@
             (ir:insert-before
              backend-function inst
              (make-instance 'x86-branch-instruction
-                            :opcode (mezzano.compiler.codegen.x86-64::predicate-instruction-jump-instruction
-                                     (mezzano.compiler.codegen.x86-64::predicate-info
-                                      pred))
+                            :opcode (predicate-instruction-jump-instruction
+                                     (predicate-info pred))
                             :true-target (ir:branch-true-target next-inst)
                             :false-target (ir:branch-false-target next-inst)))
             (let ((advance (ir:next-instruction backend-function next-inst)))
@@ -142,9 +157,9 @@
               (values advance t))))))))
 
 (defun lower-builtin (backend-function inst defs)
-  (let ((builtin (and (typep inst '(or
-                                    ir:call-instruction
-                                    ir:call-multiple-instruction))
+  (let ((builtin (and (typep inst '(or ir:call-instruction
+                                       ir:call-multiple-instruction
+                                       ir:tail-call-instruction))
                       (match-builtin (ir:call-function inst)
                                      (length (ir:call-arguments inst))))))
     (when builtin
@@ -188,13 +203,17 @@
                                         (ir:insert-before
                                          backend-function inst new-inst))))))
         ;; Fix up multiple values.
-        (when (typep inst 'ir:call-multiple-instruction)
+        (when (typep inst '(or ir:call-multiple-instruction ir:tail-call-instruction))
           (ir:insert-before
            backend-function inst
            (make-instance 'ir:values-instruction
                           :values (if (endp (builtin-result-list builtin))
                                       '()
                                       result-regs))))
+        (when (typep inst 'ir:tail-call-instruction)
+          (ir:insert-before
+           backend-function inst
+           (make-instance 'ir:return-multiple-instruction)))
         (let ((advance (ir:next-instruction backend-function inst)))
           (ir:remove-instruction backend-function inst)
           advance)))))

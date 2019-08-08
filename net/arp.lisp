@@ -36,7 +36,6 @@
          (spa-start (+ sha-start hlen))
          (tha-start (+ spa-start plen))
          (tpa-start (+ tha-start hlen))
-         (packet-end (+ tpa-start plen))
          (merge-flag nil)
          (address (mezzano.network.ip::ipv4-address-address
                    (mezzano.network.ip:ipv4-interface-address interface nil))))

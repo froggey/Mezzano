@@ -36,8 +36,7 @@
 
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
-  (let ((contents (list (type-of object)))
-        (class (class-of object)))
+  (let ((class (class-of object)))
     (write (list* (class-name class)
                   (loop
                      for slot in (mezzano.clos:class-slots class)
@@ -171,7 +170,7 @@
 (defmethod print-object ((object array) stream)
   (cond (*print-array*
          (write-char #\# stream)
-         (write (array-rank object) :stream stream :base 10)
+         (write (array-rank object) :stream stream :base 10 :radix nil)
          (write-char #\A stream)
          (labels ((print-level (dims index)
                     (cond ((null dims)

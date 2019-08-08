@@ -43,6 +43,7 @@
                                                ',layout)
                                              `(sys.int::%allocate-instance ',layout)))
                          (,unbound-marker-sym *secret-unbound-value*))
+                     (declare (ignorable ,unbound-marker-sym))
                      ;; Initialize all boxed heap slots to the unbound value.
                      ,@(loop
                           for i from (if funcallablep 2 0) below (sys.int::layout-heap-size layout)
@@ -166,17 +167,19 @@
                ,@(loop
                     for (initarg form fn) in (class-default-initargs class)
                     collect `(when (not (property-present-p ,supplied-initargs ',initarg))
-                               (setf ,initargs (list* ',initarg (funcall ',fn) ,initargs))))
+                               (setf ,initargs (append ,initargs (list ',initarg (funcall ',fn))))))
                ;; Check key validity.
                ,(when (not (or allocate-aok initialize-aok))
                   `(when (not (getf ,initargs :allow-other-keys))
                      (let ((invalid-initargs (loop
                                                 for key in ,initargs by #'cddr
-                                                when (not (member key ',all-keys))
+                                                when (and (not (eql key :allow-other-keys))
+                                                          (not (member key ',all-keys)))
                                                 collect key)))
                        (when invalid-initargs
-                         (error "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid:~:S"
-                                invalid-initargs ',class ',(class-name class) ,initargs ',all-keys)))))
+                         (error 'sys.int::simple-program-error
+                                :format-control "Invalid initargs ~:S when creating instance of ~S (~S).~%Supplied: ~:S~%valid: ~:S"
+                                :format-arguments (list invalid-initargs ',class ',(class-name class) ,initargs ',all-keys))))))
                ;; Allocate & initialize instance.
                (let ((,instance ,allocate-form))
                  ,initialize-form
