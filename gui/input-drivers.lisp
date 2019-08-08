@@ -61,6 +61,28 @@
                        (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
                       (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte))))))))))
 
+;;
+;; From https://www.win.tue.nl/~aeb/linux/kbd/scancodes-13.html
+;;
+;; Intellimouse
+;;
+;; The Microsoft Intellimouse uses the above protocol until scrolling
+;; wheel mode is activated by sending the magic sequence f3 c8 f3 64
+;; f3 50 (set sample rate 200, 100, 80). In this mode, the Read mouse
+;; ID command returns 03, and 4-byte packets are used:
+;;
+;; Yovfl   Xovfl    dy8    dx8     1     Middle Btn  Right Btn  Left Btn
+;;  dx7     dx6     dx5    dx4    dx3        dx2        dx1        dx0
+;;  dy7     dy6     dy5    dy4    dy3        dy2        dy1        dy0
+;;  dz3     dz3     dz3    dz3    dz3        dz2        dz1        dz0
+;;
+;; Here the last byte gives the movement of the scrolling wheel in
+;; 4-bit two's complement notation (range -8 to +7) and the leading
+;; four bits are just copies of the sign bit.
+;;
+;; The code translates the scrolling wheel to buttons 4 and 5 using
+;; just one bit of resolution instead of three
+
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
@@ -68,12 +90,26 @@
        (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
          ;; Check sync bit.
          (when (logtest byte-1 #b00001000)
-           (let ((byte-2 (mezzano.supervisor:ps/2-aux-read))
-                 (byte-3 (mezzano.supervisor:ps/2-aux-read)))
+           (let* ((byte-2 (mezzano.supervisor:ps/2-aux-read))
+                  (byte-3 (mezzano.supervisor:ps/2-aux-read))
+                  (byte-4 (mezzano.supervisor:ps/2-aux-read))
+                  (x-motion (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)))
+                  (y-motion (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))
+                  (button-4 (if (> #x08 byte-4 #x00) #b01000 0))
+                  (button-5 (if (>= byte-4 #xF8)     #b10000 0)))
              (mezzano.gui.compositor:submit-mouse
-              (logand byte-1 #b111) ; Buttons 1 to 3.
-              (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
-              (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0)))))))))) ; y-motion
+              (logior
+               (logand byte-1 #b111) ; middle right and left buttons
+               button-4              ; wheel-up button
+               button-5)             ; wheel-down button
+              x-motion               ; x-motion
+              y-motion)              ; y-motion
+             (when (or (/= button-4 0) (/= button-5 0))
+               ;; generate button up event for button 4 or button 5
+               (mezzano.gui.compositor:submit-mouse
+                (logand byte-1 #b111) ; middle right and left buttons
+                x-motion              ; x-motion
+                y-motion))))))))      ; y-motion
 
 (when (not *keyboard-forwarder*)
   (setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
