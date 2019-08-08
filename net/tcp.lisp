@@ -58,16 +58,15 @@
    (local-ip :reader tcp-listener-local-ip
              :initarg :local-ip
              :type mezzano.network.ip::ipv4-address)
-   (semaphore :reader tcp-listener-semaphore
-              :initarg :semaphore
-              :type mezzano.sync:semaphore)
    (connections :reader tcp-listener-connections
                 :initarg :connections
                 :type mezzano.sync:mailbox)
+   (n-pending-connections :accessor tcp-listener-n-pending-connections
+                          :initarg :n-pending-connections
+                          :type integer)
    (backlog :reader tcp-listener-backlog
-            :initarg :backlog
-            :type integer))
-  (:default-initargs :semaphore (mezzano.sync:make-semaphore)))
+            :initarg :backlog))
+  (:default-initargs :n-pending-connections 0))
 
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
@@ -180,9 +179,9 @@
           ;; Drop unestablished connections if they surpassed listener backlog
           ((and listener
                 (eql flags +tcp4-flag-syn+)
-                (< (mezzano.sync:semaphore-value (tcp-listener-semaphore listener))
+                (< (tcp-listener-n-pending-connections listener)
                    (tcp-listener-backlog listener)))
-           (mezzano.sync:semaphore-up (tcp-listener-semaphore listener))
+           (incf (tcp-listener-n-pending-connections listener))
            (let* ((seq (random #x100000000))
                   (ack (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
                   (connection (make-instance 'tcp-connection
@@ -302,7 +301,7 @@
                 (setf (tcp-connection-state connection) :established)
                 (when listener
                   (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))
-                  (mezzano.sync:semaphore-down (tcp-listener-semaphore listener))))
+                  (decf (tcp-listener-n-pending-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
@@ -312,7 +311,7 @@
                 (setf (tcp-connection-state connection) :connection-aborted)
                 (detach-tcp-connection connection)
                 (when listener
-                  (mezzano.sync:semaphore-down (tcp-listener-semaphore listener))))))
+                  (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (if (zerop data-length)
              (when (and (= seq (tcp-connection-r-next connection))
