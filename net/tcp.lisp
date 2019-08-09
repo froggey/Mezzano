@@ -58,6 +58,9 @@
    (local-ip :reader tcp-listener-local-ip
              :initarg :local-ip
              :type mezzano.network.ip::ipv4-address)
+   (pending-connections :reader tcp-listener-pending-connections
+                        :initarg :pending-connections
+                        :type hash-table)
    (connections :reader tcp-listener-connections
                 :initarg :connections
                 :type mezzano.sync:mailbox)
@@ -83,7 +86,13 @@
 
 (defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-    (setf *tcp-listeners* (remove listener *tcp-listeners*))))
+    (setf *tcp-listeners* (remove listener *tcp-listeners*)))
+  (loop :for connection :being :the :hash-values :of (tcp-listener-pending-connections listener)
+        :do (with-tcp-connection-locked connection
+              (abort-connection connection)))
+  (loop :for connection :in (mezzano.sync:mailbox-flush (tcp-listener-connections listener))
+        :do (with-tcp-connection-locked connection
+              (abort-connection connection))))
 
 (defun wait-for-connections (listener &key timeout)
   (mezzano.supervisor:event-wait-for ((tcp-listener-connections listener)
@@ -197,6 +206,8 @@
                                              :window-size 8192)))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
+             (setf (gethash connection (tcp-listener-pending-connections listener))
+                   connection)
              (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
@@ -302,6 +313,7 @@
                 ;; Remote have sended ACK , connection established
                 (setf (tcp-connection-state connection) :established)
                 (when listener
+                  (remhash connection (tcp-listener-pending-connections listener))
                   (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
@@ -313,6 +325,7 @@
                 (detach-tcp-connection connection)
                 (when (and listener
                            (tcp-listener-backlog listener))
+                  (remhash connection (tcp-listener-pending-connections listener))
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (if (zerop data-length)
@@ -461,16 +474,19 @@
         :do (unless (get-tcp-connection ip port local-ip local-port)
               (return local-port))))
 
+(defun abort-connection (connection)
+  (setf (tcp-connection-state connection) :closed)
+  (tcp4-send-packet connection
+                    (tcp-connection-s-next connection)
+                    (tcp-connection-r-next connection)
+                    nil
+                    :rst-p t)
+  (detach-tcp-connection connection))
+
 (defun close-tcp-connection (connection)
   (ecase (tcp-connection-state connection)
     (:syn-sent
-     (setf (tcp-connection-state connection) :closed)
-     (tcp4-send-packet connection
-                       (tcp-connection-s-next connection)
-                       (tcp-connection-r-next connection)
-                       nil
-                       :rst-p t)
-     (detach-tcp-connection connection))
+     (abort-connection connection))
     ((:established :syn-received)
      (setf (tcp-connection-state connection) :fin-wait-1)
      (tcp4-send-packet connection
@@ -516,6 +532,7 @@
                                (t
                                 local-port)))
              (listener (make-instance 'tcp-listener
+                                      :pending-connections (make-hash-table :test 'equalp :size backlog)
                                       :connections (mezzano.sync:make-mailbox
                                                     :name "TCP Listener")
                                       :backlog backlog
