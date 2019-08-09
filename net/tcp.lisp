@@ -302,9 +302,7 @@
                 ;; Remote have sended ACK , connection established
                 (setf (tcp-connection-state connection) :established)
                 (when listener
-                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))
-                  (when (tcp-listener-backlog listener)
-                    (decf (tcp-listener-n-pending-connections listener)))))
+                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
@@ -519,8 +517,7 @@
                                 local-port)))
              (listener (make-instance 'tcp-listener
                                       :connections (mezzano.sync:make-mailbox
-                                                    :name "TCP Listener"
-                                                    :capacity backlog)
+                                                    :name "TCP Listener")
                                       :backlog backlog
                                       :local-port local-port
                                       :local-ip source-address)))
@@ -531,9 +528,12 @@
   (let ((connection (mezzano.sync:mailbox-receive
                      (tcp-listener-connections listener)
                      :wait-p wait-p)))
-    (if connection
-        (tcp4-accept-connection connection :element-type element-type :external-format external-format)
-        nil)))
+    (cond (connection
+           (tcp4-accept-connection connection :element-type element-type :external-format external-format)
+           (when (tcp-listener-backlog listener)
+             (decf (tcp-listener-n-pending-connections listener))))
+          (t
+           nil))))
 
 (defparameter *tcp-connect-timeout* 10)
 
