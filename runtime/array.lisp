@@ -99,7 +99,7 @@
 
 ;;; Simple vectors.
 
-(declaim (inline svref (setf svref) sys.int::simple-vector-length))
+(declaim (inline svref (setf svref) (sys.int::cas svref) sys.int::simple-vector-length))
 
 (defun svref (simple-vector index)
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
