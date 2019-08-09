@@ -546,9 +546,9 @@
                      (tcp-listener-connections listener)
                      :wait-p wait-p)))
     (cond (connection
-           (tcp4-accept-connection connection :element-type element-type :external-format external-format)
            (when (tcp-listener-backlog listener)
-             (decf (tcp-listener-n-pending-connections listener))))
+             (decf (tcp-listener-n-pending-connections listener)))
+           (tcp4-accept-connection connection :element-type element-type :external-format external-format))
           (t
            nil))))
 
