@@ -130,7 +130,16 @@
          (format t "  cs: ~8,'0X~%" (mezzano.supervisor:thread-state-cs thread))
          (format t " rflags: ~8,'0X~%" (mezzano.supervisor:thread-state-rflags thread))
          (format t " rsp: ~8,'0X~%" (mezzano.supervisor:thread-state-rsp thread))
-         (format t "  ss: ~8,'0X~%" (mezzano.supervisor:thread-state-ss thread)))
+         (format t "  ss: ~8,'0X~%" (mezzano.supervisor:thread-state-ss thread))
+         (flet ((read-xmm (index)
+                  (let ((vector (make-array 16 :element-type '(unsigned-byte 8))))
+                    (dotimes (i 16)
+                      (setf (aref vector i) (mezzano.supervisor::thread-fxsave-area thread (+ 160 (* index 16) i))))
+                    (logior
+                     (ub64ref/le vector 0)
+                     (ash (ub64ref/le vector 8) 64)))))
+           (dotimes (i 16)
+             (format t "  xmm~D: ~32,'0X~%" i (read-xmm i)))))
         (t
          (format t "Partial-save state:~%")
          (format t " rsp: ~8,'0X~%" (mezzano.supervisor:thread-state-rsp thread))
