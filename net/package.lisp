@@ -84,6 +84,7 @@
            #:wait-for-connections
            #:close-tcp-listener
            #:tcp-listener-local-port
+           #:tcp-listener-local-ip
            #:tcp-connection-local-port
            #:tcp-connection-local-ip
            #:tcp-connection-remote-port
