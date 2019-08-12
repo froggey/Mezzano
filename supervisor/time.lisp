@@ -147,7 +147,12 @@
 (defun dump-active-timers ()
   (debug-print-line "Active timers: (current time is " *run-time* ")")
   (do-timer-list (timer *active-timers*)
-    (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer))))
+    (block nil
+      (with-page-fault-hook
+          (()
+           (debug-print-line "<truncated>")
+           (return))
+        (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer))))))
 
 (defun make-timer (&key name relative deadline)
   (when (and relative deadline)
