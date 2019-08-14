@@ -588,6 +588,18 @@
     (or (zerop (length string))
         (eql (char string (1- (length string))) #\Newline))))
 
+(defmethod mezzano.gray:stream-line-column ((stream string-output-stream))
+  (let ((string (string-output-stream-string stream)))
+    (cond (string
+           (let ((column 0))
+             (loop
+                (when (or (eql (length string) column)
+                          (eql (char string (- (length string) column 1)) #\Newline))
+                  (return column))
+                (incf column))))
+          (t
+           0))))
+
 (defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
   (multiple-value-bind (real-body declares)
       (parse-declares body)
