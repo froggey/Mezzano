@@ -97,6 +97,11 @@
     (setf (fdefinition name) lambda))
   name)
 
+(defun fboundp (name)
+  (if (and (consp name) (eql (first name) 'sys.int::cas))
+      nil
+      (cl:fboundp name)))
+
 (defun sys.int::set-variable-docstring (name docstring)
   (declare (ignore name docstring)))
 

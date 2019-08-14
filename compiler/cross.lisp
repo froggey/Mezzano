@@ -78,7 +78,8 @@
            :subtypep
            :upgraded-array-element-type
            :namestring
-           :defpackage)
+           :defpackage
+           :fboundp)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
