@@ -92,7 +92,8 @@
   (mezzano.sync.dispatch:cancel (gethash nic *receive-sources*))
   (remhash nic *receive-sources*))
 
-;; TODO: Integrate ARP expiration into this.
+;; ARP expiration disabled.
+;; It's causing the IP layer to drop packets which breaks long-running TCP connections.
 (defun initialize-network-stack ()
   (setf *network-serial-queue* (mezzano.sync.dispatch:make-queue
                                 :name "Main network stack queue"
@@ -102,7 +103,11 @@
                                 :suspended t))
   ;; Create sources for NIC addition/removal.
   (let ((nic-add-mailbox (mezzano.sync:make-mailbox :name "NIC add mailbox"))
-        (nic-rem-mailbox (mezzano.sync:make-mailbox :name "NIC rem mailbox")))
+        (nic-rem-mailbox (mezzano.sync:make-mailbox :name "NIC rem mailbox"))
+        #+(or)
+        (arp-expiration-timer (mezzano.supervisor:make-timer :name "ARP expiration timer")))
+    #+(or)
+    (setf mezzano.network.arp::*arp-expiration-timer* arp-expiration-timer)
     (mezzano.sync.dispatch:make-source
      nic-add-mailbox
      (lambda ()
@@ -112,6 +117,12 @@
      nic-rem-mailbox
      (lambda ()
        (nic-removed (mezzano.sync:mailbox-receive nic-rem-mailbox)))
+     :target *network-serial-queue*)
+    #+(or)
+    (mezzano.sync.dispatch:make-source
+     arp-expiration-timer
+     (lambda ()
+       (mezzano.network.arp::arp-expiration))
      :target *network-serial-queue*)
     (mezzano.driver.network-card:add-nic-hooks
      (lambda (nic) (mezzano.sync:mailbox-send nic nic-add-mailbox))

@@ -21,6 +21,12 @@
 (defconstant +tcp4-flag-ece+ #b01000000)
 (defconstant +tcp4-flag-cwr+ #b10000000)
 
+;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
+(defparameter +ip-wildcard+ (mezzano.network.ip:make-ipv4-address "0.0.0.0"))
+(defconstant +port-wildcard+ 0)
+
+(defparameter *tcp-connect-timeout* 10)
+
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *tcp-listeners* nil)
@@ -30,7 +36,6 @@
   "Possible states that a TCP connection can have."
   '(member
     :closed
-    :listen
     :syn-sent
     :syn-received
     :established
@@ -47,6 +52,7 @@
 (deftype tcp-sequence-number ()
   '(unsigned-byte 32))
 
+;; FIXME: Inbount connections need to timeout if state :syn-received don't change.
 (defclass tcp-listener ()
   ((local-port :reader tcp-listener-local-port
                :initarg :local-port
@@ -54,9 +60,18 @@
    (local-ip :reader tcp-listener-local-ip
              :initarg :local-ip
              :type mezzano.network.ip::ipv4-address)
+   (pending-connections :reader tcp-listener-pending-connections
+                        :initarg :pending-connections
+                        :type hash-table)
    (connections :reader tcp-listener-connections
                 :initarg :connections
-                :type mezzano.sync:mailbox)))
+                :type mezzano.sync:mailbox)
+   (n-pending-connections :accessor tcp-listener-n-pending-connections
+                          :initarg :n-pending-connections
+                          :type integer)
+   (backlog :reader tcp-listener-backlog
+            :initarg :backlog))
+  (:default-initargs :n-pending-connections 0))
 
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
@@ -71,15 +86,70 @@
             (tcp-listener-local-ip instance)
             (tcp-listener-local-port instance))))
 
-(defun close-tcp-listener (listener)
+(defun get-tcp-listener-without-lock (local-ip local-port)
+  (dolist (listener *tcp-listeners*)
+    (when (and (or (mezzano.network.ip:address-equal
+                    (tcp-listener-local-ip listener) local-ip)
+                   (mezzano.network.ip:address-equal
+                    (tcp-listener-local-ip listener) +ip-wildcard+))
+               (eql (tcp-listener-local-port listener) local-port))
+      (return listener))))
+
+(defun get-tcp-listener (local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-    (setf *tcp-listeners* (remove listener *tcp-listeners*))))
+    (get-tcp-listener-without-lock local-ip local-port)))
+
+(defun tcp-listen (local-host local-port &key backlog)
+  (multiple-value-bind (host interface)
+      (mezzano.network.ip:ipv4-route (mezzano.network:resolve-address local-host))
+    (declare (ignore host))
+    (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
+      (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
+             (local-port (cond ((= local-port +port-wildcard+)
+                                ;; find a suitable port number
+                                (loop :for local-port := (+ (random 32768) 32768)
+                                      :unless (get-tcp-listener-without-lock source-address local-port)
+                                      :do(return local-port)))
+                               ((get-tcp-listener-without-lock source-address local-port)
+                                (error "Server already listening on port ~D" local-port))
+                               (t
+                                local-port)))
+             (listener (make-instance 'tcp-listener
+                                      :pending-connections (make-hash-table :test 'equalp :size backlog)
+                                      :connections (mezzano.sync:make-mailbox
+                                                    :name "TCP Listener")
+                                      :backlog backlog
+                                      :local-port local-port
+                                      :local-ip source-address)))
+        (push listener *tcp-listeners*)
+        listener))))
 
 (defun wait-for-connections (listener &key timeout)
   (mezzano.supervisor:event-wait-for ((tcp-listener-connections listener)
                                       :timeout timeout)
     ;; Fetch all connections from the mailbox.
     (mezzano.sync:mailbox-flush (tcp-listener-connections listener))))
+
+(defun tcp-accept (listener &key (wait-p t) element-type external-format)
+  (let ((connection (mezzano.sync:mailbox-receive
+                     (tcp-listener-connections listener)
+                     :wait-p wait-p)))
+    (cond (connection
+           (when (tcp-listener-backlog listener)
+             (decf (tcp-listener-n-pending-connections listener)))
+           (tcp4-accept-connection connection :element-type element-type :external-format external-format))
+          (t
+           nil))))
+
+(defun close-tcp-listener (listener)
+  (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
+    (setf *tcp-listeners* (remove listener *tcp-listeners*)))
+  (loop :for connection :being :the :hash-values :of (tcp-listener-pending-connections listener)
+        :do (with-tcp-connection-locked connection
+              (abort-connection connection)))
+  (loop :for connection :in (mezzano.sync:mailbox-flush (tcp-listener-connections listener))
+        :do (with-tcp-connection-locked connection
+              (abort-connection connection))))
 
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-state
@@ -131,21 +201,6 @@
   `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
-;; FIXME: This is temporary fix for recursive locking in tcp-listen
-(defun get-tcp-listener-without-lock (local-ip local-port)
-  (dolist (listener *tcp-listeners*)
-    (when (and (or (mezzano.network.ip:address-equal
-                    (tcp-listener-local-ip listener) local-ip)
-                   (mezzano.network.ip:address-equal
-                    (mezzano.network.ip:make-ipv4-address "0.0.0.0")
-                    (tcp-listener-local-ip listener)))
-               (eql (tcp-listener-local-port listener) local-port))
-      (return listener))))
-
-(defun get-tcp-listener (local-ip local-port)
-  (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-    (get-tcp-listener-without-lock local-ip local-port)))
-
 (defun get-tcp-connection (remote-ip remote-port local-ip local-port)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (dolist (connection *tcp-connections*)
@@ -167,49 +222,48 @@
          (connection (get-tcp-connection remote-ip remote-port local-ip local-port))
          (listener (get-tcp-listener local-ip local-port)))
     (cond (connection
-           (tcp4-receive connection packet start end))
-          ((and listener (eql flags +tcp4-flag-syn+))
-           (let ((connection (make-instance 'tcp-connection
-                                            :state :listen
-                                            :local-port local-port
-                                            :local-ip local-ip
-                                            :remote-port remote-port
-                                            :remote-ip remote-ip
-                                            :s-next 0
-                                            :r-next (ub32ref/be packet (+ start +tcp4-header-sequence-number+))
-                                            :window-size 8192)))
-             ;; Drop connections that don't fit in the mailbox.
-             ;; This way a listener can limit the number of
-             ;; connections that haven't been accepted.
-             (when (mezzano.sync:mailbox-send
-                    connection
-                    (tcp-listener-connections listener)
-                    :wait-p nil)
-               (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-                 (push connection *tcp-connections*))))))))
+           (tcp4-receive connection packet start end listener))
+          ;; Drop unestablished connections if they surpassed listener backlog
+          ((and listener
+                (eql flags +tcp4-flag-syn+)
+                (or (not (tcp-listener-backlog listener))
+                    (< (tcp-listener-n-pending-connections listener)
+                       (tcp-listener-backlog listener))))
+           (when (tcp-listener-backlog listener)
+             (incf (tcp-listener-n-pending-connections listener)))
+           (let* ((seq (random #x100000000))
+                  (ack (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
+                  (connection (make-instance 'tcp-connection
+                                             :state :syn-received
+                                             :local-port local-port
+                                             :local-ip local-ip
+                                             :remote-port remote-port
+                                             :remote-ip remote-ip
+                                             :s-next (logand #xFFFFFFFF (1+ seq))
+                                             :r-next ack
+                                             :window-size 8192)))
+             (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (push connection *tcp-connections*))
+             (setf (gethash connection (tcp-listener-pending-connections listener))
+                   connection)
+             (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
-  (let* ((seq (random #x100000000))
-         (ack (logand #xFFFFFFFF (1+ (tcp-connection-r-next connection)))))
-    (setf (tcp-connection-state connection) :syn-received
-          (tcp-connection-s-next connection) (logand #xFFFFFFFF (1+ seq))
-          (tcp-connection-r-next connection) ack)
-    (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)
-    (cond ((or (not element-type)
-               (sys.int::type-equal element-type 'character))
-           (make-instance 'tcp-stream
-                          :connection connection
-                          :external-format (sys.int::make-external-format
-                                            (or element-type 'character)
-                                            (or external-format :default)
-                                            :eol-style :crlf)))
-          ((sys.int::type-equal element-type '(unsigned-byte 8))
-           (assert (or (not external-format)
-                       (eql external-format :default)))
-           (make-instance 'tcp-octet-stream
-                          :connection connection))
-          (t
-           (error "Unsupported element type ~S" element-type)))))
+  (cond ((or (not element-type)
+             (sys.int::type-equal element-type 'character))
+         (make-instance 'tcp-stream
+                        :connection connection
+                        :external-format (sys.int::make-external-format
+                                          (or element-type 'character)
+                                          (or external-format :default)
+                                          :eol-style :crlf)))
+        ((sys.int::type-equal element-type '(unsigned-byte 8))
+         (assert (or (not external-format)
+                     (eql external-format :default)))
+         (make-instance 'tcp-octet-stream
+                        :connection connection))
+        (t
+         (error "Unsupported element type ~S" element-type))))
 
 (defun tcp4-decline-connection (connection)
   (detach-tcp-connection connection))
@@ -218,7 +272,7 @@
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*))))
 
-(defun tcp4-receive-data (connection data-length end header-length packet seq start state)
+(defun tcp4-receive-data (connection data-length end header-length packet seq start)
   (cond ((= seq (tcp-connection-r-next connection))
          ;; Send data to the user layer
          (if (tcp-connection-rx-data connection)
@@ -255,7 +309,7 @@
                            nil
                            :ack-p t))))
 
-(defun tcp4-receive (connection packet &optional (start 0) end)
+(defun tcp4-receive (connection packet &optional (start 0) end listener)
   (unless end (setf end (length packet)))
   (with-tcp-connection-locked connection
     (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
@@ -269,10 +323,6 @@
         (setf (tcp-connection-state connection) :connection-aborted)
         (detach-tcp-connection connection))
       (case (tcp-connection-state connection)
-        (:listen
-         ;; Remote has start new connection.
-         ;; Not much to do here, just waiting for the application to accept or decline new connection.
-         )
         (:syn-sent
          ;; Active open
          (cond ((and (logtest flags +tcp4-flag-ack+)
@@ -299,7 +349,10 @@
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote have sended ACK , connection established
-                (setf (tcp-connection-state connection) :established))
+                (setf (tcp-connection-state connection) :established)
+                (when listener
+                  (remhash connection (tcp-listener-pending-connections listener))
+                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
                      (eql ack (1- (tcp-connection-s-next connection)))))
@@ -307,7 +360,11 @@
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
                 (setf (tcp-connection-state connection) :connection-aborted)
-                (detach-tcp-connection connection))))
+                (detach-tcp-connection connection)
+                (when (and listener
+                           (tcp-listener-backlog listener))
+                  (remhash connection (tcp-listener-pending-connections listener))
+                  (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (if (zerop data-length)
              (when (and (= seq (tcp-connection-r-next connection))
@@ -318,7 +375,7 @@
                      (logand (+ (tcp-connection-r-next connection) 1)
                              #xFFFFFFFF))
                (tcp4-send-packet connection ack seq nil :ack-p t))
-             (tcp4-receive-data connection data-length end header-length packet seq start :established)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
@@ -351,7 +408,7 @@
                      ((logtest flags +tcp4-flag-ack+)
                       ;; Remote saw our FIN
                       (setf (tcp-connection-state connection) :fin-wait-2))))
-             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-1)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (if (zerop data-length)
@@ -367,7 +424,7 @@
                                  nil)
                (setf (tcp-connection-state connection) :closed)
                (detach-tcp-connection connection))
-             (tcp4-receive-data connection data-length end header-length packet seq start :fin-wait-2)))
+             (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:closing
          ;; Waiting for ACK
          (when (and (eql seq (tcp-connection-r-next connection))
@@ -455,32 +512,34 @@
         :do (unless (get-tcp-connection ip port local-ip local-port)
               (return local-port))))
 
+(defun abort-connection (connection)
+  (setf (tcp-connection-state connection) :closed)
+  (tcp4-send-packet connection
+                    (tcp-connection-s-next connection)
+                    (tcp-connection-r-next connection)
+                    nil
+                    :rst-p t)
+  (detach-tcp-connection connection))
+
 (defun close-tcp-connection (connection)
-  (with-tcp-connection-locked connection
-    (ecase (tcp-connection-state connection)
-      (:syn-sent
-       (setf (tcp-connection-state connection) :closed)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :rst-p t)
-       (detach-tcp-connection connection))
-      ((:established :syn-received)
-       (setf (tcp-connection-state connection) :fin-wait-1)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :fin-p t))
-      (:close-wait
-       (setf (tcp-connection-state connection) :last-ack)
-       (tcp4-send-packet connection
-                         (tcp-connection-s-next connection)
-                         (tcp-connection-r-next connection)
-                         nil
-                         :fin-p t))
-      (:closed))))
+  (ecase (tcp-connection-state connection)
+    (:syn-sent
+     (abort-connection connection))
+    ((:established :syn-received)
+     (setf (tcp-connection-state connection) :fin-wait-1)
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :fin-p t))
+    (:close-wait
+     (setf (tcp-connection-state connection) :last-ack)
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :fin-p t))
+    (:closed)))
 
 (define-condition network-error (error)
   ())
@@ -494,34 +553,6 @@
 
 (define-condition connection-timed-out (connection-error)
   ())
-
-(defun tcp-listen (local-host local-port &key backlog)
-  (let ((local-ip (mezzano.network:resolve-address local-host)))
-    (multiple-value-bind (host interface)
-        (mezzano.network.ip:ipv4-route local-ip)
-      (declare (ignore host))
-      (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
-             (listener (make-instance 'tcp-listener
-                                      :connections (mezzano.sync:make-mailbox
-                                                    :name "TCP Listener"
-                                                    :capacity backlog)
-                                      :local-port local-port
-                                      :local-ip source-address)))
-        (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-          (when (get-tcp-listener-without-lock source-address local-port)
-            (error "Server already listening on port ~D" local-port))
-          (push listener *tcp-listeners*))
-        listener))))
-
-(defun tcp-accept (listener &key (wait-p t) element-type external-format)
-  (let ((connection (mezzano.sync:mailbox-receive
-                     (tcp-listener-connections listener)
-                     :wait-p wait-p)))
-    (if connection
-        (tcp4-accept-connection connection :element-type element-type :external-format external-format)
-        nil)))
-
-(defparameter *tcp-connect-timeout* 10)
 
 (defun tcp-connect (ip port)
   (multiple-value-bind (host interface)
@@ -546,7 +577,8 @@
         (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
                                                        (tcp-connection-lock connection)
                                                        *tcp-connect-timeout*)
-                 (not (eql (tcp-connection-state connection) :syn-sent)))
+                 (not (or (eql (tcp-connection-state connection) :syn-sent)
+                          (eql (tcp-connection-state connection) :syn-received))))
                (when (eql (tcp-connection-state connection) :connection-aborted)
                  (error 'connection-aborted
                         :host ip
@@ -589,6 +621,13 @@
   ((connection :initarg :connection :reader tcp-stream-connection)
    (current-packet :initform nil :accessor tcp-stream-packet)))
 
+(defclass tcp-stream (gray:fundamental-character-input-stream
+                      gray:fundamental-character-output-stream
+                      sys.int::external-format-mixin
+                      tcp-octet-stream
+                      gray:unread-char-mixin)
+  ())
+
 (defmethod mezzano.network:local-endpoint ((object tcp-octet-stream))
   (let ((conn (tcp-stream-connection object)))
     (values (tcp-connection-local-ip conn)
@@ -618,8 +657,6 @@
   (member (tcp-connection-state connection)
           ;; Data can only be received in these states.
           '(:established
-            :syn-sent
-            :syn-received
             :fin-wait-1
             :fin-wait-2)))
 
@@ -718,7 +755,8 @@
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
   (declare (ignore abort))
-  (close-tcp-connection (tcp-stream-connection stream)))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (close-tcp-connection (tcp-stream-connection stream))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -729,13 +767,6 @@
 
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
-
-(defclass tcp-stream (gray:fundamental-character-input-stream
-                      gray:fundamental-character-output-stream
-                      sys.int::external-format-mixin
-                      tcp-octet-stream
-                      gray:unread-char-mixin)
-  ())
 
 (defun tcp-stream-connect (address port &key element-type external-format)
   (cond ((or (not element-type)
