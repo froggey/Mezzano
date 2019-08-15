@@ -87,6 +87,18 @@ Make sure there is a virtio-net NIC attached.~%")
     :inherit-configuration))
 (eval (read-from-string "(push 'home-source-registry asdf:*default-source-registries*)"))
 
+(defun driver-source-registry ()
+  `(:SOURCE-REGISTRY
+    (:TREE ,(pathname (concatenate 'string "REMOTE:"
+                                   sys.int::*mezzano-source-path*
+                                   "drivers/")))
+    :INHERIT-CONFIGURATION))
+(eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
+
+(require :usb)
+(require :usb/ohci)
+(require :usb/class-drivers)
+
 ;; Split-sequence
 (require :split-sequence)
 
