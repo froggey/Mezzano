@@ -28,10 +28,17 @@
                  slot-name class)
           nil)))
 
+(defun raise-struct-type-error (object class slot-name)
+  (error 'simple-type-error
+         :datum object
+         :type class
+         :format-control "Type error. ~S is not of structure type ~S when accessing slot ~S."
+         :format-arguments (list object (class-name class) slot-name)))
+
 (defun sys.int::%struct-slot (object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (loc (mezzano.clos:slot-definition-location slot)))
@@ -40,7 +47,7 @@
 (defun (setf sys.int::%struct-slot) (value object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (type (mezzano.clos:slot-definition-type slot))
@@ -52,7 +59,7 @@
 (defun (sys.int::cas sys.int::%struct-slot) (old new object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (type (mezzano.clos:slot-definition-type slot))
@@ -70,7 +77,7 @@
 (defun sys.int::%struct-vector-slot (object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (loc (mezzano.clos:slot-definition-location slot)))
@@ -80,7 +87,7 @@
 (defun (setf sys.int::%struct-vector-slot) (value object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (type (mezzano.clos:slot-definition-type slot))
@@ -93,7 +100,7 @@
 (defun (sys.int::cas sys.int::%struct-vector-slot) (old new object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
-      (sys.int::raise-type-error object class)
+      (raise-struct-type-error object class slot-name)
       (sys.int::%%unreachable))
     (let* ((slot (find-struct-slot class slot-name))
            (type (mezzano.clos:slot-definition-type slot))
