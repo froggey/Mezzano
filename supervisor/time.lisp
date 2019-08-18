@@ -218,7 +218,9 @@ Returns the number of seconds remaining if was armed or NIL if it was disarmed."
              (with-place-spinlock ((timer-queue-lock *active-timers*))
                (prog1 (timer-%deadline timer)
                  (timer-disarm-1 timer))))))
-    (convert-deadline-to-remaining-time (do-disarm))))
+    (let ((deadline (do-disarm)))
+      (when deadline
+        (convert-deadline-to-remaining-time deadline)))))
 
 (defun timer-remaining (timer)
   "Returns the number of seconds remaining if TIMER is armed or NIL if it is disarmed."
