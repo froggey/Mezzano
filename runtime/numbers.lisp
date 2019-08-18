@@ -569,16 +569,10 @@
                 (t (values tru rem)))))))
 
 (defun sys.int::generic-rem (number divisor)
-  (multiple-value-bind (quot rem)
-      (sys.int::generic-truncate number divisor)
-    (declare (ignore quot))
-    rem))
+  (nth-value 1 (sys.int::generic-truncate number divisor)))
 
 (defun mod (number divisor)
-  (multiple-value-bind (quot rem)
-      (floor number divisor)
-    (declare (ignore quot))
-    rem))
+  (nth-value 1 (floor number divisor)))
 
 (defun sys.int::binary-/ (x y)
   (cond ((or (and (sys.int::single-float-p x)
