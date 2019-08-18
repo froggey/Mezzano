@@ -56,9 +56,10 @@
     (setf (class-reference-class reference) new-value)))
 
 (sys.int::defglobal *next-class-hash-value*)
+(declaim (type fixnum *next-class-hash-value*))
 
 (defun next-class-hash-value ()
-  (sys.int::%atomic-fixnum-add-symbol '*next-class-hash-value* 1))
+  (sys.int::atomic-incf *next-class-hash-value*))
 
 (sys.int::defglobal *secret-unbound-value*); (list "slot unbound"))
 
