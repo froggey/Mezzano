@@ -1212,6 +1212,7 @@ Other arguments are included directly."
             ((known-type string stringp))
             ;; Bootstrap types
             ((specific-type (or null (integer 1)))) ; mailbox
+            ((specific-type (or null (integer 0)))) ; semaphore
             ((specific-type (member :lf-ignore-cr :cr :lf :crlf :lfcr))) ; external-format
             (t
              (multiple-value-bind (expansion expanded-p)

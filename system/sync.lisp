@@ -25,6 +25,7 @@
            #:make-semaphore
            #:semaphore-name
            #:semaphore-value
+           #:semaphore-limit
            #:semaphore-up
            #:semaphore-down
 
@@ -132,10 +133,15 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 (defclass semaphore ()
   ((%not-zero-event :reader semaphore-not-zero-event)
    (%lock :initform (sup:make-mutex "Internal semaphore lock") :reader semaphore-lock)
-   (%value :initarg :value :accessor %semaphore-value))
-  (:default-initargs :value 0))
+   (%value :initarg :value :accessor %semaphore-value :type (integer 0))
+   (%limit :initarg :limit :reader semaphore-limit :type (or null (integer 0))))
+  (:default-initargs :value 0 :limit nil))
 
 (defmethod initialize-instance :after ((instance semaphore) &key name)
+  (when (and (semaphore-limit instance)
+             (> (%semaphore-value instance) (semaphore-limit instance)))
+    (error "Semaphore initial value ~D exceeds limit ~D"
+           (%semaphore-value instance) (semaphore-limit instance)))
   (setf (slot-value instance '%not-zero-event)
         (sup:make-event :name name
                         :state (not (zerop (%semaphore-value instance))))))
@@ -144,16 +150,19 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
   (print-unreadable-object (object stream :type t :identity t)
     (when (semaphore-name object)
       (format stream "~A " (semaphore-name object)))
-    (format stream "~A" (semaphore-value object))))
+    (format stream "~A" (semaphore-value object))
+    (when (semaphore-limit object)
+      (format stream "/~A" (semaphore-limit object)))))
 
 (defmethod get-object-event ((object semaphore))
   (semaphore-not-zero-event object))
 
 ;;; Public API:
 
-(defun make-semaphore (&key name (value 0))
+(defun make-semaphore (&key name (value 0) limit)
   (check-type value (integer 0))
-  (make-instance 'semaphore :name name :value value))
+  (check-type limit (or null (integer 0)))
+  (make-instance 'semaphore :name name :value value :limit limit))
 
 (defun semaphore-name (semaphore)
   (sup:event-name (semaphore-not-zero-event semaphore)))
@@ -164,7 +173,10 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 
 (defun semaphore-up (semaphore)
   "Increment SEMAPHORE."
-  (sup:with-mutex ((semaphore-lock semaphore))
+  (sup:with-mutex ((semaphore-lock semaphore) :resignal-errors t)
+    (let ((limit (semaphore-limit semaphore)))
+      (when (and limit (eql (%semaphore-value semaphore) limit))
+        (error "Semaphore at limit ~D" limit)))
     (incf (%semaphore-value semaphore))
     (setf (sup:event-state (semaphore-not-zero-event semaphore)) t))
   (values))
