@@ -124,12 +124,6 @@
         (push listener *tcp-listeners*)
         listener))))
 
-(defun wait-for-connections (listener &key timeout)
-  (mezzano.supervisor:event-wait-for ((tcp-listener-connections listener)
-                                      :timeout timeout)
-    ;; Fetch all connections from the mailbox.
-    (mezzano.sync:mailbox-flush (tcp-listener-connections listener))))
-
 (defun tcp-accept (listener &key (wait-p t) element-type external-format)
   (let ((connection (mezzano.sync:mailbox-receive
                      (tcp-listener-connections listener)
@@ -264,9 +258,6 @@
                         :connection connection))
         (t
          (error "Unsupported element type ~S" element-type))))
-
-(defun tcp4-decline-connection (connection)
-  (detach-tcp-connection connection))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)

@@ -80,9 +80,6 @@
   (:export #:tcp-stream-connect
            #:tcp-listen
            #:tcp-accept
-           #:tcp4-accept-connection
-           #:tcp4-decline-connection
-           #:wait-for-connections
            #:close-tcp-listener
            #:tcp-listener-local-port
            #:tcp-listener-local-ip
