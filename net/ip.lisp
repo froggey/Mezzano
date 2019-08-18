@@ -272,13 +272,14 @@ ADDRESS must be an ipv4-address designator."
                              protocol
                              payload)))))
 
-(defun ipv4-receive (interface packet start end)
-  (declare (ignore interface))
+(defmethod mezzano.network.ethernet:ethernet-receive
+    ((ethertype (eql mezzano.network.ethernet:+ethertype-ipv4+))
+     interface packet start end)
   (let ((actual-length (- end start)))
     (when (< actual-length 20)
       ;; Runt packet with an incomplete header.
       (format t "Discarding runt IPv4 packet (~D bytes).~%" actual-length)
-      (return-from ipv4-receive))
+      (return-from mezzano.network.ethernet:ethernet-receive))
     (let* ((version-and-ihl (aref packet (+ start +ipv4-header-version-and-ihl+)))
            (version (ldb (byte +ipv4-header-version-size+ +ipv4-header-version-position+)
                          version-and-ihl))
@@ -296,36 +297,36 @@ ADDRESS must be an ipv4-address designator."
       (declare (ignore ttl))
       (when (not (eql version 4))
         (format t "Discarding IPv4 packet with bad version ~D.~%" version)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (< header-length 20)
         (format t "Discarding IPv4 packet with too-short header-length ~D.~%" header-length)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (> header-length actual-length)
         (format t "Discarding IPv4 packet with too-long header-length ~D (max ~D).~%" header-length actual-length)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (> header-length total-length)
         (format t "Discarding IPv4 packet with too-short total-length ~D (smaller than header-length ~D).~%" total-length header-length)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (> total-length actual-length)
         (format t "Discarding IPv4 packet with too-long total-length ~D (max ~D).~%" total-length actual-length)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (logbitp +ipv4-header-flag-reserved+ frag-control)
         (format t "Discarding IPv4 packet with reserved flag set.~%")
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (when (not (eql (compute-ip-checksum packet start (+ start header-length)) 0))
         (format t "Discarding IPv4 packet with bad header checksum.~%")
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       ;; TODO: Fragmentation support.
       (when (or (not (eql frag-offset 0))
                 (logbitp +ipv4-header-flag-more-fragments+ frag-control))
         (format t "Discarding fragmented IPv4 packet (not supported). ~X~%" frag-control)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       ;; Is it address to one of our interfaces?
       ;; If not, forward or reject it.
       (when (and (not (= (ipv4-address-address dest-ip) #xffffffff)) ;;not broadcast
 		 (not (ipv4-address-interface dest-ip nil)))
         (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
-        (return-from ipv4-receive))
+        (return-from mezzano.network.ethernet:ethernet-receive))
       (case protocol
         (#.+ip-protocol-tcp+
          (mezzano.network.tcp::%tcp4-receive packet

@@ -27,16 +27,13 @@
           (ldb (byte 8 32) mac)
           (ldb (byte 8 40) mac)))
 
+(defgeneric ethernet-receive (ethertype interface packet start end))
+
+(defmethod ethernet-receive (ethertype interface packet start end)
+  (format t "Unknown ethertype ~X~%" ethertype))
+
 (defun receive-ethernet-packet (interface packet)
-  (let ((ethertype (ub16ref/be packet 12)))
-    (cond
-      ((eql ethertype +ethertype-arp+)
-       (mezzano.network.arp::arp-receive interface packet))
-      ((eql ethertype +ethertype-ipv4+)
-       (mezzano.network.ip::ipv4-receive interface packet 14 (length packet)))
-      ((eql ethertype +ethertype-ipv6+)
-       (format t "IPV6 isn't supported.~%"))
-      (t (format t "Unknown ethertype ~X.~%" ethertype)))))
+  (ethernet-receive (ub16ref/be packet 12) interface packet 14 (length packet)))
 
 (defun ethernet-loopback (interface packet)
   ;; This is a bit hacky... (less than it was before!)

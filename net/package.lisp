@@ -24,6 +24,7 @@
            #:*ethernet-broadcast*
            #:transmit-packet
            #:transmit-ethernet-packet
+           #:ethernet-receive
            #:+ethertype-ipv4+
            #:+ethertype-arp+
            #:+ethertype-ipv6+))

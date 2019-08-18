@@ -26,7 +26,9 @@
                                                    *arp-expiration-timer*))
       (mezzano.supervisor:timer-disarm *arp-expiration-timer*)))
 
-(defun arp-receive (interface packet)
+(defmethod mezzano.network.ethernet:ethernet-receive
+    ((ethertype (eql mezzano.network.ethernet:+ethertype-arp+))
+     interface packet start end)
   (let* ((htype (ub16ref/be packet 14))
          (ptype (ub16ref/be packet 16))
          (hlen (aref packet 18))
