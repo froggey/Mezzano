@@ -569,3 +569,9 @@ thread's stack if this function is called from normal code."
   (unless (< (the fixnum slot) (the fixnum (%object-header-data object)))
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
+
+;; This is handled specially by the compiler & doesn't go through the
+;; normal builtin mechanism. Specifically provide a wrapper function
+;; for it.
+(defun %%unreachable ()
+  (%%unreachable))
