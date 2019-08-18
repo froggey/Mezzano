@@ -74,7 +74,8 @@
 	  (ub32ref/be packet 236) +magic-cookie+)
     (loop for pos = 240 then (+ pos (length option))
        for option in options
-       do (setf (subseq packet pos) option))
+       do (setf (subseq packet pos) option)
+       finally (setf (aref packet pos) +opt-end+))
     packet))
 
 (defun decode-dhcp-option (buffer position)
