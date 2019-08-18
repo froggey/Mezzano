@@ -52,3 +52,26 @@
            (,old-sym ,old)
            (,new-sym ,new))
        ,cas-form)))
+
+(defmacro atomic-incf (place &optional (delta 1) &environment environment)
+  "Atomically increment PLACE by DELTA.
+PLACE must contain a fixnum and if overflow occurs then the resulting value
+will be wrapped as though it were a fixnum-sized signed 2's complement integer.
+Returns the old value of PLACE."
+  (let ((expansion (macroexpand place environment))
+        (delta-sym (gensym "DELTA")))
+    ;; TODO: Support on struct slots that have been declared fixnum.
+    (when (not (and (symbolp expansion)
+                    (eql (symbol-mode expansion) :global)
+                    (type-equal (mezzano.runtime::symbol-type expansion) 'fixnum)))
+      (error "ATOMIC-INCF place ~S not supported. Must be global symbol declaimed fixnum."
+             place))
+    `(let ((,delta-sym ,delta))
+       (when (not (fixnump ,delta-sym))
+         (raise-type-error ,delta-sym 'fixnum)
+         (%%unreachable))
+       (%atomic-fixnum-add-symbol ',expansion ,delta-sym))))
+
+(defmacro atomic-decf (place &optional (delta 1))
+  "Like ATOMIC-INCF, but subtracting."
+  `(atomic-incf ,place (- ,delta)))
