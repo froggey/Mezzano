@@ -44,6 +44,10 @@
            ;; Sources
            #:source
            #:make-source
+           #:source-target
+           #:source-event
+           #:source-handler
+           #:source-cancellation-handler
 
            ;; Groups
            #:group
