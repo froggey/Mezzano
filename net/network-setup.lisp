@@ -7,6 +7,7 @@
 (defvar *network-serial-queue*)
 
 (defvar *receive-sources* (make-hash-table))
+(defvar *boot-source* nil)
 (defvar *interface-config* (make-hash-table))
 
 (defvar *static-configurations*
@@ -92,6 +93,15 @@
   (mezzano.sync.dispatch:cancel (gethash nic *receive-sources*))
   (remhash nic *receive-sources*))
 
+(defun network-boot-handler ()
+  (mezzano.supervisor:with-snapshot-inhibited ()
+    (mezzano.network.tcp::flush-stale-connections)
+    (mezzano.sync.dispatch:cancel *boot-source*)
+    (setf *boot-source* (mezzano.sync.dispatch:make-source
+                         (mezzano.supervisor:current-boot-id)
+                         'network-boot-handler
+                         :target *network-serial-queue*))))
+
 ;; ARP expiration disabled.
 ;; It's causing the IP layer to drop packets which breaks long-running TCP connections.
 (defun initialize-network-stack ()
@@ -127,6 +137,10 @@
     (mezzano.driver.network-card:add-nic-hooks
      (lambda (nic) (mezzano.sync:mailbox-send nic nic-add-mailbox))
      (lambda (nic) (mezzano.sync:mailbox-send nic nic-rem-mailbox))))
+  (setf *boot-source* (mezzano.sync.dispatch:make-source
+                       (mezzano.supervisor:current-boot-id)
+                       'network-boot-handler
+                       :target *network-serial-queue*))
   (let ((loopback-interface (make-instance 'sys.net::loopback-interface)))
     (mezzano.network.ip::ifup loopback-interface "127.0.0.1")
     (mezzano.network.ip:add-route "127.0.0.0" 8 loopback-interface))

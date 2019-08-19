@@ -182,9 +182,12 @@
    (%retransmit-source :reader tcp-connection-retransmit-source)
    (%timeout-timer :reader tcp-connection-timeout-timer
                    :initform (mezzano.supervisor:make-timer :name "TCP connection timeout"))
-   (%timeout-source :reader tcp-connection-timeout-source))
+   (%timeout-source :reader tcp-connection-timeout-source)
+   (%boot-id :reader tcp-connection-boot-id
+             :initarg :boot-id))
   (:default-initargs
-   :max-seg-size 1000))
+   :max-seg-size 1000
+   :boot-id nil))
 
 (defun arm-retransmit-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -304,7 +307,8 @@
                                              :remote-ip remote-ip
                                              :s-next (logand #xFFFFFFFF (1+ seq))
                                              :r-next ack
-                                             :window-size 8192)))
+                                             :window-size 8192
+                                             :boot-id (mezzano.supervisor:current-boot-id))))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
              (setf (gethash connection (tcp-listener-pending-connections listener))
@@ -647,6 +651,33 @@
 
 (define-condition connection-timed-out (connection-error)
   ())
+
+(define-condition connection-stale (connection-error)
+  ())
+
+(defun flush-stale-connections ()
+  ;; Called with snapshot inhibited to prevent more connections becoming stale.
+  ;; Lock ordering note:
+  ;; Can't take the per-connection lock while *tcp-connection-lock* is
+  ;; held. Must be the other way around. Per-connection lock first,
+  ;; then *tcp-connection-lock*.
+  (let ((stale-connections
+         (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+           (loop
+              for connection in *tcp-connections*
+              when (and (tcp-connection-boot-id connection)
+                        (not (eql (tcp-connection-boot-id connection)
+                                  (mezzano.supervisor:current-boot-id))))
+              collect connection))))
+    (dolist (connection stale-connections)
+      (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
+        (setf (tcp-connection-pending-error connection)
+              (make-condition 'connection-stale
+                              :host (tcp-connection-remote-ip connection)
+                              :port (tcp-connection-remote-port connection)))
+        (setf (tcp-connection-state connection) :closed)
+        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
+        (detach-tcp-connection connection)))))
 
 (defun check-connection-error (connection)
   (let ((condition (tcp-connection-pending-error connection)))

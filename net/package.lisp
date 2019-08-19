@@ -93,7 +93,8 @@
            #:connection-error-host
            #:connection-error-port
            #:connection-aborted
-           #:connection-timed-out))
+           #:connection-timed-out
+           #:connection-stale))
 
 (defpackage :mezzano.network.udp
   (:use :cl)
