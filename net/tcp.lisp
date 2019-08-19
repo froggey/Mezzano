@@ -43,8 +43,7 @@
     :last-ack
     :fin-wait-1
     :fin-wait-2
-    :closing
-    :connection-aborted))
+    :closing))
 
 (deftype tcp-port-number ()
   '(unsigned-byte 16))
@@ -169,18 +168,88 @@
             :type tcp-sequence-number)
    (%window-size :accessor tcp-connection-window-size :initarg :window-size)
    (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
-   (%rx-data :accessor tcp-connection-rx-data :initarg :rx-data)
-   (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initarg :rx-data-unordered)
-   (%lock :reader tcp-connection-lock :initarg :lock)
-   (%cvar :reader tcp-connection-cvar :initarg :cvar)
+   (%rx-data :accessor tcp-connection-rx-data :initform '())
+   (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initform (make-hash-table))
+   (%lock :reader tcp-connection-lock
+          :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
+   (%cvar :reader tcp-connection-cvar
+          :initform (mezzano.supervisor:make-condition-variable "TCP connection cvar"))
    (%receive-event :reader tcp-connection-receive-event
-                   :initform (mezzano.supervisor:make-event :name "TCP connection data available")))
+                   :initform (mezzano.supervisor:make-event :name "TCP connection data available"))
+   (%pending-error :accessor tcp-connection-pending-error :initform nil)
+   (%retransmit-timer :reader tcp-connection-retransmit-timer
+                      :initform (mezzano.supervisor:make-timer :name "TCP connection retransmit"))
+   (%retransmit-source :reader tcp-connection-retransmit-source)
+   (%timeout-timer :reader tcp-connection-timeout-timer
+                   :initform (mezzano.supervisor:make-timer :name "TCP connection timeout"))
+   (%timeout-source :reader tcp-connection-timeout-source))
   (:default-initargs
-   :max-seg-size 1000
-   :rx-data '()
-   :rx-data-unordered (make-hash-table)
-   :lock (mezzano.supervisor:make-mutex "TCP connection lock")
-   :cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
+   :max-seg-size 1000))
+
+(defun arm-retransmit-timer (seconds connection)
+  (mezzano.supervisor:timer-arm seconds
+                                (tcp-connection-retransmit-timer connection))
+  (values))
+
+(defun disarm-retransmit-timer (connection)
+  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+  (values))
+
+(defun retransmit-timer-handler (connection)
+  (when (not (mezzano.supervisor:timer-expired-p
+              (tcp-connection-retransmit-timer connection)))
+    ;; Timer is either still pending or isn't actually running.
+    ;; This can happen if the timer expires but some other task reconfigures
+    ;; a new retransmit time.
+    (return-from retransmit-timer-handler))
+  ;; Disarm it so it stops triggering the source
+  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+  ;; What're we retransmitting?
+  (format t "Doing retransmit on connection ~S~%" connection)
+  (ecase (tcp-connection-state connection)
+    (:syn-sent
+     (let ((seq (logand #xFFFFFFFF (1- (tcp-connection-s-next connection)))))
+       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+       (arm-retransmit-timer 1 connection)))))
+
+(defun arm-timeout-timer (seconds connection)
+  (mezzano.supervisor:timer-arm seconds
+                                (tcp-connection-timeout-timer connection))
+  (values))
+
+(defun disarm-timeout-timer (connection)
+  (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
+  (values))
+
+(defun timeout-timer-handler (connection)
+  (when (not (mezzano.supervisor:timer-expired-p
+              (tcp-connection-timeout-timer connection)))
+    ;; Timer is either still pending or isn't actually running.
+    ;; This can happen if the timer expires but some other task reconfigures
+    ;; a new timeout time.
+    (return-from timeout-timer-handler))
+  ;; Disarm it so it stops triggering the source
+  (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
+  (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
+    (setf (tcp-connection-pending-error connection)
+          (make-condition 'connection-timed-out
+                          :host (tcp-connection-remote-ip connection)
+                          :port (tcp-connection-remote-port connection)))
+    (setf (tcp-connection-state connection) :closed)
+    (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
+    (detach-tcp-connection connection)))
+
+(defmethod initialize-instance :after ((instance tcp-connection) &key)
+  (setf (slot-value instance '%retransmit-source)
+        (mezzano.sync.dispatch:make-source (tcp-connection-retransmit-timer instance)
+                                           (lambda ()
+                                             (retransmit-timer-handler instance))
+                                           :target sys.net::*network-serial-queue*))
+  (setf (slot-value instance '%timeout-source)
+        (mezzano.sync.dispatch:make-source (tcp-connection-timeout-timer instance)
+                                           (lambda ()
+                                             (timeout-timer-handler instance))
+                                           :target sys.net::*network-serial-queue*)))
 
 (defmethod print-object ((instance tcp-connection) stream)
   (print-unreadable-object (instance stream :type t :identity t)
@@ -192,7 +261,7 @@
             (tcp-connection-remote-port instance))))
 
 (defmacro with-tcp-connection-locked (connection &body body)
-  `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
+  `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection) :resignal-errors t)
      ,@body))
 
 (defun get-tcp-connection (remote-ip remote-port local-ip local-port)
@@ -259,7 +328,15 @@
         (t
          (error "Unsupported element type ~S" element-type))))
 
+;; Note - must be called on the network queue.
 (defun detach-tcp-connection (connection)
+  ;; Disarming here is doubly important.
+  ;; 1) It stops the timer from hanging around if it was active.
+  ;; 2) If the source handler is pending, then it'll return immediately.
+  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+  (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
+  (mezzano.sync.dispatch:cancel (tcp-connection-retransmit-source connection))
+  (mezzano.sync.dispatch:cancel (tcp-connection-timeout-source connection))
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*))))
 
@@ -300,9 +377,10 @@
                            nil
                            :ack-p t))))
 
-(defun tcp4-receive (connection packet &optional (start 0) end listener)
-  (unless end (setf end (length packet)))
-  (with-tcp-connection-locked connection
+(defun tcp4-receive (connection packet start end listener)
+  ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
+  ;; in here, so this avoids truncating the backtrace with :resignal-errors.
+  (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
     (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
            (ack (ub32ref/be packet (+ start +tcp4-header-acknowledgment-number+)))
            (flags-and-data-offset (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
@@ -311,7 +389,11 @@
            (data-length (- end (+ start header-length))))
       (when (logtest flags +tcp4-flag-rst+)
         ;; Remote have sended RST , aborting connection
-        (setf (tcp-connection-state connection) :connection-aborted)
+        (setf (tcp-connection-state connection) :closed)
+        (setf (tcp-connection-pending-error connection)
+              (make-condition 'connection-aborted
+                              :host (tcp-connection-remote-ip connection)
+                              :port (tcp-connection-remote-port connection)))
         (detach-tcp-connection connection))
       (case (tcp-connection-state connection)
         (:syn-sent
@@ -322,17 +404,27 @@
                 ;; Remote have sended SYN+ACK and waiting for ACK
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
-                (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
+                (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil)
+                ;; Cancel retransmit. FIXME: This ACK might need to be retransmitted.
+                (disarm-retransmit-timer connection)
+                (disarm-timeout-timer connection))
                ((logtest flags +tcp4-flag-syn+)
                 ;; Simultaneous open
                 (setf (tcp-connection-state connection) :syn-received
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
-                                  :ack-p t :syn-p t))
+                                  :ack-p t :syn-p t)
+                ;; Cancel retransmit. FIXME: This SYN/ACK might need to be retransmitted.
+                (disarm-retransmit-timer connection)
+                (disarm-timeout-timer connection))
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :connection-aborted)
+                (setf (tcp-connection-state connection) :closed)
+                (setf (tcp-connection-pending-error connection)
+                      (make-condition 'connection-aborted
+                                      :host (tcp-connection-remote-ip connection)
+                                      :port (tcp-connection-remote-port connection)))
                 (detach-tcp-connection connection))))
         (:syn-received
          ;; Pasive open
@@ -350,7 +442,11 @@
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :connection-aborted)
+                (setf (tcp-connection-state connection) :closed)
+                (setf (tcp-connection-pending-error connection)
+                      (make-condition 'connection-aborted
+                                      :host (tcp-connection-remote-ip connection)
+                                      :port (tcp-connection-remote-port connection)))
                 (detach-tcp-connection connection)
                 (when (and listener
                            (tcp-listener-backlog listener))
@@ -426,7 +522,11 @@
         (t
          ;; Aborting connection
          (tcp4-send-packet connection ack seq nil :rst-p t)
-         (setf (tcp-connection-state connection) :connection-aborted)
+         (setf (tcp-connection-state connection) :closed)
+         (setf (tcp-connection-pending-error connection)
+               (make-condition 'connection-aborted
+                               :host (tcp-connection-remote-ip connection)
+                               :port (tcp-connection-remote-port connection)))
          (detach-tcp-connection connection))))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
@@ -510,7 +610,10 @@
                     (tcp-connection-r-next connection)
                     nil
                     :rst-p t)
-  (detach-tcp-connection connection))
+  (mezzano.sync.dispatch:dispatch-async
+   (lambda ()
+     (detach-tcp-connection connection))
+   sys.net::*network-serial-queue*))
 
 (defun close-tcp-connection (connection)
   (ecase (tcp-connection-state connection)
@@ -545,42 +648,40 @@
 (define-condition connection-timed-out (connection-error)
   ())
 
-(defun tcp-connect (ip port)
-  (multiple-value-bind (host interface)
-      (mezzano.network.ip:ipv4-route ip)
-    (declare (ignore host))
-    (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
-           (source-port (allocate-local-tcp-port source-address ip port))
-           (seq (random #x100000000))
-           (connection (make-instance 'tcp-connection
-                                      :state :syn-sent
-                                      :local-port source-port
-                                      :local-ip source-address
-                                      :remote-port port
-                                      :remote-ip ip
-                                      :s-next (logand #xFFFFFFFF (1+ seq))
-                                      :r-next 0
-                                      :window-size 8192)))
-      (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
-        (push connection *tcp-connections*))
-      (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-      (with-tcp-connection-locked connection
-        (cond ((mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
-                                                       (tcp-connection-lock connection)
-                                                       *tcp-connect-timeout*)
-                 (not (or (eql (tcp-connection-state connection) :syn-sent)
-                          (eql (tcp-connection-state connection) :syn-received))))
-               (when (eql (tcp-connection-state connection) :connection-aborted)
-                 (error 'connection-aborted
-                        :host ip
-                        :port port)))
-              (t
-               ;; wait-for returned false, timeout occured.
-               (close-tcp-connection connection)
-               (error 'connection-timed-out
-                      :host ip
-                      :port port))))
-      connection)))
+(defun check-connection-error (connection)
+  (let ((condition (tcp-connection-pending-error connection)))
+    (when condition
+      (error condition))))
+
+(defun tcp-connect (ip port &key persist)
+  (let* ((interface (nth-value 1 (mezzano.network.ip:ipv4-route ip)))
+         (source-address (mezzano.network.ip:ipv4-interface-address interface))
+         (source-port (allocate-local-tcp-port source-address ip port))
+         (seq (random #x100000000))
+         (connection (make-instance 'tcp-connection
+                                    :state :syn-sent
+                                    :local-port source-port
+                                    :local-ip source-address
+                                    :remote-port port
+                                    :remote-ip ip
+                                    :s-next (logand #xFFFFFFFF (1+ seq))
+                                    :r-next 0
+                                    :window-size 8192
+                                    :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
+    (mezzano.sync.dispatch:dispatch-async
+     (lambda ()
+       (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+         (push connection *tcp-connections*))
+       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+       (arm-retransmit-timer 1 connection)
+       (arm-timeout-timer *tcp-connect-timeout* connection))
+     sys.net::*network-serial-queue*)
+    (with-tcp-connection-locked connection
+      (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                              (tcp-connection-lock connection))
+        (not (eql (tcp-connection-state connection) :syn-sent)))
+      (check-connection-error connection))
+    connection))
 
 (defun tcp-send (connection data &optional (start 0) end)
   (when (or (eql (tcp-connection-state connection) :established)
