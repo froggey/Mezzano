@@ -18,7 +18,7 @@
 ;; defined which are used as super classes by the bottom layer
 ;; classes. This allows the middle layer to provide common
 ;; functionality with lower overhead. The middle layer is defined by
-;; the "usb" system.
+;; the "mezzano-usb" system.
 
 ;; The bottom layer consists of drivers for each of the supported host
 ;; controlles. Curently (Aug. 12, 2019) only the Open Host Controller
@@ -45,7 +45,7 @@
 
 (in-package :asdf)
 
-(defsystem "usb"
+(defsystem "mezzano-usb"
   :description "USB Driver AKA USBD"
   :serial t
   :components ((:file "packages")
@@ -54,34 +54,34 @@
                (:file "threads")
                (:file "usb-driver")))
 
-(defsystem "usb/ohci"
+(defsystem "mezzano-usb/ohci"
   :description "OHCI Driver"
-  :depends-on ("usb")
+  :depends-on ("mezzano-usb")
   :serial t
   :components ((:file "ohci")))
 
 #+nil ;; currently no vendor specific drivers
-(defsystem "usb/vendor-drivers"
+(defsystem "mezzano-usb/vendor-drivers"
   :description "Vendor specific drivers"
-  :depends-on ("usb" "usb/ohci")
+  :depends-on ("mezzano-usb" "mezzano-usb/ohci")
   :components (#+nil (:file "logitech") ;; replaced by hid class driver
                      ))
 
-(defsystem "usb/class-drivers"
+(defsystem "mezzano-usb/class-drivers"
   :description "Class drivers"
-  :depends-on ("usb")
+  :depends-on ("mezzano-usb")
   :components ((:file "hid")))
 
-(defsystem "usb/debug"
+(defsystem "mezzano-usb/debug"
   :description "Debug support for USB drivers"
-  :depends-on ("usb" "usb/ohci")
+  :depends-on ("mezzano-usb" "mezzano-usb/ohci")
   :serial t
   :components ((:file "usb-debug")
                (:file "ohci-debug")
                (:file "ohci-test")))
 
-(defsystem "usb/hid/debug"
+(defsystem "mezzano-usb/hid/debug"
   :description "Debug and test support for HID driver"
-  :depends-on ("usb" "usb/class-drivers" "usb/debug")
+  :depends-on ("mezzano-usb" "mezzano-usb/class-drivers" "mezzano-usb/debug")
   :components ((:file "hid-debug")
                (:file "hid-test")))

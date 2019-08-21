@@ -95,9 +95,9 @@ Make sure there is a virtio-net NIC attached.~%")
     :INHERIT-CONFIGURATION))
 (eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
 
-(require :usb)
-(require :usb/ohci)
-(require :usb/class-drivers)
+(require :mezzano-usb)
+(require :mezzano-usb/ohci)
+(require :mezzano-usb/class-drivers)
 
 ;; Split-sequence
 (require :split-sequence)
