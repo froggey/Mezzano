@@ -30,7 +30,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
 (defmacro array-total-bytes (buf)
   `(let ((elements (array-total-size ,buf))
-         (type (cadr (type-of ,buf))))
+         (type (array-element-type ,buf)))
      (when (or (not (listp type))
                (not (member (car type) '(unsigned-byte signed-byte))))
        (error ,(concatenate 'string "Unable to determine bytes in "
@@ -1559,7 +1559,13 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                (dpb 0 +control-remote-wakeup-enable+ 0))
               )
 
-        ))))
+        )
+
+      ;; generate :hub-status-change event so that devices already
+      ;; connected are serviced
+      (let ((event (alloc-interrupt-event ohci)))
+        (setf (interrupt-event-type event) :hub-status-change)
+        (enqueue-event event)))))
 
 (mezzano.supervisor.pci:define-pci-driver
     OHCI-driver ohci-probe () ((#x0c #x03 #x10)))
