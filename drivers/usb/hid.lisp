@@ -523,17 +523,17 @@
 
          (let* ((fields (report-info-format (parse-info-input state)))
                 (buf-size (get-buffer-size (parse-info-input state)))
-                (result `(function (lambda (length buf)
+                (result `(lambda (length buf)
                            (declare (ignore length))
                            (mouse-event
                             ,(generate-button-code fields nil)
                             ,(generate-field-value-code fields :x nil)
                             ,(generate-field-value-code fields :y nil)
                             ,(generate-field-value-code
-                              fields :wheel nil nil))))))
+                              fields :wheel nil nil)))))
            (with-trace-level (3)
              (format *trace-stream* "~A~%" result))
-           (values buf-size (eval result))))
+           (values buf-size (compile nil result))))
         ((= (length (parse-info-input-reports state)) 1)
          ;; next most simple case - single report with report ID
          (let* ((report-plist (car (parse-info-input-reports state)))
