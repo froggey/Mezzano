@@ -633,18 +633,18 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                           (return)))))
 
       ;; disable control list
-      (setf (pci:pci-io-region/16 bar0 +ohci-control+)
-            (logandc2 (pci:pci-io-region/16 bar0 +ohci-control+)
+      (setf (pci:pci-io-region/32 bar0 +ohci-control+)
+            (logandc2 (pci:pci-io-region/32 bar0 +ohci-control+)
                       (dpb 1 +control-control-list-enable+ 0)))
 
       (wait-for-next-sof ohci)
 
       ;; clear currentED
-      (setf (pci:pci-io-region/16 bar0 +ohci-current-control-pointer+) 0)
+      (setf (pci:pci-io-region/32 bar0 +ohci-current-control-pointer+) 0)
 
       ;; enable control list
-      (setf (pci:pci-io-region/16 bar0 +ohci-control+)
-            (logior (pci:pci-io-region/16 bar0 +ohci-control+)
+      (setf (pci:pci-io-region/32 bar0 +ohci-control+)
+            (logior (pci:pci-io-region/32 bar0 +ohci-control+)
                     (dpb 1 +control-control-list-enable+ 0)))
 
       ;; TODO - loop over td list freeing td and remhash incase there
@@ -919,7 +919,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
       (with-trace-level (3)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
-      (setf (pci:pci-io-region/16 (bar ohci) +ohci-command-status+)
+      (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
 
       ;; TODO wait with timeout?
@@ -960,7 +960,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
       ;; tell HC that the control list has work
-      (setf (pci:pci-io-region/16 (bar ohci) +ohci-command-status+)
+      (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
 
       ;; TODO wait with timeout?
@@ -1022,7 +1022,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
       ;; tell HC that the control list has work
-      (setf (pci:pci-io-region/16 (bar ohci) +ohci-command-status+)
+      (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
 
       ;; TODO wait with timeout?
@@ -1063,7 +1063,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
       ;; tell HC that the control list has work
-      (setf (pci:pci-io-region/16 (bar ohci) +ohci-command-status+)
+      (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
 
       ;; TODO wait with timeout?
@@ -1487,7 +1487,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
       (let ((control (pci:pci-io-region/32 bar0 +ohci-control+)))
         (cond ((ldb-test +control-interrupt-routing+ control)
                ;; System Management Mode - change ownership to this driver
-               (setf (pci:pci-io-region/16 bar0 +ohci-command-status+)
+               (setf (pci:pci-io-region/32 bar0 +ohci-command-status+)
                      (dpb 1 +command-ownership-change+ 0))
                ;; Wait for ownership to change
                (loop
@@ -1498,7 +1498,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                ;; state not reset => BIOS Active
                (when (/= (ldb +control-functional-state+ control)
                          +functional-state-operational+)
-                 (setf (pci:pci-io-region/16 bar0 +ohci-control+)
+                 (setf (pci:pci-io-region/32 bar0 +ohci-control+)
                        (dpb +functional-state-resume+
                             +control-functional-state+
                             0))
@@ -1509,7 +1509,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
       ;; Setup the host controller - section 5.1.1.4 - 5.1.1.5
       (let ((frame-interval (pci:pci-io-region/32 bar0 +ohci-frame-interval+)))
-        (setf (pci:pci-io-region/16 bar0 +ohci-command-status+)
+        (setf (pci:pci-io-region/32 bar0 +ohci-command-status+)
               (dpb 1 +command-controller-reset+ 0))
         (sleep 0.000015) ;; >= 10 usec
 
@@ -1547,7 +1547,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
         (setf  (pci:pci-io-region/32 bar0 +ohci-low-speed-threshold+) #x0628)
 
-        (setf (pci:pci-io-region/16 bar0 +ohci-control+)
+        (setf (pci:pci-io-region/32 bar0 +ohci-control+)
               (logior
                (dpb 0 +control-bulk-service-ratio+ 0)
                (dpb 1 +control-periodic-list-enable+ 0)
