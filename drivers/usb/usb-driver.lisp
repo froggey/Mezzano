@@ -103,12 +103,16 @@
 ;;======================================================================
 
 (defclass usb-device-id ()
+  (
   ;; These slots are for informational/debug purposes and are
   ;; otherwise unused
-  ((vendor-id  :initarg :vendor-id)
+   (vendor-id  :initarg :vendor-id)
    (product-id :initarg :product-id)
    (class      :initarg :class)
-   (subclass   :initarg :subclass)))
+   (subclass   :initarg :subclass)
+   ;; Lock for device - used to serialize creation and teardown the
+   ;; associated device
+   (%%lock     :initarg :lock           :accessor device-id-lock)))
 
 (defclass usb-device ()
   (;; These fields must be initialized by the HCD via initarg because
@@ -117,8 +121,8 @@
    (%port-num       :initarg  :port-num    :accessor usb-device-port-num)
    ;; These fields are initialized in the method below
    (%device-id                             :accessor usb-device-id)
-   (%drivers        :initform NIL          :accessor usb-device-drivers)
    ;; These fields are initialized during device enumerateion
+   (%drivers        :initform NIL          :accessor usb-device-drivers)
    (%max-packet                            :accessor usb-device-max-packet)
    (%dev-desc-size                         :accessor usb-device-desc-size)
    (%device-address                        :accessor usb-device-address)
@@ -128,10 +132,15 @@
 (defmethod initialize-instance :after
     ((device usb-device) &key &allow-other-keys)
   (let ((usbd (usb-device-hcd device))
-        (device-id (make-instance 'usb-device-id)))
+        (device-id (make-instance 'usb-device-id
+                                  :lock (sup:make-mutex "USB Device lock"))))
+    ;; lock device so that enumeration/driver acceptance can occur before
+    ;; any operations or disconnect can occur.
+    (sup:acquire-mutex (device-id-lock device-id))
+
     (setf (usb-device-id device) device-id
-          (aref (port->device-id usbd) (usb-device-port-num device)) device-id
-          (gethash device-id (device-id->device usbd)) device)))
+          (gethash device-id (device-id->device usbd)) device
+          (aref (port->device-id usbd) (usb-device-port-num device)) device-id)))
 
 ;;=========================
 ;; Creates an HCD device and returns device-id
@@ -219,53 +228,65 @@
   (sup:debug-print-line "USBD Interrupt Event: frame-rollover - ignored"))
 
 (defmethod handle-interrupt-event ((type (eql :port-connect)) usbd event)
-  (handler-case
-      (let ((port-num (interrupt-event-port-num event)))
-        ;; Disconnect existing device on the port, if any
-        (let ((device-id (aref (port->device-id usbd) port-num)))
-          (when device-id
-            (delete-device usbd device-id)))
+  ;; Disconnect existing device on the port, if any
+  (let ((device-id (aref (port->device-id usbd)
+                         (interrupt-event-port-num event))))
+    (when device-id
+      (sup:with-mutex ((device-id-lock device-id))
+        (delete-device usbd device-id))))
 
-        ;; Enumerate Device
+  ;; Enumerate Device
+  (handler-case
+      (let ((port-num (interrupt-event-port-num event))
+            (device-id)
+            (device))
         (debounce-port usbd port-num)
         (reset-port usbd port-num)
 
-        (let* ((device-id (create-device usbd port-num))
-               (device (gethash device-id (device-id->device usbd))))
+        (unwind-protect
+             (progn
+               ;; The device id is created with the device mutex held
+               (setf device-id (create-device usbd port-num)
+                     device (gethash device-id (device-id->device usbd)))
 
-          ;; get device descriptor size and max packet size
-          (with-buffers ((buf-pool usbd) (buf /8 64))
-            (let ((num-bytes (get-descriptor usbd device-id
-                                             +desc-type-device+ 0
-                                             64 buf)))
-              (when (< num-bytes +dd-max-packet-size+)
-                (error "get-descriptor returned too few bytes ~D" num-bytes))
+               ;; get device descriptor size and max packet size
+               (with-buffers ((buf-pool usbd) (buf /8 64))
+                 (let ((num-bytes (get-descriptor usbd device-id
+                                                  +desc-type-device+ 0
+                                                  64 buf)))
+                   (when (< num-bytes +dd-max-packet-size+)
+                     (error "get-descriptor returned too few bytes ~D"
+                            num-bytes))
 
-              (setf (usb-device-desc-size device)
-                    (aref buf +dd-length+)
-                    (usb-device-max-packet device)
-                    (aref buf +dd-max-packet-size+))))
+                   (setf (usb-device-desc-size device)
+                         (aref buf +dd-length+)
+                         (usb-device-max-packet device)
+                         (aref buf +dd-max-packet-size+))))
 
-          (reset-port usbd port-num)
-          (setf (usb-device-address device) (alloc-device-address usbd))
-          (set-device-address usbd device-id (usb-device-address device))
-          (enable-root-hub-interrupts usbd port-num)
+               (reset-port usbd port-num)
+               (setf (usb-device-address device) (alloc-device-address usbd))
+               (set-device-address usbd device-id (usb-device-address device))
+               (enable-root-hub-interrupts usbd port-num)
 
-          (let ((desc-length (usb-device-desc-size device)))
-            (with-buffers ((buf-pool usbd) (buf /8 desc-length))
-              (let ((num-bytes (get-descriptor usbd device-id
-                                               +desc-type-device+ 0
-                                               desc-length
-                                               buf)))
+               (let ((desc-length (usb-device-desc-size device)))
+                 (with-buffers ((buf-pool usbd) (buf /8 desc-length))
+                   (let ((num-bytes (get-descriptor usbd device-id
+                                                    +desc-type-device+ 0
+                                                    desc-length
+                                                    buf)))
 
-                (when (/= num-bytes desc-length)
-                  (error "get-descriptor failed expected ~D bytes got ~D"
-                         desc-length num-bytes))
+                     (when (/= num-bytes desc-length)
+                       (error "get-descriptor failed expected ~D bytes got ~D"
+                              desc-length num-bytes))
 
-                (sup:debug-print-line "Enumeration complete - success")
-                (if (probe-usb-driver usbd device-id buf)
-                    (sup:debug-print-line "Driver accepted device")
-                    (sup:debug-print-line "No driver found")))))))
+                     (sup:debug-print-line "Enumeration complete - success")
+                     (if (probe-usb-driver usbd device-id buf)
+                         (sup:debug-print-line "Driver accepted device")
+                         (sup:debug-print-line "No driver found"))))))
+
+          (when (and device-id
+                     (sup:mutex-held-p (device-id-lock device-id)))
+            (sup:release-mutex (device-id-lock device-id)))))
     ;; TODO - add error handling
     ))
 
@@ -275,7 +296,8 @@
              (device-id (aref (port->device-id usbd) port-num)))
         (unwind-protect
              (when device-id
-               (delete-device usbd device-id))
+               (sup:with-mutex ((device-id-lock device-id))
+                 (delete-device usbd device-id)))
           (enable-root-hub-interrupts usbd port-num))
         (sup:debug-print-line "Disconnect complete - success"))
     ;; TODO - add error handling

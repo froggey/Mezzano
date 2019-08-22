@@ -647,9 +647,20 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
             (logior (pci:pci-io-region/32 bar0 +ohci-control+)
                     (dpb 1 +control-control-list-enable+ 0)))
 
-      ;; TODO - loop over td list freeing td and remhash incase there
-      ;; are pending TDs
-      (free-buffer (phys-addr->array (ed-tdq-head ed)))
+      (loop
+         with td-tail-phys-addr = (ed-tdq-tail ed)
+         for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then td-next
+         for td = (phys-addr->array td-phys-addr) then
+           (phys-addr->array td-phys-addr)
+         for td-next = (td-next-td td) then (td-next-td td)
+         when (= td-phys-addr td-tail-phys-addr) do
+         ;; just the dummy td - no td->endpoint mapping
+           (free-buffer td)
+           (return)
+         do
+           (free-buffer td)
+           (remhash td (td->endpoint ohci)))
+
       (free-buffer ed)
 
       (setf (aref (device-endpoints hcd-device) 0) nil)
@@ -1156,16 +1167,21 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
          do (with-trace-level (6)
               (format sys.int::*cold-stream*
                       "td done: ~S~%" (type-of endpoint)))
-           (ecase (endpoint-type endpoint)
-             (:control
-              (sync:semaphore-up (endpoint-event-type endpoint)))
-             (:interrupt
-              (handle-interrupt-endpt ohci endpoint td))
-             (:bulk
-              (error "bulk endpoint not implemented")
-              )
-             (:isochronous
-              (error "isochronous endpoint not implemented")))
+           (cond ((null endpoint)
+                  ;; internal error no mapping from td to endpoint - log it
+                  (format sys.int::*cold-stream*
+                          "No endpoint for TD ~A~%" td))
+                 (T
+                  (ecase (endpoint-type endpoint)
+                    (:control
+                     (sync:semaphore-up (endpoint-event-type endpoint)))
+                    (:interrupt
+                     (handle-interrupt-endpt ohci endpoint td))
+                    (:bulk
+                     (error "bulk endpoint not implemented")
+                     )
+                    (:isochronous
+                     (error "isochronous endpoint not implemented")))))
 
          when (= next-td 0) do (return)))))
 
