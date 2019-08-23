@@ -103,7 +103,7 @@
                                             timeout)
       (pop (udp-connection-packets connection)))))
 
-(defun %udp4-receive (packet local-ip remote-ip start end)
+(defun udp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))
          (local-port (ub16ref/be packet (+ start 2)))
          (length (ub16ref/be packet (+ start 4)))

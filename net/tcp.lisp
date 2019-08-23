@@ -282,7 +282,7 @@
                  (eql (tcp-connection-local-port connection) local-port))
         (return connection)))))
 
-(defun %tcp4-receive (packet local-ip remote-ip start end)
+(defun tcp4-receive (packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
          (flags (ldb (byte 12 0)
@@ -290,7 +290,7 @@
          (connection (get-tcp-connection remote-ip remote-port local-ip local-port))
          (listener (get-tcp-listener local-ip local-port)))
     (cond (connection
-           (tcp4-receive connection packet start end listener))
+           (tcp4-connection-receive connection packet start end listener))
           ;; Drop unestablished connections if they surpassed listener backlog
           ((and listener
                 (eql flags +tcp4-flag-syn+)
@@ -376,14 +376,14 @@
          (unless (gethash seq (tcp-connection-rx-data-unordered connection))
            (setf (gethash seq (tcp-connection-rx-data-unordered connection))
                  (list (list packet (+ start header-length) end))))))
-  (cond ((<= seq (tcp-connection-r-next connection))
-         (tcp4-send-packet connection
-                           (tcp-connection-s-next connection)
-                           (tcp-connection-r-next connection)
-                           nil
-                           :ack-p t))))
+  (when (<= seq (tcp-connection-r-next connection))
+    (tcp4-send-packet connection
+                      (tcp-connection-s-next connection)
+                      (tcp-connection-r-next connection)
+                      nil
+                      :ack-p t)))
 
-(defun tcp4-receive (connection packet start end listener)
+(defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
   ;; in here, so this avoids truncating the backtrace with :resignal-errors.
   (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))

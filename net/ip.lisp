@@ -329,17 +329,17 @@ ADDRESS must be an ipv4-address designator."
         (return-from mezzano.network.ethernet:ethernet-receive))
       (case protocol
         (#.+ip-protocol-tcp+
-         (mezzano.network.tcp::%tcp4-receive packet
-                                             dest-ip
-                                             source-ip
-                                             (+ start header-length)
-                                             (+ start total-length)))
+         (mezzano.network.tcp::tcp4-receive packet
+                                            dest-ip
+                                            source-ip
+                                            (+ start header-length)
+                                            (+ start total-length)))
         (#.+ip-protocol-udp+
-         (mezzano.network.udp::%udp4-receive packet
-                                             dest-ip
-                                             source-ip
-                                             (+ start header-length)
-                                             (+ start total-length)))
+         (mezzano.network.udp::udp4-receive packet
+                                            dest-ip
+                                            source-ip
+                                            (+ start header-length)
+                                            (+ start total-length)))
         (#.+ip-protocol-icmp+
          (icmp4-receive packet
                         source-ip
