@@ -26,6 +26,8 @@
 (defconstant +port-wildcard+ 0)
 
 (defparameter *tcp-connect-timeout* 10)
+(defparameter *tcp-connect-initial-retransmit-time* 1)
+(defparameter *tcp-connect-retransmit-time* 3)
 
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
@@ -213,7 +215,7 @@
     (:syn-sent
      (let ((seq (logand #xFFFFFFFF (1- (tcp-connection-s-next connection)))))
        (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-       (arm-retransmit-timer 1 connection)))))
+       (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -704,7 +706,7 @@
        (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
          (push connection *tcp-connections*))
        (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-       (arm-retransmit-timer 1 connection)
+       (arm-retransmit-timer *tcp-connect-initial-retransmit-time* connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
      sys.net::*network-serial-queue*)
     (with-tcp-connection-locked connection
