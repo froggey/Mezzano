@@ -183,7 +183,8 @@
               (format sys.int::*cold-stream*
                       "Interrupt error ~A on endpoint number ~D~%"
                       status endpoint-num)))
-    (push (format nil "~D: ~A" length buf) *mouse-ints*)
+    (with-trace-level (7)
+      (push (format nil "~D: ~A" length buf) *mouse-ints*))
     (free-buffer buf)))
 
 ;;======================================================================
@@ -660,7 +661,7 @@
          (format nil "V~4,'0X-~4,'0X" page item))
         (T
          (let ((result (gethash (list page item) *pages*)))
-           (with-trace-level (7)
+           (with-trace-level (9)
              (when (null result)
                (format *trace-stream* "~%Undefined ~D #x~2,'0X~%~%" page item)))
            result))))
