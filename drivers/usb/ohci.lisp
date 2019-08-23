@@ -621,8 +621,10 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
              (setf (get-control-head-pointer ohci) (ed-next-ed ed)))
             (T
              (loop
-                for prev-ed = (get-control-head-pointer ohci) then
+                for prev-ed-phys-addr = (get-control-head-pointer ohci) then
                   (ed-next-ed prev-ed)
+                for prev-ed = (phys-addr->array prev-ed-phys-addr) then
+                  (phys-addr->array prev-ed-phys-addr)
                 when (eql (ed-next-ed prev-ed) ed-phys-addr)
                 do (progn (setf (ed-next-ed prev-ed) (ed-next-ed ed))
                           (return)))))
