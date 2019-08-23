@@ -204,8 +204,6 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :mezzano-usb)
 (require :mezzano-usb/class-drivers)
 (require :mezzano-usb/ohci)
-(require :mezzano-usb/debug)
-(set (intern "*TRACE*" :mezzano.driver.usb.ohci) 2)
 
 ;; Other stuff.
 (sys.int::cal "sys:source;file;cache.lisp")
