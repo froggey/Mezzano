@@ -481,14 +481,9 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                       stable-time
                       0))
                ((>= stable-time 0.100)
-                ;; success: enable root hub change interrupt
-                (setf (get-interrupt-enable ohci)
-                      (dpb 1 +interrupt-root-hub-change+ 0))
                 (return))
                ((>= total-time 1.500)
                 ;; Didn't see status stable for 100ms for 1.5 seconds - give up
-                (setf (get-interrupt-enable ohci)
-                      (dpb 1 +interrupt-root-hub-change+ 0))
                 (error "Debounce timeout on port ~D for OHCI" port-num))
                (T
                 ;; no state change, no timeout, so wait some more
@@ -496,7 +491,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
 (defmethod reset-port ((ohci ohci) port-num)
   (with-trace-level (1)
-    (sup:debug-print-line "reset-port"))
+    (sup:debug-print-line "reset-port " port-num))
 
   ;; Reset port
   (with-hcd-access (ohci)
@@ -1098,22 +1093,6 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
         (free-buffer msg-td)))))
 
 ;;======================================================================
-;;======================================================================
-
-(defmethod enable-root-hub-interrupts ((ohci ohci) port-num)
-  (with-hcd-access (ohci)
-    (when (ldb-test +ps-connect-status-change+ (get-port-status ohci port-num))
-      ;; connect status change interrupt still set - try to clear it
-      (setf (get-port-status ohci port-num)
-            (dpb 1 +ps-connect-status-change+ 0)))
-    (when (not (ldb-test +ps-connect-status-change+
-                         (get-port-status ohci port-num)))
-      (setf (get-interrupt-status ohci)
-            (dpb 1 +interrupt-root-hub-change+ 0)
-            (get-interrupt-enable ohci)
-            (dpb 1 +interrupt-root-hub-change+ 0)))))
-
-;;======================================================================
 ;; OHCI interrupt event handlers
 ;;======================================================================
 
@@ -1134,20 +1113,35 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
 (defmethod handle-interrupt-event
     ((type (eql :hub-status-change)) (ohci ohci) event)
+  (with-trace-level (1)
+    (sup:debug-print-line "handle-interrupt-event - :hub-status-change"))
   (with-hcd-access (ohci)
     (let ((status (get-hub-status ohci)))
       (when (and (logbitp 17 status) (logbitp 1 status))
         ;; Over Current Indicator Change and Over Current Indicator
         (error "USB OHCI reports over current ~A" ohci)))
-    (dotimes (port-num (num-ports ohci))
-      (let ((status (get-port-status ohci port-num)))
-        (when (ldb-test +ps-connect-status-change+ status)
-          (enqueue-interrupt-event ohci
-              (if (ldb-test +ps-connect-status+ status)
-                  :port-connect :port-disconnect)
-            interrupt-event-port-num port-num)
-          (setf (get-port-status ohci port-num)
-                (dpb 1 +ps-connect-status-change+ 0)))))))
+    (unwind-protect
+         (dotimes (port-num (num-ports ohci))
+           (let ((status (get-port-status ohci port-num)))
+             (when (ldb-test +ps-connect-status-change+ status)
+               (let ((type (if (ldb-test +ps-connect-status+ status)
+                               :port-connect
+                               :port-disconnect))
+                     (event))
+                 (unwind-protect
+                      (progn
+                        (setf event (alloc-interrupt-event ohci)
+                              (interrupt-event-type event) type
+                              (interrupt-event-port-num event) port-num)
+                        (handle-interrupt-event type ohci event))
+                   (when (and event
+                              (not (eq (interrupt-event-type event) :free)))
+                     (free-interrupt-event (interrupt-event-hcd event) event))
+                   (setf (get-port-status ohci port-num)
+                         (dpb 1 +ps-connect-status-change+ 0)))))))
+      ;; Finished handling the interrupt, so enable the root hub change interrupt
+      (setf (get-interrupt-enable ohci)
+            (dpb 1 +interrupt-root-hub-change+ 0)))))
 
 (defvar *done-heads* NIL) ;; for debug
 
@@ -1539,7 +1533,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                (dpb 1 +interrupt-resume-detect+ 0)
                (dpb 1 +interrupt-unrecoverable-error+ 0)
                (dpb 0 +interrupt-frame-number-overflow+ 0)
-               (dpb 1 +interrupt-root-hub-change+ 0)
+               (dpb 0 +interrupt-root-hub-change+ 0)
                (dpb 1 +interrupt-ownership-change+ 0)
                (dpb 1 +interrupt-master-enable+ 0))
               )

@@ -266,7 +266,6 @@
                (reset-port usbd port-num)
                (setf (usb-device-address device) (alloc-device-address usbd))
                (set-device-address usbd device-id (usb-device-address device))
-               (enable-root-hub-interrupts usbd port-num)
 
                (let ((desc-length (usb-device-desc-size device)))
                  (with-buffers ((buf-pool usbd) (buf /8 desc-length))
@@ -297,8 +296,7 @@
         (unwind-protect
              (when device-id
                (sup:with-mutex ((device-id-lock device-id))
-                 (delete-device usbd device-id)))
-          (enable-root-hub-interrupts usbd port-num))
+                 (delete-device usbd device-id))))
         (sup:debug-print-line "Disconnect complete - success"))
     ;; TODO - add error handling
     ))
@@ -551,11 +549,6 @@
 (defgeneric delete-isochronous-endpt (hcd device-id endpt-num)
   (:method (hcd device-id endpt-num)
     (error "delete-isochronous-endpt not defined for ~A. Error ignored" hcd)))
-
-(defgeneric enable-root-hub-interrupts (hcd port-num)
-  (:method (hcd port-num)
-    (error
-     "enable-root-hub-interrupts not defined for ~A. Error ignored." hcd)))
 
 (defgeneric set-device-address (hcd device-id address)
   (:method (hcd device-id address)

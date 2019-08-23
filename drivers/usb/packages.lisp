@@ -47,7 +47,6 @@
    :debounce-port
    :reset-port
    :set-device-address
-   :enable-root-hub-interrupts
 
    :create-interrupt-endpt
    :delete-interrupt-endpt
