@@ -87,6 +87,14 @@ Make sure there is a virtio-net NIC attached.~%")
     :inherit-configuration))
 (eval (read-from-string "(push 'home-source-registry asdf:*default-source-registries*)"))
 
+(defun driver-source-registry ()
+  `(:SOURCE-REGISTRY
+    (:TREE ,(pathname (concatenate 'string "REMOTE:"
+                                   sys.int::*mezzano-source-path*
+                                   "drivers/")))
+    :INHERIT-CONFIGURATION))
+(eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
+
 ;; Split-sequence
 (require :split-sequence)
 
@@ -191,6 +199,11 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;applications;memory-monitor.lisp")
 (sys.int::cal "sys:source;gui;starfield.lisp")
 ;;(eval (read-from-string "(setf mezzano.gui.compositor:*screensaver-spawn-function* 'mezzano.gui.starfield:spawn)"))
+
+;; USB Driver
+(require :mezzano-usb)
+(require :mezzano-usb/class-drivers)
+(require :mezzano-usb/ohci)
 
 ;; Other stuff.
 (sys.int::cal "sys:source;file;cache.lisp")
