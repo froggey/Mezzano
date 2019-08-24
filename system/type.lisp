@@ -920,9 +920,9 @@
            (t 'fixnum)))
         ;; Non-fixnum immediates.
         ((characterp object)
-         (cond ((standard-char-p object)
-                   'standard-char)
-               (t 'character)))
+         (if (standard-char-p object)
+             'standard-char
+             'character))
         ((single-float-p object)
          'single-float)
         ((small-byte-p object)
