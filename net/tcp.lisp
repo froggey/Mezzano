@@ -240,7 +240,6 @@
           (make-condition 'connection-timed-out
                           :host (tcp-connection-remote-ip connection)
                           :port (tcp-connection-remote-port connection)))
-    (setf (tcp-connection-state connection) :closed)
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
     (detach-tcp-connection connection)))
 
@@ -339,6 +338,7 @@
   ;; Disarming here is doubly important.
   ;; 1) It stops the timer from hanging around if it was active.
   ;; 2) If the source handler is pending, then it'll return immediately.
+  (setf (tcp-connection-state connection) :closed)
   (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
   (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
   (mezzano.sync.dispatch:cancel (tcp-connection-retransmit-source connection))
@@ -394,24 +394,25 @@
            (header-length (* (ldb (byte 4 12) flags-and-data-offset) 4))
            (data-length (- end (+ start header-length))))
       (when (logtest flags +tcp4-flag-rst+)
-        ;; Remote have sended RST , aborting connection
-        (setf (tcp-connection-state connection) :closed)
+        ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
               (make-condition 'connection-aborted
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
-        (detach-tcp-connection connection))
-      (case (tcp-connection-state connection)
+        (detach-tcp-connection connection)
+        (return-from tcp4-connection-receive))
+      ;; :CLOSED should never be seen here
+      (ecase (tcp-connection-state connection)
         (:syn-sent
          ;; Active open
          (cond ((and (logtest flags +tcp4-flag-ack+)
                      (logtest flags +tcp4-flag-syn+)
                      (eql ack (tcp-connection-s-next connection)))
-                ;; Remote have sended SYN+ACK and waiting for ACK
+                ;; Remote has sent SYN+ACK and waiting for ACK
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil)
-                ;; Cancel retransmit. FIXME: This ACK might need to be retransmitted.
+                ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
                ((logtest flags +tcp4-flag-syn+)
@@ -420,13 +421,12 @@
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
                                   :ack-p t :syn-p t)
-                ;; Cancel retransmit. FIXME: This SYN/ACK might need to be retransmitted.
+                ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :closed)
                 (setf (tcp-connection-pending-error connection)
                       (make-condition 'connection-aborted
                                       :host (tcp-connection-remote-ip connection)
@@ -437,7 +437,7 @@
          (cond ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
-                ;; Remote have sended ACK , connection established
+                ;; Remote has sent ACK, connection established
                 (setf (tcp-connection-state connection) :established)
                 (when listener
                   (remhash connection (tcp-listener-pending-connections listener))
@@ -448,7 +448,6 @@
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-state connection) :closed)
                 (setf (tcp-connection-pending-error connection)
                       (make-condition 'connection-aborted
                                       :host (tcp-connection-remote-ip connection)
@@ -462,7 +461,7 @@
          (if (zerop data-length)
              (when (and (= seq (tcp-connection-r-next connection))
                         (logtest flags +tcp4-flag-fin+))
-               ;; Remote have sended FIN and waiting for ACK
+               ;; Remote has sent FIN and waiting for ACK
                (setf (tcp-connection-state connection) :close-wait
                      (tcp-connection-r-next connection)
                      (logand (+ (tcp-connection-r-next connection) 1)
@@ -476,8 +475,7 @@
         (:last-ack
          ;; Local closed, waiting for remote to ACK.
          (when (logtest flags +tcp4-flag-ack+)
-           ;; Remote have sended ACK , connection closed
-           (setf (tcp-connection-state connection) :closed)
+           ;; Remote has sent ACK, connection closed
            (detach-tcp-connection connection)))
         (:fin-wait-1
          ;; Local closed, waiting for remote to close.
@@ -493,9 +491,7 @@
                                         nil)
                       (if (logtest flags +tcp4-flag-ack+)
                           ;; Remote saw our FIN and closed as well.
-                          (progn
-                            (setf (tcp-connection-state connection) :closed)
-                            (detach-tcp-connection connection))
+                          (detach-tcp-connection connection)
                           ;; Simultaneous close
                           (setf (tcp-connection-state connection) :closing)))
                      ((logtest flags +tcp4-flag-ack+)
@@ -507,7 +503,7 @@
          (if (zerop data-length)
              (when (and (= seq (tcp-connection-r-next connection))
                         (logtest flags +tcp4-flag-fin+))
-               ;; Remote have sended FIN and waiting for ACK
+               ;; Remote has sent FIN and waiting for ACK
                (setf (tcp-connection-r-next connection)
                      (logand (+ (tcp-connection-r-next connection) 1)
                              #xFFFFFFFF))
@@ -515,25 +511,15 @@
                                  (tcp-connection-s-next connection)
                                  (tcp-connection-r-next connection)
                                  nil)
-               (setf (tcp-connection-state connection) :closed)
                (detach-tcp-connection connection))
              (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:closing
          ;; Waiting for ACK
          (when (and (eql seq (tcp-connection-r-next connection))
                     (logtest flags +tcp4-flag-ack+))
-           ;; Remote have sended ACK , connection closed
-           (detach-tcp-connection connection)
-           (setf (tcp-connection-state connection) :closed)))
-        (t
-         ;; Aborting connection
-         (tcp4-send-packet connection ack seq nil :rst-p t)
-         (setf (tcp-connection-state connection) :closed)
-         (setf (tcp-connection-pending-error connection)
-               (make-condition 'connection-aborted
-                               :host (tcp-connection-remote-ip connection)
-                               :port (tcp-connection-remote-port connection)))
-         (detach-tcp-connection connection))))
+           ;; Remote has sent ACK, connection closed
+           (detach-tcp-connection connection)))))
+    ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p)
@@ -610,36 +596,15 @@
               (return local-port))))
 
 (defun abort-connection (connection)
-  (setf (tcp-connection-state connection) :closed)
-  (tcp4-send-packet connection
-                    (tcp-connection-s-next connection)
-                    (tcp-connection-r-next connection)
-                    nil
-                    :rst-p t)
   (mezzano.sync.dispatch:dispatch-async
    (lambda ()
+     (tcp4-send-packet connection
+                       (tcp-connection-s-next connection)
+                       (tcp-connection-r-next connection)
+                       nil
+                       :rst-p t)
      (detach-tcp-connection connection))
    sys.net::*network-serial-queue*))
-
-(defun close-tcp-connection (connection)
-  (ecase (tcp-connection-state connection)
-    (:syn-sent
-     (abort-connection connection))
-    ((:established :syn-received)
-     (setf (tcp-connection-state connection) :fin-wait-1)
-     (tcp4-send-packet connection
-                       (tcp-connection-s-next connection)
-                       (tcp-connection-r-next connection)
-                       nil
-                       :fin-p t))
-    (:close-wait
-     (setf (tcp-connection-state connection) :last-ack)
-     (tcp4-send-packet connection
-                       (tcp-connection-s-next connection)
-                       (tcp-connection-r-next connection)
-                       nil
-                       :fin-p t))
-    (:closed)))
 
 (define-condition network-error (error)
   ())
@@ -677,7 +642,6 @@
               (make-condition 'connection-stale
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
-        (setf (tcp-connection-state connection) :closed)
         (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (detach-tcp-connection connection)))))
 
@@ -879,9 +843,30 @@
   (tcp-send (tcp-stream-connection stream) sequence start end))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
+  ;; TODO: ABORT should abort the connection entirely.
+  ;; Don't even bother sending RST packets, just detatch the connection.
   (declare (ignore abort))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (close-tcp-connection (tcp-stream-connection stream))))
+  (let ((connection (tcp-stream-connection stream)))
+    (with-tcp-connection-locked connection
+      ;; FIXME: What about the other states?
+      ;; Connections in :LAST-ACK, :FIN-WAIT-1, and :FIN-WAIT-2 are
+      ;; visible outside the network stack.
+      (ecase (tcp-connection-state connection)
+        (:established
+         (setf (tcp-connection-state connection) :fin-wait-1)
+         (tcp4-send-packet connection
+                           (tcp-connection-s-next connection)
+                           (tcp-connection-r-next connection)
+                           nil
+                           :fin-p t))
+        (:close-wait
+         (setf (tcp-connection-state connection) :last-ack)
+         (tcp4-send-packet connection
+                           (tcp-connection-s-next connection)
+                           (tcp-connection-r-next connection)
+                           nil
+                           :fin-p t))
+        (:closed)))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
