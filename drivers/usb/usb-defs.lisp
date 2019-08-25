@@ -257,10 +257,19 @@
 ;;
 ;;======================================================================
 
-(declaim (inline get-word))
+(declaim (inline get-unsigned-word/16 get-unsigned-word/32))
 
-(define-function get-word (buf offset)
+(define-function get-unsigned-word/16 (buf offset)
   (dpb (aref buf (1+ offset)) (byte 8 8) (aref buf offset)))
+
+(define-function get-unsigned-word/32 (buf offset)
+  (dpb (aref buf (+ offset 3))
+       (byte 8 24)
+       (dpb (aref buf (+ offset 2))
+            (byte 8 16)
+            (dpb (aref buf (+ offset 1))
+                 (byte 8 8)
+                 (aref buf offset)))))
 
 ;;======================================================================
 ;;

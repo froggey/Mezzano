@@ -189,12 +189,6 @@
                    (setf free-lists (cdr free-lists)))))
              (error "Invalid buffer size ~D" (buffer-num-bytes buf)))))))
 
-(defun get-phys-addr (array)
-  (let ((buf (gethash array *array->buf*)))
-    (if buf
-        (buffer-phys-addr buf)
-        (error "Array ~A not a buffer array" array))))
-
 (defun array->phys-addr (array)
   (let ((buf (gethash array *array->buf*)))
     (if buf

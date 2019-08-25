@@ -32,7 +32,7 @@
                      (format *error-output* "~&Error ~A.~%" c)
                      (sys.int::backtrace)))
                  (return-from :process-event (values nil c))))
-              (device-disconnect
+              (controller-disconnect
                (lambda (c)
                  (delete-controller (disconnect-hcd c))
                  (return-from :process-event) (values nil c))))

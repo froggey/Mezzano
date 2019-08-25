@@ -99,7 +99,7 @@
       (throw :probe-failed nil))
 
     (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-word hid-desc +hd-descriptor-length+)))
+          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
       (when (/= type +desc-type-report+)
         (sup:debug-print-line "HID probe failed because descriptor type "
                               type
@@ -211,7 +211,7 @@
       (throw :probe-failed nil))
 
     (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-word hid-desc +hd-descriptor-length+)))
+          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
       (when (/= type +desc-type-report+)
         (sup:debug-print-line "HID probe failed because descriptor type "
                               type

@@ -1,4 +1,4 @@
-s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
+;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 ;;;; This code is licensed under the MIT license.
 
 ;;======================================================================
@@ -293,10 +293,10 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
           (dpb #xF +td-condition-code+ 0)))  ;; status - not accessed
 
 (defun encode-td (td partial-buf pid int-delay toggle buf next-td)
-  (let ((buf-phys-addr (get-phys-addr buf)))
+  (let ((buf-phys-addr (array->phys-addr buf)))
     (setf (td-header td) (encode-td-header partial-buf pid int-delay toggle)
           (td-buffer-pointer td) buf-phys-addr
-          (td-next-td td) (get-phys-addr next-td)
+          (td-next-td td) (array->phys-addr next-td)
           (td-buffer-end td) (+ buf-phys-addr (array-total-bytes buf) -1))))
 
 (defun td-buf-info (td buf-size)
@@ -571,7 +571,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
   (with-hcd-access (ohci)
     (let* ((ed (alloc-ed ohci))
            (td (alloc-td ohci))
-           (td-phys-addr (get-phys-addr td))
+           (td-phys-addr (array->phys-addr td))
            (speed (get-port-speed ohci port-num))
            (device (make-instance 'hcd-device
                                   :hcd ohci
@@ -604,7 +604,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 
       ;; add ed to control list
       (setf (ed-next-ed ed) (get-control-head-pointer ohci)
-            (get-control-head-pointer ohci) (get-phys-addr ed))
+            (get-control-head-pointer ohci) (array->phys-addr ed))
       (usb-device-id device))))
 
 (defmethod delete-device ((ohci ohci) device-id)
@@ -614,7 +614,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
     (let* ((bar0 (bar ohci))
            (hcd-device (gethash device-id (device-id->device ohci)))
            (ed (device-control-ed hcd-device))
-           (ed-phys-addr (get-phys-addr ed)))
+           (ed-phys-addr (array->phys-addr ed)))
 
       ;; remove control-ed from list
       (cond ((eql (get-control-head-pointer ohci) ed-phys-addr)
@@ -684,12 +684,12 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
   (let* ((msg-td (phys-addr->array (ed-tdq-tail ed)))
          (dummy-td (alloc-td ohci))
          (buf (alloc-buffer/8 (buf-pool ohci) buf-size))
-         (buf-phys-addr (get-phys-addr buf)))
+         (buf-phys-addr (array->phys-addr buf)))
     (setf
      ;; initialize TD
      (td-header msg-td) header
      (td-buffer-pointer msg-td) buf-phys-addr
-     (td-next-td msg-td) (get-phys-addr dummy-td)
+     (td-next-td msg-td) (array->phys-addr dummy-td)
      (td-buffer-end msg-td) (+ buf-phys-addr buf-size -1)
      ;; update queue tail pointer to new dummy td
      (ed-tdq-tail ed) (array->phys-addr dummy-td))
@@ -708,7 +708,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                (endpoint-type (aref (device-endpoints hcd-device) endpt-num))))
       (let* ((ed (alloc-ed ohci))
              (td (alloc-td ohci))
-             (td-phys-addr (get-phys-addr td))
+             (td-phys-addr (array->phys-addr td))
              (td-header (encode-td-header +td-partial-buffer+
                                           +pid-in-token+
                                           1
@@ -811,7 +811,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                (ed (endpoint-ed endpoint))
                (msg-td (phys-addr->array (ed-tdq-tail ed)))
                (buf (alloc-buffer/8 (buf-pool ohci) buf-size))
-               (buf-phys-addr (get-phys-addr buf)))
+               (buf-phys-addr (array->phys-addr buf)))
 
           (setf
            ;; clean up dummy-td
@@ -822,7 +822,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
            ;; initialize TD
            (td-header msg-td) (endpoint-header endpoint)
            (td-buffer-pointer msg-td) buf-phys-addr
-           (td-next-td msg-td) (get-phys-addr dummy-td)
+           (td-next-td msg-td) (array->phys-addr dummy-td)
            (td-buffer-end msg-td) (+ buf-phys-addr buf-size -1)
            ;; update queue tail pointer to new dummy td
            (ed-tdq-tail ed) (array->phys-addr dummy-td)))
@@ -1182,7 +1182,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
          when (= next-td 0) do (return)))))
 
 (defmethod handle-interrupt-event
-    ((type (eql :device-disconnect)) (ohci ohci) event)
+    ((type (eql :controller-disconnect)) (ohci ohci) event)
   (delete-controller ohci))
 
 ;;======================================================================
@@ -1211,11 +1211,11 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                      (format *error-output* "~&Error ~A.~%" c)
                      (sys.int::backtrace)))
                  (return-from :process-event (values nil c))))
-              (device-disconnect
+              (controller-disconnect
                (lambda (c)
                  (let* ((ohci (disconnect-hcd c))
                         (event (alloc-interrupt-event ohci)))
-                   (setf (interrupt-event-type event) :device-disconnect)
+                   (setf (interrupt-event-type event) :controller-disconnect)
                    (enqueue-event event))
                  ;; should never return - thread should be killed
                  (sleep 60)
@@ -1274,7 +1274,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
   (declare (ignore level))
   (format stream "<int-node lbw: ~2D, ed: ~8,'0X/~8,'0X[~2D]>"
           (round (log (1+ (int-node-bandwidth int-node)) 10))
-          (get-phys-addr (int-node-ed int-node))
+          (array->phys-addr (int-node-ed int-node))
           (ed-next-ed (int-node-ed int-node))
           (int-node-idx int-node)))
 
@@ -1312,10 +1312,10 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
               (int-node-prev2 new-int-node) int-node2
               (int-node-next int-node1) new-int-node
               (int-node-idx int-node1) idx
-              (ed-next-ed (int-node-ed int-node1)) (get-phys-addr ed)
+              (ed-next-ed (int-node-ed int-node1)) (array->phys-addr ed)
               (int-node-next int-node2) new-int-node
               (int-node-idx int-node2) idx
-              (ed-next-ed (int-node-ed int-node2)) (get-phys-addr ed))))
+              (ed-next-ed (int-node-ed int-node2)) (array->phys-addr ed))))
 
 (defun init-interrupt-table (ohci)
   (with-slots (interrupt-table 32ms-interrupts 16ms-interrupts 8ms-interrupts
@@ -1333,7 +1333,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
                                           :ed ed
                                           :prev1 nil
                                           :prev2 nil)
-                (aref interrupt-table i) (get-phys-addr ed)))
+                (aref interrupt-table i) (array->phys-addr ed)))
 
     (init-interrupt-level ohci 32ms-interrupts 16ms-interrupts)
     (init-interrupt-level ohci 16ms-interrupts  8ms-interrupts)
@@ -1394,7 +1394,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
   (let ((int-node (find-minimum-int-node int-level)))
     (incf (int-node-bandwidth int-node) bandwidth)
     (setf (ed-next-ed ed) (ed-next-ed (int-node-ed int-node))
-          (ed-next-ed (int-node-ed int-node)) (get-phys-addr ed))
+          (ed-next-ed (int-node-ed int-node)) (array->phys-addr ed))
 
     ;; propagate to next and previous levels
     (propagate-bandwidth-to-next int-node bandwidth)
@@ -1414,7 +1414,7 @@ s;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
 (defun %remove-interrupt-ed (int-level rem-ed bandwidth)
   (loop
      for int-node across int-level
-     with rem-ed-phys-addr = (get-phys-addr rem-ed)
+     with rem-ed-phys-addr = (array->phys-addr rem-ed)
      when (loop
              for ed = (int-node-ed int-node) then
                (phys-addr->array (ed-next-ed ed))

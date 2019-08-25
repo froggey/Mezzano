@@ -13,7 +13,7 @@
 
    ;; USB Driver/HCD validation and teardown interface
    :with-hcd-access
-   :device-disconnect
+   :controller-disconnect
    :disconnect-hcd
 
    ;; USBD Class
@@ -79,7 +79,6 @@
    :alloc-buffer/16
    :alloc-buffer/32
    :free-buffer
-   :get-phys-addr
    :array->phys-addr
    :phys-addr->array
    :with-buffers

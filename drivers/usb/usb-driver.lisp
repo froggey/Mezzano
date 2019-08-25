@@ -20,13 +20,13 @@
 ;;
 ;;======================================================================
 
-(define-condition device-disconnect ()
+(define-condition controller-disconnect ()
   ((%hcd :initarg :hcd :reader disconnect-hcd)))
 
 (defmacro with-hcd-access ((hcd) &body body)
   `(sup:with-device-access
        ((pci:pci-device-boot-id (pci-device ,hcd))
-        (signal 'device-disconnect :hcd ,hcd))
+        (signal 'controller-disconnect :hcd ,hcd))
      ,@body))
 
 ;;======================================================================
