@@ -51,8 +51,7 @@
    (%buf-pool              :initarg :buf-pool   :accessor buf-pool)
 
    ;; These fields are initialized in the method initialize-instance below
-   (%port->device-id                            :accessor port->device-id)
-   (%device-id->device                          :accessor device-id->device)
+   (%port->device                               :accessor port->device)
    (%interrupt-event-pool                       :accessor interrupt-event-pool)
 
    ;; These fields are initialized by the initform
@@ -60,9 +59,7 @@
    (%free-addresses        :initform NIL        :accessor free-addresses)))
 
 (defmethod initialize-instance :after ((usbd usbd) &key &allow-other-keys)
-  (setf (port->device-id usbd) (make-array (num-ports usbd)
-                                           :initial-element nil)
-        (device-id->device usbd) (make-hash-table)
+  (setf (port->device usbd) (make-array (num-ports usbd) :initial-element nil)
         (interrupt-event-pool usbd) (init-interrupt-event-pool usbd))
   ;; Ensure thread pool exists
   (create-thread-pool))
@@ -71,11 +68,10 @@
 
 (defmethod delete-controller :after ((usbd usbd))
   ;; Tell drivers that the device is gone
-  (loop for device-id across (port->device-id usbd)
-     when device-id do
-       (dolist (driver (usb-device-drivers (gethash device-id
-                                                    (device-id->device usbd))))
-         (delete-device driver device-id)))
+  (loop for device across (port->device usbd)
+     when device do
+       (dolist (driver (usb-device-drivers device))
+         (delete-device driver device)))
 
   ;; Delete the buffer pool
   (delete-buffer-pool (buf-pool usbd)))
@@ -102,48 +98,44 @@
 ;;======================================================================
 ;;======================================================================
 
-(defclass usb-device-id ()
-  (
-  ;; These slots are for informational/debug purposes and are
-  ;; otherwise unused
-   (vendor-id  :initarg :vendor-id)
-   (product-id :initarg :product-id)
-   (class      :initarg :class)
-   (subclass   :initarg :subclass)
-   ;; Lock for device - used to serialize creation and teardown the
-   ;; associated device
-   (%%lock     :initarg :lock           :accessor device-id-lock)))
-
 (defclass usb-device ()
   (;; These fields must be initialized by the HCD via initarg because
    ;; they are used by the method initialize-instance :after below
    (%hcd            :initarg  :hcd         :accessor usb-device-hcd)
    (%port-num       :initarg  :port-num    :accessor usb-device-port-num)
+
    ;; These fields are initialized in the method below
-   (%device-id                             :accessor usb-device-id)
+   ;; Lock for device - used to serialize creation and teardown of the
+   ;; device
+   (%%lock     :initarg :lock              :accessor usb-device-lock)
+
    ;; These fields are initialized during device enumerateion
    (%drivers        :initform NIL          :accessor usb-device-drivers)
    (%max-packet                            :accessor usb-device-max-packet)
    (%dev-desc-size                         :accessor usb-device-desc-size)
    (%device-address                        :accessor usb-device-address)
+   ;; These slots are for informational/debug purposes and are
+   ;; otherwise unused
+   (vendor-id  :initarg :vendor-id)
+   (product-id :initarg :product-id)
+   (class      :initarg :class)
+   (subclass   :initarg :subclass)
    ;; for debug
    (%configuration  :initform NIL          :accessor usb-device-configuration)))
 
-(defmethod initialize-instance :after
-    ((device usb-device) &key &allow-other-keys)
-  (let ((usbd (usb-device-hcd device))
-        (device-id (make-instance 'usb-device-id
-                                  :lock (sup:make-mutex "USB Device lock"))))
+(defmethod initialize-instance :after ((device usb-device)
+                                       &key &allow-other-keys)
+  (let ((usbd (usb-device-hcd device)))
+    (setf (usb-device-lock device) (sup:make-mutex "USB Device lock"))
+
     ;; lock device so that enumeration/driver acceptance can occur before
     ;; any operations or disconnect can occur.
-    (sup:acquire-mutex (device-id-lock device-id))
+    (sup:acquire-mutex (usb-device-lock device))
 
-    (setf (usb-device-id device) device-id
-          (gethash device-id (device-id->device usbd)) device
-          (aref (port->device-id usbd) (usb-device-port-num device)) device-id)))
+    (setf (aref (port->device usbd) (usb-device-port-num device)) device)))
 
 ;;=========================
-;; Creates an HCD device and returns device-id
+;; Creates an HCD device and returns the device
 ;;=========================
 
 (defgeneric create-device (hcd port-num)
@@ -152,21 +144,19 @@
      "create-device not defined for ~A. Error signaled, but ignored."
      hcd)))
 
-(defgeneric delete-device (hcd/driver device-id)
-  (:method (hcd/driver device-id)
+(defgeneric delete-device (hcd/driver device)
+  (:method (hcd/driver device)
     (error
      "delete-device not defined for ~A. Error signaled, but ignored."
      hcd/driver)))
 
-(defmethod delete-device :after ((usbd usbd) device-id)
-  (let* ((device (gethash device-id (device-id->device usbd)))
-         (drivers (usb-device-drivers device)))
-    (setf (aref (port->device-id usbd) (usb-device-port-num device)) nil)
-    (remhash device-id (device-id->device usbd))
+(defmethod delete-device :after ((usbd usbd) device)
+  (let* ((drivers (usb-device-drivers device)))
+    (setf (aref (port->device usbd) (usb-device-port-num device)) nil)
     (free-device-address usbd (usb-device-address device))
     ;; Tell drivers that the device has disconnected
     (dolist (driver drivers)
-      (delete-device driver device-id))))
+      (delete-device driver device))))
 
 ;;======================================================================
 ;;
@@ -229,16 +219,14 @@
 
 (defmethod handle-interrupt-event ((type (eql :port-connect)) usbd event)
   ;; Disconnect existing device on the port, if any
-  (let ((device-id (aref (port->device-id usbd)
-                         (interrupt-event-port-num event))))
-    (when device-id
-      (sup:with-mutex ((device-id-lock device-id))
-        (delete-device usbd device-id))))
+  (let ((device (aref (port->device usbd) (interrupt-event-port-num event))))
+    (when device
+      (sup:with-mutex ((usb-device-lock device))
+        (delete-device usbd device))))
 
   ;; Enumerate Device
   (handler-case
       (let ((port-num (interrupt-event-port-num event))
-            (device-id)
             (device))
         (debounce-port usbd port-num)
         (reset-port usbd port-num)
@@ -246,12 +234,11 @@
         (unwind-protect
              (progn
                ;; The device id is created with the device mutex held
-               (setf device-id (create-device usbd port-num)
-                     device (gethash device-id (device-id->device usbd)))
+               (setf device (create-device usbd port-num))
 
                ;; get device descriptor size and max packet size
                (with-buffers ((buf-pool usbd) (buf /8 64))
-                 (let ((num-bytes (get-descriptor usbd device-id
+                 (let ((num-bytes (get-descriptor usbd device
                                                   +desc-type-device+ 0
                                                   64 buf)))
                    (when (< num-bytes +dd-max-packet-size+)
@@ -265,11 +252,11 @@
 
                (reset-port usbd port-num)
                (setf (usb-device-address device) (alloc-device-address usbd))
-               (set-device-address usbd device-id (usb-device-address device))
+               (set-device-address usbd device (usb-device-address device))
 
                (let ((desc-length (usb-device-desc-size device)))
                  (with-buffers ((buf-pool usbd) (buf /8 desc-length))
-                   (let ((num-bytes (get-descriptor usbd device-id
+                   (let ((num-bytes (get-descriptor usbd device
                                                     +desc-type-device+ 0
                                                     desc-length
                                                     buf)))
@@ -279,24 +266,24 @@
                               desc-length num-bytes))
 
                      (sup:debug-print-line "Enumeration complete - success")
-                     (if (probe-usb-driver usbd device-id buf)
+                     (if (probe-usb-driver usbd device buf)
                          (sup:debug-print-line "Driver accepted device")
                          (sup:debug-print-line "No driver found"))))))
 
-          (when (and device-id
-                     (sup:mutex-held-p (device-id-lock device-id)))
-            (sup:release-mutex (device-id-lock device-id)))))
+          (when (and device
+                     (sup:mutex-held-p (usb-device-lock device)))
+            (sup:release-mutex (usb-device-lock device)))))
     ;; TODO - add error handling
     ))
 
 (defmethod handle-interrupt-event ((type (eql :port-disconnect)) usbd event)
   (handler-case
       (let* ((port-num (interrupt-event-port-num event))
-             (device-id (aref (port->device-id usbd) port-num)))
+             (device (aref (port->device usbd) port-num)))
         (unwind-protect
-             (when device-id
-               (sup:with-mutex ((device-id-lock device-id))
-                 (delete-device usbd device-id))))
+             (when device
+               (sup:with-mutex ((usb-device-lock device))
+                 (delete-device usbd device))))
         (sup:debug-print-line "Disconnect complete - success"))
     ;; TODO - add error handling
     ))
@@ -320,7 +307,7 @@
 (defstruct usb-event
   type
   dest
-  device-id
+  device
   ;; TBD - common general fields to be added as required
   plist)
 
@@ -398,7 +385,7 @@
                                (= protocol driver-protocol))
                      return driver)))))
 
-(defun probe-usb-driver (usbd device-id buf)
+(defun probe-usb-driver (usbd device buf)
   (let* ((vendor-id (dpb (aref buf +dd-vendor-id-high+)
                          (byte 8 8)
                          (aref buf +dd-vendor-id-low+)))
@@ -407,27 +394,26 @@
                           (aref buf +dd-product-id-low+)))
          (class (aref buf +dd-device-class+))
          (subclass (aref buf +dd-device-sub-class+))
-         (usb-device (gethash device-id (device-id->device usbd)))
          (driver (find-usb-driver vendor-id product-id class subclass)))
 
-    (setf (slot-value device-id 'vendor-id) vendor-id
-          (slot-value device-id 'product-id) product-id
-          (slot-value device-id 'class) class
-          (slot-value device-id 'subclass) subclass)
+    (setf (slot-value device 'vendor-id) vendor-id
+          (slot-value device 'product-id) product-id
+          (slot-value device 'class) class
+          (slot-value device 'subclass) subclass)
 
     (sup:debug-print-line "vendor id " vendor-id " product id " product-id)
 
     (when driver
-      (let ((probe-result (funcall (driver-probe driver) usbd device-id)))
+      (let ((probe-result (funcall (driver-probe driver) usbd device)))
         (when probe-result
-          (push probe-result (usb-device-drivers usb-device))
+          (push probe-result (usb-device-drivers device))
           (return-from probe-usb-driver T))))
 
     ;; Either there was no driver, or the device specific driver didn't
     ;; accept the device. Try the class drivers.
     (catch :probe-failed
-      (let ((configuration (get-configuration usbd device-id)))
-        (setf (usb-device-configuration usb-device) configuration)
+      (let ((configuration (get-configuration usbd device)))
+        (setf (usb-device-configuration device) configuration)
         (do ((desc (car configuration) (car configs))
              (configs (cdr configuration) (cdr configs))
              (config-set-p NIL))
@@ -442,10 +428,10 @@
               (sup:debug-print-line
                "Probe failed because "
                "multiple configuration descriptors are not supported")
-              (delete-device usbd device-id)
+              (delete-device usbd device)
               (return-from probe-usb-driver NIL))
             (setf config-set-p T)
-            (set-configuration usbd device-id (aref desc +cd-config-value+)))
+            (set-configuration usbd device (aref desc +cd-config-value+)))
 
           (when (= (aref desc +dd-type+) +desc-type-interface+)
             (let ((driver (find-usb-class-driver (aref desc +id-class+)
@@ -453,26 +439,26 @@
                                                  (aref desc +id-protocol+))))
               (when driver
                 (multiple-value-bind (remaining-configs probe-result)
-                    (funcall (driver-probe driver) usbd device-id desc configs)
+                    (funcall (driver-probe driver) usbd device desc configs)
                   (when probe-result
-                    (push probe-result (usb-device-drivers usb-device))
+                    (push probe-result (usb-device-drivers device))
                     (setf configs remaining-configs))))))))
 
       ;; Loop exited normally
-      (cond ((null (usb-device-drivers usb-device))
+      (cond ((null (usb-device-drivers device))
              ;; No driver accepted the device, delete it.
-             (delete-device usbd device-id)
+             (delete-device usbd device)
              (return-from probe-usb-driver NIL))
             (T
              ;; One or more drivers accepted the device, keep it
              (return-from probe-usb-driver T))))
 
     ;; Loop exited via the catch - probe failed
-    (delete-device usbd device-id)
+    (delete-device usbd device)
     NIL))
 
-(defun %get-configuration (usbd device-id length buf)
-  (let ((num-bytes (get-descriptor usbd device-id
+(defun %get-configuration (usbd device length buf)
+  (let ((num-bytes (get-descriptor usbd device
                                    +desc-type-configuration+ 0
                                    length buf)))
     (when (/= num-bytes length)
@@ -485,15 +471,15 @@
                             ".")
       (throw :probe-failed nil))))
 
-(defun get-configuration (usbd device-id)
+(defun get-configuration (usbd device)
   (with-buffers ((buf-pool usbd) (buf /8 9))
     ;; Get first configuration descriptor - need full descriptor length
-    (%get-configuration usbd device-id 9 buf)
+    (%get-configuration usbd device 9 buf)
 
     (let ((length (aref buf 2)))
       (with-buffers ((buf-pool usbd) (config-buf /8 length))
         ;; Get full descriptor
-        (%get-configuration usbd device-id length config-buf)
+        (%get-configuration usbd device length config-buf)
 
         (with-trace-level (3)
           (print-descriptor sys.int::*cold-stream* config-buf))
@@ -524,34 +510,40 @@
            hcd)))
 
 (defgeneric create-interrupt-endpt
-    (hcd device-id driver endpt-num num-bufs buf-size event-type interval)
-  (:method (hcd device-id driver endpt-num num-bufs buf-size event-type interval)
+    (hcd device driver endpt-num num-bufs buf-size event-type interval)
+  (:method (hcd device driver endpt-num num-bufs buf-size event-type interval)
      (error "create-interrupt-endpt not defined for ~A. Error ignored."
      hcd)))
 
-(defgeneric delete-interrupt-endpt (hcd device-id endpt-num)
-  (:method (hcd device-id endpt-num)
+(defgeneric delete-interrupt-endpt (hcd device endpt-num)
+  (:method (hcd device endpt-num)
      (error "delete-interrupt-endpt not defined for ~A. Error ignored."
      hcd)))
 
-(defgeneric create-bulk-endpt (hcd device-id driver endpt-num event-type)
-  (:method (hcd device-id driver endpt-num event-type)
+(defgeneric create-bulk-endpt
+    (hcd device driver endpt-num in-p event-type)
+  (:method (hcd device driver endpt-num in-p event-type)
     (error "create-bulk-endpt not defined for ~A. Error ignored" hcd)))
 
-(defgeneric delete-bulk-endpt (hcd device-id endpt-num)
-  (:method (hcd device-id endpt-num)
+(defgeneric delete-bulk-endpt (hcd device endpt-num)
+  (:method (hcd device endpt-num)
     (error "delete-bulk-endpt not defined for ~A. Error ignored" hcd)))
 
-(defgeneric create-isochronous-endpt (hcd device-id driver endpt-num event-type)
-  (:method (hcd device-id driver endpt-num event-type)
+(defgeneric bulk-enqueue-buf (hcd device endpt-num buf num-bytes)
+  (:method (hcd device endpt-num buf num-bytes)
+    (error "bulk-enqueue-buf not defined for ~A. Error ignored" hcd)))
+
+(defgeneric create-isochronous-endpt
+    (hcd device driver endpt-num in-p event-type)
+  (:method (hcd device driver endpt-num in-p event-type)
     (error "create-isochronous-endpt not defined for ~A. Error ignored" hcd)))
 
-(defgeneric delete-isochronous-endpt (hcd device-id endpt-num)
-  (:method (hcd device-id endpt-num)
+(defgeneric delete-isochronous-endpt (hcd device endpt-num)
+  (:method (hcd device endpt-num)
     (error "delete-isochronous-endpt not defined for ~A. Error ignored" hcd)))
 
-(defgeneric set-device-address (hcd device-id address)
-  (:method (hcd device-id address)
+(defgeneric set-device-address (hcd device address)
+  (:method (hcd device address)
     (error
      "set-device-address not defined for ~A. Error ignored." hcd)))
 

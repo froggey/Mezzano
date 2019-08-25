@@ -276,14 +276,14 @@
 ;;======================================================================
 
 (define-generic control-send-data
-    (usbd device-id request-type request value index length buf))
+    (usbd device request-type request value index length buf))
 
 (define-generic control-receive-data
-    (usbd device-id request-type request value index length buf))
+    (usbd device request-type request value index length buf))
 
-(define-generic bulk-send-data (usbd device-id length buf))
+(define-generic bulk-send-data (usbd device length buf))
 
-(define-generic bulk-receive-data (usbd device-id length buf))
+(define-generic bulk-receive-data (usbd device length buf))
 
 ;;======================================================================
 ;;
@@ -291,9 +291,9 @@
 
 (declaim (inline get-descriptor))
 
-(define-function get-descriptor (usbd device-id descriptor-type index length buf)
+(define-function get-descriptor (usbd device descriptor-type index length buf)
   (control-receive-data usbd
-                        device-id
+                        device
                         (encode-request-type  +rt-dir-device-to-host+
                                               +rt-type-standard+
                                               +rt-rec-device+)
@@ -311,14 +311,14 @@
 
 (declaim (inline set-configuration))
 
-(define-function set-configuration (usbd device-id configuration)
+(define-function set-configuration (usbd device configuration)
   (let ((buf))
     (unwind-protect
          (progn
            ;; don't want 0 length buf
            (setf buf (alloc-buffer/8 (buf-pool usbd) 1))
            (control-receive-data usbd
-                                 device-id
+                                 device
                                  (encode-request-type +rt-dir-host-to-device+
                                                       +rt-type-standard+
                                                       +rt-rec-device+)

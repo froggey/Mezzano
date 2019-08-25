@@ -547,7 +547,7 @@
 
 (defstruct endpoint
   type   ;; endpoint type (:control :interrupt :bulk :isochronous)
-  device-id
+  device
   driver
   num    ;; endpoint number
   ed
@@ -584,7 +584,7 @@
                                               32 :initial-element nil))))
       (setf (aref (device-endpoints device) 0)
             (make-endpoint :type :control
-                           :device-id (usb-device-id device)
+                           :device device
                            :driver NIL
                            :num 0
                            :ed ed
@@ -605,15 +605,14 @@
       ;; add ed to control list
       (setf (ed-next-ed ed) (get-control-head-pointer ohci)
             (get-control-head-pointer ohci) (array->phys-addr ed))
-      (usb-device-id device))))
+      device)))
 
-(defmethod delete-device ((ohci ohci) device-id)
+(defmethod delete-device ((ohci ohci) device)
   (with-trace-level (1)
     (sup:debug-print-line "delete device"))
   (with-hcd-access (ohci)
     (let* ((bar0 (bar ohci))
-           (hcd-device (gethash device-id (device-id->device ohci)))
-           (ed (device-control-ed hcd-device))
+           (ed (device-control-ed device))
            (ed-phys-addr (array->phys-addr ed)))
 
       ;; remove control-ed from list
@@ -660,21 +659,21 @@
 
       (free-buffer ed)
 
-      (setf (aref (device-endpoints hcd-device) 0) nil)
+      (setf (aref (device-endpoints device) 0) nil)
 
       (loop
-         with endpoints = (device-endpoints hcd-device)
+         with endpoints = (device-endpoints device)
          for endpt-num from 1 to 31
          for endpoint = (aref endpoints endpt-num) then
            (aref endpoints endpt-num)
          when endpoint do
            (ecase (endpoint-type endpoint)
              (:interrupt
-              (delete-interrupt-endpt ohci device-id endpt-num))
+              (delete-interrupt-endpt ohci device endpt-num))
              (:bulk
-              (delete-bulk-endpt ohci device-id endpt-num))
+              (delete-bulk-endpt ohci device endpt-num))
              (:isochronous
-              (delete-isochronous-endpt ohci device-id endpt-num)))))))
+              (delete-isochronous-endpt ohci device endpt-num)))))))
 
 ;;======================================================================
 ;; Interrupt Endpoint code
@@ -696,63 +695,61 @@
     dummy-td))
 
 (defmethod create-interrupt-endpt
-    ((ohci ohci) device-id driver endpt-num num-bufs buf-size event-type interval)
+    ((ohci ohci) device driver endpt-num num-bufs buf-size event-type interval)
   (with-trace-level (1)
     (sup:debug-print-line "create-interrupt-endpt"))
 
   (with-hcd-access (ohci)
-    (let ((hcd-device (gethash device-id (device-id->device ohci))))
-      (when (aref (device-endpoints hcd-device) endpt-num)
-        (error "Endpoint ~D already defined. Type is ~S"
-               endpt-num
-               (endpoint-type (aref (device-endpoints hcd-device) endpt-num))))
-      (let* ((ed (alloc-ed ohci))
-             (td (alloc-td ohci))
-             (td-phys-addr (array->phys-addr td))
-             (td-header (encode-td-header +td-partial-buffer+
-                                          +pid-in-token+
-                                          1
-                                          +td-ed-toggle+))
-             (endpoint (make-endpoint :type :interrupt
-                                      :device-id device-id
-                                      :driver driver
-                                      :num endpt-num
-                                      :ed ed
-                                      :buf-size buf-size
-                                      :event-type event-type
-                                      :interval interval
-                                      :header td-header)))
-        (setf
-         ;; save endpoint object
-         (aref (device-endpoints hcd-device) endpt-num) endpoint
-         ;; Setup header
-         (ed-header ed) (encode-ed-header
-                         (device-addr hcd-device)
-                         endpt-num
-                         +endpt-direction-td+
-                         (device-speed hcd-device)
-                         +endpt-active+
-                         +endpt-general-tds+
-                         (usb-device-max-packet hcd-device))
-         (ed-tdq-tail ed) td-phys-addr
-         (ed-tdq-head ed) td-phys-addr
-         ;; Add mapping from "dummy" td to endpoint
-         (gethash td (td->endpoint ohci)) endpoint)
+    (when (aref (device-endpoints device) endpt-num)
+      (error "Endpoint ~D already defined. Type is ~S"
+             endpt-num
+             (endpoint-type (aref (device-endpoints device) endpt-num))))
+    (let* ((ed (alloc-ed ohci))
+           (td (alloc-td ohci))
+           (td-phys-addr (array->phys-addr td))
+           (td-header (encode-td-header +td-partial-buffer+
+                                        +pid-in-token+
+                                        1
+                                        +td-ed-toggle+))
+           (endpoint (make-endpoint :type :interrupt
+                                    :device device
+                                    :driver driver
+                                    :num endpt-num
+                                    :ed ed
+                                    :buf-size buf-size
+                                    :event-type event-type
+                                    :interval interval
+                                    :header td-header)))
+      (setf
+       ;; save endpoint object
+       (aref (device-endpoints device) endpt-num) endpoint
+       ;; Setup header
+       (ed-header ed) (encode-ed-header
+                       (device-addr device)
+                       endpt-num
+                       +endpt-direction-td+
+                       (device-speed device)
+                       +endpt-active+
+                       +endpt-general-tds+
+                       (usb-device-max-packet device))
+       (ed-tdq-tail ed) td-phys-addr
+       (ed-tdq-head ed) td-phys-addr
+       ;; Add mapping from "dummy" td to endpoint
+       (gethash td (td->endpoint ohci)) endpoint)
 
-        (dotimes (i num-bufs)
-          ;; Add mapping from each new "dummy" td to endpoint
-          (setf (gethash (add-td ohci ed td-header buf-size) (td->endpoint ohci))
-                endpoint))
-        (add-interrupt-ed ohci ed buf-size interval)
-        endpt-num))))
+      (dotimes (i num-bufs)
+        ;; Add mapping from each new "dummy" td to endpoint
+        (setf (gethash (add-td ohci ed td-header buf-size) (td->endpoint ohci))
+              endpoint))
+      (add-interrupt-ed ohci ed buf-size interval)
+      endpt-num)))
 
-(defmethod delete-interrupt-endpt ((ohci ohci) device-id endpt-num)
+(defmethod delete-interrupt-endpt ((ohci ohci) device endpt-num)
   (with-trace-level (1)
     (sup:debug-print-line "delete-interrupt-endpt"))
 
   (with-hcd-access (ohci)
-    (let* ((hcd-device (gethash device-id (device-id->device ohci)))
-           (endpoint (aref (device-endpoints hcd-device) endpt-num)))
+    (let* ((endpoint (aref (device-endpoints device) endpt-num)))
       (when (null endpoint)
         (error "Endpoint ~D does not exist" endpt-num))
 
@@ -769,7 +766,7 @@
 
         (wait-for-next-sof ohci)
 
-        (setf (aref (device-endpoints hcd-device) endpt-num) nil)
+        (setf (aref (device-endpoints device) endpt-num) nil)
 
         (loop
            for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F)
@@ -835,7 +832,7 @@
                  (let ((event (make-usb-event
                                :type event-type
                                :dest (endpoint-driver endpoint)
-                               :device-id (endpoint-device-id endpoint))))
+                               :device (endpoint-device endpoint))))
                    (setf (usb-event-plist-value event :endpoint-num) endpoint-num
                          (usb-event-plist-value event :status) data-status
                          (usb-event-plist-value event :length) data-length
@@ -857,10 +854,10 @@
 ;; set-device-address
 ;;======================================================================
 
-(defmethod set-device-address ((ohci ohci) device-id address)
+(defmethod set-device-address ((ohci ohci) device address)
   (with-buffers ((buf-pool ohci) (buf /8 1))     ;; don't want 0 length buf
     (control-receive-data ohci
-                          device-id
+                          device
                           (encode-request-type +rt-dir-host-to-device+
                                                +rt-type-standard+
                                                +rt-rec-device+)
@@ -872,12 +869,11 @@
 
 
   ;; Update ed and hcd-device to use the new address
-  (let* ((hcd-device (gethash device-id (device-id->device ohci)))
-         (ed (device-control-ed hcd-device)))
+  (let* ((ed (device-control-ed device)))
     (with-hcd-access (ohci)
       (setf (ed-header ed)
             (dpb address +endpt-function-addr-field+ (ed-header ed))
-            (device-addr hcd-device)
+            (device-addr device)
             address)))
 
   ;; According to microsoft doc, need to wait 10ms after
@@ -898,18 +894,17 @@
 ;;======================================================================
 
 (defmethod control-receive-data
-    ((ohci ohci) device-id request-type request value index length buf)
+    ((ohci ohci) device request-type request value index length buf)
   (with-trace-level (1)
     (sup:debug-print-line  "control-receive-data"))
 
   (with-hcd-access (ohci)
-    (let* ((hcd-device (gethash device-id (device-id->device ohci)))
-           (endpoint (aref (device-endpoints hcd-device) 0))
+    (let* ((endpoint (aref (device-endpoints device) 0))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
-           (semaphore (device-semaphore hcd-device)))
+           (semaphore (device-semaphore device)))
 
       (encode-td msg-td +td-partial-buffer+ +pid-setup-token+ 3 +td-toggle-0+
                  msg-buf
@@ -999,18 +994,17 @@
 ;;======================================================================
 
 (defmethod control-send-data
-    ((ohci ohci) device-id request-type request value index length buf)
+    ((ohci ohci) device request-type request value index length buf)
   (with-trace-level (1)
     (sup:debug-print-line  "control-send-data"))
 
   (with-hcd-access (ohci)
-    (let* ((hcd-device (gethash device-id (device-id->device ohci)))
-           (endpoint (aref (device-endpoints hcd-device) 0))
+    (let* ((endpoint (aref (device-endpoints device) 0))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
-           (semaphore (device-semaphore hcd-device)))
+           (semaphore (device-semaphore device)))
 
       (encode-td msg-td +td-partial-buffer+ +pid-setup-token+ 3 +td-toggle-0+
                  msg-buf

@@ -40,25 +40,25 @@
 
 (defstruct trackman-wheel
   usbd
-  device-id
+  device
   submit-mouse)
 
 (define-usb-driver
     "Logitech TrackMan Wheel"
     'probe-trackman '((#x046D #xC404)) '())
 
-(defun probe-trackman (usbd device-id)
+(defun probe-trackman (usbd device)
   ;; Configuration number from configuration descriptor
-  (set-configuration usbd device-id 1)
+  (set-configuration usbd device 1)
 
   (let ((driver (make-trackman-wheel
                  :usbd usbd
-                 :device-id device-id
+                 :device device
                  :submit-mouse (intern "SUBMIT-MOUSE"
                                        :mezzano.gui.compositor))))
 
     (create-interrupt-endpt usbd
-                            device-id
+                            device
                             driver
                             1             ; from endpoint descriptor
                             3             ; should be enough?
@@ -115,7 +115,7 @@
     #+nil (push (format nil "~D: ~A" length buf) *ints*)
     (free-buffer buf)))
 
-(defmethod delete-device ((driver trackman-wheel) device-id)
+(defmethod delete-device ((driver trackman-wheel) device)
   ;; Device has disconnected - clean up any resources allocated here
   ;; Nothing to do here?
   )
