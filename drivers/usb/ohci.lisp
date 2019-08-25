@@ -466,7 +466,10 @@
          (sleep 0.03)
          (incf total-time 0.03)
          (incf stable-time 0.03)
-         (cond ((ldb-test +ps-connect-status-change+ status)
+         (cond ((>= total-time 1.500)
+                ;; Didn't see status stable for 100ms for 1.5 seconds - give up
+                (error "Debounce timeout on port ~D for OHCI" port-num))
+               ((ldb-test +ps-connect-status-change+ status)
                 ;; saw connect status change
                 (setf (get-port-status ohci port-num)
                       (dpb 1 +ps-connect-status-change+ 0)
@@ -482,9 +485,6 @@
                       0))
                ((>= stable-time 0.100)
                 (return))
-               ((>= total-time 1.500)
-                ;; Didn't see status stable for 100ms for 1.5 seconds - give up
-                (error "Debounce timeout on port ~D for OHCI" port-num))
                (T
                 ;; no state change, no timeout, so wait some more
                 )))))
