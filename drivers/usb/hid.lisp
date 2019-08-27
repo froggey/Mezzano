@@ -40,13 +40,13 @@
 
 (defstruct hid-driver
   usbd
-  device-id
+  device
   endpoints
   num-devices                           ; number of active devices
   )
 
 (defun parse-endpt-descriptor
-    (usbd driver endpoint device-id endpt-desc callback)
+    (usbd driver endpoint device endpt-desc callback)
   ;; get buffer size from report in interface
   ;; get packet size from endpt-desc
   (let* ((address (aref endpt-desc +ed-address+))
@@ -56,7 +56,7 @@
     (ecase (aref endpt-desc +ed-attributes+)
       (#.+ed-attr-interrupt+
        (create-interrupt-endpt usbd
-                               device-id
+                               device
                                driver
                                endpt-num
                                3        ;; sort of depends on interval
@@ -66,7 +66,7 @@
       )
     endpt-num))
 
-(defmethod delete-device ((driver hid-driver) device-id)
+(defmethod delete-device ((driver hid-driver) device)
   ;; Device has disconnected - clean up any resources allocated here
   ;; Nothing to do here?
   )
@@ -77,7 +77,7 @@
 
 (defvar *submit-mouse* nil)
 
-(defun probe-hid-mouse (usbd device-id iface-desc configs)
+(defun probe-hid-mouse (usbd device iface-desc configs)
   (when (/= (aref iface-desc +id-num-endpoints+) 1)
     (sup:debug-print-line "HID Probe failed because "
                           "mouse interface descriptor has "
@@ -99,14 +99,14 @@
       (throw :probe-failed nil))
 
     (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-word hid-desc +hd-descriptor-length+)))
+          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
       (when (/= type +desc-type-report+)
         (sup:debug-print-line "HID probe failed because descriptor type "
                               type
                               " not report, the only type supported.")
         (throw :probe-failed nil))
 
-      (let ((state (parse-report-descriptor usbd device-id iface-num size)))
+      (let ((state (parse-report-descriptor usbd device iface-num size)))
         (multiple-value-bind (buf-size function) (generate-mouse-buf-code state)
           (setf (hid-endpt-buf-size endpoint) buf-size
                 (hid-endpt-parse-state endpoint) state
@@ -122,11 +122,11 @@
         (throw :probe-failed nil))
       (let* ((driver (make-hid-driver
                       :usbd usbd
-                      :device-id device-id
+                      :device device
                       :endpoints (make-array 32 :initial-element NIL)))
              (endpt-num
               (parse-endpt-descriptor
-               usbd driver endpoint device-id endpt-desc 'mouse-int-callback)))
+               usbd driver endpoint device endpt-desc 'mouse-int-callback)))
         (setf (aref (hid-driver-endpoints driver) endpt-num) endpoint)
         (values configs driver)))))
 
@@ -191,7 +191,7 @@
 ;; HID Keyboard Driver
 ;;======================================================================
 
-(defun probe-hid-keyboard (usbd driver device-id iface-desc configs)
+(defun probe-hid-keyboard (usbd driver device iface-desc configs)
   (when (/= (aref iface-desc +id-num-endpoints+) 1)
     (sup:debug-print-line "HID Probe failed because "
                           "keyboard interface descriptor has "
@@ -211,7 +211,7 @@
       (throw :probe-failed nil))
 
     (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-word hid-desc +hd-descriptor-length+)))
+          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
       (when (/= type +desc-type-report+)
         (sup:debug-print-line "HID probe failed because descriptor type "
                               type
@@ -219,7 +219,7 @@
         (throw :probe-failed nil))
 
       (let ((state (parse-report-descriptor
-                    usbd driver device-id iface-num size)))
+                    usbd driver device iface-num size)))
         (multiple-value-bind (buf-size function)
             (generate-keyboard-buf-code state)
           (setf (hid-endpt-buf-size endpoint) buf-size
@@ -238,7 +238,7 @@
       #+nil
       (let ((endpt-num (parse-endpt-descriptor usbd
                                                endpoint
-                                               device-id
+                                               device
                                                endpt-desc
                                                'keyboard-int-callback)))
         (setf (aref (hid-driver-endpoints driver) endpt-num) endpoint))))
@@ -920,11 +920,11 @@
         (format *trace-stream* "~A~%~%" state))
       )))
 
-(defun parse-report-descriptor (usbd device-id iface-num size)
+(defun parse-report-descriptor (usbd device iface-num size)
   (sup:debug-print-line "iface num " iface-num)
   (with-buffers ((buf-pool usbd) (report-buf /8 size))
     (let ((num-bytes (control-receive-data usbd
-                        device-id
+                        device
                         (encode-request-type  +rt-dir-device-to-host+
                                               +rt-type-standard+
                                               +rt-rec-interface+)

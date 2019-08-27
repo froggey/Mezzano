@@ -257,24 +257,33 @@
 ;;
 ;;======================================================================
 
-(declaim (inline get-word))
+(declaim (inline get-unsigned-word/16 get-unsigned-word/32))
 
-(define-function get-word (buf offset)
+(define-function get-unsigned-word/16 (buf offset)
   (dpb (aref buf (1+ offset)) (byte 8 8) (aref buf offset)))
+
+(define-function get-unsigned-word/32 (buf offset)
+  (dpb (aref buf (+ offset 3))
+       (byte 8 24)
+       (dpb (aref buf (+ offset 2))
+            (byte 8 16)
+            (dpb (aref buf (+ offset 1))
+                 (byte 8 8)
+                 (aref buf offset)))))
 
 ;;======================================================================
 ;;
 ;;======================================================================
 
 (define-generic control-send-data
-    (usbd device-id request-type request value index length buf))
+    (usbd device request-type request value index length buf))
 
 (define-generic control-receive-data
-    (usbd device-id request-type request value index length buf))
+    (usbd device request-type request value index length buf))
 
-(define-generic bulk-send-data (usbd device-id length buf))
+(define-generic bulk-send-data (usbd device length buf))
 
-(define-generic bulk-receive-data (usbd device-id length buf))
+(define-generic bulk-receive-data (usbd device length buf))
 
 ;;======================================================================
 ;;
@@ -282,9 +291,9 @@
 
 (declaim (inline get-descriptor))
 
-(define-function get-descriptor (usbd device-id descriptor-type index length buf)
+(define-function get-descriptor (usbd device descriptor-type index length buf)
   (control-receive-data usbd
-                        device-id
+                        device
                         (encode-request-type  +rt-dir-device-to-host+
                                               +rt-type-standard+
                                               +rt-rec-device+)
@@ -302,14 +311,14 @@
 
 (declaim (inline set-configuration))
 
-(define-function set-configuration (usbd device-id configuration)
+(define-function set-configuration (usbd device configuration)
   (let ((buf))
     (unwind-protect
          (progn
            ;; don't want 0 length buf
            (setf buf (alloc-buffer/8 (buf-pool usbd) 1))
            (control-receive-data usbd
-                                 device-id
+                                 device
                                  (encode-request-type +rt-dir-host-to-device+
                                                       +rt-type-standard+
                                                       +rt-rec-device+)

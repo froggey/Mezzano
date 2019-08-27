@@ -214,8 +214,8 @@
                  (aref buf (+ offset 17)))
          (format stream "~AVendor: #x~4,'0X, Product: #x~4,'0X"
                  indent
-                 (get-word buf (+ offset 8))
-                 (get-word buf (+ offset 10)))
+                 (get-unsigned-word/16 buf (+ offset 8))
+                 (get-unsigned-word/16 buf (+ offset 10)))
          (format stream ", Device Rel: ~X.~2,'0X~%"
                  (aref buf (+ offset 13))
                  (aref buf (+ offset 12)))
@@ -234,7 +234,8 @@
 (defun print-configuration-descriptor (stream buf offset indent)
   (cond ((>= (length buf) (+ offset (aref buf offset)))
          ;; full descriptor is available
-         (format stream "~ALength: ~D" indent (get-word buf (+ offset 2)))
+         (format stream "~ALength: ~D"
+                 indent (get-unsigned-word/16 buf (+ offset 2)))
          (format stream ", Interfaces: ~D" (aref buf (+ offset 4)))
          (format stream ", Config Number: ~D" (aref buf (+ offset 5)))
          (format stream ", String Index: ~D" (aref buf (+ offset 6)))
@@ -274,7 +275,8 @@
            (format stream ", ~[Out~;In~]" (ldb (byte 1 7) addr)))
          (format stream ", ~[Control~;Isochronous~;Bulk~;Interrupt~]"
                  (aref buf (+ offset 3)))
-         (format stream ", Max Packet: ~D" (get-word buf (+ offset 4)))
+         (format stream ", Max Packet: ~D"
+                 (get-unsigned-word/16 buf (+ offset 4)))
          (format stream ", Interval: ~D~%" (aref buf (+ offset 6))))
         (T
          ;; only partial descriptor is available
@@ -293,13 +295,13 @@
          (format stream "Num Descriptors: ~D, Type: ~D, Report size: ~D~%"
                  (aref buf (+ offset 5))
                  (aref buf (+ offset 6))
-                 (get-word buf (+ offset 7)))
+                 (get-unsigned-word/16 buf (+ offset 7)))
          (when (> (aref buf offset) 9)
            (loop for idx from (+ offset 9) to (+ offset (aref buf offset)) by 3
               do (format stream "~AOptional Type: ~D, Length: ~D~%"
                          indent
                          (aref buf idx)
-                         (get-word buf (+ idx 1))))))
+                         (get-unsigned-word/16 buf (+ idx 1))))))
         (T
          ;; only partial descriptor is available
          (format stream "~A" indent)

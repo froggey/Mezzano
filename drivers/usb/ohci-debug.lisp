@@ -148,7 +148,7 @@
 
 (defun debug-find-32ms-interrupt (32ms-interrupts ed-phys-addr)
   (loop for int-node across 32ms-interrupts
-     when (= (get-phys-addr (int-node-ed int-node)) ed-phys-addr) do
+     when (= (array->phys-addr (int-node-ed int-node)) ed-phys-addr) do
        (return-from debug-find-32ms-interrupt int-node))
   (error "Unable to find ed corresponding to ~8,'0X" ed-phys-addr))
 

@@ -13,22 +13,19 @@
 
    ;; USB Driver/HCD validation and teardown interface
    :with-hcd-access
-   :device-disconnect
+   :controller-disconnect
    :disconnect-hcd
 
    ;; USBD Class
    :usbd
    :delete-controller
-   :device-id->device
    :num-ports
    :usbd-lock
    :pci-device
    :buf-pool
-   :port->devic-id
-   :device-id->device
+   :port->device
 
    ;; USBD Device Class
-   :usb-device-id
    :usb-device
    :usb-device-drivers
    :usb-device-max-packet
@@ -52,6 +49,7 @@
    :delete-interrupt-endpt
    :create-bulk-endpt
    :delete-bulk-endpt
+   :bulk-enqueue-buf
    :create-isochronous-endpt
    :delete-isochronous-endpt
 
@@ -68,7 +66,7 @@
    :make-usb-event
    :usb-event-type
    :usb-event-dest
-   :usb-event-device-id
+   :usb-event-device
    :usb-event-plist-value
    :handle-usb-event
 
@@ -79,7 +77,6 @@
    :alloc-buffer/16
    :alloc-buffer/32
    :free-buffer
-   :get-phys-addr
    :array->phys-addr
    :phys-addr->array
    :with-buffers
@@ -101,6 +98,7 @@
    :global-print/4
    :global-print/2
    :global-print/1
+   :increase-indent
    :print-buffer
    :print-descriptor
    ))
