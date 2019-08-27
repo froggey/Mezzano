@@ -362,28 +362,26 @@
 (defun find-usb-driver (vendor-id product-id class subclass)
   ;; give vendor/product drivers priority over class/subclass drivers
   (sup:with-mutex (*drivers-lock*)
-    (or (loop for driver in *vendor-drivers*
-           do (return (loop for (driver-vendor driver-product) in
-                           (driver-products driver)
-                         when (and (= vendor-id driver-vendor)
-                                   (= product-id driver-product))
-                         return driver)))
-        (loop for driver in *vendor-drivers*
-           do (return (loop for (driver-class driver-subclass) in
-                           (driver-classes driver)
-                         when (and (= class driver-class)
-                                   (= subclass driver-subclass))
-                         return driver))))))
+    (loop for driver in *vendor-drivers*
+       do (loop for (driver-vendor driver-product) in (driver-products driver)
+             when (and (= vendor-id driver-vendor)
+                       (= product-id driver-product)) do
+               (return-from find-usb-driver driver)))
+    (loop for driver in *vendor-drivers*
+       do (loop for (driver-class driver-subclass) in (driver-classes driver)
+             when (and (= class driver-class)
+                       (= subclass driver-subclass)) do
+               (return-from find-usb-driver driver)))))
 
 (defun find-usb-class-driver (class subclass protocol)
   (sup:with-mutex (*drivers-lock*)
     (loop for driver in *class-drivers*
-       do (return (loop for (driver-class driver-subclass driver-protocol) in
-                       (driver-classes driver)
-                     when (and (= class driver-class)
-                               (= subclass driver-subclass)
-                               (= protocol driver-protocol))
-                     return driver)))))
+       do (loop for (driver-class driver-subclass driver-protocol) in
+               (driver-classes driver)
+             when (and (= class driver-class)
+                       (= subclass driver-subclass)
+                       (= protocol driver-protocol)) do
+               (return-from find-usb-class-driver driver)))))
 
 (defun probe-usb-driver (usbd device buf)
   (let* ((vendor-id (dpb (aref buf +dd-vendor-id-high+)
