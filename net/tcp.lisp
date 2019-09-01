@@ -415,6 +415,21 @@ and forced to be sent from the retransmit queue.")
 (defun tcp-packet-data-length (packet start end)
   (- end (+ start (tcp-packet-header-length packet start end))))
 
+(defun acceptable-segment-p (connection packet start end)
+  (let ((rcv.wnd (tcp-connection-rcv.wnd connection))
+        (rcv.nxt (tcp-connection-rcv.nxt connection))
+        (seg.seq (tcp-packet-sequence-number packet start end))
+        (seg.ack (tcp-packet-acknowledgment-number packet start end))
+        (seg.len (tcp-packet-data-length packet start end)))
+    (if (eql rcv.wnd 0)
+        (and (eql seg.len 0)
+             (eql seg.seq rcv.nxt))
+        ;; Arithmetic here is not wrapping, so as to avoid wrap-around problems.
+        (and (and (<= rcv.nxt seg.seq) (< seg.seq (+ rcv.nxt rcv.wnd)))
+             (or (eql seg.len 0)
+                 (let ((seq-end (+ seg.seq seg.len -1)))
+                   (and (<= rcv.nxt seq-end) (< seq-end (+ rcv.nxt rcv.wnd)))))))))
+
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
   ;; in here, so this avoids truncating the backtrace with :resignal-errors.
@@ -491,15 +506,22 @@ and forced to be sent from the retransmit queue.")
                   (remhash connection (tcp-listener-pending-connections listener))
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
-         (if (zerop data-length)
-             (when (and (= seq (tcp-connection-rcv.nxt connection))
-                        (logtest flags +tcp4-flag-fin+))
-               ;; Remote has sent FIN and waiting for ACK
-               (setf (tcp-connection-state connection) :close-wait
-                     (tcp-connection-rcv.nxt connection)
-                     (+u32 (tcp-connection-rcv.nxt connection) 1))
-               (tcp4-send-packet connection ack seq nil :ack-p t))
-             (tcp4-receive-data connection data-length end header-length packet seq start)))
+         (cond ((acceptable-segment-p connection packet start end)
+                (if (zerop data-length)
+                    (when (and (eql seq (tcp-connection-rcv.nxt connection))
+                               (logtest flags +tcp4-flag-fin+))
+                      ;; Remote has sent FIN and waiting for ACK
+                      (setf (tcp-connection-state connection) :close-wait
+                            (tcp-connection-rcv.nxt connection)
+                            (+u32 (tcp-connection-rcv.nxt connection) 1))
+                      (tcp4-send-packet connection ack seq nil :ack-p t))
+                    (tcp4-receive-data connection data-length end header-length packet seq start)))
+               ((not (logtest flags +tcp4-flag-rst+))
+                (tcp4-send-packet connection
+                                  (tcp-connection-snd.nxt connection)
+                                  (tcp-connection-rcv.nxt connection)
+                                  nil
+                                  :ack-p t))))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
