@@ -1007,6 +1007,14 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (ecase (tcp-connection-state connection)
         (:established
          (setf (tcp-connection-state connection) :fin-wait-1)
+         (setf (tcp-connection-retransmit-queue connection)
+               (append (tcp-connection-retransmit-queue connection)
+                       (list (list (tcp-connection-snd.nxt connection)
+                                   (tcp-connection-rcv.nxt connection)
+                                   nil
+                                   :fin-p t))))
+         ;; TODO: Calculate RTO properly.
+         (arm-retransmit-timer *tcp-retransmit-time* connection)
          (when (not *netmangler-force-local-retransmit*)
            (tcp4-send-packet connection
                              (tcp-connection-snd.nxt connection)
@@ -1015,6 +1023,14 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                              :fin-p t)))
         (:close-wait
          (setf (tcp-connection-state connection) :last-ack)
+         (setf (tcp-connection-retransmit-queue connection)
+               (append (tcp-connection-retransmit-queue connection)
+                       (list (list (tcp-connection-snd.nxt connection)
+                                   (tcp-connection-rcv.nxt connection)
+                                   nil
+                                   :fin-p t))))
+         ;; TODO: Calculate RTO properly.
+         (arm-retransmit-timer *tcp-retransmit-time* connection)
          (when (not *netmangler-force-local-retransmit*)
            (tcp4-send-packet connection
                              (tcp-connection-snd.nxt connection)
