@@ -34,6 +34,9 @@
 (defparameter *netmangler-force-local-retransmit* nil
   "If true, then all data segments will be initially dropped
 and forced to be sent from the retransmit queue.")
+(defparameter *netmangler-iss* nil
+  "Force the ISS to this value.
+Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
@@ -311,7 +314,8 @@ and forced to be sent from the retransmit queue.")
            (when (tcp-listener-backlog listener)
              (incf (tcp-listener-n-pending-connections listener)))
            (let* ((irs (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
-                  (iss (random #x100000000))
+                  (iss (or *netmangler-iss*
+                           (random #x100000000)))
                   (connection (make-instance 'tcp-connection
                                              :state :syn-received
                                              :local-port local-port
@@ -706,7 +710,8 @@ and forced to be sent from the retransmit queue.")
   (let* ((interface (nth-value 1 (mezzano.network.ip:ipv4-route ip)))
          (source-address (mezzano.network.ip:ipv4-interface-address interface))
          (source-port (allocate-local-tcp-port source-address ip port))
-         (iss (random #x100000000))
+         (iss (or *netmangler-iss*
+                  (random #x100000000)))
          (connection (make-instance 'tcp-connection
                                     :state :syn-sent
                                     :local-port source-port
