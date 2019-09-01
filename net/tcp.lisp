@@ -29,6 +29,8 @@
 (defparameter *tcp-connect-initial-retransmit-time* 1)
 (defparameter *tcp-connect-retransmit-time* 3)
 
+(defparameter *initial-window-size* 8192)
+
 (defparameter *netmangler-force-local-retransmit* nil
   "If true, then all data segments will be initially dropped
 and forced to be sent from the retransmit queue.")
@@ -178,7 +180,7 @@ and forced to be sent from the retransmit queue.")
    (%rcv.nxt :accessor tcp-connection-rcv.nxt
              :initarg :rcv.nxt
              :type tcp-sequence-number)
-   (%window-size :accessor tcp-connection-window-size :initarg :window-size)
+   (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
    (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initform (make-hash-table))
@@ -318,7 +320,7 @@ and forced to be sent from the retransmit queue.")
                                              :remote-ip remote-ip
                                              :snd.nxt (+u32 snd-seq 1)
                                              :rcv.nxt rcv-seq
-                                             :window-size 8192
+                                             :rcv.wnd *initial-window-size*
                                              :boot-id (mezzano.supervisor:current-boot-id))))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
@@ -539,7 +541,7 @@ and forced to be sent from the retransmit queue.")
                                        (tcp-connection-remote-ip connection)
                                        (tcp-connection-remote-port connection)
                                        seq ack
-                                       (tcp-connection-window-size connection)
+                                       (tcp-connection-rcv.wnd connection)
                                        data
                                        :cwr-p cwr-p
                                        :ece-p ece-p
@@ -673,7 +675,7 @@ and forced to be sent from the retransmit queue.")
                                     :remote-ip ip
                                     :snd.nxt (+u32 seq 1)
                                     :rcv.nxt 0
-                                    :window-size 8192
+                                    :rcv.wnd *initial-window-size*
                                     :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
     (mezzano.sync.dispatch:dispatch-async
      (lambda ()
