@@ -28,6 +28,7 @@
 (defparameter *tcp-connect-timeout* 10)
 (defparameter *tcp-connect-initial-retransmit-time* 1)
 (defparameter *tcp-connect-retransmit-time* 3)
+(defparameter *tcp-retransmit-time* 1)
 
 (defparameter *initial-window-size* 8192)
 
@@ -180,6 +181,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%snd.nxt :accessor tcp-connection-snd.nxt
              :initarg :snd.nxt
              :type tcp-sequence-number)
+   (%snd.una :accessor tcp-connection-snd.una
+             :initarg :snd.una)
    (%rcv.nxt :accessor tcp-connection-rcv.nxt
              :initarg :rcv.nxt
              :type tcp-sequence-number)
@@ -187,6 +190,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initform (make-hash-table))
+   (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
    (%lock :reader tcp-connection-lock
           :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
    (%cvar :reader tcp-connection-cvar
@@ -225,12 +229,21 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   ;; Disarm it so it stops triggering the source
   (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
   ;; What're we retransmitting?
-  (format t "Doing retransmit on connection ~S~%" connection)
   (ecase (tcp-connection-state connection)
     (:syn-sent
      (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
        (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-       (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))))
+       (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
+    ((:established
+      :close-wait
+      :last-ack
+      :fin-wait-1
+      :fin-wait-2
+      :closing)
+     (let ((packet (first (tcp-connection-retransmit-queue connection))))
+       (apply #'tcp4-send-packet connection packet)
+       ;; TODO: Update RTO.
+       (arm-retransmit-timer *tcp-retransmit-time* connection)))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -323,6 +336,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                              :remote-port remote-port
                                              :remote-ip remote-ip
                                              :snd.nxt (+u32 iss 1)
+                                             :snd.una iss
                                              :rcv.nxt (+u32 irs 1)
                                              :rcv.wnd *initial-window-size*
                                              :boot-id (mezzano.supervisor:current-boot-id))))
@@ -423,7 +437,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (let ((rcv.wnd (tcp-connection-rcv.wnd connection))
         (rcv.nxt (tcp-connection-rcv.nxt connection))
         (seg.seq (tcp-packet-sequence-number packet start end))
-        (seg.ack (tcp-packet-acknowledgment-number packet start end))
         (seg.len (tcp-packet-data-length packet start end)))
     (if (eql rcv.wnd 0)
         (and (eql seg.len 0)
@@ -442,14 +455,15 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
            (ack (tcp-packet-acknowledgment-number packet start end))
            (flags (tcp-packet-flags packet start end))
            (header-length (tcp-packet-header-length packet start end))
-           (data-length (tcp-packet-header-length packet start end)))
+           (data-length (tcp-packet-data-length packet start end)))
       (when (logtest flags +tcp4-flag-rst+)
         ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
-              (make-condition 'connection-aborted
+              (make-condition 'connection-reset
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
         (detach-tcp-connection connection)
+        ;; This return is wrong, still need to hit the cvar.
         (return-from tcp4-connection-receive))
       ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
@@ -459,8 +473,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                      (logtest flags +tcp4-flag-syn+)
                      (eql ack (tcp-connection-snd.nxt connection)))
                 ;; Remote has sent SYN+ACK and waiting for ACK
-                (setf (tcp-connection-state connection) :established
-                      (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                (setf (tcp-connection-state connection) :established)
+                (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                (setf (tcp-connection-snd.una connection) ack)
                 (when (not *netmangler-force-local-retransmit*)
                   (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil))
                 ;; Cancel retransmit
@@ -510,7 +525,61 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (remhash connection (tcp-listener-pending-connections listener))
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
-         (cond ((acceptable-segment-p connection packet start end)
+         (cond ((not (acceptable-segment-p connection packet start end))
+                (when (not (logtest flags +tcp4-flag-rst+))
+                  (tcp4-send-packet connection
+                                    (tcp-connection-snd.nxt connection)
+                                    (tcp-connection-rcv.nxt connection)
+                                    nil
+                                    :ack-p t)))
+               ((logtest flags +tcp4-flag-rst+)
+                (setf (tcp-connection-pending-error connection)
+                      (make-condition 'connection-reset
+                                      :host (tcp-connection-remote-ip connection)
+                                      :port (tcp-connection-remote-port connection)))
+                (detach-tcp-connection connection))
+               ((logtest flags +tcp4-flag-syn+)
+                (setf (tcp-connection-pending-error connection)
+                      (make-condition 'connection-reset
+                                      :host (tcp-connection-remote-ip connection)
+                                      :port (tcp-connection-remote-port connection)))
+                (detach-tcp-connection connection)
+                (tcp4-send-packet connection
+                                  (tcp-connection-snd.next connection)
+                                  0 ; ???
+                                  nil
+                                  :ack-p nil
+                                  :rst-p t))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((if (< (tcp-connection-snd.una connection) (tcp-connection-snd.nxt connection))
+                    (and (< (tcp-connection-snd.una connection) ack)
+                         (<= ack (tcp-connection-snd.nxt connection)))
+                    ;; In the middle of wraparound.
+                    (or (< (tcp-connection-snd.una connection) ack)
+                        (<= ack (tcp-connection-snd.nxt connection))))
+                ;; TODO: Update the send window.
+                ;; Remove from the retransmit queue any segments that
+                ;; were fully acknowledged by this ACK.
+                (flet ((seq-cmp (x)
+                         "Test SND.UNA =< X =< SEG.ACK"
+                         (if (< (tcp-connection-snd.una connection) ack)
+                             (<= (tcp-connection-snd.una connection) x ack)
+                             ;; Sequence numbers acked.
+                             (or (<= (tcp-connection-snd.una connection) x)
+                                 (<= x ack)))))
+                  (loop
+                     (when (endp (tcp-connection-retransmit-queue connection))
+                       (return))
+                     (let* ((rtx-start-seq (first (first (tcp-connection-retransmit-queue connection))))
+                            (rtx-end-seq (+u32 rtx-start-seq (length (third (first (tcp-connection-retransmit-queue connection)))))))
+                       (when (not (and (seq-cmp rtx-start-seq)
+                                       (seq-cmp rtx-end-seq)))
+                         ;; This segment not fully acked.
+                         (return)))
+                     (pop (tcp-connection-retransmit-queue connection))))
+                (when (endp (tcp-connection-retransmit-queue connection))
+                  (disarm-retransmit-timer connection))
+                (setf (tcp-connection-snd.una connection) ack)
                 (if (zerop data-length)
                     (when (and (eql seq (tcp-connection-rcv.nxt connection))
                                (logtest flags +tcp4-flag-fin+))
@@ -520,12 +589,10 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                             (+u32 (tcp-connection-rcv.nxt connection) 1))
                       (tcp4-send-packet connection ack seq nil :ack-p t))
                     (tcp4-receive-data connection data-length end header-length packet seq start)))
-               ((not (logtest flags +tcp4-flag-rst+))
-                (tcp4-send-packet connection
-                                  (tcp-connection-snd.nxt connection)
-                                  (tcp-connection-rcv.nxt connection)
-                                  nil
-                                  :ack-p t))))
+               ((eql (tcp-connection-snd.una connection) ack)
+                ;; TODO: slow start/duplicate ack detection/fast retransmit/etc.
+                (when (not (eql data-length 0))
+                  (tcp4-receive-data connection data-length end header-length packet seq start)))))
         (:close-wait
          ;; Remote has closed, local can still send data.
          ;; Not much to do here, just waiting for the application to close.
@@ -672,6 +739,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (define-condition connection-aborted (connection-error)
   ())
 
+(define-condition connection-reset (connection-error)
+  ())
+
 (define-condition connection-timed-out (connection-error)
   ())
 
@@ -719,6 +789,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                     :remote-port port
                                     :remote-ip ip
                                     :snd.nxt (+u32 iss 1)
+                                    :snd.una iss
                                     :rcv.nxt 0
                                     :rcv.wnd *initial-window-size*
                                     :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
@@ -738,22 +809,38 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (check-connection-error connection))
     connection))
 
+(defun subseq-ub8 (sequence start &optional end)
+  "Like SUBSEQ, but returns a simple UB8 vector."
+  (let ((result (make-array (- (or end (length sequence)) start) :element-type '(unsigned-byte 8))))
+    (replace result sequence :start2 start :end2 end)
+    result))
+
 (defun tcp-send-1 (connection data start end &key psh-p)
-  (let ((snd.nxt (tcp-connection-snd.nxt connection)))
+  (let ((snd.nxt (tcp-connection-snd.nxt connection))
+        (rcv.nxt (tcp-connection-rcv.nxt connection))
+        (len (- end start))
+        ;; A copy of the data must be taken as it is owned by the user
+        ;; and may be modified after TCP-SEND returns. Due to retransmit
+        ;; it needs to be kept around until the remote has acked the data.
+        (data (subseq-ub8 data start end)))
     (setf (tcp-connection-snd.nxt connection)
           (+u32 snd.nxt len))
+    (setf (tcp-connection-retransmit-queue connection)
+          (append (tcp-connection-retransmit-queue connection)
+                  (list (list snd.nxt rcv.nxt data :psh-p psh-p))))
+    ;; TODO: Calculate RTO properly.
+    (arm-retransmit-timer *tcp-retransmit-time* connection)
     (when (not *netmangler-force-local-retransmit*)
-      (tcp4-send-packet connection snd.nxt
-                        (tcp-connection-rcv.nxt connection)
-                        (if (and (eql start 0)
-                                 (eql end (length data)))
-                            data
-                            (subseq data start end))
+      (tcp4-send-packet connection
+                        snd.nxt rcv.nxt
+                        data
                         :psh-p psh-p))))
 
+;; TODO: Respect the send window, buffer data when it fills up.
 (defun tcp-send (connection data &optional (start 0) end)
   (setf end (or end (length data)))
   (with-tcp-connection-locked connection
+    ;; FIXME: It should be an error to send after close.
     (when (or (eql (tcp-connection-state connection) :established)
               (eql (tcp-connection-state connection) :close-wait))
       (let ((mss (tcp-connection-max-seg-size connection)))
