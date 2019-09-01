@@ -345,7 +345,24 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
              (setf (gethash connection (tcp-listener-pending-connections listener))
                    connection)
              (when (not *netmangler-force-local-retransmit*)
-               (tcp4-send-packet connection iss (+u32 irs 1) nil :ack-p t :syn-p t)))))))
+               (tcp4-send-packet connection iss (+u32 irs 1) nil :ack-p t :syn-p t))))
+          ((logtest flags +tcp4-flag-rst+)) ; Do nothing for resets addressed to nobody.
+          (t
+           (let* ((seq (if (logtest flags +tcp4-flag-ack+)
+                           (tcp-packet-acknowledgment-number packet start end)
+                           0))
+                  (ack (+u32 (tcp-packet-sequence-number packet start end)
+                             (tcp-packet-data-length packet start end)))
+                  (packet (assemble-tcp4-packet local-ip local-port
+                                                remote-ip remote-port
+                                                seq ack
+                                                0
+                                                nil
+                                                :ack-p (logtest flags +tcp4-flag-ack+)
+                                                :rst-p t)))
+             (mezzano.network.ip:transmit-ipv4-packet
+              local-ip remote-ip
+              mezzano.network.ip:+ip-protocol-tcp+ packet))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
   (cond ((or (not element-type)
