@@ -310,16 +310,16 @@ and forced to be sent from the retransmit queue.")
                        (tcp-listener-backlog listener))))
            (when (tcp-listener-backlog listener)
              (incf (tcp-listener-n-pending-connections listener)))
-           (let* ((rcv-seq (+u32 (ub32ref/be packet (+ start +tcp4-header-sequence-number+)) 1))
-                  (snd-seq (random #x100000000))
+           (let* ((irs (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
+                  (iss (random #x100000000))
                   (connection (make-instance 'tcp-connection
                                              :state :syn-received
                                              :local-port local-port
                                              :local-ip local-ip
                                              :remote-port remote-port
                                              :remote-ip remote-ip
-                                             :snd.nxt (+u32 snd-seq 1)
-                                             :rcv.nxt rcv-seq
+                                             :snd.nxt (+u32 iss 1)
+                                             :rcv.nxt (+u32 irs 1)
                                              :rcv.wnd *initial-window-size*
                                              :boot-id (mezzano.supervisor:current-boot-id))))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -327,7 +327,7 @@ and forced to be sent from the retransmit queue.")
              (setf (gethash connection (tcp-listener-pending-connections listener))
                    connection)
              (when (not *netmangler-force-local-retransmit*)
-               (tcp4-send-packet connection snd-seq rcv-seq nil :ack-p t :syn-p t)))))))
+               (tcp4-send-packet connection iss (+u32 irs 1) nil :ack-p t :syn-p t)))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
   (cond ((or (not element-type)
@@ -684,14 +684,14 @@ and forced to be sent from the retransmit queue.")
   (let* ((interface (nth-value 1 (mezzano.network.ip:ipv4-route ip)))
          (source-address (mezzano.network.ip:ipv4-interface-address interface))
          (source-port (allocate-local-tcp-port source-address ip port))
-         (seq (random #x100000000))
+         (iss (random #x100000000))
          (connection (make-instance 'tcp-connection
                                     :state :syn-sent
                                     :local-port source-port
                                     :local-ip source-address
                                     :remote-port port
                                     :remote-ip ip
-                                    :snd.nxt (+u32 seq 1)
+                                    :snd.nxt (+u32 iss 1)
                                     :rcv.nxt 0
                                     :rcv.wnd *initial-window-size*
                                     :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
@@ -700,7 +700,7 @@ and forced to be sent from the retransmit queue.")
        (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
          (push connection *tcp-connections*))
        (when (not *netmangler-force-local-retransmit*)
-         (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t))
+         (tcp4-send-packet connection iss 0 nil :ack-p nil :syn-p t))
        (arm-retransmit-timer *tcp-connect-initial-retransmit-time* connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
      sys.net::*network-serial-queue*)
