@@ -386,10 +386,13 @@ Returns 4 values:
        (take-snapshot))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
+     ;; FIXME: There's a race between setting this event and the thread
+     ;; going to sleep. (SETF EVENT-STATE) can't be called with the
+     ;; global thread-lock held.
+     (setf (event-state *snapshot-state*) t)
      (%disable-interrupts)
      (acquire-global-thread-lock)
      (setf *snapshot-in-progress* nil)
-     (setf (event-state *snapshot-state*) t)
      (setf (thread-state sys.int::*snapshot-thread*) :sleeping
            (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
      (%run-on-wired-stack-without-interrupts (sp fp)
