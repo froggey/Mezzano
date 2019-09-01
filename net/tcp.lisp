@@ -463,7 +463,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
         (detach-tcp-connection connection)
-        ;; This return is wrong, still need to hit the cvar.
+        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (return-from tcp4-connection-receive))
       ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
