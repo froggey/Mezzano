@@ -29,6 +29,10 @@
 (defparameter *tcp-connect-initial-retransmit-time* 1)
 (defparameter *tcp-connect-retransmit-time* 3)
 
+(defparameter *netmangler-force-local-retransmit* nil
+  "If true, then all data segments will be initially dropped
+and forced to be sent from the retransmit queue.")
+
 (defvar *tcp-connections* nil)
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *tcp-listeners* nil)
@@ -314,7 +318,8 @@
                (push connection *tcp-connections*))
              (setf (gethash connection (tcp-listener-pending-connections listener))
                    connection)
-             (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t))))))
+             (when (not *netmangler-force-local-retransmit*)
+               (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
   (cond ((or (not element-type)
@@ -377,6 +382,8 @@
            (setf (gethash seq (tcp-connection-rx-data-unordered connection))
                  (list (list packet (+ start header-length) end))))))
   (when (<= seq (tcp-connection-r-next connection))
+    ;; Don't check *netmangler-force-local-retransmit* here,
+    ;; or no acks will ever get through.
     (tcp4-send-packet connection
                       (tcp-connection-s-next connection)
                       (tcp-connection-r-next connection)
@@ -411,7 +418,8 @@
                 ;; Remote has sent SYN+ACK and waiting for ACK
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
-                (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil)
+                (when (not *netmangler-force-local-retransmit*)
+                  (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
                 ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
@@ -419,8 +427,9 @@
                 ;; Simultaneous open
                 (setf (tcp-connection-state connection) :syn-received
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
-                (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
-                                  :ack-p t :syn-p t)
+                (when (not *netmangler-force-local-retransmit*)
+                  (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
+                                    :ack-p t :syn-p t))
                 ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
@@ -669,7 +678,8 @@
      (lambda ()
        (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
          (push connection *tcp-connections*))
-       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+       (when (not *netmangler-force-local-retransmit*)
+         (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t))
        (arm-retransmit-timer *tcp-connect-initial-retransmit-time* connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
      sys.net::*network-serial-queue*)
@@ -697,13 +707,14 @@
                  (setf (tcp-connection-s-next connection)
                        (logand (+ s-next (- end start))
                                #xFFFFFFFF))
-                 (tcp4-send-packet connection s-next
-                                   (tcp-connection-r-next connection)
-                                   (if (and (eql start 0)
-                                            (eql end (length data)))
-                                       data
-                                       (subseq data start end))
-                                   :psh-p t))))))))
+                 (when (not *netmangler-force-local-retransmit*)
+                   (tcp4-send-packet connection s-next
+                                     (tcp-connection-r-next connection)
+                                     (if (and (eql start 0)
+                                              (eql end (length data)))
+                                         data
+                                         (subseq data start end))
+                                     :psh-p t)))))))))
 
 (defclass tcp-octet-stream (gray:fundamental-binary-input-stream
                             gray:fundamental-binary-output-stream)
@@ -854,18 +865,20 @@
       (ecase (tcp-connection-state connection)
         (:established
          (setf (tcp-connection-state connection) :fin-wait-1)
-         (tcp4-send-packet connection
-                           (tcp-connection-s-next connection)
-                           (tcp-connection-r-next connection)
-                           nil
-                           :fin-p t))
+         (when (not *netmangler-force-local-retransmit*)
+           (tcp4-send-packet connection
+                             (tcp-connection-s-next connection)
+                             (tcp-connection-r-next connection)
+                             nil
+                             :fin-p t)))
         (:close-wait
          (setf (tcp-connection-state connection) :last-ack)
-         (tcp4-send-packet connection
-                           (tcp-connection-s-next connection)
-                           (tcp-connection-r-next connection)
-                           nil
-                           :fin-p t))
+         (when (not *netmangler-force-local-retransmit*)
+           (tcp4-send-packet connection
+                             (tcp-connection-s-next connection)
+                             (tcp-connection-r-next connection)
+                             nil
+                             :fin-p t)))
         (:closed)))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
