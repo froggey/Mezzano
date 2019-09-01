@@ -308,16 +308,16 @@ and forced to be sent from the retransmit queue.")
                        (tcp-listener-backlog listener))))
            (when (tcp-listener-backlog listener)
              (incf (tcp-listener-n-pending-connections listener)))
-           (let* ((seq (random #x100000000))
-                  (ack (+u32 (ub32ref/be packet (+ start +tcp4-header-sequence-number+)) 1))
+           (let* ((rcv-seq (+u32 (ub32ref/be packet (+ start +tcp4-header-sequence-number+)) 1))
+                  (snd-seq (random #x100000000))
                   (connection (make-instance 'tcp-connection
                                              :state :syn-received
                                              :local-port local-port
                                              :local-ip local-ip
                                              :remote-port remote-port
                                              :remote-ip remote-ip
-                                             :s-next (+u32 seq 1)
-                                             :r-next ack
+                                             :s-next (+u32 snd-seq 1)
+                                             :r-next rcv-seq
                                              :window-size 8192
                                              :boot-id (mezzano.supervisor:current-boot-id))))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -325,7 +325,7 @@ and forced to be sent from the retransmit queue.")
              (setf (gethash connection (tcp-listener-pending-connections listener))
                    connection)
              (when (not *netmangler-force-local-retransmit*)
-               (tcp4-send-packet connection seq ack nil :ack-p t :syn-p t)))))))
+               (tcp4-send-packet connection snd-seq rcv-seq nil :ack-p t :syn-p t)))))))
 
 (defun tcp4-accept-connection (connection &key element-type external-format)
   (cond ((or (not element-type)
@@ -457,7 +457,7 @@ and forced to be sent from the retransmit queue.")
                   (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
-                     (eql ack (1- (tcp-connection-s-next connection)))))
+                     (eql seq (-u32 (tcp-connection-r-next connection) 1))))
                (t
                 ;; Aborting connection
                 (tcp4-send-packet connection ack seq nil :rst-p t)
