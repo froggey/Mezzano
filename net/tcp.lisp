@@ -396,16 +396,34 @@ and forced to be sent from the retransmit queue.")
                       nil
                       :ack-p t)))
 
+(defun tcp-packet-sequence-number (packet start end)
+  (declare (ignore end))
+  (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
+
+(defun tcp-packet-acknowledgment-number (packet start end)
+  (declare (ignore end))
+  (ub32ref/be packet (+ start +tcp4-header-acknowledgment-number+)))
+
+(defun tcp-packet-flags (packet start end)
+  (declare (ignore end))
+  (ldb (byte 12 0) (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))))
+
+(defun tcp-packet-header-length (packet start end)
+  (declare (ignore end))
+  (* (ldb (byte 4 12) (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))) 4))
+
+(defun tcp-packet-data-length (packet start end)
+  (- end (+ start (tcp-packet-header-length packet start end))))
+
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
   ;; in here, so this avoids truncating the backtrace with :resignal-errors.
   (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
-    (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
-           (ack (ub32ref/be packet (+ start +tcp4-header-acknowledgment-number+)))
-           (flags-and-data-offset (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
-           (flags (ldb (byte 12 0) flags-and-data-offset))
-           (header-length (* (ldb (byte 4 12) flags-and-data-offset) 4))
-           (data-length (- end (+ start header-length))))
+    (let* ((seq (tcp-packet-sequence-number packet start end))
+           (ack (tcp-packet-acknowledgment-number packet start end))
+           (flags (tcp-packet-flags packet start end))
+           (header-length (tcp-packet-header-length packet start end))
+           (data-length (tcp-packet-header-length packet start end)))
       (when (logtest flags +tcp4-flag-rst+)
         ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
