@@ -71,9 +71,11 @@
                  (lambda ()
                    (sys.int::log-and-ignore-errors
                      (let ((packet (mezzano.sync:mailbox-receive
-                                    (mezzano.driver.network-card:receive-mailbox nic))))
-                       (mezzano.network.ethernet::receive-ethernet-packet
-                        nic packet))))
+                                    (mezzano.driver.network-card:receive-mailbox nic)
+                                    :wait-p nil)))
+                       (when packet
+                         (mezzano.network.ethernet::receive-ethernet-packet
+                          nic packet)))))
                  :target *network-serial-queue*)))
     (setf (gethash nic *receive-sources*) source))
   ;; Bring this interface up.
