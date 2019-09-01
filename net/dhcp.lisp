@@ -78,6 +78,9 @@
        finally (setf (aref packet pos) +opt-end+))
     packet))
 
+(defun decode-dhcp-xid (buffer)
+  (ub32ref/be buffer 4))
+
 (defun decode-dhcp-option (buffer position)
   "Returns (VALUES type value next-option-position)"
   (if (zerop (aref buffer position))
@@ -157,36 +160,44 @@
 								      #.+opt-custom-mezzano-server+)))
 	       xid)
     (unwind-protect
-	 (let ((offer (sys.net:receive connection :timeout 4)))
-	   (when offer
-	     (let* ((siaddr (ub32ref/be offer 20))
-		    (yiaddr (ub32ref/be offer 16))
-		    (oaddr (make-array 4 :element-type '(unsigned-byte 8)))
-		    (options (decode-all-options offer))
-		    (dhcpserver (get-option options +opt-dhcp-server+)))
-	       (setf (ub32ref/be oaddr 0) yiaddr)
-	       (if (zerop yiaddr)
-		   nil
-		   (progn
-		     (dhcp-send interface
-				(list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
-				      (make-dhcp-option +opt-ip-address+ oaddr)
-				      (make-dhcp-option +opt-dhcp-server+ dhcpserver))
-				xid
-				:siaddr siaddr)
+         (loop
+            (let ((offer (sys.net:receive connection :timeout 4)))
+              (when (not offer)
+                ;; Timed out
+                (return-from acquire-lease nil))
+              (let* ((siaddr (ub32ref/be offer 20))
+                     (yiaddr (ub32ref/be offer 16))
+                     (oaddr (make-array 4 :element-type '(unsigned-byte 8)))
+                     (options (decode-all-options offer))
+                     (dhcpserver (get-option options +opt-dhcp-server+))
+                     (type (get-option options +opt-dhcp-message-type+)))
+                (setf (ub32ref/be oaddr 0) yiaddr)
+                (when (and (eql (aref type 0) +dhcp-offer+)
+                           (eql (decode-dhcp-xid offer) xid)
+                           (not (zerop yiaddr)))
+                  (dhcp-send interface
+                             (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
+                                   (make-dhcp-option +opt-ip-address+ oaddr)
+                                   (make-dhcp-option +opt-dhcp-server+ dhcpserver))
+                             xid
+                             :siaddr siaddr)
+                  (loop
                      (let ((ack (sys.net:receive connection :timeout 4)))
-		       (when ack
-			 (let* ((ack-options (decode-all-options ack))
-				(confirmation (get-option ack-options +opt-dhcp-message-type+)))
-			   (if (= (aref confirmation 0) +dhcp-ack+)
-			       (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
-					      :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
-					      :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
-					      :ntp-servers (get-option options +opt-ntp-servers+)
-					      :mezzano-server (get-option options +opt-custom-mezzano-server+)
-					      :lease-timestamp (get-universal-time)
-					      :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0))
-			       nil)))))))))
+                       (when (not ack)
+                         ;; Timed out
+                         (return-from acquire-lease nil))
+                       (let* ((ack-options (decode-all-options ack))
+                              (confirmation (get-option ack-options +opt-dhcp-message-type+)))
+                         (when (and (eql (aref confirmation 0) +dhcp-ack+) ; Ignore non-ack packets.
+                                    (eql (decode-dhcp-xid offer) xid))
+                           (return-from acquire-lease
+                             (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
+                                            :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
+                                            :dhcp-server (get-option options +opt-dhcp-server+) :interface interface
+                                            :ntp-servers (get-option options +opt-ntp-servers+)
+                                            :mezzano-server (get-option options +opt-custom-mezzano-server+)
+                                            :lease-timestamp (get-universal-time)
+                                            :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)))))))))))
       (sys.net:disconnect connection))))
 
 (defmethod renew-lease ((lease dhcp-lease))
