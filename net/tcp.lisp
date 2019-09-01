@@ -57,6 +57,12 @@ and forced to be sent from the retransmit queue.")
 (deftype tcp-sequence-number ()
   '(unsigned-byte 32))
 
+(defun +u32 (x y)
+  (ldb (byte 32 0) (+ x y)))
+
+(defun -u32 (x y)
+  (ldb (byte 32 0) (- x y)))
+
 ;; FIXME: Inbount connections need to timeout if state :syn-received don't change.
 (defclass tcp-listener ()
   ((local-port :reader tcp-listener-local-port
@@ -217,7 +223,7 @@ and forced to be sent from the retransmit queue.")
   (format t "Doing retransmit on connection ~S~%" connection)
   (ecase (tcp-connection-state connection)
     (:syn-sent
-     (let ((seq (logand #xFFFFFFFF (1- (tcp-connection-s-next connection)))))
+     (let ((seq (-u32 (tcp-connection-s-next connection) 1)))
        (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
        (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))))
 
@@ -303,14 +309,14 @@ and forced to be sent from the retransmit queue.")
            (when (tcp-listener-backlog listener)
              (incf (tcp-listener-n-pending-connections listener)))
            (let* ((seq (random #x100000000))
-                  (ack (logand #xFFFFFFFF (1+ (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))))
+                  (ack (+u32 (ub32ref/be packet (+ start +tcp4-header-sequence-number+)) 1))
                   (connection (make-instance 'tcp-connection
                                              :state :syn-received
                                              :local-port local-port
                                              :local-ip local-ip
                                              :remote-port remote-port
                                              :remote-ip remote-ip
-                                             :s-next (logand #xFFFFFFFF (1+ seq))
+                                             :s-next (+u32 seq 1)
                                              :r-next ack
                                              :window-size 8192
                                              :boot-id (mezzano.supervisor:current-boot-id))))
@@ -360,8 +366,7 @@ and forced to be sent from the retransmit queue.")
              (setf (tcp-connection-rx-data connection)
                    (list (list packet (+ start header-length) end))))
          (setf (tcp-connection-r-next connection)
-               (logand (+ (tcp-connection-r-next connection) data-length)
-                       #xFFFFFFFF))
+               (+u32 (tcp-connection-r-next connection) data-length))
          ;; Check if the next packet is in tcp-connection-rx-data-unordered
          (loop :for packet := (gethash (tcp-connection-r-next connection)
                                        (tcp-connection-rx-data-unordered connection))
@@ -371,8 +376,7 @@ and forced to be sent from the retransmit queue.")
                :do (setf (cdr (last (tcp-connection-rx-data connection)))
                          (list (list packet (+ start header-length) end)))
                :do (setf (tcp-connection-r-next connection)
-                         (logand (+ (tcp-connection-r-next connection) data-length)
-                                 #xFFFFFFFF)))
+                         (+u32 (tcp-connection-r-next connection) data-length)))
          (setf (mezzano.supervisor:event-state
                 (tcp-connection-receive-event connection))
                t))
@@ -417,7 +421,7 @@ and forced to be sent from the retransmit queue.")
                      (eql ack (tcp-connection-s-next connection)))
                 ;; Remote has sent SYN+ACK and waiting for ACK
                 (setf (tcp-connection-state connection) :established
-                      (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
+                      (tcp-connection-r-next connection) (+u32 seq 1))
                 (when (not *netmangler-force-local-retransmit*)
                   (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
                 ;; Cancel retransmit
@@ -426,7 +430,7 @@ and forced to be sent from the retransmit queue.")
                ((logtest flags +tcp4-flag-syn+)
                 ;; Simultaneous open
                 (setf (tcp-connection-state connection) :syn-received
-                      (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
+                      (tcp-connection-r-next connection) (+u32 seq 1))
                 (when (not *netmangler-force-local-retransmit*)
                   (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil
                                     :ack-p t :syn-p t))
@@ -473,8 +477,7 @@ and forced to be sent from the retransmit queue.")
                ;; Remote has sent FIN and waiting for ACK
                (setf (tcp-connection-state connection) :close-wait
                      (tcp-connection-r-next connection)
-                     (logand (+ (tcp-connection-r-next connection) 1)
-                             #xFFFFFFFF))
+                     (+u32 (tcp-connection-r-next connection) 1))
                (tcp4-send-packet connection ack seq nil :ack-p t))
              (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:close-wait
@@ -492,8 +495,7 @@ and forced to be sent from the retransmit queue.")
              (when (= seq (tcp-connection-r-next connection))
                (cond ((logtest flags +tcp4-flag-fin+)
                       (setf (tcp-connection-r-next connection)
-                            (logand (+ (tcp-connection-r-next connection) 1)
-                                    #xFFFFFFFF))
+                            (+u32 (tcp-connection-r-next connection) 1))
                       (tcp4-send-packet connection
                                         (tcp-connection-s-next connection)
                                         (tcp-connection-r-next connection)
@@ -514,8 +516,7 @@ and forced to be sent from the retransmit queue.")
                         (logtest flags +tcp4-flag-fin+))
                ;; Remote has sent FIN and waiting for ACK
                (setf (tcp-connection-r-next connection)
-                     (logand (+ (tcp-connection-r-next connection) 1)
-                             #xFFFFFFFF))
+                     (+u32 (tcp-connection-r-next connection) 1))
                (tcp4-send-packet connection
                                  (tcp-connection-s-next connection)
                                  (tcp-connection-r-next connection)
@@ -670,7 +671,7 @@ and forced to be sent from the retransmit queue.")
                                     :local-ip source-address
                                     :remote-port port
                                     :remote-ip ip
-                                    :s-next (logand #xFFFFFFFF (1+ seq))
+                                    :s-next (+u32 seq 1)
                                     :r-next 0
                                     :window-size 8192
                                     :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
@@ -693,8 +694,7 @@ and forced to be sent from the retransmit queue.")
 (defun tcp-send-1 (connection data start end &key psh-p)
   (let ((s-next (tcp-connection-s-next connection)))
     (setf (tcp-connection-s-next connection)
-          (logand (+ s-next (- end start))
-                  #xFFFFFFFF))
+          (+u32 s-next len))
     (when (not *netmangler-force-local-retransmit*)
       (tcp4-send-packet connection s-next
                         (tcp-connection-r-next connection)
