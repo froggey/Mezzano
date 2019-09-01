@@ -690,31 +690,39 @@ and forced to be sent from the retransmit queue.")
       (check-connection-error connection))
     connection))
 
+(defun tcp-send-1 (connection data start end &key psh-p)
+  (let ((s-next (tcp-connection-s-next connection)))
+    (setf (tcp-connection-s-next connection)
+          (logand (+ s-next (- end start))
+                  #xFFFFFFFF))
+    (when (not *netmangler-force-local-retransmit*)
+      (tcp4-send-packet connection s-next
+                        (tcp-connection-r-next connection)
+                        (if (and (eql start 0)
+                                 (eql end (length data)))
+                            data
+                            (subseq data start end))
+                        :psh-p psh-p))))
+
 (defun tcp-send (connection data &optional (start 0) end)
-  (when (or (eql (tcp-connection-state connection) :established)
-            (eql (tcp-connection-state connection) :close-wait))
-    (setf end (or end (length data)))
-    (let ((mss (tcp-connection-max-seg-size connection)))
-      (cond ((>= start end))
-            ((> (- end start) mss)
-             ;; Send multiple packets.
-             (do ((offset start (+ offset mss)))
-                 ((>= offset end))
-               (tcp-send connection data offset (min (+ offset mss) end))))
-            (t ;; Send one packet.
-             (with-tcp-connection-locked connection
-               (let ((s-next (tcp-connection-s-next connection)))
-                 (setf (tcp-connection-s-next connection)
-                       (logand (+ s-next (- end start))
-                               #xFFFFFFFF))
-                 (when (not *netmangler-force-local-retransmit*)
-                   (tcp4-send-packet connection s-next
-                                     (tcp-connection-r-next connection)
-                                     (if (and (eql start 0)
-                                              (eql end (length data)))
-                                         data
-                                         (subseq data start end))
-                                     :psh-p t)))))))))
+  (setf end (or end (length data)))
+  (with-tcp-connection-locked connection
+    (when (or (eql (tcp-connection-state connection) :established)
+              (eql (tcp-connection-state connection) :close-wait))
+      (let ((mss (tcp-connection-max-seg-size connection)))
+        (cond ((>= start end))
+              ((> (- end start) mss)
+               ;; Send multiple packets.
+               (loop
+                  for offset from start by mss
+                  while (> (- end offset) mss)
+                  do
+                    (tcp-send-1 connection data offset (+ offset mss))
+                  finally
+                    (tcp-send-1 connection data offset end :psh-p t)))
+              (t
+               ;; Send one packet.
+               (tcp-send-1 connection data start end :psh-p t)))))))
 
 (defclass tcp-octet-stream (gray:fundamental-binary-input-stream
                             gray:fundamental-binary-output-stream)
