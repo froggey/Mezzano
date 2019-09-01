@@ -31,11 +31,15 @@
 (sys.int::defglobal *nic-receive-buffer-capacity* 50
   "The number of recevied packets that can be buffered by a NIC by default.")
 
+(sys.int::defglobal *netmangler-receive-duplicate* nil
+  "If true, then received packets will be duplicated.")
 (sys.int::defglobal *netmangler-receive-drop-probability* nil
   "Probability that the network stack will drop a received packet.
 Should be NIL to disable dropping or a (REAL 0 1) to enable, with higher values
 corresponding to higher chances of a packet being dropped.")
 (sys.int::defglobal *netmangler-receive-drop-count* 0)
+(sys.int::defglobal *netmangler-transmit-duplicate* nil
+  "If true, then transmitted packets will be duplicated.")
 (sys.int::defglobal *netmangler-transmit-drop-probability* nil
   "Probability that the network stack will drop a transmitted packet.")
 (sys.int::defglobal *netmangler-transmit-drop-count* 0)
@@ -112,7 +116,10 @@ The registration hook will immediately be called with all currently registered N
       (return-from transmit-packet)))
   (mezzano.supervisor::set-network-light t)
   (unwind-protect
-       (call-next-method)
+       (progn
+         (call-next-method)
+         (when *netmangler-transmit-duplicate*
+           (call-next-method)))
     (mezzano.supervisor::set-network-light nil)))
 
 (defun device-received-packet (nic packet)
@@ -121,4 +128,6 @@ The registration hook will immediately be called with all currently registered N
     (when (and prob (< (random 1.0) prob))
       (sys.int::atomic-incf *netmangler-receive-drop-count*)
       (return-from device-received-packet)))
-  (sync:mailbox-send packet (receive-mailbox nic)))
+  (sync:mailbox-send packet (receive-mailbox nic))
+  (when *netmangler-receive-duplicate*
+    (sync:mailbox-send packet (receive-mailbox nic))))
