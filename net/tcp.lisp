@@ -1,6 +1,15 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
+;;; TCP
+;;;
+;;; Transmission Control Protocol - Protocol Specification
+;;; https://tools.ietf.org/html/rfc793
+;;;
+;;; EFSM/SDL modeling of the original TCP standard (RFC793) and the
+;;; Congestion Control Mechanism of TCP Reno
+;;; http://www.medianet.kent.edu/techreports/TR2005-07-22-tcp-EFSM.pdf
+
 (in-package :mezzano.network.tcp)
 
 (defconstant +tcp4-header-source-port+ 0)
