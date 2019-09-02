@@ -460,7 +460,8 @@ Returns 4 values:
   `(call-with-snapshot-inhibited (dx-lambda () ,@body) ,@options))
 
 (defun call-with-snapshot-inhibited (fn)
-  (incf *snapshot-inhibit*)
+  ;; FIXME: Switch to ATOMIC-INCF/-DECF. Needs xcompiler fixes for declaim.
+  (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* 1)
   (unwind-protect
        (funcall fn)
-    (decf *snapshot-inhibit*)))
+    (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1)))
