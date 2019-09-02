@@ -13,14 +13,22 @@
 
 (in-package :mezzano.file-system.remote)
 
+(defvar *reuse-connection* nil
+  "If true, then the FS will attempt to maintain a single connection to
+the server instead of reconnecting for each operation.")
 (defvar *default-remote-file-port* 2599)
 (defvar *cache-size* (* 512 1024))
 
 (defclass remote-file-host ()
   ((%name :initarg :name :reader host-name)
    (%address :initarg :address :reader host-address)
-   (%port :initarg :port :reader host-port))
+   (%port :initarg :port :reader host-port)
+   (%lock :reader remote-host-lock)
+   (%connection :initform nil :accessor remote-host-connection))
   (:default-initargs :port *default-remote-file-port*))
+
+(defmethod initialize-instance :after ((instance remote-file-host) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex `(remote-file-host ,instance))))
 
 (defmethod print-object ((object remote-file-host) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -170,8 +178,47 @@
   (unparse-remote-file-path path))
 
 (defmacro with-connection ((var host) &body body)
-  `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
-     ,@body))
+  `(call-with-connection ,host (lambda (,var) ,@body)))
+
+(defun call-with-connection (host fn)
+  (if *reuse-connection*
+      (mezzano.supervisor:with-mutex ((remote-host-lock host))
+        ;; Inhibit snapshots to prevent the connection from becoming stale
+        ;; at a bad time.
+        (mezzano.supervisor:with-snapshot-inhibited ()
+          (when (remote-host-connection host)
+            ;; Tickle any existing connection to make sure it's still open.
+            (handler-case
+                (read-sequence (load-time-value
+                                (make-array 0 :element-type '(unsigned-byte 8)))
+                               (remote-host-connection host))
+              (mezzano.network.tcp:connection-error ()
+                (close (remote-host-connection host) :abort t)
+                (setf (remote-host-connection host) nil))))
+          (when (not (remote-host-connection host))
+            (setf (remote-host-connection host)
+                  (mezzano.network.tcp:tcp-stream-connect
+                   (host-address host) (host-port host))))
+          (handler-bind
+              ((error (lambda (c)
+                        (declare (ignore c))
+                        ;; If an error occurs, then close the current
+                        ;; connection and force the next operation to re-open.
+                        ;; Just in case the connection gets into a bad state.
+                        (close (remote-host-connection host))
+                        (setf (remote-host-connection host) nil))))
+            (funcall fn (remote-host-connection host)))))
+      (sys.net::with-open-network-stream (connection (host-address host)
+                                                     (host-port host))
+        (funcall fn connection))))
+
+(defmacro with-open-handle ((var pathname connection command) &body body)
+  (let ((id (gensym "ID")))
+    `(let ((,id (command ,pathname ,connection ,command)))
+       (unwind-protect
+            (let ((,var ,id))
+              ,@body)
+         (command ,pathname ,connection `(:close ,,id))))))
 
 (defmethod open-using-host ((host remote-file-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
@@ -215,7 +262,7 @@
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
       (when (not size)
-        (let ((id (command pathname con `(:open ,path :direction :input))))
+        (with-open-handle (id pathname con `(:open ,path :direction :input))
           (setf size (command pathname con `(:size ,id))))))
     (let ((stream (cond ((or (eql element-type :default)
                              (subtypep element-type 'character))
@@ -281,8 +328,7 @@
              (buffer-dirty-p stream))
     ;; Write data back.
     (with-connection (con (host stream))
-      (let ((id (command stream con
-                         `(:open ,(path stream) :direction :output :if-does-not-exist :error :if-exists :overwrite))))
+      (with-open-handle (id stream con `(:open ,(path stream) :direction :output :if-does-not-exist :error :if-exists :overwrite))
         (command stream con
                  `(:write ,id ,(buffer-position stream) ,(length (buffer stream)))
                  (buffer stream)))))
@@ -355,12 +401,11 @@ The file position must be less than the file length."
                              *cache-size*))
          (buffer (make-array *cache-size* :element-type '(unsigned-byte 8) :fill-pointer bytes-to-read)))
     (with-connection (con (host stream))
-      (let* ((id (command stream con
-                         `(:open ,(path stream) :direction :input)))
-             (count (command stream con
-                             `(:read ,id ,(file-position* stream) ,bytes-to-read))))
-        (assert (eql count bytes-to-read))
-        (read-sequence buffer con)))
+      (with-open-handle (id stream con `(:open ,(path stream) :direction :input))
+        (let ((count (command stream con
+                              `(:read ,id ,(file-position* stream) ,bytes-to-read))))
+          (assert (eql count bytes-to-read))
+          (read-sequence buffer con))))
     (setf (buffer-position stream) (file-position* stream))
     (setf (buffer stream) buffer)))
 
