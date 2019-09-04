@@ -71,10 +71,10 @@
   (format t "DNS servers:~%")
   (loop
      for (server . tag) in mezzano.network.dns:*dns-servers*
-     do (format t "  ~A~@[ [~A]~]~%" server tag))
+     do (format t " ~A~@[ [~A]~]~%" server tag))
   (format t "Listeners:~%")
   (dolist (listener mezzano.network.tcp::*tcp-listeners*)
-    (format t "~S~%" listener))
+    (format t " ~S~%" listener))
   (format t "DHCP leases:~%")
   (maphash (lambda (nic interaction)
              (format t " ~S: ~S~%" nic (mezzano.network.dhcp::lease interaction)))

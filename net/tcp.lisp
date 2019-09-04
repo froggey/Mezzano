@@ -108,7 +108,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defmethod print-object ((instance tcp-listener) stream)
   (print-unreadable-object (instance stream :type t :identity t)
-    (format stream ":local-ip ~A :local-port ~A"
+    (format stream "~A:~A"
             (tcp-listener-local-ip instance)
             (tcp-listener-local-port instance))))
 
