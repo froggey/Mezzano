@@ -994,7 +994,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defmethod probe-using-host ((host fat32-host) pathname)
   (multiple-value-bind (file-data file-cluster file-length) (open-file host pathname)
     (declare (ignore file-data file-cluster))
-    (if file-length t nil)))
+    (if file-length pathname nil)))
 
 (defmethod directory-using-host ((host fat32-host) pathname &key)
   (let ((file-data (open-file-metadata host pathname))
