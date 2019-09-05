@@ -238,24 +238,25 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     ;; This can happen if the timer expires but some other task reconfigures
     ;; a new retransmit time.
     (return-from retransmit-timer-handler))
-  ;; Disarm it so it stops triggering the source
-  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
-  ;; What're we retransmitting?
-  (ecase (tcp-connection-state connection)
-    (:syn-sent
-     (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
-       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-       (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
-    ((:established
-      :close-wait
-      :last-ack
-      :fin-wait-1
-      :fin-wait-2
-      :closing)
-     (let ((packet (first (tcp-connection-retransmit-queue connection))))
-       (apply #'tcp4-send-packet connection packet)
-       ;; TODO: Update RTO.
-       (arm-retransmit-timer *tcp-retransmit-time* connection)))))
+  (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
+    ;; Disarm it so it stops triggering the source
+    (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+    ;; What're we retransmitting?
+    (ecase (tcp-connection-state connection)
+      (:syn-sent
+       (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
+         (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+         (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
+      ((:established
+        :close-wait
+        :last-ack
+        :fin-wait-1
+        :fin-wait-2
+        :closing)
+       (let ((packet (first (tcp-connection-retransmit-queue connection))))
+         (apply #'tcp4-send-packet connection packet)
+         ;; TODO: Update RTO.
+         (arm-retransmit-timer *tcp-retransmit-time* connection))))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
