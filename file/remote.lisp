@@ -13,7 +13,7 @@
 
 (in-package :mezzano.file-system.remote)
 
-(defvar *reuse-connection* nil
+(defvar *reuse-connection* t
   "If true, then the FS will attempt to maintain a single connection to
 the server instead of reconnecting for each operation.")
 (defvar *connection-idle-timeout* 60
