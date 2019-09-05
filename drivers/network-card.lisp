@@ -17,17 +17,12 @@
            #:receive-mailbox
            #:device-received-packet
 
-           #:add-nic-hooks))
+           #:add-nic-watchers))
 
 (in-package :mezzano.driver.network-card)
 
-(sys.int::defglobal *nics-lock* (sup:make-mutex "*NICS* lock"))
-(sys.int::defglobal *nics* '()
+(sys.int::defglobal *nics* (sync:make-watchable-set :name "NICs")
   "List of registered NICs.")
-(sys.int::defglobal *nic-registration-hooks* '()
-  "A list of hooks to call when a NIC is registered.")
-(sys.int::defglobal *nic-unregistration-hooks* '()
-  "A list of hooks to call when a NIC is unregistered.")
 (sys.int::defglobal *nic-receive-buffer-capacity* 50
   "The number of recevied packets that can be buffered by a NIC by default.")
 
@@ -68,29 +63,17 @@ corresponding to higher chances of a packet being dropped.")
   "Register a new NIC."
   (check-type device network-card)
   (sup:debug-print-line "Registered NIC " device " with MAC " (mac-address device))
-  (sup:with-mutex (*nics-lock*)
-    (push device *nics*)
-    (dolist (hook *nic-registration-hooks*)
-      (funcall hook device))))
+  (sync:watchable-set-add-item device *nics*))
 
 (defun unregister-network-card (device)
   "Unregister a NIC."
   (sup:debug-print-line "Unregistered NIC " device " with MAC " (mac-address device))
-  (sup:with-mutex (*nics-lock*)
-    (setf *nics* (remove device *nics*))
-    (dolist (hook *nic-unregistration-hooks*)
-      (funcall hook device))))
+  (sync:watchable-set-rem-item device *nics*))
 
-(defun add-nic-hooks (registration-hook unregistration-hook)
-  "Add hooks to be called on NIC registration & unregistration.
-The registration hook will immediately be called with all currently registered NICs."
-  (check-type registration-hook sys.int::function-designator)
-  (check-type unregistration-hook sys.int::function-designator)
-  (sup:with-mutex (*nics-lock*)
-    (push registration-hook *nic-registration-hooks*)
-    (push unregistration-hook *nic-unregistration-hooks*)
-    (dolist (nic *nics*)
-      (funcall registration-hook nic))))
+(defun add-nic-watchers (add-mbox rem-mbox)
+  "Add mailboxes to watch for NIC registration & unregistration.
+All currently registered NICs will immediately be sent to ADD-MBOX."
+  (sync:watchable-set-add-watcher add-mbox rem-mbox *nics*))
 
 (defgeneric mac-address (nic)
   (:documentation "Return the MAC address of NIC."))

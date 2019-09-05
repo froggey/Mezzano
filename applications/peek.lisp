@@ -47,7 +47,8 @@
 
 (defun peek-network ()
   (format t "Network cards:~%")
-  (dolist (card mezzano.driver.network-card::*nics*)
+  (dolist (card (mezzano.sync:watchable-set-items
+                 mezzano.driver.network-card::*nics*))
     (let ((address (mezzano.network.ip:ipv4-interface-address card nil)))
       (format t " ~S~%" card)
       (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.driver.network-card:mac-address card))

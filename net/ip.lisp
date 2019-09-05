@@ -214,7 +214,7 @@ ADDRESS must be an ipv4-address designator."
 (defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
   ;; Bounce loopback packets out over the nic for testing as well.
   (mezzano.network.ethernet:transmit-ethernet-packet
-   (first mezzano.driver.network-card::*nics*)
+   (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))
    #(0 0 0 1 2 3)
    mezzano.network.ethernet:+ethertype-ipv4+
    packet)
