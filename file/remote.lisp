@@ -16,6 +16,8 @@
 (defvar *reuse-connection* nil
   "If true, then the FS will attempt to maintain a single connection to
 the server instead of reconnecting for each operation.")
+(defvar *connection-idle-timeout* 60
+  "Disconnect the reused connection if idle for this long.")
 (defvar *default-remote-file-port* 2599)
 (defvar *cache-size* (* 512 1024))
 
@@ -198,7 +200,8 @@ the server instead of reconnecting for each operation.")
           (when (not (remote-host-connection host))
             (setf (remote-host-connection host)
                   (mezzano.network.tcp:tcp-stream-connect
-                   (host-address host) (host-port host))))
+                   (host-address host) (host-port host)
+                   :timeout *connection-idle-timeout*)))
           (handler-bind
               ((error (lambda (c)
                         (declare (ignore c))
