@@ -41,6 +41,15 @@
            #:mailbox-receive
            #:mailbox-peek
            #:mailbox-flush
+
+           #:watchable-set
+           #:make-watchable-set
+           #:watchable-set-add-item
+           #:watchable-set-rem-item
+           #:watchable-set-items
+           #:watchable-set-contains
+           #:watchable-set-add-watcher
+           #:watchable-set-rem-watcher
            ))
 
 (in-package :mezzano.sync)
@@ -340,6 +349,85 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
 (defun mailbox-empty-p (mailbox)
   "Returns true if there are no messages waiting."
   (zerop (mailbox-n-pending-messages mailbox)))
+
+;;;; Watchable set.
+;;;; A set of objects that reports when objects are added or removed.
+
+(defclass watchable-set ()
+  ((%name :initarg :name :reader name)
+   (%items :initform '()
+           :accessor %watchable-set-items)
+   (%lock :initform (sup:make-mutex "watchable-set lock")
+          :reader watchable-set-lock)
+   (%watchers :initform '() :accessor watchable-set-watchers))
+  (:default-initargs :name nil))
+
+;;; Public API:
+
+(defun make-watchable-set (&key name initial-contents)
+  (let ((set (make-instance 'watchable-set :name name)))
+    (setf (%watchable-set-items set) (copy-list initial-contents))
+    set))
+
+(defun watchable-set-add-item (item set)
+  "Add ITEM to SET.
+Returns true if the item was added to the set; false if the
+set already contained it. Notifications are only sent if the
+set does not contain the item.
+If a notification mailbox is full, then the message is not sent."
+  (sup:with-mutex ((watchable-set-lock set))
+    (cond ((member item (%watchable-set-items set))
+           nil)
+          (t
+           (push item (%watchable-set-items set))
+           (loop
+              for (add-mbox . rem-mbox) in (watchable-set-watchers set)
+              do (mailbox-send item add-mbox :wait-p nil))
+           t))))
+
+(defun watchable-set-rem-item (item set)
+  "Remove ITEM from SET.
+Returns true if the item was removed to the set; false if the
+set did not contain it. Notifications are only sent if the
+set does contained the item.
+If a notification mailbox is full, then the message is not sent."
+  (sup:with-mutex ((watchable-set-lock set))
+    (cond ((member item (%watchable-set-items set))
+           (setf (%watchable-set-items set)
+                 (remove item (%watchable-set-items set)))
+           (loop
+              for (add-mbox . rem-mbox) in (watchable-set-watchers set)
+              do (mailbox-send item rem-mbox :wait-p nil))
+           t)
+          (t nil))))
+
+(defun watchable-set-items (set)
+  "Return all items currently contained in SET."
+  (%watchable-set-items set))
+
+(defun watchable-set-contains (item set)
+  "Returns true if SET contains ITEM."
+  (sup:with-mutex ((watchable-set-lock set))
+    (member item (%watchable-set-items set))))
+
+(defun watchable-set-add-watcher (add-mbox rem-mbox set)
+  "Register ADD-MBOX/REM-MBOX as watchers for SET.
+Any items already conatined in SET will be sent to ADD-MBOX.
+Returns a tag that can be passed to WATCHABLE-SET-REM-WATCHER to unregister."
+  (check-type add-mbox mailbox)
+  (check-type rem-mbox mailbox)
+  (sup:with-mutex ((watchable-set-lock set))
+    (let ((tag (cons add-mbox rem-mbox)))
+      (push tag (watchable-set-watchers set))
+      (dolist (item (%watchable-set-items set))
+        (mailbox-send item add-mbox :wait-p nil))
+      tag)))
+
+(defun watchable-set-rem-watcher (tag set)
+  (sup:with-mutex ((watchable-set-lock set))
+    (setf (watchable-set-watchers set)
+          (remove tag (watchable-set-watchers set))))
+  (values))
 
 ;;;; Compatibility wrappers.
 
