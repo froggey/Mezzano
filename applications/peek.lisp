@@ -47,7 +47,8 @@
 
 (defun peek-network ()
   (format t "Network cards:~%")
-  (dolist (card mezzano.driver.network-card::*nics*)
+  (dolist (card (mezzano.sync:watchable-set-items
+                 mezzano.driver.network-card::*nics*))
     (let ((address (mezzano.network.ip:ipv4-interface-address card nil)))
       (format t " ~S~%" card)
       (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.driver.network-card:mac-address card))
@@ -71,10 +72,10 @@
   (format t "DNS servers:~%")
   (loop
      for (server . tag) in mezzano.network.dns:*dns-servers*
-     do (format t "  ~A~@[ [~A]~]~%" server tag))
+     do (format t " ~A~@[ [~A]~]~%" server tag))
   (format t "Listeners:~%")
   (dolist (listener mezzano.network.tcp::*tcp-listeners*)
-    (format t "~S~%" listener))
+    (format t " ~S~%" listener))
   (format t "DHCP leases:~%")
   (maphash (lambda (nic interaction)
              (format t " ~S: ~S~%" nic (mezzano.network.dhcp::lease interaction)))

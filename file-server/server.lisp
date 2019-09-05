@@ -181,9 +181,9 @@
                        (if fn
                            (handler-case (funcall fn form)
                              (error-with-class (c)
-                               (format *client* "(~S ~S)"
-                                       (error-class c)
-                                       (format nil "~A" c)))
+                               (format *client* "(:error ~S ~S)"
+                                       (format nil "~A" c)
+                                       (error-class c)))
                              (error (c)
                                (format *client* "(:error ~S)"
                                        (format nil "~A" c))))

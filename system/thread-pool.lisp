@@ -67,50 +67,53 @@
 (defun thread-pool-main (thread-pool)
   (let* ((self (sup:current-thread))
          (thread-name (sup:thread-name self)))
-    (unwind-protect
-         (loop
-            (let ((work nil))
-              (sup:with-mutex ((thread-pool-lock thread-pool))
-                ;; Move from active to idle.
-                (setf (thread-pool-working-threads thread-pool)
-                      (remove self (thread-pool-working-threads thread-pool)))
-                (push self (thread-pool-idle-threads thread-pool))
-                (setf (third thread-name) nil)
-                (let ((start-idle-time (get-internal-run-time)))
-                  (loop
-                     (when (thread-pool-shutdown-p thread-pool)
-                       (return-from thread-pool-main))
-                     (when (not (endp (thread-pool-pending thread-pool)))
-                       (setf work (pop (thread-pool-pending thread-pool)))
-                       (setf (third thread-name) work)
-                       ;; Back to active from idle.
-                       (setf (thread-pool-idle-threads thread-pool)
-                             (remove self (thread-pool-idle-threads thread-pool)))
-                       (push self (thread-pool-working-threads thread-pool))
-                       (return))
-                     ;; If there is no work available and there are more
-                     ;; unblocked threads than cores, then terminate this thread.
-                     (when (> (thread-pool-n-concurrent-threads thread-pool)
-                              (sup:logical-core-count))
-                       (return-from thread-pool-main))
-                     (let* ((end-idle-time (+ start-idle-time (* (thread-pool-keepalive-time thread-pool) internal-time-units-per-second)))
-                            (idle-time-remaining (- end-idle-time (get-internal-run-time))))
-                       (when (minusp idle-time-remaining)
-                         (return-from thread-pool-main))
-                       (sup:condition-wait (thread-pool-cvar thread-pool)
-                                           (thread-pool-lock thread-pool)
-                                           (/ idle-time-remaining internal-time-units-per-second))))))
-              (setf (sup:thread-thread-pool self) thread-pool)
+    (loop
+       (let ((work nil))
+         (sup:with-mutex ((thread-pool-lock thread-pool))
+           ;; Move from active to idle.
+           (setf (thread-pool-working-threads thread-pool)
+                 (remove self (thread-pool-working-threads thread-pool)))
+           (push self (thread-pool-idle-threads thread-pool))
+           (setf (third thread-name) nil)
+           (let ((start-idle-time (get-internal-run-time)))
+             (flet ((exit-while-idle ()
+                      (setf (thread-pool-idle-threads thread-pool)
+                            (remove self (thread-pool-idle-threads thread-pool)))
+                      (decf (thread-pool-n-total-threads thread-pool))
+                      (return-from thread-pool-main)))
+               (loop
+                  (when (thread-pool-shutdown-p thread-pool)
+                    (exit-while-idle))
+                  (when (not (endp (thread-pool-pending thread-pool)))
+                    (setf work (pop (thread-pool-pending thread-pool)))
+                    (setf (third thread-name) work)
+                    ;; Back to active from idle.
+                    (setf (thread-pool-idle-threads thread-pool)
+                          (remove self (thread-pool-idle-threads thread-pool)))
+                    (push self (thread-pool-working-threads thread-pool))
+                    (return))
+                  ;; If there is no work available and there are more
+                  ;; unblocked threads than cores, then terminate this thread.
+                  (when (> (thread-pool-n-concurrent-threads thread-pool)
+                           (sup:logical-core-count))
+                    (exit-while-idle))
+                  (let* ((end-idle-time (+ start-idle-time (* (thread-pool-keepalive-time thread-pool) internal-time-units-per-second)))
+                         (idle-time-remaining (- end-idle-time (get-internal-run-time))))
+                    (when (minusp idle-time-remaining)
+                      (exit-while-idle))
+                    (sup:condition-wait (thread-pool-cvar thread-pool)
+                                        (thread-pool-lock thread-pool)
+                                        (/ idle-time-remaining internal-time-units-per-second)))))))
+         (setf (sup:thread-thread-pool self) thread-pool)
+         (sys.int::unwind-protect-unwind-only
               (catch 'terminate-work
                 (funcall (work-item-function work)))
-              (setf (sup:thread-thread-pool self) nil)))
-      (sup:with-mutex ((thread-pool-lock thread-pool))
-        ;; Remove this thread from the pool.
-        (setf (thread-pool-working-threads thread-pool)
-              (remove self (thread-pool-working-threads thread-pool)))
-        (setf (thread-pool-idle-threads thread-pool)
-              (remove self (thread-pool-idle-threads thread-pool)))
-        (decf (thread-pool-n-total-threads thread-pool))))))
+           ;; Getting here means an unwind occured in the work item and
+           ;; this thread is terminating in the active state. Clean up.
+           (setf (thread-pool-working-threads thread-pool)
+                 (remove self (thread-pool-working-threads thread-pool)))
+           (decf (thread-pool-n-total-threads thread-pool)))
+         (setf (sup:thread-thread-pool self) nil)))))
 
 (defun thread-pool-add (function thread-pool &key name priority)
   "Add a work item to the thread-pool.

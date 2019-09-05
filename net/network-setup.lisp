@@ -136,9 +136,8 @@
      (lambda ()
        (mezzano.network.arp::arp-expiration))
      :target *network-serial-queue*)
-    (mezzano.driver.network-card:add-nic-hooks
-     (lambda (nic) (mezzano.sync:mailbox-send nic nic-add-mailbox))
-     (lambda (nic) (mezzano.sync:mailbox-send nic nic-rem-mailbox))))
+    (mezzano.driver.network-card:add-nic-watchers
+     nic-add-mailbox nic-rem-mailbox))
   (setf *boot-source* (mezzano.sync.dispatch:make-source
                        (mezzano.supervisor:current-boot-id)
                        'network-boot-handler

@@ -108,7 +108,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defmethod print-object ((instance tcp-listener) stream)
   (print-unreadable-object (instance stream :type t :identity t)
-    (format stream ":local-ip ~A :local-port ~A"
+    (format stream "~A:~A"
             (tcp-listener-local-ip instance)
             (tcp-listener-local-port instance))))
 
@@ -198,7 +198,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
    (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
-   (%rx-data-unordered :reader tcp-connection-rx-data-unordered :initform (make-hash-table))
+   (%rx-data-unordered :reader tcp-connection-rx-data-unordered
+                       :initform (make-hash-table :synchronized nil))
    (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
    (%lock :reader tcp-connection-lock
           :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
@@ -213,11 +214,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%timeout-timer :reader tcp-connection-timeout-timer
                    :initform (mezzano.supervisor:make-timer :name "TCP connection timeout"))
    (%timeout-source :reader tcp-connection-timeout-source)
+   (%timeout :initarg :timeout :reader tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
    :max-seg-size 1000
-   :boot-id nil))
+   :boot-id nil
+   :timeout nil))
 
 (defun arm-retransmit-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -235,24 +238,25 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     ;; This can happen if the timer expires but some other task reconfigures
     ;; a new retransmit time.
     (return-from retransmit-timer-handler))
-  ;; Disarm it so it stops triggering the source
-  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
-  ;; What're we retransmitting?
-  (ecase (tcp-connection-state connection)
-    (:syn-sent
-     (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
-       (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-       (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
-    ((:established
-      :close-wait
-      :last-ack
-      :fin-wait-1
-      :fin-wait-2
-      :closing)
-     (let ((packet (first (tcp-connection-retransmit-queue connection))))
-       (apply #'tcp4-send-packet connection packet)
-       ;; TODO: Update RTO.
-       (arm-retransmit-timer *tcp-retransmit-time* connection)))))
+  (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
+    ;; Disarm it so it stops triggering the source
+    (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+    ;; What're we retransmitting?
+    (ecase (tcp-connection-state connection)
+      (:syn-sent
+       (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
+         (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
+         (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
+      ((:established
+        :close-wait
+        :last-ack
+        :fin-wait-1
+        :fin-wait-2
+        :closing)
+       (let ((packet (first (tcp-connection-retransmit-queue connection))))
+         (apply #'tcp4-send-packet connection packet)
+         ;; TODO: Update RTO.
+         (arm-retransmit-timer *tcp-retransmit-time* connection))))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -270,15 +274,20 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     ;; This can happen if the timer expires but some other task reconfigures
     ;; a new timeout time.
     (return-from timeout-timer-handler))
-  ;; Disarm it so it stops triggering the source
-  (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
   (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
+    ;; Disarm it so it stops triggering the source
+    (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
     (setf (tcp-connection-pending-error connection)
           (make-condition 'connection-timed-out
                           :host (tcp-connection-remote-ip connection)
                           :port (tcp-connection-remote-port connection)))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
-    (detach-tcp-connection connection)))
+    (case (tcp-connection-state connection)
+      (:syn-sent
+       (detach-tcp-connection connection))
+      (:closed)
+      (t
+       (close-connection connection)))))
 
 (defmethod initialize-instance :after ((instance tcp-connection) &key)
   (setf (slot-value instance '%retransmit-source)
@@ -472,6 +481,15 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
              (or (eql seg.len 0)
                  (let ((seq-end (+ seg.seq seg.len -1)))
                    (and (<= rcv.nxt seq-end) (< seq-end (+ rcv.nxt rcv.wnd)))))))))
+
+(defun update-timeout-timer (connection)
+  (when (not (eql (tcp-connection-state connection) :syn-sent))
+    (disarm-timeout-timer connection)
+    (let ((timeout (tcp-connection-timeout connection)))
+      (when (and timeout
+                 (not (member (tcp-connection-state connection)
+                              '(:fin-wait-1 :fin-wait-2 :last-ack :closed))))
+        (arm-timeout-timer timeout connection)))))
 
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
@@ -668,6 +686,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                     (logtest flags +tcp4-flag-ack+))
            ;; Remote has sent ACK, connection closed
            (detach-tcp-connection connection)))))
+    (update-timeout-timer connection)
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
@@ -802,7 +821,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (when condition
       (error condition))))
 
-(defun tcp-connect (ip port &key persist)
+(defun tcp-connect (ip port &key persist timeout)
   (let* ((interface (nth-value 1 (mezzano.network.ip:ipv4-route ip)))
          (source-address (mezzano.network.ip:ipv4-interface-address interface))
          (source-port (allocate-local-tcp-port source-address ip port))
@@ -818,7 +837,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                     :snd.una iss
                                     :rcv.nxt 0
                                     :rcv.wnd *initial-window-size*
-                                    :boot-id (if persist nil (mezzano.supervisor:current-boot-id)))))
+                                    :boot-id (if persist nil (mezzano.supervisor:current-boot-id))
+                                    :timeout timeout)))
     (mezzano.sync.dispatch:dispatch-async
      (lambda ()
        (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -866,6 +886,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defun tcp-send (connection data &optional (start 0) end)
   (setf end (or end (length data)))
   (with-tcp-connection-locked connection
+    (check-connection-error connection)
+    (update-timeout-timer connection)
     ;; FIXME: It should be an error to send after close.
     (when (or (eql (tcp-connection-state connection) :established)
               (eql (tcp-connection-state connection) :close-wait))
@@ -961,11 +983,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defmethod gray:stream-listen-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
+    (check-connection-error (tcp-stream-connection stream))
     (refill-tcp-packet-buffer-no-hang stream)
     (not (null (tcp-stream-packet stream)))))
 
 (defmethod gray:stream-read-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
+    (check-connection-error (tcp-stream-connection stream))
     (when (not (refill-tcp-packet-buffer stream))
       (return-from gray:stream-read-byte :eof))
     (let* ((packet (tcp-stream-packet stream))
@@ -977,6 +1001,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defmethod gray:stream-read-byte-no-hang ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
+    (check-connection-error (tcp-stream-connection stream))
     (refill-tcp-packet-buffer-no-hang stream)
     (when (not (tcp-stream-packet stream))
       (return-from gray:stream-read-byte-no-hang
@@ -994,6 +1019,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (when (not end)
     (setf end (length sequence)))
   (with-tcp-connection-locked (tcp-stream-connection stream)
+    (check-connection-error (tcp-stream-connection stream))
     (let ((position start))
       (loop (when (or (>= position end)
                       (not (refill-tcp-packet-buffer stream)))
@@ -1021,49 +1047,49 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defmethod gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
   (tcp-send (tcp-stream-connection stream) sequence start end))
 
+(defun close-connection (connection)
+  (ecase (tcp-connection-state connection)
+    (:established
+     (setf (tcp-connection-state connection) :fin-wait-1)
+     (setf (tcp-connection-retransmit-queue connection)
+           (append (tcp-connection-retransmit-queue connection)
+                   (list (list (tcp-connection-snd.nxt connection)
+                               (tcp-connection-rcv.nxt connection)
+                               nil
+                               :fin-p t))))
+     ;; TODO: Calculate RTO properly.
+     (arm-retransmit-timer *tcp-retransmit-time* connection)
+     (when (not *netmangler-force-local-retransmit*)
+       (tcp4-send-packet connection
+                         (tcp-connection-snd.nxt connection)
+                         (tcp-connection-rcv.nxt connection)
+                         nil
+                         :fin-p t)))
+    (:close-wait
+     (setf (tcp-connection-state connection) :last-ack)
+     (setf (tcp-connection-retransmit-queue connection)
+           (append (tcp-connection-retransmit-queue connection)
+                   (list (list (tcp-connection-snd.nxt connection)
+                               (tcp-connection-rcv.nxt connection)
+                               nil
+                               :fin-p t))))
+     ;; TODO: Calculate RTO properly.
+     (arm-retransmit-timer *tcp-retransmit-time* connection)
+     (when (not *netmangler-force-local-retransmit*)
+       (tcp4-send-packet connection
+                         (tcp-connection-snd.nxt connection)
+                         (tcp-connection-rcv.nxt connection)
+                         nil
+                         :fin-p t)))
+    ((:last-ack :fin-wait-1 :fin-wait-2 :closed))))
+
 (defmethod close ((stream tcp-octet-stream) &key abort)
   ;; TODO: ABORT should abort the connection entirely.
   ;; Don't even bother sending RST packets, just detatch the connection.
   (declare (ignore abort))
   (let ((connection (tcp-stream-connection stream)))
     (with-tcp-connection-locked connection
-      ;; FIXME: What about the other states?
-      ;; Connections in :LAST-ACK, :FIN-WAIT-1, and :FIN-WAIT-2 are
-      ;; visible outside the network stack.
-      (ecase (tcp-connection-state connection)
-        (:established
-         (setf (tcp-connection-state connection) :fin-wait-1)
-         (setf (tcp-connection-retransmit-queue connection)
-               (append (tcp-connection-retransmit-queue connection)
-                       (list (list (tcp-connection-snd.nxt connection)
-                                   (tcp-connection-rcv.nxt connection)
-                                   nil
-                                   :fin-p t))))
-         ;; TODO: Calculate RTO properly.
-         (arm-retransmit-timer *tcp-retransmit-time* connection)
-         (when (not *netmangler-force-local-retransmit*)
-           (tcp4-send-packet connection
-                             (tcp-connection-snd.nxt connection)
-                             (tcp-connection-rcv.nxt connection)
-                             nil
-                             :fin-p t)))
-        (:close-wait
-         (setf (tcp-connection-state connection) :last-ack)
-         (setf (tcp-connection-retransmit-queue connection)
-               (append (tcp-connection-retransmit-queue connection)
-                       (list (list (tcp-connection-snd.nxt connection)
-                                   (tcp-connection-rcv.nxt connection)
-                                   nil
-                                   :fin-p t))))
-         ;; TODO: Calculate RTO properly.
-         (arm-retransmit-timer *tcp-retransmit-time* connection)
-         (when (not *netmangler-force-local-retransmit*)
-           (tcp4-send-packet connection
-                             (tcp-connection-snd.nxt connection)
-                             (tcp-connection-rcv.nxt connection)
-                             nil
-                             :fin-p t)))
-        (:closed)))))
+      (close-connection connection))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -1075,11 +1101,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defmethod stream-element-type ((stream tcp-octet-stream))
   '(unsigned-byte 8))
 
-(defun tcp-stream-connect (address port &key element-type external-format)
+(defun tcp-stream-connect (address port &key element-type external-format persist timeout)
   (cond ((or (not element-type)
              (sys.int::type-equal element-type 'character))
          (make-instance 'tcp-stream
-                        :connection (tcp-connect (sys.net::resolve-address address) port)
+                        :connection (tcp-connect (sys.net::resolve-address address) port
+                                                 :persist persist
+                                                 :timeout timeout)
                         :external-format (sys.int::make-external-format
                                           (or element-type 'character)
                                           (or external-format :default)
@@ -1088,6 +1116,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
          (assert (or (not external-format)
                      (eql external-format :default)))
          (make-instance 'tcp-octet-stream
-                        :connection (tcp-connect (sys.net::resolve-address address) port)))
+                        :connection (tcp-connect (sys.net::resolve-address address) port
+                                                 :persist persist
+                                                 :timeout timeout)))
         (t
          (error "Unsupported element type ~S" element-type))))

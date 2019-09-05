@@ -104,7 +104,7 @@
         (pool:make-thread-pool :name instance
                                :initial-bindings initial-bindings))
   (setf (slot-value instance '%manager-mailbox)
-        (sync:make-mailbox :name `(manager-mailbox instance)))
+        (sync:make-mailbox :name `(manager-mailbox ,instance)))
   (setf (slot-value instance '%manager-thread)
         (sup:make-thread #'manager
                          :name `(manager ,instance)
