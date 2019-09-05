@@ -537,3 +537,14 @@
   (if vars
       `(values (setf (values ,@vars) ,form))
       `(values ,form)))
+
+(defmacro unwind-protect-unwind-only (protected-form &body cleanup-forms)
+  "Like UNWIND-PROTECT, but CLEANUP-FORMS are not executed if a normal return occurs."
+  (let ((abnormal-return (gensym "ABNORMAL-RETURN")))
+    `(let ((,abnormal-return t))
+       (unwind-protect
+            (multiple-value-prog1
+                ,protected-form
+              (setf ,abnormal-return nil))
+         (when ,abnormal-return
+           ,@cleanup-forms)))))
