@@ -16,6 +16,8 @@
            #:wait-for-objects-with-timeout
            #:get-object-event
 
+           #:name
+
            #:thread-pool-block
 
            #:always-false-event
@@ -23,7 +25,6 @@
 
            #:semaphore
            #:make-semaphore
-           #:semaphore-name
            #:semaphore-value
            #:semaphore-limit
            #:semaphore-up
@@ -31,7 +32,6 @@
 
            #:mailbox
            #:make-mailbox
-           #:mailbox-name
            #:mailbox-capacity
            #:mailbox-n-pending-messages
            #:mailbox-empty-p
@@ -45,9 +45,18 @@
 
 (in-package :mezzano.sync)
 
-(defgeneric thread-pool-block (thread-pool blocking-function &rest arguments))
+(defgeneric thread-pool-block (thread-pool blocking-function &rest arguments)
+  (:documentation "Called when the current thread's thread-pool slot
+is non-NIL and the thread is about to block. The thread-pool slot
+is bound to NIL for the duration of the call."))
 
-(defgeneric get-object-event (object))
+(defgeneric get-object-event (object)
+  (:documentation "Return the underlying event associated with OBJECT.
+This must return an event object."))
+
+(defgeneric name (object)
+  (:documentation "Return the name of OBJECT.")
+  (:method (object) nil))
 
 (defun wait-for-objects-with-timeout (timeout &rest objects)
   "As with WAIT-FOR-OBJECTS, but with a timeout.
@@ -75,6 +84,9 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 (defmethod get-object-event ((object sup:event))
   object)
 
+(defmethod name ((object sup:event))
+  (sup:event-name object))
+
 (defmethod print-object ((object sup:event) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (let ((name (sup:event-name object)))
@@ -90,6 +102,9 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 
 (defmethod get-object-event ((object sup:timer))
   (sup::timer-event object))
+
+(defmethod name ((object sup:timer))
+  (sup:timer-name object))
 
 (defmethod print-object ((object sup:timer) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -111,6 +126,9 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 (defmethod get-object-event ((object sup:simple-irq))
   (sup::simple-irq-event object))
 
+(defmethod name ((object sup:simple-irq))
+  `(:irq ,(sup:simple-irq-irq object)))
+
 (defmethod print-object ((object sup:simple-irq) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream ":Irq ~A :Pending ~A :Masked ~A"
@@ -121,12 +139,18 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 (defmethod get-object-event ((object sup:irq-fifo))
   (sup::irq-fifo-data-available object))
 
+(defmethod name ((object sup:irq-fifo))
+  (sup:irq-fifo-name object))
+
 (defmethod print-object ((object sup:irq-fifo) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~A" (sup:irq-fifo-name object))))
 
 (defmethod get-object-event ((object sup:thread))
   (sup::thread-join-event object))
+
+(defmethod name ((object sup:thread))
+  (sup:thread-name object))
 
 ;;;; Semaphore.
 
@@ -148,8 +172,8 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 
 (defmethod print-object ((object semaphore) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (when (semaphore-name object)
-      (format stream "~A " (semaphore-name object)))
+    (when (name object)
+      (format stream "~A " (name object)))
     (format stream "~A" (semaphore-value object))
     (when (semaphore-limit object)
       (format stream "/~A" (semaphore-limit object)))))
@@ -164,8 +188,8 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
   (check-type limit (or null (integer 0)))
   (make-instance 'semaphore :name name :value value :limit limit))
 
-(defun semaphore-name (semaphore)
-  (sup:event-name (semaphore-not-zero-event semaphore)))
+(defmethod name ((object semaphore))
+  (sup:event-name (semaphore-not-zero-event object)))
 
 (defun semaphore-value (semaphore)
   "Return SEMAPHORE's current value."
@@ -200,7 +224,7 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
 ;;;; Mailbox. A buffered communication channel.
 
 (defclass mailbox ()
-  ((%name :reader mailbox-name :initarg :name)
+  ((%name :reader name :initarg :name)
    (%capacity :reader mailbox-capacity :initarg :capacity :type (or null (integer 1)))
    (%not-full-event :reader mailbox-send-possible-event)
    (%not-empty-event :reader mailbox-receive-possible-event)
@@ -211,9 +235,9 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
   (:default-initargs :name nil :capacity nil))
 
 (defmethod print-object ((object mailbox) stream)
-  (cond ((mailbox-name object)
+  (cond ((name object)
          (print-unreadable-object (object stream :type t :identity t)
-           (format stream "~A" (mailbox-name object))))
+           (format stream "~A" (name object))))
         (t
          (print-unreadable-object (object stream :type t :identity t)))))
 
