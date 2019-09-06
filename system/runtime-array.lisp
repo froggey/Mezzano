@@ -277,8 +277,8 @@
      (setf (%object-ref-single-float array (* index 2)) (realpart value)
            (%object-ref-single-float array (1+ (* index 2))) (imagpart value)))
     (#.+object-tag-array-complex-double-float+
-     (setf (%object-ref-double-float array (* index 2)) realpart
-           (%object-ref-double-float array (1+ (* index 2))) imagpart)))
+     (setf (%object-ref-double-float array (* index 2)) (realpart value)
+           (%object-ref-double-float array (1+ (* index 2))) (imagpart value))))
   value)
 
 (defun (cas %simple-array-aref) (old new array index)
