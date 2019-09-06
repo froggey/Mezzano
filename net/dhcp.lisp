@@ -36,10 +36,11 @@
   ())
 
 (define-condition dhcp-invalid-option (dhcp-error)
-  ((type :reader type :initarg :type)
-   (value :reader value :initarg :value))
+  ((type :reader option-type :initarg :type)
+   (value :reader option-value :initarg :value))
   (:report (lambda (condition stream)
-	     (format stream "Invalid DHCP option: ~A ~A" (type condition) (value condition)))))
+	     (format stream "Invalid DHCP option: ~A ~A"
+                     (option-type condition) (option-value condition)))))
 
 (defclass dhcp-lease ()
   ((ip-address :reader ip-address :initarg :ip-address)
