@@ -84,10 +84,16 @@
                                 (eql tag (route-tag x)))))
                      *routing-table*))))
 
+(define-condition no-route-to-host (sys.net:network-error)
+  ((host :initarg :host :reader no-route-to-host-host))
+  (:report (lambda (condition stream)
+             (format stream "No route to host ~A"
+                     (no-route-to-host-host condition)))))
+
 (defun ipv4-route (destination &optional gateway-lookup)
   "Return the host IP and interface for the destination IP address."
   (dolist (route *routing-table*
-           (error "No route to host ~A." destination))
+           (error 'no-route-to-host :host destination))
     (when (address-equal (address-network destination
                                           (route-prefix-length route))
                          (route-network route))

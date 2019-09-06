@@ -3,6 +3,9 @@
 
 (in-package :sys.net)
 
+(define-condition network-error (error)
+  ())
+
 (deftype octet ()
   '(unsigned-byte 8))
 

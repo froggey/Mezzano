@@ -690,7 +690,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
-(defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p)
+(defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p errors-escape)
   (let* ((source (tcp-connection-local-ip connection))
          (source-port (tcp-connection-local-port connection))
          (packet (assemble-tcp4-packet source source-port
@@ -707,9 +707,16 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                        :rst-p rst-p
                                        :syn-p syn-p
                                        :fin-p fin-p)))
-    (mezzano.network.ip:transmit-ipv4-packet
-     source (tcp-connection-remote-ip connection)
-     mezzano.network.ip:+ip-protocol-tcp+ packet)))
+    (handler-case
+        (mezzano.network.ip:transmit-ipv4-packet
+         source (tcp-connection-remote-ip connection)
+         mezzano.network.ip:+ip-protocol-tcp+ packet)
+      (mezzano.network.ip:no-route-to-host (c)
+        (detach-tcp-connection connection)
+        (setf (tcp-connection-pending-error connection) c)
+        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
+        (when errors-escape
+          (error c))))))
 
 (defun compute-ip-pseudo-header-partial-checksum (src-ip dst-ip protocol length)
   (+ (logand src-ip #xFFFF)
@@ -774,10 +781,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
      (detach-tcp-connection connection))
    sys.net::*network-serial-queue*))
 
-(define-condition network-error (error)
-  ())
-
-(define-condition connection-error (network-error)
+(define-condition connection-error (sys.net:network-error)
   ((host :initarg :host :reader connection-error-host)
    (port :initarg :port :reader connection-error-port)))
 
@@ -880,7 +884,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (tcp4-send-packet connection
                         snd.nxt rcv.nxt
                         data
-                        :psh-p psh-p))))
+                        :psh-p psh-p
+                        :errors-escape t))))
 
 ;; TODO: Respect the send window, buffer data when it fills up.
 (defun tcp-send (connection data &optional (start 0) end)
@@ -1064,7 +1069,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                          (tcp-connection-snd.nxt connection)
                          (tcp-connection-rcv.nxt connection)
                          nil
-                         :fin-p t)))
+                         :fin-p t
+                         :errors-escape t)))
     (:close-wait
      (setf (tcp-connection-state connection) :last-ack)
      (setf (tcp-connection-retransmit-queue connection)
@@ -1072,7 +1078,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                    (list (list (tcp-connection-snd.nxt connection)
                                (tcp-connection-rcv.nxt connection)
                                nil
-                               :fin-p t))))
+                               :fin-p t
+                               :errors-escape t))))
      ;; TODO: Calculate RTO properly.
      (arm-retransmit-timer *tcp-retransmit-time* connection)
      (when (not *netmangler-force-local-retransmit*)
@@ -1080,7 +1087,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                          (tcp-connection-snd.nxt connection)
                          (tcp-connection-rcv.nxt connection)
                          nil
-                         :fin-p t)))
+                         :fin-p t
+                         :errors-escape t)))
     ((:last-ack :fin-wait-1 :fin-wait-2 :closed))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
