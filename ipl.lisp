@@ -223,6 +223,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (defvar sys.int::*init-file-path* "SYS:HOME;INIT.LISP")
 
 (defun sys.int::load-init-file ()
+  (sleep 0.5) ; give the network a little time to settle.
   (when (and (boundp 'sys.int::*init-file-path*)
              sys.int::*init-file-path*)
     (handler-case (load sys.int::*init-file-path*)

@@ -11,7 +11,8 @@
            #:remote-endpoint
            #:disconnect
            #:resolve-address
-           #:octet))
+           #:octet
+           #:network-error))
 
 (defpackage :mezzano.network.ethernet
   (:use :cl)
@@ -57,6 +58,7 @@
            #:address-equal
            #:compute-ip-checksum
            #:compute-ip-partial-checksum
+           #:no-route-to-host
            #:ipv4-route
            #:add-route
            #:remove-route
