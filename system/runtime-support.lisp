@@ -327,7 +327,7 @@
                  (setf (mezzano.runtime::instance-access-by-name new 'mezzano.clos::align)
                        (structure-slot-definition-align slot))
                  (setf (mezzano.runtime::instance-access-by-name new 'mezzano.clos::documentation)
-                       nil)
+                       (structure-slot-definition-documentation slot))
                  new))))
 
 (defun convert-structure-definition-effective-slots (sdef)
@@ -349,7 +349,7 @@
                  (setf (mezzano.runtime::instance-access-by-name new 'mezzano.clos::align)
                        (structure-slot-definition-align slot))
                  (setf (mezzano.runtime::instance-access-by-name new 'mezzano.clos::documentation)
-                       nil)
+                       (structure-slot-definition-documentation slot))
                  (setf (mezzano.runtime::instance-access-by-name new 'mezzano.clos::location)
                        (structure-slot-definition-location slot))
                  new))))

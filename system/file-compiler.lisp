@@ -317,7 +317,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (mezzano.clos:structure-slot-definition-read-only slot)
                (mezzano.clos:slot-definition-location slot)
                (mezzano.clos:structure-slot-definition-fixed-vector slot)
-               (mezzano.clos:structure-slot-definition-align slot)))
+               (mezzano.clos:structure-slot-definition-align slot)
+               (mezzano.clos:slot-definition-documentation slot)))
    (if (eql class (find-class 'structure-object))
        nil
        (let ((parent (second (mezzano.clos:class-precedence-list class))))
@@ -360,6 +361,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (structure-slot-definition-location object) omap stream)
   (save-object (structure-slot-definition-fixed-vector object) omap stream)
   (save-object (structure-slot-definition-align object) omap stream)
+  (save-object (structure-slot-definition-documentation object) omap stream)
   (write-byte +llf-structure-slot-definition+ stream))
 
 (defmethod save-one-object ((object float) omap stream)

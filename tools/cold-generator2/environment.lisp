@@ -71,6 +71,7 @@
            #:structure-slot-definition-location
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align
+           #:structure-slot-definition-documentation
            #:make-instance-header
            #:instance-header
            #:instance-header-object
@@ -281,9 +282,10 @@
    (%read-only :initarg :read-only :reader structure-slot-definition-read-only)
    (%location :initarg :location :reader structure-slot-definition-location)
    (%fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
-   (%align :initarg :align :reader structure-slot-definition-align)))
+   (%align :initarg :align :reader structure-slot-definition-align)
+   (%documentation :initarg :documentation :reader structure-slot-definition-documentation)))
 
-(defun make-structure-slot-definition (environment name accessor initform type read-only location fixed-vector align)
+(defun make-structure-slot-definition (environment name accessor initform type read-only location fixed-vector align documentation)
   (declare (ignore environment))
   (make-instance 'structure-slot-definition
                  :name name
@@ -293,7 +295,8 @@
                  :read-only read-only
                  :location location
                  :fixed-vector fixed-vector
-                 :align align))
+                 :align align
+                 :documentation documentation))
 
 (defmethod print-object ((object structure-slot-definition) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -305,7 +308,8 @@
                   :read-only (structure-slot-definition-read-only object)
                   :location (structure-slot-definition-location object)
                   :fixed-vector (structure-slot-definition-fixed-vector object)
-                  :align (structure-slot-definition-align object)))))
+                  :align (structure-slot-definition-align object)
+                  :documentation (structure-slot-definition-documentation object)))))
 
 (defclass instance-header ()
   ((%object :initarg :object :reader instance-header-object)))

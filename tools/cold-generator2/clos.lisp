@@ -438,7 +438,8 @@
                                                ;; FIXME: Need to include an initfunction
                                                :initform (env:structure-slot-definition-initform slot)
                                                :fixed-vector (env:structure-slot-definition-fixed-vector slot)
-                                               :align (env:structure-slot-definition-align slot)))))))
+                                               :align (env:structure-slot-definition-align slot)
+                                               :documentation (env:structure-slot-definition-documentation slot)))))))
 
 (defun configure-clos (environment load-source-file)
   (let* ((*primordial-class-table* (make-hash-table))

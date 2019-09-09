@@ -228,7 +228,7 @@
 
 ;; Parses slot-description and returns a struct slot definition
 (defun parse-defstruct-slot (conc-name slot current-index)
-  (destructuring-bind (name &optional initform &key (type 't) read-only fixed-vector align)
+  (destructuring-bind (name &optional initform &key (type 't) read-only fixed-vector align documentation)
       (if (symbolp slot)
           (list slot)
           slot)
@@ -249,7 +249,7 @@
           (incf current-index 8)
           (values (make-struct-slot-definition name accessor initform type read-only
                                                (mezzano.runtime::make-location location-type current-index)
-                                               fixed-vector align)
+                                               fixed-vector align documentation)
                   current-index
                   (+ current-index (* element-size (max (or fixed-vector 1) 1)))
                   (eql location-type mezzano.runtime::+location-type-t+)))))))
@@ -434,7 +434,8 @@
                                           :type (structure-slot-definition-type x)
                                           :read-only (structure-slot-definition-read-only x)
                                           :fixed-vector (structure-slot-definition-fixed-vector x)
-                                          :align (structure-slot-definition-align x)))
+                                          :align (structure-slot-definition-align x)
+                                          :documentation (structure-slot-definition-documentation x)))
                                   (structure-definition-slots included-structure)))))
     (dolist (is included-slot-descriptions)
       (let* ((slot-name (first is))

@@ -216,7 +216,7 @@
 (defstruct (structure-slot-definition
              (:area :wired)
              (:constructor make-struct-slot-definition
-                           (name accessor initform type read-only location fixed-vector align))
+                           (name accessor initform type read-only location fixed-vector align documentation))
              :sealed)
   (name nil :read-only t)
   (accessor nil :read-only t)
@@ -225,4 +225,5 @@
   (read-only nil :read-only t)
   (location nil :read-only t)
   (fixed-vector nil :read-only t)
-  (align nil :read-only t))
+  (align nil :read-only t)
+  (documentation nil :read-only t))

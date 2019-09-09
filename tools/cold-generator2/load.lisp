@@ -166,7 +166,8 @@
     (env:register-structure-definition (loader-environment loader) sdef)))
 
 (defun load-structure-slot-definition (loader)
-  (let ((align (stack-pop loader))
+  (let ((documentation (stack-pop loader))
+        (align (stack-pop loader))
         (fixed-vector (stack-pop loader))
         (location (stack-pop loader))
         (read-only (stack-pop loader))
@@ -176,7 +177,8 @@
         (name (stack-pop loader)))
     (env:make-structure-slot-definition
      (loader-environment loader)
-     name accessor initform type read-only location fixed-vector align)))
+     name accessor initform type read-only
+     location fixed-vector align documentation)))
 
 (defun load-one-object (loader command)
   (ecase command
