@@ -404,6 +404,16 @@
 
            #:wait-for-objects
            #:get-object-event
+           #:watcher
+           #:watcher-p
+           #:with-watcher
+           #:make-watcher
+           #:watcher-name
+           #:watcher-destroy
+           #:watcher-add-object
+           #:watcher-remove
+           #:watcher-objects
+           #:watcher-wait
 
            #:event
            #:event-p

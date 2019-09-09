@@ -192,9 +192,12 @@
   (print-unreadable-object (object stream :identity t :type t)
     (format stream "~A" (mezzano.supervisor::irq-platform-number object))))
 
-(defmethod print-object ((object mezzano.supervisor::wfo) stream)
+(defmethod print-object ((object mezzano.supervisor:watcher) stream)
   (print-unreadable-object (object stream :identity t :type t)
-    (format stream "~:A" (mezzano.supervisor::wfo-objects object))))
+    (let ((name (mezzano.supervisor:watcher-name object)))
+      (if name
+          (format stream "~A ~:A" name (mezzano.supervisor:watcher-objects object))
+          (format stream "~:A" (mezzano.supervisor:watcher-objects object))))))
 
 (defmethod print-object ((o instance-header) stream)
   (print-unreadable-object (o stream :type t)
