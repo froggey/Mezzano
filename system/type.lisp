@@ -685,7 +685,11 @@
                        t))))
           ((and (consp t1) (eql (first t1) 'eql))
            (destructuring-bind (object) (rest t1)
-             (values (typep object t2) t)))
+             (values (if (and (consp t2) (eql (first t2) 'function))
+                         ;; Reduce complicated FUNCTION types down to the symbol
+                         (typep object 'function)
+                         (typep object t2))
+                     t)))
           ((and (consp t1) (eql (first t1) 'member))
            (subtypep `(or ,@(loop for object in (rest t1)
                                collect `(eql ,object)))
