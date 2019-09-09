@@ -435,6 +435,7 @@
            #:timer-wait
            #:timer-expired-p
            #:with-timer
+           #:timer-sleep
 
            #:thread-thread-pool
            #:thread-pool-block
