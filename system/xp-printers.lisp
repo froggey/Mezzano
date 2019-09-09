@@ -380,7 +380,7 @@
 (set-pprint-dispatch+ '(cons (member define-modify-macro)) 'dmm-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member defparameter)) 'defun-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member defsetf)) 'defsetf-print '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member define-setf-method)) 'defun-like '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member define-compiler-macro)) 'defun-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member defstruct)) 'block-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member deftype)) 'defun-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member defun)) 'defun-like '(0) *IPD*)
