@@ -260,6 +260,7 @@ If RESIGNAL-ERRORS is T, then it will be treated as though it were ERROR."
 (defmacro condition-wait-for ((condition-variable mutex &optional timeout) &body predicate)
   "Evaluate PREDICATE in a loop, waiting on CONDITION-VARIABLE until PREDICATE returns true.
 Returns the first non-NIL result of PREDICATE, or NIL if a timeout occurs.
+The second return value is the remaining timeout, or NIL if no timeout was specified.
 A block named NIL is defined allowing RETURN to be used within the predicate.
 Handles timeouts properly."
   (let ((timeout-sym (gensym "TIMEOUT"))
@@ -274,20 +275,23 @@ Handles timeouts properly."
        (block nil
          (flet ((,predicate-fn () (progn ,@predicate)))
            (cond ((eql ,timeout-sym 0)
-                  (,predicate-fn))
+                  (values (,predicate-fn) 0))
                  (,timeout-sym
                   (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym
                                                              :name ,cvar-sym)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
-                         (when ,prediate-result-sym (return ,prediate-result-sym)))
+                         (when ,prediate-result-sym
+                           (return (values ,prediate-result-sym
+                                           (timer-remaining ,timer-sym)))))
                        (when (mezzano.supervisor:timer-expired-p ,timer-sym)
-                         (return nil))
+                         (return (values nil 0)))
                        (condition-wait ,cvar-sym ,mutex-sym ,timer-sym))))
                  (t
                   (loop
                      (let ((,prediate-result-sym (,predicate-fn)))
-                       (when ,prediate-result-sym (return ,prediate-result-sym)))
+                       (when ,prediate-result-sym
+                         (return (values ,prediate-result-sym nil))))
                      (condition-wait ,cvar-sym ,mutex-sym)))))))))
 
 (defun condition-wait (condition-variable mutex &optional timeout)
@@ -442,19 +446,22 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
        (block nil
          (flet ((,predicate-fn () (progn ,@predicate)))
            (cond ((eql ,timeout-sym 0)
-                  (,predicate-fn))
+                  (values (,predicate-fn) 0))
                  (,timeout-sym
                   (mezzano.supervisor:with-timer (,timer-sym :relative ,timeout-sym :name ,event-sym)
                     (loop
                        (let ((,prediate-result-sym (,predicate-fn)))
-                         (when ,prediate-result-sym (return ,prediate-result-sym)))
+                         (when ,prediate-result-sym
+                           (return (values ,prediate-result-sym
+                                           (timer-remaining ,timer-sym)))))
                        (when (mezzano.supervisor:timer-expired-p ,timer-sym)
-                         (return nil))
+                         (return (values nil 0)))
                        (mezzano.supervisor:wait-for-objects ,timer-sym ,event-sym))))
                  (t
                   (loop
                      (let ((,prediate-result-sym (,predicate-fn)))
-                       (when ,prediate-result-sym (return ,prediate-result-sym)))
+                       (when ,prediate-result-sym
+                         (return (values ,prediate-result-sym nil))))
                      (mezzano.supervisor:event-wait ,event-sym)))))))))
 
 (defun event-wait (event)
