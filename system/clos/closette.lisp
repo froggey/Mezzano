@@ -1371,7 +1371,7 @@ Other arguments are included directly."
 (defun ensure-generic-function
        (function-name
         &rest all-keys
-        &key (generic-function-class *the-class-standard-gf*)
+        &key generic-function-class
              (method-class 'standard-method)
         &allow-other-keys)
   (cond ((and (symbolp function-name)
@@ -1393,7 +1393,8 @@ Other arguments are included directly."
          (when (fboundp function-name)
            (fmakunbound function-name))
          (setf (compiler-macro-function function-name) nil)))
-  (when (symbolp generic-function-class)
+  (when (and generic-function-class
+             (symbolp generic-function-class))
     (setf generic-function-class (find-class generic-function-class)))
   ;; AMOP seems to imply that METHOD-CLASS should always be a class name,
   ;; that feels overly restrictive...
@@ -1405,7 +1406,8 @@ Other arguments are included directly."
   (remf all-keys :environment)
   (cond ((fboundp function-name)
          (let ((gf (fdefinition function-name)))
-           (when (not (eql (class-of gf) generic-function-class))
+           (when (and generic-function-class
+                      (not (eql (class-of gf) generic-function-class)))
              (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
                     function-name gf
                     (class-of gf) generic-function-class))
@@ -1421,7 +1423,8 @@ Other arguments are included directly."
                     all-keys))
            gf))
         (t
-
+         (when (not generic-function-class)
+           (setf generic-function-class *the-class-standard-gf*))
          (let ((gf (apply (if (eq generic-function-class *the-class-standard-gf*)
                               #'make-instance-standard-generic-function
                               #'make-instance)
