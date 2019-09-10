@@ -2502,7 +2502,17 @@ has only has class specializer."
     (declare (notinline slot-boundp slot-value (setf slot-value))) ; bootstrap hack
     (when (not (slot-boundp class 'prototype))
       (setf (slot-value class 'prototype) (allocate-instance class)))
-    (slot-value class 'prototype)))
+    (slot-value class 'prototype))
+  (:method ((class built-in-class))
+    ;; FIXME: This is a bit weird.
+    ;; Cook up a layout & instance for this class.
+    (sys.int::%allocate-instance
+     (sys.int::make-layout :class class
+                           :obsolete nil
+                           :heap-size 0
+                           :heap-layout t
+                           :area nil
+                           :instance-slots #()))))
 (defgeneric class-sealed (class)
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack
