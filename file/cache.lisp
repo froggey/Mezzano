@@ -46,8 +46,8 @@
 
 (defmethod mezzano.gray:stream-write-byte ((stream file-cache-stream) byte)
   (assert (member (direction stream) '(:output :io)))
-  (when (> (file-position* stream) (file-length* stream))
-    (setf (file-length* stream) (file-position* stream))
+  (when (>= (file-position* stream) (file-length* stream))
+    (setf (file-length* stream) (1+ (file-position* stream)))
     (let ((array-length (array-dimension (buffer stream) 0)))
       (when (>= (file-position* stream) array-length)
         (setf (buffer stream) (adjust-array (buffer stream) (+ array-length 8192) :initial-element 0)))))
@@ -64,8 +64,8 @@
 
 (defmethod mezzano.gray:stream-write-char ((stream file-cache-character-stream) char)
   (assert (member (direction stream) '(:output :io)))
-  (when (> (file-position* stream) (file-length* stream))
-    (setf (file-length* stream) (file-position* stream))
+  (when (>= (file-position* stream) (file-length* stream))
+    (setf (file-length* stream) (1+ (file-position* stream)))
     (let ((array-length (array-dimension (buffer stream) 0)))
       (when (>= (file-position* stream) array-length)
         (setf (buffer stream) (adjust-array (buffer stream) (+ array-length 8192) :initial-element 0)))))
