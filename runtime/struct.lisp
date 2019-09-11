@@ -31,7 +31,7 @@
 (defun raise-struct-type-error (object class slot-name)
   (error 'simple-type-error
          :datum object
-         :type class
+         :expected-type class
          :format-control "Type error. ~S is not of structure type ~S when accessing slot ~S."
          :format-arguments (list object (class-name class) slot-name)))
 
