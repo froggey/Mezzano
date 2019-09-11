@@ -631,8 +631,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       ;; Remote has sent FIN and waiting for ACK
                       (setf (tcp-connection-state connection) :close-wait
                             (tcp-connection-rcv.nxt connection)
-                            (+u32 (tcp-connection-rcv.nxt connection) 1))
-                      (tcp4-send-packet connection ack seq nil :ack-p t))
+                            (+u32 seq 1))
+                      (tcp4-send-packet connection ack (+u32 seq 1) nil :ack-p t))
                     (tcp4-receive-data connection data-length end header-length packet seq start)))
                ((eql (tcp-connection-snd.una connection) ack)
                 ;; TODO: slow start/duplicate ack detection/fast retransmit/etc.
