@@ -39,8 +39,9 @@
          (tha-start (+ spa-start plen))
          (tpa-start (+ tha-start hlen))
          (merge-flag nil)
-         (address (mezzano.network.ip::ipv4-address-address
-                   (mezzano.network.ip:ipv4-interface-address interface nil))))
+         (interface-address (mezzano.network.ip:ipv4-interface-address interface nil))
+         (address (and interface-address
+                       (mezzano.network.ip::ipv4-address-address interface-address))))
     ;; Ethernet hardware type and IPv4.
     (when (and (eql htype +arp-hrd-ethernet+) (eql hlen 6)
                (eql ptype mezzano.network.ethernet:+ethertype-ipv4+) (eql plen 4))
