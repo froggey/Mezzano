@@ -180,8 +180,7 @@
                              (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
                                    (make-dhcp-option +opt-ip-address+ oaddr)
                                    (make-dhcp-option +opt-dhcp-server+ dhcpserver))
-                             xid
-                             :siaddr siaddr)
+                             xid)
                   (loop
                      (let ((ack (sys.net:receive connection :timeout 4)))
                        (when (not ack)
