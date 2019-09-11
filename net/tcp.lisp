@@ -78,7 +78,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defun -u32 (x y)
   (ldb (byte 32 0) (- x y)))
 
-;; FIXME: Inbount connections need to timeout if state :syn-received don't change.
+;; FIXME: Inbound connections need to timeout if state :syn-received don't change.
 (defclass tcp-listener ()
   ((local-port :reader tcp-listener-local-port
                :initarg :local-port
@@ -126,16 +126,17 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (get-tcp-listener-without-lock local-ip local-port)))
 
 (defun tcp-listen (local-host local-port &key backlog)
-  (multiple-value-bind (host interface)
-      (mezzano.network.ip:ipv4-route (mezzano.network:resolve-address local-host))
-    (declare (ignore host))
+  (let* ((local-ip (mezzano.network:resolve-address local-host))
+         (source-address (if (mezzano.network.ip:address-equal local-ip +ip-wildcard+)
+                             +ip-wildcard+
+                             (mezzano.network.ip:ipv4-interface-address
+                              (nth-value 1 (mezzano.network.ip:ipv4-route local-ip))))))
     (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
-      (let* ((source-address (mezzano.network.ip:ipv4-interface-address interface))
-             (local-port (cond ((= local-port +port-wildcard+)
+      (let* ((local-port (cond ((eql local-port +port-wildcard+)
                                 ;; find a suitable port number
                                 (loop :for local-port := (+ (random 32768) 32768)
                                       :unless (get-tcp-listener-without-lock source-address local-port)
-                                      :do(return local-port)))
+                                      :do (return local-port)))
                                ((get-tcp-listener-without-lock source-address local-port)
                                 (error "Server already listening on port ~D" local-port))
                                (t
