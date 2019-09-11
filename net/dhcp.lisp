@@ -189,7 +189,7 @@
                        (let* ((ack-options (decode-all-options ack))
                               (confirmation (get-option ack-options +opt-dhcp-message-type+)))
                          (when (and (eql (aref confirmation 0) +dhcp-ack+) ; Ignore non-ack packets.
-                                    (eql (decode-dhcp-xid offer) xid))
+                                    (eql (decode-dhcp-xid ack) xid))
                            (return-from acquire-lease
                              (make-instance 'dhcp-lease :ip-address oaddr :netmask (get-option options +opt-netmask+)
                                             :gateway (get-option options +opt-router+) :dns-servers (get-option options +opt-dns-servers+)
