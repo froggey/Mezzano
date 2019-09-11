@@ -786,6 +786,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   ((host :initarg :host :reader connection-error-host)
    (port :initarg :port :reader connection-error-port)))
 
+(define-condition connection-closed (connection-error)
+  ())
+
 (define-condition connection-aborted (connection-error)
   ())
 
@@ -894,23 +897,26 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (with-tcp-connection-locked connection
     (check-connection-error connection)
     (update-timeout-timer connection)
-    ;; FIXME: It should be an error to send after close.
-    (when (or (eql (tcp-connection-state connection) :established)
-              (eql (tcp-connection-state connection) :close-wait))
-      (let ((mss (tcp-connection-max-seg-size connection)))
-        (cond ((>= start end))
-              ((> (- end start) mss)
-               ;; Send multiple packets.
-               (loop
-                  for offset from start by mss
-                  while (> (- end offset) mss)
-                  do
-                    (tcp-send-1 connection data offset (+ offset mss))
-                  finally
-                    (tcp-send-1 connection data offset end :psh-p t)))
-              (t
-               ;; Send one packet.
-               (tcp-send-1 connection data start end :psh-p t)))))))
+    ;; No sending when the connection is closing.
+    ;; Half-open connections seem too weird to be worth dealing with.
+    (when (not (eql (tcp-connection-state connection) :established))
+      (error 'connection-closed
+             :host (tcp-connection-remote-ip connection)
+             :port (tcp-connection-remote-port connection)))
+    (let ((mss (tcp-connection-max-seg-size connection)))
+      (cond ((>= start end))
+            ((> (- end start) mss)
+             ;; Send multiple packets.
+             (loop
+                for offset from start by mss
+                while (> (- end offset) mss)
+                do
+                  (tcp-send-1 connection data offset (+ offset mss))
+                finally
+                  (tcp-send-1 connection data offset end :psh-p t)))
+            (t
+             ;; Send one packet.
+             (tcp-send-1 connection data start end :psh-p t))))))
 
 (defclass tcp-octet-stream (gray:fundamental-binary-input-stream
                             gray:fundamental-binary-output-stream)
