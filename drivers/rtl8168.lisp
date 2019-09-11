@@ -372,7 +372,7 @@
                  (setf (rtl8168-rx-current nic) (rem (1+ current) +rtl8168-n-rx-descriptors+))))
             ;; Transmit handling.
             ;; Recover free descriptors.
-            (with-rt8168-access (nic)
+            (with-rtl8168-access (nic)
               (loop
                  (when (eql (rtl8168-tx-current nic) (rtl8168-tx-tail nic))
                    ;; All pending descriptors processed.
@@ -395,7 +395,7 @@
                  (when (not to-send)
                    (return))
                  #+(or)(debug-print-line "RTL8168 transmitting packet " to-send " on descriptor " current)
-                 (with-rt8168-access (nic)
+                 (with-rtl8168-access (nic)
                    ;; Copy packet to buffer.
                    (let ((address (+ (rtl8168-tx-bounce-virt nic)
                                      (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
