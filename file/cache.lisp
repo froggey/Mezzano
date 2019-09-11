@@ -56,11 +56,10 @@
 
 (defmethod mezzano.gray:stream-read-byte ((stream file-cache-stream))
   (assert (member (direction stream) '(:input :io)))
-  (let ((offset (file-position* stream)))
-    (incf (file-position* stream))
-    (if (>= offset (file-length* stream))
-        :eof
-        (aref (buffer stream) offset))))
+  (prog1 (if (>= (file-position* stream) (file-length* stream))
+             :eof
+             (aref (buffer stream) (file-position* stream)))
+    (incf (file-position* stream))))
 
 (defmethod mezzano.gray:stream-write-char ((stream file-cache-character-stream) char)
   (assert (member (direction stream) '(:output :io)))
@@ -74,11 +73,10 @@
 
 (defmethod mezzano.gray:stream-read-char ((stream file-cache-character-stream))
   (assert (member (direction stream) '(:input :io)))
-  (let ((offset (file-position* stream)))
-    (incf (file-position* stream))
-    (if (>= offset (file-length* stream))
-        :eof
-        (code-char (aref (buffer stream) offset)))))
+  (prog1 (if (>= (file-position* stream) (file-length* stream))
+             :eof
+             (code-char (aref (buffer stream) (file-position* stream))))
+    (incf (file-position* stream))))
 
 (defmethod mezzano.gray:stream-write-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:output :io)))
