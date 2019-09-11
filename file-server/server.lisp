@@ -4,6 +4,7 @@
 (in-package #:file-server)
 
 (defparameter *default-file-server-port* 2599)
+(defparameter *idle-timeout* 60)
 
 (defvar *commands* (make-hash-table))
 (defvar *file-table*)
@@ -240,7 +241,8 @@
                                     :output t
                                     :auto-close t
                                     :external-format :utf-8
-                                    :element-type :default))
+                                    :element-type :default
+                                    :timeout *idle-timeout*))
                   (format t "Got a connection: ~S~%" client)
                   (handler-case (handle-client client)
                     (end-of-file ())))))
