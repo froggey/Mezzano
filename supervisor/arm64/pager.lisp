@@ -120,25 +120,24 @@
   (logtest +arm64-tte-dirty+
            (page-table-entry page-table index)))
 
-(defun descend-page-table (page-table index allocate shootdown-in-progress)
+(defun descend-page-table (page-table index allocate)
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (pager-allocate-page :new-type :page-table
-                                           :shootdown-in-progress shootdown-in-progress))
+        (let* ((frame (pager-allocate-page :new-type :page-table))
                (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (make-pte frame :writable t))
           addr))
       (convert-to-pmap-address (pte-physical-address (page-table-entry page-table index)))))
 
-(defun get-pte-for-address (address &optional (allocate t) shootdown-in-progress)
+(defun get-pte-for-address (address &optional (allocate t))
   (let* ((ttl0 (convert-to-pmap-address (if (logbitp 63 address)
                                             (%ttbr1)
                                             (%ttbr0))))
-         (ttl1           (descend-page-table ttl0 (address-l4-bits address) allocate shootdown-in-progress))
-         (ttl2 (and ttl1 (descend-page-table ttl1 (address-l3-bits address) allocate shootdown-in-progress)))
-         (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate shootdown-in-progress))))
+         (ttl1           (descend-page-table ttl0 (address-l4-bits address) allocate))
+         (ttl2 (and ttl1 (descend-page-table ttl1 (address-l3-bits address) allocate)))
+         (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate))))
     (and ttl3 (+ ttl3 (* 8 (address-l1-bits address))))))
 
 (defun map-ptes-ttl2 (ttl2 ttl2e start end fn)

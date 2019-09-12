@@ -43,12 +43,11 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
-(defun descend-page-table (page-table index allocate shootdown-in-progress)
+(defun descend-page-table (page-table index allocate)
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (pager-allocate-page :new-type :page-table
-                                           :shootdown-in-progress shootdown-in-progress))
+        (let* ((frame (pager-allocate-page :new-type :page-table))
                (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
@@ -59,11 +58,11 @@
       (convert-to-pmap-address (logand (page-table-entry page-table index)
                                        +x86-64-pte-address-mask+))))
 
-(defun get-pte-for-address (address &optional (allocate t) shootdown-in-progress)
+(defun get-pte-for-address (address &optional (allocate t))
   (let* ((cr3 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF))))
-         (pdp            (descend-page-table cr3  (address-l4-bits address) allocate shootdown-in-progress))
-         (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate shootdown-in-progress)))
-         (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate shootdown-in-progress))))
+         (pdp            (descend-page-table cr3  (address-l4-bits address) allocate))
+         (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
+         (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
     (and pt (+ pt (* 8 (address-l1-bits address))))))
 
 (defun pte-physical-address (pte)
