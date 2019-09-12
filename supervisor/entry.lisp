@@ -120,7 +120,9 @@
      ;; Sleep til next boot.
      (%run-on-wired-stack-without-interrupts (sp fp)
       (let ((self (current-thread)))
-        (decf *snapshot-inhibit*)
+        ;; *SNAPSHOT-INHIBIT* is set to 1 during boot, decrement it
+        ;; and enable snapshotting now that all boot work has been done.
+        (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1)
         (acquire-global-thread-lock)
         (setf (thread-wait-item self) "Next boot"
               (thread-state self) :sleeping)
