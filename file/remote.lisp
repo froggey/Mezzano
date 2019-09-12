@@ -179,41 +179,60 @@ the server instead of reconnecting for each operation.")
 (defmethod namestring-using-host ((host remote-file-host) path)
   (unparse-remote-file-path path))
 
-(defmacro with-connection ((var host) &body body)
-  `(call-with-connection ,host (lambda (,var) ,@body)))
+(defmacro with-connection ((var host &key (auto-restart t)) &body body)
+  `(call-with-connection ,host (lambda (,var) ,@body) ,auto-restart))
 
-(defun call-with-connection (host fn)
+(defun call-with-connection (host fn auto-restart)
   (if *reuse-connection*
       (mezzano.supervisor:with-mutex ((remote-host-lock host))
         ;; Inhibit snapshots to prevent the connection from becoming stale
         ;; at a bad time.
         (mezzano.supervisor:with-snapshot-inhibited ()
-          (when (remote-host-connection host)
-            ;; Tickle any existing connection to make sure it's still open.
-            (handler-case
-                (read-sequence (load-time-value
-                                (make-array 0 :element-type '(unsigned-byte 8)))
-                               (remote-host-connection host))
-              (mezzano.network.tcp:connection-error ()
-                (close (remote-host-connection host) :abort t)
-                (setf (remote-host-connection host) nil))))
-          (when (not (remote-host-connection host))
-            (setf (remote-host-connection host)
-                  (mezzano.network.tcp:tcp-stream-connect
-                   (host-address host) (host-port host)
-                   :timeout *connection-idle-timeout*)))
-          (handler-bind
-              ((error (lambda (c)
-                        (declare (ignore c))
-                        ;; If an error occurs, then close the current
-                        ;; connection and force the next operation to re-open.
-                        ;; Just in case the connection gets into a bad state.
-                        (close (remote-host-connection host))
-                        (setf (remote-host-connection host) nil))))
-            (funcall fn (remote-host-connection host)))))
-      (sys.net::with-open-network-stream (connection (host-address host)
-                                                     (host-port host))
-        (funcall fn connection))))
+          (prog ()
+           RETRY
+             (when (remote-host-connection host)
+               ;; Tickle any existing connection to make sure it's still open.
+               (handler-case
+                   (read-sequence (load-time-value
+                                   (make-array 0 :element-type '(unsigned-byte 8)))
+                                  (remote-host-connection host))
+                 (mezzano.network.tcp:connection-error ()
+                   (close (remote-host-connection host) :abort t)
+                   (setf (remote-host-connection host) nil))))
+             (when (not (remote-host-connection host))
+               (setf (remote-host-connection host)
+                     (mezzano.network.tcp:tcp-stream-connect
+                      (host-address host) (host-port host)
+                      :timeout *connection-idle-timeout*)))
+             (restart-bind
+                 ((retry (lambda ()
+                           (close (remote-host-connection host))
+                           (setf (remote-host-connection host) nil)
+                           (go RETRY))
+                    :report-function (lambda (stream)
+                                       (format stream "Retry connecting to the file server"))))
+               (handler-bind
+                   ((error (lambda (c)
+                             ;; If an error occurs, then close the current
+                             ;; connection and force the next operation to re-open.
+                             ;; Just in case the connection gets into a bad state.
+                             (close (remote-host-connection host))
+                             (setf (remote-host-connection host) nil)
+                             (when (and (typep c 'mezzano.network.tcp:connection-error)
+                                        auto-restart)
+                               (setf auto-restart nil)
+                               (go RETRY)))))
+                 (return
+                   (funcall fn (remote-host-connection host))))))))
+      (loop
+         (restart-case
+             (return
+               (sys.net::with-open-network-stream (connection (host-address host)
+                                                              (host-port host))
+                 (funcall fn connection)))
+           ((retry ()
+             :report "Retry connecting to the file server"
+             nil))))))
 
 (defmacro with-open-handle ((var pathname connection command) &body body)
   (let ((id (gensym "ID")))
@@ -229,9 +248,25 @@ the server instead of reconnecting for each operation.")
         (x nil)
         (created-file nil)
         (abort-action nil)
-        (size nil))
-    (with-connection (con host)
-      (when (not (eql (ignore-errors (command pathname con `(:probe ,path))) :ok))
+        (size nil)
+        (did-retry-connection nil))
+    (with-connection (con host :auto-restart nil) ; Don't auto-restart here, open is complicated.
+      ;; PROBE to check presence of the file and to really make sure
+      ;; the connection is working.
+      (when (not (eql (block nil
+                        (handler-bind
+                            ((mezzano.network.tcp:connection-error
+                              (lambda (c)
+                                (declare (ignore c))
+                                (when (not did-retry-connection)
+                                  (setf did-retry-connection t)
+                                  (invoke-restart 'retry))))
+                             (simple-file-error
+                              (lambda (c)
+                                ;; Error occured during command, just return NIL
+                                (return NIL))))
+                          (command pathname con `(:probe ,path))))
+                      :ok))
         (ecase if-does-not-exist
           (:error (error 'simple-file-error
                          :pathname pathname
@@ -296,7 +331,9 @@ the server instead of reconnecting for each operation.")
 (defmethod probe-using-host ((host remote-file-host) pathname)
   (let ((path (unparse-remote-file-path pathname)))
     (with-connection (con host)
-      (when (eql (ignore-errors (command pathname con `(:probe ,path))) :ok)
+      (when (eql (handler-case (command pathname con `(:probe ,path))
+                   (simple-file-error () nil))
+                 :ok)
         pathname))))
 
 (defmethod stream-element-type ((stream remote-file-stream))
