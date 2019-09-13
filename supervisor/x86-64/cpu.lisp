@@ -235,6 +235,9 @@ Protected by the world stop lock."
 ;; TODO: This unconditionally invalidates the entire TLB.
 ;; Should be more fine-grained.
 
+(defun check-tlb-shootdown-not-in-progress ()
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
 TLB shootdown must be protected by the VM lock."

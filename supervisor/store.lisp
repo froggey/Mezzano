@@ -102,6 +102,7 @@
         *store-freelist-metadata-freelist* md))
 
 (defun store-maybe-refill-metadata ()
+  (check-tlb-shootdown-not-in-progress)
   (when (and (not *store-freelist-recursive-metadata-allocation*)
              (< *store-freelist-n-free-metadata*
                 +store-freelist-metadata-soft-limit+))

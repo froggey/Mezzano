@@ -4,7 +4,6 @@
 (in-package :mezzano.supervisor)
 
 (defun snapshot-mark-cow-dirty-pages ()
-  (begin-tlb-shootdown)
   ;; Mark all non-wired dirty pages as read-only and set their CoW bits.
   (let ((pml4 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF)))))
     (labels ((mark-level (pml index next-fn)
@@ -47,6 +46,7 @@
       ;; Skip wired stack area, entry 64.
       (loop for i from 65 below 256 ; stack area to end of persistent memory.
          do (mark-pml4e-cow i))))
+  (begin-tlb-shootdown)
   (flush-tlb)
   (tlb-shootdown-all)
   (finish-tlb-shootdown))

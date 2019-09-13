@@ -464,25 +464,23 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (declare (ignore ignore3))
   (pager-log-op "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
-    (begin-tlb-shootdown)
-    (let ((stackp (stack-area-p base)))
+    (let ((stackp (stack-area-p base))
+          (card-base (+ sys.int::+card-table-base+
+                        (* (truncate base sys.int::+card-size+)
+                           sys.int::+card-table-entry-size+)))
+          (card-length (* (truncate length sys.int::+card-size+)
+                          sys.int::+card-table-entry-size+)))
       (when (not stackp)
         ;; Release card table pages.
-        (let ((card-base (+ sys.int::+card-table-base+
-                            (* (truncate base sys.int::+card-size+)
-                               sys.int::+card-table-entry-size+)))
-              (card-length (* (truncate length sys.int::+card-size+)
-                              sys.int::+card-table-entry-size+)))
-          (dotimes (i (truncate card-length #x1000))
-            ;; Update block map.
-            (release-block-at-virtual-address (+ card-base (* i #x1000)))
-            ;; Update page tables and release pages if possible.
-            (let ((pte (get-pte-for-address (+ card-base (* i #x1000)) nil)))
-              (when (and pte (page-present-p pte 0))
-                (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
-                                 :allow-wired t)
-                (setf (page-table-entry pte 0) 0))))
-          (tlb-shootdown-range card-base card-length)))
+        (dotimes (i (truncate card-length #x1000))
+          ;; Update block map.
+          (release-block-at-virtual-address (+ card-base (* i #x1000)))
+          ;; Update page tables and release pages if possible.
+          (let ((pte (get-pte-for-address (+ card-base (* i #x1000)) nil)))
+            (when (and pte (page-present-p pte 0))
+              (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
+                               :allow-wired t)
+              (setf (page-table-entry pte 0) 0)))))
       (dotimes (i (truncate length #x1000))
         ;; Update block map.
         (release-block-at-virtual-address (+ base (* i #x1000)))
@@ -492,10 +490,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
             (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12)
                              ;; Allow wired stacks to be freed.
                              :allow-wired stackp :stackp stackp)
-            (setf (page-table-entry pte 0) 0)))))
-    (flush-tlb)
-    (tlb-shootdown-all)
-    (finish-tlb-shootdown)))
+            (setf (page-table-entry pte 0) 0))))
+      (begin-tlb-shootdown)
+      (flush-tlb)
+      (when (not stackp)
+        (tlb-shootdown-range card-base card-length))
+      (tlb-shootdown-range base length)
+      (finish-tlb-shootdown))))
 
 (defun protect-memory-range (base length flags)
   (assert (and (page-aligned-p base)
@@ -567,6 +568,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (finish-tlb-shootdown)))
 
 (defun pager-allocate-page (&key (new-type :active))
+  (check-tlb-shootdown-not-in-progress)
   (let ((frame (allocate-physical-pages 1 :type new-type)))
     (when (not frame)
       ;; TODO: Purge empty page table levels.
