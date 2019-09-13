@@ -87,7 +87,7 @@
 ;; The background gc thread runs the GC when physical memory usage exceeds some
 ;; threshold. The idea is to prevent swapping, with the assumption that a GC
 ;; cycle will be faster than thrashing.
-(defvar *gc-poll-interval* 0.1)
+(defvar *gc-poll-interval* 10.0)
 (defvar *gc-memory-use-threshold* 0.1)
 (defvar *auto-gc-thread* (mezzano.supervisor:make-thread #'auto-gc-worker :name "Background GC"))
 
