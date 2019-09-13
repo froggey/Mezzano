@@ -969,7 +969,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                             :buffer buffer
                             :buffer-position buffer-position
                             :position file-position
-                            :length file-length))
+                            :length file-length
+                            :abort-action abort-action))
             ((and (subtypep element-type '(unsigned-byte 8))
                   (subtypep '(unsigned-byte 8) element-type))
              (assert (eql external-format :default) (external-format))
@@ -980,7 +981,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                             :buffer buffer
                             :buffer-position buffer-position
                             :position file-position
-                            :length file-length))
+                            :length file-length
+                            :abort-action abort-action))
             (t (error "Unsupported element-type ~S." element-type))))))
 
 (defmethod probe-using-host ((host fat32-host) pathname)
@@ -1101,11 +1103,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (file-stream-pathname stream))
 
 (defmethod close ((stream fat32-file-stream) &key abort)
-  (cond ((not abort)
-         (let* ((host (host stream))
-                (file-length (file-length* stream)))
-           (multiple-value-bind (parent-dir parent-cluster file-offset)
-               (open-file-metadata host (file-stream-pathname stream))
+  (let ((host (host stream))
+        (file-length (file-length* stream)))
+    (multiple-value-bind (parent-dir parent-cluster file-offset)
+        (open-file-metadata host (file-stream-pathname stream))
+      (cond ((not abort)
              (multiple-value-bind (time date) (get-fat32-time)
                (when (member (direction stream) '(:output :io))
                  (write-file (fat-structure host)
@@ -1116,9 +1118,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) file-length))
-               (setf (read-last-access-date parent-dir file-offset) date))
-             ;; Write to disk new metadata
-             (write-file (fat-structure host) (partition host) parent-cluster (fat host) parent-dir))))
-        ;; TODO Implement abort-action :delete
-        (t (error "Aborted close not suported")))
+               (setf (read-last-access-date parent-dir file-offset) date)
+               ;; Write to disk new metadata
+               (write-file (fat-structure host) (partition host) parent-cluster (fat host) parent-dir)))
+            (t
+             (when (eql (abort-action stream) :delete)
+               (remove-file parent-dir file-offset (partition host) parent-cluster (fat-structure host) (fat host)))))))
   t)
