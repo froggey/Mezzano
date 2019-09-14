@@ -286,6 +286,9 @@ ADDRESS must be an ipv4-address designator."
                              protocol
                              payload)))))
 
+(defun multicast-address-p (address)
+  (address-equal +ipv4-multicast-network+ (address-network address 4)))
+
 (defgeneric ipv4-receive (protocol packet dest-ip source-ip start end))
 
 (defmethod ipv4-receive (protocol packet dest-ip source-ip start end)
@@ -342,8 +345,16 @@ ADDRESS must be an ipv4-address designator."
         (return-from mezzano.network.ethernet:ethernet-receive))
       ;; Is it address to one of our interfaces?
       ;; If not, forward or reject it.
-      (when (and (not (= (ipv4-address-address dest-ip) #xffffffff)) ;;not broadcast
-		 (not (ipv4-address-interface dest-ip nil)))
+      (when (and (not (address-equal dest-ip +ipv4-broadcast-local-network+)) ; not broadcast
+		 (not (ipv4-address-interface dest-ip nil))
+                 ;; Interface broadcast address.
+                 (multiple-value-bind (interface-address prefix-length)
+                     (ipv4-interface-address interface nil)
+                   (not (and interface-address
+                             (address-equal
+                              dest-ip
+                              (address-network-broadcast interface-address prefix-length)))))
+                 (not (multicast-address-p dest-ip)))
         (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
         (return-from mezzano.network.ethernet:ethernet-receive))
       (ipv4-receive protocol packet
@@ -445,13 +456,17 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     value))
 
 ;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
-(defparameter +ipv4-broadcast-source+ (mezzano.network.ip:make-ipv4-address #x00000000))
-(defparameter +ipv4-broadcast-local-network+ (mezzano.network.ip:make-ipv4-address #xffffffff))
+(defparameter +ipv4-broadcast-source+ (make-ipv4-address #x00000000))
+(defparameter +ipv4-broadcast-local-network+ (make-ipv4-address #xFFFFFFFF))
+(defparameter +ipv4-multicast-network+ (make-ipv4-address "224.0.0.0"))
 
 (defgeneric address-equal (x y))
 
 (defgeneric address-network (local-ip prefix-length)
   (:documentation "Return the address of LOCAL-IP's network, based on PREFIX-LENGTH."))
+
+(defgeneric address-network-broadcast (local-ip prefix-length)
+  (:documentation "Return the network broadcast address of LOCAL-IP, based on PREFIX-LENGTH."))
 
 (defgeneric address-host (local-ip prefix-length)
   (:documentation "Return the address of LOCAL-IP's host, based on PREFIX-LENGTH."))
@@ -464,6 +479,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
   (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
     (make-ipv4-address (logand (ipv4-address-address local-ip)
                                mask))))
+
+(defmethod address-network-broadcast ((local-ip ipv4-address) prefix-length)
+  (check-type prefix-length (integer 0 32))
+  (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
+    (make-ipv4-address (logior (logand (ipv4-address-address local-ip)
+                                       mask)
+                               (logxor #xFFFFFFFF mask)))))
 
 (defmethod address-host ((local-ip ipv4-address) prefix-length)
   (check-type prefix-length (integer 0 32))
