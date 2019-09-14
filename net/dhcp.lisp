@@ -230,7 +230,7 @@
 (defvar *dhcp-interactions* (make-hash-table))
 
 (defun netmask-to-prefix-length (netmask)
-  (integer-length (logxor #xFFFFFFFF (ub32ref/be netmask 0))))
+  (- 32 (integer-length (logxor #xFFFFFFFF (ub32ref/be netmask 0)))))
 
 (defun configure-interface-1 (interface lease)
   (let ((interaction (gethash interface *dhcp-interactions*))
