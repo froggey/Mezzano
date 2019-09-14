@@ -328,7 +328,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                  (eql (tcp-connection-local-port connection) local-port))
         (return connection)))))
 
-(defun tcp4-receive (packet local-ip remote-ip start end)
+(defmethod mezzano.network.ip:ipv4-receive ((protocol (eql mezzano.network.ip:+ip-protocol-tcp+)) packet local-ip remote-ip start end)
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
          (flags (ldb (byte 12 0)

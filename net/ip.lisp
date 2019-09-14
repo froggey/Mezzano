@@ -286,6 +286,11 @@ ADDRESS must be an ipv4-address designator."
                              protocol
                              payload)))))
 
+(defgeneric ipv4-receive (protocol packet dest-ip source-ip start end))
+
+(defmethod ipv4-receive (protocol packet dest-ip source-ip start end)
+  nil)
+
 (defmethod mezzano.network.ethernet:ethernet-receive
     ((ethertype (eql mezzano.network.ethernet:+ethertype-ipv4+))
      interface packet start end)
@@ -341,25 +346,9 @@ ADDRESS must be an ipv4-address designator."
 		 (not (ipv4-address-interface dest-ip nil)))
         (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
         (return-from mezzano.network.ethernet:ethernet-receive))
-      (case protocol
-        (#.+ip-protocol-tcp+
-         (mezzano.network.tcp::tcp4-receive packet
-                                            dest-ip
-                                            source-ip
-                                            (+ start header-length)
-                                            (+ start total-length)))
-        (#.+ip-protocol-udp+
-         (mezzano.network.udp::udp4-receive packet
-                                            dest-ip
-                                            source-ip
-                                            (+ start header-length)
-                                            (+ start total-length)))
-        (#.+ip-protocol-icmp+
-         (icmp4-receive packet
-                        source-ip
-                        (+ start header-length)
-                        (+ start total-length)))
-        (t (format t "Discarding IPv4 packet from ~X with unknown protocol ~X ~S.~%" source-ip protocol packet))))))
+      (ipv4-receive protocol packet
+                    dest-ip source-ip
+                    (+ start header-length) (+ start total-length)))))
 
 ;;; IP addresses.
 
@@ -494,18 +483,19 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
 (defvar *icmp-listeners* '())
 (defvar *icmp-listener-lock* (mezzano.supervisor:make-mutex "ICMP listener list"))
 
-(defun icmp4-receive (packet source-ip start end)
+(defmethod ipv4-receive ((protocol (eql +ip-protocol-icmp+)) packet dest-ip source-ip start end)
+  (declare (ignore dest-ip))
   (let ((length (- end start)))
     (when (< length +icmp4-header-size+)
       (format t "Discarding runt ICMPv4 packet from ~A.~%" source-ip)
-      (return-from icmp4-receive))
+      (return-from ipv4-receive))
     (let ((type (aref packet (+ start +icmp4-type+)))
           (code (aref packet (+ start +icmp4-code+)))
           (identifier (ub16ref/be packet (+ start +icmp4-identifier+)))
           (sequence-number (ub16ref/be packet (+ start +icmp4-sequence-number+))))
       (when (not (eql (compute-ip-checksum packet start end) 0))
         (format t "Discarding ICMPv4 packet with bad header checksum.~%")
-        (return-from icmp4-receive))
+        (return-from ipv4-receive))
       (dolist (l *icmp-listeners*)
         (funcall (first l) packet source-ip start end))
       (case type
