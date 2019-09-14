@@ -49,11 +49,12 @@
   (format t "Network cards:~%")
   (dolist (card (mezzano.sync:watchable-set-items
                  mezzano.driver.network-card::*nics*))
-    (let ((address (mezzano.network.ip:ipv4-interface-address card nil)))
+    (multiple-value-bind (address prefix-length)
+        (mezzano.network.ip:ipv4-interface-address card nil)
       (format t " ~S~%" card)
       (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.driver.network-card:mac-address card))
       (when address
-        (format t "   IPv4 address: ~A~%" address))
+        (format t "   IPv4 address: ~A/~D~%" address prefix-length))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
           (mezzano.driver.network-card:statistics card)
         (format t "   ~:D octets, ~:D packets received. ~:D RX errors.~%"

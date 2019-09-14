@@ -35,7 +35,7 @@
 (defmethod configure-interface (interface (configuration-type (eql :static)) &key local-ip prefix-length gateway dns-servers)
   (let ((local-ip (mezzano.network.ip:make-ipv4-address local-ip)))
     ;; Bring interfaces up.
-    (mezzano.network.ip::ifup interface local-ip)
+    (mezzano.network.ip::ifup interface local-ip prefix-length)
     ;; Add routes.
     ;; Local network.
     (mezzano.network.ip:add-route
@@ -143,7 +143,7 @@
                        'network-boot-handler
                        :target *network-serial-queue*))
   (let ((loopback-interface (make-instance 'sys.net::loopback-interface)))
-    (mezzano.network.ip::ifup loopback-interface "127.0.0.1")
+    (mezzano.network.ip::ifup loopback-interface "127.0.0.1" 8)
     (mezzano.network.ip:add-route "127.0.0.0" 8 loopback-interface))
   (setf mezzano.network.ip::*routing-table* '()
         mezzano.network.ip::*ipv4-interfaces* '()

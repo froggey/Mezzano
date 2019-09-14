@@ -113,28 +113,36 @@
 
 (defvar *ipv4-interfaces* '())
 
-(defun ifup (nic address)
+(defun ifup (nic address prefix-length)
   "Set NIC's IPv4 address to ADDRESS.
 ADDRESS must be an ipv4-address designator."
   (setf address (make-ipv4-address address))
-  (let ((existing (find nic *ipv4-interfaces* :key #'car)))
-    (if existing
-        (setf (cdr existing) address)
-        (push (cons nic address) *ipv4-interfaces*))))
+  (let ((existing (find nic *ipv4-interfaces* :key #'first)))
+    (cond (existing
+           (setf (second existing) address
+                 (third existing) prefix-length))
+          (t
+           (push (list nic address prefix-length) *ipv4-interfaces*)))))
 
 (defun ifdown (nic)
   (setf *outstanding-sends*
         (remove nic *outstanding-sends*
                 :key #'second))
-  (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'car)))
+  (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'first)))
 
 (defun ipv4-interface-address (nic &optional (errorp t))
-  (or (cdr (find nic *ipv4-interfaces* :key #'car))
-      (and errorp
-           (error "No IPv4 address for interface ~S." nic))))
+  "Return the IP address and prefix-length of the given interface."
+  (let ((entry (find nic *ipv4-interfaces* :key #'first)))
+    (cond (entry
+           (values (second entry) (third entry)))
+          (errorp
+           (error "No IPv4 address for interface ~S." nic))
+          (t
+           (values nil nil)))))
 
 (defun ipv4-address-interface (address &optional (errorp t))
-  (or (car (find address *ipv4-interfaces* :key #'cdr :test #'address-equal))
+  "Return the interface with the given IP address."
+  (or (car (find address *ipv4-interfaces* :key #'second :test #'address-equal))
       (and errorp
            (error "No interface for IPv4 address ~A." address))))
 

@@ -240,7 +240,7 @@
     (format t "DHCP lease acquired for ~A~%" interface)
     (format t "  ip: ~A/~D~%" local-ip prefix-length)
     ;; Bring interfaces up.
-    (mezzano.network.ip::ifup interface local-ip)
+    (mezzano.network.ip::ifup interface local-ip prefix-length)
     ;; Add routes.
     ;; Local network.
     (mezzano.network.ip:add-route
