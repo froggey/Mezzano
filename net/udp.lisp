@@ -109,16 +109,13 @@
          (length (ub16ref/be packet (+ start 4)))
          (checksum (ub16ref/be packet (+ start 6)))
          (connection (get-udp-connection remote-ip remote-port local-ip local-port)))
-    (cond
-      (connection
-       (with-udp-connection-locked (connection)
-         (let ((payload (make-array (- end (+ start 8)) :displaced-to packet :displaced-index-offset (+ start 8))))
-           ;; Send data to the user layer
-           (setf (udp-connection-packets connection) (append (udp-connection-packets connection)
-                                                             (list payload)))
-           (mezzano.supervisor:condition-notify (udp-connection-cvar connection) t))))
-      (t (format t "Ignoring UDP4 packet from ~X ~S~%" remote-ip
-                 (subseq packet start end))))))
+    (when connection
+      (with-udp-connection-locked (connection)
+        (let ((payload (make-array (- end (+ start 8)) :displaced-to packet :displaced-index-offset (+ start 8))))
+          ;; Send data to the user layer
+          (setf (udp-connection-packets connection) (append (udp-connection-packets connection)
+                                                            (list payload)))
+          (mezzano.supervisor:condition-notify (udp-connection-cvar connection) t))))))
 
 (defmethod mezzano.network:local-endpoint ((object udp4-connection))
   (values (local-address object)
