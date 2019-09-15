@@ -361,7 +361,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (loop :for offset :from start :below (length fat)
         :for cluster-n := (aref fat offset)
         :when (zerop cluster-n)
-        :return (ash offset -2)))
+        :return offset))
 
 (defun get-fat32-time ()
   "Return time and date in fat32 format"
