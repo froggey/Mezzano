@@ -529,10 +529,37 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
      ,@body))
 
 (defun read-short-name (directory offset)
-  (with-output-to-string (s)
-    (loop :for i :from offset :to (+ 10 offset)
-          :for octet := (aref directory i)
-          :do (write-char (code-char octet) s))))
+  ;; Handle 8.3 names
+  (let ((name (make-string 12 :initial-element #\Space))
+        (first (aref directory offset))
+        (idx 1))
+    ;; First character is special
+    (setf (elt name 0) (if (= first #x05) (code-char #xE5) (code-char first)))
+
+    ;; Copy chars for 8 part
+    (loop
+       for i from (1+ offset) to (+ 7 offset)
+       for char = (code-char (aref directory i))
+       when (eql char #\Space) do
+         (return)
+       do
+         (setf (elt name idx) char)
+         (incf idx))
+
+    ;; Copy chars for 3 part, if there is any
+    (when (/= (aref directory 8) (char-code #\Space))
+      (setf (elt name idx) #\.)
+      (incf idx)
+      (loop
+         for i from (+ 8 offset) to (+ 10 offset)
+         for char = (code-char (aref directory i))
+         when (eql char #\Space) do
+           (return)
+         do
+           (setf (elt name idx) char)
+           (incf idx)))
+
+    (string-right-trim '(#\Space) name)))
 
 (defun (setf read-short-name) (short-name directory offset)
   (loop :for i :from offset :to (+ 10 offset)
@@ -553,22 +580,36 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                 (aref ,directory (+ 13 ,var)))
          ,@body))))
 
-(defun read-long-name (directory start)
+(defun read-long-name-section (directory offset)
+  (let ((name (make-string 13 :initial-element #\Space))
+        (idx 0))
+    (flet ((add-chars (start end)
+             (loop
+                for i from (+ offset start) by 2 to (+ offset end)
+                for octet = (sys.int::ub16ref/le directory i)
+                when (or (= octet 0) (= octet #xFFFF)) do (return)
+                do
+                  (setf (elt name idx) (code-char octet))
+                  (incf idx))))
+      (add-chars 1 10)
+      (add-chars 14 25)
+      (add-chars 28 31))
+    (string-right-trim  '(#\Space) name)))
+
+(defun read-long-name (directory start checksum)
   (let ((name ""))
-    (do-file (i start) directory
-      name
-      (setf name
-            (concatenate 'string name
-                         (with-output-to-string (sub-name)
-                           (flet ((add (start end)
-                                    (loop :for offset :from (+ start i) :by 2 :to (+ end i)
-                                          :for octet := (sys.int::ub16ref/le directory offset)
-                                          :when (and (/= octet 0)
-                                                     (/= octet 65535))
-                                          :do (write-char (code-char octet) sub-name))))
-                             (add 1 10)
-                             (add 14 25)
-                             (add 28 31))))))))
+    (loop
+       for offset = start then (- offset 32)
+       ;; This is really an error - should not have run off the beginning
+       when (< offset 0) do (return)
+       ;; This is really an error - checksum should match
+       when (/= (aref directory (+ offset 13)) checksum) do (return)
+       do
+         (setf name (concatenate 'string name
+                                 (read-long-name-section directory offset)))
+       ;; If this is the last block, exit the loop
+       when (logbitp 6 (aref directory offset)) do (return))
+    name))
 
 (defun (setf read-long-name) (long-name directory start-offset)
   (flet ((set (start end name-offset name-length)
@@ -598,40 +639,51 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            (sys.int::ub16ref/le directory (+ start-offset 26)) 0
                            start-offset (next-space directory start-offset))))))
 
+(defun short-name-p (directory file)
+  (or (= file 0) ;; first directory entry, can't have long name
+      ;; previous entry free
+      (= (aref directory (+ file -32)) #xE5)
+      ;; attribute not equal long name
+      (/= (aref directory (+ file -32 11)) #x0F)))
+
 (defun read-file-name (directory file)
-  (let ((long-name (read-long-name directory file)))
-    (if (string= "" long-name)
-        (let ((file-name (read-short-name directory file)))
-          (with-output-to-string (name)
-            (loop :for i :from 0 :to 7
-                  :never (char= #\Space
-                                (aref file-name i))
-                  :do (write-char (aref file-name i) name))
-            (unless (char= #\Space
-                           (aref file-name 8))
-              (write-char #\. name)
-              (loop :for i :from 8 :to 10
-                    :never (char= #\Space
-                                  (aref file-name i))
-                    :do (write-char (aref file-name i) name)))))
-        long-name)))
+  (if (short-name-p directory file)
+      (read-short-name directory file)
+      (read-long-name directory (+ file -32) (checksum directory file))))
+
+(defun free-file-entry (directory start)
+  (when (not (short-name-p directory start))
+    ;; mark long name entries as free
+    (loop
+       for offset = (- start 32) then (- offset 32)
+       with checksum = (checksum directory start)
+       ;; This is really an error - should not have run off the beginning
+       when (< offset 0) do (return)
+       ;; This is really an error - checksum should match
+       when (/= (aref directory (+ offset 13)) checksum) do (return)
+       do
+         (let ((first-byte (aref directory offset)))
+           (setf (aref directory offset) #xE5)
+           (when (logbitp 6 first-byte)
+             (return)))))
+
+  ;; mark short name directory entry as free
+  (setf (aref directory start) #xE5))
 
 (defun remove-file (directory start disk cluster-n fat32 fat)
-  (do-file (i start) directory
-    (progn
-      ;; Remove first part of file.
-      (setf (aref directory start) #xE5)
-      ;; Update FAT
-      (do ((cluster-n (read-first-cluster directory start)))
-          ((>= cluster-n (last-cluster-value fat32)) t)
-        (let ((next (aref fat cluster-n)))
-          (setf (aref fat cluster-n) 0
-                cluster-n next)))
-      ;; Write to disk
-      (write-fat disk fat32 fat)
-      (write-file fat32 disk cluster-n fat directory))
-    ;; Remove rest of file.
-    (setf (aref directory cluster-n) #xE5)))
+  ;; Update FAT
+  (do ((cluster-n (read-first-cluster directory start)))
+      ((>= cluster-n (last-cluster-value fat32)))
+    (let ((next (aref fat cluster-n)))
+      (setf (aref fat cluster-n) 0
+            cluster-n next)))
+
+  ;; mark directory entry (or entries) as free
+  (free-file-entry directory start)
+
+  ;; Write to disk
+  (write-fat disk fat32 fat)
+  (write-file fat32 disk cluster-n fat directory))
 
 (defun next-space (directory offset)
   "Return offset of next space"
