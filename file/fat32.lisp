@@ -400,21 +400,19 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                           (cluster-count 0 (1+ cluster-count)))
                          ((>= cluster-n (last-cluster-value fat32)) cluster-count)))
          (sector-size (mezzano.supervisor:disk-sector-size disk))
-         (result (make-array (* sector-size spc n-clusters) :element-type '(unsigned-byte 8)))
-         (temp-buf (make-array (* spc sector-size) :element-type '(unsigned-byte 8) :area :wired)))
+         (result (make-array (* sector-size spc n-clusters) :element-type '(unsigned-byte 8))))
     (do ((cluster-n start-cluster (aref fat cluster-n))
          (n-cluster 0 (1+ n-cluster)))
         ((>= cluster-n (last-cluster-value fat32)) result)
-      (multiple-value-bind (successp error-reason)
-          (mezzano.supervisor:disk-read disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-        (when (not successp)
-          (error "Disk read error: ~S" error-reason)))
-      (replace result temp-buf :start1 (* n-cluster spc sector-size)))))
+      (block-device-read disk
+                         (first-sector-of-cluster fat32 cluster-n)
+                         spc
+                         result
+                         (* n-cluster spc sector-size)))))
 
 (defun write-file (fat32 disk start-cluster fat array)
   (let* ((spc (fat-%sectors-per-cluster fat32))
-         (sector-size (mezzano.supervisor:disk-sector-size disk))
-         (temp-buf (make-array (* spc sector-size) :element-type '(unsigned-byte 8) :area :wired)))
+         (sector-size (mezzano.supervisor:disk-sector-size disk)))
     (do ((cluster-n start-cluster (aref fat cluster-n))
          (last-cluster 0)
          (n-cluster 0 (1+ n-cluster)))
@@ -428,20 +426,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (* (+ i n-cluster) spc sector-size))
                   (setf (aref fat last-cluster) (last-cluster-value fat32))
                   (write-fat disk fat32 fat))
-               (replace temp-buf array :start2 (* (+ i n-cluster) spc sector-size))
-               (multiple-value-bind (successp error-reason)
-                   (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-                 (when (not successp)
-                   (error "Disk write error: ~S" error-reason)))
+               (block-device-write disk
+                                   (first-sector-of-cluster fat32 cluster-n)
+                                   spc
+                                   array
+                                   (* (+ i n-cluster) spc sector-size))
                (setf (aref fat last-cluster) cluster-n
                      last-cluster cluster-n))
              t))
       (setf last-cluster cluster-n)
-      (replace temp-buf array :start2 (* n-cluster spc sector-size))
-      (multiple-value-bind (successp error-reason)
-          (mezzano.supervisor:disk-write disk (first-sector-of-cluster fat32 cluster-n) spc temp-buf)
-        (when (not successp)
-          (error "Disk write error: ~S" error-reason))))))
+      (block-device-write disk
+                          (first-sector-of-cluster fat32 cluster-n)
+                          spc
+                          array
+                          (* n-cluster spc sector-size)))))
 
 (defun read-attributes (directory offset)
   (aref directory (+ offset 11)))
