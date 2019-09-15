@@ -290,8 +290,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod read-fat (disk (fat32 fat32))
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (read-sector disk fat-offset (/ (fat32-%sectors-per-fat fat32)
-                                                                       (fat-%n-fats fat32)))
+        :with file-allocation-table := (read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
         :with fat := (make-array (list (ash (length file-allocation-table) -2)))
         :for offset :from 0 :by 4 :below (length file-allocation-table)
         :for i :from 0
@@ -301,14 +300,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat32 fat32) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (read-sector disk fat-offset (/ (fat32-%sectors-per-fat fat32)
-                                                                       (fat-%n-fats fat32)))
+        :with file-allocation-table := (read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
         :for offset :from 0 :by 4 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (aref fat i)
         :do (setf (sys.int::ub32ref/le file-allocation-table offset) cluster-n)
-        :finally (write-sector disk fat-offset file-allocation-table (/ (fat32-%sectors-per-fat fat32)
-                                                                        (fat-%n-fats fat32)))))
+        :finally (write-sector disk fat-offset file-allocation-table (fat32-%sectors-per-fat fat32))))
 
 (defmethod root-dir-sectors ((fat12 fat12))
   (floor (/ (+ (ash (fat-%n-root-entry fat12) 5)
