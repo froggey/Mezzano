@@ -1466,8 +1466,8 @@
   (sup:debug-print-line "Probing OHCI")
   (sup:with-device-access ((pci:pci-device-boot-id device)
                            (return-from ohci-probe))
-    ;; map bar0 - not sure what size should be
-    (let* ((bar0 (pci:pci-io-region device 0 #x3000))
+    ;; map bar0
+    (let* ((bar0 (pci:pci-io-region device 0))
            (rh-a (pci:pci-io-region/32 bar0 +ohci-root-hub-descriptor-a+))
            (ohci (make-instance 'ohci
                                 :pci-device device

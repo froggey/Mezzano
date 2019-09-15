@@ -138,7 +138,7 @@
 (defun rtl8168-pci-register (location)
   (let ((nic (make-instance 'rtl8168
                             :pci-location location
-                            :io-base (pci:pci-io-region location 2 256)
+                            :io-base (pci:pci-io-region location 2)
                             :irq (pci:pci-intr-line location))))
     (setf (rtl8168-tx-mailbox nic) (sync:make-mailbox :name `(tx-mailbox ,nic)))
     (setf (rtl8168-worker-thread nic)

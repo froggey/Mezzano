@@ -45,7 +45,7 @@
          (bar (pci:pci-config/8 pci-device (+ cap +virtio-pci-capability-bar+)))
          (offset (pci:pci-config/32 pci-device (+ cap +virtio-pci-capability-offset+)))
          (length (pci:pci-config/32 pci-device (+ cap +virtio-pci-capability-length+)))
-         (region (pci:pci-io-region pci-device bar (+ offset length))))
+         (region (pci:pci-io-region pci-device bar)))
     (sys.int::cons-in-area region offset :wired)))
 
 (defun virtio-pci-access (cap offset)
