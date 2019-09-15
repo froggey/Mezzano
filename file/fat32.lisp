@@ -989,15 +989,18 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (let ((file-data (open-file-metadata host pathname))
         (stack '()))
     (do-files (file) file-data
-      t
-      (push (parse-simple-file-path host
-                                    (format nil
-                                            (if (file-p file-data file)
-                                                "~a~a"
-                                                "~a~a>")
-                                            (directory-namestring pathname)
-                                            (read-file-name file-data file)))
-            stack))
+        t
+        (let ((file-name (read-file-name file-data file)))
+          (when (and (string/= file-name ".")
+                     (string/= file-name ".."))
+            (push (parse-simple-file-path host
+                                          (format nil
+                                                  (if (file-p file-data file)
+                                                      "~a~a"
+                                                      "~a~a>")
+                                                  (directory-namestring pathname)
+                                                  file-name))
+                  stack))))
     stack))
 
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
