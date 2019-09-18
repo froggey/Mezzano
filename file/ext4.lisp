@@ -751,8 +751,6 @@
         (error ":output :io not implemented"))
       (cond ((or (eql element-type :default)
                  (subtypep element-type 'character))
-             (assert (member external-format '(:default :utf-8))
-                     (external-format))
              (make-instance 'ext-file-character-stream
                             :pathname pathname
                             :host host
@@ -761,7 +759,8 @@
                             :buffer buffer
                             :position file-position
                             :length file-length
-                            :abort-action abort-action))
+                            :abort-action abort-action
+                            :external-format (sys.int::make-external-format 'character external-format)))
             ((and (subtypep element-type '(unsigned-byte 8))
                   (subtypep '(unsigned-byte 8) element-type))
              (assert (eql external-format :default) (external-format))

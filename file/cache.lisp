@@ -19,7 +19,8 @@
    (%length :initarg :length :accessor file-length*))
   (:default-initargs :position 0 :length 0))
 
-(defclass file-cache-character-stream (file-cache-stream)
+(defclass file-cache-character-stream (sys.int::external-format-mixin
+                                       file-cache-stream)
   ())
 
 (defmethod mezzano.gray:stream-element-type ((stream file-cache-stream))
@@ -33,10 +34,6 @@
 (defmethod mezzano.gray:stream-external-format ((stream file-cache-stream))
   (declare (ignore stream))
   :default)
-
-(defmethod mezzano.gray:stream-external-format ((stream file-cache-character-stream))
-  (declare (ignore stream))
-  :utf-8)
 
 (defmethod input-stream-p ((stream file-cache-stream))
   (member (direction stream) '(:input :io)))
@@ -61,23 +58,6 @@
              (aref (buffer stream) (file-position* stream)))
     (incf (file-position* stream))))
 
-(defmethod mezzano.gray:stream-write-char ((stream file-cache-character-stream) char)
-  (assert (member (direction stream) '(:output :io)))
-  (when (>= (file-position* stream) (file-length* stream))
-    (setf (file-length* stream) (1+ (file-position* stream)))
-    (let ((array-length (array-dimension (buffer stream) 0)))
-      (when (>= (file-position* stream) array-length)
-        (setf (buffer stream) (adjust-array (buffer stream) (+ array-length 8192) :initial-element 0)))))
-  (setf (aref (buffer stream) (file-position* stream)) (char-code char))
-  (incf (file-position* stream)))
-
-(defmethod mezzano.gray:stream-read-char ((stream file-cache-character-stream))
-  (assert (member (direction stream) '(:input :io)))
-  (prog1 (if (>= (file-position* stream) (file-length* stream))
-             :eof
-             (code-char (aref (buffer stream) (file-position* stream))))
-    (incf (file-position* stream))))
-
 (defmethod mezzano.gray:stream-write-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:output :io)))
   (unless end (setf end (file-length* stream)))
@@ -96,28 +76,6 @@
   (unless end (setf end (length sequence)))
   (let ((end2 (min end (file-length* stream))))
     (replace sequence (buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
-    end2))
-
-(defmethod mezzano.gray:stream-write-sequence ((stream file-cache-character-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:output :io)))
-  (unless end (setf end (file-length* stream)))
-  (let ((end2 (min end (length sequence))))
-    (when (> end2 (file-length* stream))
-      (setf (buffer stream) (adjust-array (buffer stream) end2 :initial-element 0)))
-    (loop :for n1 :from (file-position* stream) :below (+ (file-position* stream) (- end start))
-          :for n2 :from start :below end2
-          :do (setf (aref (buffer stream) n1)
-                    (char-code (aref sequence n2))))
-    (incf (file-position* stream) (- end2 start))))
-
-(defmethod mezzano.gray:stream-read-sequence ((stream file-cache-character-stream) sequence &optional (start 0) end)
-  (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (file-length* stream))))
-    (loop :for n1 :from start :to (1- end)
-          :for n2 :to (1- end2)
-          :do (setf (aref sequence n1)
-                    (code-char (aref (buffer stream) n2))))
     end2))
 
 (defmethod mezzano.gray:stream-file-position ((stream file-cache-stream) &optional (position-spec nil position-specp))
