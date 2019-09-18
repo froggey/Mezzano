@@ -561,25 +561,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
     (string-right-trim '(#\Space) name)))
 
-(defun (setf read-short-name) (short-name directory offset)
-  (loop :for i :from offset :to (+ 10 offset)
-        :for char :across short-name
-        :do (setf (aref directory i) (char-code char))))
-
-(defmacro do-file ((var start) directory finally &body body)
-  (alexandria:with-gensyms (checksum order order1)
-    `(do ((,checksum (checksum ,directory ,start))
-          (,order -1 (1+ ,order))
-          (,order1 0 (aref ,directory ,var))
-          (,var ,start (- ,var 32)))
-         ((or (> 0 ,var)
-              (= (+ #x40 ,order)
-                 ,order1))
-          ,finally)
-       (when (= ,checksum
-                (aref ,directory (+ 13 ,var)))
-         ,@body))))
-
 (defun read-long-name-section (directory offset)
   (let ((name (make-string 13 :initial-element #\Space))
         (idx 0))
@@ -610,34 +591,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
        ;; If this is the last block, exit the loop
        when (logbitp 6 (aref directory offset)) do (return))
     name))
-
-(defun (setf read-long-name) (long-name directory start-offset)
-  (flet ((set (start end name-offset name-length)
-           (loop :for disk-offset :from (+ start start-offset) :by 2 :to (+ start end start-offset)
-                 :for name-offset :from name-offset :by 1
-                 :do (setf (sys.int::ub16ref/le directory disk-offset)
-                           (cond ((= name-offset name-length)
-                                  #x0000)
-                                 ((< name-offset name-length)
-                                  (char-code (aref long-name name-offset)))
-                                 (t #xFFFF))))))
-    ;; Write long name part starting from last part
-    (loop :with name-length := (length long-name)
-          :with n := (ceiling (/ name-length 13))
-          :with checksum := (checksum directory (+ (ash n 5) start-offset))
-          :repeat n
-          :for part-n :from n :by -1
-          :for name-offset := (* (1- part-n) 13)
-          :for order := (+ part-n #x40) :then part-n
-          :do (progn (set 1 8 name-offset name-length)
-                     (set 14 10 (+ 5 name-offset) name-length)
-                     (set 28 2 (+ 11 name-offset) name-length)
-                     (setf (aref directory start-offset) order
-                           (aref directory (+ start-offset 11)) #x0F ;attributes
-                           (aref directory (+ start-offset 12)) 0
-                           (aref directory (+ start-offset 13)) checksum
-                           (sys.int::ub16ref/le directory (+ start-offset 26)) 0
-                           start-offset (next-space directory start-offset))))))
 
 (defun short-name-p (directory file)
   (or (= file 0) ;; first directory entry, can't have long name
@@ -722,57 +675,131 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (when (string= short-name (read-short-name file offset))
         (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))))
 
+(defun long-name-p (pathname-name name-length type-length)
+  (or (> name-length 8)
+      (> type-length 3)
+      (and (find #\. pathname-name)
+           ;; not "."
+           (not (and (string= pathname-name ".") (= type-length 0)))
+           (not (and (string= pathname-name "..") (= type-length 0))))))
+
+(defun create-directory-entry (directory pathname-name pathname-type)
+  ;; determine if the entry is a short name or long name entry
+  (let ((name-length (length pathname-name))
+        (type-length (length pathname-type)))
+    (cond ((long-name-p pathname-name name-length type-length)
+           ;; long name entry
+           (let* ((total-length (+ name-length
+                                   (if (= type-length 0) 0 (1+ type-length))))
+                  (num-entries (1+ (ceiling (/ total-length 13))))
+                  (start-offset (next-n-spaces directory num-entries))
+                  (end-offset (+ start-offset (ash (1- num-entries) 5)))
+                  (short-name (make-short-name pathname-name pathname-type directory))
+                  (long-name (if (= type-length 0)
+                                 pathname-name
+                                 (concatenate 'string
+                                              pathname-name
+                                              "."
+                                              pathname-type))))
+             (loop for idx from 0 to 10 do
+                  (setf (aref directory (+ idx end-offset))
+                        (char-code (elt short-name idx))))
+             (loop
+                for char across long-name
+                with checksum = (checksum directory end-offset)
+                with offset = end-offset
+                with idx = 32
+                with seq-num = 1 do
+                  ;; finished last directory entry, move to previous
+                  (when (= idx 32)
+                    (decf offset 32)
+                    (setf (aref directory offset) seq-num
+                          (aref directory (+ offset 11)) #x0F
+                          (aref directory (+ offset 12)) #x00
+                          (aref directory (+ offset 13)) checksum)
+                    (incf seq-num)
+                    (setf idx 1))
+                  (setf (aref directory (+ idx offset)) (char-code char)
+                        (aref directory (+ idx offset 1)) 0)
+                  (incf idx 2)
+                  (when (= idx 11) (setf idx 14))
+                  (when (= idx 26) (setf idx 28))
+                finally
+                  ;; long name is multiple of 13 characters - no NUL termination
+                  (when (= idx 32) (return))
+                  ;; null termination, then #xFFFF for remaining slots
+                  (setf (aref directory (+ idx offset)) 0
+                        (aref directory (+ idx offset 1)) 0)
+                  (loop
+                     (incf idx 2)
+                     (when (= idx 11) (setf idx 14))
+                     (when (= idx 26) (setf idx 28))
+                     (when (= idx 32) (return))
+                     (setf (aref directory (+ idx offset)) #xFF
+                           (aref directory (+ idx offset 1)) #xFF)))
+
+             ;; set last entry flag - really want logiorf here
+             (incf (aref directory start-offset) #x40)
+             end-offset))
+          (T
+           ;; short name entry
+           (let ((offset (next-space directory 0)))
+             (loop for idx from 0 to (1- name-length) do
+                  (setf (aref directory (+ idx offset))
+                        (char-code (elt pathname-name idx))))
+             (loop for idx from name-length to 7 do
+                  (setf (aref directory (+ idx offset)) #x20))
+             (loop for idx from 0 to (1- type-length) do
+                  (setf (aref directory (+ idx offset 8))
+                        (char-code (elt pathname-type idx))))
+             (loop for idx from type-length to 2 do
+                  (setf (aref directory (+ idx offset 8)) #x20))
+             offset)
+           ))))
+
 (defun create-file (host file cluster-n pathname-name pathname-type attributes)
   "Create file/directory"
   (multiple-value-bind (time date) (get-fat32-time)
-    (let* ((name (concatenate 'string pathname-name "." pathname-type))
-           (short-name (make-short-name pathname-name pathname-type file))
-           (name-length (length name))
-           (start-offset (next-n-spaces file (if (> name-length 11)
-                                                 (1+ (ceiling (/ name-length 13)))
-                                                 1)))
-           (end-offset (+ start-offset (ash (if (> name-length 11)
-                                                (ceiling (/ name-length 13))
-                                                0)
-                                            5)))
-           (cluster-number (next-free-cluster (fat host) 3)))
-      (flet ((set-short-name (name file start-offset cluster-number)
-               (setf (read-short-name file start-offset) name
-                     (read-attributes file start-offset) attributes
-                     (read-reserved file start-offset) 0
-                     (read-creation-time-tenth file start-offset) 0
-                     (read-creation-time file start-offset) time
-                     (read-creation-date file start-offset) date
-                     (read-last-access-date file start-offset) date
-                     (read-write-time file start-offset) time
-                     (read-write-date file start-offset) date
-                     (read-first-cluster file start-offset) cluster-number
-                     (read-file-length file start-offset) 0)))
-        ;; Write short name part
-        (set-short-name short-name file end-offset cluster-number)
-        ;; Write long name parts only if needed
-        (unless (and (>= 8 (length pathname-name))
-                     (>= 3 (length pathname-type)))
-          (setf (read-long-name file start-offset) name))
-        ;; Make directory files . and ..
-        (when (directory-p file end-offset)
+    (let ((offset (create-directory-entry file pathname-name pathname-type))
+          (cluster-number (next-free-cluster (fat host) 3)))
+      (flet ((fill-in-entry (file offset cluster-number)
+               (setf (read-attributes file offset) attributes
+                     (read-reserved file offset) 0
+                     (read-creation-time-tenth file offset) 0
+                     (read-creation-time file offset) time
+                     (read-creation-date file offset) date
+                     (read-last-access-date file offset) date
+                     (read-write-time file offset) time
+                     (read-write-date file offset) date
+                     (read-first-cluster file offset) cluster-number
+                     (read-file-length file offset) 0)))
+        ;; fill in directory entry for new file
+        (fill-in-entry file offset cluster-number)
+
+        (when (directory-p file offset)
+          ;; create new directory with "." and ".." entries
           (let ((directory (make-array (bytes-per-cluster (fat-structure host))
                                        :area :wired :element-type '(unsigned-byte 8)
                                        :initial-element 0)))
-            (set-short-name ".          " directory 0 cluster-number)
-            (set-short-name "..         " directory 32 cluster-n)
+            (fill-in-entry directory
+                           (create-directory-entry directory "." "")
+                           cluster-number)
+            (fill-in-entry directory
+                           (create-directory-entry directory ".." "")
+                           cluster-n)
             ;; Write to disk
             (write-file (fat-structure host)
                         (partition host)
                         cluster-number
-                        (fat host) directory))))
-      ;; Write to disk
-      (write-file (fat-structure host) (partition host) cluster-n (fat host) file)
-      ;; Update fat
-      (setf (aref (fat host) cluster-number) (last-cluster-value (fat-structure host)))
-      (write-fat (partition host) (fat-structure host) (fat host))
-      ;; Return cluster-number
-      cluster-number)))
+                        (fat host) directory)))
+
+        ;; Write to disk
+        (write-file (fat-structure host) (partition host) cluster-n (fat host) file)
+        ;; Update fat
+        (setf (aref (fat host) cluster-number) (last-cluster-value (fat-structure host)))
+        (write-fat (partition host) (fat-structure host) (fat host))
+        ;; Return cluster-number
+        cluster-number))))
 
 ;;; Host integration
 
@@ -1084,45 +1111,30 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (assert source-start (source-start) "Source file not found. ~s" source)
         (multiple-value-bind (dest-dir dest-cluster dest-start) (open-file-metadata host dest)
           (assert (not dest-start) (dest-start) "Destination file alredy exist. ~s" dest)
-          (do-file (i source-start) source-dir
-            (let ((start (if (< i 0)
-                             source-start
-                             (+ 32 i))))
-              (if (string= (file-name source)
-                           (file-name dest))
-                  (let ((metadata (subseq source-dir start (+ 32 source-start))))
-                    (replace dest-dir metadata :start1 (next-n-spaces dest-dir (/ (length metadata) 32))))
-                  ;; Write short name part
-                  (let* ((pathname-name (pathname-name dest))
-                         (pathname-type (pathname-type dest))
-                         (name (concatenate 'string pathname-name "." pathname-type))
-                         (short-name (make-short-name pathname-name pathname-type dest-dir))
-                         (name-length (length name))
-                         (start-offset (next-n-spaces dest-dir (if (> name-length 11)
-                                                                   (1+ (ceiling
-                                                                        (/ name-length 13)))
-                                                                   1)))
-                         (end-offset (+ start-offset (ash (if (> name-length 11)
-                                                              (ceiling (/ name-length 13))
-                                                              0)
-                                                          5))))
-                    ;; Copy short part
-                    (let ((metadata (subseq source-dir source-start (+ 32 source-start))))
-                      (replace dest-dir metadata :start1 end-offset))
-                    ;; Change short name
-                    (setf (read-short-name dest-dir end-offset) short-name)
-                    ;; Write long name parts only if needed
-                    (unless (and (>= 8 (length pathname-name))
-                                 (>= 3 (length pathname-type)))
-                      (setf (read-long-name dest-dir start-offset) name))))
-              (if (equalp (pathname-directory source)
-                          (pathname-directory dest))
-                  (loop :for part-offset :from start :to source-start :by 32
-                        :do (setf (aref dest-dir part-offset) #xE5))
-                  (progn (loop :for part-offset :from start :to source-start :by 32
-                               :do (setf (aref source-dir part-offset) #xE5))
-                         (write-file (fat-structure host) (partition host) source-cluster (fat host) source-dir)))
-              (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir)))))))
+
+          (let ((dest-offset (create-directory-entry dest-dir
+                                                     (pathname-name dest)
+                                                     (pathname-type dest))))
+            ;; copy meta data
+            (replace dest-dir source-dir
+                     :start1 (+ dest-offset 11)
+                     :start2 (+ source-start 11)
+                     :end2 (+ source-start 32))
+
+            (cond ((equalp (pathname-directory source)
+                           (pathname-directory dest))
+                   ;; source and destination are the same directory, only update and write the
+                   ;; destination directory (already modified above)
+                   ;; remove source file entry
+                   (free-file-entry dest-dir source-start)
+                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))
+                  (T
+                   ;; source and destination are different directories
+                   ;; remove source file entry
+                   (free-file-entry source-dir source-start)
+                   ;; write both directories
+                   (write-file (fat-structure host) (partition host) source-cluster (fat host) source-dir)
+                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))))))))
 
 (defmethod file-write-date-using-host ((host fat32-host) path)
   (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
