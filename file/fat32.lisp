@@ -547,7 +547,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (incf idx))
 
     ;; Copy chars for 3 part, if there is any
-    (when (/= (aref directory 8) (char-code #\Space))
+    (when (/= (aref directory (+ 8 offset)) (char-code #\Space))
       (setf (elt name idx) #\.)
       (incf idx)
       (loop
