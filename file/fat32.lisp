@@ -960,8 +960,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
           ((nil) (return-from open-using-host nil))))
       (cond ((or (eql element-type :default)
                  (subtypep element-type 'character))
-             (assert (member external-format '(:default :utf-8))
-                     (external-format))
              (make-instance 'fat32-file-character-stream
                             :pathname pathname
                             :host host
@@ -970,7 +968,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                             :buffer-position buffer-position
                             :position file-position
                             :length file-length
-                            :abort-action abort-action))
+                            :abort-action abort-action
+                            :external-format (sys.int::make-external-format 'character external-format)))
             ((and (subtypep element-type '(unsigned-byte 8))
                   (subtypep '(unsigned-byte 8) element-type))
              (assert (eql external-format :default) (external-format))

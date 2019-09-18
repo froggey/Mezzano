@@ -345,9 +345,10 @@
   (* (index inode-n superblock) (superblock-inode-size superblock)))
 
 (defun n-block-groups (superblock)
-  (let ((tmp (ceiling (/ (superblock-inodes-count superblock) (superblock-inodes-per-group superblock)))))
-    (assert (= tmp (ceiling (/ (superblock-blocks-count superblock) (superblock-blocks-per-group superblock)))))
-    (ceiling (/ (superblock-blocks-count superblock) (superblock-blocks-per-group superblock)))))
+  (let ((n-block-groups (ceiling (/ (superblock-blocks-count superblock) (superblock-blocks-per-group superblock)))))
+    (assert (= (ceiling (/ (superblock-inodes-count superblock) (superblock-inodes-per-group superblock)))
+               n-block-groups))
+    n-block-groups))
 
 (defstruct block-group-descriptor
   (block-bitmap)
@@ -478,7 +479,7 @@
   (name nil :type string))
 
 (defun read-linked-directory-entry (block offset)
-  (let* ((name-len (aref block (+ 6 offset))))
+  (let ((name-len (aref block (+ 6 offset))))
     (make-linked-directory-entry :inode (sys.int::ub32ref/le block (+ 0 offset))
                                  :rec-len (sys.int::ub16ref/le block (+ 4 offset))
                                  :name-len name-len
@@ -748,39 +749,36 @@
                (error ":create not implemented")))))
       (when (and (not created-file) (member direction '(:output :io)))
         (error ":output :io not implemented"))
-      (let ((stream (cond ((or (eql element-type :default)
-                               (subtypep element-type 'character))
-                           (assert (member external-format '(:default :utf-8))
-                                   (external-format))
-                           (make-instance 'ext-file-character-stream
-                                          :pathname pathname
-                                          :host host
-                                          :direction direction
-                                          :file-inode file-inode
-                                          :buffer buffer
-                                          :position file-position
-                                          :length file-length
-                                          :abort-action abort-action))
-                          ((and (subtypep element-type '(unsigned-byte 8))
-                                (subtypep '(unsigned-byte 8) element-type))
-                           (assert (eql external-format :default) (external-format))
-                           (make-instance 'ext-file-stream
-                                          :pathname pathname
-                                          :host host
-                                          :direction direction
-                                          :file-inode file-inode
-                                          :buffer buffer
-                                          :position file-position
-                                          :length file-length
-                                          :abort-action abort-action))
-                          (t (error "Unsupported element-type ~S." element-type)))))
-        stream))))
+      (cond ((or (eql element-type :default)
+                 (subtypep element-type 'character))
+             (make-instance 'ext-file-character-stream
+                            :pathname pathname
+                            :host host
+                            :direction direction
+                            :file-inode file-inode
+                            :buffer buffer
+                            :position file-position
+                            :length file-length
+                            :abort-action abort-action
+                            :external-format (sys.int::make-external-format 'character external-format)))
+            ((and (subtypep element-type '(unsigned-byte 8))
+                  (subtypep '(unsigned-byte 8) element-type))
+             (assert (eql external-format :default) (external-format))
+             (make-instance 'ext-file-stream
+                            :pathname pathname
+                            :host host
+                            :direction direction
+                            :file-inode file-inode
+                            :buffer buffer
+                            :position file-position
+                            :length file-length
+                            :abort-action abort-action))
+            (t (error "Unsupported element-type ~S." element-type))))))
 
 (defmethod probe-using-host ((host ext-host) pathname)
   (multiple-value-bind (inode-n) (find-file host pathname)
     (if inode-n t nil)))
 
-;; WIP
 (defmethod directory-using-host ((host ext-host) pathname &key)
   (let ((inode-n (find-file host pathname))
         (disk (partition host))
