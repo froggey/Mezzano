@@ -762,6 +762,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (multiple-value-bind (time date) (get-fat32-time)
     (let ((offset (create-directory-entry file pathname-name pathname-type))
           (cluster-number (next-free-cluster (fat host) 3)))
+      ;; Terminate cluster list (allocate one cluster to the file)
+      (setf (aref (fat host) cluster-number) (last-cluster-value (fat-structure host)))
+
       (flet ((fill-in-entry (file offset cluster-number)
                (setf (read-attributes file offset) attributes
                      (read-reserved file offset) 0
@@ -793,10 +796,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                         cluster-number
                         (fat host) directory)))
 
-        ;; Write to disk
+        ;; Write parent directory to disk
         (write-file (fat-structure host) (partition host) cluster-n (fat host) file)
-        ;; Update fat
-        (setf (aref (fat host) cluster-number) (last-cluster-value (fat-structure host)))
+        ;; Write fat
         (write-fat (partition host) (fat-structure host) (fat host))
         ;; Return cluster-number
         cluster-number))))
@@ -1084,22 +1086,25 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
   ;; TODO verbose
-  (declade (ignore verbose))
+  (declare (ignore verbose))
   (assert (eql (first (pathname-directory pathname)) :absolute) (pathname) "Absoute pathname required.")
-  (loop :with fat32 := (fat-structure host)
+  (loop :with created := NIL
+        :with fat32 := (fat-structure host)
         :with fat := (fat host)
         :with disk := (partition host)
-        :with directory-cluster := (fat32-root-cluster fat32)
-        :with directory := (read-file fat32 disk (fat32-root-cluster fat32) fat)
+        :with directory-cluster := (first-root-dir-cluster fat32)
+        :with directory := (read-file fat32 disk (first-root-dir-cluster fat32) fat)
         :for directory-name :in (rest (pathname-directory pathname))
         :do (do-files (start) directory
-              (setf directory-cluster (create-file host directory directory-cluster directory-name nil
-                                                   (ash 1 +attribute-directory+))
-                    directory (read-file fat32 disk directory-cluster fat))
+                (setf directory-cluster (create-file host directory directory-cluster directory-name nil
+                                                     (ash 1 +attribute-directory+))
+                      directory (read-file fat32 disk directory-cluster fat)
+                      created T)
               (when (string= directory-name (read-file-name directory start))
                 (setf directory-cluster (read-first-cluster directory start)
                       directory (read-file fat32 disk (read-first-cluster directory start) fat))
-                (return t)))))
+                (return t)))
+        :finally (return created)))
 
 (defmethod rename-file-using-host ((host fat32-host) source dest)
   (assert (eql (first (pathname-directory source)) :absolute) (source) "Absoute pathname required.")
