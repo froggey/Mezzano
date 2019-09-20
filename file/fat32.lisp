@@ -949,11 +949,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                            disk
                                            (read-first-cluster directory start)
                                            (fat host)))
-                (return start)))
+                (return)))
         :finally (do-files (start) directory
                    (return-from open-file-metadata (values directory directory-cluster))
-                   (when (and (string= file-name (read-file-name directory start))
-                              (file-p directory start))
+                     (when (string= file-name (read-file-name directory start))
                      (return-from open-file-metadata (values directory directory-cluster start))))))
 
 (defun open-file (host pathname)
@@ -1062,9 +1061,35 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (t (error "Unsupported element-type ~S." element-type))))))
 
 (defmethod probe-using-host ((host fat32-host) pathname)
-  (multiple-value-bind (file-data file-cluster file-length) (open-file host pathname)
-    (declare (ignore file-data file-cluster))
-    (if file-length pathname nil)))
+  (let ((orig-directory (pathname-directory pathname))
+        (new-pathname))
+    (if (and (null (pathname-name pathname))
+             (null (pathname-type pathname)))
+        (setf new-pathname (make-pathname :host (pathname-host pathname)
+                                          :device (pathname-device pathname)
+                                          :directory (butlast orig-directory 1)
+                                          :name (car (last orig-directory 1))
+                                          :type NIL
+                                          :version NIL))
+        (setf new-pathname pathname))
+
+    (multiple-value-bind (directory directory-cluster offset)
+        (open-file-metadata host new-pathname)
+      (declare (ignore directory-cluster))
+      (cond ((null offset)
+             nil)
+            ((directory-p directory offset)
+             (if (null (pathname-name pathname))
+                 pathname
+                 (make-pathname :host (pathname-host pathname)
+                                :device (pathname-device pathname)
+                                :directory (append (pathname-directory pathname)
+                                                   (list (pathname-name pathname)))
+                                :name NIL
+                                :type NIL
+                                :version NIL)))
+            (T
+             pathname)))))
 
 (defmethod directory-using-host ((host fat32-host) pathname &key)
   (let ((file-data (open-file-metadata host pathname))
