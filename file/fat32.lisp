@@ -237,10 +237,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 ;;           (sys.int::ub32ref/le sector 508) (fs-info-trail-signature fat32-info))
 ;;     (write-sector disk (fat-%fat-info fat) sector 1)))
 
-(defmethod read-fat (disk (fat12 fat12))
+(defmethod read-fat (disk (fat12 fat12) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat12)
         :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat12))
-        :with fat := (make-array (list (floor (/ (ash (length file-allocation-table) 3) 12))))
+        :with fat := (if fat-array
+                         fat-array
+                         (make-array (list (floor (/ (ash (length file-allocation-table) 3) 12)))))
         :for offset :from 0 :by 3 :below (- (length file-allocation-table) 2)
         :for i :from 0 :by 2
         :for byte0 := (aref file-allocation-table offset)
@@ -269,10 +271,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   (aref file-allocation-table (+ 2 offset)) byte2)
         :finally (write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat12))))
 
-(defmethod read-fat (disk (fat16 fat16))
+(defmethod read-fat (disk (fat16 fat16) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat16)
         :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat16))
-        :with fat := (make-array (list (ash (length file-allocation-table) -1)))
+        :with fat := (if fat-array
+                         fat-array
+                         (make-array (list (ash (length file-allocation-table) -1))))
         :for offset :from 0 :by 2 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (sys.int::ub16ref/le file-allocation-table offset)
@@ -288,10 +292,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :do (setf (sys.int::ub16ref/le file-allocation-table offset) cluster-n)
         :finally (write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat16))))
 
-(defmethod read-fat (disk (fat32 fat32))
+(defmethod read-fat (disk (fat32 fat32) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
         :with file-allocation-table := (read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
-        :with fat := (make-array (list (ash (length file-allocation-table) -2)))
+        :with fat := (if fat-array
+                         fat-array
+                         (make-array (list (ash (length file-allocation-table) -2))))
         :for offset :from 0 :by 4 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (sys.int::ub32ref/le file-allocation-table offset)
@@ -1060,34 +1066,38 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                             :abort-action abort-action))
             (t (error "Unsupported element-type ~S." element-type))))))
 
-(defmethod probe-using-host ((host fat32-host) pathname)
-  (let ((orig-directory (pathname-directory pathname))
-        (new-pathname))
+(defun force-pathname-name (pathname)
+  (let ((orig-directory (pathname-directory pathname)))
     (if (and (null (pathname-name pathname))
              (null (pathname-type pathname)))
-        (setf new-pathname (make-pathname :host (pathname-host pathname)
-                                          :device (pathname-device pathname)
-                                          :directory (butlast orig-directory 1)
-                                          :name (car (last orig-directory 1))
-                                          :type NIL
-                                          :version NIL))
-        (setf new-pathname pathname))
+        (make-pathname :host (pathname-host pathname)
+                       :device (pathname-device pathname)
+                       :directory (butlast orig-directory 1)
+                       :name (car (last orig-directory 1))
+                       :type NIL
+                       :version NIL)
+        pathname)))
 
+(defun force-directory-only (pathname)
+  (if (pathname-name pathname)
+      (make-pathname :host (pathname-host pathname)
+                     :device (pathname-device pathname)
+                     :directory (append (pathname-directory pathname)
+                                        (list (pathname-name pathname)))
+                     :name NIL
+                     :type NIL
+                     :version NIL)
+      pathname))
+
+(defmethod probe-using-host ((host fat32-host) pathname)
+  (let ((new-pathname (force-pathname-name pathname)))
     (multiple-value-bind (directory directory-cluster offset)
         (open-file-metadata host new-pathname)
       (declare (ignore directory-cluster))
       (cond ((null offset)
              nil)
             ((directory-p directory offset)
-             (if (null (pathname-name pathname))
-                 pathname
-                 (make-pathname :host (pathname-host pathname)
-                                :device (pathname-device pathname)
-                                :directory (append (pathname-directory pathname)
-                                                   (list (pathname-name pathname)))
-                                :name NIL
-                                :type NIL
-                                :version NIL)))
+             (force-directory-only pathname))
             (T
              pathname)))))
 
@@ -1186,6 +1196,77 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
     (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
       (assert file-offset (file-offset) "File not found. ~s" path)
       (remove-file parent-dir file-offset disk parent-cluster fat32 fat))))
+
+(defmethod delete-directory-using-host ((host fat32-host) path recursive)
+  (let* ((disk (partition host))
+         (fat32 (fat-structure host))
+         (fat (fat host))
+         (new-path (force-pathname-name path)))
+    (labels ((%delete-directory (parent-dir dir-offset)
+               (let* ((dir-cluster (read-first-cluster parent-dir dir-offset))
+                      (directory (read-file fat32 disk dir-cluster fat)))
+                 (when (next-file directory (* 2 32))
+                   ;; directory not empty
+                   (if recursive
+                       (do-files (offset) directory
+                           nil
+                           (cond ((or (= offset 0) (= offset 32))
+                                  ;; ignore "." and ".." entries
+                                  )
+                                 ((directory-p directory offset)
+                                  (%delete-directory directory offset))
+                                 ((file-p directory offset)
+                                  ;; free file clusters
+                                  (do ((cluster-n (read-first-cluster directory offset)))
+                                      ((>= cluster-n (last-cluster-value fat32)))
+                                    (let ((next (aref fat cluster-n)))
+                                      (setf (aref fat cluster-n) 0
+                                            cluster-n next))))
+                                 (T
+                                  (error 'simple-file-error
+                                         :pathname path
+                                         :format-control "Deleting ~S Unknown type entry type for ~A."
+                                         :foramt-arguments (path (read-file-name directory offset))))))
+                       (error 'simple-file-error
+                              :pathname path
+                              :format-control "Directory ~A not empty."
+                              :format-arguments (list path))))
+
+                 ;; free directory clusters
+                 (do ((cluster-n (read-first-cluster parent-dir dir-offset)))
+                     ((>= cluster-n (last-cluster-value fat32)))
+                   (let ((next (aref fat cluster-n)))
+                     (setf (aref fat cluster-n) 0
+                           cluster-n next))))))
+      (multiple-value-bind (parent-dir parent-cluster dir-offset)
+          (open-file-metadata host new-path)
+        (when (null dir-offset)
+          (error 'simple-file-error
+                 :pathname path
+                 :format-control "Directory ~A does not exist."
+                 :format-arguments (list path)))
+        (when (not (directory-p parent-dir dir-offset))
+          (error 'simple-file-error
+                 :pathname path
+                 :format-control "~A is not a directory."
+                 :format-arguments (list path)))
+        (handler-case
+            (progn
+              ;; free directory clusters (possibly recursively)
+              (%delete-directory parent-dir dir-offset)
+              ;; mark directory entry free
+              (free-file-entry parent-dir dir-offset))
+          (error (condition)
+            ;; not able to finish, undo all the work by re-reading fat
+            (read-fat disk fat32 fat)
+            ;; pass the error on
+            (error condition)))
+
+        ;; Write to disk
+        (write-fat disk fat32 fat)
+        (write-file fat32 disk parent-cluster fat parent-dir)))
+
+    (force-directory-only path)))
 
 (defmethod expunge-directory-using-host ((host fat32-host) path &key)
   (declare (ignore host path))

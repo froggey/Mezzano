@@ -20,6 +20,8 @@
            #:file-write-date-using-host
            #:file-author-using-host
            #:delete-file-using-host
+           #:delete-directory
+           #:delete-directory-using-host
            #:expunge-directory-using-host
            #:file-stream-pathname
            #:simple-file-error
@@ -654,6 +656,13 @@ NAMESTRING as the second."
     (assert (not (wild-pathname-p path)))
     (apply #'delete-file-using-host (pathname-host path) path args))
   t)
+
+(defgeneric delete-directory-using-host (host path recursive))
+
+(defun delete-directory (pathspec &key recursive)
+  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
+    (assert (not (wild-pathname-p path)))
+    (delete-directory-using-host (pathname-host path) path recursive)))
 
 (defgeneric expunge-directory-using-host (host path &key))
 
