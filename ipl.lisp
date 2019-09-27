@@ -95,6 +95,11 @@ Make sure there is a virtio-net NIC attached.~%")
     :INHERIT-CONFIGURATION))
 (eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
 
+;; Sound driver.
+(sys.int::cal "sys:source;drivers;sound.lisp")
+#+x86-64
+(sys.int::cal "sys:source;drivers;intel-hda.lisp")
+
 ;; Split-sequence
 (require :split-sequence)
 
