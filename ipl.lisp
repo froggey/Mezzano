@@ -211,6 +211,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :mezzano-usb/ohci)
 
 ;; Other stuff.
+(sys.int::cal "sys:source;drivers;i945.lisp")
 (sys.int::cal "sys:source;file;cache.lisp")
 (sys.int::cal "sys:source;file;disk.lisp")
 (sys.int::cal "sys:source;file;fat32.lisp")
