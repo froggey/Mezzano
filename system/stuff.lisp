@@ -367,21 +367,13 @@
   (let ((objects (make-array 10000 :fill-pointer 0)))
     (loop
        (setf (fill-pointer objects) 0)
-       (walk-area :general
-                  (lambda (object address size)
-                    (declare (ignore address size))
-                    (when (funcall filter-function object)
-                      (vector-push object objects))))
-       (walk-area :pinned
-                  (lambda (object address size)
-                    (declare (ignore address size))
-                    (when (funcall filter-function object)
-                      (vector-push object objects))))
-       (walk-area :wired
-                  (lambda (object address size)
-                    (declare (ignore address size))
-                    (when (funcall filter-function object)
-                      (vector-push object objects))))
+       ;; Don't include :CONS as it's just full of CONSes
+       (dolist (area '(:general :pinned :wired))
+         (walk-area area
+                    (lambda (object address size)
+                      (declare (ignore address size))
+                      (when (funcall filter-function object)
+                        (vector-push object objects)))))
        (when (not (eql (fill-pointer objects) (array-dimension objects 0)))
          (return))
        (adjust-array objects (* (array-dimension objects 0) 2)))
