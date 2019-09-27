@@ -247,12 +247,36 @@
         :report (lambda (stream)
                   (apply #'format stream continue-format-control arguments))))))
 
-(defun assert-error (test-form datum &rest arguments)
-  (let ((condition (if datum
-                       (coerce-to-condition 'simple-error datum arguments)
-                       (make-condition 'simple-error
-                                       :format-control "Assertion failed: ~S."
-                                       :format-arguments (list test-form)))))
+(define-condition assert-error (simple-error)
+  ((test-form :initarg :test-form
+              :reader assert-error-test-form)
+   (intermediate-values :initarg :intermediate-values
+                        :reader assert-error-intermediate-values))
+  (:report (lambda (condition stream)
+             (apply #'format stream
+                    (simple-condition-format-control condition)
+                    (simple-condition-format-arguments condition))
+             (loop
+                for (value form) in (assert-error-intermediate-values condition)
+                do
+                  (format stream "~&  ~S := ~S" form value)))))
+
+(defun assert-error (test-form intermediate-values datum &rest arguments)
+  (let ((condition (cond ((or (stringp datum)
+                              (functionp datum))
+                          (make-condition 'assert-error
+                                          :format-control datum
+                                          :format-arguments arguments
+                                          :test-form test-form
+                                          :intermediate-values intermediate-values))
+                         (datum
+                          (coerce-to-condition 'simple-error datum arguments))
+                         (t
+                          (make-condition 'assert-error
+                                          :format-control "Assertion failed: ~S"
+                                          :format-arguments (list test-form)
+                                          :test-form test-form
+                                          :intermediate-values intermediate-values)))))
     (cerror "Retry assertion." condition)))
 
 (defun assert-prompt (place value)
@@ -260,12 +284,60 @@
   (format *debug-io* "~&Enter a new value for ~S.~%> " place)
   (eval (read *debug-io*)))
 
-(defmacro assert (test-form &optional places datum-form &rest argument-forms)
-  `(do () (,test-form)
-     (assert-error ',test-form ,datum-form ,@argument-forms)
-     ,@(mapcar (lambda (place)
-                 `(setf ,place (assert-prompt ',place ,place)))
-               places)))
+(defmacro assert (&environment env test-form &optional places datum-form &rest argument-forms)
+  (if (and (consp test-form)
+           (symbolp (first test-form))
+           (not (macro-function (first test-form) env))
+           (not (special-operator-p (first test-form))))
+      ;; Evaluate arguments and include their values.
+      (let ((test-arguments '())
+            (intermediate-symbols '())
+            (intermediate-forms '())
+            (retry-tag (gensym)))
+        (dolist (arg (rest test-form))
+          (cond ((or (and (consp arg)
+                          (not (eql (first arg) 'quote)))
+                     (and (symbolp arg)
+                          (not (constantp arg env))))
+                 (let ((tmp (gensym)))
+                   (push tmp test-arguments)
+                   (push tmp intermediate-symbols)
+                   (push arg intermediate-forms)))
+                (t
+                 (push arg test-arguments))))
+        (setf test-arguments (reverse test-arguments)
+              intermediate-symbols (reverse intermediate-symbols)
+              intermediate-forms (reverse intermediate-forms))
+        `(tagbody
+            ,retry-tag
+            (let ,(loop
+                     for sym in intermediate-symbols
+                     for form in intermediate-forms
+                     collect (list sym form))
+              (when (not (,(first test-form) ,@test-arguments))
+                (assert-error
+                 ',test-form (list ,@(loop
+                                        for sym in intermediate-symbols
+                                        for form in intermediate-forms
+                                        collect `(list ,sym ',form)))
+                 ,datum-form
+                 ,@argument-forms)
+                ,@(mapcar (lambda (place)
+                            `(setf ,place (assert-prompt ',place ,place)))
+                          places)
+                (go ,retry-tag)))))
+      (let ((retry-tag (gensym))
+            (value (gensym)))
+        `(tagbody
+            ,retry-tag
+            (let ((,value ,test-form))
+              (when (not ,value)
+                (assert-error ',test-form (list (list ,value ',test-form))
+                              ,datum-form ,@argument-forms)
+                ,@(mapcar (lambda (place)
+                            `(setf ,place (assert-prompt ',place ,place)))
+                          places)
+                (go ,retry-tag)))))))
 
 (defun break (&optional (format-control "Break") &rest format-arguments)
   (with-simple-restart (continue "Return from BREAK.")
