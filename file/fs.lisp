@@ -657,12 +657,12 @@ NAMESTRING as the second."
     (apply #'delete-file-using-host (pathname-host path) path args))
   t)
 
-(defgeneric delete-directory-using-host (host path recursive))
+(defgeneric delete-directory-using-host (host path &key recursive))
 
-(defun delete-directory (pathspec &key recursive)
+(defun delete-directory (pathspec &rest args &key &allow-other-keys)
   (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
     (assert (not (wild-pathname-p path)))
-    (delete-directory-using-host (pathname-host path) path recursive)))
+    (apply #'delete-directory-using-host (pathname-host path) path args)))
 
 (defgeneric expunge-directory-using-host (host path &key))
 

@@ -372,11 +372,13 @@
            #:safe-sleep
            #:read-rtc-time
            #:all-disks
+           #:disk
            #:disk-writable-p
            #:disk-n-sectors
            #:disk-sector-size
            #:disk-read
            #:disk-write
+           #:disk-flush
            #:disk-name
            #:make-disk-request
            #:disk-submit-request

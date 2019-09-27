@@ -411,7 +411,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                          (first-sector-of-cluster fat32 cluster-n)
                          spc
                          result
-                         (* n-cluster spc sector-size)))))
+                         :offset (* n-cluster spc sector-size)))))
 
 (defun write-file (fat32 disk start-cluster fat array)
   (let* ((spc (fat-%sectors-per-cluster fat32))
@@ -433,7 +433,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                    (first-sector-of-cluster fat32 cluster-n)
                                    spc
                                    array
-                                   (* (+ i n-cluster) spc sector-size))
+                                   :offset (* (+ i n-cluster) spc sector-size))
                (setf (aref fat last-cluster) cluster-n
                      last-cluster cluster-n))
              t))
@@ -442,7 +442,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                           (first-sector-of-cluster fat32 cluster-n)
                           spc
                           array
-                          (* n-cluster spc sector-size)))))
+                          :offset (* n-cluster spc sector-size)))))
 
 (defun read-attributes (directory offset)
   (aref directory (+ offset 11)))
@@ -1196,7 +1196,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (assert file-offset (file-offset) "File not found. ~s" path)
       (remove-file parent-dir file-offset disk parent-cluster fat32 fat))))
 
-(defmethod delete-directory-using-host ((host fat32-host) path recursive)
+(defmethod delete-directory-using-host ((host fat32-host) path &key recursive)
   (let* ((disk (partition host))
          (fat32 (fat-structure host))
          (fat (fat host))

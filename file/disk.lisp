@@ -12,10 +12,10 @@
 
 (in-package :mezzano.disk-file-system)
 
-(defgeneric block-device-read (device lba n-sectors buffer &optional offset))
+(defgeneric block-device-read (device lba n-sectors buffer &key offset))
 
 (defmethod block-device-read
-    ((disk sup::disk) lba n-sectors buffer &optional (start-offset 0))
+    ((disk sup:disk) lba n-sectors buffer &key (offset 0))
   (let* ((sector-size (sup:disk-sector-size disk))
          (sectors-per-4K (/ 4096 sector-size))
          (n-bytes (* sector-size n-sectors))
@@ -26,7 +26,7 @@
         (truncate n-sectors sectors-per-4K)
       (loop
          for addr = lba then (+ addr sectors-per-4k)
-         for offset = start-offset then (+ offset 4096)
+         for base-offset = offset then (+ base-offset 4096)
          repeat full-transfers
          do
            (multiple-value-bind (success-p error-reason)
@@ -34,7 +34,7 @@
              (when (not success-p)
                (error "Disk read error: ~A" error-reason)))
            (dotimes (i 4096)
-             (setf (aref buffer (+ offset i)) (aref wired-buffer i)))
+             (setf (aref buffer (+ base-offset i)) (aref wired-buffer i)))
          finally
            (when (/= partial-transfer 0)
              (multiple-value-bind (success-p error)
@@ -42,13 +42,13 @@
                (when (not success-p)
                  (error "Disk read error: ~A" error)))
              (dotimes (i (* partial-transfer sector-size))
-               (setf (aref buffer (+ offset i))
+               (setf (aref buffer (+ base-offset i))
                      (aref wired-buffer i))))))))
 
-(defgeneric block-device-write (device lba n-sectors buffer &optional offset))
+(defgeneric block-device-write (device lba n-sectors buffer &key offset))
 
 (defmethod block-device-write
-    ((disk sup::disk) lba n-sectors buffer &optional (start-offset 0))
+    ((disk sup:disk) lba n-sectors buffer &key (offset 0))
   (let* ((sector-size (sup:disk-sector-size disk))
          (sectors-per-4K (/ 4096 sector-size))
          (n-bytes (* sector-size n-sectors))
@@ -59,11 +59,11 @@
         (truncate n-sectors sectors-per-4K)
       (loop
          for addr = lba then (+ addr sectors-per-4k)
-         for offset = start-offset then (+ offset 4096)
+         for base-offset = offset then (+ base-offset 4096)
          repeat full-transfers
          do
            (dotimes (i 4096)
-             (setf (aref wired-buffer i) (aref buffer (+ offset i))))
+             (setf (aref wired-buffer i) (aref buffer (+ base-offset i))))
            (multiple-value-bind (success-p error-reason)
                (sup:disk-write disk addr sectors-per-4K wired-buffer)
              (when (not success-p)
@@ -72,7 +72,7 @@
            (when (/= partial-transfer 0)
              (dotimes (i (* partial-transfer sector-size))
                (setf (aref wired-buffer i)
-                     (aref buffer (+ offset i))))
+                     (aref buffer (+ base-offset i))))
              (multiple-value-bind (success-p error-reason)
                  (sup:disk-write disk addr partial-transfer wired-buffer)
                (when (not success-p)
@@ -80,8 +80,8 @@
 
 (defgeneric block-device-flush (device))
 
-(defmethod block-device-flush ((disk sup::disk))
-  (sup::disk-flush disk))
+(defmethod block-device-flush ((disk sup:disk))
+  (sup:disk-flush disk))
 
 (defun read-sector (disk start-sector n-sectors)
   "Read n sectors from disk"
