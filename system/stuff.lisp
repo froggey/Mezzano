@@ -386,3 +386,91 @@
          (return))
        (adjust-array objects (* (array-dimension objects 0) 2)))
     objects))
+
+;;; Memory grovelling
+
+(defun hexdump (start length &key memory width endian)
+  (check-type width (member nil 8 16 32 64))
+  (check-type endian (member nil :little :big))
+  (setf width (or width 8))
+  (setf endian (or endian :little))
+  (cond ((eql memory :virtual)
+         (setf memory #'sys.int::memref-unsigned-byte-8))
+        ((member memory '(nil :physical))
+         (setf memory #'mezzano.supervisor::physical-memref-unsigned-byte-8)))
+  (loop
+     for line from start below (+ start length) by 16
+     do
+       (format t "~8,'0X |" line)
+       (ecase width
+         (8
+          (loop
+             for offset below 16
+             do
+               (when (eql offset 8)
+                 (write-char #\Space))
+               (format t " ~2,'0X" (funcall memory (+ line offset)))))
+         (16
+          (loop
+             for offset below 16 by 2
+             do
+               (when (eql offset 8)
+                 (write-char #\Space))
+               (let ((b0 (funcall memory (+ line offset)))
+                     (b1 (funcall memory (+ line offset 1))))
+                 (when (eql endian :big)
+                   (rotatef b0 b1))
+                 (format t " ~2,'0X~2,'0X" b1 b0))))
+         (32
+          (loop
+             for offset below 16 by 4
+             do
+               (when (eql offset 8)
+                 (write-char #\Space))
+               (let ((b0 (funcall memory (+ line offset)))
+                     (b1 (funcall memory (+ line offset 1)))
+                     (b2 (funcall memory (+ line offset 2)))
+                     (b3 (funcall memory (+ line offset 3))))
+                 (when (eql endian :big)
+                   (psetq b0 b3
+                          b1 b2
+                          b2 b1
+                          b3 b0))
+                 (format t " ~2,'0X~2,'0X~2,'0X~2,'0X" b3 b2 b1 b0))))
+         (64
+          (loop
+             for offset below 16 by 8
+             do
+               (when (eql offset 8)
+                 (write-char #\Space))
+               (let ((b0 (funcall memory (+ line offset)))
+                     (b1 (funcall memory (+ line offset 1)))
+                     (b2 (funcall memory (+ line offset 2)))
+                     (b3 (funcall memory (+ line offset 3)))
+                     (b4 (funcall memory (+ line offset 4)))
+                     (b5 (funcall memory (+ line offset 5)))
+                     (b6 (funcall memory (+ line offset 6)))
+                     (b7 (funcall memory (+ line offset 7))))
+                 (when (eql endian :big)
+                   (psetq b0 b7
+                          b1 b6
+                          b2 b5
+                          b3 b4
+                          b4 b3
+                          b5 b2
+                          b6 b1
+                          b7 b0))
+                 (format t " ~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X"
+                         b7 b6 b5 b4 b3 b2 b1 b0)))))
+       (format t " | ")
+       (loop
+          for offset below 16
+          do
+            (when (eql offset 8)
+              (write-char #\Space))
+            (let ((ch (funcall memory (+ line offset))))
+              (if (<= #x20 ch #x7E)
+                  (write-char (code-char ch))
+                  (write-char #\Snowman))))
+       (terpri))
+  (values))
