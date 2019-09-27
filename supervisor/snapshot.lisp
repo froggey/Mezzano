@@ -343,7 +343,10 @@ Returns 4 values:
         (bml4-block nil)
         (previously-deferred-free-blocks nil))
     ;; Stop the world before taking the *VM-LOCK*. There may be PA threads waiting for pages.
-    (with-world-stopped
+    (with-world-stopped ()
+      (when (not (zerop *snapshot-inhibit*))
+        (set-snapshot-light nil)
+        (return-from take-snapshot :retry))
       (with-mutex (*vm-lock*)
         (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
         (debug-print-line "Copying wired area.")
@@ -382,8 +385,10 @@ Returns 4 values:
 
 (defun snapshot-thread ()
   (loop
-     (when (zerop *snapshot-inhibit*)
-       (take-snapshot))
+     ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
+     (loop
+        while (eql (take-snapshot) :retry)
+        do (sleep 0.1))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
      ;; FIXME: There's a race between setting this event and the thread
