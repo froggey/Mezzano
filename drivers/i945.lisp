@@ -1138,6 +1138,10 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
             (ignore-errors (decode-raw-edid (read-raw-edid card))))
       card)))
 
+;; Scary warning:
+;;   Be careful adding new IDs here.
+;;   Some chipsets (especially laptops) are very sensitive and can
+;;   be bricked by bugs.
 (pci:define-pci-driver i945 i945-probe
   ((#x8086 #x2772))
   ())
