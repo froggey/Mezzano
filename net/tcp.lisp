@@ -413,26 +413,34 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*))))
 
+(defun append-data-packet (connection entry)
+  (if (tcp-connection-rx-data connection)
+      (setf (cdr (last (tcp-connection-rx-data connection)))
+            (list entry))
+      (setf (tcp-connection-rx-data connection)
+            (list entry))))
+
+(defun update-unordered-data (connection)
+  "Try to find any out-of-order data in CONNECTION that is now in-order."
+  ;; Check if the next packet is in tcp-connection-rx-data-unordered
+  (loop
+     :for (packet start end data-length)
+     := (gethash (tcp-connection-rcv.nxt connection)
+                 (tcp-connection-rx-data-unordered connection))
+     :always packet
+     :do (remhash (tcp-connection-rcv.nxt connection)
+                  (tcp-connection-rx-data-unordered connection))
+     :do (append-data-packet connection (list packet start end))
+     :do (setf (tcp-connection-rcv.nxt connection)
+               (+u32 (tcp-connection-rcv.nxt connection) data-length))))
+
 (defun tcp4-receive-data (connection data-length end header-length packet seq start)
   (cond ((= seq (tcp-connection-rcv.nxt connection))
          ;; Send data to the user layer
-         (if (tcp-connection-rx-data connection)
-             (setf (cdr (last (tcp-connection-rx-data connection)))
-                   (list (list packet (+ start header-length) end)))
-             (setf (tcp-connection-rx-data connection)
-                   (list (list packet (+ start header-length) end))))
+         (append-data-packet connection (list packet (+ start header-length) end))
          (setf (tcp-connection-rcv.nxt connection)
                (+u32 (tcp-connection-rcv.nxt connection) data-length))
-         ;; Check if the next packet is in tcp-connection-rx-data-unordered
-         (loop :for packet := (gethash (tcp-connection-rcv.nxt connection)
-                                       (tcp-connection-rx-data-unordered connection))
-               :always packet
-               :do (remhash (tcp-connection-rcv.nxt connection)
-                            (tcp-connection-rx-data-unordered connection))
-               :do (setf (cdr (last (tcp-connection-rx-data connection)))
-                         (list (list packet (+ start header-length) end)))
-               :do (setf (tcp-connection-rcv.nxt connection)
-                         (+u32 (tcp-connection-rcv.nxt connection) data-length)))
+         (update-unordered-data connection)
          (setf (mezzano.supervisor:event-state
                 (tcp-connection-receive-event connection))
                t))
@@ -440,7 +448,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         ((> seq (tcp-connection-rcv.nxt connection))
          (unless (gethash seq (tcp-connection-rx-data-unordered connection))
            (setf (gethash seq (tcp-connection-rx-data-unordered connection))
-                 (list (list packet (+ start header-length) end))))))
+                 (list packet (+ start header-length) end data-length)))))
   (when (<= seq (tcp-connection-rcv.nxt connection))
     ;; Don't check *netmangler-force-local-retransmit* here,
     ;; or no acks will ever get through.
