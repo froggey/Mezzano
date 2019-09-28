@@ -41,6 +41,7 @@
 (defclass i945 ()
   ((%device :initarg :device :reader i945-device)
    (%registers :initarg :registers :reader i945-registers)
+   (%edid :initarg :edid :reader i945-edid)
    (%lock :reader i945-lock)))
 
 (defmethod initialize-instance :after ((instance i945) &key)
@@ -664,6 +665,383 @@
         (format t "Video BIOS Registers~%")
         (format t "  VGACNTRL          : ~8,'0X~%" (reg +vgacntrl+))))))
 
+;; Fields in GMBUS0 (Clock/Port Select)
+(defconstant +gmbus-rate-select+ (byte 2 8))
+(defconstant +gmbus-rate-100khz+ #b00)
+(defconstant +gmbus-rate-50khz+ #b01)
+(defconstant +gmbus-rate-400khz+ #b10)
+(defconstant +gmbus-rate-1mhz+ #b11)
+(defconstant +gmbus-hold-time-extension+ (byte 1 7))
+(defconstant +gmbus-pin-pair+ (byte 3 0))
+;; Fields in GMBUS1 (Command/Status)
+(defconstant +gmbus-sw-clr-int+ (byte 1 31))
+(defconstant +gmbus-sw-rdy+ (byte 1 30))
+(defconstant +gmbus-ent+ (byte 1 29))
+(defconstant +gmbus-bus-cycle-select+ (byte 3 25))
+(defconstant +gmbus-cycle-index-wait+ #b011)
+(defconstant +gmbus-cycle-all-stop+ #b100)
+(defconstant +gmbus-total-byte-count+ (byte 9 16))
+(defconstant +gmbus-index+ (byte 8 8))
+(defconstant +gmbus-saddr+ (byte 7 1))
+(defconstant +gmbus-direction+ (byte 1 0))
+(defconstant +gmbus-direction-read+ 1)
+(defconstant +gmbus-direction-write+ 0)
+;; Fields in GMBUS2 (Status)
+(defconstant +gmbus-inuse+ (byte 1 15))
+(defconstant +gmbus-hw-wait-phase+ (byte 1 14))
+(defconstant +gmbus-stall-timeout-error+ (byte 1 13))
+(defconstant +gmbus-interrupt-status+ (byte 1 12))
+(defconstant +gmbus-hw-rdy+ (byte 1 11))
+(defconstant +gmbus-nak-indicator+ (byte 1 10))
+(defconstant +gmbus-ga+ (byte 1 9))
+(defconstant +gmbus-current-byte-count+ (byte 9 0))
+
+(defun dump-gpio-state (device)
+  "Dump the GPIO registers."
+  (with-i945-access (device)
+    (let ((mmio (i945-registers device)))
+      (flet ((reg (idx)
+               (pci:pci-io-region/32 mmio idx)))
+        (dotimes (i 8)
+          (format t "  GPIOCTL_~D        : ~8,'0X~%" i (reg (+ +gpio-ctl0+ (* i 4)))))
+        (let ((reg (reg +gpio-gmbus0+)))
+          (format t "  GMBUS0           : ~8,'0X~%" reg)
+          (format t "    Rate: ~2,'0B  HoldTime: ~D  PinPair: ~3,'0B~%"
+                  (ldb +gmbus-rate-select+ reg)
+                  (ldb +gmbus-hold-time-extension+ reg)
+                  (ldb +gmbus-pin-pair+ reg)))
+        (let ((reg (reg +gpio-gmbus1+)))
+          (format t "  GMBUS1           : ~8,'0X~%" reg)
+          (format t "    SW_CLR_INT: ~D  SW_RDY: ~D  ENT: ~D~%"
+                  (ldb +gmbus-sw-clr-int+ reg)
+                  (ldb +gmbus-sw-rdy+ reg)
+                  (ldb +gmbus-ent+ reg))
+          (format t "    BusCycle: ~3,'0B  ByteCount: ~D  Index: ~2,'0X~%"
+                  (ldb +gmbus-bus-cycle-select+ reg)
+                  (ldb +gmbus-total-byte-count+ reg)
+                  (ldb +gmbus-index+ reg))
+          (format t "    SADDR: ~2,'0X  Dir: ~D~%"
+                  (ldb +gmbus-saddr+ reg)
+                  (ldb +gmbus-direction+ reg)))
+        (let ((reg (reg +gpio-gmbus2+)))
+          (format t "  GMBUS2           : ~8,'0X~%" reg)
+          (format t "    INUSE: ~D  HW_WAIT_PHASE: ~D~%"
+                  (ldb +gmbus-inuse+ reg)
+                  (ldb +gmbus-hw-wait-phase+ reg))
+          (format t "    StallTimeout: ~D  InterruptStatus: ~D~%"
+                  (ldb +gmbus-stall-timeout-error+ reg)
+                  (ldb +gmbus-interrupt-status+ reg))
+          (format t "    HW_RDY: ~D  NAKi: ~D  GA: ~D~%"
+                  (ldb +gmbus-hw-rdy+ reg)
+                  (ldb +gmbus-nak-indicator+ reg)
+                  (ldb +gmbus-ga+ reg))
+          (format t "    CurrentByteCount: ~D~%"
+                  (ldb +gmbus-current-byte-count+ reg)))
+        (format t "  GMBUS3           : ~8,'0X~%" (reg +gpio-gmbus3+))
+        (format t "  GMBUS4           : ~8,'0X~%" (reg +gpio-gmbus4+))
+        (format t "  GMBUS5           : ~8,'0X~%" (reg +gpio-gmbus5+))))))
+
+(defun read-raw-edid (device)
+  (let ((buffer (make-array 128 :element-type '(unsigned-byte 8))))
+    (with-i945-access (device)
+      (let ((mmio (i945-registers device)))
+        (flet ((reg (idx)
+                 (pci:pci-io-region/32 mmio idx))
+               ((setf reg) (value idx)
+                 (setf (pci:pci-io-region/32 mmio idx) value)))
+          ;; Reset the GMBUS.
+          (setf (reg +gpio-gmbus1+) 0
+                (ldb +gmbus-sw-clr-int+ (reg +gpio-gmbus1+)) 1
+                (ldb +gmbus-sw-clr-int+ (reg +gpio-gmbus1+)) 0)
+          ;; Start the access.
+          (setf (reg +gpio-gmbus0+)
+                (logior
+                 ;; Standard i2c transfer rate
+                 (dpb +gmbus-rate-100khz+ +gmbus-rate-select+ 0)
+                 ;; No hold time, don't know what this is...
+                 (dpb 0 +gmbus-hold-time-extension+ 0)
+                 ;; Select the Analog Monitor DDC Pins
+                 (dpb #b010 +gmbus-pin-pair+ 0)))
+          (setf (reg +gpio-gmbus1+)
+                (logior
+                 (dpb 0 +gmbus-sw-clr-int+ 0)
+                 (dpb 1 +gmbus-sw-rdy+ 0)
+                 (dpb 0 +gmbus-ent+ 0)
+                 (dpb +gmbus-cycle-index-wait+ +gmbus-bus-cycle-select+ 0)
+                 ;; Reading 128 bytes from the start of the EDID ROM
+                 (dpb 128 +gmbus-total-byte-count+ 0)
+                 (dpb 0 +gmbus-index+ 0)
+                 ;; This is (byte 7 1) of the EDID address #xA0
+                 (dpb #x50 +gmbus-saddr+ 0)
+                 (dpb +gmbus-direction-READ+ +gmbus-direction+ 0)))
+          ;; Reading 128 bytes in 32 4-byte chunks.
+          (dotimes (i 32)
+            ;; Wait for hardware.
+            (loop while (zerop (ldb +gmbus-hw-rdy+ (reg +gpio-gmbus2+))))
+            (let ((data (reg +gpio-gmbus3+)))
+              (setf (aref buffer (+ (* i 4) 0)) (ldb (byte 8  0) data)
+                    (aref buffer (+ (* i 4) 1)) (ldb (byte 8  8) data)
+                    (aref buffer (+ (* i 4) 2)) (ldb (byte 8 16) data)
+                    (aref buffer (+ (* i 4) 3)) (ldb (byte 8 24) data))))
+          ;; Stop the transaction.
+          (setf (reg +gpio-gmbus1+)
+                (logior
+                 (dpb 1 +gmbus-sw-rdy+ 0)
+                 (dpb +gmbus-cycle-all-stop+ +gmbus-bus-cycle-select+ 0))))))
+    buffer))
+
+(defstruct chromacticity
+  red-x red-y
+  green-x green-y
+  blue-x blue-y
+  white-x white-y)
+
+(defstruct edid-data
+  manufacturer-id
+  product-code
+  serial-number
+  week-of-manufacture
+  year-of-manufacture
+  horizontal-screen-size
+  vertical-screen-size
+  display-gamma
+  display-type
+  srgb-colour-space
+  native-format
+  chromacticity
+  timing-modes)
+
+(defstruct timing
+  width
+  height
+  refresh-rate
+  pixel-clock
+  horz-left-border
+  horz-active
+  horz-right-border
+  horz-back-porch
+  horz-sync
+  horz-front-porch
+  horz-image-size
+  vert-top-border
+  vert-active
+  vert-bottom-border
+  vert-back-porch
+  vert-sync
+  vert-front-porch
+  vert-image-size
+  stereo
+  ;; FIXME: Figure this out.
+  sync-config
+)
+;640x480 @ 60Hz (Industry standard) hsync: 31.5kHz	640x480	25.2 640 656 752 800 480 490 492 525	-hsync	-vsync
+
+(defun decode-edid-established-timings (edid)
+  (let ((timings '()))
+    (flet ((add (byte bit width height pixel-clock hsync hbporch hactive hfporch vsync vbporch vactive vfporch)
+             (when (logbitp bit (aref edid byte))
+               (push (make-timing
+                      :width width
+                      :height height
+                      :refresh-rate (truncate pixel-clock (* (+ hsync hbporch hactive hfporch)
+                                                             (+ vsync vbporch vactive vfporch)))
+                      :pixel-clock pixel-clock
+                      :horz-left-border (floor (- hactive width) 2)
+                      :horz-active hactive
+                      :horz-right-border (ceiling (- hactive width) 2)
+                      :horz-back-porch hbporch
+                      :horz-sync hsync
+                      :horz-front-porch hfporch
+                      :horz-image-size (truncate (* (/ width 72) 25.4)) ; Assume 72dpi
+                      :vert-top-border (floor (- vactive height) 2)
+                      :vert-active vactive
+                      :vert-bottom-border (ceiling (- vactive height) 2)
+                      :vert-back-porch vbporch
+                      :vert-sync vsync
+                      :vert-front-porch vfporch
+                      :vert-image-size (truncate (* (/ height 72) 25.4))
+                      :stereo nil
+                      ;; Digital, serrated +vsync, +hsync.
+                      :sync-config 15)
+                     timings))))
+      ;; TODO: Double check these timings, make sure sync polarity is right, etc.
+      (add 35 7  720  400  28322000  108  51  726 15  2 32 404 11) ; (VGA) 720x400@70
+      ;;(add 35 6  720  400 ...) ; (XGA) 720x400@88
+      (add 35 5  640  480  25175000   96  48  640 16  2 31 480 11) ; (VGA) 640x480@60
+      (add 35 4  640  480  30240000   64  93  646 61  3 37 484  1) ; (Apple Macintosh II) 640x480@66
+      (add 35 3  640  480  31500000   40 128  640 24  3 28 480  9) ; 640x480@72
+      (add 35 2  640  480  31500000   96  48  640 16  2 32 480 11) ; 640x480@75
+      (add 35 1  800  600  38100000  128 128  800 32  4 14 600  1) ; 800x600@56
+      (add 35 0  800  600  40000000  128  88  800 40  4 23 600  1) ; 800x600@60
+      (add 36 7  800  600  50000000  120  64  800 56  6 23 600 37) ; 600x600@72
+      (add 36 6  800  600  49500000   80 160  800 16  2 21 600  1) ; 800x600@75
+      ;;(add 36 5  832  624 ...) ; (Apple Macintosh II) 832x642@75
+      ;;(add 36 4 1024  768 ...) ; (1024×768i) 1024x768@87 interlaced
+      (add 36 3 1024  768  65000000  136 160 1024 24  6 29 768 3) ; 1024x768@60
+      ;;(add 36 2 1024  768 ...) ; 1024x768@70 [this uses -h-v sync]
+      (add 36 1 1024  768  78750000   96 176 1024 16  3 28 768 1) ; 1024x768@75
+      (add 36 0 1280 1024 135000000  144 248 1280 16  3 38 1024 1) ; 1280x1024@75
+      ;;(add 37 7 1152  870 ...) ; (Apple Macintosh II) 1152x870@75
+      timings)))
+
+(defun decode-edid-standard-timings (edid)
+  ;; TODO: Decoding these timing requires using the VESA GTF
+  ;; to produce detailed timing information.
+  ;; Just ignore them for now.
+  (declare (ignore edid))
+  '()
+  #+(or)
+  (loop
+     for i below 8
+     for byte1 = (aref edid (+ 38 (* i 2)))
+     for byte2 = (aref edid (+ 38 (* i 2) 1))
+     unless (and (eql byte1 #x01) (eql byte2 #x01))
+     collect (let* ((width (* (+ byte1 31) 8))
+                    (height (truncate
+                             width
+                             ;; Decode aspect ratio
+                             (ecase (ldb (byte 2 6) byte2)
+                               (#b00 16/10)
+                               (#b01 4/3)
+                               (#b10 5/4)
+                               (#b11 16/9)))))
+               (make-timing :width width
+                            :height height
+                            :refresh-rate (+ (ldb (byte 6 0) byte2) 60)))))
+
+(defun decode-edid-detailed-timing (edid offset)
+  (let ((pixel-clock (* (sys.int::ub16ref/le edid (+ offset 0)) 10000))
+        (hactive (logior (aref edid (+ offset 2))
+                         (ash (ldb (byte 4 4) (aref edid (+ offset 4))) 8)))
+        (hblank (logior (aref edid (+ offset 3))
+                        (ash (ldb (byte 4 0) (aref edid (+ offset 4))) 8)))
+        (hfporch (logior (aref edid (+ offset 8))
+                         (ash (ldb (byte 2 6) (aref edid (+ offset 11))) 8)))
+        (hsync (logior (aref edid (+ offset 9))
+                       (ash (ldb (byte 2 4) (aref edid (+ offset 11))) 8)))
+        (hsize (logior (aref edid (+ offset 12))
+                       (ash (ldb (byte 4 4) (aref edid (+ offset 14))) 8)))
+        (hborder (aref edid (+ offset 15)))
+        (vactive (logior (aref edid (+ offset 5))
+                         (ash (ldb (byte 4 4) (aref edid (+ offset 7))) 8)))
+        (vblank (logior (aref edid (+ offset 6))
+                        (ash (ldb (byte 4 0) (aref edid (+ offset 7))) 8)))
+        (vfporch (logior (ldb (byte 4 4) (aref edid (+ offset 10)))
+                         (ash (ldb (byte 2 2) (aref edid (+ offset 11))) 8)))
+        (vsync (logior (ldb (byte 4 0) (aref edid (+ offset 10)))
+                       (ash (ldb (byte 2 0) (aref edid (+ offset 11))) 8)))
+        (vsize (logior (aref edid (+ offset 13))
+                       (ash (ldb (byte 4 0) (aref edid (+ offset 14))) 8)))
+        (vborder (aref edid (+ offset 16)))
+        (flags (aref edid (+ offset 17))))
+    (make-timing
+     :width hactive
+     :height vactive
+     :refresh-rate (/ (/ pixel-clock (+ hactive hblank))
+                      (+ vactive vblank))
+     :pixel-clock pixel-clock
+     :horz-left-border hborder
+     :horz-active hactive
+     :horz-right-border hborder
+     :horz-back-porch (- hblank hfporch hsync)
+     :horz-sync hsync
+     :horz-front-porch hfporch
+     :horz-image-size hsize
+     :vert-top-border vborder
+     :vert-active vactive
+     :vert-bottom-border vborder
+     :vert-back-porch (- vblank vfporch vsync)
+     :vert-sync vsync
+     :vert-front-porch vfporch
+     :vert-image-size vsize
+     :stereo (if (zerop (ldb (byte 2 5) flags))
+                 nil
+                 (ecase (logior (ash (ldb (byte 2 5) flags) 1)
+                                (ldb (byte 1 0) flags))
+                   (#b010 :field-sequential-right)
+                   (#b110 :field-sequential-left)
+                   (#b011 :2-way-interleaved-right)
+                   (#b101 :2-way-interleaved-left)
+                   (#b110 :4-way-interleaved)
+                   (#b111 :side-by-side-interleaved)))
+     :sync-config (ldb (byte 4 1) flags))))
+
+(defun decode-edid-detailed-timings (edid)
+  ;; This needs to keep ordering correct.
+  ;; They're in priority order and entry 0 may be the prefered resolution.
+  (loop
+     for i below 4
+     for offset = (+ 54 (* i 18))
+     when (and (not (and (zerop (aref edid offset))
+                         (zerop (aref edid (+ offset 1)))))
+               ;; Must not be interlaced.
+               (not (logbitp 7 (aref edid (+ offset 17)))))
+     collect (decode-edid-detailed-timing edid offset)))
+
+(defun decode-raw-edid (edid)
+  ;; Verify header and checksum.
+  (assert (and (eql (aref edid 0) #x00)
+               (eql (aref edid 1) #xFF)
+               (eql (aref edid 2) #xFF)
+               (eql (aref edid 3) #xFF)
+               (eql (aref edid 4) #xFF)
+               (eql (aref edid 5) #xFF)
+               (eql (aref edid 6) #xFF)
+               (eql (aref edid 7) #x00))
+          () "EDID has invalid header")
+  (assert (zerop (logand #xFF (loop for byte across edid summing byte)))
+          () "EDID has invalid checksum")
+  (when (not (and (eql (aref edid 18) 1)
+                  (member (aref edid 19) '(3 4))))
+    (warn "Unsupported EDID version ~D.~D"
+          (aref edid 18) (aref edid 19)))
+  (let ((detailed-timings (decode-edid-detailed-timings edid)))
+    (make-edid-data
+     :manufacturer-id (sys.int::ub16ref/be edid 8)
+     :product-code (sys.int::ub16ref/le edid 10)
+     :serial-number (sys.int::ub32ref/le edid 12)
+     :week-of-manufacture (aref edid 16)
+     :year-of-manufacture (+ 1990 (aref edid 17))
+     ;; TODO: These two can be zero indicating an aspect ratio.
+     :horizontal-screen-size (aref edid 21)
+     :vertical-screen-size (aref edid 22)
+     :display-gamma (/ (+ (aref edid 23) 100) 100.0)
+     :display-type (if (logbitp 7 (aref edid 20))
+                       ;; Digital display
+                       (case (ldb (byte 2 3) (aref edid 24))
+                         (#b00 :rgb444)
+                         (#b01 :rgb444+ycrcb444)
+                         (#b10 :rgb444+ycrcb422)
+                         (#b11 :rgb444+ycrcb444+ycrcb422))
+                       ;; Analog display
+                       (case (ldb (byte 2 3) (aref edid 24))
+                         (#b00 :greyscale)
+                         (#b01 :rgb-colour)
+                         (#b10 :colour)
+                         (#b11 :analog)))
+     :native-format (if (logbitp 1 (aref edid 24))
+                        (first detailed-timings)
+                        nil)
+     :srgb-colour-space (logbitp 2 (aref edid 24))
+     :chromacticity (flet ((read (msb lsb-byte lsb-field)
+                             (let ((raw (logior (ash (aref edid msb) 2)
+                                                (ldb (byte 2 lsb-field)
+                                                     (aref edid lsb-byte)))))
+                               (/ raw 1024.0))))
+                      (make-chromacticity
+                       :red-x (read 27 25 6)
+                       :red-y (read 28 25 4)
+                       :green-x (read 29 25 2)
+                       :green-y (read 30 25 0)
+                       :blue-x (read 31 25 6)
+                       :blue-y (read 32 25 4)
+                       :white-x (read 33 25 2)
+                       :white-y (read 34 25 0)))
+     :timing-modes (append
+                    detailed-timings
+                    (decode-edid-established-timings edid)
+                    (decode-edid-standard-timings edid)))))
+
 (defun i945-probe (pci-device)
   (let ((registers (pci:pci-io-region pci-device 0)))
     (pci:pci-io-region pci-device 1)
@@ -674,7 +1052,6 @@
                                :registers registers)))
       (setf *card* card)
       (format t "Detected i945 at ~S~%" pci-device)
-      (dump-display-state card)
       (let ((mode (save-current-mode-parameters card))
             (framebuffer (framebuffer-address card)))
         ;; Take ownership of the compositor framebuffer.
@@ -689,6 +1066,8 @@
            :x8r8g8b8
            :device card)
           (mezzano.gui.compositor:force-redisplay t)))
+      (setf (slot-value card '%edid)
+            (ignore-errors (decode-raw-edid (read-raw-edid card))))
       card)))
 
 (pci:define-pci-driver i945 i945-probe
