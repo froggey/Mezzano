@@ -1,4 +1,5 @@
-;;;; Intel 82945G/GZ Integrated Graphics Controller driver
+;;;; Intel Graphics Media Accelerator driver.
+;;;; Targeting generation 3 devices, specifically the GMA 950.
 
 ;;; "Intel® 945G/945GZ/945GC/945P/945PL Express Chipset Family"
 ;;; https://www.intel.com/Assets/PDF/datasheet/307502.pdf
@@ -28,23 +29,23 @@
 ;;; written, but it seems that it's actually the DSP{A,B}LINOFF register that
 ;;; causes this to happen.
 
-(defpackage :mezzano.driver.i945
+(defpackage :mezzano.driver.intel-gma
   (:use :cl)
   (:local-nicknames (:pci :mezzano.supervisor.pci)
                     (:sup :mezzano.supervisor)
                     (:sync :mezzano.sync)))
 
-(in-package :mezzano.driver.i945)
+(in-package :mezzano.driver.intel-gma)
 
 (defvar *card*) ; for testing.
 
-(defclass i945 ()
-  ((%device :initarg :device :reader i945-device)
-   (%registers :initarg :registers :reader i945-registers)
-   (%edid :initarg :edid :reader i945-edid)
-   (%lock :reader i945-lock)))
+(defclass intel-gma ()
+  ((%device :initarg :device :reader gma-device)
+   (%registers :initarg :registers :reader gma-registers)
+   (%edid :initarg :edid :reader gma-edid)
+   (%lock :reader gma-lock)))
 
-(defmethod initialize-instance :after ((instance i945) &key)
+(defmethod initialize-instance :after ((instance intel-gma) &key)
   (setf (slot-value instance '%lock) (sup:make-mutex instance)))
 
 ;;; Clock Control and Power Management Registers
@@ -274,14 +275,14 @@
                (timing-vert-back-porch timing)
                (timing-vert-front-porch timing)))))
 
-(defmacro with-i945-access ((device) &body body)
-  `(sup:with-device-access ((pci:pci-device-boot-id (i945-device ,device))
+(defmacro with-gma-access ((device) &body body)
+  `(sup:with-device-access ((pci:pci-device-boot-id (gma-device ,device))
                             (error "~S is stale" ,device))
-     (sup:with-mutex ((i945-lock ,device))
+     (sup:with-mutex ((gma-lock ,device))
        ,@body)))
 
 (defun framebuffer-address (device)
-  (logand (pci:pci-io-region (i945-device device) 2) (lognot #xF)))
+  (logand (pci:pci-io-region (gma-device device) 2) (lognot #xF)))
 
 (defconstant +reference-frequency+ 96000000)
 
@@ -350,8 +351,8 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
 
 (defun save-current-mode-parameters (device)
   "Return a MODE-PARAMETERS object for the device's currently configured mode."
-  (with-i945-access (device)
-    (let ((mmio (i945-registers device)))
+  (with-gma-access (device)
+    (let ((mmio (gma-registers device)))
       (flet ((reg (idx)
                (pci:pci-io-region/32 mmio idx)))
         (let* ((dplla-ctrl (reg +dplla-ctrl+))
@@ -401,7 +402,7 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
            :sync-config 15)))))) ; Digital, serrated +vsync, +hsync.
 
 (defun mode-switch (device mode)
-  (with-i945-access (device)
+  (with-gma-access (device)
     ;; Update the video framebuffer.
     ;; Do this first so that the compositor updates display before
     ;; the new mode is set and nothing is displayed with the wrong stride.
@@ -414,7 +415,7 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
      :device device)
     (mezzano.gui.compositor:force-redisplay t)
     ;; Set mode.
-    (let ((mmio (i945-registers device)))
+    (let ((mmio (gma-registers device)))
       (flet ((reg (idx)
                (pci:pci-io-region/32 mmio idx))
              ((setf reg) (value idx)
@@ -522,8 +523,8 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
 
 (defun dump-display-state (device)
   "Dump the clock, pipe, and display registers."
-  (with-i945-access (device)
-    (let ((mmio (i945-registers device)))
+  (with-gma-access (device)
+    (let ((mmio (gma-registers device)))
       (flet ((reg (idx)
                (pci:pci-io-region/32 mmio idx)))
         (format t "Clock Control and Power Management Registers:~%")
@@ -800,8 +801,8 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
 
 (defun dump-gpio-state (device)
   "Dump the GPIO registers."
-  (with-i945-access (device)
-    (let ((mmio (i945-registers device)))
+  (with-gma-access (device)
+    (let ((mmio (gma-registers device)))
       (flet ((reg (idx)
                (pci:pci-io-region/32 mmio idx)))
         (dotimes (i 8)
@@ -845,8 +846,8 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
 
 (defun read-raw-edid (device)
   (let ((buffer (make-array 128 :element-type '(unsigned-byte 8))))
-    (with-i945-access (device)
-      (let ((mmio (i945-registers device)))
+    (with-gma-access (device)
+      (let ((mmio (gma-registers device)))
         (flet ((reg (idx)
                  (pci:pci-io-region/32 mmio idx))
                ((setf reg) (value idx)
@@ -1110,16 +1111,16 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
                     (decode-edid-established-timings edid)
                     (decode-edid-standard-timings edid)))))
 
-(defun i945-probe (pci-device)
+(defun intel-gma-probe (pci-device)
   (let ((registers (pci:pci-io-region pci-device 0)))
     (pci:pci-io-region pci-device 1)
     (pci:pci-io-region pci-device 2)
     (pci:pci-io-region pci-device 3)
-    (let ((card (make-instance 'i945
+    (let ((card (make-instance 'intel-gma
                                :device pci-device
                                :registers registers)))
       (setf *card* card)
-      (format t "Detected i945 at ~S~%" pci-device)
+      (format t "Detected intel-gma at ~S~%" pci-device)
       (let ((mode (save-current-mode-parameters card))
             (framebuffer (framebuffer-address card)))
         ;; Take ownership of the compositor framebuffer.
@@ -1142,6 +1143,6 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
 ;;   Be careful adding new IDs here.
 ;;   Some chipsets (especially laptops) are very sensitive and can
 ;;   be bricked by bugs.
-(pci:define-pci-driver i945 i945-probe
+(pci:define-pci-driver intel-gma intel-gma-probe
   ((#x8086 #x2772))
   ())
