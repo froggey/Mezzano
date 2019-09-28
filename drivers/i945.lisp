@@ -244,59 +244,109 @@
 (defconstant +dspcntr-180-rotation+ (byte 1 15))
 (defconstant +dspcntr-tiled+ (byte 1 10))
 
-(defstruct mode-parameters
-  width
-  height
-  format
-  ;; PLL parameters
-  n
-  m1
-  m2
-  p1
-  p2
-  ;; Display timings
-  htotal-active
-  htotal-total
-  hblank-start
-  hblank-end
-  hsync-start
-  hsync-end
-  vtotal-active
-  vtotal-total
-  vblank-start
-  vblank-end
-  vsync-start
-  vsync-end)
+(defstruct timing
+  pixel-clock
+  horz-left-border
+  horz-active ; width
+  horz-right-border
+  horz-front-porch
+  horz-sync
+  horz-back-porch
+  horz-image-size
+  vert-top-border
+  vert-active ; height
+  vert-bottom-border
+  vert-front-porch
+  vert-sync
+  vert-back-porch
+  vert-image-size
+  interlaced
+  stereo
+  ;; FIXME: Figure this out.
+  sync-config)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmethod make-load-form ((object mode-parameters) &optional environment)
-    (make-load-form-saving-slots object :environment environment)))
-
-(defparameter *modes*
-  '(#S(mode-parameters
-       :width 1600 :height 1200 :format :x8r8g8b8
-       :n 4 :m1 16 :m2 9 :p1 1 :p2 0
-       :htotal-active 1599 :htotal-total 2159
-       :hblank-start 1599 :hblank-end 2159
-       :hsync-start 1663 :hsync-end 1855
-       :vtotal-active 1199 :vtotal-total 1249
-       :vblank-start 1199 :vblank-end 1249
-       :vsync-start 1200 :vsync-end 1203)
-    #S(mode-parameters
-       :width 1280 :height 1024 :format :x8r8g8b8
-       :n 2 :m1 14 :m2 8 :p1 2 :p2 0
-       :htotal-active 1279 :htotal-total 1687
-       :hblank-start 1279 :hblank-end 1687
-       :hsync-start 1327 :hsync-end 1439
-       :vtotal-active 1023 :vtotal-total 1065
-       :vblank-start 1023 :vblank-end 1065
-       :vsync-start 1024 :vsync-end 1027)))
+(defun timing-refresh-rate (timing)
+  (round (timing-pixel-clock timing)
+         (* (+ (timing-horz-sync timing)
+               (timing-horz-back-porch timing)
+               (timing-horz-front-porch timing))
+            (+ (timing-vert-sync timing)
+               (timing-vert-back-porch timing)
+               (timing-vert-front-porch timing)))))
 
 (defmacro with-i945-access ((device) &body body)
   `(sup:with-device-access ((pci:pci-device-boot-id (i945-device ,device))
                             (error "~S is stale" ,device))
      (sup:with-mutex ((i945-lock ,device))
        ,@body)))
+
+(defun framebuffer-address (device)
+  (logand (pci:pci-io-region (i945-device device) 2) (lognot #xF)))
+
+(defconstant +reference-frequency+ 96000000)
+
+(defun pll-parameters-to-dot-clock (n m1 m2 p1 p2 &key (refclk +reference-frequency+))
+  (let* ((p1 (ecase p1
+               (#b00000001 1)
+               (#b00000010 2)
+               (#b00000100 3)
+               (#b00001000 4)
+               (#b00010000 5)
+               (#b00100000 6)
+               (#b01000000 7)
+               (#b10000000 8)))
+         (p2 (ecase p2
+               (#b00 10)
+               (#b01 5)))
+         (m (+ (* 5 (+ m1 2)) (+ m2 2)))
+         (p-div (* p1 p2)))
+    (truncate (/ (* refclk m) (+ n 2) p-div))))
+
+(defun compute-pll-parameters (target-clock)
+  "Calculate the best PLL paramters for TARGET-CLOCK.
+Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
+  (let ((best-clock 0)
+        (best-n 0) (best-m1 0) (best-m2 0)
+        ;; p1 raw value, not register value
+        (best-p1 0)
+        ;; p2 raw value, not register value.
+        (p2 10))
+    ;; Cycle through all PLL values looking for the closest frequency.
+    (loop
+       for n from 3 to 8
+       do (loop
+             for m1 from 10 to 20
+             do (loop
+                   for m2 from 5 to 9
+                   for m = (+ (* 5 (+ m1 2)) (+ m2 2))
+                   when (<= 70 m 120)
+                   do
+                     (loop
+                        for p1 from 1 to 8
+                        for p-div = (* p1 p2)
+                        when (<= 5 p-div 80)
+                        do
+                          (let* ((vco (/ (* +reference-frequency+ m) (+ n 2)))
+                                 (clock (/ vco p-div)))
+                            (when (and
+                                   ;; Must be in range.
+                                   (<= 1400000000 vco 2800000000)
+                                   ;; Must be better.
+                                   (< (abs (- target-clock clock))
+                                      (abs (- target-clock best-clock))))
+                              (setf best-clock clock
+                                    best-n n
+                                    best-m1 m1
+                                    best-m2 m2
+                                    best-p1 p1)))))))
+    (let ((error (float (abs (- 1 (/ target-clock best-clock))))))
+      ;; TODO: This should bail if the error is too great. It's not clear
+      ;; what "too great" is though.
+      (values best-n best-m1 best-m2
+              (ash 1 (1- best-p1)) ; Convert to register value.
+              #b00 ; p2 register value
+              (truncate best-clock)
+              error))))
 
 (defun save-current-mode-parameters (device)
   "Return a MODE-PARAMETERS object for the device's currently configured mode."
@@ -311,48 +361,55 @@
                (hsync-a (reg +hsync-a+))
                (vtotal-a (reg +vtotal-a+))
                (vblank-a (reg +vblank-a+))
-               (vsync-a (reg +vsync-a+))
-               (pipeasrc (reg +pipeasrc+))
-               (dspacntr (reg +dspacntr+)))
-          (make-mode-parameters
-           :width (1+ (ldb +pipesrc-horz+ pipeasrc))
-           :height (1+ (ldb +pipesrc-vert+ pipeasrc))
-           :format (case (ldb +dspcntr-format+ dspacntr)
-                     (#b0110 :x8r8g8b8)
-                     (t (ldb +dspcntr-format+ dspacntr)))
-           :n (ldb +pll-n-divisor+ fpa0)
-           :m1 (ldb +pll-m1-divisor+ fpa0)
-           :m2 (ldb +pll-m2-divisor+ fpa0)
-           :p1 (ldb +dpll-ctrl-p1+ dplla-ctrl)
-           :p2 (ldb +dpll-ctrl-p2+ dplla-ctrl)
-           :htotal-active (ldb +htotal-active+ htotal-a)
-           :htotal-total (ldb +htotal-total+ htotal-a)
-           :hblank-start (ldb +hblank-start+ hblank-a)
-           :hblank-end (ldb +hblank-end+ hblank-a)
-           :hsync-start (ldb +hsync-start+ hsync-a)
-           :hsync-end (ldb +hsync-end+ hsync-a)
-           :vtotal-active (ldb +vtotal-active+ vtotal-a)
-           :vtotal-total (ldb +vtotal-total+ vtotal-a)
-           :vblank-start (ldb +vblank-start+ vblank-a)
-           :vblank-end (ldb +vblank-end+ vblank-a)
-           :vsync-start (ldb +vsync-start+ vsync-a)
-           :vsync-end (ldb +vsync-end+ vsync-a)))))))
-
-(defun framebuffer-address (device)
-  (logand (pci:pci-io-region (i945-device device) 2) (lognot #xF)))
+               (vsync-a (reg +vsync-a+)))
+          (make-timing
+           :pixel-clock (pll-parameters-to-dot-clock
+                         (ldb +pll-n-divisor+ fpa0)
+                         (ldb +pll-m1-divisor+ fpa0)
+                         (ldb +pll-m2-divisor+ fpa0)
+                         (ldb +dpll-ctrl-p1+ dplla-ctrl)
+                         (ldb +dpll-ctrl-p2+ dplla-ctrl))
+           :horz-left-border (- (1+ (ldb +htotal-total+ htotal-a))
+                                (1+ (ldb +hblank-end+ hblank-a)))
+           :horz-active (1+ (ldb +htotal-active+ htotal-a))
+           :horz-right-border (- (1+ (ldb +htotal-active+ htotal-a))
+                                 (1+ (ldb +hblank-start+ hblank-a)))
+           :horz-front-porch (- (1+ (ldb +hsync-start+ hsync-a))
+                                (1+ (ldb +hblank-start+ hblank-a)))
+           :horz-sync (- (1+ (ldb +hsync-end+ hsync-a))
+                         (1+ (ldb +hsync-start+ hsync-a)))
+           :horz-back-porch (- (1+ (ldb +hblank-end+ hblank-a))
+                               (1+ (ldb +hsync-end+ hsync-a)))
+           :horz-image-size (truncate (* (/ (1+ (ldb +htotal-active+ htotal-a)) 72) 25.4)) ; Assume 72dpi
+           :vert-top-border (- (1+ (ldb +vtotal-total+ vtotal-a))
+                               (1+ (ldb +vblank-end+ vblank-a)))
+           :vert-active (1+ (ldb +vtotal-active+ vtotal-a))
+           :vert-bottom-border (- (1+ (ldb +vtotal-active+ vtotal-a))
+                                  (1+ (ldb +vblank-start+ vblank-a)))
+           :vert-front-porch (- (1+ (ldb +vsync-start+ vsync-a))
+                                (1+ (ldb +vblank-start+ vblank-a)))
+           :vert-sync (- (1+ (ldb +vsync-end+ vsync-a))
+                         (1+ (ldb +vsync-start+ vsync-a)))
+           :vert-back-porch (- (1+ (ldb +vblank-end+ vblank-a))
+                               (1+ (ldb +vsync-end+ vsync-a)))
+           :vert-image-size (truncate (* (/ (1+ (ldb +vtotal-active+ vtotal-a)) 72) 25.4)) ; Assume 72dpi
+           ;; TODO: Pick up interlaced modes
+           :interlaced nil
+           ;; TODO: Pick up stereo modes
+           :stereo nil
+           ;; TODO: Sync...
+           :sync-config 15)))))) ; Digital, serrated +vsync, +hsync.
 
 (defun mode-switch (device mode)
-  (when (not (eql (mode-parameters-format mode) :x8r8g8b8))
-    (error "Mode ~S has unsupported format." mode))
   (with-i945-access (device)
     ;; Update the video framebuffer.
     ;; Do this first so that the compositor updates display before
     ;; the new mode is set and nothing is displayed with the wrong stride.
     (sup::video-set-framebuffer
      (framebuffer-address device)
-     (mode-parameters-width mode)
-     (mode-parameters-height mode)
-     (* (mode-parameters-width mode) 4)
+     (timing-horz-active mode)
+     (timing-vert-active mode)
+     (* (timing-horz-active mode) 4)
      :x8r8g8b8
      :device device)
     (mezzano.gui.compositor:force-redisplay t)
@@ -383,34 +440,79 @@
         (setf (ldb +dpll-vco-enable+ (reg +dplla-ctrl+)) 0)
         ;; Program new mode and enable.
         ;; Program DPLL
-        (setf (ldb +dpll-ctrl-p1+ (reg +dplla-ctrl+)) (mode-parameters-p1 mode)
-              (ldb +dpll-ctrl-p2+ (reg +dplla-ctrl+)) (mode-parameters-p2 mode)
-              (ldb +pll-n-divisor+ (reg +fpa0+)) (mode-parameters-n mode)
-              (ldb +pll-m1-divisor+ (reg +fpa0+)) (mode-parameters-m1 mode)
-              (ldb +pll-m2-divisor+ (reg +fpa0+)) (mode-parameters-m2 mode))
+        (multiple-value-bind (n m1 m2 p1 p2)
+            (compute-pll-parameters (timing-pixel-clock mode))
+          (setf (ldb +dpll-ctrl-p1+ (reg +dplla-ctrl+)) p1
+                (ldb +dpll-ctrl-p2+ (reg +dplla-ctrl+)) p2
+                (ldb +pll-n-divisor+ (reg +fpa0+)) n
+                (ldb +pll-m1-divisor+ (reg +fpa0+)) m1
+                (ldb +pll-m2-divisor+ (reg +fpa0+)) m2))
         ;; Enable DPLL
         (setf (ldb +dpll-vco-enable+ (reg +dplla-ctrl+)) 1)
         ;; Wait for DPLL warmup (150us)
         (sleep 0.00015)
+        ;; TODO: Set sync polarity, etc
         ;; Program pipe timings (can be done before DPLL setup)
-        (setf (ldb +htotal-active+ (reg +htotal-a+)) (mode-parameters-htotal-active mode)
-              (ldb +htotal-total+ (reg +htotal-a+)) (mode-parameters-htotal-total mode)
-              (ldb +hblank-start+ (reg +hblank-a+)) (mode-parameters-hblank-start mode)
-              (ldb +hblank-end+ (reg +hblank-a+)) (mode-parameters-hblank-end mode)
-              (ldb +hsync-start+ (reg +hsync-a+)) (mode-parameters-hsync-start mode)
-              (ldb +hsync-end+ (reg +hsync-a+)) (mode-parameters-hsync-end mode)
-              (ldb +vtotal-active+ (reg +vtotal-a+)) (mode-parameters-vtotal-active mode)
-              (ldb +vtotal-total+ (reg +vtotal-a+)) (mode-parameters-vtotal-total mode)
-              (ldb +vblank-start+ (reg +vblank-a+)) (mode-parameters-vblank-start mode)
-              (ldb +vblank-end+ (reg +vblank-a+)) (mode-parameters-vblank-end mode)
-              (ldb +vsync-start+ (reg +vsync-a+)) (mode-parameters-vsync-start mode)
-              (ldb +vsync-end+ (reg +vsync-a+)) (mode-parameters-vsync-end mode))
+        (setf (ldb +htotal-active+ (reg +htotal-a+))
+              (1- (timing-horz-active mode)))
+        (setf (ldb +htotal-total+ (reg +htotal-a+))
+              (1- (+ (timing-horz-left-border mode)
+                     (timing-horz-active mode)
+                     (timing-horz-right-border mode)
+                     (timing-horz-front-porch mode)
+                     (timing-horz-sync mode)
+                     (timing-horz-back-porch mode))))
+        (setf (ldb +hblank-start+ (reg +hblank-a+))
+              (1- (+ (timing-horz-active mode)
+                     (timing-horz-right-border mode))))
+        (setf (ldb +hblank-end+ (reg +hblank-a+))
+              (1- (+ (timing-horz-active mode)
+                     (timing-horz-right-border mode)
+                     (timing-horz-front-porch mode)
+                     (timing-horz-sync mode)
+                     (timing-horz-back-porch mode))))
+        (setf (ldb +hsync-start+ (reg +hsync-a+))
+              (1- (+ (timing-horz-active mode)
+                     (timing-horz-right-border mode)
+                     (timing-horz-front-porch mode))))
+        (setf (ldb +hsync-end+ (reg +hsync-a+))
+              (1- (+ (timing-horz-active mode)
+                     (timing-horz-right-border mode)
+                     (timing-horz-front-porch mode)
+                     (timing-horz-sync mode))))
+        (setf (ldb +vtotal-active+ (reg +vtotal-a+))
+              (1- (timing-vert-active mode)))
+        (setf (ldb +vtotal-total+ (reg +vtotal-a+))
+              (1- (+ (timing-vert-bottom-border mode)
+                     (timing-vert-active mode)
+                     (timing-vert-top-border mode)
+                     (timing-vert-front-porch mode)
+                     (timing-vert-sync mode)
+                     (timing-vert-back-porch mode))))
+        (setf (ldb +vblank-start+ (reg +vblank-a+))
+              (1- (+ (timing-vert-active mode)
+                     (timing-vert-top-border mode))))
+        (setf (ldb +vblank-end+ (reg +vblank-a+))
+              (1- (+ (timing-vert-active mode)
+                     (timing-vert-top-border mode)
+                     (timing-vert-front-porch mode)
+                     (timing-vert-sync mode)
+                     (timing-vert-back-porch mode))))
+        (setf (ldb +vsync-start+ (reg +vsync-a+))
+              (1- (+ (timing-vert-active mode)
+                     (timing-vert-top-border mode)
+                     (timing-vert-front-porch mode))))
+        (setf (ldb +vsync-end+ (reg +vsync-a+))
+              (1- (+ (timing-vert-active mode)
+                     (timing-vert-top-border mode)
+                     (timing-vert-front-porch mode)
+                     (timing-vert-sync mode))))
         ;; Enable pipe
-        (setf (ldb +pipesrc-horz+ (reg +pipeasrc+)) (1- (mode-parameters-width mode))
-              (ldb +pipesrc-vert+ (reg +pipeasrc+)) (1- (mode-parameters-height mode)))
+        (setf (ldb +pipesrc-horz+ (reg +pipeasrc+)) (1- (timing-horz-active mode))
+              (ldb +pipesrc-vert+ (reg +pipeasrc+)) (1- (timing-vert-active mode)))
         (setf (ldb +pipeconf-enable+ (reg +pipeaconf+)) 1)
         ;; Enable planes
-        (setf (reg +dspastride+) (* (mode-parameters-width mode) 4)
+        (setf (reg +dspastride+) (* (timing-horz-active mode) 4)
               (reg +dspasurf+) 0
               (ldb +dspcntr-plane-enable+ (reg +dspacntr+)) 1
               (reg +dspalinoff+) 0)
@@ -811,50 +913,21 @@
   chromacticity
   timing-modes)
 
-(defstruct timing
-  width
-  height
-  refresh-rate
-  pixel-clock
-  horz-left-border
-  horz-active
-  horz-right-border
-  horz-back-porch
-  horz-sync
-  horz-front-porch
-  horz-image-size
-  vert-top-border
-  vert-active
-  vert-bottom-border
-  vert-back-porch
-  vert-sync
-  vert-front-porch
-  vert-image-size
-  stereo
-  ;; FIXME: Figure this out.
-  sync-config
-)
-;640x480 @ 60Hz (Industry standard) hsync: 31.5kHz	640x480	25.2 640 656 752 800 480 490 492 525	-hsync	-vsync
-
 (defun decode-edid-established-timings (edid)
   (let ((timings '()))
     (flet ((add (byte bit width height pixel-clock hsync hbporch hactive hfporch vsync vbporch vactive vfporch)
              (when (logbitp bit (aref edid byte))
                (push (make-timing
-                      :width width
-                      :height height
-                      :refresh-rate (truncate pixel-clock (* (+ hsync hbporch hactive hfporch)
-                                                             (+ vsync vbporch vactive vfporch)))
                       :pixel-clock pixel-clock
                       :horz-left-border (floor (- hactive width) 2)
-                      :horz-active hactive
+                      :horz-active width
                       :horz-right-border (ceiling (- hactive width) 2)
                       :horz-back-porch hbporch
                       :horz-sync hsync
                       :horz-front-porch hfporch
                       :horz-image-size (truncate (* (/ width 72) 25.4)) ; Assume 72dpi
                       :vert-top-border (floor (- vactive height) 2)
-                      :vert-active vactive
+                      :vert-active height
                       :vert-bottom-border (ceiling (- vactive height) 2)
                       :vert-back-porch vbporch
                       :vert-sync vsync
@@ -935,10 +1008,6 @@
         (vborder (aref edid (+ offset 16)))
         (flags (aref edid (+ offset 17))))
     (make-timing
-     :width hactive
-     :height vactive
-     :refresh-rate (/ (/ pixel-clock (+ hactive hblank))
-                      (+ vactive vblank))
      :pixel-clock pixel-clock
      :horz-left-border hborder
      :horz-active hactive
@@ -954,6 +1023,7 @@
      :vert-sync vsync
      :vert-front-porch vfporch
      :vert-image-size vsize
+     :interlaced (logbitp 7 flags)
      :stereo (if (zerop (ldb (byte 2 5) flags))
                  nil
                  (ecase (logior (ash (ldb (byte 2 5) flags) 1)
@@ -972,10 +1042,8 @@
   (loop
      for i below 4
      for offset = (+ 54 (* i 18))
-     when (and (not (and (zerop (aref edid offset))
+     when (not (and (zerop (aref edid offset))
                          (zerop (aref edid (+ offset 1)))))
-               ;; Must not be interlaced.
-               (not (logbitp 7 (aref edid (+ offset 17)))))
      collect (decode-edid-detailed-timing edid offset)))
 
 (defun decode-raw-edid (edid)
@@ -1055,14 +1123,14 @@
       (let ((mode (save-current-mode-parameters card))
             (framebuffer (framebuffer-address card)))
         ;; Take ownership of the compositor framebuffer.
-        (when (and (eql (mode-parameters-format mode) :x8r8g8b8)
+        (when (and (eql (sup::framebuffer-layout (sup:current-framebuffer)) :x8r8g8b8)
                    (eql (framebuffer-address card)
                         (sup::framebuffer-base-address (sup:current-framebuffer))))
           (sup::video-set-framebuffer
            framebuffer
-           (mode-parameters-width mode)
-           (mode-parameters-height mode)
-           (* (mode-parameters-width mode) 4)
+           (timing-horz-active mode)
+           (timing-vert-active mode)
+           (* (timing-horz-active mode) 4)
            :x8r8g8b8
            :device card)
           (mezzano.gui.compositor:force-redisplay t)))
