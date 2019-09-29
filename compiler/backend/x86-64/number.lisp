@@ -599,7 +599,7 @@
                                 :values (list temp3)))
            (emit done)))))
 
-(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result :has-wrapper nil)
+(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
   (cond ((constant-value-p count '(integer 0))
          (let ((count-value (fetch-constant-value count)))
            (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
@@ -619,34 +619,10 @@
                                        :lhs integer
                                        :rhs count-value))))))
         (t
-         (let ((done (make-instance 'ir:label
-                                    :name :left-shift-done
-                                    :phis (list result)))
-               (zero-result-label (make-instance 'ir:label :name :left-shift-zero))
-               (zero-result (make-instance 'ir:virtual-register))
-               (do-shift (make-instance 'ir:label :name :left-shift-do-shift))
-               (shift-result (make-instance 'ir:virtual-register))
-               (count-value (make-instance 'ir:virtual-register :kind :integer)))
-           ;; See if all bits are shifted out. This has to be done by
-           ;; hand because x86 wraps the shift count to 6 bits.
-           ;; TODO: Take advantage of type information to avoid this.
-           (emit (make-instance 'x86-instruction
-                                :opcode 'lap:cmp64
-                                :operands (list count (sys.c::fixnum-to-raw (- 64 sys.int::+n-fixnum-bits+)))
-                                :inputs (list count)
-                                :outputs (list)))
-           (emit (make-instance 'x86-branch-instruction
-                                :opcode 'lap:jae
-                                :true-target zero-result-label
-                                :false-target do-shift))
-           (emit zero-result-label)
-           (emit (make-instance 'ir:constant-instruction
-                                :value '0
-                                :destination zero-result))
-           (emit (make-instance 'ir:jump-instruction
-                                :target done
-                                :values (list zero-result)))
-           (emit do-shift)
+         ;; No need to test for overlong shift counts here. The result must fit
+         ;; in a fixnum, so obviously the count is within range or the input
+         ;; is 0.
+         (let ((count-value (make-instance 'ir:virtual-register :kind :integer)))
            (emit (make-instance 'ir:unbox-fixnum-instruction
                                 :source count
                                 :destination count-value))
@@ -655,13 +631,9 @@
                                 :destination :rcx))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:shl64
-                                :result shift-result
+                                :result result
                                 :lhs integer
-                                :rhs :rcx))
-           (emit (make-instance 'ir:jump-instruction
-                                :target done
-                                :values (list shift-result)))
-           (emit done)))))
+                                :rhs :rcx))))))
 
 ;;; SINGLE-FLOAT operations.
 
