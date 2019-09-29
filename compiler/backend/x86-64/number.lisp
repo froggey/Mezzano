@@ -619,7 +619,49 @@
                                        :lhs integer
                                        :rhs count-value))))))
         (t
-         (give-up))))
+         (let ((done (make-instance 'ir:label
+                                    :name :left-shift-done
+                                    :phis (list result)))
+               (zero-result-label (make-instance 'ir:label :name :left-shift-zero))
+               (zero-result (make-instance 'ir:virtual-register))
+               (do-shift (make-instance 'ir:label :name :left-shift-do-shift))
+               (shift-result (make-instance 'ir:virtual-register))
+               (count-value (make-instance 'ir:virtual-register :kind :integer)))
+           ;; See if all bits are shifted out. This has to be done by
+           ;; hand because x86 wraps the shift count to 6 bits.
+           ;; TODO: Take advantage of type information to avoid this.
+           (emit (make-instance 'x86-instruction
+                                :opcode 'lap:cmp64
+                                :operands (list count (sys.c::fixnum-to-raw (- 64 sys.int::+n-fixnum-bits+)))
+                                :inputs (list count)
+                                :outputs (list)))
+           (emit (make-instance 'x86-branch-instruction
+                                :opcode 'lap:jae
+                                :true-target zero-result-label
+                                :false-target do-shift))
+           (emit zero-result-label)
+           (emit (make-instance 'ir:constant-instruction
+                                :value '0
+                                :destination zero-result))
+           (emit (make-instance 'ir:jump-instruction
+                                :target done
+                                :values (list zero-result)))
+           (emit do-shift)
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination count-value))
+           (emit (make-instance 'ir:move-instruction
+                                :source count-value
+                                :destination :rcx))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shl64
+                                :result shift-result
+                                :lhs integer
+                                :rhs :rcx))
+           (emit (make-instance 'ir:jump-instruction
+                                :target done
+                                :values (list shift-result)))
+           (emit done)))))
 
 ;;; SINGLE-FLOAT operations.
 
