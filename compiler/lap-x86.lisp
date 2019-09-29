@@ -794,7 +794,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (let ((width-flag (if (= bitness 8) 0 1)))
     `(define-instruction ,(intern (format nil "~A~D" (symbol-name name) bitness)) (dst amount)
        (shift-imm ,class dst amount ,(logior #xD0 width-flag) ,(logior #xC0 width-flag) ,n)
-       (when (eql :cl amount)
+       (when (member amount '(:cl :cx :ecx :rcx))
          (modrm-single ,class dst ,(logior #xD2 width-flag) ,n)))))
 
 (define-shift-instruction rol 0)
