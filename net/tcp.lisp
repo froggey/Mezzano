@@ -142,7 +142,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                (t
                                 local-port)))
              (listener (make-instance 'tcp-listener
-                                      :pending-connections (make-hash-table :test 'equalp :size backlog)
+                                      :pending-connections (make-hash-table :test 'equalp)
                                       :connections (mezzano.sync:make-mailbox
                                                     :name "TCP Listener")
                                       :backlog backlog
