@@ -9,6 +9,7 @@
 (defvar *read-suppress* nil)
 
 (defvar *read-lookahead-table*)
+(defvar *read-package* nil)
 
 (declaim (special *readtable* *standard-readtable*)
          (type readtable *readtable* *standard-readtable*))
@@ -247,7 +248,10 @@
                            token (make-array 16
                                              :element-type 'character
                                              :adjustable t
-                                             :fill-pointer 0)))))
+                                             :fill-pointer 0))))
+               ;; Reset seen-escape here, done reading the package
+               ;; half of the token, on to the symbol name.
+               (setf seen-escape nil))
               (t (vector-push-extend (case-correct x) token)))))
     ;; Check for invalid uses of the dot. Tokens that are constructed
     ;; entirely from dots are invalid unless one or more of the dots was
@@ -263,6 +267,15 @@
         (when (eql (char token offset) #\.)
           (incf dot-count))))
     (cond
+      ;; If no escapes were seen, a double-package marker was seen,
+      ;; and the symbol name is empty then we're reading SBCL's
+      ;; extended package prefix syntax.
+      ((and (not seen-escape)
+            package-name
+            intern-symbol
+            (zerop (length token)))
+       (let ((*read-package* (find-package-or-die package-name)))
+         (read stream t nil t)))
       ;; Return a symbol immediately if a package marker was seen.
       (package-name
        (if (or intern-symbol (string= "KEYWORD" package-name))
@@ -276,12 +289,12 @@
       ;; If an escape character was seen, then do not try to parse the token as
       ;; an number, intern it and return it immediately.
       (seen-escape
-       (intern token))
+       (intern token *read-package*))
       ;; Attempt to parse a number.
       (t (or (read-integer token)
              (read-float token)
              (read-ratio token stream)
-             (intern token))))))
+             (intern token *read-package*))))))
 
 (defun read-ratio (string stream)
   ;; ratio = sign? digits+ slash digits+
@@ -826,7 +839,8 @@
 
 (defun read-#-features (stream suppress-if-false)
   "Common function to implement #+ and #-."
-  (let* ((test (let ((*package* (find-package "KEYWORD")))
+  (let* ((test (let* ((*package* (find-package "KEYWORD"))
+                      (*read-package* *package*))
                  (read stream t nil t)))
          (*read-suppress* (or *read-suppress*
                               (if suppress-if-false
@@ -891,7 +905,10 @@
 (defun read-common (stream eof-error-p eof-value recursive-p)
   (let ((*read-lookahead-table* (if recursive-p
                                     *read-lookahead-table*
-                                    (make-hash-table))))
+                                    (make-hash-table)))
+        (*read-package* (or (and recursive-p
+                                 *read-package*)
+                            *package*)))
     ;; Skip leading whitespace.
     (loop (let ((c (read-char stream eof-error-p 'nil t)))
             (when (eql c 'nil)
