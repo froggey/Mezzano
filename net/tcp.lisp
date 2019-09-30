@@ -906,7 +906,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (check-connection-error connection)
     (update-timeout-timer connection)
     ;; No sending when the connection is closing.
-    ;; Half-open connections seem too weird to be worth dealing with.
+    ;; Half-closed connections seem too weird to be worth dealing with.
     (when (not (eql (tcp-connection-state connection) :established))
       (error 'connection-closed
              :host (tcp-connection-remote-ip connection)
