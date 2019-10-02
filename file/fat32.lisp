@@ -3,7 +3,7 @@
 ;;;; For now support reading fat32 FS and some write operations.
 
 (defpackage :mezzano.fat32-file-system
-  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk)
   (:export)
   (:import-from :sys.int
                 #:explode))
@@ -104,7 +104,7 @@ Valid signature are #x28 and #x29")))
 Valid bps are ~a" bps +bootable-partition-signature+)))
 
 (defun read-fat12-structure (disk)
-  (let* ((sector (read-sector disk 0 1))
+  (let* ((sector (block-device-read-sector disk 0 1))
          (fat12 (make-instance 'fat12
                                :drive-n (aref sector 36) ; Operating system specific
                                :signature (check-signature (aref sector 38))
@@ -122,7 +122,7 @@ Valid bps are ~a" bps +bootable-partition-signature+)))
   ())
 
 (defun read-fat16-structure (disk)
-  (let* ((sector (read-sector disk 0 1))
+  (let* ((sector (block-device-read-sector disk 0 1))
          (fat16 (make-instance 'fat16
                                :drive-n (aref sector 36) ; Operating system specific
                                :signature (check-signature (aref sector 38))
@@ -157,7 +157,7 @@ Valid bps are ~a" bps +bootable-partition-signature+)))
 Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defun read-fat32-structure (disk)
-  (let* ((sector (read-sector disk 0 1))
+  (let* ((sector (block-device-read-sector disk 0 1))
          (fat32 (make-instance 'fat32
                                :sectors-per-fat32 (sys.int::ub32ref/le sector 36)
                                :flags (sys.int::ub16ref/le sector 40)
@@ -211,7 +211,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 ;; Valid trail-signature is ~a" trail-signature +trail-signature+)))
 
 ;; (defun read-fat32-info-structure (disk fat)
-;;   (let* ((sector (read-sector disk (fat-%fat-info fat) 1))
+;;   (let* ((sector (block-device-read-sector disk (fat-%fat-info fat) 1))
 ;;          (lead-signature (sys.int::ub32ref/le sector 0))
 ;;          (structure-signature (sys.int::ub32ref/le sector 484))
 ;;          (trail-signature (sys.int::ub32ref/le sector 508)))
@@ -235,11 +235,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 ;;           (sys.int::ub32ref/le sector 488) (fs-info-last-free-cluster fat32-info)
 ;;           (sys.int::ub32ref/le sector 492) (fs-info-next-free-cluster fat32-info)
 ;;           (sys.int::ub32ref/le sector 508) (fs-info-trail-signature fat32-info))
-;;     (write-sector disk (fat-%fat-info fat) sector 1)))
+;;     (block-device-write-sector disk (fat-%fat-info fat) sector 1)))
 
 (defmethod read-fat (disk (fat12 fat12) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat12)
-        :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat12))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat12))
         :with fat := (if fat-array
                          fat-array
                          (make-array (list (floor (/ (ash (length file-allocation-table) 3) 12)))))
@@ -256,7 +256,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat12 fat12) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat12)
-        :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat12))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat12))
         :for offset :from 0 :by 3 :below (- (length file-allocation-table) 2)
         :for i :from 0 :by 2
         :for cluster0 := (aref fat i)
@@ -269,11 +269,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :do (setf (aref file-allocation-table offset) byte0
                   (aref file-allocation-table (1+ offset)) byte1
                   (aref file-allocation-table (+ 2 offset)) byte2)
-        :finally (write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat12))))
+        :finally (block-device-write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat12))))
 
 (defmethod read-fat (disk (fat16 fat16) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat16)
-        :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat16))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat16))
         :with fat := (if fat-array
                          fat-array
                          (make-array (list (ash (length file-allocation-table) -1))))
@@ -285,16 +285,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat16 fat16) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat16)
-        :with file-allocation-table := (read-sector disk fat-offset (fat-%sectors-per-fat fat16))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat16))
         :for offset :from 0 :by 2 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (aref fat i)
         :do (setf (sys.int::ub16ref/le file-allocation-table offset) cluster-n)
-        :finally (write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat16))))
+        :finally (block-device-write-sector disk fat-offset file-allocation-table (fat-%sectors-per-fat fat16))))
 
 (defmethod read-fat (disk (fat32 fat32) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
         :with fat := (if fat-array
                          fat-array
                          (make-array (list (ash (length file-allocation-table) -2))))
@@ -306,12 +306,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat32 fat32) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
         :for offset :from 0 :by 4 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (aref fat i)
         :do (setf (sys.int::ub32ref/le file-allocation-table offset) cluster-n)
-        :finally (write-sector disk fat-offset file-allocation-table (fat32-%sectors-per-fat fat32))))
+        :finally (block-device-write-sector disk fat-offset file-allocation-table (fat32-%sectors-per-fat fat32))))
 
 (defmethod root-dir-sectors ((fat12 fat12))
   (floor (/ (+ (ash (fat-%n-root-entry fat12) 5)
@@ -402,7 +402,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (n-clusters (do ((cluster-n start-cluster (aref fat cluster-n))
                           (cluster-count 0 (1+ cluster-count)))
                          ((>= cluster-n (last-cluster-value fat32)) cluster-count)))
-         (sector-size (mezzano.supervisor:disk-sector-size disk))
+         (sector-size (block-device-sector-size disk))
          (result (make-array (* sector-size spc n-clusters) :element-type '(unsigned-byte 8))))
     (do ((cluster-n start-cluster (aref fat cluster-n))
          (n-cluster 0 (1+ n-cluster)))
@@ -415,7 +415,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defun write-file (fat32 disk start-cluster fat array)
   (let* ((spc (fat-%sectors-per-cluster fat32))
-         (sector-size (mezzano.supervisor:disk-sector-size disk)))
+         (sector-size (block-device-sector-size disk)))
     (do ((cluster-n start-cluster (aref fat cluster-n))
          (last-cluster 0)
          (n-cluster 0 (1+ n-cluster)))
