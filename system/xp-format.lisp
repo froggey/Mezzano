@@ -761,7 +761,7 @@
            (apply string-or-fn stream args)
            nil)))
 
-(defvar *format-string-cache* (make-hash-table))
+(defvar *format-string-cache* (make-hash-table :test #'equal))
 (defvar *compiling-format-string* nil)
 
 (defun compile-format-string (string)

@@ -95,6 +95,11 @@ Make sure there is a virtio-net NIC attached.~%")
     :INHERIT-CONFIGURATION))
 (eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
 
+;; Sound driver.
+(sys.int::cal "sys:source;drivers;sound.lisp")
+#+x86-64
+(sys.int::cal "sys:source;drivers;intel-hda.lisp")
+
 ;; Split-sequence
 (require :split-sequence)
 
@@ -213,10 +218,12 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :mezzano-usb/ohci)
 
 ;; Other stuff.
+(sys.int::cal "sys:source;drivers;intel-gma.lisp")
 (sys.int::cal "sys:source;file;cache.lisp")
 (sys.int::cal "sys:source;file;fat32.lisp")
 (sys.int::cal "sys:source;file;ext4.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
+(sys.int::cal "sys:source;net;http-demo.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
 (sys.int::cal "sys:source;system;lldb.lisp")
 

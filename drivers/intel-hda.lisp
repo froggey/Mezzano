@@ -833,7 +833,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (format t "}~%"))
 
 (defun intel-hda-probe (device)
-  (let* ((bar0 (pci:pci-io-region device 0 #x3000))
+  (let* ((bar0 (pci:pci-io-region device 0))
          (hda (make-instance 'hda :pci-device device :register-set bar0)))
     (setf (hda-irq hda) (mezzano.supervisor:make-simple-irq (pci:pci-intr-line device)))
     (format t "Found Intel HDA controller at ~S.~%" device)

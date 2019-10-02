@@ -70,7 +70,9 @@
            #:+ip-protocol-udp+
            #:ping-host
            #:+ipv4-broadcast-source+
-           #:+ipv4-broadcast-local-network+))
+           #:+ipv4-broadcast-local-network+
+           #:+ipv4-multicast-network+
+           #:ipv4-receive))
 
 (defpackage :mezzano.network.tcp
   (:use :cl)

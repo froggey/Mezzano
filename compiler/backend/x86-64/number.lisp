@@ -599,7 +599,7 @@
                                 :values (list temp3)))
            (emit done)))))
 
-(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result :has-wrapper nil)
+(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
   (cond ((constant-value-p count '(integer 0))
          (let ((count-value (fetch-constant-value count)))
            (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
@@ -619,7 +619,21 @@
                                        :lhs integer
                                        :rhs count-value))))))
         (t
-         (give-up))))
+         ;; No need to test for overlong shift counts here. The result must fit
+         ;; in a fixnum, so obviously the count is within range or the input
+         ;; is 0.
+         (let ((count-value (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination count-value))
+           (emit (make-instance 'ir:move-instruction
+                                :source count-value
+                                :destination :rcx))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shl64
+                                :result result
+                                :lhs integer
+                                :rhs :rcx))))))
 
 ;;; SINGLE-FLOAT operations.
 

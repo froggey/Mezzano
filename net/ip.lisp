@@ -113,28 +113,36 @@
 
 (defvar *ipv4-interfaces* '())
 
-(defun ifup (nic address)
+(defun ifup (nic address prefix-length)
   "Set NIC's IPv4 address to ADDRESS.
 ADDRESS must be an ipv4-address designator."
   (setf address (make-ipv4-address address))
-  (let ((existing (find nic *ipv4-interfaces* :key #'car)))
-    (if existing
-        (setf (cdr existing) address)
-        (push (cons nic address) *ipv4-interfaces*))))
+  (let ((existing (find nic *ipv4-interfaces* :key #'first)))
+    (cond (existing
+           (setf (second existing) address
+                 (third existing) prefix-length))
+          (t
+           (push (list nic address prefix-length) *ipv4-interfaces*)))))
 
 (defun ifdown (nic)
   (setf *outstanding-sends*
         (remove nic *outstanding-sends*
                 :key #'second))
-  (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'car)))
+  (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'first)))
 
 (defun ipv4-interface-address (nic &optional (errorp t))
-  (or (cdr (find nic *ipv4-interfaces* :key #'car))
-      (and errorp
-           (error "No IPv4 address for interface ~S." nic))))
+  "Return the IP address and prefix-length of the given interface."
+  (let ((entry (find nic *ipv4-interfaces* :key #'first)))
+    (cond (entry
+           (values (second entry) (third entry)))
+          (errorp
+           (error "No IPv4 address for interface ~S." nic))
+          (t
+           (values nil nil)))))
 
 (defun ipv4-address-interface (address &optional (errorp t))
-  (or (car (find address *ipv4-interfaces* :key #'cdr :test #'address-equal))
+  "Return the interface with the given IP address."
+  (or (car (find address *ipv4-interfaces* :key #'second :test #'address-equal))
       (and errorp
            (error "No interface for IPv4 address ~A." address))))
 
@@ -278,6 +286,14 @@ ADDRESS must be an ipv4-address designator."
                              protocol
                              payload)))))
 
+(defun multicast-address-p (address)
+  (address-equal +ipv4-multicast-network+ (address-network address 4)))
+
+(defgeneric ipv4-receive (protocol packet dest-ip source-ip start end))
+
+(defmethod ipv4-receive (protocol packet dest-ip source-ip start end)
+  nil)
+
 (defmethod mezzano.network.ethernet:ethernet-receive
     ((ethertype (eql mezzano.network.ethernet:+ethertype-ipv4+))
      interface packet start end)
@@ -329,29 +345,21 @@ ADDRESS must be an ipv4-address designator."
         (return-from mezzano.network.ethernet:ethernet-receive))
       ;; Is it address to one of our interfaces?
       ;; If not, forward or reject it.
-      (when (and (not (= (ipv4-address-address dest-ip) #xffffffff)) ;;not broadcast
-		 (not (ipv4-address-interface dest-ip nil)))
+      (when (and (not (address-equal dest-ip +ipv4-broadcast-local-network+)) ; not broadcast
+		 (not (ipv4-address-interface dest-ip nil))
+                 ;; Interface broadcast address.
+                 (multiple-value-bind (interface-address prefix-length)
+                     (ipv4-interface-address interface nil)
+                   (not (and interface-address
+                             (address-equal
+                              dest-ip
+                              (address-network-broadcast interface-address prefix-length)))))
+                 (not (multicast-address-p dest-ip)))
         (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
         (return-from mezzano.network.ethernet:ethernet-receive))
-      (case protocol
-        (#.+ip-protocol-tcp+
-         (mezzano.network.tcp::tcp4-receive packet
-                                            dest-ip
-                                            source-ip
-                                            (+ start header-length)
-                                            (+ start total-length)))
-        (#.+ip-protocol-udp+
-         (mezzano.network.udp::udp4-receive packet
-                                            dest-ip
-                                            source-ip
-                                            (+ start header-length)
-                                            (+ start total-length)))
-        (#.+ip-protocol-icmp+
-         (icmp4-receive packet
-                        source-ip
-                        (+ start header-length)
-                        (+ start total-length)))
-        (t (format t "Discarding IPv4 packet from ~X with unknown protocol ~X ~S.~%" source-ip protocol packet))))))
+      (ipv4-receive protocol packet
+                    dest-ip source-ip
+                    (+ start header-length) (+ start total-length)))))
 
 ;;; IP addresses.
 
@@ -448,13 +456,17 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     value))
 
 ;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
-(defparameter +ipv4-broadcast-source+ (mezzano.network.ip:make-ipv4-address #x00000000))
-(defparameter +ipv4-broadcast-local-network+ (mezzano.network.ip:make-ipv4-address #xffffffff))
+(defparameter +ipv4-broadcast-source+ (make-ipv4-address #x00000000))
+(defparameter +ipv4-broadcast-local-network+ (make-ipv4-address #xFFFFFFFF))
+(defparameter +ipv4-multicast-network+ (make-ipv4-address "224.0.0.0"))
 
 (defgeneric address-equal (x y))
 
 (defgeneric address-network (local-ip prefix-length)
   (:documentation "Return the address of LOCAL-IP's network, based on PREFIX-LENGTH."))
+
+(defgeneric address-network-broadcast (local-ip prefix-length)
+  (:documentation "Return the network broadcast address of LOCAL-IP, based on PREFIX-LENGTH."))
 
 (defgeneric address-host (local-ip prefix-length)
   (:documentation "Return the address of LOCAL-IP's host, based on PREFIX-LENGTH."))
@@ -467,6 +479,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
   (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
     (make-ipv4-address (logand (ipv4-address-address local-ip)
                                mask))))
+
+(defmethod address-network-broadcast ((local-ip ipv4-address) prefix-length)
+  (check-type prefix-length (integer 0 32))
+  (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
+    (make-ipv4-address (logior (logand (ipv4-address-address local-ip)
+                                       mask)
+                               (logxor #xFFFFFFFF mask)))))
 
 (defmethod address-host ((local-ip ipv4-address) prefix-length)
   (check-type prefix-length (integer 0 32))
@@ -486,18 +505,19 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
 (defvar *icmp-listeners* '())
 (defvar *icmp-listener-lock* (mezzano.supervisor:make-mutex "ICMP listener list"))
 
-(defun icmp4-receive (packet source-ip start end)
+(defmethod ipv4-receive ((protocol (eql +ip-protocol-icmp+)) packet dest-ip source-ip start end)
+  (declare (ignore dest-ip))
   (let ((length (- end start)))
     (when (< length +icmp4-header-size+)
       (format t "Discarding runt ICMPv4 packet from ~A.~%" source-ip)
-      (return-from icmp4-receive))
+      (return-from ipv4-receive))
     (let ((type (aref packet (+ start +icmp4-type+)))
           (code (aref packet (+ start +icmp4-code+)))
           (identifier (ub16ref/be packet (+ start +icmp4-identifier+)))
           (sequence-number (ub16ref/be packet (+ start +icmp4-sequence-number+))))
       (when (not (eql (compute-ip-checksum packet start end) 0))
         (format t "Discarding ICMPv4 packet with bad header checksum.~%")
-        (return-from icmp4-receive))
+        (return-from ipv4-receive))
       (dolist (l *icmp-listeners*)
         (funcall (first l) packet source-ip start end))
       (case type

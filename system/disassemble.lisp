@@ -20,9 +20,30 @@
 (defun disassemble (fn)
   (disassemble-function fn))
 
+(defun defmethod-name-to-method (defmethod-name)
+  "Convert a (DEFMETHOD name {qualifiers} (specializers...)) name to a method object."
+  (let* ((name (second defmethod-name))
+         (qualifiers (subseq defmethod-name 2 (1- (length defmethod-name))))
+         (specializers (loop
+                          for spec in (first (last defmethod-name))
+                          collect (cond ((symbolp spec)
+                                         (find-class spec))
+                                        ((and (consp spec)
+                                              (eql (first spec) 'eql))
+                                         `(eql ,(eval (second spec))))
+                                        (t
+                                         (error "Unknown specializer ~S" spec)))))
+         (generic (fdefinition name)))
+    (when (not (typep generic 'generic-function))
+      (error "Can't resolve ~S: ~S is not a generic-function"
+             defmethod-name generic))
+    (find-method generic qualifiers specializers)))
+
 (defun disassemble-function (fn &key (gc-metadata *print-gc-metadata*) (debug-metadata *print-debug-metadata*) architecture)
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
+  (when (and (consp fn) (eql (first fn) 'defmethod))
+    (setf fn (mezzano.clos:method-function (defmethod-name-to-method fn))))
   (when (not (functionp fn))
     (setf fn (fdefinition fn)))
   (check-type fn function)

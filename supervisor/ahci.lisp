@@ -786,7 +786,7 @@
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
   (let ((ahci (make-ahci :location location
-                         :abar (pci:pci-io-region location 5 #x2000))))
+                         :abar (pci:pci-io-region location 5))))
     (setf (ahci-irq-handler-function ahci) (lambda (interrupt-frame irq)
                                              (declare (ignore interrupt-frame irq))
                                              (ahci-irq-handler ahci)

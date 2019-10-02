@@ -30,7 +30,7 @@
 (defgeneric ethernet-receive (ethertype interface packet start end))
 
 (defmethod ethernet-receive (ethertype interface packet start end)
-  (format t "Unknown ethertype ~X~%" ethertype))
+  nil)
 
 (defun receive-ethernet-packet (interface packet)
   (ethernet-receive (ub16ref/be packet 12) interface packet 14 (length packet)))

@@ -157,8 +157,8 @@
                     (virtualbox-irq-handler vbox)
                     :completed)))
     (setf (virtualbox-guest-device-irq-handler-function vbox) handler)
-    (pci:pci-io-region device 0 4)
-    (pci:pci-io-region device 1 32)
+    (pci:pci-io-region device 0)
+    (pci:pci-io-region device 1)
     (sup:debug-print-line "VirtualBox Guest Device detected at " device " using IRQ " irq)
     (sup:irq-attach (sup:platform-irq irq)
                     handler

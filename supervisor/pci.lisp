@@ -14,6 +14,7 @@
            #:pci-sub-class
            #:pci-programming-interface
            #:pci-bar
+           #:pci-bar-size
            #:pci-io-region
            #:pci-io-region/8
            #:pci-io-region/16
@@ -220,11 +221,58 @@
 (defun pci-bar (device bar)
   (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))))
 
-(defun pci-io-region (device bar size)
-  ;; TODO: I think the size can be determined from the BAR?
-  ;; Would be better to do that in the future...
-  (let ((address (pci-bar device bar)))
+(defun (setf pci-bar) (value device bar)
+  (setf (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))) value))
+
+(defun pci-bar-size (device bar)
+  "Calculate the size of the specified BAR.
+Caution: This disables & reenables address decoding to perform the calcuation.
+Returns NIL if the BAR has an unknown type."
+  (sup:safe-without-interrupts (device bar)
+    (when (eql (pci-device-boot-id device) (sup:current-boot-id))
+      (let ((old-command (pci-config/16 device +pci-config-command+))
+            (bar-data (pci-bar device bar))
+            (size nil))
+        ;; Disable address decoding as we're changing the addresses in the BAR.
+        (setf (pci-config/16 device +pci-config-command+) 0)
+        (cond ((logbitp 0 bar-data)
+               ;; IO memory.
+               (setf (pci-bar device bar) #xFFFFFFFF)
+               (let ((lo (logxor (logand (pci-bar device bar) #xFFFE) #xFFFF)))
+                 (unless (eql lo #xFFFF)
+                   (setf size (1+ lo)))))
+              ((eql (logand bar-data 7) 0)
+               ;; 32-bit memory.
+               (setf (pci-bar device bar) #xFFFFFFFF)
+               (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF)))
+                 (unless (eql lo #xFFFFFFFF)
+                   (setf size (1+ lo)))))
+              ((eql (logand bar-data 7) 4)
+               ;; 64-bit memory.
+               (let ((bar-data-hi (pci-bar device (1+ bar))))
+                 (setf (pci-bar device bar) #xFFFFFFFF)
+                 (setf (pci-bar device (1+ bar)) #xFFFFFFFF)
+                 ;; Be careful and avoid constructing a bignum here, stick
+                 ;; with the separate 32-bit halves as long as possible.
+                 (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF))
+                       (hi (logxor (pci-bar device (1+ bar)) #xFFFFFFFF)))
+                   (unless (and (eql lo #xFFFFFFFF)
+                                (eql hi #xFFFFFFFF))
+                     (setf size (1+ (logior lo (ash hi 32))))))
+                 (setf (pci-bar device (1+ bar)) bar-data-hi))))
+        ;; Restore old bar value & reenable decoding.
+        (setf (pci-bar device bar) bar-data
+              (pci-config/16 device +pci-config-command+) old-command)
+        size))))
+
+(defun pci-io-region (device bar)
+  (let ((address (pci-bar device bar))
+        (size (pci-bar-size device bar)))
+    (assert size () "Unable to size BAR ~D for PCI device ~S" bar device)
     (when (not (logbitp 0 address))
+      ;; TODO: Map all physical memory regions at boot to avoid the call
+      ;; to MAP-PHYSICAL-MEMORY here. There are issues with the VM lock and
+      ;; arbitrary lockers.
       (let* ((base (logand address (lognot #b1111)))
              (end (sup::align-up (+ base size) #x1000))
              (aligned-base (logand base (lognot #xFFF)))
