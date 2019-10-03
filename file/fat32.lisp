@@ -567,6 +567,105 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
     (string-right-trim '(#\Space) name)))
 
+(defun write-short-name (directory offset name type name-length type-length)
+  (loop for idx from 0 to (1- name-length) do
+       (setf (aref directory (+ idx offset))
+             (char-code (elt name idx))))
+  (loop for idx from name-length to 7 do
+       (setf (aref directory (+ idx offset)) #x20))
+  (loop for idx from 0 to (1- type-length) do
+       (setf (aref directory (+ idx offset 8))
+             (char-code (elt type idx))))
+  (loop for idx from type-length to 2 do
+       (setf (aref directory (+ idx offset 8)) #x20)))
+
+(defun legal-short-name-value (value)
+  (or (<= #x41 value #x5A)    ;; A - Z
+      (<= #x30 value #x39)    ;; 0 - 9
+      ;; ! #  $ % &  ' (  ) - @ ^ _ ` { } ~
+      (member value '(#x21 #x23 #x24 #x25 #x26 #x27 #x28 #x29
+                      #x2D #x40 #x5E #x5F #x60 #x7B #x7D #x7E))))
+
+(defun add-numeric-tail (name num)
+  (cond ((= num 1)
+         (let* ((length (length name)))
+           (cond ((= length 8)
+                  (setf (char name 6) #\~
+                        (char name 7) #\1))
+                 ((= length 7)
+                  (setf (char name 6) #\~)
+                  (setf name (concatenate 'string name "1")))
+                 (T
+                  (setf name (concatenate 'string name "~1"))))))
+        (T
+         (multiple-value-bind (width rem) (truncate (log num 10))
+           (cond ((= rem 0.0)
+                  ;; num is multiple of ten need to add another digit
+                  (let ((pos (position #\~ name))
+                        (num-string (format nil "~D" num)))
+                    (format t "pos ~D, width ~D~%" pos width)
+                    (if (< (+ pos width) 7)
+                        (setf name (concatenate 'string name " ")
+                              (subseq name (1+ pos)) num-string)
+                        (setf (char name (1- pos)) #\~
+                              (subseq name pos) num-string))))
+                 (T
+                  (setf (subseq name (1+ (position #\~ name)))
+                        (format nil "~D" num)))))))
+  name)
+
+(defun make-short-name (pathname-name pathname-type file)
+  (let ((name (string-upcase pathname-name))
+        (type (string-upcase pathname-type))
+        (lossy NIL)
+        (short-names NIL))
+    (flet ((dup-name-p (file name type)
+             (when (not short-names)
+               (do-files (offset) file
+                   NIL
+                   (push (read-short-name file offset) short-names)))
+             (let ((short-name (if (= (length type) 0)
+                                   name
+                                   (concatenate 'string name "." type))))
+               (member short-name short-names :test #'string=)))
+           )
+      ;; convert invalid chars to _
+      ;; not sure this is correct because it converts spaces and periods to _,
+      ;; but later code processes these characters specially.
+      (loop
+         for idx from 0 below (length name)
+         when (not (legal-short-name-value (char-int (char name idx)))) do
+           (setf (char name idx) #\_
+                 lossy T))
+      (loop
+         for idx from 0 below (length type)
+         when (not (legal-short-name-value (char-int (char type idx)))) do
+           (setf (char type idx) #\_
+                 lossy T))
+      ;; strip all blanks (leading, following and embedded) and leading periods
+      (setf name (string-left-trim "." (remove " " name))
+            type (remove " " type))
+      ;; trim name to first "." or eight chars which ever is first
+      (let ((length (min (length name)
+                         (or (position "." name) 8)
+                         8)))
+        (setf name (subseq name 0 length)))
+      ;; trim type to first 3 chars
+      (when (> (length type) 3)
+        (setf type (subseq type 0 3)))
+      ;; add numeric tail
+      (when (or lossy
+                (> (length pathname-name) 8)
+                (> (length pathname-type) 3)
+                (dup-name-p file name type))
+        (setf name (add-numeric-tail name 1))
+        (loop
+           for num = 2 then (1+ num)
+           when (not (dup-name-p file name type)) do (return)
+           do
+             (setf name (add-numeric-tail name num)))))
+    (values name type)))
+
 (defun read-long-name-section (directory offset)
   (let ((name (make-string 13 :initial-element #\Space))
         (idx 0))
@@ -663,53 +762,48 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (setf i 0
             r j))))
 
-(defun make-short-name (pathname-name pathname-type file)
-  (let ((short-name (make-string 11 :initial-element #\Space)))
-    (loop :for char-n :from 0 :to 7
-          :for char :across pathname-name
-          :do (setf (aref short-name char-n)
-                    char))
-    (when pathname-type
-      (loop :for char-n :from 8 :to 10
-            :for char :across pathname-type
-            :do (setf (aref short-name char-n)
-                      char)))
-    ;; Check for short name collision
-    (do-files (offset) file
-      short-name
-      ;; TODO: name collision resolution
-      (when (string= short-name (read-short-name file offset))
-        (error "Short name ~A does alredy exist.~A~%Short name collision resolution not implemented" short-name)))))
-
-(defun long-name-p (pathname-name name-length type-length)
-  (or (> name-length 8)
-      (> type-length 3)
-      (and (find #\. pathname-name)
-           ;; not "."
-           (not (and (string= pathname-name ".") (= type-length 0)))
-           (not (and (string= pathname-name "..") (= type-length 0))))))
+(defun long-name-p (pathname-name pathname-type name-length type-length)
+  (cond ((and (string= pathname-name ".") (= type-length 0)) NIL)
+        ((and (string= pathname-name "..") (= type-length 0)) NIL)
+        (T (or (> name-length 8)
+               (> type-length 3)
+               ;; check for legal characters in namen
+               (loop
+                  for char across pathname-name
+                  for value = (char-int char)
+                  when (not (legal-short-name-value value)) do (return T)
+                  finally NIL)
+               (loop
+                  for char across pathname-type
+                  for value = (char-int char)
+                  when (not (legal-short-name-value value)) do (return T)
+                  finally NIL)))))
 
 (defun create-directory-entry (directory pathname-name pathname-type)
   ;; determine if the entry is a short name or long name entry
   (let ((name-length (length pathname-name))
         (type-length (length pathname-type)))
-    (cond ((long-name-p pathname-name name-length type-length)
+    (cond ((long-name-p pathname-name pathname-type name-length type-length)
            ;; long name entry
            (let* ((total-length (+ name-length
                                    (if (= type-length 0) 0 (1+ type-length))))
                   (num-entries (1+ (ceiling (/ total-length 13))))
                   (start-offset (next-n-spaces directory num-entries))
                   (end-offset (+ start-offset (ash (1- num-entries) 5)))
-                  (short-name (make-short-name pathname-name pathname-type directory))
                   (long-name (if (= type-length 0)
                                  pathname-name
                                  (concatenate 'string
                                               pathname-name
                                               "."
                                               pathname-type))))
-             (loop for idx from 0 to 10 do
-                  (setf (aref directory (+ idx end-offset))
-                        (char-code (elt short-name idx))))
+             (multiple-value-bind (name type)
+                 (make-short-name pathname-name pathname-type directory)
+               (write-short-name directory
+                                 end-offset
+                                 name
+                                 type
+                                 (length name)
+                                 (length type)))
              (loop
                 for char across long-name
                 with checksum = (checksum directory end-offset)
@@ -750,18 +844,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
           (T
            ;; short name entry
            (let ((offset (next-space directory 0)))
-             (loop for idx from 0 to (1- name-length) do
-                  (setf (aref directory (+ idx offset))
-                        (char-code (elt pathname-name idx))))
-             (loop for idx from name-length to 7 do
-                  (setf (aref directory (+ idx offset)) #x20))
-             (loop for idx from 0 to (1- type-length) do
-                  (setf (aref directory (+ idx offset 8))
-                        (char-code (elt pathname-type idx))))
-             (loop for idx from type-length to 2 do
-                  (setf (aref directory (+ idx offset 8)) #x20))
-             offset)
-           ))))
+             (write-short-name directory
+                               offset
+                               pathname-name
+                               pathname-type
+                               name-length
+                               type-length)
+             offset)))))
 
 (defun create-file (host file cluster-n pathname-name pathname-type attributes)
   "Create file/directory"
