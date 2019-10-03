@@ -361,7 +361,7 @@
 (defun all-generic-functions ()
   (declare (notinline typep find-class))
   (remove (mezzano.clos:class-prototype (find-class 'standard-generic-function))
-            (get-all-objects (lambda (object) (typep object 'standard-generic-function)))))
+          (get-all-objects (lambda (object) (typep object 'standard-generic-function)))))
 
 (defun get-all-objects (filter-function)
   (let ((objects (make-array 10000 :fill-pointer 0)))
@@ -372,7 +372,8 @@
          (walk-area area
                     (lambda (object address size)
                       (declare (ignore address size))
-                      (when (funcall filter-function object)
+                      (when (and (not (%object-of-type-p object +object-tag-freelist-entry+))
+                                 (funcall filter-function object))
                         (vector-push object objects)))))
        (when (not (eql (fill-pointer objects) (array-dimension objects 0)))
          (return))
