@@ -779,7 +779,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   when (not (legal-short-name-value value)) do (return T)
                   finally NIL)))))
 
-(defun create-directory-entry (directory pathname-name pathname-type)
+(defun create-directory-entry (directory pathname-name pathname-type previous-p)
+  ;; Handle previous-p
+  (cond ((and pathname-type previous-p)
+         (setf pathname-type (concatenate 'string pathname-type "~")))
+        (previous-p
+         (setf pathname-name (concatenate 'string pathname-name "~"))))
   ;; determine if the entry is a short name or long name entry
   (let ((name-length (length pathname-name))
         (type-length (length pathname-type)))
@@ -852,10 +857,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                type-length)
              offset)))))
 
-(defun create-file (host file cluster-n pathname-name pathname-type attributes)
+(defun create-file (host file cluster-n pathname-name pathname-type previous-p attributes)
   "Create file/directory"
   (multiple-value-bind (time date) (get-fat32-time)
-    (let ((offset (create-directory-entry file pathname-name pathname-type))
+    (let ((offset (create-directory-entry file pathname-name pathname-type previous-p))
           (cluster-number (next-free-cluster (fat host) 3)))
       ;; Terminate cluster list (allocate one cluster to the file)
       (setf (aref (fat host) cluster-number) (last-cluster-value (fat-structure host)))
@@ -880,10 +885,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                        :area :wired :element-type '(unsigned-byte 8)
                                        :initial-element 0)))
             (fill-in-entry directory
-                           (create-directory-entry directory "." "")
+                           (create-directory-entry directory "." "" NIL)
                            cluster-number)
             (fill-in-entry directory
-                           (create-directory-entry directory ".." "")
+                           (create-directory-entry directory ".." "" NIL)
                            cluster-n)
             ;; Write to disk
             (write-file (fat-structure host)
@@ -971,7 +976,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            :format-control "Pathname has a device component"))
   (let ((dir (pathname-directory pathname))
         (name (pathname-name pathname))
-        (type (pathname-type pathname)))
+        (type (pathname-type pathname))
+        (version (pathname-version pathname)))
     (with-output-to-string (s)
       (when (eql (first dir) :absolute)
         (write-char #\> s))
@@ -995,6 +1001,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (if (eql type :wild)
             (write-char #\* s)
             (write-string type s)))
+      (when (eql version :previous)
+        (write-char #\~ s))
       s)))
 
 (defclass fat32-file-stream (mezzano.gray:fundamental-binary-input-stream
@@ -1022,11 +1030,19 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defun file-name (pathname)
   "Take pathname and return file name."
-  (unless (or (eql :wild (pathname-name pathname))
-              (eql :wild (pathname-type pathname)))
-    (if (pathname-type pathname)
-        (concatenate 'string (pathname-name pathname) "." (pathname-type pathname))
-        (pathname-name pathname))))
+  (let ((name (pathname-name pathname))
+        (type (pathname-type pathname))
+        (previous-p (eql (pathname-version pathname) :previous)))
+    (unless (or (eql :wild name)
+                (eql :wild type))
+      (cond ((and type previous-p)
+             (concatenate 'string name "." type "~"))
+            (type
+             (concatenate 'string name "." type))
+            (previous-p
+             (concatenate 'string name "~"))
+            (T
+             name)))))
 
 (defun open-file-metadata (host pathname)
   (loop :with fat32 := (fat-structure host)
@@ -1088,6 +1104,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                    buffer-position (create-file host parent-dir parent-cluster
                                                                 (pathname-name pathname)
                                                                 (pathname-type pathname)
+                                                                (eql (pathname-version pathname) :previous)
                                                                 (ash 1 +attribute-archive+))
                                    created-file-p t
                                    abort-action :delete)
@@ -1220,6 +1237,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :for directory-name :in (rest (pathname-directory pathname))
         :do (do-files (start) directory
                 (setf directory-cluster (create-file host directory directory-cluster directory-name nil
+                                                     (eql (pathname-version pathname) :previous)
                                                      (ash 1 +attribute-directory+))
                       directory (read-file fat32 disk directory-cluster fat)
                       created T)
@@ -1242,7 +1260,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
           (let ((dest-offset (create-directory-entry dest-dir
                                                      (pathname-name dest)
-                                                     (pathname-type dest))))
+                                                     (pathname-type dest)
+                                                     (eql (pathname-version dest) :previous))))
             ;; copy meta data
             (replace dest-dir source-dir
                      :start1 (+ dest-offset 11)
