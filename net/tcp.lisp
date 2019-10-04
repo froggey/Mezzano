@@ -515,11 +515,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                               internal-time-units-per-second))))
     (setf (tcp-connection-srtt connection) delta-time
           (tcp-connection-rttvar connection) (/ delta-time 2))
-    ;; Maximum RTO is 60 seconds and minimum RTO is 0.01 seconds
+    ;; Maximum RTO is 60 seconds and minimum RTO is 1 second
     (setf (tcp-connection-rto connection)
           (min 60
-               (+ (tcp-connection-srtt connection)
-                  (max 0.01 (* 4 (tcp-connection-rttvar connection)))))
+               (max 1
+                    (+ (tcp-connection-srtt connection)
+                       (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
 
 (defun subsequent-rtt-measurement (connection)
@@ -531,11 +532,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (setf (tcp-connection-srtt connection)
           (+ (* 0.875 (tcp-connection-srtt connection))
              (* 0.125 delta-time)))
-    ;; Maximum RTO is 60 seconds and minimum RTO is 0.01 seconds
+    ;; Maximum RTO is 60 seconds and minimum RTO is 1 second
     (setf (tcp-connection-rto connection)
           (min 60
-               (+ (tcp-connection-srtt connection)
-                  (max 0.01 (* 4 (tcp-connection-rttvar connection)))))
+               (max 1
+                    (+ (tcp-connection-srtt connection)
+                       (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
 
 (defun tcp4-connection-receive (connection packet start end listener)
