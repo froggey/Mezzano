@@ -619,11 +619,18 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (cond ((not (acceptable-segment-p connection packet start end))
-                (tcp4-send-packet connection
-                                  (tcp-connection-snd.nxt connection)
-                                  (tcp-connection-rcv.nxt connection)
-                                  nil
-                                  :ack-p t))
+                (when (not (logtest flags +tcp4-flag-rst+))
+                  (tcp4-send-packet connection
+                                    (tcp-connection-snd.nxt connection)
+                                    (tcp-connection-rcv.nxt connection)
+                                    nil
+                                    :ack-p t)))
+               ((logtest flags +tcp4-flag-rst+)
+                (setf (tcp-connection-pending-error connection)
+                      (make-condition 'connection-reset
+                                      :host (tcp-connection-remote-ip connection)
+                                      :port (tcp-connection-remote-port connection)))
+                (detach-tcp-connection connection))
                ((logtest flags +tcp4-flag-syn+)
                 (setf (tcp-connection-pending-error connection)
                       (make-condition 'connection-reset
