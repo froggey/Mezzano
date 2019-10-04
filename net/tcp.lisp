@@ -9,6 +9,9 @@
 ;;; EFSM/SDL modeling of the original TCP standard (RFC793) and the
 ;;; Congestion Control Mechanism of TCP Reno
 ;;; http://www.medianet.kent.edu/techreports/TR2005-07-22-tcp-EFSM.pdf
+;;;
+;;; Computing TCP's Retransmission Timer
+;;; https://tools.ietf.org/html/rfc6298
 
 (in-package :mezzano.network.tcp)
 
@@ -35,9 +38,7 @@
 (defconstant +port-wildcard+ 0)
 
 (defparameter *tcp-connect-timeout* 10)
-(defparameter *tcp-connect-initial-retransmit-time* 1)
-(defparameter *tcp-connect-retransmit-time* 3)
-(defparameter *tcp-retransmit-time* 1)
+(defparameter *tcp-initial-retransmit-time* 1)
 
 (defparameter *initial-window-size* 8192)
 
@@ -201,6 +202,10 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
                        :initform (make-hash-table :synchronized nil))
+   (%last-ack-time :accessor tcp-connection-last-ack-time :initarg :last-ack-time)
+   (%srtt :accessor tcp-connection-srtt :initarg :srtt)
+   (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
+   (%rto :accessor tcp-connection-rto :initarg :rto)
    (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
    (%lock :reader tcp-connection-lock
           :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
@@ -220,11 +225,15 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
              :initarg :boot-id))
   (:default-initargs
    :max-seg-size 1000
+   :last-ack-time nil
+   :srtt nil
+   :rttvar nil
+   :rto *tcp-initial-retransmit-time*
    :boot-id nil
    :timeout nil))
 
-(defun arm-retransmit-timer (seconds connection)
-  (mezzano.supervisor:timer-arm seconds
+(defun arm-retransmit-timer (connection)
+  (mezzano.supervisor:timer-arm (tcp-connection-rto connection)
                                 (tcp-connection-retransmit-timer connection))
   (values))
 
@@ -247,7 +256,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (:syn-sent
        (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
          (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-         (arm-retransmit-timer *tcp-connect-retransmit-time* connection)))
+         (arm-retransmit-timer connection)))
       ((:established
         :close-wait
         :last-ack
@@ -256,8 +265,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         :closing)
        (let ((packet (first (tcp-connection-retransmit-queue connection))))
          (apply #'tcp4-send-packet connection packet)
-         ;; TODO: Update RTO.
-         (arm-retransmit-timer *tcp-retransmit-time* connection))))))
+         (arm-retransmit-timer connection))))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
@@ -500,6 +508,26 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                               '(:fin-wait-1 :fin-wait-2 :last-ack :closed))))
         (arm-timeout-timer timeout connection)))))
 
+(defun update-rto (connection)
+  (let ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
+                              internal-time-units-per-second))))
+    (cond ((tcp-connection-srtt connection)
+           (setf (tcp-connection-rttvar connection)
+                 (+ (* 0.75 (tcp-connection-rttvar connection))
+                    (* 0.25 (- (tcp-connection-srtt connection) delta-time))))
+           (setf (tcp-connection-srtt connection)
+                 (+ (* 0.875 (tcp-connection-srtt connection))
+                    (* 0.125 delta-time))))
+          ;; initialize srtt and rttvar
+          (t (setf (tcp-connection-srtt connection) delta-time
+                   (tcp-connection-rttvar connection) (/ delta-time 2)))))
+  ;; Maximum RTO is 60 seconds and minimum RTO is 0.01 seconds
+  (setf (tcp-connection-rto connection)
+        (min 60
+             (+ (tcp-connection-srtt connection)
+                (max 0.01 (* 4 (tcp-connection-rttvar connection)))))
+        (tcp-connection-last-ack-time connection) nil))
+
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
   ;; in here, so this avoids truncating the backtrace with :resignal-errors.
@@ -603,6 +631,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                     ;; In the middle of wraparound.
                     (or (< (tcp-connection-snd.una connection) ack)
                         (<= ack (tcp-connection-snd.nxt connection))))
+                (when (tcp-connection-last-ack-time connection)
+                  (update-rto connection))
                 ;; TODO: Update the send window.
                 ;; Remove from the retransmit queue any segments that
                 ;; were fully acknowledged by this ACK.
@@ -854,7 +884,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
          (push connection *tcp-connections*))
        (when (not *netmangler-force-local-retransmit*)
          (tcp4-send-packet connection iss 0 nil :ack-p nil :syn-p t))
-       (arm-retransmit-timer *tcp-connect-initial-retransmit-time* connection)
+       (arm-retransmit-timer connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
      sys.net::*network-serial-queue*)
     (with-tcp-connection-locked connection
@@ -883,8 +913,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (setf (tcp-connection-retransmit-queue connection)
           (append (tcp-connection-retransmit-queue connection)
                   (list (list snd.nxt rcv.nxt data :psh-p psh-p))))
-    ;; TODO: Calculate RTO properly.
-    (arm-retransmit-timer *tcp-retransmit-time* connection)
+    (arm-retransmit-timer connection)
     (when (not *netmangler-force-local-retransmit*)
       (tcp4-send-packet connection
                         snd.nxt rcv.nxt
@@ -904,6 +933,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (error 'connection-closed
              :host (tcp-connection-remote-ip connection)
              :port (tcp-connection-remote-port connection)))
+    (unless (tcp-connection-last-ack-time connection)
+      (setf (tcp-connection-last-ack-time connection)
+            (get-internal-run-time)))
     (let ((mss (tcp-connection-max-seg-size connection)))
       (cond ((>= start end))
             ((> (- end start) mss)
@@ -1070,8 +1102,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                (tcp-connection-rcv.nxt connection)
                                nil
                                :fin-p t))))
-     ;; TODO: Calculate RTO properly.
-     (arm-retransmit-timer *tcp-retransmit-time* connection)
+     (arm-retransmit-timer connection)
      (when (not *netmangler-force-local-retransmit*)
        (tcp4-send-packet connection
                          (tcp-connection-snd.nxt connection)
@@ -1088,8 +1119,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                nil
                                :fin-p t
                                :errors-escape t))))
-     ;; TODO: Calculate RTO properly.
-     (arm-retransmit-timer *tcp-retransmit-time* connection)
+     (arm-retransmit-timer connection)
      (when (not *netmangler-force-local-retransmit*)
        (tcp4-send-packet connection
                          (tcp-connection-snd.nxt connection)
