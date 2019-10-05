@@ -277,88 +277,11 @@
     (nreverse result)))
 
 ;;======================================================================
-;; ISO9660 Partition Table Code (iso)
-;;======================================================================
-
-(def-accessor :rec-length   0 1)
-(def-accessor :file-extent  2 4)
-(def-accessor :file-length 10 4)
-(def-accessor :file-flags  25 1)
-
-(defun find-iso9660-primary-volume-descriptor (disk buf)
-  (loop
-     ;; The Volume Descriptor Set starts on sector 16/offset 32kb.
-     ;; Limit to searching the first 128 entries.
-     for sector from #x10 below (+ #x10 128)
-     do
-       (block-device-read disk sector 1 buf)
-     ;; Check identifier 'CD001' and version
-       (loop
-          for idx = 1 then (1+ idx)
-          for sig-value in '(#x43 #x44 #x30 #x30 #x31 #x01)
-          when (/= (aref buf idx) sig-value) do
-            (return-from find-iso9660-primary-volume-descriptor NIL))
-     ;; Check type.
-       (case (aref buf 0)
-         (#x01 ; Primary Volume Descriptor.
-          (return sector))
-         (#xFF ; Volume Descriptor Set Terminator.
-          (return nil)))))
-
-(defun parse-iso9660-partition-table (disk)
-  (let* ((sector-size (block-device-sector-size disk))
-         (result))
-    (when (/= sector-size 2048)
-      (return-from parse-iso9660-partition-table nil))
-    (let ((buf (make-array sector-size)))
-      ;; Search for a primary volume descriptor.
-      (let ((primary-volume (find-iso9660-primary-volume-descriptor disk buf)))
-        (when (not primary-volume)
-          (return-from parse-iso9660-partition-table nil))
-        (sup:debug-print-line "Detected ISO9660 primary volume descriptor ~
-                               at sector " primary-volume " on disk " disk)
-        ;; Treat every file in the root directory as a partition.
-        (let ((root-extent (get-file-extent buf 156))
-              (root-length (get-file-length buf 156)))
-          (sup:debug-print-line "Root directory at " root-extent "/" root-length)
-          (loop
-             for sector from 0 below (ceiling root-length 2048)
-             do
-               (block-device-read disk (+ root-extent sector) 1 buf)
-               (do* ((offset 0 (+ offset rec-len))
-                     (rec-len (get-rec-length buf offset)
-                              (get-rec-length buf offset))
-                     (extent (get-file-extent buf offset)
-                             (get-file-extent buf offset))
-                     (length (get-file-length buf offset)
-                             (get-file-length buf offset))
-                     (flags (get-file-flags buf offset)
-                            (get-file-flags buf offset))
-                     (part-num 0 (1+ part-num)))
-                    ((>= offset 2048))
-                 (when (zerop rec-len)
-                   ;; Reached last record.
-                   (return))
-                 (sup:debug-print-line "Root entry at " extent "/" length
-                                       " flags: " flags)
-                 ;; Ignore the protection bit.
-                 (when (= (logand flags #b11101111) #b00000000)
-                   ;; Valid file.
-                   (push (list :disk disk
-                               :partition-num part-num
-                               :partition-type nil
-                               :start-lba extent
-                               :size (ceiling length 2048))
-                         result)))))))
-    (nreverse result)))
-
-;;======================================================================
 ;;======================================================================
 
 (defun parse-partition-table (disk)
   (or (parse-guid-partition-table disk)
-      (parse-mbr-partition-table disk)
-      (parse-iso9660-partition-table disk)))
+      (parse-mbr-partition-table disk)))
 
 (defun parse-disk-info (disk)
   (list
