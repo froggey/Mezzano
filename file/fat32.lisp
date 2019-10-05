@@ -541,7 +541,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (idx 1))
     ;; First character is special
     (setf (elt name 0) (if (= first #x05) (code-char #xE5) (code-char first)))
-
     ;; Copy chars for 8 part
     (loop
        for i from (1+ offset) to (+ 7 offset)
@@ -551,7 +550,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
        do
          (setf (elt name idx) char)
          (incf idx))
-
     ;; Copy chars for 3 part, if there is any
     (when (/= (aref directory (+ 8 offset)) (char-code #\Space))
       (setf (elt name idx) #\.)
@@ -564,7 +562,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          do
            (setf (elt name idx) char)
            (incf idx)))
-
+    ;; Delete extra spaces from the right end
     (string-right-trim '(#\Space) name)))
 
 (defun write-short-name (directory offset name type name-length type-length)
@@ -724,7 +722,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            (setf (aref directory offset) #xE5)
            (when (logbitp 6 first-byte)
              (return)))))
-
   ;; mark short name directory entry as free
   (setf (aref directory start) #xE5))
 
@@ -735,10 +732,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
     (let ((next (aref fat cluster-n)))
       (setf (aref fat cluster-n) 0
             cluster-n next)))
-
   ;; mark directory entry (or entries) as free
   (free-file-entry directory start)
-
   ;; Write to disk
   (write-fat disk fat32 fat)
   (write-file fat32 disk cluster-n fat directory))
@@ -859,7 +854,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                        (when (= idx 32) (return))
                        (setf (aref directory (+ idx offset)) #xFF
                              (aref directory (+ idx offset 1)) #xFF)))
-
                ;; set last entry flag - really want logiorf here
                (incf (aref directory start-offset) #x40)
                (values end-offset directory))))
@@ -900,7 +894,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (read-file-length directory offset) 0)))
         ;; fill in directory entry for new file
         (fill-in-entry directory offset cluster-number)
-
         (when (directory-p directory offset)
           ;; create new directory with "." and ".." entries
           ;; don't need second result of create-directory-entry because
@@ -920,7 +913,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                         (partition host)
                         cluster-number
                         (fat host) new-dir)))
-
         ;; Write parent directory to disk
         (write-file (fat-structure host) (partition host) cluster-n (fat host) directory)
         ;; Write fat
@@ -1282,7 +1274,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (assert source-start (source-start) "Source file not found. ~s" source)
         (multiple-value-bind (dest-dir dest-cluster dest-start) (open-file-metadata host dest)
           (assert (not dest-start) (dest-start) "Destination file alredy exist. ~s" dest)
-
           (let ((dest-offset))
             (multiple-value-setq (dest-offset dest-dir)
               (create-directory-entry dest-dir
@@ -1295,7 +1286,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      :start1 (+ dest-offset 11)
                      :start2 (+ source-start 11)
                      :end2 (+ source-start 32))
-
             (cond ((equalp (pathname-directory source)
                            (pathname-directory dest))
                    ;; source and destination are the same directory, only update and write the
@@ -1366,7 +1356,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :pathname path
                               :format-control "Directory ~A not empty."
                               :format-arguments (list path))))
-
                  ;; free directory clusters
                  (do ((cluster-n (read-first-cluster parent-dir dir-offset)))
                      ((>= cluster-n (last-cluster-value fat32)))
@@ -1396,11 +1385,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (read-fat disk fat32 fat)
             ;; pass the error on
             (error condition)))
-
         ;; Write to disk
         (write-fat disk fat32 fat)
         (write-file fat32 disk parent-cluster fat parent-dir)))
-
     (force-directory-only path)))
 
 (defmethod expunge-directory-using-host ((host fat32-host) path &key)
