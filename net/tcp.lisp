@@ -267,6 +267,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         :closing)
        (let ((packet (first (tcp-connection-retransmit-queue connection))))
          (apply #'tcp4-send-packet connection packet)
+         (setf (tcp-connection-rto connection)
+               (min *maximum-rto* (* 2 (tcp-connection-rto connection))))
          (arm-retransmit-timer connection))))))
 
 (defun arm-timeout-timer (seconds connection)
