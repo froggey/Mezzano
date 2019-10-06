@@ -39,6 +39,8 @@
 
 (defparameter *tcp-connect-timeout* 10)
 (defparameter *tcp-initial-retransmit-time* 1)
+(defparameter *minimum-rto* 1) ;; in seconds
+(defparameter *maximum-rto* 60) ;; in seconds
 
 (defparameter *initial-window-size* 8192)
 
@@ -515,10 +517,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                               internal-time-units-per-second))))
     (setf (tcp-connection-srtt connection) delta-time
           (tcp-connection-rttvar connection) (/ delta-time 2))
-    ;; Maximum RTO is 60 seconds and minimum RTO is 1 second
     (setf (tcp-connection-rto connection)
-          (min 60
-               (max 1
+          (min *maximum-rto*
+               (max *minimum-rto*
                     (+ (tcp-connection-srtt connection)
                        (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
@@ -532,10 +533,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (setf (tcp-connection-srtt connection)
           (+ (* 0.875 (tcp-connection-srtt connection))
              (* 0.125 delta-time)))
-    ;; Maximum RTO is 60 seconds and minimum RTO is 1 second
     (setf (tcp-connection-rto connection)
-          (min 60
-               (max 1
+          (min *maximum-rto*
+               (max *minimum-rto*
                     (+ (tcp-connection-srtt connection)
                        (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
