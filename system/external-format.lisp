@@ -168,7 +168,7 @@
    (%accumulated-code-point :initform nil)
    (%code-point-bytes-remaining :initform nil)
    (%accumulated-eol :initform nil))
-  (:default-initargs :eol-style :lf-ignore-cr))
+  (:default-initargs :eol-style :lf))
 
 (defmethod print-object ((instance external-format) stream)
   (print-unreadable-object (instance stream :type t :identity t)

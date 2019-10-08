@@ -1,16 +1,17 @@
 ;;;; Copyright (c) 2019 Bruno Cichon <ebrasca@librepanther.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mezzano.disk-file-system
-  (:use :cl)
-  (:local-nicknames (:sup :mezzano.supervisor))
-  (:export #:read-sector
-           #:write-sector
-           #:block-device-read
-           #:block-device-write
-           #:block-device-flush))
+(in-package :mezzano.disk)
 
-(in-package :mezzano.disk-file-system)
+(defgeneric block-device-sector-size (disk))
+
+(defmethod block-device-sector-size ((disk sup:disk))
+  (sup:disk-sector-size disk))
+
+(defgeneric block-device-n-sectors (disk))
+
+(defmethod block-device-n-sectors ((disk sup:disk))
+  (sup:disk-n-sectors disk))
 
 (defgeneric block-device-read (device lba n-sectors buffer &key offset))
 
@@ -83,13 +84,13 @@
 (defmethod block-device-flush ((disk sup:disk))
   (sup:disk-flush disk))
 
-(defun read-sector (disk start-sector n-sectors)
+(defun block-device-read-sector (disk start-sector n-sectors)
   "Read n sectors from disk"
-  (let ((result (make-array (* (sup:disk-sector-size disk) n-sectors)
+  (let ((result (make-array (* (block-device-sector-size disk) n-sectors)
                             :element-type '(unsigned-byte 8))))
     (block-device-read disk start-sector n-sectors result)
     result))
 
-(defun write-sector (disk start-sector array n-sectors)
+(defun block-device-write-sector (disk start-sector array n-sectors)
   "Write n sectors to disk"
   (block-device-write disk start-sector n-sectors array))

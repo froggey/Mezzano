@@ -3,7 +3,7 @@
 ;;;; This implementation can read from ext2, ext3 and ext4.
 
 (defpackage :mezzano.ext4-file-system
-  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk-file-system :iterate)
+  (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
   (:export)
   (:import-from #:sys.int
                 #:explode))
@@ -197,7 +197,7 @@
                    :collect (logand feature feature-incompat))))))
 
 (defun read-superblock (disk)
-  (let* ((superblock (read-sector disk 2 2))
+  (let* ((superblock (block-device-read-sector disk 2 2))
          (magic (sys.int::ub16ref/le superblock 56))
          (feature-incompat (sys.int::ub32ref/le superblock 96)))
     (check-magic magic)
@@ -319,14 +319,14 @@
 (defun block-size (disk superblock)
   "Take disk and superblock, return block size in disk sectors"
   (/ (ash 1024 (superblock-log-block-size superblock))
-     (mezzano.supervisor:disk-sector-size disk)))
+     (block-device-sector-size disk)))
 
 (defun read-block (disk superblock block-n &optional (n-blocks 1))
   (let* ((block-size (block-size disk superblock))
          (sector-n (* block-size
                       (if (= (superblock-log-block-size superblock) 1)
                           (1+ block-n) block-n))))
-    (read-sector disk sector-n (* n-blocks block-size))))
+    (block-device-read-sector disk sector-n (* n-blocks block-size))))
 
 (defun block-size-in-bytes (disk superblock)
   "Take disk and superblock, return block size in bytes"
@@ -405,7 +405,7 @@
                     (with n-octets := (* block-group-size (n-block-groups superblock)))
                     (with block := (read-block disk superblock 1
                                                (/ n-octets
-                                                  (mezzano.supervisor:disk-sector-size disk)
+                                                  (block-device-sector-size disk)
                                                   (block-size disk superblock))))
                     (for offset :from 0 :below n-octets :by block-group-size)
                     (collecting (read-block-group-descriptor superblock block offset)))))
