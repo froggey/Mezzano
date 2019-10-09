@@ -117,8 +117,7 @@
 ))
 
 (defparameter *warm-source-files*
-  '("system/clos/package.lisp"
-    "system/clos/macros.lisp"
+  '("system/clos/macros.lisp"
     "system/clos/single-dispatch-emf-table.lisp"
     "system/clos/closette.lisp"
     "system/clos/struct.lisp"
@@ -550,7 +549,6 @@
     "system/printer.lisp"
     "system/numbers.lisp"
     "system/character.lisp"
-    "system/clos/package.lisp"
     "system/clos/macros.lisp"
     "system/clos/closette.lisp"
     "system/data-types.lisp"

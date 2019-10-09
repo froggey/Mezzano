@@ -38,6 +38,13 @@
   "This value can be passed to (CAS SLOT-VALUE) to indicate that
 the old or new values are expected to be unbound.")
 
+(defun mapappend (fun &rest args)
+  "mapappend is like mapcar except that the results are appended together:"
+  (if (some #'null args)
+      ()
+      (append (apply fun (mapcar #'car args))
+              (apply #'mapappend fun (mapcar #'cdr args)))))
+
 ;;;
 ;;; Standard instances
 ;;;
