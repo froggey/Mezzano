@@ -26,7 +26,6 @@
    (lambda-list :initarg :lambda-list)
    (methods :initform ())
    (method-class :initarg :method-class)
-   (discriminating-function)
    (classes-to-emf-table :initform nil)
    (relevant-arguments)
    (weird-specializers-p)
