@@ -57,7 +57,11 @@
       (format stream " [obsolete]"))))
 
 (defmethod print-object ((object hash-table) stream)
-  (print-unreadable-object (object stream :type t :identity t)))
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream ":Test ~S :Count ~S :Synchronized ~S"
+            (hash-table-test object)
+            (hash-table-count object)
+            (hash-table-synchronized object))))
 
 (defmethod print-object ((object mezzano.supervisor:thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
