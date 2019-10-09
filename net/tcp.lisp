@@ -554,8 +554,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (when (and (not (eql (tcp-connection-state connection) :established))
                  (logtest flags +tcp4-flag-rst+))
         ;; FIXME: This code isn't correct, it needs to check the sequence numbers
-        ;; before resetting the connection. This is currently only done correctly
-        ;; in the :ESTABLISHED state, but should be done for the other states too.
+        ;; before accepting this packet and resetting the connection. This is
+        ;; currently only done correctly in the :ESTABLISHED state, but should
+        ;; be done for the other states too.
         ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
               (make-condition 'connection-reset
@@ -667,7 +668,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                          "Test SND.UNA =< X =< SEG.ACK"
                          (if (< (tcp-connection-snd.una connection) ack)
                              (<= (tcp-connection-snd.una connection) x ack)
-                             ;; Sequence numbers acked.
+                             ;; Sequence numbers wrapped.
                              (or (<= (tcp-connection-snd.una connection) x)
                                  (<= x ack)))))
                   (loop
