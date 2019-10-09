@@ -3268,6 +3268,10 @@ has only has class specializer."
 (defclass eql-specializer (specializer)
   ((object :initarg :object :reader eql-specializer-object)))
 
+(defmethod print-object ((object eql-specializer) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (eql-specializer-object object))))
+
 (defun intern-eql-specializer (object)
   (or (gethash object *interned-eql-specializers*)
       (setf (gethash object *interned-eql-specializers*)
