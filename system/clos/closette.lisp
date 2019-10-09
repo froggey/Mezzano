@@ -3157,7 +3157,7 @@ has only has class specializer."
 
 (defmethod print-object ((method standard-method) stream)
   (print-unreadable-object (method stream :identity t)
-    (format stream "~:(~S~) ~S ~S ~S"
+    (format stream "~:(~S~) ~S ~:S ~:S"
 	    (safe-class-name (class-of method))
 	    (when (safe-method-generic-function method)
               (safe-generic-function-name (safe-method-generic-function method)))
