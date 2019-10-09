@@ -2568,6 +2568,8 @@ has only has class specializer."
   (:method ((effective-slot-definition standard-effective-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value effective-slot-definition 'location)))
+;; TODO: Remove this in the future when slime is updated. Use DOCUMENTATION
+;; instead.
 (defgeneric slot-definition-documentation (slot-definition)
   (:method ((slot-definition standard-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
