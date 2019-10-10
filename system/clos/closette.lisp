@@ -1381,12 +1381,31 @@ Other arguments are included directly."
 
 ;;; ensure-generic-function
 
+(defun normalize-e-g-f-args (&rest all-keys &key generic-function-class method-class &allow-other-keys)
+    ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
+  (remf all-keys :generic-function-class)
+  ;; Passing our own.
+  (remf all-keys :method-class)
+  ;; FIXME: What to do with this?
+  (remf all-keys :environment)
+  (when (and generic-function-class
+             (symbolp generic-function-class))
+    (setf generic-function-class (find-class generic-function-class)))
+  (cond ((null method-class)
+         (setf method-class *the-class-standard-method*))
+        ((symbolp method-class)
+         (setf method-class (find-class method-class))))
+  (values generic-function-class
+          (list* :method-class method-class
+                 all-keys)))
+
+;; Bootstrap note: This partially replicates the behaviour of
+;; ENSURE-GENERIC-FUNCTION-USING-CLASS for standard-generic-function so
+;; as to avoid calling generic functions when initially defining them.
 (defun ensure-generic-function
        (function-name
         &rest all-keys
-        &key generic-function-class
-             (method-class 'standard-method)
-        &allow-other-keys)
+        &key generic-function-class &allow-other-keys)
   (cond ((and (symbolp function-name)
               (special-operator-p function-name))
          ;; Can't override special operators.
@@ -1394,7 +1413,7 @@ Other arguments are included directly."
                 :format-control "~S names a special operator"
                 :format-arguments (list function-name)))
         ((or (and (fboundp function-name)
-                  (not (typep (fdefinition function-name) 'standard-generic-function)))
+                  (not (typep (fdefinition function-name) 'generic-function)))
              (and (symbolp function-name)
                   (macro-function function-name)))
          (cerror "Clobber it" 'sys.int::simple-program-error
@@ -1406,49 +1425,37 @@ Other arguments are included directly."
          (when (fboundp function-name)
            (fmakunbound function-name))
          (setf (compiler-macro-function function-name) nil)))
-  (when (and generic-function-class
-             (symbolp generic-function-class))
-    (setf generic-function-class (find-class generic-function-class)))
-  ;; AMOP seems to imply that METHOD-CLASS should always be a class name,
-  ;; that feels overly restrictive...
-  (when (symbolp method-class)
-    (setf method-class (find-class method-class)))
-  ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
-  (remf all-keys :generic-function-class)
-  ;; FIXME: What to do with this?
-  (remf all-keys :environment)
-  (cond ((fboundp function-name)
-         (let ((gf (fdefinition function-name)))
-           (when (and generic-function-class
-                      (not (eql (class-of gf) generic-function-class)))
-             (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
-                    function-name gf
-                    (class-of gf) generic-function-class))
-           ;; Bootstrap hack: Avoid calling REINITIALIZE-INSTANCE when
-           ;; no keys are passed in. (ENSURE-GENERIC-FUNCTION name) is
-           ;; called by DEFMETHOD-1 to fetch the generic function and
-           ;; this happens before REINITIALIZE-INSTANCE is defined.
-           (when all-keys
-             (apply #'reinitialize-instance
-                    gf
-                    :name function-name
-                    :method-class method-class
-                    all-keys))
-           gf))
-        (t
-         (when (not generic-function-class)
-           (setf generic-function-class *the-class-standard-gf*))
-         (let ((gf (apply (if (eq generic-function-class *the-class-standard-gf*)
-                              #'make-instance-standard-generic-function
-                              #'make-instance)
-                          generic-function-class
-                          :name function-name
-                          :method-class method-class
-                          all-keys)))
-           ;; Not entirely sure where this should be done.
-           ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
-           (setf (fdefinition function-name) gf)
-           gf))))
+  (let ((existing-gf (and (fboundp function-name)
+                          (fdefinition function-name))))
+    (cond ((and existing-gf
+                (not all-keys)
+                (standard-generic-function-instance-p existing-gf))
+           ;; Bootstrap hack: Don't call reinitialize-instance for
+           ;; standard generic functions when no initargs are specifed.
+           ;; DEFMETHOD-1 does this to fetch the generic function.
+           existing-gf)
+          ((and (not existing-gf)
+                (not generic-function-class))
+           ;; Bootstrap hack: Bypass E-G-F-U-C when defining standard
+           ;; generic functions, the required generics/methods might not have
+           ;; been defined yet.
+           (multiple-value-bind (generic-function-class initargs)
+               (apply #'normalize-e-g-f-args all-keys)
+             (declare (ignore generic-function-class))
+             (let ((gf (apply #'make-instance-standard-generic-function
+                              *the-class-standard-gf*
+                              :name function-name
+                              initargs)))
+               ;; Not entirely sure where this should be done.
+               ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
+               (setf (fdefinition function-name) gf)
+               gf)))
+          (t
+           ;; Off we go, this is the normal path.
+           (apply #'ensure-generic-function-using-class
+                  existing-gf
+                  function-name
+                  all-keys)))))
 
 (defun generic-function-unspecialized-dispatch-p (gf)
   "Returns true when the generic function has no methods with non-t specialized arguments."
@@ -2804,6 +2811,46 @@ always match."
 (defgeneric compute-applicable-methods (generic-function arguments))
 (defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
   (std-compute-applicable-methods generic-function arguments))
+
+(defgeneric ensure-generic-function-using-class
+    (generic-function
+     function-name
+     &key generic-function-class &allow-other-keys))
+
+(defmethod ensure-generic-function-using-class
+    ((generic-function generic-function)
+     function-name
+     &rest all-keys
+     &key &allow-other-keys)
+  (multiple-value-bind (generic-function-class initargs)
+      (apply #'normalize-e-g-f-args all-keys)
+    (when (and generic-function-class
+               (not (eql (class-of generic-function) generic-function-class)))
+      (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
+             function-name generic-function
+             (class-of generic-function) generic-function-class))
+    (apply #'reinitialize-instance
+           generic-function
+           :name function-name
+           initargs)))
+
+(defmethod ensure-generic-function-using-class
+    ((generic-function null)
+     function-name
+     &rest all-keys
+     &key generic-function-class method-class &allow-other-keys)
+  (multiple-value-bind (generic-function-class initargs)
+      (apply #'normalize-e-g-f-args all-keys)
+    (let ((gf (apply #'make-instance
+                     (or generic-function-class
+                         *the-class-standard-gf*)
+                     :name function-name
+                     :method-class method-class
+                     all-keys)))
+      ;; Not entirely sure where this should be done.
+      ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
+      (setf (fdefinition function-name) gf)
+      gf)))
 
 ;;; Dependent maintenance protocol
 

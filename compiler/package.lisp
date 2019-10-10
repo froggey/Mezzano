@@ -196,6 +196,8 @@
            #:ensure-class
            #:ensure-class-using-class
 
+           #:ensure-generic-function-using-class
+
            #:structure-slot-definition
            #:structure-effective-slot-definition
            #:structure-direct-slot-definition
