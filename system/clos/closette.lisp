@@ -1480,7 +1480,7 @@ has only has class specializer."
   (cond ((single-dispatch-emf-table-p (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
         ((classes-to-emf-table gf)
-         (clrhash (classes-to-emf-table gf)))))
+         (clear-emf-cache (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
   (let ((number-required (length (gf-required-arglist gf))))
@@ -1561,7 +1561,8 @@ has only has class specializer."
                                          (make-single-dispatch-emf-table))
                                         ((generic-function-unspecialized-dispatch-p gf)
                                          nil)
-                                        (t (make-hash-table :test #'equal))))
+                                        (t
+                                         (make-emf-cache gf))))
   (set-funcallable-instance-function
    gf
    (funcall (if (standard-generic-function-instance-p gf)
@@ -1956,11 +1957,10 @@ has only has class specializer."
       (error 'sys.int::simple-program-error
              :format-control "Too few arguments to generic function ~S."
              :format-arguments (list gf)))
-    (let* ((classes (mapcar #'class-of (subseq args 0 n-required-args)))
-           (emfun (gethash classes emf-table nil)))
+    (let* ((emfun (emf-cache-lookup emf-table args)))
       (if emfun
           (apply emfun args)
-          (slow-method-lookup gf args classes)))))
+          (slow-method-lookup gf args)))))
 
 (defun compute-1-effective-eql-table (gf argument-offset)
   (loop
@@ -2086,28 +2086,166 @@ has only has class specializer."
               (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
              (apply gf args))))))
 
-(defun slow-method-lookup (gf args classes)
-  (multiple-value-bind (applicable-methods validp)
-      (if (eql (class-of gf) *the-class-standard-gf*)
-          (std-compute-applicable-methods-using-classes gf classes)
-          (compute-applicable-methods-using-classes gf classes))
-    (unless validp
-      (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
-                                   (std-compute-applicable-methods gf args)
-                                   (compute-applicable-methods gf args))))
-    (let ((emfun (cond (applicable-methods
-                        (funcall
-                         (if (eq (class-of gf) *the-class-standard-gf*)
-                             #'std-compute-effective-method-function
-                             #'compute-effective-method-function)
-                         gf applicable-methods))
-                       (t
-                        (lambda (&rest args)
-                          (apply #'no-applicable-method gf args))))))
-      ;; Cache is only valid for non-eql methods.
-      (when validp
-        (setf (gethash classes (classes-to-emf-table gf)) emfun))
-      (apply emfun args))))
+(defun slow-method-lookup (gf args)
+  (let ((std-gf-p (eq (class-of gf) *the-class-standard-gf*))
+        (classes (mapcar #'class-of (required-portion gf args))))
+    (multiple-value-bind (applicable-methods validp)
+        (if std-gf-p
+            (std-compute-applicable-methods-using-classes gf classes)
+            (compute-applicable-methods-using-classes gf classes))
+      (unless validp
+        (setf applicable-methods (if std-gf-p
+                                     (std-compute-applicable-methods gf args)
+                                     (compute-applicable-methods gf args))))
+      (when (not applicable-methods)
+        (return-from slow-method-lookup
+          (apply #'no-applicable-method gf args)))
+      (let ((emfun (if std-gf-p
+                       (std-compute-effective-method-function gf applicable-methods)
+                       (compute-effective-method-function gf applicable-methods))))
+        (insert-into-emf-cache (classes-to-emf-table gf) args emfun)
+        (apply emfun args)))))
+
+(defstruct (emf-cache-level
+             (:constructor %make-emf-cache-level))
+  eql-specializers
+  class-specializers)
+
+(defstruct (emf-cache
+             (:constructor %make-emf-cache))
+  generic-function
+  top-level
+  (lock (mezzano.supervisor:make-mutex "emf cache")))
+
+(defun make-emf-cache (generic-function)
+  (%make-emf-cache
+   :lock (mezzano.supervisor:make-mutex `(emf-cache ,generic-function))
+   :generic-function generic-function
+   :top-level (make-emf-cache-level generic-function '())))
+
+(defun make-emf-cache-level (generic-function partial-specializers)
+  (let* ((depth (length partial-specializers))
+         (eql-methods (remove-if-not
+                       (lambda (method)
+                         (has-eql-specializer-in-reordered-position-p
+                          generic-function method depth))
+                       (compute-applicable-methods-partial generic-function partial-specializers)))
+         (eql-specializers (remove-duplicates
+                            (mapcar (lambda (method)
+                                      (reordered-method-specializer generic-function method depth))
+                                    eql-methods))))
+    (%make-emf-cache-level
+     :eql-specializers (loop
+                          for eql-spec in eql-specializers
+                          collect (cons (eql-specializer-object eql-spec) nil))
+     :class-specializers (make-hash-table :synchronized nil))))
+
+;; TODO: If there is a custom method on COMPUTE-APPLICABLE-METHODS then
+;; this scheme should not be used and the class-cache-only implementation
+;; should be used instead.
+(defun insert-into-emf-cache (cache arguments value)
+  ;; ### I'm a little worried about the locking here. This calls back into
+  ;; the MOP machinery to update the cache... Is it possible to reenter?
+  (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
+    (let* ((gf (emf-cache-generic-function cache))
+           (req-args (required-portion gf arguments))
+           (n-args (length req-args))
+           (level (emf-cache-top-level cache))
+           (partial-specializers '()))
+      (dotimes (i (1- n-args))
+        (let* ((arg (reordered-argument gf arguments i))
+               (eql-entry (assoc arg (emf-cache-level-eql-specializers level))))
+          (cond (eql-entry
+                 ;; This value is used as an EQL specializer.
+                 (push-on-end (intern-eql-specializer arg) partial-specializers)
+                 (when (not (cdr eql-entry))
+                   (setf (cdr eql-entry) (make-emf-cache-level gf partial-specializers)))
+                 (setf level (cdr eql-entry)))
+                (t
+                 ;; Just a regular class specializer.
+                 (let ((class (class-of arg)))
+                   (push-on-end class partial-specializers)
+                   (when (not (gethash class (emf-cache-level-class-specializers level)))
+                     (setf (gethash class (emf-cache-level-class-specializers level))
+                           (make-emf-cache-level gf partial-specializers)))
+                   (setf level (gethash class (emf-cache-level-class-specializers level))))))))
+      ;; Last level, where the entry actually is.
+      (let* ((arg (reordered-argument gf arguments (1- n-args)))
+             (eql-entry (assoc arg (emf-cache-level-eql-specializers level))))
+        (cond (eql-entry
+               ;; This value is used as an EQL specializer.
+               (setf (cdr eql-entry) value))
+              (t
+               ;; Just a regular class specializer.
+               (setf (gethash (class-of arg) (emf-cache-level-class-specializers level)) value)))))))
+
+(defun emf-cache-lookup (cache arguments)
+  (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
+    (let* ((gf (emf-cache-generic-function cache))
+           (n-args (length (safe-generic-function-relevant-arguments gf)))
+           (level (emf-cache-top-level cache)))
+      (dotimes (i n-args
+                ;; On the final iteration LEVEL will contain the actual entry value.
+                level)
+        (let* ((arg (reordered-argument gf arguments i))
+               (eql-entry (assoc arg (emf-cache-level-eql-specializers level))))
+          (cond (eql-entry
+                 ;; This value is used as an EQL specializer.
+                 (setf level (cdr eql-entry)))
+                (t
+                 ;; Just a regular class specializer.
+                 (setf level (gethash (class-of arg) (emf-cache-level-class-specializers level)))))
+          (when (not level)
+            ;; This level is not present (or contains NIL), stop here.
+            (return nil)))))))
+
+(defun clear-emf-cache (cache)
+  (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
+    (setf (emf-cache-top-level cache) (make-emf-cache-level (emf-cache-generic-function cache) '()))))
+
+(defun reordered-argument (gf arguments index)
+  (nth (reordered-method-argument-index gf index)
+       arguments))
+
+(defun reordered-method-specializer (gf method index)
+  (nth (reordered-method-argument-index gf index)
+       (method-specializers method)))
+
+(defun has-eql-specializer-in-reordered-position-p (gf method index)
+  (typep (reordered-method-specializer gf method index) 'eql-specializer))
+
+(defun method-partial-specializer-match-p (gf method specializers-reordered)
+  (loop
+     for specializer in specializers-reordered
+     for index from 0
+     for method-spec in (reorder-method-specializers
+                         gf (safe-method-specializers method))
+     unless (etypecase method-spec
+              (class
+               (etypecase specializer
+                 (class
+                  (subclassp specializer method-spec))
+                 (eql-specializer
+                  (typep (eql-specializer-object specializer) method-spec))))
+              (eql-specializer
+               (etypecase specializer
+                 (class
+                  ;; Filter these out entirely, matching the behaviour
+                  ;; of the emf cache.
+                  nil)
+                 (eql-specializer
+                  (eql specializer method-spec)))))
+     do (return nil)
+     finally (return t)))
+
+(defun compute-applicable-methods-partial (gf specializers-reordered)
+  "Return a list of all methods matching SPECIALIZERS-REORDERED.
+This list may be shorter than the required portion. Missing argumnts will
+always match."
+  (loop
+     for method in (safe-generic-function-methods gf)
+     when (method-partial-specializer-match-p gf method specializers-reordered)
+     collect method))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
   (let* ((classes (mapcar #'class-of (required-portion gf args))))
@@ -2179,6 +2317,14 @@ has only has class specializer."
        (method-more-specific-with-args-p gf m1 m2 args))))
 
 ;;; method-more-specific-p
+
+(defun reordered-method-argument-index (gf index)
+  "Convert from a reordered argument index to a normal argument index."
+  (let ((ordering-table (argument-reordering-table gf)))
+    (cond (ordering-table
+           (aref ordering-table index))
+          (t
+           index))))
 
 (defun reorder-method-specializers (gf method-specializers)
   (let ((ordering-table (argument-reordering-table gf)))
