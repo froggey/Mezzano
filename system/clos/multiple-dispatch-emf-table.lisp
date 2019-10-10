@@ -14,14 +14,17 @@
 (defstruct (emf-cache
              (:constructor %make-emf-cache))
   generic-function
+  argument-count
+  reordering-table
   top-level
-  (lock (mezzano.supervisor:make-mutex "emf cache")))
+  lock)
 
 (defun make-emf-cache (generic-function)
-  (%make-emf-cache
-   :lock (mezzano.supervisor:make-mutex `(emf-cache ,generic-function))
-   :generic-function generic-function
-   :top-level (make-emf-cache-level generic-function '())))
+  (let ((cache (%make-emf-cache
+                :lock (mezzano.supervisor:make-mutex `(emf-cache ,generic-function))
+                :generic-function generic-function)))
+    (clear-emf-cache cache)
+    cache))
 
 (defun make-emf-cache-level (generic-function partial-specializers)
   (let* ((depth (length partial-specializers))
@@ -82,23 +85,34 @@
 (defun emf-cache-lookup (cache arguments)
   (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
     (let* ((gf (emf-cache-generic-function cache))
-           (n-args (length (safe-generic-function-relevant-arguments gf)))
+           (n-args (emf-cache-argument-count cache))
+           (reordering-table (emf-cache-reordering-table cache))
            (level (emf-cache-top-level cache)))
-      (dotimes (i n-args
-                ;; On the final iteration LEVEL will contain the actual entry value.
-                level)
-        (let* ((arg (reordered-argument gf arguments i))
-               (eql-entry (assoc arg (emf-cache-level-eql-specializers level))))
-          (cond (eql-entry
-                 ;; This value is used as an EQL specializer.
-                 (setf level (cdr eql-entry)))
-                (t
-                 ;; Just a regular class specializer.
-                 (setf level (fast-class-hash-table-entry (emf-cache-level-class-specializers level) (class-of arg)))))
-          (when (not level)
-            ;; This level is not present (or contains NIL), stop here.
-            (return nil)))))))
+      (flet ((reorder-argument (index)
+               (nth (cond (reordering-table
+                           (svref reordering-table index))
+                          (t index))
+                    arguments)))
+        (dotimes (i n-args
+                  ;; On the final iteration LEVEL will contain the actual entry value.
+                  level)
+          (let* ((arg (reorder-argument i))
+                 (eql-entry (assoc arg (emf-cache-level-eql-specializers level))))
+            (cond (eql-entry
+                   ;; This value is used as an EQL specializer.
+                   (setf level (cdr eql-entry)))
+                  (t
+                   ;; Just a regular class specializer.
+                   (setf level (fast-class-hash-table-entry (emf-cache-level-class-specializers level) (class-of arg)))))
+            (when (not level)
+              ;; This level is not present (or contains NIL), stop here.
+              (return nil))))))))
 
 (defun clear-emf-cache (cache)
-  (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
-    (setf (emf-cache-top-level cache) (make-emf-cache-level (emf-cache-generic-function cache) '()))))
+  (let* ((gf (emf-cache-generic-function cache))
+         (n-args (length (safe-generic-function-relevant-arguments gf)))
+         (reordering-table (argument-reordering-table gf)))
+    (mezzano.supervisor:with-mutex ((emf-cache-lock cache))
+      (setf (emf-cache-argument-count cache) n-args
+            (emf-cache-reordering-table cache) reordering-table)
+      (setf (emf-cache-top-level cache) (make-emf-cache-level (emf-cache-generic-function cache) '())))))
