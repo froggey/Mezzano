@@ -1952,15 +1952,17 @@ has only has class specializer."
                   (slow-single-dispatch-method-lookup gf args class))))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
-  (lambda (&rest args)
-    (when (< (length args) n-required-args)
+  (lambda (&rest args sys.int::&count arg-count)
+    (declare (dynamic-extent args))
+    (when (< arg-count n-required-args)
       (error 'sys.int::simple-program-error
              :format-control "Too few arguments to generic function ~S."
              :format-arguments (list gf)))
     (let* ((emfun (emf-cache-lookup emf-table args)))
       (if emfun
           (apply emfun args)
-          (slow-method-lookup gf args)))))
+          ;; Delay copying the argument list until it really needs to have indefinite-extent.
+          (slow-method-lookup gf (copy-list args))))))
 
 (defun compute-1-effective-eql-table (gf argument-offset)
   (loop
