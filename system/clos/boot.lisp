@@ -148,8 +148,11 @@
     (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
     (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
           *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location)))
+  (let ((f-s-c-layout (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
+    (setf *funcallable-standard-class-hash-location* (primordial-slot-location-in-layout f-s-c-layout 'hash)))
   (let ((b-i-c-layout (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
-    (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list))))
+    (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list)
+          *built-in-class-hash-location* (primordial-slot-location-in-layout b-i-c-layout 'hash))))
 
 ;; Initial version of class-constructor, replaced after the compiler is loaded.
 (defun safe-class-constructor (class)
