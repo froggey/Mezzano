@@ -82,18 +82,22 @@
              (format t " ~S: ~S~%" nic (mezzano.network.dhcp::lease interaction)))
            mezzano.network.dhcp::*dhcp-interactions*)
   (format t "TCPv4 connections:~%")
-  (format t " Local~8TRemote~40TState~%")
+  (format t " Local~25TRemote~50TState~%")
   (dolist (conn mezzano.network.tcp::*tcp-connections*)
-    (format t " ~D~8T~A:~D~40T~S~%"
+    (format t " ~A:~D~25T~A:~D~50T~S~%"
+            (mezzano.network.tcp::tcp-connection-local-ip conn)
             (mezzano.network.tcp::tcp-connection-local-port conn)
-            (mezzano.network.tcp::tcp-connection-remote-ip conn) (mezzano.network.tcp::tcp-connection-remote-port conn)
+            (mezzano.network.tcp::tcp-connection-remote-ip conn)
+            (mezzano.network.tcp::tcp-connection-remote-port conn)
             (mezzano.network.tcp::tcp-connection-state conn)))
   (format t "UDPv4 connections:~%")
   (format t " Local~8TRemote~%")
   (dolist (conn mezzano.network.udp::*udp-connections*)
-    (format t " ~D~8T~A:~D~%"
+    (format t " ~A:~D~25T~A:~D~%"
+            (mezzano.network.udp::local-ip conn)
             (mezzano.network.udp::local-port conn)
-            (mezzano.network.udp::remote-address conn) (mezzano.network.udp::remote-port conn))))
+            (mezzano.network.udp::remote-address conn)
+            (mezzano.network.udp::remote-port conn))))
 
 (defvar *cpuid-1-ecx-features*
   #("SSE3"
