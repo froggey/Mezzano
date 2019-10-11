@@ -1023,3 +1023,14 @@ This is a one-shot timer and must be reset after firing."
           (char vendor 10) (code-char (ldb (byte 8 16) vendor-3))
           (char vendor 11) (code-char (ldb (byte 8 24) vendor-3)))
     vendor))
+
+;; Other possible memory barrier instructions are lfence and sfence
+
+(sys.int::define-lap-function %mfence ()
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mfence)
+  (sys.lap-x86:ret))
+
+(defun dma-write-barrier ()
+  (mezzano.supervisor:with-pseudo-atomic
+    (%mfence)))

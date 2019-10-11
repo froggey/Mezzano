@@ -967,6 +967,8 @@
       (with-trace-level (3)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
+      (sys.int::dma-write-barrier)
+
       (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
 
@@ -1008,6 +1010,8 @@
 
       (with-trace-level (3)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
+
+      (sys.int::dma-write-barrier)
 
       ;; tell HC that the control list has work
       (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
@@ -1074,6 +1078,8 @@
       (with-trace-level (3)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
 
+      (sys.int::dma-write-barrier)
+
       ;; tell HC that the control list has work
       (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
             (dpb 1 +command-control-list-filled+ 0))
@@ -1116,6 +1122,8 @@
 
       (with-trace-level (3)
         (print-ed sys.int::*cold-stream* ed :indent "    " :buffers t))
+
+      (sys.int::dma-write-barrier)
 
       ;; tell HC that the control list has work
       (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
