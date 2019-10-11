@@ -473,7 +473,7 @@
     (let ((result phys-addr-free)
           (next-free (+ phys-addr-free num-bytes)))
       (when (> next-free phys-addr-end)
-        (error "Out of memory ~D ~D ~D" result num-bytes phys-addr-end))
+        (error "OHCI: Out of memory ~D ~D ~D" result num-bytes phys-addr-end))
       (setf phys-addr-free next-free)
       result)))
 
@@ -1634,5 +1634,4 @@
         (setf (interrupt-event-type event) :hub-status-change)
         (enqueue-event event)))))
 
-(mezzano.supervisor.pci:define-pci-driver
-    OHCI-driver ohci-probe () ((#x0c #x03 #x10)))
+(pci:define-pci-driver OHCI-driver ohci-probe () ((#x0c #x03 #x10)))
