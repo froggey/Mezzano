@@ -1009,9 +1009,7 @@ collected result will be returned as the value of the LOOP."
 				   `((destructuring-bind ,@crocks
 					 ,@forms))
 				 forms)))))))
-      (do () (nil)
-	(setq answer `(block ,(pop *loop-names*) ,answer))
-	(unless *loop-names* (return nil)))
+      (setf answer `(block ,(first *loop-names*) ,answer))
       answer)))
 
 
@@ -1280,7 +1278,7 @@ collected result will be returned as the value of the LOOP."
     (when *loop-names*
       (loop-error "You may only use one NAMED clause in your loop: NAMED ~S ... NAMED ~S."
 		  (car *loop-names*) name))
-    (setq *loop-names* (list name nil))))
+    (setq *loop-names* (list name))))
 
 (defun loop-do-return ()
   (loop-pseudo-body (loop-construct-return (loop-get-form))))
