@@ -892,6 +892,139 @@
                            data-buf)))))
 
 ;;======================================================================
+;; Bulk Endpoint code
+;;======================================================================
+
+(defmethod create-bulk-endpt
+    ((ohci ohci) device driver endpt-num in-p event-type)
+  (with-trace-level (1)
+    (sup:debug-print-line "create-bulk-endpt"))
+
+  (with-hcd-access (ohci)
+    (when (aref (device-endpoints device) endpt-num)
+      (error "Endpoint ~D already defined. Type is ~S"
+             endpt-num
+             (endpoint-type (aref (device-endpoints device) endpt-num))))
+    (let* ((ed (alloc-ed ohci))
+           (td (alloc-td ohci))
+           (td-phys-addr (array->phys-addr td))
+           (td-header (encode-td-header
+                       +td-partial-buffer+
+                       (if in-p +pid-in-token+ +pid-out-token+)
+                       1
+                       +td-ed-toggle+))
+           (endpoint (make-endpoint :type :bulk
+                                    :device device
+                                    :driver driver
+                                    :num endpt-num
+                                    :ed ed
+                                    :buf-size :n/a
+                                    :event-type event-type
+                                    :interval :n/a
+                                    :header td-header)))
+      (setf
+       ;; save endpoint object
+       (aref (device-endpoints device) endpt-num) endpoint
+       (ed-header ed) (encode-ed-header
+                       (device-addr device)
+                       endpt-num
+                       (if in-p +endpt-direction-in+ +endpt-direction-out+)
+                       (device-speed device)
+                       +endpt-active+
+                       +endpt-general-tds+
+                       (usb-device-max-packet device))
+       (ed-tdq-tail ed) td-phys-addr
+       (ed-tdq-head ed) td-phys-addr
+       ;; Add mapping from "dummy" td to endpoint
+       (gethash td (td->td-info ohci)) (make-td-info :event-type event-type
+                                                     :endpoint endpoint))
+
+      ;; Add bulk endpoint to controller
+      (let ((bar0 (bar ohci)))
+        (setf (ed-next-ed ed)
+              (pci:pci-io-region/32 bar0 +ohci-bulk-head-pointer+)
+              (pci:pci-io-region/32 bar0 +ohci-bulk-head-pointer+)
+              (array->phys-addr ed))))))
+
+(defmethod delete-bulk-endpt ((ohci ohci) device endpt-num)
+  (with-trace-level (1)
+    (sup:debug-print-line "delete-bulk-endpt"))
+
+  (with-hcd-access (ohci)
+    (let* ((endpoint (aref (device-endpoints device) endpt-num)))
+      (when (null endpoint)
+        (error "Endpoint ~D does not exist" endpt-num))
+
+      (when (not (eq (endpoint-type endpoint) :bulk))
+        (error "Endpoint ~D is type ~S not :bulk"
+               endpt-num
+               (endpoint-type endpoint)))
+
+      ;; TODO finish this routine
+
+      #+nil
+      (let ((ed (endpoint-ed endpoint)))
+        ))))
+
+(defmethod bulk-enqueue-buf ((ohci ohci) device endpt-num buf num-bytes)
+  (with-trace-level (1)
+    (sup:debug-print-line "bulk-enqueue-buf"))
+
+  (when (> num-bytes (length buf))
+    (error "Invalid arguments num-bytes (~D) > length of buffer (~D)"
+           num-bytes (length buf)))
+
+  (let* ((endpoint (aref (device-endpoints device) endpt-num))
+         (ed (endpoint-ed endpoint))
+         (msg-td (phys-addr->array (ed-tdq-tail ed)))
+         (msg-td-info (gethash msg-td (td->td-info ohci)))
+         (dummy-td (alloc-td ohci))
+         (dummy-td-phys-addr (array->phys-addr dummy-td))
+         (buf-phys-addr (array->phys-addr buf))
+         (dummy-td-info (make-td-info :event-type (endpoint-event-type endpoint)
+                                      :endpoint endpoint)))
+    (setf
+     (td-header msg-td) (endpoint-header endpoint)
+     (td-buffer-pointer msg-td) buf-phys-addr
+     (td-next-td msg-td) dummy-td-phys-addr
+     (td-buffer-end msg-td) (+ buf-phys-addr num-bytes -1)
+     (td-info-buf-size msg-td-info) num-bytes
+     (td-info-buf msg-td-info) buf
+     (gethash dummy-td (td->td-info ohci)) dummy-td-info
+     ;; update queue tail pointer to new dummy td
+     (ed-tdq-tail ed) dummy-td-phys-addr)
+
+    ;; These two lines attempt to force the ED to be up-to-date before
+    ;; the controller reads it.
+    (sys.int::dma-write-barrier)
+    (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
+
+    (setf (pci:pci-io-region/32 (bar ohci) +ohci-command-status+)
+          (dpb 1 +command-bulk-list-filled+ 0))
+    (values)))
+
+(defun handle-bulk-endpt (ohci td-info td)
+  (with-trace-level (1)
+    (sup:debug-print-line "handle-bulk-endpt"))
+
+  (with-hcd-access (ohci)
+    (unwind-protect
+         (let ((status (aref +condition-codes+
+                             (ldb +td-condition-code+ (td-header td)))))
+
+           ;; TODO check condition code - handle errors
+           (let* ((endpoint (td-info-endpoint td-info)))
+             (remhash td (td->td-info ohci))
+             (transfer-complete (endpoint-driver endpoint)
+                                (td-info-event-type td-info)
+                                (endpoint-num endpoint)
+                                (endpoint-device endpoint)
+                                status
+                                (td-xfer-bytes td (td-info-buf-size td-info))
+                                (td-info-buf td-info))))
+      (free-buffer td))))
+
+;;======================================================================
 ;; set-device-address
 ;;======================================================================
 
@@ -1620,7 +1753,7 @@
                (dpb 1 +control-periodic-list-enable+ 0)
                (dpb 0 +control-isochronous-enable+ 0)
                (dpb 1 +control-control-list-enable+ 0)
-               (dpb 0 +control-bulk-list-enable+ 0)
+               (dpb 1 +control-bulk-list-enable+ 0)
                (dpb +functional-state-operational+ +control-functional-state+ 0)
                (dpb 0 +control-interrupt-routing+ 0)
                (dpb 0 +control-remote-wakeup-enable+ 0))
