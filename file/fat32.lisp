@@ -148,7 +148,8 @@ Valid bps are ~a" bps +bootable-partition-signature+)))
    (%volume-id :initarg :volume-id :accessor fat32-%volume-id :type (unsigned-byte 32))
    (%volume-label :initarg :volume-label :accessor fat32-%volume-label :type string)
    (%fat-type-label :initarg :fat-type-label :accessor fat32-%fat-type-label :type string)
-   (%boot-code :initarg :boot-code :accessor fat32-%boot-code)))
+   (%boot-code :initarg :boot-code :accessor fat32-%boot-code)
+   (%fat-dirty-bits :initarg :fat-dirty-bits :accessor fat32-%fat-dirty-bits)))
 
 (defun check-fat-type-label32 (fat-type-label)
   (if (string= "FAT32   " fat-type-label)
@@ -256,7 +257,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat12 fat12) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat12)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat12))
+        :with num-bytes := (* (block-device-sector-size disk) (fat32-%sectors-per-fat fat12))
+        :with file-allocation-table := (make-array num-bytes :element-type '(unsigned-byte 8))
         :for offset :from 0 :by 3 :below (- (length file-allocation-table) 2)
         :for i :from 0 :by 2
         :for cluster0 := (aref fat i)
@@ -285,7 +287,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod write-fat (disk (fat16 fat16) fat)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat16)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat16))
+        :with num-bytes := (* (block-device-sector-size disk) (fat32-%sectors-per-fat fat16))
+        :with file-allocation-table := (make-array num-bytes :element-type '(unsigned-byte 8))
         :for offset :from 0 :by 2 :below (length file-allocation-table)
         :for i :from 0
         :for cluster-n := (aref fat i)
@@ -302,16 +305,38 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :for i :from 0
         :for cluster-n := (sys.int::ub32ref/le file-allocation-table offset)
         :do (setf (aref fat i) cluster-n)
-        :finally (return fat)))
+        :finally
+          (setf (fat32-%fat-dirty-bits fat32) (make-array (ceiling (fat32-%sectors-per-fat fat32) 32)
+                                                          :element-type '(unsigned-byte 32)
+                                                          :initial-element 0))
+          (return fat)))
 
 (defmethod write-fat (disk (fat32 fat32) fat)
-  (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat32-%sectors-per-fat fat32))
-        :for offset :from 0 :by 4 :below (length file-allocation-table)
-        :for i :from 0
-        :for cluster-n := (aref fat i)
-        :do (setf (sys.int::ub32ref/le file-allocation-table offset) cluster-n)
-        :finally (block-device-write-sector disk fat-offset file-allocation-table (fat32-%sectors-per-fat fat32))))
+  (let* ((dirty-bits (fat32-%fat-dirty-bits fat32))
+         (sector-size (block-device-sector-size disk))
+         (clusters-per-sector (/ sector-size 4))
+         (fat-offset (fat-%n-reserved-sectors fat32))
+         (buf (make-array sector-size :element-type '(unsigned-byte 8))))
+    (dotimes (word-idx (length dirty-bits))
+      (when (/= (aref dirty-bits word-idx) 0)
+        (let ((bits (aref dirty-bits word-idx)))
+          (dotimes (bit-idx 32)
+            (when (logbitp bit-idx bits)
+              (let* ((sector (+ (* word-idx 32) bit-idx))
+                     (word-offset (* sector clusters-per-sector)))
+                (dotimes (i clusters-per-sector)
+                  (setf (sys.int::ub32ref/le buf (* 4 i)) (aref fat (+ word-offset i))))
+                (block-device-write disk (+ sector fat-offset) 1 buf)))))
+        (setf (aref dirty-bits word-idx) 0)))))
+
+(defun set-fat32 (fat32 fat idx value)
+  (setf (aref fat idx) value)
+  (let* ((dirty-bits (fat32-%fat-dirty-bits fat32))
+         (clusters-per-sector (/ (fat-%bytes-per-sector fat32) 4))
+         (sector (floor idx clusters-per-sector)))
+    (multiple-value-bind (word-idx bit-idx) (floor sector 32)
+      (setf (aref dirty-bits word-idx)
+            (dpb 1 (byte 1 bit-idx) (aref dirty-bits word-idx))))))
 
 (defmethod root-dir-sectors ((fat12 fat12))
   (floor (/ (+ (ash (fat-%n-root-entry fat12) 5)
@@ -427,15 +452,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   (i 0 (1+ i)))
                  ((= (length array)
                      (* (+ i n-cluster) spc sector-size))
-                  (setf (aref fat last-cluster) (last-cluster-value fat32))
+                  (set-fat32 fat32 fat last-cluster (last-cluster-value fat32))
                   (write-fat disk fat32 fat))
                (block-device-write disk
                                    (first-sector-of-cluster fat32 cluster-n)
                                    spc
                                    array
                                    :offset (* (+ i n-cluster) spc sector-size))
-               (setf (aref fat last-cluster) cluster-n
-                     last-cluster cluster-n))
+               (set-fat32 fat32 fat last-cluster cluster-n)
+               (setf last-cluster cluster-n))
              t))
       (setf last-cluster cluster-n)
       (block-device-write disk
@@ -730,8 +755,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (do ((cluster-n (read-first-cluster directory start)))
       ((>= cluster-n (last-cluster-value fat32)))
     (let ((next (aref fat cluster-n)))
-      (setf (aref fat cluster-n) 0
-            cluster-n next)))
+      (set-fat32 fat32 fat cluster-n 0)
+      (setf cluster-n next)))
   ;; mark directory entry (or entries) as free
   (free-file-entry directory start)
   ;; Write to disk
@@ -872,12 +897,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defun create-file (host directory cluster-n pathname-name pathname-type previous-p attributes)
   "Create file/directory"
   (multiple-value-bind (time date) (get-fat32-time)
-    (let ((offset)
-          (cluster-size (bytes-per-cluster (fat-structure host)))
-          (cluster-number (next-free-cluster (fat host) 3)))
+    (let* ((offset)
+           (fat32 (fat-structure host))
+           (fat (fat host))
+           (cluster-size (bytes-per-cluster fat32))
+           (cluster-number (next-free-cluster fat 3)))
       ;; Terminate cluster list (allocate one cluster to the file)
-      (setf (aref (fat host) cluster-number)
-            (last-cluster-value (fat-structure host)))
+      (set-fat32 fat32 fat cluster-number (last-cluster-value fat32))
       (multiple-value-setq (offset directory)
         (create-directory-entry directory pathname-name pathname-type previous-p
                                 cluster-size))
@@ -909,14 +935,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            (create-directory-entry new-dir ".." "" NIL 0)
                            cluster-n)
             ;; Write to disk
-            (write-file (fat-structure host)
-                        (partition host)
-                        cluster-number
-                        (fat host) new-dir)))
+            (write-file fat32 (partition host) cluster-number fat new-dir)))
         ;; Write parent directory to disk
-        (write-file (fat-structure host) (partition host) cluster-n (fat host) directory)
+        (write-file fat32 (partition host) cluster-n fat directory)
         ;; Write fat
-        (write-fat (partition host) (fat-structure host) (fat host))
+        (write-fat (partition host) fat32 fat)
         ;; Return cluster-number
         cluster-number))))
 
@@ -1127,7 +1150,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                    abort-action :delete)
                              (error 'simple-file-error
                                     :pathname pathname
-                                    :format-control "File ~A does not exist. ~S"
+                                    :format-control "Directory for ~A does not exist. ~S"
                                     :format-arguments (list pathname (file-name pathname)))))))))
       (when (and (not created-file-p) (member direction '(:output :io)))
         (ecase if-exists
@@ -1345,8 +1368,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                   (do ((cluster-n (read-first-cluster directory offset)))
                                       ((>= cluster-n (last-cluster-value fat32)))
                                     (let ((next (aref fat cluster-n)))
-                                      (setf (aref fat cluster-n) 0
-                                            cluster-n next))))
+                                      (set-fat32 fat32 fat cluster-n 0)
+                                      (setf cluster-n next))))
                                  (T
                                   (error 'simple-file-error
                                          :pathname path
@@ -1360,8 +1383,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                  (do ((cluster-n (read-first-cluster parent-dir dir-offset)))
                      ((>= cluster-n (last-cluster-value fat32)))
                    (let ((next (aref fat cluster-n)))
-                     (setf (aref fat cluster-n) 0
-                           cluster-n next))))))
+                     (set-fat32 fat32 fat cluster-n 0)
+                     (setf cluster-n next))))))
       (multiple-value-bind (parent-dir parent-cluster dir-offset)
           (open-file-metadata host new-path)
         (when (null dir-offset)
