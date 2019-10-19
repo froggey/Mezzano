@@ -1032,5 +1032,4 @@ This is a one-shot timer and must be reset after firing."
   (sys.lap-x86:ret))
 
 (defun dma-write-barrier ()
-  (mezzano.supervisor:with-pseudo-atomic
-    (%mfence)))
+  (%mfence))
