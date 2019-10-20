@@ -70,7 +70,8 @@
 (defsystem "mezzano-usb/class-drivers"
   :description "Class drivers"
   :depends-on ("mezzano-usb")
-  :components ((:file "hid")))
+  :components ((:file "hid")
+               (:file "mass-storage")))
 
 (defsystem "mezzano-usb/debug"
   :description "Debug support for USB drivers"
@@ -85,3 +86,8 @@
   :depends-on ("mezzano-usb" "mezzano-usb/class-drivers" "mezzano-usb/debug")
   :components ((:file "hid-debug")
                (:file "hid-test")))
+
+(defsystem "mezzano-usb/mass-storage/debug"
+  :description "Debug support for mass storage driver"
+  :depends-on ("mezzano-usb" "mezzano-usb/class-drivers" "mezzano-usb/debug")
+  :components ((:file "mass-storage-debug")))
