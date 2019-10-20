@@ -98,20 +98,24 @@
         (aref buf 7) (ldb (byte 8 8) length)))
 
 ;;======================================================================
-;; Standard Descriptor Types from USB Spec 1.1 Sec 9.4
+;; Standard Descriptor Types from USB Spec 1.1 Sec 9.4 and USB Spec
+;; 2.0 table 9-5
 ;;======================================================================
 
 ;; (byte 2 5) = 0 => standard descriptor
-(define-constant +desc-type-device+           1)
-(define-constant +desc-type-configuration+    2)
-(define-constant +desc-type-string+           3)
-(define-constant +desc-type-interface+        4)
-(define-constant +desc-type-endpoint+         5)
+(define-constant +desc-type-device+                    1)
+(define-constant +desc-type-configuration+             2)
+(define-constant +desc-type-string+                    3)
+(define-constant +desc-type-interface+                 4)
+(define-constant +desc-type-endpoint+                  5)
+(define-constant +desc-type-device-qualifier+          6)
+(define-constant +desc-type-other-speed-configuration+ 7)
+(define-constant +desc-type-interface-power+           8)
 
 ;; (byte 2 5) = 1 => class descriptor
-(define-constant +desc-type-hid+           #x21)
-(define-constant +desc-type-report+        #x22)
-(define-constant +desc-type-physical+      #x23)
+(define-constant +desc-type-hid+                    #x21)
+(define-constant +desc-type-report+                 #x22)
+(define-constant +desc-type-physical+               #x23)
 
 ;; (byte 2 5) = 2 => Vendor descriptor
 
@@ -168,9 +172,12 @@
 (define-constant +id-interface-idx+        8)
 
 (define-constant +id-class-hid+            3)
+(define-constant +id-class-mass-storage+   8)
 
-(define-constant +id-protocol-keyboard+    1)
-(define-constant +id-protocol-mouse+       2)
+(define-constant +id-protocol-keyboard+    #x01)
+(define-constant +id-protocol-mouse+       #x02)
+
+(define-constant +id-protocol-bulk-only+   #x50)
 
 ;;======================================================================
 ;; Standard Endpoint Descriptor byte offsets from USB Spec 1.1 Sec 9.6
@@ -262,6 +269,10 @@
 (define-function get-unsigned-word/16 (buf offset)
   (dpb (aref buf (1+ offset)) (byte 8 8) (aref buf offset)))
 
+(define-function (setf get-unsigned-word/16) (value buf offset)
+  (setf (aref buf offset)       (ldb (byte 8  0) value)
+        (aref buf (+ offset 1)) (ldb (byte 8  8) value)))
+
 (define-function get-unsigned-word/32 (buf offset)
   (dpb (aref buf (+ offset 3))
        (byte 8 24)
@@ -270,6 +281,40 @@
             (dpb (aref buf (+ offset 1))
                  (byte 8 8)
                  (aref buf offset)))))
+
+(define-function (setf get-unsigned-word/32) (value buf offset)
+  (setf (aref buf offset)       (ldb (byte 8  0) value)
+        (aref buf (+ offset 1)) (ldb (byte 8  8) value)
+        (aref buf (+ offset 2)) (ldb (byte 8 16) value)
+        (aref buf (+ offset 3)) (ldb (byte 8 24) value)))
+
+(define-function get-be-unsigned-word/16 (buf offset)
+  (dpb (aref buf offset) (byte 8 8) (aref buf (1+ offset))))
+
+(define-function (setf get-be-unsigned-word/16) (value buf offset)
+  (setf (aref buf (+ offset 1)) (ldb (byte 8  0) value)
+        (aref buf offset)       (ldb (byte 8  8) value)))
+
+(define-function get-be-unsigned-word/32 (buf offset)
+  (dpb (aref buf offset)
+       (byte 8 24)
+       (dpb (aref buf (+ offset 1))
+            (byte 8 16)
+            (dpb (aref buf (+ offset 2))
+                 (byte 8 8)
+                 (aref buf (+ offset 3))))))
+
+(define-function (setf get-be-unsigned-word/32) (value buf offset)
+  (setf (aref buf (+ offset 3)) (ldb (byte 8  0) value)
+        (aref buf (+ offset 2)) (ldb (byte 8  8) value)
+        (aref buf (+ offset 1)) (ldb (byte 8 16) value)
+        (aref buf offset)       (ldb (byte 8 24) value)))
+
+(define-function get-ascii-string (buf offset length)
+  (let ((result (make-string length)))
+    (dotimes (i length)
+      (setf (char result i) (code-char (aref buf (+ offset i)))))
+    result))
 
 ;;======================================================================
 ;;
