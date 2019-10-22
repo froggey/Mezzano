@@ -96,7 +96,7 @@ Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
           (= signature #x29))
       signature
       (error "Bad signature : ~x .
-Valid signature are #x28 and #x29")))
+Valid signature are #x28 and #x29" signature)))
 
 (defun check-bps (bps)
   (unless (= bps +bootable-partition-signature+)
@@ -1294,16 +1294,23 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                (namestring dest))
       t
       (multiple-value-bind (source-dir source-cluster source-start) (open-file-metadata host source)
-        (assert source-start (source-start) "Source file not found. ~s" source)
+        (error 'simple-file-error
+               :pathname source
+               :format-control "File ~A does not exist. ~S"
+               :format-arguments (list source (file-name source)))
         (multiple-value-bind (dest-dir dest-cluster dest-start) (open-file-metadata host dest)
-          (assert (not dest-start) (dest-start) "Destination file alredy exist. ~s" dest)
-          (let ((dest-offset))
+          (let ((fat32 (fat-structure host))
+                (fat (fat host))
+                (disk (partition host))
+                (dest-offset))
+            (when dest-start
+              (remove-file dest-dir dest-start disk dest-cluster fat32 fat))
             (multiple-value-setq (dest-offset dest-dir)
               (create-directory-entry dest-dir
                                       (pathname-name dest)
                                       (pathname-type dest)
                                       (eql (pathname-version dest) :previous)
-                                      (bytes-per-cluster (fat-structure host))))
+                                      (bytes-per-cluster fat32)))
             ;; copy meta data
             (replace dest-dir source-dir
                      :start1 (+ dest-offset 11)
@@ -1315,19 +1322,23 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                    ;; destination directory (already modified above)
                    ;; remove source file entry
                    (free-file-entry dest-dir source-start)
-                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))
+                   (write-file fat32 disk dest-cluster fat dest-dir))
                   (T
                    ;; source and destination are different directories
                    ;; remove source file entry
                    (free-file-entry source-dir source-start)
                    ;; write both directories
-                   (write-file (fat-structure host) (partition host) source-cluster (fat host) source-dir)
-                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))))))))
+                   (write-file fat32 disk source-cluster fat source-dir)
+                   (write-file fat32 disk dest-cluster fat dest-dir))))))))
 
 (defmethod file-write-date-using-host ((host fat32-host) path)
   (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
     (declare (ignore parent-cluster))
-    (assert file-offset (file-offset) "File not found. ~s" path)
+    (when (null file-offset)
+      (error 'simple-file-error
+                             :pathname path
+                             :format-control "File ~A does not exist. ~S"
+                             :format-arguments (list path (file-name path))))
     (let ((time (read-write-time parent-dir file-offset))
           (date (read-write-date parent-dir file-offset)))
       (encode-universal-time (ash (ldb (byte 5 0) time) 1)
@@ -1342,7 +1353,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (fat32 (fat-structure host))
          (fat (fat host)))
     (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
-      (assert file-offset (file-offset) "File not found. ~s" path)
+      (when (null file-offset)
+        (error 'simple-file-error
+               :pathname path
+               :format-control "File ~A does not exist. ~S"
+               :format-arguments (list path (file-name path))))
+      (when (directory-p parent-dir file-offset)
+        (error 'simple-file-error
+               :pathname path
+               :format-control "~S is a directory, couldn't delete"
+               :format-arguments (list path )))
       (remove-file parent-dir file-offset disk parent-cluster fat32 fat))))
 
 (defmethod delete-directory-using-host ((host fat32-host) path &key recursive)
