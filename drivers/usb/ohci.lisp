@@ -6,9 +6,6 @@
 ;; Host Controller Driver (HCD) for OpenHCI based on the Open Host
 ;; Controller Interface Specification for USB.
 ;;
-;; TODO - change int-event-type to be a function - maybe need another
-;;        event structure and changes to threads.lisp?
-;;
 ;;======================================================================
 
 (in-package :mezzano.driver.usb.ohci)
@@ -200,6 +197,21 @@
 (defun alloc-ed (ohci)
   (alloc-buffer/32 (buf-pool ohci) 4))
 
+(defun free-ed (ohci ed)
+  (loop
+     with td->td-info = (td->td-info ohci)
+     with td-tail-phys-addr = (ed-tdq-tail ed)
+     for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then next-td-phys-addr
+     for td = (phys-addr->array td-phys-addr)
+     for td-info = (gethash td td->td-info)
+     for next-td-phys-addr = (td-next-td td)
+     do
+       (when (td-info-buf td-info)
+         (free-buffer (td-info-buf td-info)))
+       (free-td ohci td)
+     until (= td-phys-addr td-tail-phys-addr))
+  (free-buffer ed))
+
 (defun encode-ed-header (port-num endpt-num dir speed skip format size)
   (logior (dpb port-num +endpt-function-addr-field+ 0)
           (dpb endpt-num +endpt-number+ 0)        ;; endpoint number
@@ -281,8 +293,17 @@
 (defun (setf td-buffer-end) (phys-addr td)
   (setf (aref td +td-buffer-end+) phys-addr))
 
-(defun alloc-td (ohci)
-  (alloc-buffer/32 (buf-pool ohci) 4))
+(defun alloc-td (ohci &key event-type endpoint buf-size buf)
+  (let ((td (alloc-buffer/32 (buf-pool ohci) 4)))
+    (setf (gethash td (td->td-info ohci)) (make-td-info :event-type event-type
+                                                        :endpoint endpoint
+                                                        :buf-size buf-size
+                                                        :buf buf))
+    td))
+
+(defun free-td (ohci td)
+  (remhash td (td->td-info ohci))
+  (free-buffer td))
 
 (defun encode-td-header (partial-buf pid int-delay toggle)
   (logior (dpb partial-buf +td-buffer-rounding+ 0)  ;; parital buffer is OK
@@ -374,6 +395,21 @@
               ;; timed out
               (error "wait-for-next-sof did not see SOF interrupt")))))
 
+(defun clear-current-pointer (ohci current-pointer-offset enable-mask)
+  (let ((bar0 (bar ohci)))
+    ;; disable list
+    (setf (pci:pci-io-region/32 bar0 +ohci-control+)
+          (logandc2 (pci:pci-io-region/32 bar0 +ohci-control+) enable-mask))
+
+    (wait-for-next-sof ohci)
+
+    ;; clear current point
+    (setf (pci:pci-io-region/32 bar0 current-pointer-offset) 0)
+
+    ;; enable list
+    (setf (pci:pci-io-region/32 bar0 +ohci-control+)
+          (logior (pci:pci-io-region/32 bar0 +ohci-control+) enable-mask))))
+
 ;;======================================================================
 ;;
 ;;======================================================================
@@ -434,6 +470,12 @@
 
 (defun (setf get-control-head-pointer) (value ohci)
   (setf (pci:pci-io-region/32 (bar ohci) +ohci-control-head-pointer+) value))
+
+(defun get-bulk-head-pointer (ohci)
+  (pci:pci-io-region/32 (bar ohci) +ohci-bulk-head-pointer+))
+
+(defun (setf get-bulk-head-pointer) (value ohci)
+  (setf (pci:pci-io-region/32 (bar ohci) +ohci-bulk-head-pointer+) value))
 
 (defun get-hub-status (ohci)
   (pci:pci-io-region/32 (bar ohci) +ohci-root-hub-status+))
@@ -634,8 +676,7 @@
   (with-trace-level (1)
     (sup:debug-print-line "delete device"))
   (with-hcd-access (ohci)
-    (let* ((bar0 (bar ohci))
-           (ed (device-control-ed device))
+    (let* ((ed (device-control-ed device))
            (ed-phys-addr (array->phys-addr ed)))
 
       ;; remove control-ed from list
@@ -651,37 +692,13 @@
                 do (progn (setf (ed-next-ed prev-ed) (ed-next-ed ed))
                           (return)))))
 
-      ;; disable control list
-      (setf (pci:pci-io-region/32 bar0 +ohci-control+)
-            (logandc2 (pci:pci-io-region/32 bar0 +ohci-control+)
-                      (dpb 1 +control-control-list-enable+ 0)))
+      ;; make sure controller is not using the ed
+      (clear-current-pointer ohci
+                             +ohci-current-control-pointer+
+                             (dpb 1 +control-control-list-enable+ 0))
 
-      (wait-for-next-sof ohci)
-
-      ;; clear currentED
-      (setf (pci:pci-io-region/32 bar0 +ohci-current-control-pointer+) 0)
-
-      ;; enable control list
-      (setf (pci:pci-io-region/32 bar0 +ohci-control+)
-            (logior (pci:pci-io-region/32 bar0 +ohci-control+)
-                    (dpb 1 +control-control-list-enable+ 0)))
-
-      (loop
-         with td-tail-phys-addr = (ed-tdq-tail ed)
-         for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then td-next
-         for td = (phys-addr->array td-phys-addr) then
-           (phys-addr->array td-phys-addr)
-         for td-next = (td-next-td td) then (td-next-td td)
-         when (= td-phys-addr td-tail-phys-addr) do
-         ;; just the dummy td - no td->td-info mapping
-           (free-buffer td)
-           (return)
-         do
-           (free-buffer td)
-           (remhash td (td->td-info ohci)))
-
-      (free-buffer ed)
-
+      ;; free ed and all associated td's
+      (free-ed ohci ed)
       (setf (aref (device-endpoints device) 0) nil)
 
       (loop
@@ -726,10 +743,13 @@
 ;; Interrupt Endpoint code
 ;;======================================================================
 
-(defun add-td (ohci ed header buf-size)
+(defun add-td (ohci ed header event-type endpoint buf-size)
   (let* ((msg-td (phys-addr->array (ed-tdq-tail ed)))
          (msg-td-info (gethash msg-td (td->td-info ohci)))
-         (dummy-td (alloc-td ohci))
+         (dummy-td (alloc-td ohci
+                             :event-type event-type
+                             :endpoint endpoint
+                             :buf-size buf-size))
          (buf (alloc-buffer/8 (buf-pool ohci) buf-size))
          (buf-phys-addr (array->phys-addr buf)))
     (setf
@@ -754,8 +774,6 @@
              endpt-num
              (endpoint-type (aref (device-endpoints device) endpt-num))))
     (let* ((ed (alloc-ed ohci))
-           (td (alloc-td ohci))
-           (td-phys-addr (array->phys-addr td))
            (td-header (encode-td-header +td-partial-buffer+
                                         +pid-in-token+
                                         1
@@ -768,7 +786,12 @@
                                     :buf-size buf-size
                                     :event-type event-type
                                     :interval interval
-                                    :header td-header)))
+                                    :header td-header))
+           (td (alloc-td ohci
+                         :event-type event-type
+                         :endpoint endpoint
+                         :buf-size buf-size))
+           (td-phys-addr (array->phys-addr td)))
       (setf
        ;; save endpoint object
        (aref (device-endpoints device) endpt-num) endpoint
@@ -782,20 +805,11 @@
                        +endpt-general-tds+
                        (usb-device-max-packet device))
        (ed-tdq-tail ed) td-phys-addr
-       (ed-tdq-head ed) td-phys-addr
-       ;; Add mapping from "dummy" td to td-info
-       (gethash td (td->td-info ohci)) (make-td-info
-                                        :event-type event-type
-                                        :endpoint endpoint
-                                        :buf-size buf-size))
+       (ed-tdq-head ed) td-phys-addr)
 
+      ;; Add more td's
       (dotimes (i num-bufs)
-        ;; Add mapping from each new "dummy" td to td-info
-        (let ((dummy-td (add-td ohci ed td-header buf-size)))
-          (setf (gethash dummy-td  (td->td-info ohci))
-                (make-td-info :event-type event-type
-                              :endpoint endpoint
-                              :buf-size buf-size))))
+        (add-td ohci ed td-header event-type endpoint buf-size))
       (add-interrupt-ed ohci ed buf-size interval)
       endpt-num)))
 
@@ -823,23 +837,7 @@
 
         (setf (aref (device-endpoints device) endpt-num) nil)
 
-        (loop
-           for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F)
-           then next-td-phys-addr
-           for td = (phys-addr->array td-phys-addr) then
-             (phys-addr->array td-phys-addr)
-           for next-td-phys-addr = (td-next-td td) then (td-next-td td)
-           when (= td-phys-addr (ed-tdq-tail ed)) do
-           ;; last td (dummy td) does not have a buffer
-             (remhash td (td->td-info ohci))
-             (free-buffer td)
-             (return)
-           do
-           ;; not last td
-             (remhash td (td->td-info ohci))
-             (free-buffer (phys-addr->array (td-buffer-pointer td)))
-             (free-buffer td))
-        (free-buffer ed)))))
+        (free-ed ohci ed)))))
 
 (defun handle-interrupt-endpt (ohci td-info td)
   (with-trace-level (1)
@@ -906,8 +904,6 @@
              endpt-num
              (endpoint-type (aref (device-endpoints device) endpt-num))))
     (let* ((ed (alloc-ed ohci))
-           (td (alloc-td ohci))
-           (td-phys-addr (array->phys-addr td))
            (td-header (encode-td-header
                        +td-partial-buffer+
                        (if in-p +pid-in-token+ +pid-out-token+)
@@ -921,7 +917,11 @@
                                     :buf-size :n/a
                                     :event-type event-type
                                     :interval :n/a
-                                    :header td-header)))
+                                    :header td-header))
+           (td (alloc-td ohci
+                         :event-type event-type
+                         :endpoint endpoint))
+           (td-phys-addr (array->phys-addr td)))
       (setf
        ;; save endpoint object
        (aref (device-endpoints device) endpt-num) endpoint
@@ -934,10 +934,7 @@
                        +endpt-general-tds+
                        (usb-device-max-packet device))
        (ed-tdq-tail ed) td-phys-addr
-       (ed-tdq-head ed) td-phys-addr
-       ;; Add mapping from "dummy" td to endpoint
-       (gethash td (td->td-info ohci)) (make-td-info :event-type event-type
-                                                     :endpoint endpoint))
+       (ed-tdq-head ed) td-phys-addr)
 
       ;; Add bulk endpoint to controller
       (let ((bar0 (bar ohci)))
@@ -960,11 +957,30 @@
                endpt-num
                (endpoint-type endpoint)))
 
-      ;; TODO finish this routine
+      ;; remove bulk-ed from list
+      (let* ((ed (endpoint-ed endpoint))
+             (ed-phys-addr (array->phys-addr ed)))
 
-      #+nil
-      (let ((ed (endpoint-ed endpoint)))
-        ))))
+        ;; remove bulk-ed from list
+        (cond ((eql (get-bulk-head-pointer ohci) ed-phys-addr)
+               (setf (get-bulk-head-pointer ohci) (ed-next-ed ed)))
+              (T
+               (loop
+                  for prev-ed-phys-addr = (get-bulk-head-pointer ohci) then
+                    (ed-next-ed prev-ed)
+                  for prev-ed = (phys-addr->array prev-ed-phys-addr) then
+                    (phys-addr->array prev-ed-phys-addr)
+                  when (eql (ed-next-ed prev-ed) ed-phys-addr)
+                  do (progn (setf (ed-next-ed prev-ed) (ed-next-ed ed))
+                            (return)))))
+
+        ;; make sure controller is not using the ed
+        (clear-current-pointer ohci
+                               +ohci-current-bulk-pointer+
+                               (dpb 1 +control-bulk-list-enable+ 0))
+
+        ;; free ed and all associated td's
+        (free-ed ohci ed)))))
 
 (defmethod bulk-enqueue-buf ((ohci ohci) device endpt-num buf num-bytes)
   (with-trace-level (1)
@@ -978,11 +994,11 @@
          (ed (endpoint-ed endpoint))
          (msg-td (phys-addr->array (ed-tdq-tail ed)))
          (msg-td-info (gethash msg-td (td->td-info ohci)))
-         (dummy-td (alloc-td ohci))
+         (dummy-td (alloc-td ohci
+                             :event-type (endpoint-event-type endpoint)
+                             :endpoint endpoint))
          (dummy-td-phys-addr (array->phys-addr dummy-td))
-         (buf-phys-addr (array->phys-addr buf))
-         (dummy-td-info (make-td-info :event-type (endpoint-event-type endpoint)
-                                      :endpoint endpoint)))
+         (buf-phys-addr (array->phys-addr buf)))
     (setf
      (td-header msg-td) (endpoint-header endpoint)
      (td-buffer-pointer msg-td) buf-phys-addr
@@ -990,7 +1006,6 @@
      (td-buffer-end msg-td) (+ buf-phys-addr num-bytes -1)
      (td-info-buf-size msg-td-info) num-bytes
      (td-info-buf msg-td-info) buf
-     (gethash dummy-td (td->td-info ohci)) dummy-td-info
      ;; update queue tail pointer to new dummy td
      (ed-tdq-tail ed) dummy-td-phys-addr)
 
@@ -1014,7 +1029,6 @@
 
            ;; TODO check condition code - handle errors
            (let* ((endpoint (td-info-endpoint td-info)))
-             (remhash td (td->td-info ohci))
              (transfer-complete (endpoint-driver endpoint)
                                 (td-info-event-type td-info)
                                 (endpoint-num endpoint)
@@ -1022,7 +1036,7 @@
                                 status
                                 (td-xfer-bytes td (td-info-buf-size td-info))
                                 (td-info-buf td-info))))
-      (free-buffer td))))
+      (free-td ohci td))))
 
 ;;======================================================================
 ;; set-device-address
@@ -1074,14 +1088,12 @@
 
   (with-hcd-access (ohci)
     (let* ((endpoint (aref (device-endpoints device) 0))
+           (event-type (endpoint-event-type endpoint))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
+           (msg-td-info (gethash msg-td (td->td-info ohci)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
-           (td-info (make-td-info :event-type (endpoint-event-type endpoint)
-                                  :endpoint endpoint
-                                  :buf-size 8
-                                  :buf msg-buf))
            (semaphore (device-semaphore device)))
 
       (encode-td msg-td +td-partial-buffer+ +pid-setup-token+ 3 +td-toggle-0+
@@ -1094,7 +1106,10 @@
                       value
                       index
                       length)
-      (setf (gethash msg-td (td->td-info ohci)) td-info
+      (setf (td-info-event-type msg-td-info) event-type
+            (td-info-endpoint msg-td-info) endpoint
+            (td-info-buf-size msg-td-info) 8
+            (td-info-buf msg-td-info) msg-buf
             (ed-tdq-tail ed) (array->phys-addr dummy-td))
 
       (with-trace-level (3)
@@ -1108,13 +1123,13 @@
       ;; TODO wait with timeout?
       (sync:semaphore-down semaphore)
 
-      (remhash msg-td (td->td-info ohci))
+      (setf (td-info-buf msg-td-info) NIL)
       (free-buffer msg-buf)
 
       (when (/= (ldb +td-condition-code+ (td-header msg-td)) 0)
         ;; non-zero means error
         (when *error-td*
-          (free-buffer *error-td*))
+          (free-td ohci *error-td*))
         (setf *error-td* msg-td)
         (let ((condition-code (ldb +td-condition-code+ (td-header msg-td))))
           (error
@@ -1124,6 +1139,7 @@
 
       (setf dummy-td msg-td ;; re-use previous td as "dummy" td
             msg-td (phys-addr->array (ed-tdq-head ed))
+            msg-td-info (gethash msg-td (td->td-info ohci))
 
             ;; clean up dummy-td
             (td-header dummy-td) 0
@@ -1136,9 +1152,10 @@
        buf
        dummy-td)
 
-      (setf (td-info-buf-size td-info) length
-            (td-info-buf td-info) buf
-            (gethash msg-td (td->td-info ohci)) td-info
+      (setf (td-info-event-type msg-td-info) event-type
+            (td-info-endpoint msg-td-info) endpoint
+            (td-info-buf-size msg-td-info) length
+            (td-info-buf msg-td-info) buf
             (ed-tdq-tail ed) (array->phys-addr dummy-td))
 
       (with-trace-level (3)
@@ -1153,12 +1170,10 @@
       ;; TODO wait with timeout?
       (sync:semaphore-down semaphore)
 
-      (remhash msg-td (td->td-info ohci))
-
       (when (/= (ldb +td-condition-code+ (td-header msg-td)) 0)
         ;; non-zero means error
         (when *error-td*
-          (free-buffer *error-td*))
+          (free-td ohci *error-td*))
         (setf *error-td* msg-td)
         (let ((condition-code (ldb +td-condition-code+ (td-header msg-td))))
           (error
@@ -1167,7 +1182,7 @@
            condition-code)))
       (prog1
           (td-xfer-bytes msg-td length)
-        (free-buffer msg-td)))))
+        (free-td ohci msg-td)))))
 
 ;;======================================================================
 ;;
@@ -1184,14 +1199,12 @@
 
   (with-hcd-access (ohci)
     (let* ((endpoint (aref (device-endpoints device) 0))
+           (event-type (endpoint-event-type endpoint))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
+           (msg-td-info (gethash msg-td (td->td-info ohci)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
-           (td-info (make-td-info :event-type (endpoint-event-type endpoint)
-                                  :endpoint endpoint
-                                  :buf-size 8
-                                  :buf msg-buf))
            (semaphore (device-semaphore device)))
 
       (encode-td msg-td +td-partial-buffer+ +pid-setup-token+ 3 +td-toggle-0+
@@ -1205,7 +1218,10 @@
                       index
                       length)
 
-      (setf (gethash msg-td (td->info ohci)) td-info
+      (setf (td-info-event-type msg-td-info) event-type
+            (td-info-endpoint msg-td-info) endpoint
+            (td-info-buf-size msg-td-info) 8
+            (td-info-buf msg-td-info) msg-buf
             (ed-tdq-tail ed) (array->phys-addr dummy-td))
 
       (with-trace-level (3)
@@ -1220,13 +1236,13 @@
       ;; TODO wait with timeout?
       (sync:semaphore-down semaphore)
 
-      (remhash msg-td (td->td-info ohci))
+      (setf (td-info-buf msg-td-info) NIL)
       (free-buffer msg-buf)
 
       (when (/= (ldb +td-condition-code+ (td-header msg-td)) 0)
         ;; non-zero means error
         (when *error-td*
-          (free-buffer *error-td*))
+          (free-td ohci *error-td*))
         (setf *error-td* msg-td)
         (let ((condition-code (ldb +td-condition-code+ (td-header msg-td))))
           (error
@@ -1236,6 +1252,8 @@
 
       (setf dummy-td msg-td ;; re-use previous td as "dummy" td
             msg-td (phys-addr->array (ed-tdq-head ed))
+            msg-td-info (gethash msg-td (td->td-info ohci))
+
 
             ;; clean up dummy-td
             (td-header dummy-td) 0
@@ -1248,9 +1266,10 @@
        buf
        dummy-td)
 
-      (setf (td-info-buf-size td-info) length
-            (td-info-buf td-info) buf
-            (gethash msg-td (td->td-info ohci)) td-info
+      (setf (td-info-event-type msg-td-info) event-type
+            (td-info-endpoint msg-td-info) endpoint
+            (td-info-buf-size msg-td-info) length
+            (td-info-buf msg-td-info) buf
             (ed-tdq-tail ed) (array->phys-addr dummy-td))
 
       (with-trace-level (3)
@@ -1265,13 +1284,10 @@
       ;; TODO wait with timeout?
       (sync:semaphore-down semaphore)
 
-      (remhash msg-td (td->td-info ohci))
-
       (when (/= (ldb +td-condition-code+ (td-header msg-td)) 0)
         (when *error-td*
-          (free-buffer *error-td*))
+          (free-td ohci *error-td*))
         (setf *error-td* msg-td)
-        (free-buffer msg-buf)
         (let ((condition-code (ldb +td-condition-code+ (td-header msg-td))))
           (error
            "control-receive-data: Receive command failed with error ~A (#x~2,'0X)."
@@ -1280,7 +1296,7 @@
 
       (prog1
           (td-xfer-bytes msg-td length)
-        (free-buffer msg-td)))))
+        (free-td ohci msg-td)))))
 
 ;;======================================================================
 ;; OHCI interrupt event handlers
