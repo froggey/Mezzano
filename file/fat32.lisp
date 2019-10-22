@@ -732,6 +732,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (read-short-name directory file)
       (read-long-name directory (+ file -32) (checksum directory file))))
 
+(defun read-name-and-type (directory file)
+  (let* ((full-name (read-file-name directory file))
+         (dot-pos (position #\. full-name :from-end T)))
+    (if (or (null dot-pos)
+            (= (1+ dot-pos) (length full-name))
+            (= dot-pos 0))
+        (values full-name NIL)
+        (values (subseq full-name 0 dot-pos) (subseq full-name (1+ dot-pos))))))
+
 (defun free-file-entry (directory start)
   (when (not (short-name-p directory start))
     ;; mark long name entries as free
@@ -1246,23 +1255,109 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (T
              pathname)))))
 
+(defun match-in-directory (disk fat32 fat dir-array dir-list pathname)
+  (cond ((null dir-list)
+         (when (and (not (pathname-name pathname))
+                    (not (pathname-type pathname)))
+           (return-from match-in-directory (list pathname)))
+         (let ((match-name (pathname-name pathname))
+               (match-type (pathname-type pathname))
+               (result '()))
+           (do-files (offset) dir-array
+               NIL
+               (multiple-value-bind (name type)
+                   (read-name-and-type dir-array offset)
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (or (eql match-name :wild)
+                                (equalp match-name name))
+                            (or (eql match-type :wild)
+                                (equalp match-type type)))
+                   (push (make-pathname :name name
+                                        :type type
+                                        :defaults pathname)
+                         result))))
+           result))
+        ((eql (car dir-list) :wild)
+         (let ((directory (pathname-directory pathname))
+               (rest-of-dir-list (cdr dir-list))
+               (result '()))
+           (cond ((and (null rest-of-dir-list)
+                       (not (pathname-name pathname))
+                       (not (pathname-type pathname)))
+                  (do-files (offset) dir-array
+                      NIL
+                      (let ((name (read-file-name dir-array offset)))
+                        (when (and (string/= name ".")
+                                   (string/= name "..")
+                                   (directory-p dir-array offset))
+                          (push (make-pathname :directory (append
+                                                           (butlast directory)
+                                                           (list name))
+                                               :defaults pathname)
+                                result)))))
+                 (T
+                  (let* ((wild-pos (position :wild directory))
+                         (start-of-dir (subseq directory 0 wild-pos)))
+                    (do-files (offset) dir-array
+                        NIL
+                        (let ((name (read-file-name dir-array offset)))
+                          (when (and (string/= name ".")
+                                     (string/= name "..")
+                                     (directory-p dir-array offset))
+                            (setf result
+                                  (append
+                                   (match-in-directory
+                                    disk fat32 fat
+                                    (read-file fat32 disk
+                                               (read-first-cluster dir-array offset)
+                                               fat)
+                                    rest-of-dir-list
+                                    (make-pathname :directory (append start-of-dir
+                                                                      (list name)
+                                                                      rest-of-dir-list)
+                                                   :defaults pathname))
+                                   result))))))))
+           result))
+        ((eql (car dir-list) :wild-inferiors)
+         ;; TODO - handle :wild-inferiors
+         (error 'simple-file-error
+                :pathname pathname
+                :format-control ":wild-inferiors not supported."))
+        (T ;; Exact match (TODO: Wild strings).
+         (let ((match-name (car dir-list)))
+           (do-files (offset) dir-array
+               NIL
+               (let ((name (read-file-name dir-array offset)))
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (equalp match-name name)
+                            (directory-p dir-array offset))
+                   (return-from match-in-directory
+                     (match-in-directory
+                      disk fat32 fat
+                      (read-file fat32 disk
+                                 (read-first-cluster dir-array offset)
+                                 fat)
+                      (cdr dir-list)
+                      pathname)))))))
+        ))
+
 (defmethod directory-using-host ((host fat32-host) pathname &key)
-  (let ((file-data (open-file-metadata host pathname))
-        (stack '()))
-    (do-files (file) file-data
-        t
-        (let ((file-name (read-file-name file-data file)))
-          (when (and (string/= file-name ".")
-                     (string/= file-name ".."))
-            (push (parse-simple-file-path host
-                                          (format nil
-                                                  (if (file-p file-data file)
-                                                      "~a~a"
-                                                      "~a~a>")
-                                                  (directory-namestring pathname)
-                                                  file-name))
-                  stack))))
-    stack))
+  (let ((disk (partition host))
+        (fat32 (fat-structure host))
+        (fat (fat host))
+        (dir-list (pathname-directory pathname)))
+    (when (eql dir-list :wild)
+      (setf dir-list '(:absolute :wild-inferiors)))
+    (when (not (typep dir-list '(cons (eql :absolute))))
+      (error 'simple-file-error
+             :pathname pathname
+             :format-control "Non-absolute pathname."))
+    (match-in-directory disk fat32 fat
+                        (read-file fat32 disk (first-root-dir-cluster fat32) fat)
+                        (cdr dir-list)
+                        pathname)))
 
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
   ;; TODO verbose
