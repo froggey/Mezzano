@@ -949,8 +949,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (write-file fat32 (partition host) cluster-n fat directory)
         ;; Write fat
         (write-fat (partition host) fat32 fat)
-        ;; Return cluster-number
-        cluster-number))))
+        ;; Return cluster-number, possibly new directory array and offset
+        (values cluster-number directory offset)))))
 
 ;;; Host integration
 
@@ -1115,110 +1115,133 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (when (string= file-name (read-file-name directory start))
                      (return-from open-file-metadata (values directory directory-cluster start))))))
 
-(defun open-file (host pathname)
-  (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host pathname)
-    (declare (ignore parent-cluster))
-    (when file-offset
-      (return-from open-file
-        (values (read-file (fat-structure host)
-                           (partition host)
-                           (read-first-cluster parent-dir file-offset)
-                           (fat host))
-                (read-first-cluster parent-dir file-offset)
-                (read-file-length parent-dir file-offset))))))
-
 (defmethod open-using-host ((host fat32-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
+  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Non-absolute pathname."))
+  (when (eql element-type :default)
+    (setf element-type 'character))
+  (when (not (or (and (eql element-type 'character)
+                      (eql external-format :utf-8))
+                 (eql external-format :default)))
+    (error "Unsupported external format ~S." external-format))
+  (when (not (pathname-name pathname))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "I've been through the desert on a file with no name."))
+  (when (and (string-equal (pathname-type pathname) "directory")
+             (member direction '(:output :io)))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Cannot open directories for output."))
   (with-fat32-host-locked (host)
-    (let ((buffer nil)
-          (buffer-position 0)
-          (file-position 0)
-          (file-length 0)
-          (created-file-p nil)
-          (abort-action nil))
-      (multiple-value-bind (file-data file-cluster file-size) (open-file host pathname)
-        (if file-size
-            (setf buffer file-data
-                  buffer-position file-cluster
-                  file-length file-size)
-            (ecase if-does-not-exist
-              (:error (error 'simple-file-error
-                             :pathname pathname
-                             :format-control "File ~A does not exist. ~S"
-                             :format-arguments (list pathname (file-name pathname))))
-              (:create (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host pathname)
-                         (declare (ignore file-offset))
-                         (if parent-dir
-                             (setf buffer (make-array (bytes-per-cluster (fat-structure host)) :initial-element 0)
-                                   buffer-position (create-file host parent-dir parent-cluster
-                                                                (pathname-name pathname)
-                                                                (pathname-type pathname)
-                                                                (eql (pathname-version pathname) :previous)
-                                                                (ash 1 +attribute-archive+))
-                                   created-file-p t
-                                   abort-action :delete)
-                             (error 'simple-file-error
-                                    :pathname pathname
-                                    :format-control "Directory for ~A does not exist. ~S"
-                                    :format-arguments (list pathname (file-name pathname)))))))))
-      (when (and (not created-file-p) (member direction '(:output :io)))
-        (ecase if-exists
-          (:error (error 'simple-file-error
-                         :pathname pathname
-                         :format-control "File ~A exists."
-                         :format-arguments (list pathname)))
-          (:new-version (error ":new-version not suported in fat32."))
-          ;; TODO :rename and :rename-and-delete
-          ((:rename
-            :rename-and-delete)
-           (error ":rename and :rename-and-delete are not implemented.")
-           (when t
+    (multiple-value-bind (dir-array dir-cluster file-offset) (open-file-metadata host pathname)
+      (when (null dir-array)
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "Directory ~S does not exist."
+               :format-arguments (list pathname)))
+      (when (and file-offset (directory-p dir-array file-offset)
+                 (member direction '(:output :io)))
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "Cannot open directories for output."))
+      (let ((fat32 (fat-structure host))
+            (fat (fat host))
+            (disk (partition host))
+            (createdp nil)
+            (first-cluster)
+            (abort-action nil)
+            (buffer)
+            (buffer-position)
+            (file-length)
+            (file-position 0))
+        (when (null file-offset)
+          (ecase if-does-not-exist
+            (:error
              (error 'simple-file-error
                     :pathname pathname
-                    :format-control "Could not rename ~S."
+                    :format-control "File ~A does not exist."
                     :format-arguments (list pathname)))
-           (when t
+            (:create
+             (multiple-value-setq (first-cluster dir-array file-offset)
+               (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
+             (setf createdp t
+                   abort-action :delete))
+            ((nil)
+             (return-from open-using-host nil))))
+        (when (and (not createdp)
+                   (member direction '(:output :io)))
+          (ecase if-exists
+            (:error (error 'simple-file-error
+                           :pathname pathname
+                           :format-control "File ~A exists."
+                           :format-arguments (list pathname)))
+            ((:new-version :rename :rename-and-delete :overwrite)
              (error 'simple-file-error
                     :pathname pathname
-                    :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
-          ;; TODO :supersede
-          (:supersede
-           (error ":supersede is not implemented")
-           (setf abort-action :delete)
-           (when nil
-             (error 'simple-file-error
-                    :pathname pathname
-                    :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
-          ((:overwrite) t)
-          ((:append) (setf file-position file-length))
-          ((nil) (return-from open-using-host nil))))
-      (cond ((or (eql element-type :default)
-                 (subtypep element-type 'character))
-             (make-instance 'fat32-file-character-stream
-                            :pathname pathname
-                            :host host
-                            :direction direction
-                            :buffer buffer
-                            :buffer-position buffer-position
-                            :position file-position
-                            :length file-length
-                            :abort-action abort-action
-                            :external-format (sys.int::make-external-format 'character external-format)))
-            ((and (subtypep element-type '(unsigned-byte 8))
-                  (subtypep '(unsigned-byte 8) element-type))
-             (assert (eql external-format :default) (external-format))
-             (make-instance 'fat32-file-stream
-                            :pathname pathname
-                            :host host
-                            :direction direction
-                            :buffer buffer
-                            :buffer-position buffer-position
-                            :position file-position
-                            :length file-length
-                            :abort-action abort-action))
-            (t (error "Unsupported element-type ~S." element-type))))))
+                    :format-control ":if-exists ~S not implemented."
+                    :format-arguments (list if-exists)))
+            (:supersede
+             ;; TODO instead of freeing the clusters, save cluster list
+             ;; and set abort-action to something (:restore?) so that:
+             ;;
+             ;; on abort the original cluster is restored and the new
+             ;; cluster list is freed
+             ;;
+             ;; on close the original cluster is freed
+             ;;
+             ;; Delete file by freeing all of the clusters assocated
+             ;; with the file.
+             (do ((cluster-n (read-first-cluster dir-array file-offset)))
+                 ((>= cluster-n (last-cluster-value fat32)))
+               (let ((next (aref fat cluster-n)))
+                 (set-fat32 fat32 fat cluster-n 0)
+                 (setf cluster-n next)))
+             ;; re-alloc the first cluster to the file
+             (set-fat32 fat32 fat
+                        (read-first-cluster dir-array file-offset)
+                        (last-cluster-value fat32))
+             (write-fat disk fat32 fat)
+             (setf abort-action :delete))
+            (:append
+             (setf file-position (read-file-length dir-array file-offset)))
+            ((nil) (return-from open-using-host nil))))
+        ;; Done processing arguements - now open the file
+        (if createdp
+            (setf buffer (make-array (bytes-per-cluster fat32) :initial-element 0)
+                  buffer-position first-cluster
+                  file-length 0)
+            (setf buffer-position (read-first-cluster dir-array file-offset)
+                  buffer (read-file fat32 disk buffer-position fat)
+                  file-length (read-file-length dir-array file-offset)))
+        (cond ((or (eql element-type :default)
+                   (subtypep element-type 'character))
+               (make-instance 'fat32-file-character-stream
+                              :pathname pathname
+                              :host host
+                              :direction direction
+                              :buffer buffer
+                              :buffer-position buffer-position
+                              :position file-position
+                              :length file-length
+                              :abort-action abort-action
+                              :external-format (sys.int::make-external-format 'character external-format)))
+              ((and (subtypep element-type '(unsigned-byte 8))
+                    (subtypep '(unsigned-byte 8) element-type))
+               (assert (eql external-format :default) (external-format))
+               (make-instance 'fat32-file-stream
+                              :pathname pathname
+                              :host host
+                              :direction direction
+                              :buffer buffer
+                              :buffer-position buffer-position
+                              :position file-position
+                              :length file-length
+                              :abort-action abort-action))
+              (t (error "Unsupported element-type ~S." element-type)))))))
 
 (defun force-pathname-name (pathname)
   (let ((orig-directory (pathname-directory pathname)))
