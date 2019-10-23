@@ -56,21 +56,21 @@
 (defconstant +ro-compat-project+ #x2000)
 
 ;; Inode flags
-(defconstant +sync-flag+ #x8) ; All writes to the file must be synchronous
-(defconstant +immutable-flag+ #x10) ; File is immutable
-(defconstant +append-flag+ #x20) ; File can only be appended
-(defconstant +noatime-flag+ #x80) ; Do not update access time
-(defconstant +encrypt-flag+ #x800) ; Encrypted inode
-(defconstant +hashed-indexes-flag+ #x1000) ; Directory has hashed indexes
-(defconstant +imagic-flag+ #x2000) ; AFS magic directory
-(defconstant +journal-data-flag+ #x4000) ; File data must always be written through the journal
-(defconstant +notail-flag+ #x8000) ; File tail should not be merged (not used by ext4)
-(defconstant +dirsync-flag+ #x10000) ; All directory entry data should be written synchronously
-(defconstant +topdir-flag+ #x20000) ; Top of directory hierarchy
-(defconstant +huge-file-flag+ #x40000) ; This is a huge file
-(defconstant +extents-flag+ #x80000) ; Inode uses extents
-(defconstant +ea-inode-flag+ #x200000) ; Inode stores a large extended attribute value in its data blocks
-(defconstant +inline-data-flag+ #x10000000) ; Inode has inline data
+(defconstant +sync-flag+ #x8 "All writes to the file must be synchronous")
+(defconstant +immutable-flag+ #x10 "File is immutable")
+(defconstant +append-flag+ #x20 "File can only be appended")
+(defconstant +noatime-flag+ #x80 "Do not update access time")
+(defconstant +encrypt-flag+ #x800 "Encrypted inode")
+(defconstant +hashed-indexes-flag+ #x1000 "Directory has hashed indexes")
+(defconstant +imagic-flag+ #x2000 "AFS magic directory")
+(defconstant +journal-data-flag+ #x4000 "File data must always be written through the journal")
+(defconstant +notail-flag+ #x8000 "File tail should not be merged (not used by ext4)")
+(defconstant +dirsync-flag+ #x10000 "All directory entry data should be written synchronously")
+(defconstant +topdir-flag+ #x20000 "Top of directory hierarchy")
+(defconstant +huge-file-flag+ #x40000 "This is a huge file")
+(defconstant +extents-flag+ #x80000 "Inode uses extents")
+(defconstant +ea-inode-flag+ #x200000 "Inode stores a large extended attribute value in its data blocks")
+(defconstant +inline-data-flag+ #x10000000 "Inode has inline data")
 
 ;; Directory file types
 (defconstant +unknown-type+ #x0)
