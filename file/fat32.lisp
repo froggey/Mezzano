@@ -1233,15 +1233,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         pathname)))
 
 (defun force-directory-only (pathname)
-  (if (pathname-name pathname)
-      (make-pathname :host (pathname-host pathname)
-                     :device (pathname-device pathname)
-                     :directory (append (pathname-directory pathname)
-                                        (list (pathname-name pathname)))
-                     :name NIL
-                     :type NIL
-                     :version NIL)
-      pathname))
+  (let ((name (pathname-name pathname))
+        (type (pathname-type pathname)))
+    (if name
+        (let ((dir-name (if type
+                            (concatenate 'string name "." type)
+                            name)))
+          (make-pathname :host (pathname-host pathname)
+                         :device (pathname-device pathname)
+                         :directory (append (pathname-directory pathname)
+                                            (list dir-name))
+                         :name NIL
+                         :type NIL
+                         :version NIL))
+        pathname)))
 
 (defmethod probe-using-host ((host fat32-host) pathname)
   (let ((new-pathname (force-pathname-name pathname)))
@@ -1273,10 +1278,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                 (equalp match-name name))
                             (or (eql match-type :wild)
                                 (equalp match-type type)))
-                   (push (make-pathname :name name
-                                        :type type
-                                        :defaults pathname)
-                         result))))
+                   (let ((filename (make-pathname :name name
+                                                  :type type
+                                                  :defaults pathname)))
+                     (if (directory-p dir-array offset)
+                         (push (force-directory-only filename)
+                               result)
+                         (push filename result))))))
            result))
         ((eql (car dir-list) :wild)
          (let ((directory (pathname-directory pathname))
@@ -1389,10 +1397,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                (namestring dest))
       t
       (multiple-value-bind (source-dir source-cluster source-start) (open-file-metadata host source)
-        (error 'simple-file-error
-               :pathname source
-               :format-control "File ~A does not exist. ~S"
-               :format-arguments (list source (file-name source)))
+        (when (null source-start)
+          (error 'simple-file-error
+                 :pathname source
+                 :format-control "File ~A does not exist. ~S"
+                 :format-arguments (list source (file-name source))))
         (multiple-value-bind (dest-dir dest-cluster dest-start) (open-file-metadata host dest)
           (let ((fat32 (fat-structure host))
                 (fat (fat host))
