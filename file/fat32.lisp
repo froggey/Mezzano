@@ -96,7 +96,7 @@ Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
           (= signature #x29))
       signature
       (error "Bad signature : ~x .
-Valid signature are #x28 and #x29")))
+Valid signature are #x28 and #x29" signature)))
 
 (defun check-bps (bps)
   (unless (= bps +bootable-partition-signature+)
@@ -732,6 +732,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (read-short-name directory file)
       (read-long-name directory (+ file -32) (checksum directory file))))
 
+(defun read-name-and-type (directory file)
+  (let* ((full-name (read-file-name directory file))
+         (dot-pos (position #\. full-name :from-end T)))
+    (if (or (null dot-pos)
+            (= (1+ dot-pos) (length full-name))
+            (= dot-pos 0))
+        (values full-name NIL)
+        (values (subseq full-name 0 dot-pos) (subseq full-name (1+ dot-pos))))))
+
 (defun free-file-entry (directory start)
   (when (not (short-name-p directory start))
     ;; mark long name entries as free
@@ -940,8 +949,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (write-file fat32 (partition host) cluster-n fat directory)
         ;; Write fat
         (write-fat (partition host) fat32 fat)
-        ;; Return cluster-number
-        cluster-number))))
+        ;; Return cluster-number, possibly new directory array and offset
+        (values cluster-number directory offset)))))
 
 ;;; Host integration
 
@@ -1106,110 +1115,133 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (when (string= file-name (read-file-name directory start))
                      (return-from open-file-metadata (values directory directory-cluster start))))))
 
-(defun open-file (host pathname)
-  (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host pathname)
-    (declare (ignore parent-cluster))
-    (when file-offset
-      (return-from open-file
-        (values (read-file (fat-structure host)
-                           (partition host)
-                           (read-first-cluster parent-dir file-offset)
-                           (fat host))
-                (read-first-cluster parent-dir file-offset)
-                (read-file-length parent-dir file-offset))))))
-
 (defmethod open-using-host ((host fat32-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
+  (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Non-absolute pathname."))
+  (when (eql element-type :default)
+    (setf element-type 'character))
+  (when (not (or (and (eql element-type 'character)
+                      (eql external-format :utf-8))
+                 (eql external-format :default)))
+    (error "Unsupported external format ~S." external-format))
+  (when (not (pathname-name pathname))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "I've been through the desert on a file with no name."))
+  (when (and (string-equal (pathname-type pathname) "directory")
+             (member direction '(:output :io)))
+    (error 'simple-file-error
+           :pathname pathname
+           :format-control "Cannot open directories for output."))
   (with-fat32-host-locked (host)
-    (let ((buffer nil)
-          (buffer-position 0)
-          (file-position 0)
-          (file-length 0)
-          (created-file-p nil)
-          (abort-action nil))
-      (multiple-value-bind (file-data file-cluster file-size) (open-file host pathname)
-        (if file-size
-            (setf buffer file-data
-                  buffer-position file-cluster
-                  file-length file-size)
-            (ecase if-does-not-exist
-              (:error (error 'simple-file-error
-                             :pathname pathname
-                             :format-control "File ~A does not exist. ~S"
-                             :format-arguments (list pathname (file-name pathname))))
-              (:create (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host pathname)
-                         (declare (ignore file-offset))
-                         (if parent-dir
-                             (setf buffer (make-array (bytes-per-cluster (fat-structure host)) :initial-element 0)
-                                   buffer-position (create-file host parent-dir parent-cluster
-                                                                (pathname-name pathname)
-                                                                (pathname-type pathname)
-                                                                (eql (pathname-version pathname) :previous)
-                                                                (ash 1 +attribute-archive+))
-                                   created-file-p t
-                                   abort-action :delete)
-                             (error 'simple-file-error
-                                    :pathname pathname
-                                    :format-control "Directory for ~A does not exist. ~S"
-                                    :format-arguments (list pathname (file-name pathname)))))))))
-      (when (and (not created-file-p) (member direction '(:output :io)))
-        (ecase if-exists
-          (:error (error 'simple-file-error
-                         :pathname pathname
-                         :format-control "File ~A exists."
-                         :format-arguments (list pathname)))
-          (:new-version (error ":new-version not suported in fat32."))
-          ;; TODO :rename and :rename-and-delete
-          ((:rename
-            :rename-and-delete)
-           (error ":rename and :rename-and-delete are not implemented.")
-           (when t
+    (multiple-value-bind (dir-array dir-cluster file-offset) (open-file-metadata host pathname)
+      (when (null dir-array)
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "Directory ~S does not exist."
+               :format-arguments (list pathname)))
+      (when (and file-offset (directory-p dir-array file-offset)
+                 (member direction '(:output :io)))
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "Cannot open directories for output."))
+      (let ((fat32 (fat-structure host))
+            (fat (fat host))
+            (disk (partition host))
+            (createdp nil)
+            (first-cluster)
+            (abort-action nil)
+            (buffer)
+            (buffer-position)
+            (file-length)
+            (file-position 0))
+        (when (null file-offset)
+          (ecase if-does-not-exist
+            (:error
              (error 'simple-file-error
                     :pathname pathname
-                    :format-control "Could not rename ~S."
+                    :format-control "File ~A does not exist."
                     :format-arguments (list pathname)))
-           (when t
+            (:create
+             (multiple-value-setq (first-cluster dir-array file-offset)
+               (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
+             (setf createdp t
+                   abort-action :delete))
+            ((nil)
+             (return-from open-using-host nil))))
+        (when (and (not createdp)
+                   (member direction '(:output :io)))
+          (ecase if-exists
+            (:error (error 'simple-file-error
+                           :pathname pathname
+                           :format-control "File ~A exists."
+                           :format-arguments (list pathname)))
+            ((:new-version :rename :rename-and-delete :overwrite)
              (error 'simple-file-error
                     :pathname pathname
-                    :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
-          ;; TODO :supersede
-          (:supersede
-           (error ":supersede is not implemented")
-           (setf abort-action :delete)
-           (when nil
-             (error 'simple-file-error
-                    :pathname pathname
-                    :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
-          ((:overwrite) t)
-          ((:append) (setf file-position file-length))
-          ((nil) (return-from open-using-host nil))))
-      (cond ((or (eql element-type :default)
-                 (subtypep element-type 'character))
-             (make-instance 'fat32-file-character-stream
-                            :pathname pathname
-                            :host host
-                            :direction direction
-                            :buffer buffer
-                            :buffer-position buffer-position
-                            :position file-position
-                            :length file-length
-                            :abort-action abort-action
-                            :external-format (sys.int::make-external-format 'character external-format)))
-            ((and (subtypep element-type '(unsigned-byte 8))
-                  (subtypep '(unsigned-byte 8) element-type))
-             (assert (eql external-format :default) (external-format))
-             (make-instance 'fat32-file-stream
-                            :pathname pathname
-                            :host host
-                            :direction direction
-                            :buffer buffer
-                            :buffer-position buffer-position
-                            :position file-position
-                            :length file-length
-                            :abort-action abort-action))
-            (t (error "Unsupported element-type ~S." element-type))))))
+                    :format-control ":if-exists ~S not implemented."
+                    :format-arguments (list if-exists)))
+            (:supersede
+             ;; TODO instead of freeing the clusters, save cluster list
+             ;; and set abort-action to something (:restore?) so that:
+             ;;
+             ;; on abort the original cluster is restored and the new
+             ;; cluster list is freed
+             ;;
+             ;; on close the original cluster is freed
+             ;;
+             ;; Delete file by freeing all of the clusters assocated
+             ;; with the file.
+             (do ((cluster-n (read-first-cluster dir-array file-offset)))
+                 ((>= cluster-n (last-cluster-value fat32)))
+               (let ((next (aref fat cluster-n)))
+                 (set-fat32 fat32 fat cluster-n 0)
+                 (setf cluster-n next)))
+             ;; re-alloc the first cluster to the file
+             (set-fat32 fat32 fat
+                        (read-first-cluster dir-array file-offset)
+                        (last-cluster-value fat32))
+             (write-fat disk fat32 fat)
+             (setf abort-action :delete))
+            (:append
+             (setf file-position (read-file-length dir-array file-offset)))
+            ((nil) (return-from open-using-host nil))))
+        ;; Done processing arguements - now open the file
+        (if createdp
+            (setf buffer (make-array (bytes-per-cluster fat32) :initial-element 0)
+                  buffer-position first-cluster
+                  file-length 0)
+            (setf buffer-position (read-first-cluster dir-array file-offset)
+                  buffer (read-file fat32 disk buffer-position fat)
+                  file-length (read-file-length dir-array file-offset)))
+        (cond ((or (eql element-type :default)
+                   (subtypep element-type 'character))
+               (make-instance 'fat32-file-character-stream
+                              :pathname pathname
+                              :host host
+                              :direction direction
+                              :buffer buffer
+                              :buffer-position buffer-position
+                              :position file-position
+                              :length file-length
+                              :abort-action abort-action
+                              :external-format (sys.int::make-external-format 'character external-format)))
+              ((and (subtypep element-type '(unsigned-byte 8))
+                    (subtypep '(unsigned-byte 8) element-type))
+               (assert (eql external-format :default) (external-format))
+               (make-instance 'fat32-file-stream
+                              :pathname pathname
+                              :host host
+                              :direction direction
+                              :buffer buffer
+                              :buffer-position buffer-position
+                              :position file-position
+                              :length file-length
+                              :abort-action abort-action))
+              (t (error "Unsupported element-type ~S." element-type)))))))
 
 (defun force-pathname-name (pathname)
   (let ((orig-directory (pathname-directory pathname)))
@@ -1224,15 +1256,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         pathname)))
 
 (defun force-directory-only (pathname)
-  (if (pathname-name pathname)
-      (make-pathname :host (pathname-host pathname)
-                     :device (pathname-device pathname)
-                     :directory (append (pathname-directory pathname)
-                                        (list (pathname-name pathname)))
-                     :name NIL
-                     :type NIL
-                     :version NIL)
-      pathname))
+  (let ((name (pathname-name pathname))
+        (type (pathname-type pathname)))
+    (if name
+        (let ((dir-name (if type
+                            (concatenate 'string name "." type)
+                            name)))
+          (make-pathname :host (pathname-host pathname)
+                         :device (pathname-device pathname)
+                         :directory (append (pathname-directory pathname)
+                                            (list dir-name))
+                         :name NIL
+                         :type NIL
+                         :version NIL))
+        pathname)))
 
 (defmethod probe-using-host ((host fat32-host) pathname)
   (let ((new-pathname (force-pathname-name pathname)))
@@ -1246,23 +1283,156 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (T
              pathname)))))
 
+(defun match-in-directory (disk fat32 fat dir-array dir-list pathname)
+  (cond ((null dir-list)
+         (when (and (not (pathname-name pathname))
+                    (not (pathname-type pathname)))
+           (return-from match-in-directory (list pathname)))
+         (let ((match-name (pathname-name pathname))
+               (match-type (pathname-type pathname))
+               (result '()))
+           (do-files (offset) dir-array
+               NIL
+               (multiple-value-bind (name type)
+                   (read-name-and-type dir-array offset)
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (or (eql match-name :wild)
+                                (equalp match-name name))
+                            (or (eql match-type :wild)
+                                (equalp match-type type)))
+                   (let ((filename (make-pathname :name name
+                                                  :type type
+                                                  :defaults pathname)))
+                     (if (directory-p dir-array offset)
+                         (push (force-directory-only filename)
+                               result)
+                         (push filename result))))))
+           result))
+        ((eql (car dir-list) :wild)
+         (let ((directory (pathname-directory pathname))
+               (rest-of-dir-list (cdr dir-list))
+               (result '()))
+           (cond ((and (null rest-of-dir-list)
+                       (not (pathname-name pathname))
+                       (not (pathname-type pathname)))
+                  (do-files (offset) dir-array
+                      NIL
+                      (let ((name (read-file-name dir-array offset)))
+                        (when (and (string/= name ".")
+                                   (string/= name "..")
+                                   (directory-p dir-array offset))
+                          (push (make-pathname :directory (append
+                                                           (butlast directory)
+                                                           (list name))
+                                               :defaults pathname)
+                                result)))))
+                 (T
+                  (let* ((wild-pos (position :wild directory))
+                         (start-of-dir (subseq directory 0 wild-pos)))
+                    (do-files (offset) dir-array
+                        NIL
+                        (let ((name (read-file-name dir-array offset)))
+                          (when (and (string/= name ".")
+                                     (string/= name "..")
+                                     (directory-p dir-array offset))
+                            (setf result
+                                  (append
+                                   (match-in-directory
+                                    disk fat32 fat
+                                    (read-file fat32 disk
+                                               (read-first-cluster dir-array offset)
+                                               fat)
+                                    rest-of-dir-list
+                                    (make-pathname :directory (append start-of-dir
+                                                                      (list name)
+                                                                      rest-of-dir-list)
+                                                   :defaults pathname))
+                                   result))))))))
+           result))
+        ((eql (car dir-list) :wild-inferiors)
+         (let* ((directory (pathname-directory pathname))
+                (wild-pos (position :wild-inferiors directory))
+                (start-of-dir (subseq directory 0 wild-pos))
+                (rest-of-dir-list (cdr dir-list))
+                (result '()))
+           (do-files (offset) dir-array
+               NIL
+               (let ((name (read-file-name dir-array offset)))
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (directory-p dir-array offset))
+                   (let ((new-dir-array (read-file fat32 disk
+                                                   (read-first-cluster dir-array offset)
+                                                   fat)))
+                     (setf result
+                           (append
+                            ;; check directory against rest of pathname
+                            (match-in-directory
+                             disk fat32 fat
+                             new-dir-array
+                             rest-of-dir-list
+                             (make-pathname :directory (append start-of-dir
+                                                               (list name)
+                                                               rest-of-dir-list)
+                                            :defaults pathname))
+                            ;; check directory against :wild-inferiors
+                            (match-in-directory
+                             disk fat32 fat
+                             new-dir-array
+                             dir-list
+                             (make-pathname :directory (append start-of-dir
+                                                               (list name)
+                                                               dir-list)
+                                            :defaults pathname))
+                            result))))))
+           (setf result
+                 (append (match-in-directory
+                          disk fat32 fat
+                          dir-array
+                          rest-of-dir-list
+                          (make-pathname :directory (append start-of-dir
+                                                            rest-of-dir-list)
+                                         :defaults pathname))
+                         result))
+           result))
+        (T ;; Exact match (TODO: Wild strings).
+         (let ((match-name (car dir-list)))
+           (do-files (offset) dir-array
+               NIL
+               (let ((name (read-file-name dir-array offset)))
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (equalp match-name name)
+                            (directory-p dir-array offset))
+                   (return-from match-in-directory
+                     (match-in-directory
+                      disk fat32 fat
+                      (read-file fat32 disk
+                                 (read-first-cluster dir-array offset)
+                                 fat)
+                      (cdr dir-list)
+                      pathname)))))))
+        ))
+
 (defmethod directory-using-host ((host fat32-host) pathname &key)
-  (let ((file-data (open-file-metadata host pathname))
-        (stack '()))
-    (do-files (file) file-data
-        t
-        (let ((file-name (read-file-name file-data file)))
-          (when (and (string/= file-name ".")
-                     (string/= file-name ".."))
-            (push (parse-simple-file-path host
-                                          (format nil
-                                                  (if (file-p file-data file)
-                                                      "~a~a"
-                                                      "~a~a>")
-                                                  (directory-namestring pathname)
-                                                  file-name))
-                  stack))))
-    stack))
+  (let ((disk (partition host))
+        (fat32 (fat-structure host))
+        (fat (fat host))
+        (dir-list (pathname-directory pathname)))
+    (when (eql dir-list :wild)
+      (setf dir-list '(:absolute :wild-inferiors)))
+    (when (not (typep dir-list '(cons (eql :absolute))))
+      (error 'simple-file-error
+             :pathname pathname
+             :format-control "Non-absolute pathname."))
+    (with-fat32-host-locked (host)
+      (remove-duplicates
+       (match-in-directory disk fat32 fat
+                           (read-file fat32 disk (first-root-dir-cluster fat32) fat)
+                           (cdr dir-list)
+                           pathname)
+       :test #'equal))))
 
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
   ;; TODO verbose
@@ -1294,16 +1464,24 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                (namestring dest))
       t
       (multiple-value-bind (source-dir source-cluster source-start) (open-file-metadata host source)
-        (assert source-start (source-start) "Source file not found. ~s" source)
+        (when (null source-start)
+          (error 'simple-file-error
+                 :pathname source
+                 :format-control "File ~A does not exist. ~S"
+                 :format-arguments (list source (file-name source))))
         (multiple-value-bind (dest-dir dest-cluster dest-start) (open-file-metadata host dest)
-          (assert (not dest-start) (dest-start) "Destination file alredy exist. ~s" dest)
-          (let ((dest-offset))
+          (let ((fat32 (fat-structure host))
+                (fat (fat host))
+                (disk (partition host))
+                (dest-offset))
+            (when dest-start
+              (remove-file dest-dir dest-start disk dest-cluster fat32 fat))
             (multiple-value-setq (dest-offset dest-dir)
               (create-directory-entry dest-dir
                                       (pathname-name dest)
                                       (pathname-type dest)
                                       (eql (pathname-version dest) :previous)
-                                      (bytes-per-cluster (fat-structure host))))
+                                      (bytes-per-cluster fat32)))
             ;; copy meta data
             (replace dest-dir source-dir
                      :start1 (+ dest-offset 11)
@@ -1315,19 +1493,23 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                    ;; destination directory (already modified above)
                    ;; remove source file entry
                    (free-file-entry dest-dir source-start)
-                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))
+                   (write-file fat32 disk dest-cluster fat dest-dir))
                   (T
                    ;; source and destination are different directories
                    ;; remove source file entry
                    (free-file-entry source-dir source-start)
                    ;; write both directories
-                   (write-file (fat-structure host) (partition host) source-cluster (fat host) source-dir)
-                   (write-file (fat-structure host) (partition host) dest-cluster (fat host) dest-dir))))))))
+                   (write-file fat32 disk source-cluster fat source-dir)
+                   (write-file fat32 disk dest-cluster fat dest-dir))))))))
 
 (defmethod file-write-date-using-host ((host fat32-host) path)
   (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
     (declare (ignore parent-cluster))
-    (assert file-offset (file-offset) "File not found. ~s" path)
+    (when (null file-offset)
+      (error 'simple-file-error
+                             :pathname path
+                             :format-control "File ~A does not exist. ~S"
+                             :format-arguments (list path (file-name path))))
     (let ((time (read-write-time parent-dir file-offset))
           (date (read-write-date parent-dir file-offset)))
       (encode-universal-time (ash (ldb (byte 5 0) time) 1)
@@ -1342,7 +1524,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (fat32 (fat-structure host))
          (fat (fat host)))
     (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
-      (assert file-offset (file-offset) "File not found. ~s" path)
+      (when (null file-offset)
+        (error 'simple-file-error
+               :pathname path
+               :format-control "File ~A does not exist. ~S"
+               :format-arguments (list path (file-name path))))
+      (when (directory-p parent-dir file-offset)
+        (error 'simple-file-error
+               :pathname path
+               :format-control "~S is a directory, couldn't delete"
+               :format-arguments (list path )))
       (remove-file parent-dir file-offset disk parent-cluster fat32 fat))))
 
 (defmethod delete-directory-using-host ((host fat32-host) path &key recursive)
