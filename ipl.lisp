@@ -127,13 +127,6 @@ Make sure there is a virtio-net NIC attached.~%")
 (eval (read-from-string "(swank-loader::init)"))
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t :interface \"0.0.0.0\")"))
 
-;; Non-supervisor disk code
-(sys.int::cal "sys:source;disk;package.lisp")
-(sys.int::cal "sys:source;disk;crc32.lisp")
-(sys.int::cal "sys:source;disk;guid.lisp")
-(sys.int::cal "sys:source;disk;disk.lisp")
-(sys.int::cal "sys:source;disk;partition.lisp")
-
 ;; And the GUI.
 (sys.int::cal "sys:source;gui;package.lisp")
 (sys.int::cal "sys:source;gui;colour.lisp")
@@ -219,8 +212,6 @@ Make sure there is a virtio-net NIC attached.~%")
 
 ;; Other stuff.
 (sys.int::cal "sys:source;drivers;intel-gma.lisp")
-(sys.int::cal "sys:source;file;cache.lisp")
-(sys.int::cal "sys:source;file;fat32.lisp")
 (sys.int::cal "sys:source;file;ext4.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;net;http-demo.lisp")

@@ -217,6 +217,15 @@
     "net/network-setup.lisp"
     "file/fs.lisp"
     "file/remote.lisp"
+    ;; Non-supervisor disk code
+    "disk/package.lisp"
+    "disk/crc32.lisp"
+    "disk/guid.lisp"
+    "disk/disk.lisp"
+    "disk/partition.lisp"
+    ;; FAT file system
+    "file/cache.lisp"
+    "file/fat32.lisp"
     "config.lisp"
     "ipl.lisp"))
 
