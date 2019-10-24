@@ -1351,10 +1351,51 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                    result))))))))
            result))
         ((eql (car dir-list) :wild-inferiors)
-         ;; TODO - handle :wild-inferiors
-         (error 'simple-file-error
-                :pathname pathname
-                :format-control ":wild-inferiors not supported."))
+         (let* ((directory (pathname-directory pathname))
+                (wild-pos (position :wild-inferiors directory))
+                (start-of-dir (subseq directory 0 wild-pos))
+                (rest-of-dir-list (cdr dir-list))
+                (result '()))
+           (do-files (offset) dir-array
+               NIL
+               (let ((name (read-file-name dir-array offset)))
+                 (when (and (string/= name ".")
+                            (string/= name "..")
+                            (directory-p dir-array offset))
+                   (let ((new-dir-array (read-file fat32 disk
+                                                   (read-first-cluster dir-array offset)
+                                                   fat)))
+                     (setf result
+                           (append
+                            ;; check directory against rest of pathname
+                            (match-in-directory
+                             disk fat32 fat
+                             new-dir-array
+                             rest-of-dir-list
+                             (make-pathname :directory (append start-of-dir
+                                                               (list name)
+                                                               rest-of-dir-list)
+                                            :defaults pathname))
+                            ;; check directory against :wild-inferiors
+                            (match-in-directory
+                             disk fat32 fat
+                             new-dir-array
+                             dir-list
+                             (make-pathname :directory (append start-of-dir
+                                                               (list name)
+                                                               dir-list)
+                                            :defaults pathname))
+                            result))))))
+           (setf result
+                 (append (match-in-directory
+                          disk fat32 fat
+                          dir-array
+                          rest-of-dir-list
+                          (make-pathname :directory (append start-of-dir
+                                                            rest-of-dir-list)
+                                         :defaults pathname))
+                         result))
+           result))
         (T ;; Exact match (TODO: Wild strings).
          (let ((match-name (car dir-list)))
            (do-files (offset) dir-array
@@ -1385,10 +1426,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (error 'simple-file-error
              :pathname pathname
              :format-control "Non-absolute pathname."))
-    (match-in-directory disk fat32 fat
-                        (read-file fat32 disk (first-root-dir-cluster fat32) fat)
-                        (cdr dir-list)
-                        pathname)))
+    (with-fat32-host-locked (host)
+      (remove-duplicates
+       (match-in-directory disk fat32 fat
+                           (read-file fat32 disk (first-root-dir-cluster fat32) fat)
+                           (cdr dir-list)
+                           pathname)
+       :test #'equal))))
 
 (defmethod ensure-directories-exist-using-host ((host fat32-host) pathname &key verbose)
   ;; TODO verbose
