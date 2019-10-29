@@ -47,6 +47,9 @@
    (%num-ports             :initarg :num-ports  :accessor num-ports)
 
    ;; These fields must be initialized by the HCD
+   (%pci-device            :initarg :pci-device :accessor pci-device)
+   (%pci-irq               :initarg :pci-irq    :accessor pci-irq)
+   (%interrupt-thread                           :accessor interrupt-thread)
    (%lock                  :initarg :lock       :accessor usbd-lock)
    (%buf-pool              :initarg :buf-pool   :accessor buf-pool)
 
@@ -107,7 +110,8 @@
    ;; These fields are initialized in the method below
    ;; Lock for device - used to serialize creation and teardown of the
    ;; device
-   (%%lock     :initarg :lock              :accessor usb-device-lock)
+   (%endpoints     :initarg  :endpoints    :accessor usb-device-endpoints)
+   (%%lock         :initarg  :lock         :accessor usb-device-lock)
 
    ;; These fields are initialized during device enumerateion
    (%drivers        :initform NIL          :accessor usb-device-drivers)
@@ -127,12 +131,12 @@
                                        &key &allow-other-keys)
   (let ((usbd (usb-device-hcd device)))
     (setf (usb-device-lock device) (sup:make-mutex "USB Device lock"))
-
     ;; lock device so that enumeration/driver acceptance can occur before
     ;; any operations or disconnect can occur.
     (sup:acquire-mutex (usb-device-lock device))
 
-    (setf (aref (port->device usbd) (usb-device-port-num device)) device)))
+    (setf (usb-device-endpoints device) (make-array 32 :initial-element nil)
+          (aref (port->device usbd) (usb-device-port-num device)) device)))
 
 ;;=========================
 ;; Creates an HCD device and returns the device
@@ -233,7 +237,7 @@
 
         (unwind-protect
              (progn
-               ;; The device id is created with the device mutex held
+               ;; The device is created leaving the device mutex held
                (setf device (create-device usbd port-num))
 
                ;; get device descriptor size and max packet size

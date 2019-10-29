@@ -418,9 +418,6 @@
 
 (defclass ohci (usbd)
   (
-   (%pci-device       :initarg :pci-device        :accessor pci-device)
-   (%pci-irq          :initarg :pci-irq           :accessor pci-irq)
-   (%interrupt-thread                             :accessor interrupt-thread)
    ;; base address register - address of controller regs
    (%bar              :initarg :bar               :accessor bar)
 
@@ -506,7 +503,8 @@
 
 (defmethod get-buffer-memory ((ohci ohci) num-bytes)
   (with-slots (phys-addr-free phys-addr-end) ohci
-    ;; force 16-byte and 32-byte aligment for 16-byte buffers and 32-byte buffers
+    ;; force 16-byte and 32-byte alignment for 16-byte buffers and
+    ;; 32-byte buffers
     (cond ((= num-bytes 16)
            (setf phys-addr-free (logandc2 (+ phys-addr-free 15) #x0F)))
           ((= num-bytes 32)
@@ -606,9 +604,7 @@
 (defclass hcd-device (usb-device)
   ((%addr          :initarg  :addr         :accessor device-addr)
    (%speed         :initarg  :speed        :accessor device-speed)
-   (%semaphore     :initarg  :semaphore    :accessor device-semaphore)
-   ;; TODO - move this to usb-device?
-   (%endpoints     :initarg  :endpoints    :accessor device-endpoints)))
+   (%semaphore     :initarg  :semaphore    :accessor device-semaphore)))
 
 (defstruct endpoint
   type   ;; endpoint type (:control :interrupt :bulk :isochronous)
@@ -624,7 +620,7 @@
 (declaim (inline device-control-ed))
 
 (defun device-control-ed (hcd-device)
-  (endpoint-ed (aref (device-endpoints hcd-device) 0)))
+  (endpoint-ed (aref (usb-device-endpoints hcd-device) 0)))
 
 (defmethod (setf usb-device-max-packet) :after
     (max-packet (hcd-device hcd-device))
@@ -644,10 +640,8 @@
                                   :addr 0
                                   :speed speed
                                   :semaphore (sync:make-semaphore
-                                              :name "OHCI SEMAPHORE")
-                                  :endpoints (make-array
-                                              32 :initial-element nil))))
-      (setf (aref (device-endpoints device) 0)
+                                              :name "OHCI SEMAPHORE"))))
+      (setf (aref (usb-device-endpoints device) 0)
             (make-endpoint :type :control
                            :device device
                            :driver NIL
@@ -699,10 +693,10 @@
 
       ;; free ed and all associated td's
       (free-ed ohci ed)
-      (setf (aref (device-endpoints device) 0) nil)
+      (setf (aref (usb-device-endpoints device) 0) nil)
 
       (loop
-         with endpoints = (device-endpoints device)
+         with endpoints = (usb-device-endpoints device)
          for endpt-num from 1 to 31
          for endpoint = (aref endpoints endpt-num) then
            (aref endpoints endpt-num)
@@ -769,10 +763,10 @@
     (sup:debug-print-line "create-interrupt-endpt"))
 
   (with-hcd-access (ohci)
-    (when (aref (device-endpoints device) endpt-num)
+    (when (aref (usb-device-endpoints device) endpt-num)
       (error "Endpoint ~D already defined. Type is ~S"
              endpt-num
-             (endpoint-type (aref (device-endpoints device) endpt-num))))
+             (endpoint-type (aref (usb-device-endpoints device) endpt-num))))
     (let* ((ed (alloc-ed ohci))
            (td-header (encode-td-header +td-partial-buffer+
                                         +pid-in-token+
@@ -794,7 +788,7 @@
            (td-phys-addr (array->phys-addr td)))
       (setf
        ;; save endpoint object
-       (aref (device-endpoints device) endpt-num) endpoint
+       (aref (usb-device-endpoints device) endpt-num) endpoint
        ;; Setup header
        (ed-header ed) (encode-ed-header
                        (device-addr device)
@@ -818,7 +812,7 @@
     (sup:debug-print-line "delete-interrupt-endpt"))
 
   (with-hcd-access (ohci)
-    (let* ((endpoint (aref (device-endpoints device) endpt-num)))
+    (let* ((endpoint (aref (usb-device-endpoints device) endpt-num)))
       (when (null endpoint)
         (error "Endpoint ~D does not exist" endpt-num))
 
@@ -835,7 +829,7 @@
 
         (wait-for-next-sof ohci)
 
-        (setf (aref (device-endpoints device) endpt-num) nil)
+        (setf (aref (usb-device-endpoints device) endpt-num) nil)
 
         (free-ed ohci ed)))))
 
@@ -899,10 +893,10 @@
     (sup:debug-print-line "create-bulk-endpt"))
 
   (with-hcd-access (ohci)
-    (when (aref (device-endpoints device) endpt-num)
+    (when (aref (usb-device-endpoints device) endpt-num)
       (error "Endpoint ~D already defined. Type is ~S"
              endpt-num
-             (endpoint-type (aref (device-endpoints device) endpt-num))))
+             (endpoint-type (aref (usb-device-endpoints device) endpt-num))))
     (let* ((ed (alloc-ed ohci))
            (td-header (encode-td-header
                        +td-partial-buffer+
@@ -924,7 +918,7 @@
            (td-phys-addr (array->phys-addr td)))
       (setf
        ;; save endpoint object
-       (aref (device-endpoints device) endpt-num) endpoint
+       (aref (usb-device-endpoints device) endpt-num) endpoint
        (ed-header ed) (encode-ed-header
                        (device-addr device)
                        endpt-num
@@ -948,7 +942,7 @@
     (sup:debug-print-line "delete-bulk-endpt"))
 
   (with-hcd-access (ohci)
-    (let* ((endpoint (aref (device-endpoints device) endpt-num)))
+    (let* ((endpoint (aref (usb-device-endpoints device) endpt-num)))
       (when (null endpoint)
         (error "Endpoint ~D does not exist" endpt-num))
 
@@ -990,7 +984,7 @@
     (error "Invalid arguments num-bytes (~D) > length of buffer (~D)"
            num-bytes (length buf)))
 
-  (let* ((endpoint (aref (device-endpoints device) endpt-num))
+  (let* ((endpoint (aref (usb-device-endpoints device) endpt-num))
          (ed (endpoint-ed endpoint))
          (msg-td (phys-addr->array (ed-tdq-tail ed)))
          (msg-td-info (gethash msg-td (td->td-info ohci)))
@@ -1087,7 +1081,7 @@
     (sup:debug-print-line  "control-receive-data"))
 
   (with-hcd-access (ohci)
-    (let* ((endpoint (aref (device-endpoints device) 0))
+    (let* ((endpoint (aref (usb-device-endpoints device) 0))
            (event-type (endpoint-event-type endpoint))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
@@ -1198,7 +1192,7 @@
     (sup:debug-print-line  "control-send-data"))
 
   (with-hcd-access (ohci)
-    (let* ((endpoint (aref (device-endpoints device) 0))
+    (let* ((endpoint (aref (usb-device-endpoints device) 0))
            (event-type (endpoint-event-type endpoint))
            (ed (endpoint-ed endpoint))
            (msg-td (phys-addr->array (ed-tdq-head ed)))
