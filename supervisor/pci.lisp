@@ -141,7 +141,7 @@
   claimed)
 
 (defun make-pci-address (bus device function)
-  (declare (type (integer 0 255) bus register)
+  (declare (type (integer 0 255) bus)
            (type (integer 0 31) device)
            (type (integer 0 7) function))
   (logior #x80000000
