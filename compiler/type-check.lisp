@@ -195,7 +195,7 @@
                    (insert-type-checks-1
                     (ast `(multiple-value-call
                               (source-fragment
-                               (lambda (,@req-values &optional ,@opt-values &rest ,rest-value)
+                               (lambda (,@req-values &optional ,@opt-values &rest ,rest-value sys.int::&count n-values)
                                  (declare (dynamic-extent ,rest-value)
                                           (sys.int::lambda-name (the ,(ast-the-type form))))
                                  ,@(loop
@@ -211,6 +211,15 @@
                                  (let* ((opt-list (list* ,@opt-values ,rest-value))
                                         (req-list (list* ,@req-values opt-list)))
                                    (declare (dynamic-extent opt-list req-list))
+                                   ;; Slice the list down to the values actually returned.
+                                   ,@(when opt-values
+                                       ;; Only needed when there are optional values (I think?)
+                                       `((when (< n-values ,(+ (length req-values) (length opt-values)))
+                                           (let* ((scratch (cons nil req-list))
+                                                  (last (nthcdr n-values scratch)))
+                                             (declare (dynamic-extent scratch))
+                                             (setf (cdr last) nil
+                                                   req-list (cdr scratch))))))
                                    (values-list req-list))))
                             ,(value form))
                          form)
