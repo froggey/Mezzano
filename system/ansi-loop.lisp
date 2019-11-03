@@ -1083,10 +1083,20 @@ collected result will be returned as the value of the LOOP."
 
 
 (defun loop-typed-init (data-type)
-  (when (and data-type (subtypep data-type 'number))
-    (if (or (subtypep data-type 'float) (subtypep data-type '(complex float)))
-	(coerce 0 data-type)
-	0)))
+  (when data-type
+    ;; FIXME: This should pass the macro environment to typeexpand.
+    (let ((expanded-type (sys.int::typeexpand data-type)))
+      ;; Best effort... TODO: Make this more complete.
+      (cond ((or (subtypep expanded-type 'float)
+                 (subtypep expanded-type '(complex float)))
+             (coerce 0 data-type))
+            ((subtypep expanded-type 'number)
+             0)
+            ((subtypep expanded-type 'vector)
+             ;; FIXME: This doesn't work for sized vectors.
+             (coerce nil expanded-type))
+            (t
+             nil)))))
 
 
 (defun loop-optional-type (&optional variable)
