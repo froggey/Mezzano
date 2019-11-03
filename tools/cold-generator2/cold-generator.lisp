@@ -167,6 +167,7 @@
     "compiler/simplify-control-flow.lisp"
     "compiler/blexit.lisp"
     "compiler/transforms.lisp"
+    "compiler/type-check.lisp"
     "compiler/backend/backend.lisp"
     "compiler/backend/instructions.lisp"
     "compiler/backend/cfg.lisp"

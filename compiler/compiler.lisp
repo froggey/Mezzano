@@ -82,6 +82,7 @@ be generated instead.")
   ;; Don't optimize at (compiliation-speed 3).
   (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3)))
         (target (canonicalize-target target-architecture)))
+    (setf form (insert-type-checks form target))
     (when run-optimizations
       (setf form (run-optimizers form target)))
     (unless run-optimizations

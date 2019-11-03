@@ -40,6 +40,7 @@
                (:file "compiler/blexit")
                (:file "compiler/transforms")
                (:file "compiler/dynamic-extent")
+               (:file "compiler/type-check")
                (:file "compiler/backend/backend")
                (:file "compiler/backend/instructions")
                (:file "compiler/backend/cfg")
