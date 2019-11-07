@@ -552,7 +552,8 @@
   (let* ((inode (read-inode disk superblock bgdt inode-n))
          (inode-block (inode-block inode))
          (inode-flags (inode-flags inode)))
-    (cond ((logbitp +extents-flag+ inode-flags)
+    (cond ((and (logbitp +incompat-extents+ (superblock-feature-incompat superblock))
+                (logbitp +extents-flag+ inode-flags))
            ;; TODO: Add support for extent-header-depth not equal to 0
            (let ((extent-header (read-extent-header inode-block)))
              (unless (zerop (extent-header-depth extent-header))
