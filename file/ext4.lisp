@@ -55,6 +55,28 @@
 (defconstant +ro-compat-readonly+ 12)
 (defconstant +ro-compat-project+ 13)
 
+;; Inode modes
+(defconstant +inode-others-execute+ 0 "Others members may execute")
+(defconstant +inode-others-write+ 1 "Others members may write")
+(defconstant +inode-others-read+ 2 "Others members may read")
+(defconstant +inode-group-execute+ 3 "Group members may execute")
+(defconstant +inode-group-write+ 4 "Group members may write")
+(defconstant +inode-group-execute+ 5 "Group members may read")
+(defconstant +inode-owner-execute+ 6 "Owner may execute")
+(defconstant +inode-owner-write+ 7 "Owner may write")
+(defconstant +inode-owner-read+ 8 "Owner may read")
+(defconstant +inode-sticky-bit+ 9 "Sticky bit")
+(defconstant +inode-gid+ 10 "Group ID")
+(defconstant +inode-uid+ 11 "User ID")
+;; Inode file types, they are mutually-exclusive
+(defconstant +inode-fifo+ #x1)
+(defconstant +inode-character-device+ #x2)
+(defconstant +inode-directory+ #x4)
+(defconstant +inode-block-device+ #x6)
+(defconstant +inode-regular-file+ #x8)
+(defconstant +inode-symbolic-link+ #xA)
+(defconstant +inode-socket+ #xC)
+
 ;; Inode flags
 (defconstant +sync-flag+ 3 "All writes to the file must be synchronous")
 (defconstant +immutable-flag+ 4 "File is immutable")
@@ -189,8 +211,6 @@
   (defun check-feature-incompat (feature-incompat)
     (when (logbitp +incompat-recover+ feature-incompat)
       (error "Filesystem needs recovery"))
-    (unless (logbitp +incompat-filetype+ feature-incompat)
-      (error "+incompat-filetype+ is required"))
     (iter (for feature :in not-implemented)
           (when (logbitp feature feature-incompat)
             (collect feature :into result))
@@ -790,16 +810,17 @@
         (path (directory-namestring pathname)))
     (do-files (block offset) disk superblock bgdt inode-n t
       (let* ((file (read-linked-directory-entry block offset))
-             (type (linked-directory-entry-file-type file)))
-        (unless (= +unknown-type+ type)
-          (push (parse-simple-file-path host
-                                        (format nil
-                                                (if (= +directory-type+ type)
-                                                    "~a~a>"
-                                                    "~a~a")
-                                                path
-                                                (linked-directory-entry-name file)))
-                stack))))
+             (directory-p (if (logbitp +incompat-filetype+ (superblock-feature-incompat superblock))
+                              (= +directory-type+ (linked-directory-entry-file-type file))
+                              (= +inode-directory+ (inode-mode (read-inode disk superblock bgdt inode-n))))))
+        (push (parse-simple-file-path host
+                                      (format nil
+                                              (if directory-p
+                                                  "~a~a>"
+                                                  "~a~a")
+                                              path
+                                              (linked-directory-entry-name file)))
+              stack)))
     (return-from directory-using-host stack)))
 
 ;; (defmethod ensure-directories-exist-using-host ((host ext-host) pathname &key verbose))
