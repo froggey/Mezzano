@@ -199,26 +199,23 @@
     (error "Bad magic : #x~x.
   Valid magic value is #xEF53." magic)))
 
-(let ((not-implemented (list +incompat-compression+
-                             +incompat-journal-dev+
-                             +incompat-meta-bg+
-                             +incompat-mmp+
-                             +incompat-ea-inode+
-                             +incompat-dirdata+
-                             +incompat-csum-seed+
-                             +incompat-largedir+
-                             +incompat-encrypt+)))
+(let ((implemented (list +incompat-filetype+
+                         +incompat-extents+
+                         +incompat-64bit+
+                         +incompat-flex-bg+
+                         +incompat-inline-data+)))
   (defun check-feature-incompat (feature-incompat)
     (when (logbitp +incompat-recover+ feature-incompat)
       (error "Filesystem needs recovery"))
     (unless (logbitp +incompat-filetype+ feature-incompat)
       (error "+incompat-filetype+ is required"))
-    (iter (for feature :in not-implemented)
+    (iter (with result := feature-incompat)
+          (for feature :in implemented)
           (when (logbitp feature feature-incompat)
-            (collect feature :into result))
+            (decf result (ash 1 feature)))
           (finally
-           (when result
-             (error "Required incompatible feature not implemented : ~{~d, ~}" result))))))
+           (unless (zerop result)
+             (error "Required incompatible features not implemented : ~b" result))))))
 
 (defun read-superblock (disk)
   (let* ((superblock (block-device-read-sector disk 2 2))
