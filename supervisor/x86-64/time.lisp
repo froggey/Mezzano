@@ -52,7 +52,24 @@
   (let ((n (calibrate-tsc-1)))
     (dotimes (i 5)
       (setf n (/ (+ n (calibrate-tsc-1)) 2)))
-    (setf *cpu-speed* n)))
+    (setf *cpu-speed* (floor n))))
+
+(defun high-precision-time-units-to-internal-time-units (tsc-time)
+  ;; Truncate the tsc time to ensure it doesn't exceed a fixnum for
+  ;; this multiply.
+  (truncate (* tsc-time internal-time-units-per-second) *cpu-speed*))
+
+(defun get-high-precision-timer ()
+  "Returns the current value of the platform's 'high precision' timer.
+This timer will generally run at a faster rate the the standard internal-run-time
+timer. However, this timer is non-monotonic. It may wrap at any time and can
+warp backwards and forwards over a snapshot.
+Returns the current value in high-precision time units.
+They can be converted to internal time units using
+HIGH-PRECISION-TIME-UNITS-TO-INTERNAL-TIME-UNITS."
+  ;; This implementation assumes that TSCs are invariant and properly
+  ;; synchronized across cores.
+  (sys.int::tsc))
 
 (defun initialize-platform-time ()
   (when (not (boundp '*rtc-lock*))

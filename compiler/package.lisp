@@ -337,6 +337,8 @@
            #:map-physical-memory
            #:add-deferred-boot-action
            #:logical-core-count
+           #:get-high-precision-timer
+           #:high-precision-time-units-to-internal-time-units
 
            #:boot-uuid
            #:boot-field
