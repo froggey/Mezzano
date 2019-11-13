@@ -399,8 +399,7 @@ thread's stack if this function is called from normal code."
 (defun (cas %object-ref-single-float) (old new object index)
   (check-type old single-float)
   (check-type new single-float)
-  (cas (%%object-ref-single-float object index) old new)
-  value)
+  (cas (%%object-ref-single-float object index) old new))
 
 (declaim (inline %%object-ref-single-float (setf %%object-ref-single-float) (cas %%object-ref-single-float)))
 (defun %%object-ref-single-float (object index)
@@ -529,8 +528,7 @@ thread's stack if this function is called from normal code."
 (defun (cas %object-ref-single-float-unscaled) (old new object index)
   (check-type old single-float)
   (check-type new single-float)
-  (cas (%%object-ref-single-float-unscaled object index) old new)
-  value)
+  (cas (%%object-ref-single-float-unscaled object index) old new))
 
 (declaim (inline %%object-ref-single-float-unscaled (setf %%object-ref-single-float-unscaled) (cas %%object-ref-single-float-unscaled)))
 (defun %%object-ref-single-float-unscaled (object index)
