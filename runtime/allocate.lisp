@@ -250,6 +250,9 @@
            (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
            (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
                                  grow-by))
+           (when sys.int::*gc-enable-logging*
+             (mezzano.supervisor:debug-print-line
+              "Expanding PINNED area by " grow-by))
            (mezzano.supervisor:without-footholds
              (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
                (mezzano.supervisor:with-mutex (*allocator-lock*)
@@ -271,6 +274,8 @@
        (cond (inhibit-gc
               (setf inhibit-gc nil))
              (t
+              (when sys.int::*gc-enable-logging*
+                (mezzano.supervisor:debug-print-line "Full GC due to pinned allocation."))
               (sys.int::gc :full t)))))
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
@@ -300,6 +305,8 @@
            (return result)))
        (when (> i *maximum-allocation-attempts*)
          (error 'storage-condition))
+       (when sys.int::*gc-enable-logging*
+         (mezzano.supervisor:debug-print-line "Full GC due to wired allocation."))
        (sys.int::gc :full t)))
 
 (defun with-live-objects-helper (&rest objects)
@@ -478,6 +485,10 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
+       (when sys.int::*gc-enable-logging*
+         (mezzano.supervisor:debug-print-line
+          (if (eql gc-count 1) "" "Full ")
+          "GC due to general allocation."))
        (sys.int::gc :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
@@ -572,6 +583,10 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
+       (when sys.int::*gc-enable-logging*
+         (mezzano.supervisor:debug-print-line
+          (if (eql gc-count 1) "" "Full ")
+          "GC due to cons allocation."))
        (sys.int::gc :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
@@ -836,7 +851,9 @@
        (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
          (error 'storage-condition))
        (incf gc-count)
-       (debug-print-line "No memory for stack, calling GC.")
+       (when sys.int::*gc-enable-logging*
+         (mezzano.supervisor:debug-print-line
+          "Full GC due to stack allocation."))
        (sys.int::gc :full t)
        (go RETRY))))
 
