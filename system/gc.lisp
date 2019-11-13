@@ -1551,6 +1551,181 @@ Additionally update the card table offset fields."
              (t
               #++(gc-log "Skip minor cons card " current)))))
 
+(defun verify-one (address field-address)
+  (let ((object (memref-t field-address)))
+    (when (immediatep object)
+      ;; Don't care about immediate objects, return them unchanged.
+      (return-from verify-one object))
+    (when (%value-has-tag-p object +tag-instance-header+)
+      ;; Instance headers will be returned unchanged, and the pointed to
+      ;; layout will be scavenged.
+      ;; This assumes that instance header only refer to pinned/wired objects
+      ;; and don't need to move.
+      (verify-object (mezzano.runtime::%unpack-instance-header object))
+      (return-from verify-one object))
+    (let ((object-address (ash (%pointer-field object) 4)))
+      (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
+        ((#.+address-tag-general+
+          #.+address-tag-cons+)
+         (when (not (logtest object-address +address-old-generation+))
+           (mezzano.supervisor:panic "Object at address " address " contains young gen pointer " object-address " in field " field-address)))
+        ((#.+address-tag-pinned+ #.+address-tag-stack+)
+         nil)))))
+
+(defun verify-generic (object size)
+  "Scavenge SIZE words pointed to by OBJECT."
+  (let ((address (ash (%pointer-field object) 4)))
+    (dotimes (i size)
+      (verify-one address (+ address (* i 8))))))
+
+(defun verify-object (object)
+  ;; Dispatch again based on the type.
+  (case (%object-tag object)
+    ((#.+object-tag-array-t+
+      #.+object-tag-closure+
+      #.+object-tag-symbol-value-cell+)
+     ;; simple-vector
+     ;; 1+ to account for the header word.
+     (verify-generic object (1+ (%object-header-data object))))
+    ((#.+object-tag-simple-string+
+      #.+object-tag-string+
+      #.+object-tag-simple-array+
+      #.+object-tag-array+)
+     ;; Dimensions don't need to be scanned
+     (verify-generic object 4))
+    ((#.+object-tag-complex-rational+
+      #.+object-tag-ratio+)
+     (verify-generic object 3))
+    (#.+object-tag-symbol+
+     (verify-generic object 6))
+    ((#.+object-tag-instance+
+      #.+object-tag-funcallable-instance+)
+     (let ((direct-layout (%instance-layout object)))
+       (cond ((layout-p direct-layout)
+              (let* ((layout direct-layout)
+                     (heap-layout (layout-heap-layout layout))
+                     (heap-size (layout-heap-size layout)))
+                (cond ((eql heap-layout 't)
+                       ;; All slots boxed
+                       (verify-generic object (1+ heap-size)))
+                      (heap-layout
+                       ;; Bit vector of slot boxedness.
+                       ;; TODO: Not implemented.
+                       nil))))
+             (t ;; Obsolete instance
+              ;; Much like a regular instance, but the layout comes from the
+              ;; obsolete layout instead of directly from the object.
+              (let* ((layout (mezzano.runtime::obsolete-instance-layout-old-layout
+                              direct-layout))
+                     (heap-layout (layout-heap-layout layout))
+                     (heap-size (layout-heap-size layout)))
+                (cond ((eql heap-layout 't)
+                       ;; All slots boxed
+                       (verify-generic object (1+ heap-size)))
+                      (heap-layout
+                       ;; Bit vector of slot boxedness.
+                       ;; TODO: Not implemented.
+                       nil)))))))
+    (#.+object-tag-function-reference+
+     (verify-generic object 4))
+    (#.+object-tag-function+
+     ;; Not implemented.
+     nil)
+    ;; Things that don't need to be scanned.
+    ((#.+object-tag-array-fixnum+
+      #.+object-tag-array-bit+
+      #.+object-tag-array-unsigned-byte-2+
+      #.+object-tag-array-unsigned-byte-4+
+      #.+object-tag-array-unsigned-byte-8+
+      #.+object-tag-array-unsigned-byte-16+
+      #.+object-tag-array-unsigned-byte-32+
+      #.+object-tag-array-unsigned-byte-64+
+      #.+object-tag-array-signed-byte-1+
+      #.+object-tag-array-signed-byte-2+
+      #.+object-tag-array-signed-byte-4+
+      #.+object-tag-array-signed-byte-8+
+      #.+object-tag-array-signed-byte-16+
+      #.+object-tag-array-signed-byte-32+
+      #.+object-tag-array-signed-byte-64+
+      #.+object-tag-array-single-float+
+      #.+object-tag-array-double-float+
+      #.+object-tag-array-short-float+
+      #.+object-tag-array-long-float+
+      #.+object-tag-array-complex-single-float+
+      #.+object-tag-array-complex-double-float+
+      #.+object-tag-array-complex-short-float+
+      #.+object-tag-array-complex-long-float+
+      #.+object-tag-bignum+
+      #.+object-tag-double-float+
+      #.+object-tag-short-float+
+      #.+object-tag-long-float+
+      ;; not complex-rational or ratio, they may hold other numbers.
+      #.+object-tag-complex-single-float+
+      #.+object-tag-complex-double-float+
+      #.+object-tag-complex-short-float+
+      #.+object-tag-complex-long-float+
+      #.+object-tag-mmx-vector+
+      #.+object-tag-sse-vector+))
+    (#.+object-tag-weak-pointer+
+     ;; not implemented
+     nil)
+    (#.+object-tag-weak-pointer-vector+
+     ;; not implemented
+     nil)
+    (#.+object-tag-delimited-continuation+
+     ;; not implemented
+     nil)
+    (t (scan-error object))))
+
+(defun verify-at (address)
+  (let ((type (ash (memref-unsigned-byte-8 address 0) (- +object-type-shift+))))
+    (case type
+      (#.+object-tag-cons+
+       ;; Scanning a cons represented as a headered object.
+       (verify-one address (+ address 16))
+       (verify-one address (+ address 24))
+       32)
+      (#.+object-tag-freelist-entry+
+       ;; Skip freelist entries.
+       (* (ash (memref-unsigned-byte-64 address 0)
+               (- +object-data-shift+))
+          8))
+      (t
+       (let ((object (%%assemble-value address +tag-object+)))
+         (verify-object object)
+         (* (align-up (object-size object) 2) 8))))))
+
+(defun verify-range (start size)
+  (loop
+     with end = (+ start size)
+     with current = start
+     until (>= current end)
+     do
+       (incf current (verify-at current))))
+
+(defun verify-cons-range (start size)
+  (loop
+     for current from start below (+ start size) by 16
+     do
+       (verify-one current (+ current 0))
+       (verify-one current (+ current 8))))
+
+(defun validate-intergenerational-pointers ()
+  (when *gc-debug-validate-intergenerational-pointers*
+    ;; Make sure wired, pinned, and old gen don't contain young gen pointers.
+    (verify-range *wired-area-base*
+                  (- *wired-area-bump* *wired-area-base*))
+    (verify-range *pinned-area-base*
+                  (- *pinned-area-bump* *pinned-area-base*))
+    (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
+                          +address-old-generation+
+                          *old-gen-newspace-bit*)
+                  *general-area-old-gen-bump*)
+    (verify-cons-range (logior (ash +address-tag-cons+ +address-tag-shift+)
+                               +address-old-generation+
+                               *old-gen-newspace-bit*)
+                       *cons-area-old-gen-bump*)))
+
 (defun gc-dump-area-state ()
   (mezzano.supervisor:debug-print-line "Wired: " *wired-area-base* " " (- *wired-area-bump* *wired-area-base*))
   (mezzano.supervisor:debug-print-line "Pinned: " *pinned-area-base* " " (- *pinned-area-bump* *pinned-area-base*))
@@ -1654,6 +1829,7 @@ Additionally update the card table offset fields."
           *scavenge-cons-old-finger* cons-bump)
     (scavenge-dynamic :minor)
     ;; Collection complete.
+    (validate-intergenerational-pointers)
     ;; Clear target generation dirty bits, there are no objects in younger generations.
     (flush-dirty-card-bits *wired-area-base* (- *wired-area-bump* *wired-area-base*))
     (flush-dirty-card-bits *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
@@ -1849,6 +2025,7 @@ Additionally update the card table offset fields."
     ;; Rebuild freelists.
     (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
     (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
+    (validate-intergenerational-pointers)
     ;; Reset the pinned area's dirty bits.
     ;; Newspace's dirty bits have been cleared by the allocate & reprotect.
     (flush-dirty-card-bits *pinned-area-base*
