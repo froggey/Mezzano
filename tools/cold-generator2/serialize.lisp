@@ -718,10 +718,10 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*wired-area-bump*
                    sys.int::*pinned-area-base*
                    sys.int::*pinned-area-bump*
-                   sys.int::*general-area-bump*
-                   sys.int::*general-area-limit*
-                   sys.int::*cons-area-bump*
-                   sys.int::*cons-area-limit*
+                   sys.int::*general-area-old-gen-bump*
+                   sys.int::*general-area-old-gen-limit*
+                   sys.int::*cons-area-old-gen-bump*
+                   sys.int::*cons-area-old-gen-limit*
                    sys.int::*wired-stack-area-bump*
                    sys.int::*stack-area-bump*
                    sys.int::*bytes-allocated-to-stacks*))
@@ -775,16 +775,16 @@ Must not call SERIALIZE-OBJECT."))
                             image environment))
     ;; General/cons area bumps point at the end of allocated data and
     ;; are area-relative.
-    (setf (image-symbol-value image environment 'sys.int::*general-area-bump*)
+    (setf (image-symbol-value image environment 'sys.int::*general-area-old-gen-bump*)
           (serialize-object general-area-bump
                             image environment))
-    (setf (image-symbol-value image environment 'sys.int::*general-area-limit*)
+    (setf (image-symbol-value image environment 'sys.int::*general-area-old-gen-limit*)
           (serialize-object (length (area-data (image-general-area image)))
                             image environment))
-    (setf (image-symbol-value image environment 'sys.int::*cons-area-bump*)
+    (setf (image-symbol-value image environment 'sys.int::*cons-area-old-gen-bump*)
           (serialize-object cons-area-bump
                             image environment))
-    (setf (image-symbol-value image environment 'sys.int::*cons-area-limit*)
+    (setf (image-symbol-value image environment 'sys.int::*cons-area-old-gen-limit*)
           (serialize-object (length (area-data (image-cons-area image)))
                             image environment))
     ;; Stack areas.
@@ -819,14 +819,12 @@ Must not call SERIALIZE-OBJECT."))
                   :general
                   (logior (cross-cl:dpb sys.int::+address-tag-general+
                                         sys.int::+address-tag+ 0)
-                          (cross-cl:dpb sys.int::+address-generation-2-a+
-                                        sys.int::+address-generation+ 0)))
+                          sys.int::+address-old-generation+))
    :cons-area (make-area
                :cons
                (logior (cross-cl:dpb sys.int::+address-tag-cons+
                                      sys.int::+address-tag+ 0)
-                       (cross-cl:dpb sys.int::+address-generation-2-a+
-                                     sys.int::+address-generation+ 0)))))
+                       sys.int::+address-old-generation+))))
 
 (defun serialize-image (environment)
   "Create a new image from ENVIRONMENT"

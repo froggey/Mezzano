@@ -16,21 +16,22 @@
 (sys.int::defglobal sys.int::*wired-stack-area-bump*)
 (sys.int::defglobal sys.int::*stack-area-bump*)
 
-(sys.int::defglobal sys.int::*general-area-gen0-bump*)
-(sys.int::defglobal sys.int::*general-area-gen0-limit*)
-(sys.int::defglobal sys.int::*general-area-gen1-bump*)
-(sys.int::defglobal sys.int::*general-area-gen1-limit*)
-(sys.int::defglobal sys.int::*general-area-bump*)
-(sys.int::defglobal sys.int::*general-area-limit*)
-(sys.int::defglobal sys.int::*cons-area-gen0-bump*)
-(sys.int::defglobal sys.int::*cons-area-gen0-limit*)
-(sys.int::defglobal sys.int::*cons-area-gen1-bump*)
-(sys.int::defglobal sys.int::*cons-area-gen1-limit*)
-(sys.int::defglobal sys.int::*cons-area-bump*)
-(sys.int::defglobal sys.int::*cons-area-limit*)
+(sys.int::defglobal sys.int::*general-area-young-gen-bump*)
+(sys.int::defglobal sys.int::*general-area-young-gen-limit*)
+(sys.int::defglobal sys.int::*general-area-old-gen-bump*)
+(sys.int::defglobal sys.int::*general-area-old-gen-limit*)
+(sys.int::defglobal sys.int::*cons-area-young-gen-bump*)
+(sys.int::defglobal sys.int::*cons-area-young-gen-limit*)
+(sys.int::defglobal sys.int::*cons-area-old-gen-bump*)
+(sys.int::defglobal sys.int::*cons-area-old-gen-limit*)
+
+;; A major GC will be performed when the old generation
+;; is this much larger than the young generation.
 (sys.int::defglobal sys.int::*generation-size-ratio*)
 
-(sys.int::defglobal sys.int::*dynamic-mark-bit*)
+(sys.int::defglobal sys.int::*young-gen-newspace-bit*)
+(sys.int::defglobal sys.int::*young-gen-newspace-bit-raw*)
+(sys.int::defglobal sys.int::*old-gen-newspace-bit*)
 
 (sys.int::defglobal *allocation-fudge*)
 
@@ -71,17 +72,13 @@
   (setf sys.int::*gc-in-progress* nil
         sys.int::*gc-enable-logging* nil
         sys.int::*pinned-mark-bit* 0
-        sys.int::*dynamic-mark-bit* (dpb sys.int::+address-generation-2-a+
-                                         sys.int::+address-generation+
-                                         0)
-        sys.int::*general-area-gen0-bump* 0
-        sys.int::*general-area-gen0-limit* 0
-        sys.int::*general-area-gen1-bump* 0
-        sys.int::*general-area-gen1-limit* 0
-        sys.int::*cons-area-gen0-bump* 0
-        sys.int::*cons-area-gen0-limit* 0
-        sys.int::*cons-area-gen1-bump* 0
-        sys.int::*cons-area-gen1-limit* 0
+        sys.int::*young-gen-newspace-bit* 0
+        sys.int::*young-gen-newspace-bit-raw* 0
+        sys.int::*old-gen-newspace-bit* 0
+        sys.int::*general-area-young-gen-bump* 0
+        sys.int::*general-area-young-gen-limit* 0
+        sys.int::*cons-area-young-gen-bump* 0
+        sys.int::*cons-area-young-gen-limit* 0
         *enable-allocation-profiling* nil
         *general-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
         *cons-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
@@ -349,25 +346,23 @@
 
 #-(or x86-64 arm64)
 (defun %do-allocate-from-general-area (tag data words)
-  (cond ((> (+ sys.int::*general-area-gen0-bump* (* words 8)) sys.int::*general-area-gen0-limit*)
+  (cond ((> (+ sys.int::*general-area-young-gen-bump* (* words 8)) sys.int::*general-area-young-gen-limit*)
          (values tag data words t))
         (t
          ;; Enough size, allocate here.
          (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                             (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
-                             sys.int::*general-area-gen0-bump*)))
-           (incf sys.int::*general-area-gen0-bump* (* words 8))
+                             sys.int::*young-gen-newspace-bit*
+                             sys.int::*general-area-young-gen-bump*)))
+           (incf sys.int::*general-area-young-gen-bump* (* words 8))
            ;; Write object header.
            (set-allocated-object-header addr tag data 0)
            (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
 
 (defun dynamic-area-size ()
-  (+ sys.int::*general-area-gen0-limit*
-     sys.int::*general-area-gen1-limit*
-     sys.int::*general-area-limit*
-     sys.int::*cons-area-gen0-limit*
-     sys.int::*cons-area-gen1-limit*
-     sys.int::*cons-area-limit*))
+  (+ sys.int::*general-area-young-gen-limit*
+     sys.int::*general-area-old-gen-limit*
+     sys.int::*cons-area-young-gen-limit*
+     sys.int::*cons-area-old-gen-limit*))
 
 (defun static-area-size ()
   (+ (- sys.int::*wired-area-bump* sys.int::*wired-area-base*)
@@ -427,7 +422,7 @@
       (mezzano.supervisor:debug-print-line "Expanding " name " area by " expansion " [remaining " remaining "]"))
     (cond ((and (>= remaining effective-expansion)
                 (mezzano.supervisor:allocate-memory-range
-                 (logior (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
+                 (logior sys.int::*young-gen-newspace-bit*
                          (ash address-tag sys.int::+address-tag-shift+)
                          current-limit)
                  expansion
@@ -468,7 +463,7 @@
                   (cond ((expand-allocation-area :general
                                                  (* words 8)
                                                  '*general-area-expansion-granularity*
-                                                 'sys.int::*general-area-gen0-limit*
+                                                 'sys.int::*general-area-young-gen-limit*
                                                  sys.int::+address-tag-general+)
                          ;; Successfully expanded the area. Retry the allocation.
                          (go INNER-LOOP))
@@ -525,15 +520,15 @@
 
 #-(or x86-64 arm64)
 (defun do-cons (car cdr)
-  (cond ((> (+ sys.int::*cons-area-gen0-bump* 16) sys.int::*cons-area-gen0-limit*)
+  (cond ((> (+ sys.int::*cons-area-young-gen-bump* 16) sys.int::*cons-area-young-gen-limit*)
          (values car cdr t))
         (t
          ;; Enough size, allocate here.
          (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                              (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0)
-                              sys.int::*cons-area-gen0-bump*))
+                              sys.int::*young-gen-newspace-bit*
+                              sys.int::*cons-area-young-gen-bump*))
                 (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
-           (incf sys.int::*cons-area-gen0-bump* 16)
+           (incf sys.int::*cons-area-young-gen-bump* 16)
            (setf (car val) car
                  (cdr val) cdr)
            val))))
@@ -562,7 +557,7 @@
                   (cond ((expand-allocation-area :cons
                                                  16
                                                  '*cons-area-expansion-granularity*
-                                                 'sys.int::*cons-area-gen0-limit*
+                                                 'sys.int::*cons-area-young-gen-limit*
                                                  sys.int::+address-tag-cons+)
                          ;; Successfully expanded the area Retry the allocation.
                          (go INNER-LOOP))

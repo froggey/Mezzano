@@ -96,44 +96,38 @@ Should be kept in sync with data-types.")
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
         (total 0))
-    (let ((general-bump (+ *general-area-bump* *general-area-gen1-bump* *general-area-gen0-bump*))
-          (general-limit (+ *general-area-limit* *general-area-gen1-limit* *general-area-gen0-limit*)))
+    (let ((general-bump (+ *general-area-old-gen-bump* *general-area-young-gen-bump*))
+          (general-limit (+ *general-area-old-gen-limit* *general-area-young-gen-limit*)))
       (format t "General area: ~:D/~:D words used (~D%).~%"
               (truncate general-bump 8) (truncate general-limit 8)
               (truncate (* general-bump 100) general-limit))
       (incf total-used (truncate general-bump 8))
       (incf total (truncate general-limit 8)))
     (when (eql verbosity t)
-      (format t "  General area gen2: ~:D/~:D words used (~D%).~%"
-              (truncate *general-area-bump* 8) (truncate *general-area-limit* 8)
-              (truncate (* *general-area-bump* 100) *general-area-limit*))
-      (format t "  General area gen1: ~:D/~:D words used (~D%).~%"
-              (truncate *general-area-gen1-bump* 8) (truncate *general-area-gen1-limit* 8)
-              (truncate (* *general-area-gen1-bump* 100) (max 1 *general-area-gen1-limit*)))
-      (format t "  General area gen0: ~:D/~:D words used (~D%).~%"
-              (truncate *general-area-gen0-bump* 8) (truncate *general-area-gen0-limit* 8)
-              (truncate (* *general-area-gen0-bump* 100) (max 1 *general-area-gen0-limit*)))
+      (format t "  General area old gen: ~:D/~:D words used (~D%).~%"
+              (truncate *general-area-old-gen-bump* 8) (truncate *general-area-old-gen-limit* 8)
+              (truncate (* *general-area-old-gen-bump* 100) *general-area-old-gen-limit*))
+      (format t "  General area young gen: ~:D/~:D words used (~D%).~%"
+              (truncate *general-area-young-gen-bump* 8) (truncate *general-area-young-gen-limit* 8)
+              (truncate (* *general-area-young-gen-bump* 100) (max 1 *general-area-young-gen-limit*)))
       (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
           (area-info :general)
         (declare (ignore allocated-words total-words largest-free-space))
         (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
-    (let ((cons-bump (+ *cons-area-bump* *cons-area-gen1-bump* *cons-area-gen0-bump*))
-          (cons-limit (+ *cons-area-limit* *cons-area-gen1-limit* *cons-area-gen0-limit*)))
+    (let ((cons-bump (+ *cons-area-old-gen-bump* *cons-area-young-gen-bump*))
+          (cons-limit (+ *cons-area-old-gen-limit* *cons-area-young-gen-limit*)))
       (format t "Cons area: ~:D/~:D words used (~D%).~%"
               (truncate cons-bump 8) (truncate cons-limit 8)
               (truncate (* cons-bump 100) cons-limit))
       (incf total-used (truncate cons-bump 8))
       (incf total (truncate cons-limit 8)))
     (when (eql verbosity t)
-      (format t "  Cons area gen2: ~:D/~:D words used (~D%).~%"
-              (truncate *cons-area-bump* 8) (truncate *cons-area-limit* 8)
-              (truncate (* *cons-area-bump* 100) *cons-area-limit*))
-      (format t "  Cons area gen1: ~:D/~:D words used (~D%).~%"
-              (truncate *cons-area-gen1-bump* 8) (truncate *cons-area-gen1-limit* 8)
-              (truncate (* *cons-area-gen1-bump* 100) (max 1 *cons-area-gen1-limit*)))
-      (format t "  Cons area gen0: ~:D/~:D words used (~D%).~%"
-              (truncate *cons-area-gen0-bump* 8) (truncate *cons-area-gen0-limit* 8)
-              (truncate (* *cons-area-gen0-bump* 100) (max 1 *cons-area-gen0-limit*)))
+      (format t "  Cons area old gen: ~:D/~:D words used (~D%).~%"
+              (truncate *cons-area-old-gen-bump* 8) (truncate *cons-area-old-gen-limit* 8)
+              (truncate (* *cons-area-old-gen-bump* 100) *cons-area-old-gen-limit*))
+      (format t "  Cons area young gen: ~:D/~:D words used (~D%).~%"
+              (truncate *cons-area-young-gen-bump* 8) (truncate *cons-area-young-gen-limit* 8)
+              (truncate (* *cons-area-young-gen-bump* 100) (max 1 *cons-area-young-gen-limit*)))
       (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
           (area-info :cons)
         (declare (ignore allocated-words total-words largest-free-space))
@@ -213,17 +207,17 @@ Should be kept in sync with data-types.")
          (incf finger (* size 8))))))
 
 (defun %walk-general-area (fn)
+  ;; Young gen.
   (%walk-general-area-1 fn
                         (logior (ash +address-tag-general+ +address-tag-shift+)
-                                (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0))
-                        *general-area-gen0-bump*)
+                                *young-gen-newspace-bit*)
+                        *general-area-young-gen-bump*)
+  ;; Old gen.
   (%walk-general-area-1 fn
                         (logior (ash +address-tag-general+ +address-tag-shift+)
-                                (dpb sys.int::+address-generation-1+ sys.int::+address-generation+ 0))
-                        *general-area-gen1-bump*)
-  (%walk-general-area-1 fn
-                        (logior (ash +address-tag-general+ +address-tag-shift+) *dynamic-mark-bit*)
-                        *general-area-bump*))
+                                +address-old-generation+
+                                *old-gen-newspace-bit*)
+                        *general-area-old-gen-bump*))
 
 (defun %walk-cons-area-1 (fn base length)
   (let ((finger 0))
@@ -236,17 +230,17 @@ Should be kept in sync with data-types.")
          (incf finger 16)))))
 
 (defun %walk-cons-area (fn)
+  ;; Young gen.
   (%walk-cons-area-1 fn
                      (logior (ash +address-tag-cons+ +address-tag-shift+)
-                             (dpb sys.int::+address-generation-0+ sys.int::+address-generation+ 0))
-                     *cons-area-gen0-bump*)
+                             *young-gen-newspace-bit*)
+                     *cons-area-young-gen-bump*)
+  ;; Old gen.
   (%walk-cons-area-1 fn
                      (logior (ash +address-tag-cons+ +address-tag-shift+)
-                             (dpb sys.int::+address-generation-1+ sys.int::+address-generation+ 0))
-                     *cons-area-gen1-bump*)
-  (%walk-cons-area-1 fn
-                     (logior (ash +address-tag-cons+ +address-tag-shift+) *dynamic-mark-bit*)
-                     *cons-area-bump*))
+                             +address-old-generation+
+                             *old-gen-newspace-bit*)
+                     *cons-area-old-gen-bump*))
 
 (defun walk-area (area fn)
   "Call FN with the value, address and size of every object in AREA.
