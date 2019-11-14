@@ -144,9 +144,12 @@
       (gensym (string pref))))
 
 
+;; FIXME: This used to be 'real, but that really puts pressure on the
+;; compiler to be smart now. Unfortunately it isn't smart, so...
+(defvar *loop-real-data-type* 't)
 
-(defvar *loop-real-data-type* 'real)
-
+;; FIXME: Likewise, but 'list.
+(defvar *loop-list-data-type* 't)
 
 (defun loop-optimization-quantities (env)
   ;;@@@@ The ANSI conditionalization here is for those lisps that implement
@@ -349,7 +352,7 @@ constructed.
 
 
 (defmacro with-minimax-value (lm &body body)
-  (let ((init (loop-typed-init (loop-minimax-type lm)))
+  (let ((init (or (loop-typed-init (loop-minimax-type lm)) 0))
 	(which (car (loop-minimax-operations lm)))
 	(infinity-data (loop-minimax-infinity-data lm))
 	(answer-var (loop-minimax-answer-variable lm))
@@ -1624,7 +1627,7 @@ collected result will be returned as the value of the LOOP."
   (multiple-value-bind (list constantp list-value) (loop-constant-fold-if-possible val)
     (let ((listvar var))
       (cond ((and var (symbolp var)) (loop-make-iteration-variable var list data-type))
-	    (t (loop-make-variable (setq listvar (loop-gentemp)) list 'list)
+	    (t (loop-make-variable (setq listvar (loop-gentemp)) list *loop-list-data-type*)
 	       (loop-make-iteration-variable var nil data-type)))
       (multiple-value-bind (list-step step-function) (loop-list-step listvar)
 	(declare #+(and (not LOOP-Prefer-POP) (not CLOE)) (ignore step-function))
@@ -1662,7 +1665,7 @@ collected result will be returned as the value of the LOOP."
   (multiple-value-bind (list constantp list-value) (loop-constant-fold-if-possible val)
     (let ((listvar (loop-gentemp 'loop-list-)))
       (loop-make-iteration-variable var nil data-type)
-      (loop-make-variable listvar list 'list)
+      (loop-make-variable listvar list *loop-list-data-type*)
       (multiple-value-bind (list-step step-function) (loop-list-step listvar)
 	#-LOOP-Prefer-POP (declare (ignore step-function))
 	(let* ((first-endtest `(endp ,listvar))
