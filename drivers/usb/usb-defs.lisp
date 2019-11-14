@@ -421,3 +421,14 @@
   endpoint
   buf-size
   buf)
+
+;;======================================================================
+;; endpoint holds the information associated with an endpoint.
+;;======================================================================
+
+(define-structure endpoint
+  type          ;; endpoint type (:control :interrupt :bulk :isochronous)
+  device        ;; device associated with the endpoint
+  driver        ;; driver associated with the device
+  num           ;; endpoint number
+  event-type)   ;; event type - used to initialize xfer-info
