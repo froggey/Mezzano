@@ -117,7 +117,7 @@
    (%drivers        :initform NIL          :accessor usb-device-drivers)
    (%max-packet                            :accessor usb-device-max-packet)
    (%dev-desc-size                         :accessor usb-device-desc-size)
-   (%device-address                        :accessor usb-device-address)
+   (%device-address :initform NIL          :accessor usb-device-address)
    ;; These slots are for informational/debug purposes and are
    ;; otherwise unused
    (vendor-id  :initarg :vendor-id)
@@ -155,9 +155,11 @@
      hcd/driver)))
 
 (defmethod delete-device :after ((usbd usbd) device)
-  (let* ((drivers (usb-device-drivers device)))
+  (let ((drivers (usb-device-drivers device))
+        (device-address (usb-device-address device)))
     (setf (aref (port->device usbd) (usb-device-port-num device)) nil)
-    (free-device-address usbd (usb-device-address device))
+    (when device-address
+      (free-device-address usbd device-address))
     ;; Tell drivers that the device has disconnected
     (dolist (driver drivers)
       (delete-device driver device))))
