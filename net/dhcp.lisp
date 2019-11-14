@@ -52,12 +52,13 @@
    (dhcp-server :reader dhcp-server :initarg :dhcp-server)
    (mezzano-server :reader mezzano-server :initarg :mezzano-server)
    (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
-   (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
+   (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)
+   (xid :reader xid :initarg :xid)))
 
 (defun convert-to-ipv4-address (vector)
   (mezzano.network.ip:make-ipv4-address (ub32ref/be vector 0)))
 
-(defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0))
+(defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0) (broadcast t))
   (assert (typep mac-address '(simple-array (unsigned-byte 8) (6))))
   (let ((packet (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0)))
     (setf (aref packet 0) #x01 ;OP
@@ -66,7 +67,7 @@
           (aref packet 3) #x00 ;HOPS
           (ub32ref/be packet 4) xid
 	  (ub16ref/be packet 8) #x0000 ;SECS
-	  (ub16ref/be packet 10) #x8000 ;FLAGS
+	  (ub16ref/be packet 10) (if broadcast #x8000 0) ;FLAGS
           (ub32ref/be packet 12) ciaddr
           (ub32ref/be packet 16) #x00000000 ;YIADDR
           (ub32ref/be packet 20) siaddr
@@ -197,20 +198,21 @@
                                             :ntp-servers (get-option options +opt-ntp-servers+)
                                             :mezzano-server (get-option options +opt-custom-mezzano-server+)
                                             :lease-timestamp (get-universal-time)
-                                            :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)))))))))))
+                                            :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)
+                                            :xid xid))))))))))
       (sys.net:disconnect connection))))
 
 (defmethod renew-lease ((lease dhcp-lease))
-  (let* ((xid (make-xid))
-	 (options (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
-			(make-dhcp-option +opt-dhcp-server+ (dhcp-server lease))))
+  (let* ((xid (xid lease))
+	 (options (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)))
 	 (connection (make-instance 'mezzano.network.udp::udp4-connection
 				    :remote-address (mezzano.network.ip:make-ipv4-address (ub32ref/be (dhcp-server lease) 0))
 				    :remote-port +dhcp-server-port+
 				    :local-address (mezzano.network.ip:make-ipv4-address (ub32ref/be (ip-address lease) 0))
 				    :local-port +dhcp-client-port+))
 	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
-				    :options options :ciaddr (ub32ref/be (ip-address lease) 0))))
+                                    :options options :ciaddr (ub32ref/be (ip-address lease) 0)
+                                    :broadcast nil)))
     (unwind-protect
 	 (progn
 	   (sys.net:send packet connection)
