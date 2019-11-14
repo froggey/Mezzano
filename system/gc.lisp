@@ -20,9 +20,11 @@
 (defglobal *gc-enable-logging*)
 
 ;;; GC Meters.
+(defglobal *old-objects-copied* 0)
 (defglobal *objects-copied* 0)
 (defglobal *words-copied* 0)
 (defglobal *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
+(defglobal *gc-transport-old-counts* (make-array 64 :area :pinned :initial-element 0))
 (defglobal *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
 
 (defglobal *gc-in-progress* nil)
@@ -59,23 +61,31 @@
 (defglobal *gc-time* 0.0 "Time in seconds taken by the GC so far.")
 
 (defun gc-reset-stats ()
-  (setf *gc-cycles* 0)
+  (setf *gc-cycles* 0
+        *gc-minor-cycles* 0
+        *gc-major-cycles* 0)
   (setf *words-copied* 0
-        *objects-copied* 0)
+        *objects-copied* 0
+        *old-objects-copied* 0)
   (fill *gc-transport-counts* 0)
+  (fill *gc-transport-old-counts* 0)
   (fill *gc-transport-cycles* 0)
   (values))
 
 (defun gc-stats ()
-  (format t "Spent ~:D seconds in the GC over ~:D collections.~%" *gc-time* *gc-cycles*)
-  (format t "  Copied ~:D objects, ~:D words.~%" *objects-copied* *words-copied*)
+  (format t "Spent ~:D seconds in the GC over ~:D collections (~:D minor, ~:D major).~%"
+          *gc-time* *gc-cycles* *gc-minor-cycles* *gc-major-cycles*)
+  (format t "  Copied ~:D objects, ~:D new, ~:D words.~%"
+          *objects-copied* (- *objects-copied* *old-objects-copied*) *words-copied*)
   (format t "Transport stats:~%")
   (dotimes (i (min (length *gc-transport-cycles*)
+                   (length *gc-transport-old-counts*)
                    (length *gc-transport-counts*)))
     (when (not (zerop (aref *gc-transport-counts* i)))
-      (format t "  ~:D: ~:D objects, ~:D cycles.~%"
+      (format t "  ~:D: ~:D objects, ~:D new, ~:D cycles.~%"
               (expt 2 i)
               (aref *gc-transport-counts* i)
+              (- (aref *gc-transport-counts* i) (aref *gc-transport-old-counts* i))
               (aref *gc-transport-cycles* i)))))
 
 (defun gc-log (&rest things)
@@ -1179,10 +1189,13 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (setf (memref-t new-address length) 0))
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
-    ;; Update meter.
+    ;; Update meters.
     (let ((cycles (- (tsc) start-time))
           (bin (integer-length (1- (* length 8)))))
       (incf (svref *gc-transport-counts* bin))
+      (when (logtest address +address-old-generation+)
+        (incf *old-objects-copied*)
+        (incf (svref *gc-transport-old-counts* bin)))
       (incf (svref *gc-transport-cycles* bin) cycles))
     ;; Update object starts.
     ;; Conses are exempt as the cons area has a uniform layout.
