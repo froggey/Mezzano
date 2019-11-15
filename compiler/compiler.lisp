@@ -18,6 +18,10 @@
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3 speed 1))
 
+(defparameter *the-checks-types* nil
+  "When true, THE forms will check types at SAFETY 3.
+Currently disabled by default as it has a severe performance impact.")
+
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
@@ -28,7 +32,8 @@
                    *optimize-restrictions*
                    *optimize-policy*
                    *verify-special-stack*
-                   *constprop-lambda-copy-limit*)))
+                   *constprop-lambda-copy-limit*
+                   *the-checks-types*)))
     (loop
        for sym in symbols
        collect (list sym (symbol-value sym)))))
@@ -73,7 +78,8 @@
   ;; Don't optimize at (compiliation-speed 3).
   (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3)))
         (target (canonicalize-target target-architecture)))
-    (setf form (insert-type-checks form target))
+    (when *the-checks-types*
+      (setf form (insert-type-checks form target)))
     (when run-optimizations
       (setf form (run-optimizers form target)))
     (unless run-optimizations
