@@ -116,24 +116,27 @@ RETURN-FROM/GO must not be used to leave this form."
   (check-type lock symbol)
   `(ensure-place-spinlock-held (sys.int::symbol-global-value ',lock)))
 
-(sys.int::defglobal *page-fault-hook* nil)
-
 (defmacro with-page-fault-hook (((&optional frame info fault-address) &body hook-body) &body body)
   (let ((old (gensym))
         (frame (or frame (gensym "FRAME")))
         (info (or info (gensym "INFO")))
-        (fault-address (or fault-address (gensym "FAULT-ADDRESS"))))
-    `(flet ((page-fault-hook-fn (,frame ,info ,fault-address)
-              (declare (ignorable ,frame ,info ,fault-address))
-              ,@hook-body))
-       (declare (dynamic-extent #'page-fault-hook-fn))
-       (ensure-interrupts-disabled)
-       (let ((,old *page-fault-hook*))
-         (unwind-protect
-              (progn
-                (setf *page-fault-hook* #'page-fault-hook-fn)
-                ,@body)
-           (setf *page-fault-hook* ,old))))))
+        (fault-address (or fault-address (gensym "FAULT-ADDRESS")))
+        (exit-block (gensym "EXIT")))
+    `(block ,exit-block
+       (flet ((page-fault-hook-fn (,frame ,info ,fault-address)
+                (declare (ignorable ,frame ,info ,fault-address))
+                (macrolet ((abandon-page-fault (&optional values)
+                             `(progn
+                                (return-from ,',exit-block ,values))))
+                  ,@hook-body)))
+         (declare (dynamic-extent #'page-fault-hook-fn))
+         (ensure-interrupts-disabled)
+         (let ((,old (local-cpu-page-fault-hook)))
+           (unwind-protect
+                (progn
+                  (setf (local-cpu-page-fault-hook) #'page-fault-hook-fn)
+                  ,@body)
+             (setf (local-cpu-page-fault-hook) ,old)))))))
 
 ;;; Introspection.
 

@@ -190,7 +190,7 @@
   (with-page-fault-hook
       (()
        (debug-print-line "#<truncated>")
-       (return-from panic-print-backtrace))
+       (abandon-page-fault))
     (do ((fp initial-frame-pointer
              (sys.int::memref-signed-byte-64 fp 0)))
         ((eql fp 0))
@@ -207,18 +207,17 @@
         ;; Writing the name itself is fraught with danger. Print it in a seperate
         ;; call from the frame-pointer & return address so that a page-fault
         ;; won't abort the whole entry.
-        (block nil
-          (with-page-fault-hook
-              (()
-               (debug-write-string "#<unknown>")
-               (return))
-            (let* ((function (sys.int::return-address-to-function return-address))
-                   (info (sys.int::%object-header-data function))
-                   (mc-size (ldb sys.int::+function-header-code-size+ info))
-                   ;; First entry in the constant pool.
-                   (address (logand (sys.int::lisp-object-address function) -16))
-                   (name (sys.int::memref-t address (* mc-size 2))))
-              (debug-write name))))
+        (with-page-fault-hook
+            (()
+             (debug-write-string "#<unknown>")
+             (abandon-page-fault))
+          (let* ((function (sys.int::return-address-to-function return-address))
+                 (info (sys.int::%object-header-data function))
+                 (mc-size (ldb sys.int::+function-header-code-size+ info))
+                 ;; First entry in the constant pool.
+                 (address (logand (sys.int::lisp-object-address function) -16))
+                 (name (sys.int::memref-t address (* mc-size 2))))
+            (debug-write name)))
         (debug-print-line)))))
 
 (defun panic (&rest things)
@@ -226,45 +225,42 @@
   (panic-1 things nil))
 
 (defun dump-thread-saved-pc (thread)
-  (block nil
-    (with-page-fault-hook
-        (()
-         (debug-print-line "<truncated>")
-         (return))
-      (let ((return-address (if (thread-full-save-p thread)
-                                (thread-state-rip thread)
-                                (sys.int::memref-signed-byte-64 (thread-state-rsp thread)
-                                                                #-arm64 0
-                                                                #+arm64 1))))
-        (when (eql return-address 0)
-          (return))
-        (debug-write-string "             ")
-        (debug-write return-address)
-        (debug-write-char #\Space)
-        ;; Writing the name itself is fraught with danger. Print it in a seperate
-        ;; call from the frame-pointer & return address so that a page-fault
-        ;; won't abort the whole entry.
-        (block nil
-          (with-page-fault-hook
-              (()
-               (debug-write-string "#<unknown>")
-               (return))
-            (let* ((function (sys.int::return-address-to-function return-address))
-                   (info (sys.int::%object-header-data function))
-                   (mc-size (ldb sys.int::+function-header-code-size+ info))
-                   ;; First entry in the constant pool.
-                   (address (logand (sys.int::lisp-object-address function) -16))
-                   (name (sys.int::memref-t address (* mc-size 2))))
-              (debug-write name))))
-        (debug-print-line)))))
+  (with-page-fault-hook
+      (()
+       (debug-print-line "<truncated>")
+       (abandon-page-fault))
+    (let ((return-address (if (thread-full-save-p thread)
+                              (thread-state-rip thread)
+                              (sys.int::memref-signed-byte-64 (thread-state-rsp thread)
+                                                              #-arm64 0
+                                                              #+arm64 1))))
+      (when (eql return-address 0)
+        (return-from dump-thread-saved-pc))
+      (debug-write-string "             ")
+      (debug-write return-address)
+      (debug-write-char #\Space)
+      ;; Writing the name itself is fraught with danger. Print it in a seperate
+      ;; call from the frame-pointer & return address so that a page-fault
+      ;; won't abort the whole entry.
+      (with-page-fault-hook
+          (()
+           (debug-write-string "#<unknown>")
+           (abandon-page-fault))
+        (let* ((function (sys.int::return-address-to-function return-address))
+               (info (sys.int::%object-header-data function))
+               (mc-size (ldb sys.int::+function-header-code-size+ info))
+               ;; First entry in the constant pool.
+               (address (logand (sys.int::lisp-object-address function) -16))
+               (name (sys.int::memref-t address (* mc-size 2))))
+          (debug-write name)))
+      (debug-print-line))))
 
 (defun dump-thread (thread fp)
-  (block nil
-    (with-page-fault-hook
-        (()
-         (debug-print-line "<truncated>")
-         (return))
-      (debug-print-line "Thread " thread " " (thread-state thread) " " (thread-wait-item thread))))
+  (with-page-fault-hook
+      (()
+       (debug-print-line "<truncated>")
+       (abandon-page-fault))
+    (debug-print-line "Thread " thread " " (thread-state thread) " " (thread-wait-item thread)))
   (when (not (eql thread (current-thread)))
     (dump-thread-saved-pc thread))
   (panic-print-backtrace fp))
@@ -313,14 +309,13 @@
     #+x86-64
     (disable-page-fault-ist)
     (debug-print-line "----- PANIC -----")
-    (block nil
-      (with-page-fault-hook
-          (()
-           (debug-write-string "--truncated--")
-           (return))
-        (debug-print-line-1 things)
-        (when extra
-          (funcall extra))))
+    (with-page-fault-hook
+        (()
+         (debug-write-string "--truncated--")
+         (abandon-page-fault))
+      (debug-print-line-1 things)
+      (when extra
+        (funcall extra)))
     (debug-dump-threads)
     (loop (%arch-panic-stop))))
 

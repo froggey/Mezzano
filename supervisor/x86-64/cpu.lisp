@@ -90,7 +90,8 @@
   wired-stack
   exception-stack
   irq-stack
-  lapic-timer-active)
+  lapic-timer-active
+  page-fault-hook)
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
@@ -309,6 +310,12 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:mov64 :r8 (:object nil #.+cpu-info-cpu-object-offset+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
+
+(defun local-cpu-page-fault-hook ()
+  (cpu-page-fault-hook (local-cpu-object)))
+
+(defun (setf local-cpu-page-fault-hook) (value)
+  (setf (cpu-page-fault-hook (local-cpu-object)) value))
 
 (sys.int::define-lap-function %lgdt ((length address))
   "Load a new GDT."
@@ -874,6 +881,7 @@ This is a one-shot timer and must be reset after firing."
                               :idle-thread sys.int::*bsp-idle-thread*
                               :state :online))
     (setf (sys.int::%object-ref-t sys.int::*bsp-info-vector* +cpu-info-cpu-object-offset+) *bsp-cpu*))
+  (setf (cpu-page-fault-hook *bsp-cpu*) nil)
   (setf (cpu-apic-id *bsp-cpu*) (ldb (byte 8 24) (lapic-reg +lapic-reg-id+)))
   (debug-print-line "BSP has LAPIC ID " (cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())

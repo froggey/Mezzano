@@ -41,14 +41,15 @@
                  (()
                   (profile-append-entry addr)
                   (profile-append-entry 0)
-                  (return-from profile-append-return-address))
+                  (abandon-page-fault nil))
                ;; The function might be unmapped and in the pinned area, so it's possible
                ;; that this can fault.
-               (sys.int::return-address-to-function addr)))
-         (fn-address (logand (sys.int::lisp-object-address fn) -16))
-         (offset (- addr fn-address)))
-    (profile-append-entry fn)
-    (profile-append-entry offset)))
+               (sys.int::return-address-to-function addr))))
+    (when fn
+      (let* ((fn-address (logand (sys.int::lisp-object-address fn) -16))
+             (offset (- addr fn-address)))
+        (profile-append-entry fn)
+        (profile-append-entry offset)))))
 
 (defun profile-append-call-stack (initial-frame-pointer)
   "Append a complete-as-possible call stack to the profile buffer."
@@ -57,7 +58,7 @@
   (with-page-fault-hook
       (()
        (profile-append-entry :truncated)
-       (return-from profile-append-call-stack))
+       (abandon-page-fault))
     (do ((fp initial-frame-pointer
              (sys.int::memref-unsigned-byte-64 fp 0)))
         ((eql fp 0))

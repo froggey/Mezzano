@@ -188,10 +188,9 @@ If clear, the fault occured in supervisor mode.")
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (when (and (boundp '*page-fault-hook*)
-               *page-fault-hook*)
-      (funcall *page-fault-hook* interrupt-frame info fault-addr))
     (cond ((not *paging-disk*)
+    (when (local-cpu-page-fault-hook)
+      (funcall (local-cpu-page-fault-hook) interrupt-frame info fault-addr))
            (fatal-page-fault interrupt-frame info "Early page fault" fault-addr))
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
