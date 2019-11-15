@@ -187,10 +187,13 @@ If clear, the fault occured in supervisor mode.")
   (panic reason " on address " address))
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
-  (let* ((fault-addr (sys.int::%cr2)))
-    (cond ((not *paging-disk*)
+  (let* ((fault-addr (sys.int::%cr2))
+         (ist-state (disable-page-fault-ist)))
     (when (local-cpu-page-fault-hook)
-      (funcall (local-cpu-page-fault-hook) interrupt-frame info fault-addr))
+      (funcall (local-cpu-page-fault-hook) interrupt-frame info fault-addr ist-state))
+    (cond ((not ist-state)
+           (fatal-page-fault interrupt-frame info "Nested page faults" fault-addr))
+          ((not *paging-disk*)
            (fatal-page-fault interrupt-frame info "Early page fault" fault-addr))
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
@@ -211,7 +214,9 @@ If clear, the fault occured in supervisor mode.")
            ;; Might not return.
            (wait-for-page-via-interrupt interrupt-frame
                                         fault-addr
-                                        (logbitp +page-fault-error-write+ info))))))
+                                        (logbitp +page-fault-error-write+ info)
+                                        ist-state)))
+    (restore-page-fault-ist ist-state)))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "math fault"))

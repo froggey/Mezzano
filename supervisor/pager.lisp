@@ -806,7 +806,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (flush-tlb-single fault-address))
             t))))))
 
-(defun wait-for-page-via-interrupt (interrupt-frame address writep)
+(defun wait-for-page-via-interrupt (interrupt-frame address writep ist-state)
   "Called by the page fault handler when a page fault occurs.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread))
@@ -828,6 +828,7 @@ It will put the thread to sleep, while it waits for the page."
                  (eql (thread-wait-item pager) '*pager-waiting-threads*))
         (setf (thread-state pager) :runnable)
         (push-run-queue pager)))
+    (restore-page-fault-ist ist-state)
     (%reschedule-via-interrupt interrupt-frame)))
 
 (defun map-physical-memory (base size name)

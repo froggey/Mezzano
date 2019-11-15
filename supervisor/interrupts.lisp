@@ -121,12 +121,14 @@ RETURN-FROM/GO must not be used to leave this form."
         (frame (or frame (gensym "FRAME")))
         (info (or info (gensym "INFO")))
         (fault-address (or fault-address (gensym "FAULT-ADDRESS")))
+        (ist-state (gensym))
         (exit-block (gensym "EXIT")))
     `(block ,exit-block
-       (flet ((page-fault-hook-fn (,frame ,info ,fault-address)
-                (declare (ignorable ,frame ,info ,fault-address))
+       (flet ((page-fault-hook-fn (,frame ,info ,fault-address ,ist-state)
+                (declare (ignorable ,frame ,info ,fault-address ,ist-state))
                 (macrolet ((abandon-page-fault (&optional values)
                              `(progn
+                                (restore-page-fault-ist ,',ist-state)
                                 (return-from ,',exit-block ,values))))
                   ,@hook-body)))
          (declare (dynamic-extent #'page-fault-hook-fn))

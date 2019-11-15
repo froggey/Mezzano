@@ -917,6 +917,33 @@ This is a one-shot timer and must be reset after firing."
     (%ltr 16)
     (%load-cs 8)))
 
+(defun page-fault-idt-entry-flags (cpu-vec)
+  (sys.int::%object-ref-unsigned-byte-32
+   cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1)))
+
+(defun (setf page-fault-idt-entry-flags) (value cpu-vec)
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1))
+        value))
+
+(defun disable-page-fault-ist ()
+  (let* ((cpu-vec (local-cpu-info))
+         (current (page-fault-idt-entry-flags cpu-vec)))
+    (setf (page-fault-idt-entry-flags cpu-vec)
+          (dpb +ist-disabled+ (byte 3 0) current))
+    (not (eql (ldb (byte 3 0) current) +ist-disabled+))))
+
+(defun enable-page-fault-ist ()
+  (let* ((cpu-vec (local-cpu-info))
+         (current (page-fault-idt-entry-flags cpu-vec)))
+    (ensure (eql (ldb (byte 3 0) current) +ist-disabled+) "page fault ist not disabled")
+    (setf (page-fault-idt-entry-flags cpu-vec)
+          (dpb +ist-page-fault-stack+ (byte 3 0) current))))
+
+(defun restore-page-fault-ist (ist-state)
+  (when ist-state
+    (enable-page-fault-ist)))
+
 (defun arch-pre-panic ()
   ;; Disable all exception IST entries to make a token effort
   ;; at not clobbering any exception state if nested panics occur...
