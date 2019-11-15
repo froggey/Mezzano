@@ -8,12 +8,6 @@
 (defparameter *perform-tce* nil
   "When true, attempt to eliminate tail calls.")
 
-(defparameter *suppress-builtins* nil
-  "When true, the built-in functions will not be used and full calls will
-be generated instead.")
-
-(defparameter *enable-branch-tensioner* t)
-(defparameter *enable-stack-alignment-checking* nil)
 (defparameter *trace-asm* nil)
 
 (defvar *jump-table-size-min* 4)
@@ -27,9 +21,6 @@ be generated instead.")
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
-                   *suppress-builtins*
-                   *enable-branch-tensioner*
-                   *enable-stack-alignment-checking*
                    *trace-asm*
                    *jump-table-size-min*
                    *jump-table-size-max*
