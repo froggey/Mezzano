@@ -300,14 +300,14 @@
     (broadcast-panic-ipi)
     (when (and (boundp '*panic-in-progress*)
                *panic-in-progress*)
+      (arch-pre-panic)
       (loop (%arch-panic-stop)))
     ;; Stop the world, just in case printing the backtrace requires paging stuff in.
     (setf *world-stopper* (current-thread)
           *panic-in-progress* t)
     (debug-force-output)
     (set-panic-light)
-    #+x86-64
-    (disable-page-fault-ist)
+    (arch-pre-panic)
     (debug-print-line "----- PANIC -----")
     (with-page-fault-hook
         (()

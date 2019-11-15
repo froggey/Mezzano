@@ -81,6 +81,9 @@
 
 (defconstant +tss-io-map-base+ 102)
 
+(defconstant +ist-disabled+ 0)
+(defconstant +ist-exception-stack+ 1)
+(defconstant +ist-interrupt-stack+ 2)
 (defstruct (cpu
              (:area :wired))
   state
@@ -389,8 +392,8 @@ TLB shootdown must be protected by the VM lock."
                             ;; Take CPU interrupts on the exception stack
                             ;; and IRQs on the interrupt stack.
                             :ist (if (< i 32)
-                                     1
-                                     2))
+                                     +ist-exception-stack+
+                                     +ist-interrupt-stack+))
             (values 0 0))
       (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
             (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
@@ -904,13 +907,17 @@ This is a one-shot timer and must be reset after firing."
     (%ltr 16)
     (%load-cs 8)))
 
-(defun disable-page-fault-ist ()
+(defun arch-pre-panic ()
+  ;; Disable all exception IST entries to make a token effort
+  ;; at not clobbering any exception state if nested panics occur...
   (let ((cpu-vec (local-cpu-info)))
-    (multiple-value-bind (lo hi)
-        (make-idt-entry :offset (isr-thunk-address 14)
-                        :ist 0)
-      (setf (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2))) lo
-            (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2) 1)) hi))))
+    (dotimes (i 32)
+      (when (svref sys.int::*interrupt-service-routines* i)
+        (multiple-value-bind (lo hi)
+            (make-idt-entry :offset (isr-thunk-address i)
+                            :ist +ist-disabled+)
+          (setf (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* i 2))) lo
+                (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))))
 
 (defun register-secondary-cpu (apic-id)
   (let* ((info (mezzano.runtime::%allocate-object
