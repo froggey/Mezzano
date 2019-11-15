@@ -166,10 +166,12 @@
                           (every (lambda (x) (eql x 't)) optional-typespecs)
                           (eql rest-typespec 't)))
                  (insert-type-checks-1 (value form) value-context))
-                ((and (member value-context '(:effect :single))
-                      (endp required-typespecs)
+                ((and (endp required-typespecs)
                       (eql (length optional-typespecs) 1)
-                      (eql rest-typespec 't))
+                      (eql rest-typespec 't)
+                      (or (member value-context '(:effect :single))
+                          ;; Lexical variable obviously only generates one value.
+                          (typep (unwrap-the (value form)) 'lexical-variable)))
                  ;; Single value case.
                  (ast `(let ((val ,(insert-type-checks-1 (value form) :single)))
                          (progn
