@@ -434,6 +434,8 @@
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*irq-stack*)
         (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'sys.int::*page-fault-stack*)
+        (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*bsp-info-vector*)

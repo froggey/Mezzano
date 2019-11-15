@@ -60,6 +60,7 @@
 (sys.int::defglobal sys.int::*bsp-wired-stack*)
 (sys.int::defglobal sys.int::*exception-stack*)
 (sys.int::defglobal sys.int::*irq-stack*)
+(sys.int::defglobal sys.int::*page-fault-stack*)
 (sys.int::defglobal sys.int::*bsp-info-vector*)
 
 (defconstant +cpu-info-self-offset+ 0)
@@ -84,6 +85,8 @@
 (defconstant +ist-disabled+ 0)
 (defconstant +ist-exception-stack+ 1)
 (defconstant +ist-interrupt-stack+ 2)
+(defconstant +ist-page-fault-stack+ 3)
+
 (defstruct (cpu
              (:area :wired))
   state
@@ -93,6 +96,7 @@
   wired-stack
   exception-stack
   irq-stack
+  page-fault-stack
   lapic-timer-active
   page-fault-hook)
 
@@ -391,9 +395,12 @@ TLB shootdown must be protected by the VM lock."
             (make-idt-entry :offset (isr-thunk-address i)
                             ;; Take CPU interrupts on the exception stack
                             ;; and IRQs on the interrupt stack.
-                            :ist (if (< i 32)
-                                     +ist-exception-stack+
-                                     +ist-interrupt-stack+))
+                            :ist (cond ((eql i 14)
+                                        +ist-page-fault-stack+)
+                                       ((< i 32)
+                                        +ist-exception-stack+)
+                                       (t
+                                        +ist-interrupt-stack+)))
             (values 0 0))
       (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
             (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
@@ -414,7 +421,7 @@ TLB shootdown must be protected by the VM lock."
         ;; TSS high.
         (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 3)) (ldb (byte 32 32) tss-base)))
 
-(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer)
+(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
   ;; TSS, Clear memory first.
   (dotimes (i +cpu-info-tss-size+)
     (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
@@ -422,16 +429,18 @@ TLB shootdown must be protected by the VM lock."
   (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
   ;; IST2.
   (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
+  ;; IST3.
+  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-3+) 0) page-fault-stack-pointer)
   ;; I/O Map Base Address, follows TSS body.
   (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+))
 
-(defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer idle-thread)
+(defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer page-fault-stack-pointer idle-thread)
   (let* ((addr (- (sys.int::lisp-object-address vector)
                   sys.int::+tag-object+))
          (tss-base (+ addr 8 (* +cpu-info-tss-offset+ 8))))
     (populate-idt vector)
     (populate-gdt vector tss-base)
-    (populate-tss tss-base exception-stack-pointer irq-stack-pointer)
+    (populate-tss tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
     ;; Other stuff.
     (setf (sys.int::%object-ref-t vector +cpu-info-self-offset+) vector)
     (setf (sys.int::%object-ref-signed-byte-64 vector +cpu-info-wired-stack-offset+)
@@ -448,6 +457,7 @@ TLB shootdown must be protected by the VM lock."
                             (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
                             (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))
                             (+ (car sys.int::*irq-stack*) (cdr sys.int::*irq-stack*))
+                            (+ (car sys.int::*page-fault-stack*) (cdr sys.int::*page-fault-stack*))
                             sys.int::*bsp-idle-thread*)
   ;; Load various bits.
   (setf (sys.int::msr +msr-ia32-fs-base+)
@@ -928,17 +938,20 @@ This is a one-shot timer and must be reset after firing."
          (wired-stack (%allocate-stack (* 128 1024) t))
          (exception-stack (%allocate-stack (* 128 1024) t))
          (irq-stack (%allocate-stack (* 128 1024) t))
+         (page-fault-stack (%allocate-stack (* 128 1024) t))
          (cpu (make-cpu :state :offline
                         :info-vector info
                         :apic-id apic-id
                         :idle-thread idle-thread
                         :wired-stack wired-stack
                         :exception-stack exception-stack
-                        :irq-stack irq-stack)))
+                        :irq-stack irq-stack
+                        :page-fault-stack page-fault-stack)))
     (populate-cpu-info-vector info
                               (+ (stack-base wired-stack) (stack-size wired-stack))
                               (+ (stack-base exception-stack) (stack-size exception-stack))
                               (+ (stack-base irq-stack) (stack-size irq-stack))
+                              (+ (stack-base page-fault-stack) (stack-size page-fault-stack))
                               idle-thread)
     (setf (sys.int::%object-ref-t info +cpu-info-cpu-object-offset+) cpu)
     (debug-print-line "Registered new CPU " cpu " " info " " idle-thread " with APIC ID " apic-id)
