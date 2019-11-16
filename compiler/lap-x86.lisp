@@ -770,7 +770,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-conditional-instruction j (dst) (condition-bits)
   (jmp-imm dst (logior #x70 condition-bits) (list #x0F (logior #x80 condition-bits))))
 
+(defmacro named-call (dst opcode)
+  `(when (and (consp ,dst)
+              (eql (first ,dst) :named-call))
+     (let ((fref (funcall sys.lap:*function-reference-resolver* (second ,dst))))
+       ;; Named direct jump to an FREF.
+       ;; Make sure to add the FREF to the constant pool so the GC is aware
+       (sys.lap:add-to-constant-pool fref)
+       (emit ',opcode)
+       (note-fixup fref)
+       (emit #xFF #xFF #xFF #xFF)
+       (return-from instruction t))))
+
 (define-instruction jmp (dst)
+  (named-call dst #xE9)
   (jmp-imm dst #xEB #xE9)
   (when (= *cpu-mode* 16)
     (modrm-single :gpr-16 dst #xff 4))
@@ -996,6 +1009,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (return-from instruction t))))
 
 (define-instruction call (dst)
+  (named-call dst #xE8)
   (when (and (not (reg-class dst))
              (immediatep dst))
     ;; Not actually variably sized, but uses *current-address*.
