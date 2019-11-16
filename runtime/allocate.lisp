@@ -169,11 +169,11 @@
             (when address
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
 
-(defun finish-expand-pinned-area (grow-by)
+(defun finish-expand-freelist-area (grow-by limit-sym bins)
   (let ((len (truncate grow-by 8))
         (final-entry (sys.int::base-address-of-internal-pointer
-                      (- sys.int::*pinned-area-bump* 16)))
-        (new-address sys.int::*pinned-area-bump*))
+                      (- (sys.int::symbol-global-value limit-sym) 16)))
+        (new-address (sys.int::symbol-global-value limit-sym)))
     (cond ((eql (ash (sys.int::memref-unsigned-byte-8 final-entry) (- sys.int::+object-type-shift+))
                 sys.int::+object-tag-freelist-entry+)
            ;; Final entry in the area is a freelist entry, extend it by the new amount.
@@ -185,7 +185,7 @@
                ;; Bin changed, need to remove from the old bin and reinsert into the new.
                (loop
                   with prev = nil
-                  with curr = (svref sys.int::*pinned-area-free-bins* existing-bin)
+                  with curr = (svref bins existing-bin)
                   do
                     (when (not curr)
                       (mezzano.supervisor:panic "Can't find freelist entry " final-entry " in bin " existing-bin))
@@ -193,21 +193,21 @@
                       (cond (prev
                              (setf (sys.int::memref-t prev 1) (sys.int::memref-t final-entry 1)))
                             (t
-                             (setf (svref sys.int::*pinned-area-free-bins* existing-bin) (sys.int::memref-t final-entry 1))))
+                             (setf (svref bins existing-bin) (sys.int::memref-t final-entry 1))))
                       (return))
                     (setf prev curr
                           curr (sys.int::memref-t curr 1)))
-               (setf (sys.int::memref-t final-entry 1) (svref sys.int::*pinned-area-free-bins* new-bin)
-                     (svref sys.int::*pinned-area-free-bins* new-bin) final-entry))
+               (setf (sys.int::memref-t final-entry 1) (svref bins new-bin)
+                     (svref bins new-bin) final-entry))
              ;; Update header with the new length.
              (setf (sys.int::memref-unsigned-byte-64 final-entry 0) (sys.int::make-freelist-header new-len)))
            (setf new-address final-entry))
           (t
            ;; Create a new freelist entry at the end.
            (let ((bin (integer-length len)))
-             (setf (sys.int::memref-unsigned-byte-64 sys.int::*pinned-area-bump* 0) (sys.int::make-freelist-header len)
-                   (sys.int::memref-t sys.int::*pinned-area-bump* 1) (svref sys.int::*pinned-area-free-bins* bin))
-             (setf (svref sys.int::*pinned-area-free-bins* bin) sys.int::*pinned-area-bump*))))
+             (setf (sys.int::memref-unsigned-byte-64 new-address 0) (sys.int::make-freelist-header len)
+                   (sys.int::memref-t new-address 1) (svref bins bin))
+             (setf (svref bins bin) new-address))))
     ;; Update card table pointers for the new free cards
     (loop
        for card from (sys.int::align-up new-address sys.int::+card-size+) below (+ new-address grow-by) by sys.int::+card-size+
@@ -216,7 +216,7 @@
                 (if (<= delta (- (* (1- (ash 1 (byte-size sys.int::+card-table-entry-offset+))) 16)))
                     nil
                     delta)))
-    (incf sys.int::*pinned-area-bump* grow-by)))
+    (incf (sys.int::symbol-global-value limit-sym) grow-by)))
 
 (defun %allocate-from-pinned-area (tag data words)
   (loop
@@ -248,7 +248,7 @@
                      (when sys.int::*gc-enable-logging*
                        (mezzano.supervisor:debug-print-line "Expanded pinned area by " grow-by))
                      ;; Success.
-                     (finish-expand-pinned-area grow-by)
+                     (finish-expand-freelist-area grow-by 'sys.int::*pinned-area-bump* sys.int::*pinned-area-free-bins*)
                      (setf inhibit-gc t))))))))
        (when (> i *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
@@ -640,15 +640,48 @@
   ;; Force 32-byte alignment.
   (setf words (sys.int::align-up words 4))
   (loop
+     with inhibit-gc = nil
      for i from 0 do
        (let ((result (%allocate-function-1 tag data words wiredp)))
          (when result
            (return result)))
+       (when (not (eql i 0))
+         ;; The GC has been run at least once.
+         (when wiredp
+           ;; TODO: Implement expanding the wired function area.
+           (error 'storage-condition))
+         ;; Try enlarging the area.
+         (let ((grow-by (* words 8)))
+           (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
+           (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
+                                 grow-by))
+           (when sys.int::*gc-enable-logging*
+             (mezzano.supervisor:debug-print-line
+              "Expanding FUNCTION area by " grow-by))
+           (mezzano.supervisor:without-footholds
+             (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+               (mezzano.supervisor:with-mutex (*allocator-lock*)
+                 (mezzano.supervisor:with-pseudo-atomic
+                   (when (mezzano.supervisor:allocate-memory-range
+                          sys.int::*function-area-limit*
+                          grow-by
+                          (logior sys.int::+block-map-present+
+                                  sys.int::+block-map-writable+
+                                  sys.int::+block-map-zero-fill+
+                                  sys.int::+block-map-track-dirty+))
+                     (when sys.int::*gc-enable-logging*
+                       (mezzano.supervisor:debug-print-line "Expanded function area by " grow-by))
+                     ;; Success.
+                     (finish-expand-freelist-area grow-by 'sys.int::*function-area-limit* sys.int::*function-area-free-bins*)
+                     (setf inhibit-gc t))))))))
        (when (> i *maximum-allocation-attempts*)
-         (error 'storage-condition))
-       (when sys.int::*gc-enable-logging*
-         (mezzano.supervisor:debug-print-line "Full GC due to function allocation."))
-       (sys.int::gc :full t)))
+         (cerror "Retry allocation" 'storage-condition))
+       (cond (inhibit-gc
+              (setf inhibit-gc nil))
+             (t
+              (when sys.int::*gc-enable-logging*
+                (mezzano.supervisor:debug-print-line "Full GC due to function allocation."))
+              (sys.int::gc :full t)))))
 
 (defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
