@@ -241,7 +241,13 @@
                                       ((and (eql (inst-opcode instruction) 'sys.lap-x86:lea64)
                                             (eql target sys.int::+tag-object+))
                                        ;; The function itself, used for invalid args handling.
-                                       (push (format nil "'~S" (context-function context)) annotations)))
+                                       (push (format nil "'~S" (context-function context)) annotations))
+                                      ((member (inst-opcode instruction) '(sys.lap-x86:call sys.lap-x86:jmp))
+                                       ;; Hopefully a real object!
+                                       (let ((obj (sys.int::%%assemble-value
+                                                   (sys.int::base-address-of-internal-pointer (+ address target))
+                                                   sys.int::+tag-object+)))
+                                         (push (format nil "'~S" obj) annotations))))
                                 (format t "(:RIP #x~X)" (+ address target))))))
                           ((and (eql (ea-base operand) :rbp)
                                 (eql (logand (ea-disp operand) 7) 0)
