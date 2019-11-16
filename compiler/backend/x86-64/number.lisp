@@ -209,7 +209,6 @@
         (high-half (make-instance 'ir:virtual-register :kind :integer))
         (no-overflow (make-instance 'ir:label :name :*-no-overflow))
         (overflow (make-instance 'ir:label :name :*-overflow))
-        (overflow-temp (make-instance 'ir:virtual-register :kind :integer))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register))
         (lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
@@ -247,14 +246,13 @@
     ;; Build a bignum on overflow.
     ;; 128-bit result in rdx:rax.
     (emit overflow)
-    ;; Unbox the result.
+    ;; Punt to the helper function.
     (emit (make-instance 'ir:move-instruction
                          :destination :rax
                          :source low-half))
     (emit (make-instance 'ir:move-instruction
                          :destination :rdx
                          :source high-half))
-    ;; Punt to the helper function.
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:call
                          :operands (list `(:named-call sys.int::%%fixnum-multiply-overflow))
@@ -264,57 +262,6 @@
                                      :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
                                      :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
                                      :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
-    #|
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:shrd64
-                         :operands (list :rax :rdx sys.int::+n-fixnum-bits+)
-                         :inputs (list :rax :rdx)
-                         :outputs (list :rax)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:sar64
-                         :operands (list :rdx sys.int::+n-fixnum-bits+)
-                         :inputs (list :rdx)
-                         :outputs (list :rdx)))
-    ;; Check if the result will fit in 64 bits.
-    ;; Save the high bits.
-    (emit (make-instance 'ir:move-instruction
-                         :destination overflow-temp
-                         :source :rdx))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cqo
-                         :operands (list)
-                         :inputs (list :rax)
-                         :outputs (list :rdx)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cmp64
-                         :operands (list overflow-temp :rdx)
-                         :inputs (list overflow-temp :rdx)
-                         :outputs (list)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :rdx overflow-temp)
-                         :inputs (list overflow-temp)
-                         :outputs (list :rdx)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-128-rdx-rax))
-                         :inputs (list)
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cmov64e
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-64-rax))
-                         :inputs (list :r13)
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:call
-                         :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
-                         :inputs (list :r13 :rax :rdx)
-                         :outputs (list :r8)
-                         :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
-                                     :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
-                                     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
-                                     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15)))
-    |#
     (emit (make-instance 'ir:move-instruction
                          :destination bignum-result
                          :source :r8))

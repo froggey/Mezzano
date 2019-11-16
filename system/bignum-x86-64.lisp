@@ -613,3 +613,23 @@
   (sys.lap-x86:leave)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
+
+(sys.int::define-lap-function sys.int::%%fixnum-multiply-overflow ()
+  (:gc :no-frame :layout #*0)
+  ;; Unbox the result.
+  (sys.lap-x86:shrd64 :rax :rdx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rdx #.sys.int::+n-fixnum-bits+)
+  ;; Check if the result will fit in 64 bits.
+  ;; Save the high bits.
+  (sys.lap-x86:mov64 :rcx :rdx)
+  ;; Extend low 64 bits to 128 bits.
+  (sys.lap-x86:cqo)
+  ;; If they're the same then it'll fit in a 64-bit bignum.
+  (sys.lap-x86:cmp64 :rcx :rdx)
+  (sys.lap-x86:jne RESULT128)
+  ;; 64-bit result
+  (sys.lap-x86:jmp (:named-call sys.int::%%make-bignum-64-rax))
+  RESULT128
+  ;; Restore high bits.
+  (sys.lap-x86:mov64 :rdx :rcx)
+  (sys.lap-x86:jmp (:named-call sys.int::%%make-bignum-128-rdx-rax)))
