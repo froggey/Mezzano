@@ -90,7 +90,8 @@
     (alloc-blocks sys.int::*wired-area-base* sys.int::*wired-area-bump*)
     (alloc-blocks sys.int::+card-table-base+
                   (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
-                  :sparse t))
+                  :sparse t)
+    (alloc-blocks sys.int::*wired-function-area-limit* sys.int::*function-area-base*))
   ;; I bet this could be partially done with CoW. Evil.
   ;; Copy without interrupts to avoid smearing.
   (without-interrupts
@@ -112,7 +113,8 @@
       (copy-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
       (copy-pages sys.int::+card-table-base+
                   (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
-                  :sparse t))))
+                  :sparse t)
+      (copy-pages sys.int::*wired-function-area-limit* sys.int::*function-area-base*))))
 
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
@@ -432,6 +434,7 @@ Returns 4 values:
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...
   (allocate-snapshot-wired-backing-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
+  (allocate-snapshot-wired-backing-pages sys.int::*wired-function-area-limit* sys.int::*function-area-base*)
   ;; FIXME: The card table is mostly sparse. The system spends ages scanning
   ;; it during boot looking for allocated regions but mostly doing nothing.
   ;; Could modify the bootloader to allocate backing pages.
