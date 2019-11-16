@@ -25,6 +25,12 @@
 (sys.int::defglobal sys.int::*cons-area-old-gen-bump*)
 (sys.int::defglobal sys.int::*cons-area-old-gen-limit*)
 
+(sys.int::defglobal sys.int::*function-area-base*)
+(sys.int::defglobal sys.int::*wired-function-area-limit*)
+(sys.int::defglobal sys.int::*wired-function-area-free-bins*)
+(sys.int::defglobal sys.int::*function-area-limit*)
+(sys.int::defglobal sys.int::*function-area-free-bins*)
+
 ;; A major GC will be performed when the old generation
 ;; is this much larger than the young generation.
 (sys.int::defglobal sys.int::*generation-size-ratio*)
@@ -346,7 +352,9 @@
 
 (defun static-area-size ()
   (+ (- sys.int::*wired-area-bump* sys.int::*wired-area-base*)
-     (- sys.int::*pinned-area-bump* sys.int::*pinned-area-base*)))
+     (- sys.int::*pinned-area-bump* sys.int::*pinned-area-base*)
+     (- sys.int::*function-area-base* sys.int::*wired-function-area-limit*)
+     (- sys.int::*function-area-limit* sys.int::*function-area-base*)))
 
 (defun card-table-size ()
   (* (truncate (+ (dynamic-area-size)
@@ -614,6 +622,34 @@
 (defun sys.int::%make-bignum-of-length (words)
   (%allocate-object sys.int::+object-tag-bignum+ words words nil))
 
+(defun %allocate-function-1 (tag data words wiredp)
+  (mezzano.supervisor:without-footholds
+    (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+      (mezzano.supervisor:with-mutex (*allocator-lock*)
+        (mezzano.supervisor:with-pseudo-atomic
+          (let ((address (%allocate-from-freelist-area
+                          tag data words
+                          (if wiredp
+                              sys.int::*wired-function-area-free-bins*
+                              sys.int::*function-area-free-bins*))))
+            (when address
+              (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
+
+;; Also used for allocating function-references
+(defun %allocate-function (tag data words wiredp)
+  ;; Force 32-byte alignment.
+  (setf words (sys.int::align-up words 4))
+  (loop
+     for i from 0 do
+       (let ((result (%allocate-function-1 tag data words wiredp)))
+         (when result
+           (return result)))
+       (when (> i *maximum-allocation-attempts*)
+         (error 'storage-condition))
+       (when sys.int::*gc-enable-logging*
+         (mezzano.supervisor:debug-print-line "Full GC due to function allocation."))
+       (sys.int::gc :full t)))
+
 (defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
          (gc-info-size (ceiling (length gc-info) 8))
@@ -622,14 +658,13 @@
     (assert (< mc-size (ash 1 (byte-size sys.int::+function-header-code-size+))))
     (assert (< pool-size (ash 1 (byte-size sys.int::+function-header-pool-size+))))
     (assert (< (length gc-info) (ash 1 (byte-size sys.int::+function-header-metadata-size+))))
-    (when (oddp total)
-      (incf total))
-    (let* ((object (%allocate-object tag
-                                     (logior (dpb mc-size sys.int::+function-header-code-size+ 0)
-                                             (dpb pool-size sys.int::+function-header-pool-size+ 0)
-                                             (dpb (length gc-info) sys.int::+function-header-metadata-size+ 0))
-                                     (1- total) ; subtract header.
-                                     (if wired :wired :pinned)))
+    (let* ((object (%allocate-function
+                    tag
+                    (logior (dpb mc-size sys.int::+function-header-code-size+ 0)
+                            (dpb pool-size sys.int::+function-header-pool-size+ 0)
+                            (dpb (length gc-info) sys.int::+function-header-metadata-size+ 0))
+                    total
+                    wired))
            (address (ash (sys.int::%pointer-field object) 4)))
       ;; Initialize entry point.
       (setf (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16))
@@ -637,18 +672,27 @@
       (dotimes (i (length machine-code))
         (setf (sys.int::memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
       ;; Apply fixups.
-      (dolist (fixup fixups)
-        (let ((value (case (car fixup)
-                       ((nil t)
-                        (sys.int::lisp-object-address (car fixup)))
-                       (:unbound-value
-                        (sys.int::lisp-object-address (sys.int::%unbound-value)))
-                       (:symbol-binding-cache-sentinel
-                        (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
-                       (t (error "Unsupported fixup ~S." (car fixup))))))
-          (dotimes (i 4)
-            (setf (sys.int::memref-unsigned-byte-8 address (+ (cdr fixup) i))
-                  (logand (ash value (* i -8)) #xFF)))))
+      (loop
+         for (fixup . byte-offset) in fixups
+         do (etypecase fixup
+              (symbol
+               (let ((value (case fixup
+                              ((nil t)
+                               (sys.int::lisp-object-address fixup))
+                              (:unbound-value
+                               (sys.int::lisp-object-address (sys.int::%unbound-value)))
+                              (:symbol-binding-cache-sentinel
+                               (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
+                              (t (error "Unsupported fixup ~S." fixup)))))
+                 (setf (sys.int::memref-unsigned-byte-32 (+ address byte-offset))
+                       value)))
+              (sys.int::function-reference
+               (let* ((entry (%object-slot-address fixup sys.int::+fref-code+))
+                      (absolute-origin (+ address byte-offset 4))
+                      (value (- entry absolute-origin)))
+                 (check-type value (signed-byte 32))
+                 (setf (sys.int::memref-signed-byte-32 (+ address byte-offset))
+                       value)))))
       ;; Initialize constant pool.
       (dotimes (i (length constants))
         (setf (sys.int::memref-t (+ address (* mc-size 16)) i) (aref constants i)))

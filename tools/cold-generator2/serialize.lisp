@@ -358,13 +358,6 @@ Must not call SERIALIZE-OBJECT."))
                                      byte-offset
                                      4))
                  (value (- entry absolute-origin)))
-            #++(progn
-            (format t "Applying relocation for function reference ~S to function ~S~%" target object)
-            (format t "Fref @ ~X  Fn @ ~X   Byte-Offset=~D~%"
-                    fref-val object-value byte-offset)
-            (format t "Fref entry @ ~X  absolute origin @ ~X~%"
-                    entry absolute-origin)
-            (format t "Computed value is ~D~%" value))
             (check-type value (signed-byte 32))
             (dotimes (byte 4)
               (multiple-value-bind (word byten)
@@ -771,11 +764,15 @@ Must not call SERIALIZE-OBJECT."))
   "Build pinned/wired freelists and update GC variables with final area information."
   (let ((wired-free-bins (allocate (1+ 64) image :wired sys.int::+tag-object+))
         (pinned-free-bins (allocate (1+ 64) image :wired sys.int::+tag-object+))
+        (wired-function-free-bins (allocate (1+ 64) image :wired sys.int::+tag-object+))
+        (function-free-bins (allocate (1+ 64) image :wired sys.int::+tag-object+))
         ;; End of data part, will be followed by free memory after area alignment.
         (wired-area-bump (length (area-data (image-wired-area image))))
         (pinned-area-bump (length (area-data (image-pinned-area image))))
         (general-area-bump (length (area-data (image-general-area image))))
-        (cons-area-bump (length (area-data (image-cons-area image)))))
+        (cons-area-bump (length (area-data (image-cons-area image))))
+        (wired-function-area-bump (length (area-data (image-wired-function-area image))))
+        (function-area-bump (length (area-data (image-function-area image)))))
     ;; Ensure a minium amount of free space in :wired.
     ;; And :pinned as well, but that matters less.
     (allocate (* 8 1024 1024) image :wired 0)
@@ -795,7 +792,12 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*cons-area-old-gen-limit*
                    sys.int::*wired-stack-area-bump*
                    sys.int::*stack-area-bump*
-                   sys.int::*bytes-allocated-to-stacks*))
+                   sys.int::*bytes-allocated-to-stacks*
+                   sys.int::*function-area-base*
+                   sys.int::*wired-function-area-limit*
+                   sys.int::*wired-function-area-free-bins*
+                   sys.int::*function-area-limit*
+                   sys.int::*function-area-free-bins*))
       ;; This will fail if they're missing.
       (serialize-object (env:translate-symbol environment sym) image environment))
     ;; Better hope we got this right first try.
@@ -837,7 +839,9 @@ Must not call SERIALIZE-OBJECT."))
                      (ash (+ (area-base area) area-bump)
                           sys.int::+n-fixnum-bits+)))))
       (init-freelist wired-free-bins (image-wired-area image) wired-area-bump 'sys.int::*wired-area-free-bins*)
-      (init-freelist pinned-free-bins (image-pinned-area image) pinned-area-bump 'sys.int::*pinned-area-free-bins*))
+      (init-freelist pinned-free-bins (image-pinned-area image) pinned-area-bump 'sys.int::*pinned-area-free-bins*)
+      (init-freelist wired-function-free-bins (image-wired-function-area image) wired-function-area-bump 'sys.int::*wired-function-area-free-bins*)
+      (init-freelist function-free-bins (image-function-area image) function-area-bump 'sys.int::*function-area-free-bins*))
     ;; Assign GC variables.
     ;; Wired/pinned area bumps are the total size of the area including free parts
     ;; They also count from address 0, not the area start.
@@ -878,6 +882,20 @@ Must not call SERIALIZE-OBJECT."))
                             image environment))
     (setf (image-symbol-value image environment 'sys.int::*bytes-allocated-to-stacks*)
           (serialize-object (image-stack-total image)
+                            image environment))
+    ;; Function area limits are the lowest address for the wired area
+    ;; and the highest address for the normal area.
+    (setf (image-symbol-value image environment 'sys.int::*wired-function-area-limit*)
+          (serialize-object (area-base (image-wired-function-area image))
+                            image environment))
+    (setf (image-symbol-value image environment 'sys.int::*function-area-limit*)
+          (serialize-object (+ (area-base (image-function-area image))
+                               (length (area-data (image-function-area image))))
+                            image environment))
+    ;; Wired function area extends downwards to limit to here, normal
+    ;; function area extends upwards to limit.
+    (setf (image-symbol-value image environment 'sys.int::*function-area-base*)
+          (serialize-object +function-area-base+
                             image environment))
     ;; Update the initial thread's initial stack pointer value.
     (let* ((initial-thread (env:symbol-global-value environment (env:translate-symbol environment 'sys.int::*initial-thread*)))
