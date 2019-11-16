@@ -550,9 +550,24 @@
 (defglobal *cas-fref-table*)
 
 (defun make-function-reference (name)
-  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 3 :wired)))
-    (setf (%object-ref-t fref +fref-name+) name
-          (function-reference-function fref) nil)
+  (let ((fref (mezzano.runtime::%allocate-function
+               +object-tag-function-reference+ 0 8 t)))
+    (setf (%object-ref-t fref +fref-name+) name)
+    (setf (%object-ref-t fref +fref-undefined-entry-point+)
+          (%object-ref-t *undefined-function-trampoline* +function-entry-point+))
+    (setf (%object-ref-t fref +fref-function+) fref)
+    ;; (nop (:rax))
+    ;; (jmp <direct-target>) ; initially 0 to activate the fallback path.
+    (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
+          #xE9001F0F)
+    ;; (mov :rbx (:rip fref-function))
+    ;; (jmp ...
+    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 1))
+          #xFFFFFFFFE91D8B48)
+    ;; ... (:object :rbx entry-point))
+    ;; (ud2)
+    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 2))
+          #x0B0FFF63)
     fref))
 
 (defun valid-function-name-p (name)
@@ -625,39 +640,39 @@ then NIL will be returned."
         nil
         fn)))
 
+(defun %activate-function-reference-full-path (fref)
+  (setf (%object-ref-unsigned-byte-32 fref (1+ (* +fref-code+ 2))) 0))
+
+(defun %activate-function-reference-fast-path (fref entry-point)
+  ;; Address is *after* the jump.
+  (let* ((fref-jmp-address (+ (mezzano.runtime::%object-slot-address fref (1+ +fref-code+))))
+         (rel-jump (- entry-point fref-jmp-address)))
+    (check-type rel-jump (signed-byte 32))
+    (setf (%object-ref-signed-byte-32 fref (1+ (* +fref-code+ 2)))
+          rel-jump)))
+
 (defun (setf function-reference-function) (value fref)
-  "Update the function & entry-point fields of a function-reference.
+  "Update the function field of a function-reference.
 VALUE may be nil to make the fref unbound."
   (check-type value (or function null))
   (check-type fref function-reference)
-  (multiple-value-bind (new-fn new-entry-point)
-      (cond
-        ((not value)
-         ;; Use the undefined function trampoline.
-         ;; This must be stored in function slot so the closure-trampoline
-         ;; works correctly.
-         (values (%undefined-function)
-                 (%object-ref-t (%undefined-function)
-                                +function-entry-point+)))
-        ((eql (%object-tag value) +object-tag-function+)
-         ;; Normal call.
-         (values value
-                 (%object-ref-t value
-                                +function-entry-point+)))
-        (t ;; Something else, either a closure or funcallable-instance. Use the closure trampoline.
-         (values value
-                 (%object-ref-t (%closure-trampoline)
-                                +function-entry-point+))))
-    ;; Atomically update both values.
-    ;; Functions is followed by entry point.
-    ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
-    (let ((old-1 (%object-ref-t fref +fref-function+))
-          (old-2 (%object-ref-t fref +fref-entry-point+)))
-      ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
-      ;; this write succeeded, but was immediately overwritten.
-      (%dcas-object fref +fref-function+
-                    old-1 old-2
-                    new-fn new-entry-point)))
+  ;; FIXME: FREF should be locked for the duration.
+  ;; FIXME: Fences.
+  ;; FIXME: Cross-CPU synchronization.
+  (etypecase value
+    (null
+     ;; Making it unbound.
+     (setf (%object-ref-t fref +fref-function+) fref)
+     (%activate-function-reference-full-path fref))
+    ((%object-of-type-p value +object-tag-function+)
+     ;; Plain function, use the fast path.
+     (setf (%object-ref-t fref +fref-function+) value)
+     (%activate-function-reference-fast-path
+      fref (%object-ref-t value +function-entry-point+)))
+    (t
+     ;; Bound to an unusual function. Full path.
+     (setf (%object-ref-t fref +fref-function+) value)
+     (%activate-function-reference-full-path fref)))
   value)
 
 (defun fdefinition (name)
