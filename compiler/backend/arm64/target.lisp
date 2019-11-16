@@ -23,9 +23,6 @@
 (defmethod ra:target-funcall-register ((target sys.c:arm64-target))
   :x6)
 
-(defmethod ra:target-fref-register ((target sys.c:arm64-target))
-  :x7)
-
 (defmethod ra:target-count-register ((target sys.c:arm64-target))
   :x5)
 

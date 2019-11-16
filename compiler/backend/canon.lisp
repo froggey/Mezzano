@@ -69,7 +69,7 @@
         (arg-regs (target-argument-registers target))
         (funcall-regs (target-funcall-register target)))
     ;; Required, optional, and the closure arguments are put in registers, but
-    ;; count/fref are forced to be spilled. rcx (count) and r13 (fref) are
+    ;; count is forced to be spilled. rcx (count) and r13 are
     ;; required by the &rest-list construction code.
     (ir:insert-after backend-function aset
                      (make-instance 'ir:move-instruction

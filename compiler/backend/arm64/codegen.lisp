@@ -300,12 +300,10 @@
             (t
              (emit `(lap:cbz :x5 ,args-ok))
              (emit-arg-error)))))
-  ;; Spill count/fref.
+  ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
                (not (endp (gethash reg uses))))))
-    (when (usedp (ir:argument-setup-fref instruction))
-      (emit-stack-store :x7 (vreg-stack-slot (ir:argument-setup-fref instruction))))
     (when (usedp (ir:argument-setup-count instruction))
       (emit-stack-store :x5 (vreg-stack-slot (ir:argument-setup-count instruction))))
     ;; Arguments are delivered in registers, and then on the caller's stack.

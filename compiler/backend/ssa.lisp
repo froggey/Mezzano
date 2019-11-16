@@ -156,7 +156,6 @@ Virtual registers must be defined exactly once."
          (label (make-instance 'label :name :label :phis (list a b c d)))
          (fn (make-instance 'backend-function)))
     (append-instruction fn (make-instance 'argument-setup-instruction
-                                          :fref (make-instance 'virtual-register)
                                           :count (make-instance 'virtual-register)
                                           :closure (make-instance 'virtual-register)
                                           :required (list x)

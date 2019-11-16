@@ -18,9 +18,6 @@
 (defmethod ra:target-funcall-register ((target sys.c:x86-64-target))
   :rbx)
 
-(defmethod ra:target-fref-register ((target sys.c:x86-64-target))
-  :r13)
-
 (defmethod ra:target-count-register ((target sys.c:x86-64-target))
   :rcx)
 

@@ -223,13 +223,11 @@
              (emit `(lap:test32 :ecx :ecx)
                    `(lap:jz ,args-ok))
              (emit-arg-error)))))
-  ;; Spill count/fref.
+  ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
                (not (endp (gethash reg uses)))
                (gethash reg *spill-locations*))))
-    (when (usedp (ir:argument-setup-fref instruction))
-      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-fref instruction)) :r13)))
     (when (usedp (ir:argument-setup-count instruction))
       (emit `(lap:mov64 ,(effective-address (ir:argument-setup-count instruction)) :rcx)))
     ;; Arguments are delivered in registers, and then on the caller's stack.

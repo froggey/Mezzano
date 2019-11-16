@@ -6,8 +6,7 @@
 (in-package :mezzano.compiler.backend)
 
 (defclass argument-setup-instruction (backend-instruction)
-  ((%fref :initarg :fref :accessor argument-setup-fref)
-   (%closure :initarg :closure :accessor argument-setup-closure)
+  ((%closure :initarg :closure :accessor argument-setup-closure)
    (%count :initarg :count :accessor argument-setup-count)
    (%required :initarg :required :accessor argument-setup-required)
    (%optional :initarg :optional :accessor argument-setup-optional)
@@ -17,8 +16,7 @@
   (list))
 
 (defmethod instruction-outputs ((instruction argument-setup-instruction))
-  (append (list (argument-setup-fref instruction)
-                (argument-setup-closure instruction)
+  (append (list (argument-setup-closure instruction)
                 (argument-setup-count instruction))
           (argument-setup-required instruction)
           (argument-setup-optional instruction)
@@ -27,7 +25,6 @@
               (list))))
 
 (defmethod replace-all-registers ((instruction argument-setup-instruction) substitution-function)
-  (setf (argument-setup-fref instruction) (funcall substitution-function (argument-setup-fref instruction)))
   (setf (argument-setup-closure instruction) (funcall substitution-function (argument-setup-closure instruction)))
   (setf (argument-setup-count instruction) (funcall substitution-function (argument-setup-count instruction)))
   (setf (argument-setup-required instruction) (mapcar substitution-function (argument-setup-required instruction)))
@@ -37,8 +34,7 @@
 
 (defmethod print-instruction ((instruction argument-setup-instruction))
   (format t "   ~S~%"
-          `(:argument-setup ,(argument-setup-fref instruction)
-                            ,(argument-setup-closure instruction)
+          `(:argument-setup ,(argument-setup-closure instruction)
                             ,(argument-setup-count instruction)
                             ,(argument-setup-required instruction)
                             ,(argument-setup-optional instruction)

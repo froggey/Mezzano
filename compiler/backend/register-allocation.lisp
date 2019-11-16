@@ -8,7 +8,6 @@
 (defgeneric target-argument-registers (target))
 (defgeneric target-return-register (target))
 (defgeneric target-funcall-register (target))
-(defgeneric target-fref-register (target))
 (defgeneric target-count-register (target))
 
 (defgeneric architectural-physical-registers (architecture))
@@ -277,7 +276,6 @@
          (arch-phys-regs (architectural-physical-registers arch))
          (arg-regs (target-argument-registers arch))
          (funcall-reg (target-funcall-register arch))
-         (fref-reg (target-fref-register arch))
          (starts (make-hash-table :synchronized nil))
          (valid-pregs-cache-kind nil)
          (valid-pregs-cache-regs nil))
@@ -369,8 +367,6 @@
                (when (typep inst 'ir:argument-setup-instruction)
                  (when (eql (ir:argument-setup-closure inst) vreg)
                    (setf (gethash vreg vreg-move-hint) funcall-reg))
-                 (when (eql (ir:argument-setup-fref inst) vreg)
-                   (setf (gethash vreg vreg-move-hint) fref-reg))
                  (when (member vreg (ir:argument-setup-required inst))
                    (setf (gethash vreg vreg-move-hint) (nth (position vreg (ir:argument-setup-required inst))
                                                             arg-regs)))))))
@@ -973,7 +969,7 @@
     (setf (allocator-debug-variable-value-map allocator) result)))
 
 (defun unused-spill-p (allocator range)
-  ;; Prevents arguments (including count/fref registers) from being spilled
+  ;; Prevents arguments (including count register) from being spilled
   ;; if they are not used.
   (declare (ignore allocator))
   (and (eql (live-range-start range) 0)

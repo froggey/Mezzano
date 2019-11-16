@@ -56,10 +56,6 @@
       (assert (or (null arg)
                   (and (lexical-variable-p arg)
                        (localp arg)))))
-    (let ((arg (lambda-information-fref-arg lambda)))
-      (assert (or (null arg)
-                  (and (lexical-variable-p arg)
-                       (localp arg)))))
     (let ((arg (lambda-information-closure-arg lambda)))
       (assert (or (null arg)
                   (and (lexical-variable-p arg)
@@ -70,8 +66,7 @@
                        (localp arg))))))
 
 (defun emit-argument-setup-code (lambda)
-  (let ((fref-reg (make-instance 'virtual-register :name :fref))
-        (closure-reg (make-instance 'virtual-register :name :closure))
+  (let ((closure-reg (make-instance 'virtual-register :name :closure))
         (count-reg (make-instance 'virtual-register :name :count))
         (required-regs (loop
                           for i from 0
@@ -85,7 +80,6 @@
                       (make-instance 'virtual-register :name :rest)
                       nil)))
     (emit (make-instance 'argument-setup-instruction
-                         :fref fref-reg
                          :closure closure-reg
                          :count count-reg
                          :required required-regs
@@ -99,7 +93,6 @@
                                           :value register)))
                  (emit inst)
                  (setf (gethash variable *variable-registers*) inst)))))
-      (frob-arg (lambda-information-fref-arg lambda) fref-reg)
       (frob-arg (lambda-information-closure-arg lambda) closure-reg)
       (frob-arg (lambda-information-count-arg lambda) count-reg)
       (let ((env-arg (lambda-information-environment-arg lambda)))

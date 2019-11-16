@@ -95,7 +95,7 @@
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (check-known-declarations declares)
-    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
+    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((optimize-env (extend-environment env :declarations declares))
              (info (make-instance 'lambda-information
@@ -145,8 +145,6 @@
                                              (init-form (pass1-form (second binding) env)))
                                          (list (add-var var) init-form)))
                                      aux))
-          (when fref-arg
-            (setf (lambda-information-fref-arg info) (add-var fref-arg)))
           (when closure-arg
             (setf (lambda-information-closure-arg info) (add-var closure-arg)))
           (when count-arg
@@ -182,8 +180,6 @@
             (check-variable-usage (second (first opt))))
           (when (lexical-variable-p (third opt))
             (check-variable-usage (third opt))))
-        (when (lexical-variable-p (lambda-information-fref-arg info))
-          (check-variable-usage (lambda-information-fref-arg info)))
         (when (lexical-variable-p (lambda-information-closure-arg info))
           (check-variable-usage (lambda-information-closure-arg info)))
         (when (lexical-variable-p (lambda-information-count-arg info))

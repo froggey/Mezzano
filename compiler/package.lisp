@@ -35,7 +35,6 @@
            #:lambda-information-allow-other-keys
            #:lambda-information-environment-arg
            #:lambda-information-environment-layout
-           #:lambda-information-fref-arg
            #:lambda-information-closure-arg
            #:lambda-information-count-arg
            #:lambda-information-plist
@@ -511,7 +510,6 @@
            #:label-phis
 
            #:argument-setup-instruction
-           #:argument-setup-fref
            #:argument-setup-closure
            #:argument-setup-count
            #:argument-setup-required
@@ -688,7 +686,6 @@
   (:export #:target-argument-registers
            #:target-return-register
            #:target-funcall-register
-           #:target-fref-register
            #:target-count-register
            #:architectural-physical-registers
            #:valid-physical-registers-for-kind

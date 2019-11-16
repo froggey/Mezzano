@@ -158,8 +158,6 @@ Must be run after keywords have been lowered."
       ;; And eliminate special rest args.
       (when (lambda-information-rest-arg form)
         (setf (lambda-information-rest-arg form) (update-one (lambda-information-rest-arg form))))
-      (when (lambda-information-fref-arg form)
-        (setf (lambda-information-fref-arg form) (update-one (lambda-information-fref-arg form))))
       (when (lambda-information-closure-arg form)
         (setf (lambda-information-closure-arg form) (update-one (lambda-information-closure-arg form))))
       (when (lambda-information-count-arg form)

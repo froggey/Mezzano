@@ -10,7 +10,7 @@
 (defconstant multiple-values-limit (+ 5 mezzano.supervisor::+thread-mv-slots-size+))
 
 (unless (boundp 'lambda-list-keywords)
-  (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole &fref &closure &count)))
+  (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole &closure &count)))
 
 (declaim (inline null not))
 
