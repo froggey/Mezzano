@@ -91,29 +91,6 @@
         *allocation-fudge* (* 8 1024 1024)
         sys.int::*generation-size-ratio* 2))
 
-(defun verify-freelist (start base end)
-  (do ((freelist start (freelist-entry-next freelist))
-       (prev nil freelist))
-      ((null freelist))
-    (unless (and
-             ;; A freelist entry must fall within area limits.
-             (<= base freelist)
-             (< freelist end)
-             (<= (+ freelist (* (freelist-entry-size freelist) 8)) end)
-             ;; Must have a non-zero size.
-             (not (zerop (freelist-entry-size freelist)))
-             ;; Must have the correct object tag.
-             (eql (ldb (byte sys.int::+object-type-size+ sys.int::+object-type-shift+)
-                       (sys.int::memref-unsigned-byte-64 freelist 0))
-                  sys.int::+object-tag-freelist-entry+)
-             ;; Must have a fixnum link, or be the end of the list.
-             (or (sys.int::fixnump (freelist-entry-next freelist))
-                 (not (freelist-entry-next freelist)))
-             ;; Must be after the end of the previous freelist entry.
-             (or (not prev)
-                 (> freelist (+ prev (* (freelist-entry-size prev) 8)))))
-      (mezzano.supervisor:panic "Corrupt freelist."))))
-
 (defun set-allocated-object-header (address tag data mark-bit)
   ;; Be careful to avoid bignum consing here. Some functions can have a
   ;; data value larger than a fixnum when shifted.
@@ -182,8 +159,6 @@
     (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
       (mezzano.supervisor:with-mutex (*allocator-lock*)
         (mezzano.supervisor:with-pseudo-atomic
-          (when *paranoid-allocation*
-            (verify-freelist sys.int::*pinned-area-freelist* sys.int::*pinned-area-base* sys.int::*pinned-area-bump*))
           (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
             (when address
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
@@ -279,8 +254,6 @@
               (sys.int::gc :full t)))))
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
-  (when *paranoid-allocation*
-    (verify-freelist sys.int::*wired-area-freelist* sys.int::*wired-area-base* sys.int::*wired-area-bump*))
   (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
     (when address
       (sys.int::%%assemble-value address sys.int::+tag-object+))))
