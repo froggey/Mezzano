@@ -486,8 +486,7 @@ a vector of constants and an alist of symbols & addresses."
             (destructuring-bind (offset &key layout) entry
               (declare (ignore offset))
               (dolist (var layout)
-                (when (not (find (first var) *constant-pool*))
-                  (vector-push-extend (first var) *constant-pool*)))))
+                (add-to-constant-pool (first var)))))
           (setf (tenth (aref *constant-pool* 1)) (encode-debug-info result-debug-md *constant-pool*)))
         (values result-mc
                 *constant-pool*
@@ -568,6 +567,10 @@ a vector of constants and an alist of symbols & addresses."
   "Test if THING is an immediate value."
   (typep thing '(or symbol label integer)))
 
+(defun add-to-constant-pool (value)
+  (or (position value *constant-pool*)
+      (vector-push-extend value *constant-pool*)))
+
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
   (etypecase value
@@ -577,8 +580,7 @@ a vector of constants and an alist of symbols & addresses."
               (:constant-address
                (if *mc-end*
                    (+ (* (ceiling *mc-end* 16) 16)
-                      (* (or (position (second value) *constant-pool*)
-                             (vector-push-extend (second value) *constant-pool*)) 8))
+                      (* (add-to-constant-pool (second value)) 8))
                    nil))))
            (t (let ((args (mapcar #'resolve-immediate (rest value))))
                 (if (member nil args)

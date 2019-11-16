@@ -468,7 +468,8 @@
            #:*function-reference-resolver*
            #:label
            #:make-label
-           #:label-name))
+           #:label-name
+           #:add-to-constant-pool))
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
