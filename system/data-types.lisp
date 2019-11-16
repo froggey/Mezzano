@@ -13,11 +13,14 @@
 (defconstant +object-data-size+ 56)
 (defconstant +pinned-object-mark-bit+ #b10)
 
-;;; Low 4 bits of a value are tag bits:
+;;; Low 4 bits of a value are tag bits
 (defconstant +tag-fixnum-000+       #b0000)
-(defconstant +tag-dx-root-object+   #b0001)
+;; +TAG-CONS+ and +TAG-OBJECT+ have been carefully chosen so they have
+;; exactly one bit different. This allows ordinary object pointers to
+;; be detected trivially: (eql (logand val #b111) 1)
+(defconstant +tag-cons+             #b0001)
 (defconstant +tag-fixnum-001+       #b0010)
-(defconstant +tag-cons+             #b0011)
+(defconstant +tag-dx-root-object+   #b0011)
 (defconstant +tag-fixnum-010+       #b0100)
 (defconstant +tag-immediate+        #b0101)
 (defconstant +tag-fixnum-011+       #b0110)
