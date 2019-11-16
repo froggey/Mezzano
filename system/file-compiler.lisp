@@ -839,8 +839,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        :initial-symbols '((nil . :fixup)
                           (t . :fixup)
                           (:unbound-value . :fixup)
-                          (:undefined-function . :fixup)
-                          (:funcallable-instance-trampoline . :fixup)
                           (:symbol-binding-cache-sentinel . :fixup))
        :info (list name debug-info))
     (declare (ignore symbols))

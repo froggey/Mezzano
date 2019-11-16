@@ -218,14 +218,14 @@
       (values))))
 
 (defmethod configure-system-for-target (environment (target (eql :x86-64)))
-  (env:add-special environment :undefined-function
-                   (env:compile-lap environment
-                                    *undefined-function-thunk*
-                                    :area :wired-function
-                                    :name (env:translate-symbol environment 'sys.int::%%undefined-function-trampoline)))
-  (env:add-special environment :funcallable-instance-trampoline
-                   (env:compile-lap environment
-                                    *funcallable-instance-trampoline*
-                                    :area :wired-function
-                                    :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline)))
+  (setf (env:cross-symbol-value environment 'sys.int::*undefined-function-trampoline*)
+        (env:compile-lap environment
+                         *undefined-function-thunk*
+                         :area :wired-function
+                         :name (env:translate-symbol environment 'sys.int::%%undefined-function-trampoline%%)))
+  (setf (env:cross-symbol-value environment 'sys.int::*funcallable-instance-trampoline*)
+        (env:compile-lap environment
+                         *funcallable-instance-trampoline*
+                         :area :wired-function
+                         :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline%%)))
   (create-low-level-interrupt-support environment))

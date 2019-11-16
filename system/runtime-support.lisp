@@ -621,7 +621,7 @@ then NIL will be returned."
 (defun function-reference-function (fref)
   (check-type fref function-reference)
   (let ((fn (%object-ref-t fref +fref-function+)))
-    (if (%undefined-function-p fn)
+    (if (eq fn fref)
         nil
         fn)))
 

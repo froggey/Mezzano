@@ -641,12 +641,8 @@
         (let ((value (case (car fixup)
                        ((nil t)
                         (sys.int::lisp-object-address (car fixup)))
-                       (:undefined-function
-                        (sys.int::lisp-object-address (sys.int::%undefined-function)))
                        (:unbound-value
                         (sys.int::lisp-object-address (sys.int::%unbound-value)))
-                       (:funcallable-instance-trampoline
-                        (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))
                        (:symbol-binding-cache-sentinel
                         (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
                        (t (error "Unsupported fixup ~S." (car fixup))))))
@@ -679,7 +675,7 @@
                                   (sys.int::layout-heap-size layout)
                                   (sys.int::layout-area layout)))
         (entry-point (sys.int::%object-ref-unsigned-byte-64
-                      (sys.int::%funcallable-instance-trampoline)
+                      sys.int::*funcallable-instance-trampoline*
                       sys.int::+function-entry-point+)))
     (setf
      ;; Entry point. F-I trampoline.

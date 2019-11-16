@@ -90,7 +90,7 @@
               (fn (return-address-to-function rip)))
          (when (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
            (format t "Entered function ~S with arguments ~:S.~%"
-                   (cond ((eql fn (%funcallable-instance-trampoline))
+                   (cond ((eql fn *funcallable-instance-trampoline*)
                           (mezzano.supervisor:thread-state-rbx-value thread))
                          (t
                           (or (function-name fn) fn)))
@@ -313,7 +313,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                        (when (and prev-fn
                                   (not (eql fn prev-fn)))
                          (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
-                                (incf (gethash (cond ((eql fn (%funcallable-instance-trampoline))
+                                (incf (gethash (cond ((eql fn *funcallable-instance-trampoline*)
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
                                                      (t
                                                       fn))
@@ -340,7 +340,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (terpri))
                                       (print-instructions
                                        (format t "Entered function ~S with arguments ~:A.~%"
-                                               (cond ((eql fn (%funcallable-instance-trampoline))
+                                               (cond ((eql fn *funcallable-instance-trampoline*)
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
                                                      (t
                                                       (or (function-name fn) fn)))

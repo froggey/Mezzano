@@ -1966,9 +1966,6 @@ Additionally update the card table offset fields."
     (scavenge-object 'nil :major)
     ;; And various important other roots.
     (scavenge-object (%unbound-value) :major)
-    (scavenge-object (%undefined-function) :major)
-    (scavenge-object (%closure-trampoline) :major)
-    (scavenge-object (%funcallable-instance-trampoline) :major)
     ;; Scavenge the current thread's stack.
     (scavenge-current-thread)
     ;; Now do the bulk of the work by scavenging the dynamic areas.

@@ -126,7 +126,7 @@
     mezzano.supervisor::call-with-snapshot-inhibited
     mezzano.compiler::call-with-metering
     mezzano.supervisor::call-with-mutex
-    sys.int::%%funcallable-instance-trampoline
+    sys.int::%%funcallable-instance-trampoline%%
     mezzano.runtime::%allocate-object))
 
 (defclass profile-data ()
