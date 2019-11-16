@@ -119,24 +119,30 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +magic-button-ipi-vector+ #x84
   "Sent to CPUs when the magic debug button is pressed.")
 
-(defun make-idt-entry (&key (offset 0) (segment #x0008)
-                         (present t) (dpl 0) (ist nil)
-                         (interrupt-gate-p t))
-  "Returns the low and high words of the IDT entry."
-  ;; ###: Need to be more careful avoiding bignums.
-  (let ((value 0))
-    ;; Don't do this, can create bignums!
-    ;;(setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
-    (setf value (ash (ldb (byte 16 16) offset) 48)
-          (ldb (byte 1 47) value) (if present 1 0)
-          (ldb (byte 2 45) value) dpl
-          (ldb (byte 4 40) value) (if interrupt-gate-p
-                                      #b1110
-                                      #b1111)
-          (ldb (byte 3 32) value) (or ist 0)
-          (ldb (byte 16 16) value) segment
-          (ldb (byte 16 0) value) (ldb (byte 16 0) offset))
-    (values value (ldb (byte 32 32) offset))))
+(defun set-idt-entry (vector idt-index
+                      &key (offset 0) (segment #x0008)
+                        (present t) (dpl 0) (ist nil)
+                        (interrupt-gate-p t))
+  "Set an IDT entry in the CPU info vector."
+  ;; Be careful and avoid bignums.
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 0))
+        (logior (ldb (byte 16 0) offset)
+                (ash segment 16)))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 1))
+        (logior (or ist 0)
+                (ash (if interrupt-gate-p #b1110 #b1111) 8)
+                (ash dpl 13)
+                (if present (ash 1 15) 0)
+                (ash (ldb (byte 16 16) offset) 16)))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 2))
+        (ldb (byte 32 32) offset))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 3))
+        0)
+  (values))
 
 (defun lapic-reg (register)
   (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))))
@@ -390,20 +396,19 @@ TLB shootdown must be protected by the VM lock."
 (defun populate-idt (vector)
   ;; IDT completely fills the second page (256 * 16)
   (dotimes (i 256)
-    (multiple-value-bind (lo hi)
-        (if (svref sys.int::*interrupt-service-routines* i)
-            (make-idt-entry :offset (isr-thunk-address i)
-                            ;; Take CPU interrupts on the exception stack
-                            ;; and IRQs on the interrupt stack.
-                            :ist (cond ((eql i 14)
-                                        +ist-page-fault-stack+)
-                                       ((< i 32)
-                                        +ist-exception-stack+)
-                                       (t
-                                        +ist-interrupt-stack+)))
-            (values 0 0))
-      (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
-            (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
+    (cond ((svref sys.int::*interrupt-service-routines* i)
+           (set-idt-entry vector i
+                          :offset (isr-thunk-address i)
+                          ;; Take CPU interrupts on the exception stack
+                          ;; and IRQs on the interrupt stack.
+                          :ist (cond ((eql i 14)
+                                      +ist-page-fault-stack+)
+                                     ((< i 32)
+                                      +ist-exception-stack+)
+                                     (t
+                                      +ist-interrupt-stack+))))
+          (t
+           (set-idt-entry vector i :present nil)))))
 
 (defun populate-gdt (vector tss-base)
   ;; GDT.
@@ -950,11 +955,9 @@ This is a one-shot timer and must be reset after firing."
   (let ((cpu-vec (local-cpu-info)))
     (dotimes (i 32)
       (when (svref sys.int::*interrupt-service-routines* i)
-        (multiple-value-bind (lo hi)
-            (make-idt-entry :offset (isr-thunk-address i)
-                            :ist +ist-disabled+)
-          (setf (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* i 2))) lo
-                (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))))
+        (set-idt-entry cpu-vec i
+                       :offset (isr-thunk-address i)
+                       :ist +ist-disabled+)))))
 
 (defun register-secondary-cpu (apic-id)
   (let* ((info (mezzano.runtime::%allocate-object
