@@ -93,6 +93,19 @@ Should be kept in sync with data-types.")
                   (* count (1+ (layout-heap-size
                                 (mezzano.clos:class-layout class))))))))
 
+(defun room-pinned-area (area verbosity)
+  (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
+      (area-info area)
+    (format t "~:(~A~) area: ~:D/~:D words allocated (~D%).~%"
+            area
+            allocated-words total-words
+            (truncate (* allocated-words 100) total-words))
+    (format t "  Largest free area: ~:D words.~%" largest-free-space)
+    (when (eql verbosity t)
+      (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)
+      (print-fragment-counts (pinned-area-fragment-counts area)))
+    (values allocated-words total-words)))
+
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
         (total 0))
@@ -132,28 +145,22 @@ Should be kept in sync with data-types.")
           (area-info :cons)
         (declare (ignore allocated-words total-words largest-free-space))
         (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
-    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
-        (area-info :wired)
-      (format t "Wired area: ~:D/~:D words allocated (~D%).~%"
-              allocated-words total-words
-              (truncate (* allocated-words 100) total-words))
-      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+    (multiple-value-bind (allocated-words total-words)
+        (room-pinned-area :wired verbosity)
       (incf total-used allocated-words)
-      (incf total total-words)
-      (when (eql verbosity t)
-        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)
-        (print-fragment-counts (pinned-area-fragment-counts :wired))))
-    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
-        (area-info :pinned)
-      (format t "Pinned area: ~:D/~:D words allocated (~D%).~%"
-              allocated-words total-words
-              (truncate (* allocated-words 100) total-words))
-      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total total-words))
+    (multiple-value-bind (allocated-words total-words)
+        (room-pinned-area :wired-function verbosity)
       (incf total-used allocated-words)
-      (incf total total-words)
-      (when (eql verbosity t)
-        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)
-        (print-fragment-counts (pinned-area-fragment-counts :pinned))))
+      (incf total total-words))
+    (multiple-value-bind (allocated-words total-words)
+        (room-pinned-area :function verbosity)
+      (incf total-used allocated-words)
+      (incf total total-words))
+    (multiple-value-bind (allocated-words total-words)
+        (room-pinned-area :pinned verbosity)
+      (incf total-used allocated-words)
+      (incf total total-words))
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
@@ -245,11 +252,13 @@ Should be kept in sync with data-types.")
 (defun walk-area (area fn)
   "Call FN with the value, address and size of every object in AREA.
 FN will be called with the world stopped, it must not allocate."
-  (check-type area (member :pinned :wired :general :cons))
+  (check-type area (member :pinned :wired :wired-function :function :general :cons))
   (mezzano.supervisor:with-world-stopped ()
     (case area
       (:pinned (%walk-pinned-area *pinned-area-base* *pinned-area-bump* fn))
       (:wired (%walk-pinned-area *wired-area-base* *wired-area-bump* fn))
+      (:wired-function (%walk-pinned-area *wired-function-area-limit* *function-area-base* fn))
+      (:function (%walk-pinned-area *function-area-base* *function-area-limit* fn))
       (:general (%walk-general-area fn))
       (:cons (%walk-cons-area fn)))))
 
