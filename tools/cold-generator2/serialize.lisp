@@ -17,6 +17,8 @@
            #:image-pinned-area
            #:image-general-area
            #:image-cons-area
+           #:image-wired-function-area
+           #:image-function-area
            #:do-image-stacks
            #:write-map-file
            ))
@@ -25,10 +27,22 @@
 
 ;; Wired area starts near 0.
 (defconstant +wired-area-base+ sys.int::+allocation-minimum-alignment+)
-;; Pinned at 512G.
-(defconstant +pinned-area-base+ (* 512 1024 1024 1024))
+;; Pinned at 1T.
+(defconstant +pinned-area-base+ (* 1 1024 1024 1024 1024))
 ;; Wired area stops at 2G, below the pinned area.
 (defconstant +wired-area-limit+ (* 2 1024 1024 1024))
+
+;; Function area starts at 512G.
+;; The wired function expands down from here, the normal area expands upwards.
+(defconstant +function-area-base+ (* 512 1024 1024 1024))
+;; The total size (wired & normal) of the function area is limited to 2G
+;; by x86-64 branch limits.
+(defconstant +function-area-total-size-limit+ (* 2 1024 1024 1024))
+;; For the sake of sanity (so the cold-generator doesn't need to expand the
+;; wired function area, as it grows downwards), assume that the initial
+;; wired function area is this big.
+;; This more than enough to hold the initial functions.
+(defconstant +cold-generator-assumed-wired-function-area-size+ (* 8 1024 1024))
 
 ;; Wired stack area starts at the bottom of the stack area.
 (defconstant +wired-stack-area-base+ 0)
@@ -53,6 +67,8 @@
    (%pinned-area :initarg :pinned-area :reader image-pinned-area)
    (%general-area :initarg :general-area :reader image-general-area)
    (%cons-area :initarg :cons-area :reader image-cons-area)
+   (%wired-function-area :initarg :wired-function-area :reader image-wired-function-area)
+   (%function-area :initarg :function-area :reader image-function-area)
    (%object-values :initform (make-hash-table) :reader image-object-values)
    ;; (object . area) => value
    (%dedup-table :initform (make-hash-table :test 'equal)
@@ -97,11 +113,17 @@ Must not call SERIALIZE-OBJECT."))
   (when (image-finalized-p image)
     (error "Allocating in a finalized image"))
   (when (oddp n-words) (incf n-words))
+  (when (member area-name '(:wired-function :function))
+    ;; Force 4 word alignment in function areas.
+    (incf n-words 3)
+    (setf n-words (logand n-words (lognot 3))))
   (let* ((area (ecase area-name
                  (:wired (image-wired-area image))
                  (:pinned (image-pinned-area image))
                  (:general (image-general-area image))
-                 (:cons (image-cons-area image))))
+                 (:cons (image-cons-area image))
+                 (:wired-function (image-wired-function-area image))
+                 (:function (image-function-area image))))
          (offset (length (area-data area)))
          (address (+ (area-base area) offset))
          (new-length (+ (length (area-data area)) (* n-words 8))))
@@ -128,23 +150,29 @@ Must not call SERIALIZE-OBJECT."))
         (test-area (image-pinned-area image))
         (test-area (image-general-area image))
         (test-area (image-cons-area image))
+        (test-area (image-wired-function-area image))
+        (test-area (image-function-area image))
         (error "No area for object ~X in image ~S" object image))))
+
+(defun object-slot-location (image object slot)
+  (declare (ignore image))
+  (+ (- object sys.int::+tag-object+)
+     8
+     (* slot 8)))
+
+(defun object-slot-area-offset (image object slot)
+  (let ((area (object-area image object)))
+    (- (object-slot-location image object slot) (area-base area))))
 
 (defun object-slot (image object slot)
   (let ((area (object-area image object)))
     (nibbles:ub64ref/le (area-data area)
-                        (- (+ (- object sys.int::+tag-object+)
-                              8
-                              (* slot 8))
-                           (area-base area)))))
+                        (object-slot-area-offset image object slot))))
 
 (defun (setf object-slot) (value image object slot)
   (let ((area (object-area image object)))
     (setf (nibbles:ub64ref/le (area-data area)
-                              (- (+ (- object sys.int::+tag-object+)
-                                    8
-                                    (* slot 8))
-                                 (area-base area)))
+                              (object-slot-area-offset image object slot))
           value)))
 
 (defun object-car (image object)
@@ -210,22 +238,42 @@ Must not call SERIALIZE-OBJECT."))
         (serialize-object (env:symbol-value-cell-symbol object) image environment)))
 
 (defmethod allocate-object ((object env:function-reference) image environment)
-  (allocate 4 image :wired sys.int::+tag-object+))
+  (allocate 8 image :wired-function sys.int::+tag-object+))
 
 (defmethod initialize-object ((object env:function-reference) value image environment)
   (initialize-object-header image value sys.int::+object-tag-function-reference+ 0)
   (setf (object-slot image value sys.int::+fref-name+)
         (serialize-object (env:function-reference-name object) image environment))
+  (let ((undef-fn (serialize-object (env:find-special environment :undefined-function)
+                                    image environment)))
+    (setf (object-slot image value sys.int::+fref-undefined-entry-point+)
+          (object-slot image undef-fn sys.int::+function-entry-point+)))
   (let* ((fn (env:function-reference-function object))
-         (fn-value (serialize-object fn image environment))
-         (undef-fn (serialize-object (env:find-special environment :undefined-function)
-                                     image environment)))
-    (setf (object-slot image value sys.int::+fref-function+) (if fn fn-value undef-fn))
-    (setf (object-slot image value sys.int::+fref-entry-point+)
-          (cond (fn
-                 (object-slot image fn-value sys.int::+function-entry-point+))
-                (t
-                 (object-slot image undef-fn sys.int::+function-entry-point+))))))
+         (fn-value (serialize-object fn image environment)))
+    (if fn
+        (setf (object-slot image value sys.int::+fref-function+) fn-value)
+        (setf (object-slot image value sys.int::+fref-function+) value))
+    ;; Code...
+    ;; (nop (:rax))
+    ;; (jmp <direct-target>)
+    (setf (object-slot image value (+ sys.int::+fref-code+ 0))
+          (logior #xE9001F0F
+                  (if fn
+                      (let* ((entry-point (object-slot image fn-value sys.int::+function-entry-point+))
+                             ;; Address is *after* the jump.
+                             (fref-jmp-address (+ (object-slot-location image value sys.int::+fref-code+) 8))
+                             (rel-jump (- entry-point fref-jmp-address)))
+                        (check-type rel-jump (signed-byte 32))
+                        (ash (ldb (byte 32 0) rel-jump) 32))
+                      0)))
+    ;; (mov :rbx (:rip fref-function))
+    ;; (jmp ...
+    (setf (object-slot image value (+ sys.int::+fref-code+ 1))
+          #xFFFFFFFFE91D8B48)
+    ;; ... (:object :rbx entry-point))
+    ;; (ud2)
+    (setf (object-slot image value (+ sys.int::+fref-code+ 2))
+          #x0B0FFF63)))
 
 (defmethod allocate-object ((object env:cross-compiled-function) image environment)
   (let* ((total-size (+ (* (ceiling (+ (length (env:function-machine-code object)) 16) 16) 2)
@@ -233,7 +281,7 @@ Must not call SERIALIZE-OBJECT."))
                         (ceiling (length (env:function-gc-metadata object)) 8)))
          (value (allocate total-size image
                           (or (env:object-area environment object)
-                              :pinned)
+                              :function)
                           sys.int::+tag-object+)))
     ;; Always set the entry point, gets read by other functions.
     (setf (object-slot image value sys.int::+function-entry-point+)
@@ -290,17 +338,40 @@ Must not call SERIALIZE-OBJECT."))
                          (length (env:function-gc-metadata object))))
   ;; Apply fixups.
   (loop
-     for (symbol . byte-offset) in (env:function-fixups object)
-     for value = (serialize-object
-                  (env:find-special environment symbol)
-                  image environment)
+     for (target . byte-offset) in (env:function-fixups object)
      do
-       (dotimes (byte 4)
-         (multiple-value-bind (word byten)
-             (truncate (+ byte-offset -16 byte) 8)
-           (setf (ldb (byte 8 (* byten 8))
-                      (object-slot image object-value (+ 1 word)))
-                 (ldb (byte 8 (* byte 8)) value))))))
+       (etypecase target
+         (symbol
+          (let ((value (serialize-object
+                        (env:find-special environment target)
+                        image environment)))
+            (dotimes (byte 4)
+              (multiple-value-bind (word byten)
+                  (truncate (+ byte-offset -16 byte) 8)
+                (setf (ldb (byte 8 (* byten 8))
+                           (object-slot image object-value (+ 1 word)))
+                      (ldb (byte 8 (* byte 8)) value))))))
+         (env:function-reference
+          (let* ((fref-val (serialize-object target image environment))
+                 (entry (object-slot-location image fref-val sys.int::+fref-code+))
+                 (absolute-origin (+ (- object-value sys.int::+tag-object+)
+                                     byte-offset
+                                     4))
+                 (value (- entry absolute-origin)))
+            #++(progn
+            (format t "Applying relocation for function reference ~S to function ~S~%" target object)
+            (format t "Fref @ ~X  Fn @ ~X   Byte-Offset=~D~%"
+                    fref-val object-value byte-offset)
+            (format t "Fref entry @ ~X  absolute origin @ ~X~%"
+                    entry absolute-origin)
+            (format t "Computed value is ~D~%" value))
+            (check-type value (signed-byte 32))
+            (dotimes (byte 4)
+              (multiple-value-bind (word byten)
+                  (truncate (+ byte-offset -16 byte) 8)
+                (setf (ldb (byte 8 (* byten 8))
+                           (object-slot image object-value (+ 1 word)))
+                      (ldb (byte 8 (* byte 8)) value)))))))))
 
 ;; TODO: Avoid recursing down lists. Customize SERIALIZE-OBJECT.
 (defmethod allocate-object ((object cons) image environment)
@@ -727,6 +798,12 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*bytes-allocated-to-stacks*))
       ;; This will fail if they're missing.
       (serialize-object (env:translate-symbol environment sym) image environment))
+    ;; Better hope we got this right first try.
+    (assert (<= (length (area-data (image-wired-function-area image)))
+                +cold-generator-assumed-wired-function-area-size+))
+    (adjust-array (area-data (image-wired-function-area image))
+                  +cold-generator-assumed-wired-function-area-size+
+                  :fill-pointer t)
     ;; Align the area sizes up to the minimum alignment.
     (flet ((align (area)
              (let* ((bump (length (area-data area)))
@@ -736,7 +813,12 @@ Must not call SERIALIZE-OBJECT."))
       (align (image-wired-area image))
       (align (image-pinned-area image))
       (align (image-general-area image))
-      (align (image-cons-area image)))
+      (align (image-cons-area image))
+      (align (image-function-area image)))
+    ;; General sanity check, the function area total must not exceed the limit.
+    (assert (<= (+ (length (area-data (image-wired-function-area image)))
+                   (length (area-data (image-function-area image))))
+                +function-area-total-size-limit+))
     ;; Initialize the wired/pinned area freelist bins.
     (flet ((init-freelist (bins area area-bump sym)
              (initialize-object-header image bins sys.int::+object-tag-array-t+ 64)
@@ -824,7 +906,12 @@ Must not call SERIALIZE-OBJECT."))
                :cons
                (logior (cross-cl:dpb sys.int::+address-tag-cons+
                                      sys.int::+address-tag+ 0)
-                       sys.int::+address-old-generation+))))
+                       sys.int::+address-old-generation+))
+   :wired-function-area (make-area
+                         :wired-function
+                         (- +function-area-base+
+                            +cold-generator-assumed-wired-function-area-size+))
+   :function-area (make-area :function +function-area-base+)))
 
 (defun serialize-image (environment)
   "Create a new image from ENVIRONMENT"
@@ -851,10 +938,15 @@ Must not call SERIALIZE-OBJECT."))
     (let ((*print-right-margin* 10000)
           (functions '()))
       (maphash (lambda (obj addr)
-                 (when (typep obj 'env:cross-compiled-function)
-                   (push (cons (+ (- addr 9) 16)
-                               (aref (env:function-constants obj) 0))
-                         functions)))
+                 (typecase obj
+                   (env:cross-compiled-function
+                    (push (cons (+ (- addr 9) 16)
+                                (aref (env:function-constants obj) 0))
+                          functions))
+                   (env:function-reference
+                    (push (cons (+ (- addr 9) 32)
+                                (format nil "{Fref ~A}" (env:function-reference-name obj)))
+                          functions))))
                (image-object-values image))
       (loop
          for (addr . name) in (sort functions '< :key 'car)

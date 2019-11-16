@@ -196,10 +196,10 @@
 (defconstant +delimited-continuation-prompt+ 4)
 
 ;;; Layout of function-references.
-(defconstant +fref-name+ 0)
-;; Layout of these two slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
-(defconstant +fref-function+ 1)
-(defconstant +fref-entry-point+ 2)
+(defconstant +fref-undefined-entry-point+ 0)
+(defconstant +fref-name+ 1)
+(defconstant +fref-function+ 2)
+(defconstant +fref-code+ 3)
 
 ;;; Layout of complex arrays.
 (defconstant +complex-array-storage+ 0)

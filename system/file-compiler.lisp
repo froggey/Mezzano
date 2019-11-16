@@ -840,7 +840,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                           (t . :fixup)
                           (:unbound-value . :fixup)
                           (:undefined-function . :fixup)
-                          (:closure-trampoline . :fixup)
                           (:funcallable-instance-trampoline . :fixup)
                           (:symbol-binding-cache-sentinel . :fixup))
        :info (list name debug-info))

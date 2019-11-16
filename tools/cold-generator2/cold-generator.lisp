@@ -19,31 +19,31 @@
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
     ("supervisor/x86-64/cpu.lisp" :x86-64)
-    ("supervisor/arm64/cpu.lisp" :arm64)
+    ;;("supervisor/arm64/cpu.lisp" :arm64) fixme
     "supervisor/interrupts.lisp"
     ("supervisor/x86-64/interrupts.lisp" :x86-64)
-    ("supervisor/arm64/interrupts.lisp" :arm64)
-    ("supervisor/arm64/gic.lisp" :arm64)
+    ;;("supervisor/arm64/interrupts.lisp" :arm64)
+    ;;("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
-    ("supervisor/uart.lisp" :arm64)
+    ;;("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/partition.lisp"
     "supervisor/thread.lisp"
     ("supervisor/x86-64/thread.lisp" :x86-64)
-    ("supervisor/arm64/thread.lisp" :arm64)
+    ;;("supervisor/arm64/thread.lisp" :arm64)
     "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     ("supervisor/x86-64/snapshot.lisp" :x86-64)
-    ("supervisor/arm64/snapshot.lisp" :arm64)
+    ;;("supervisor/arm64/snapshot.lisp" :arm64)
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
     ("supervisor/x86-64/pager.lisp" :x86-64)
-    ("supervisor/arm64/pager.lisp" :arm64)
+    ;;("supervisor/arm64/pager.lisp" :arm64)
     "supervisor/time.lisp"
     ("supervisor/x86-64/time.lisp" :x86-64)
-    ("supervisor/arm64/time.lisp" :arm64)
+    ;;("supervisor/arm64/time.lisp" :arm64)
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
@@ -62,16 +62,16 @@
     "supervisor/acpi.lisp"
     "supervisor/efi.lisp"
     ("supervisor/x86-64/platform.lisp" :x86-64)
-    ("supervisor/arm64/platform.lisp" :arm64)
+    ;;("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
     ("runtime/runtime-x86-64.lisp" :x86-64)
-    ("runtime/runtime-arm64.lisp" :arm64)
+    ;;("runtime/runtime-arm64.lisp" :arm64)
     "system/data-types.lisp"
     "runtime/allocate.lisp"
     "runtime/cons.lisp"
     "runtime/numbers.lisp"
     ("runtime/float-x86-64.lisp" :x86-64)
-    ("runtime/float-arm64.lisp" :arm64)
+    ;;("runtime/float-arm64.lisp" :arm64)
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
@@ -98,7 +98,7 @@
     "system/runtime-numbers.lisp"
     "system/bignum.lisp"
     ("system/bignum-x86-64.lisp" :x86-64)
-    ("system/bignum-arm64.lisp" :arm64)
+    ;;("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
     "system/gc.lisp"
     "system/room.lisp"
@@ -513,7 +513,9 @@
         (format t ";; Writing image with UUID ~/mezzano.cold-generator.util:format-uuid/.~%"
                 (write:image-header-uuid image-header))
         (format t ";; Nil at ~X~%" (write:image-header-nil image-header))
-        (format t ";; Entry-Fref at ~X~%" (write:image-header-entry-fref image-header))
+        (format t ";; Entry-Fref at ~X (~X)~%"
+                (write:image-header-entry-fref image-header)
+                (+ (write:image-header-entry-fref image-header) 23))
         (format t ";; Initial-Thread at ~X~%" (write:image-header-initial-thread image-header))
         (cond ((streamp image-name)
                (write:write-image image image-name image-header
@@ -567,7 +569,7 @@
     "supervisor/entry.lisp"
     "supervisor/physical.lisp"
     "supervisor/x86-64/cpu.lisp"
-    "supervisor/arm64/cpu.lisp"
+    ;;"supervisor/arm64/cpu.lisp" fixme
     "supervisor/support.lisp"
     "runtime/struct.lisp"
     "runtime/array.lisp"

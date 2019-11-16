@@ -186,12 +186,11 @@
              ;; object and put that in RBX.
              (when (not (sys.c::lambda-information-environment-arg (ir::ast backend-function)))
                (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
-             (emit `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-                   ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
-                   ;; the arguments in place.
-                   `(lap:leave)
+             ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
+             ;; the arguments in place.
+             (emit `(lap:leave)
                    `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-                   `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))
+                   `(lap:jmp (:named-call sys.int::raise-invalid-argument-error))
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       (cond ((ir:argument-setup-rest instruction)
@@ -669,27 +668,24 @@
 
 (defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
-        `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+  (emit `(lap:call (:named-call ,(ir:call-function instruction))))
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
-        `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+  (emit `(lap:call (:named-call ,(ir:call-function instruction))))
   (emit-gc-info :multiple-values 0)
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction))))
   (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
                `(:gc :no-frame :layout #*0)
-               `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))))
+               `(lap:jmp (:named-call ,(ir:call-function instruction)))))
         (t
-         (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+         (emit `(lap:call (:named-call ,(ir:call-function instruction))))
          (emit-gc-info :multiple-values 0)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
@@ -994,8 +990,7 @@
                                             sys.int::+tag-dx-root-object+))))
     ;; Call helper.
     (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw 1)))
-    (emit `(lap:mov64 :r13 (:function sys.int::values-simple-vector)))
-    (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+    (emit `(lap:call (:named-call sys.int::values-simple-vector)))
     (emit-gc-info :multiple-values 0)
     (emit restore-done)
     ;; Kill the dx root, restore the old stack pointer, and wipe the register area

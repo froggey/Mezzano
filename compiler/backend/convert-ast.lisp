@@ -334,8 +334,8 @@
                          :arguments (list fref-reg fref-index)))
     (emit (make-instance 'call-instruction
                          :result is-undefined
-                         :function 'sys.int::%undefined-function-p
-                         :arguments (list fref-function)))
+                         :function 'eq
+                         :arguments (list fref-function fref-reg)))
     (emit (make-instance 'branch-instruction
                          :value is-undefined
                          :true-target is-undefined-label

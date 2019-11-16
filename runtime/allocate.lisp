@@ -670,8 +670,6 @@
                         (sys.int::lisp-object-address (car fixup)))
                        (:undefined-function
                         (sys.int::lisp-object-address (sys.int::%undefined-function)))
-                       (:closure-trampoline
-                        (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
                        (:unbound-value
                         (sys.int::lisp-object-address (sys.int::%unbound-value)))
                        (:funcallable-instance-trampoline

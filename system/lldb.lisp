@@ -92,8 +92,6 @@
            (format t "Entered function ~S with arguments ~:S.~%"
                    (cond ((eql fn (%funcallable-instance-trampoline))
                           (mezzano.supervisor:thread-state-rbx-value thread))
-                         ((eql fn (%closure-trampoline))
-                          (mezzano.supervisor:thread-state-r13-value thread))
                          (t
                           (or (function-name fn) fn)))
                    (fetch-thread-function-arguments thread))
@@ -317,8 +315,6 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                          (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
                                 (incf (gethash (cond ((eql fn (%funcallable-instance-trampoline))
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
-                                                     ((eql fn (%closure-trampoline))
-                                                      (mezzano.supervisor:thread-state-r13-value thread))
                                                      (t
                                                       fn))
                                                call-counts
@@ -346,8 +342,6 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (format t "Entered function ~S with arguments ~:A.~%"
                                                (cond ((eql fn (%funcallable-instance-trampoline))
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
-                                                     ((eql fn (%closure-trampoline))
-                                                      (mezzano.supervisor:thread-state-r13-value thread))
                                                      (t
                                                       (or (function-name fn) fn)))
                                                (mapcar #'print-safely-to-string

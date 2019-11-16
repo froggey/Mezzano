@@ -54,9 +54,8 @@
   (sys.lap-x86:mov64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   ;; Area
   (sys.lap-x86:mov64 :r11 nil)
-  (sys.lap-x86:mov64 :r13 (:function mezzano.runtime::%allocate-object))
   ;; Allocate object.
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call mezzano.runtime::%allocate-object))
   ;; Set data.
   (sys.lap-x86:pop (:object :r8 0))
   ;; Single-value return.
@@ -188,9 +187,8 @@
   (sys.lap-x86:mov64 :r10 #.(ash 3 sys.int::+n-fixnum-bits+)) ; fixnum 3
   ;; Area
   (sys.lap-x86:mov64 :r11 nil)
-  (sys.lap-x86:mov64 :r13 (:function mezzano.runtime::%allocate-object))
   ;; Allocate object.
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call mezzano.runtime::%allocate-object))
   ;; Set data.
   (sys.lap-x86:movdqa :xmm0 (:rsp))
   (sys.lap-x86:movdqa (:object :r8 1) :xmm0)

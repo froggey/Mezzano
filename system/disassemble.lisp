@@ -283,8 +283,6 @@
                            (push (format nil "'~S" t) annotations))
                           ((eql operand (sys.int::lisp-object-address (sys.int::%undefined-function)))
                            (push (format nil "'~S" (sys.int::%undefined-function)) annotations))
-                          ((eql operand (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
-                           (push (format nil "'~S" (sys.int::%closure-trampoline)) annotations))
                           ((eql operand (sys.int::lisp-object-address (sys.int::%unbound-value)))
                            (push (format nil "'~S" (sys.int::%unbound-value)) annotations))
                           ((eql operand (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))

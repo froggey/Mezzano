@@ -104,24 +104,21 @@
   (:gc :frame :layout #*10)
   (sys.lap-x86:mov64 :r8 (:stack 0))
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call sys.int::raise-type-error))
   (sys.lap-x86:ud2)
   too-many-values
   (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
   (sys.lap-x86:mov64 :r9 (:stack 0))
-  (sys.lap-x86:mov64 :r13 (:function error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call error))
   (sys.lap-x86:ud2)
   bad-arguments
   (:gc :frame :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
   (sys.lap-x86:leave)
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::raise-invalid-argument-error)))
 
 (sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
   "Returns the elements of SIMPLE-VECTOR as multiple values."
@@ -203,23 +200,20 @@
   (:gc :frame)
   type-error
   (sys.lap-x86:mov64 :r9 (:constant simple-vector))
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call sys.int::raise-type-error))
   (sys.lap-x86:ud2)
   too-many-values
   (sys.lap-x86:mov64 :r8 (:constant "Too many values in simple-vector ~S."))
   (sys.lap-x86:mov64 :r9 :rbx)
-  (sys.lap-x86:mov64 :r13 (:function error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call error))
   (sys.lap-x86:ud2)
   bad-arguments
   (:gc :frame :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::raise-invalid-argument-error)))
 
 ;; (defun eql (x y)
 ;;   (or (eq x y)
@@ -283,8 +277,7 @@
   (sys.lap-x86:je COMPARE-DOUBLE-FLOATS)
   ;; Tail-call to generic-=.
   ;; RCX was set to fixnum 2 on entry.
-  (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:jmp (:named-call sys.int::generic-=))
   ;; Compare the two values directly.
   ;; This means +0.0 and -0.0 will be different and that NaNs can be EQL
   ;; if they have the same representation.
@@ -300,9 +293,8 @@
   (sys.lap-x86:ret)
   BAD-ARGUMENTS
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::raise-invalid-argument-error)))
 
 ;;; Support function for APPLY.
 ;;; Takes a function & a list of arguments.
@@ -428,9 +420,8 @@
   (sys.lap-x86:and64 :rsp #.(lognot 15))
   (sys.lap-x86:mov64 :r8 :r9)
   (sys.lap-x86:mov64 :r9 (:constant sys.int::proper-list))
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call sys.int::raise-type-error))
   (sys.lap-x86:ud2))
 
 (sys.int::define-lap-function sys.int::%copy-words ((destination-address source-address count))
@@ -477,13 +468,14 @@ the GC must be deferred during FILL-WORDS."
   ;; Undo the shift.
   (sys.lap-x86:rcr64 :rax 1)
   ;; Prod the sign flag.
+  ;; Result needs a 128-bit bignum when the high bit is set.
   (sys.lap-x86:test64 :rax :rax)
   ;; Build bignum.
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
-  ;; Result needs a 128-bit bignum when the high bit is set.
-  (sys.lap-x86:cmov64s :r13 (:function sys.int::%%make-bignum-128-rdx-rax))
+  (sys.lap-x86:js BIG128)
+  (sys.lap-x86:jmp (:named-call sys.int::%%make-bignum-64-rax))
+  BIG128
   (sys.lap-x86:xor32 :edx :edx)
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::%%make-bignum-128-rdx-rax)))
 
 (sys.int::define-lap-function %%make-signed-byte-64-rax ()
   (:gc :no-frame :layout #*0)
@@ -501,9 +493,7 @@ the GC must be deferred during FILL-WORDS."
   ;; Undo the shift.
   (sys.lap-x86:rcr64 :rax 1)
   ;; Build bignum.
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
-  (sys.lap-x86:xor32 :edx :edx)
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::%%make-bignum-64-rax)))
 
 ;; This relies on memory being initialized to zero, so it looks like
 ;; many simple vectors of length 0.
@@ -575,8 +565,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:lock)
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Try the real fast allocator.
-  (sys.lap-x86:mov64 :r13 (:function %do-allocate-from-general-area))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call %do-allocate-from-general-area))
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
@@ -590,8 +579,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
   SLOW-PATH-BAD-ARGS
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function %slow-allocate-from-general-area))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call %slow-allocate-from-general-area)))
 
 (sys.int::define-lap-function do-cons ((car cdr))
   (:gc :no-frame :layout #*0)
@@ -661,8 +649,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
   ;; Try the real fast allocator.
-  (sys.lap-x86:mov64 :r13 (:function do-cons))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call do-cons))
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
@@ -676,8 +663,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov32 :ecx #.(ash 2 #.sys.int::+n-fixnum-bits+))
   SLOW-PATH-BAD-ARGS
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function slow-cons))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call slow-cons)))
 
 (declaim (inline sys.int::msr (setf sys.int::msr)))
 (defun sys.int::msr (register)

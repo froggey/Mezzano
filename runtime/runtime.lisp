@@ -76,7 +76,7 @@
      (let* ((fref (or (sys.int::%object-ref-t object sys.int::+symbol-function+)
                       (sys.int::function-reference object)))
             (fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
-         (if (sys.int::%undefined-function-p fn)
+         (if (eq fn fref)
              ;; Return a function that will signal an undefined-function error
              ;; with appropriate restarts when called.
              ;; This is not inlined so as to avoid closing over object in

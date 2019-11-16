@@ -128,7 +128,9 @@
     (save (ser:image-wired-area image) sys.int::+block-map-wired+)
     (save (ser:image-pinned-area image) 0)
     (save (ser:image-general-area image) sys.int::+block-map-track-dirty+)
-    (save (ser:image-cons-area image) sys.int::+block-map-track-dirty+)))
+    (save (ser:image-cons-area image) sys.int::+block-map-track-dirty+)
+    (save (ser:image-wired-function-area image) sys.int::+block-map-wired+)
+    (save (ser:image-function-area image) 0)))
 
 (defun write-stacks (image bml4)
   (ser:do-image-stacks (base size image)
@@ -196,7 +198,9 @@
     (doit (ser:image-wired-area image))
     (doit (ser:image-pinned-area image))
     (doit (ser:image-general-area image))
-    (doit (ser:image-cons-area image))))
+    (doit (ser:image-cons-area image))
+    (doit (ser:image-wired-function-area image))
+    (doit (ser:image-function-area image))))
 
 (defun write-block-map (s image-offset block-offset level)
   (let ((data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))

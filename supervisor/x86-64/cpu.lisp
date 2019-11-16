@@ -617,7 +617,8 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:xor32 :ebp :ebp)
   ;; No arguments
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:jmp (:object :rax #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:lea64 :rax (:object :rax #.sys.int::+fref-code+))
+  (sys.lap-x86:jmp :rax)
   (:align 16)
   gdtr
   (:d16/le (- temporary-gdt-end temporary-gdt 1)) ; Length

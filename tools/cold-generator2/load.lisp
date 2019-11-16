@@ -140,7 +140,9 @@
                        gc-info
                        constants
                        fixups
-                       (loader-allocation-area loader))))
+                       (ecase (loader-allocation-area loader)
+                         ((nil) :function)
+                         ((:wired) :wired-function)))))
 
 (defun load-structure-definition (loader)
   (let* ((has-standard-constructor (stack-pop loader))

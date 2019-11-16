@@ -23,9 +23,8 @@
   (sys.lap-x86:ret)
   BAD
   (:gc :frame)
-  (sys.lap-x86:mov64 :r13 (:function panic-not-on-wired-stack))
   (sys.lap-x86:mov32 :ecx #.(ash 0 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:call (:named-call panic-not-on-wired-stack))
   (sys.lap-x86:ud2))
 
 (defun panic-not-on-wired-stack ()

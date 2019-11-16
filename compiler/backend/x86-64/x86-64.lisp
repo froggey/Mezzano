@@ -331,17 +331,9 @@
           (ir:insert-before
            backend-function inst
            (make-instance 'x86-instruction
-                          :opcode 'lap:mov64
-                          :operands (list :r13 `(:function ,box-function))
-                          :inputs (list)
-                          :outputs (list :r13)
-                          :clobbers '(:r13)))
-          (ir:insert-before
-           backend-function inst
-           (make-instance 'x86-instruction
                           :opcode 'lap:call
-                          :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
-                          :inputs (list :r13 box-register)
+                          :operands (list `(:named-call ,box-function))
+                          :inputs (list box-register)
                           :outputs (list :r8)
                           :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
                                       :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
