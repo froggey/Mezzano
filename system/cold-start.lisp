@@ -280,7 +280,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *cas-fref-table* (make-hash-table))
   (dotimes (i (length *initial-fref-obarray*))
     (let* ((fref (svref *initial-fref-obarray* i))
-           (name (%object-ref-t fref +fref-name+)))
+           (name (function-reference-name fref)))
       (when (consp name)
         (ecase (first name)
           ((setf)
