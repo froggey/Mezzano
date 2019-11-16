@@ -67,7 +67,7 @@
     ;; Major boot protocol version.
     (setf (nibbles:ub16ref/le encoded-header 32) 0)
     ;; Minor boot protocol version.
-    (setf (nibbles:ub16ref/le encoded-header 34) 24)
+    (setf (nibbles:ub16ref/le encoded-header 34) 25)
     ;; Entry fref.
     (setf (nibbles:ub64ref/le encoded-header 40) (image-header-entry-fref header))
     ;; Initial thread.
