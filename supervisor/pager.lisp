@@ -565,6 +565,17 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          ;; dirty bits in the wired area yet.
          #-arm64
          (update-pte pte :dirty nil))))
+    (map-ptes
+     sys.int::*wired-function-area-limit* sys.int::*function-area-base*
+     (dx-lambda (wired-page pte)
+       (when (not pte)
+         (panic "Missing pte for wired function page " wired-page))
+       (when (page-dirty-p pte)
+         (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         ;; ARM64's dirty bit emulation does not support emulating
+         ;; dirty bits in the wired area yet.
+         #-arm64
+         (update-pte pte :dirty nil))))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))

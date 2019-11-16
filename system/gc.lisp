@@ -998,7 +998,19 @@ This is required to make the GC interrupt safe."
      (when (mezzano.supervisor:threadp object)
        (scan-thread object cycle-kind)))
     (#.+object-tag-function-reference+
-     (scan-generic object 4 cycle-kind))
+     ;; Scan the first 4 words normally.
+     (scan-generic object 4 cycle-kind)
+     ;; Now pull the target function out of the branch and scan that.
+     ;; We may have caught (SETF FUNCTION-REFERENCE-FUNCTION) halfway
+     ;; through an update.
+     (let ((rel-target (%object-ref-signed-byte-32 object (1+ (* +fref-code+ 2)))))
+       (unless (eql rel-target 0) ; must be active
+         (let* ((fref-jmp-address (+ (mezzano.runtime::%object-slot-address object (1+ +fref-code+))))
+                (entry-point (+ fref-jmp-address rel-target)))
+           ;; Reconstruct the object and scan it.
+           ;; It is assumed to be an +object-tag-function+.
+           (scan-function (%%assemble-value (- entry-point 16) +tag-object+)
+                          cycle-kind)))))
     (#.+object-tag-function+
      (scan-function object cycle-kind))
     ;; Things that don't need to be scanned.
@@ -1290,7 +1302,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                      (mezzano.runtime::obsolete-instance-layout-old-layout
                       direct-layout))))))
          (#.+object-tag-function-reference+
-          4)
+          8)
          (#.+object-tag-function+
           ;; The size of a function is the sum of the MC, the GC info and the constant pool.
           (ceiling (+ (* (ldb +function-header-code-size+ length) 16)  ; mc size
@@ -1640,6 +1652,7 @@ Additionally update the card table offset fields."
                        ;; TODO: Not implemented.
                        nil)))))))
     (#.+object-tag-function-reference+
+     ;; Only the first 4 words. The remaining words are code words.
      (verify-generic object 4))
     (#.+object-tag-function+
      ;; Not implemented.
@@ -1765,6 +1778,23 @@ Additionally update the card table offset fields."
      for i from start below (+ start size) by +card-size+
      do (setf (card-table-dirty-gen i) nil)))
 
+(defun rearm-gc-write-barrier-common ()
+  (flush-dirty-card-bits *wired-area-base* (- *wired-area-bump* *wired-area-base*))
+  (flush-dirty-card-bits *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
+  (mezzano.supervisor:protect-memory-range *pinned-area-base*
+                                           (- *pinned-area-bump* *pinned-area-base*)
+                                           (logior +block-map-present+
+                                                   +block-map-writable+
+                                                   +block-map-track-dirty+))
+  (flush-dirty-card-bits *wired-function-area-limit*
+                         (- *function-area-base* *wired-function-area-limit*))
+  (flush-dirty-card-bits *function-area-base* (- *function-area-limit* *function-area-base*))
+  (mezzano.supervisor:protect-memory-range *function-area-base*
+                                           (- *function-area-limit* *function-area-base*)
+                                           (logior +block-map-present+
+                                                   +block-map-writable+
+                                                   +block-map-track-dirty+)))
+
 (defun gc-minor-cycle ()
   "Collect the young generation."
   (gc-log "Minor GC.")
@@ -1829,6 +1859,8 @@ Additionally update the card table offset fields."
     (mezzano.supervisor:update-wired-dirty-bits) ; Transfer dirty bits from the wired area to the card table.
     (minor-scan-range *wired-area-base* (- *wired-area-bump* *wired-area-base*))
     (minor-scan-range *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
+    (minor-scan-range *wired-function-area-limit* (- *function-area-base* *wired-function-area-limit*))
+    (minor-scan-range *function-area-base* (- *function-area-limit* *function-area-base*))
     (minor-scan-range (logior (ash +address-tag-general+ +address-tag-shift+)
                               target-generation)
                       general-bump)
@@ -1844,16 +1876,7 @@ Additionally update the card table offset fields."
     ;; Collection complete.
     (validate-intergenerational-pointers)
     ;; Clear target generation dirty bits, there are no objects in younger generations.
-    (flush-dirty-card-bits *wired-area-base* (- *wired-area-bump* *wired-area-base*))
-    (flush-dirty-card-bits *pinned-area-base* (- *pinned-area-bump* *pinned-area-base*))
-    ;; Refresh dirty tracking on the pinned area.
-    ;; This re-arms the write barrier.
-    ;; Done below for the old generation.
-    (mezzano.supervisor:protect-memory-range *pinned-area-base*
-                                             (- *pinned-area-bump* *pinned-area-base*)
-                                             (logior +block-map-present+
-                                                     +block-map-writable+
-                                                     +block-map-track-dirty+))
+    (rearm-gc-write-barrier-common)
     (flush-dirty-card-bits (logior (ash +address-tag-general+ +address-tag-shift+)
                                    target-generation)
                            general-bump)
@@ -1966,6 +1989,7 @@ Additionally update the card table offset fields."
     (scavenge-object 'nil :major)
     ;; And various important other roots.
     (scavenge-object (%unbound-value) :major)
+    (scavenge-object (%symbol-binding-cache-sentinel) :major)
     ;; Scavenge the current thread's stack.
     (scavenge-current-thread)
     ;; Now do the bulk of the work by scavenging the dynamic areas.
@@ -2033,22 +2057,24 @@ Additionally update the card table offset fields."
              +block-map-writable+
              +block-map-track-dirty+))
     ;; Rebuild freelists.
-    (rebuild-freelist *wired-area-free-bins* :wired *wired-area-base* *wired-area-bump*)
-    (rebuild-freelist *pinned-area-free-bins* :pinned *pinned-area-base* *pinned-area-bump*)
+    (rebuild-freelist *wired-area-free-bins*
+                      :wired
+                      *wired-area-base* *wired-area-bump*)
+    (rebuild-freelist *pinned-area-free-bins*
+                      :pinned
+                      *pinned-area-base* *pinned-area-bump*)
+    (rebuild-freelist *wired-function-area-free-bins*
+                      :wired-function
+                      *wired-function-area-limit* *function-area-base*)
+    (rebuild-freelist *function-area-free-bins*
+                      :function
+                      *function-area-base* *function-area-limit*)
     (validate-intergenerational-pointers)
-    ;; Reset the pinned area's dirty bits.
-    ;; Newspace's dirty bits have been cleared by the allocate & reprotect.
-    (flush-dirty-card-bits *pinned-area-base*
-                           (- *pinned-area-bump* *pinned-area-base*))
-    (mezzano.supervisor:protect-memory-range
-     *pinned-area-base*
-     (- *pinned-area-bump* *pinned-area-base*)
-     (logior +block-map-present+
-             +block-map-writable+
-             +block-map-track-dirty+))
+    ;; Reset card table.
+    ;; Newspace's card table does not need to be cleared as it
+    ;; was freshly allocated.
     (mezzano.supervisor:update-wired-dirty-bits)
-    (flush-dirty-card-bits *wired-area-base*
-                           (- *wired-area-bump* *wired-area-base*))))
+    (rearm-gc-write-barrier-common)))
 
 (defglobal *gc-major-heap-low-threshold* (* 32 1024 1024)
   "The GC will always do a major cycle if there is is less than this much memory available.")
