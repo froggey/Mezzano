@@ -55,9 +55,11 @@
     (setf *cpu-speed* (floor n))))
 
 (defun high-precision-time-units-to-internal-time-units (tsc-time)
-  ;; Truncate the tsc time to ensure it doesn't exceed a fixnum for
-  ;; this multiply.
-  (truncate (* tsc-time internal-time-units-per-second) *cpu-speed*))
+  (if (boundp '*cpu-speed*)
+      ;; Multiply first, then truncate to avoid producing an intermediate
+      ;; ratio result.
+      (truncate (* tsc-time internal-time-units-per-second) *cpu-speed*)
+      0))
 
 (defun get-high-precision-timer ()
   "Returns the current value of the platform's 'high precision' timer.

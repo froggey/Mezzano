@@ -51,6 +51,7 @@
 (sys.int::defglobal *cons-allocation-count*)
 
 (sys.int::defglobal *bytes-consed*)
+(sys.int::defglobal *allocation-time*)
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
@@ -93,6 +94,7 @@
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
+        *allocation-time* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *allocation-fudge* (* 8 1024 1024)
         sys.int::*generation-size-ratio* 2))
@@ -218,12 +220,20 @@
                     delta)))
     (incf (sys.int::symbol-global-value limit-sym) grow-by)))
 
+(defun update-allocation-time (start-time)
+  (sys.int::%atomic-fixnum-add-symbol
+   '*allocation-time*
+   (mezzano.supervisor:high-precision-time-units-to-internal-time-units
+    (- (mezzano.supervisor:get-high-precision-timer) start-time))))
+
 (defun %allocate-from-pinned-area (tag data words)
   (loop
+     with start-time = (mezzano.supervisor:get-high-precision-timer)
      with inhibit-gc = nil
      for i from 0 do
        (let ((result (%allocate-from-pinned-area-1 tag data words)))
          (when result
+           (update-allocation-time start-time)
            (return result)))
        (when (not (eql i 0))
          ;; The GC has been run at least once, try enlarging the pinned area.
@@ -278,9 +288,11 @@
 
 (defun %allocate-from-wired-area (tag data words)
   (loop
+     with start-time = (mezzano.supervisor:get-high-precision-timer)
      for i from 0 do
        (let ((result (%allocate-from-wired-area-1 tag data words)))
          (when result
+           (update-allocation-time start-time)
            (return result)))
        (when (> i *maximum-allocation-attempts*)
          (error 'storage-condition))
@@ -431,7 +443,8 @@
            nil))))
 
 (defun %slow-allocate-from-general-area (tag data words)
-  (let ((gc-count 0))
+  (let ((gc-count 0)
+        (start-time (mezzano.supervisor:get-high-precision-timer)))
     (tagbody
      OUTER-LOOP
        (mezzano.supervisor:without-footholds
@@ -444,6 +457,7 @@
                       (%do-allocate-from-general-area tag data words)
                     (declare (ignore ignore1 ignore2))
                     (when (not failurep)
+                      (update-allocation-time start-time)
                       (return-from %slow-allocate-from-general-area
                         result)))
                   ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
@@ -529,7 +543,8 @@
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
   (log-allocation-profile-entry 2)
-  (let ((gc-count 0))
+  (let ((gc-count 0)
+        (start-time (mezzano.supervisor:get-high-precision-timer)))
     (tagbody
      OUTER-LOOP
        (mezzano.supervisor:without-footholds
@@ -543,6 +558,7 @@
                       (do-cons car cdr)
                     (declare (ignore blah))
                     (when (not failurep)
+                      (update-allocation-time start-time)
                       (return-from slow-cons result)))
                   ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
                   ;; Running the GC cannot be done when pseudo-atomic.
@@ -640,10 +656,13 @@
   ;; Force 32-byte alignment.
   (setf words (sys.int::align-up words 4))
   (loop
+     with start-time = (mezzano.supervisor:get-high-precision-timer)
      with inhibit-gc = nil
      for i from 0 do
        (let ((result (%allocate-function-1 tag data words wiredp)))
          (when result
+           (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
+           (update-allocation-time start-time)
            (return result)))
        (when (not (eql i 0))
          ;; The GC has been run at least once.
