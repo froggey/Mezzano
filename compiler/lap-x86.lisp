@@ -367,7 +367,7 @@ Used to make rip-relative addressing line up right.")
             (if index scale nil)
             ;; subtract +tag-object+, skip object header.
             ;; Return an expression, so slot goes through symbol resolution, etc.
-            `(+ (- #b1001) 8 (* ,slot ,slot-scale))
+            `(+ (- ,sys.int::+tag-object+) 8 (* ,slot ,slot-scale))
             nil
             segment)))
 
@@ -399,8 +399,8 @@ Remaining values describe the effective address: base index scale disp rip-relat
               (not (reg-class (first form)))
               (reg-class (second form)))
          (ecase (first form)
-           (:car (values nil (second form) nil nil -3))
-           (:cdr (values nil (second form) nil nil (+ -3 8)))))
+           (:car (values nil (second form) nil nil (- sys.int::+tag-cons+)))
+           (:cdr (values nil (second form) nil nil (+ (- sys.int::+tag-cons+) 8)))))
         ((and (member (first form) '(:cs :ss :ds :es :fs :gs))
               (eql (second form) :object))
          (parse-object-ea (rest form) (first form) 8))
