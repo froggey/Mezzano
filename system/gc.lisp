@@ -1305,10 +1305,12 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           8)
          (#.+object-tag-function+
           ;; The size of a function is the sum of the MC, the GC info and the constant pool.
-          (ceiling (+ (* (ldb +function-header-code-size+ length) 16)  ; mc size
-                      (* (ldb +function-header-pool-size+ length) 8)  ; pool size
-                      (ldb +function-header-metadata-size+ length)) ; gc-info size.
-                   8))
+          (let ((sz (ceiling (+ (* (ldb +function-header-code-size+ length) 16)  ; mc size
+                                (* (ldb +function-header-pool-size+ length) 8)  ; pool size
+                                (ldb +function-header-metadata-size+ length)) ; gc-info size.
+                             8)))
+            ;; And rounded up to 4 words/32 bytes.
+            (align-up sz 4)))
          ((#.+object-tag-simple-string+
            #.+object-tag-string+
            #.+object-tag-simple-array+
