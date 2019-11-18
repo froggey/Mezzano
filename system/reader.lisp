@@ -12,7 +12,8 @@
 (defvar *read-package* nil)
 
 (declaim (special *readtable* *standard-readtable*)
-         (type readtable *readtable* *standard-readtable*))
+         ;; Disabled due to issues with cross-compiled structures.
+         #++(type readtable *readtable* *standard-readtable*))
 
 (defstruct (readtable
              (:predicate readtablep)

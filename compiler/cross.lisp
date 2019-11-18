@@ -79,7 +79,28 @@
            :upgraded-array-element-type
            :namestring
            :defpackage
-           :fboundp)
+           :fboundp
+           :*readtable*
+           :*read-base*
+           :*read-eval*
+           :*read-default-float-format*
+           :*read-suppress*
+           :read
+           :read-preserving-whitespace
+           :read-delimited-list
+           :readtable
+           :readtablep
+           :copy-readtable
+           :readtable-case
+           :get-macro-character
+           :set-macro-character
+           :make-dispatch-macro-character
+           :get-dispatch-macro-character
+           :set-dispatch-macro-character
+           :set-syntax-from-char
+           :with-standard-io-syntax
+           :name-char
+)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

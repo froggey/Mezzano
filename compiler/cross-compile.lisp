@@ -297,104 +297,11 @@
     (#x1040A0 "WWW-Refresh")
     (#x1040A1 "WWW-Favorites")))
 
-(defun character-reader (stream ch p)
-  (declare (ignore ch p))
-  (let ((x (read-char stream t nil t))
-        (y (peek-char nil stream nil nil t)))
-    (if (or (eql nil y)
-            (get-macro-character y)
-            (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
-        ;; Simple form: Single character followed by EOF or a non-constituent character.
-        ;; Just return the character that was read.
-        x
-        ;; Reading a character name, similar to read-token, but no special handling
-        ;; is done for packages or numbers.
-        (let ((token (make-array 1
-                                 :element-type 'character
-                                 :initial-element x
-                                 :adjustable t
-                                 :fill-pointer t)))
-          (do ((z (read-char stream nil nil t)
-                  (read-char stream nil nil t)))
-              ((or (eql nil z)
-                   (when (or (get-macro-character z)
-                             (member z '(#\Space #\Tab #\Newline) :test #'char-equal))
-                     (unread-char z stream)
-                     t)))
-            (vector-push-extend z token))
-          ;; Finished reading the token, convert it to a character
-          (let ((c (cross-name-char token)))
-            (when (and (not c) (not *read-suppress*))
-              (error 'simple-reader-error :stream stream
-                     :format-control "Unrecognized character name ~S."
-                     :format-arguments (list token)))
-            c)))))
-
-(defun cross-name-char (name)
+(defun name-char (name)
   (or (loop for (code . names) in *char-name-alist*
          when (member name names :test #'string-equal)
          do (return (code-char code)))
-      (name-char name)))
-
-(defvar *cross-readtable* (copy-readtable nil))
-(set-dispatch-macro-character #\# #\\ 'character-reader *cross-readtable*)
-
-(defun read-backquote (stream first)
-  (declare (ignore first))
-  (list 'sys.int::backquote (read stream t nil t)))
-
-(defun read-comma (stream first)
-  (declare (ignore first))
-  (case (peek-char nil stream t)
-    (#\@ (read-char stream t nil t)
-         (list 'sys.int::bq-comma-atsign (read stream t nil t)))
-    (#\. (read-char stream t nil t)
-         (list 'sys.int::bq-comma-dot (read stream t nil t)))
-    (otherwise
-     (list 'sys.int::bq-comma (read stream t nil t)))))
-
-(set-macro-character #\` 'read-backquote nil *cross-readtable*)
-(set-macro-character #\, 'read-comma nil *cross-readtable*)
-
-(defun eval-feature-test (test)
-  "Evaluate the feature expression TEST."
-  (etypecase test
-    (symbol (member test sys.int::*features*))
-    (cons (case (car test)
-            (:not (when (or (null (cdr test)) (cddr test))
-                    (error "Invalid feature expression ~S" test))
-                  (not (eval-feature-test (cadr test))))
-            (:and (dolist (subexpr (cdr test) t)
-                    (when (not (eval-feature-test subexpr))
-                      (return nil))))
-            (:or (dolist (subexpr (cdr test) nil)
-                   (when (eval-feature-test subexpr)
-                     (return t))))
-            (t (error "Invalid feature expression ~S" test))))))
-
-(defun read-features (stream suppress-if-false)
-  "Common function to implement #+ and #-."
-  (let* ((test (let ((*package* (find-package "KEYWORD")))
-                 (read stream t nil t)))
-         (*read-suppress* (or *read-suppress*
-                              (if suppress-if-false
-                                  (not (eval-feature-test test))
-                                  (eval-feature-test test))))
-         (value (read stream t nil t)))
-    (if *read-suppress*
-        (values)
-        value)))
-
-(defun read-feature-plus (stream ch p)
-  (declare (ignore ch p))
-  (read-features stream t))
-
-(defun read-feature-minus (stream ch p)
-  (declare (ignore ch p))
-  (read-features stream nil))
-
-(set-dispatch-macro-character #\# #\+ 'read-feature-plus *cross-readtable*)
-(set-dispatch-macro-character #\# #\- 'read-feature-minus *cross-readtable*)
+      (cl:name-char name)))
 
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)
@@ -1059,7 +966,7 @@
                      :if-exists :supersede
                      :direction :output)
       (write-llf-header *output-fasl* input-file)
-      (let* ((*readtable* (copy-readtable *cross-readtable*))
+      (let* ((*readtable* (copy-readtable *readtable*))
              (*output-map* (make-hash-table))
              (*pending-llf-commands* nil)
              (*package* (or (find-package (or package "CROSS-CL-USER"))
@@ -1103,7 +1010,7 @@
                            (print *compile-print*)
                            (external-format :default))
   (with-open-file (input input-file :external-format external-format)
-    (let* ((*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *readtable*))
            (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* print)
            (*compile-verbose* verbose)
@@ -1129,7 +1036,7 @@
                    :if-exists :supersede
                    :direction :output)
     (write-llf-header *output-fasl* path)
-    (let* ((*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
            (*package* (find-package "CROSS-CL-USER"))

@@ -451,3 +451,27 @@
   (declare (ignore tag))
   (when (not (typep object type))
     (error "Type error: ~S not of type ~S." object type)))
+
+(defun sys.int::latin1-char-p (character)
+  (check-type character character)
+  (< (char-code character) 256))
+
+(defun sys.int::frob-stream (stream default)
+  (cond ((eql stream 'nil)
+         default)
+        ((eql stream 't)
+         *terminal-io*)
+        (t
+         ;; TODO: check that the stream is open.
+         (check-type stream stream)
+         stream)))
+
+(defun sys.int::frob-input-stream (stream)
+  (sys.int::frob-stream stream *standard-input*))
+
+(defun sys.int::frob-output-stream (stream)
+  (sys.int::frob-stream stream *standard-output*))
+
+(defmacro sys.int::with-stream-editor ((stream recursive-p) &body body)
+  (declare (ignore stream recursive-p))
+  `(progn ,@body))
