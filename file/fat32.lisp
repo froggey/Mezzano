@@ -4,9 +4,8 @@
 
 (defpackage :mezzano.fat32-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk)
-  (:export)
-  (:import-from :sys.int
-                #:explode))
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:export))
 
 (in-package :mezzano.fat32-file-system)
 
@@ -985,7 +984,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            (incf start))
           (t (push :relative directory)))
     ;; Last element is the name.
-    (do* ((x (explode #\> namestring start end) (cdr x)))
+    (do* ((x (sys.int::explode #\> namestring start end) (cdr x)))
          ((null (cdr x))
           (let* ((name-element (car x))
                  (end (length name-element)))

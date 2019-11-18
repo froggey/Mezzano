@@ -6,7 +6,8 @@
   (:local-nicknames (:nic :mezzano.driver.network-card)
                     (:pci :mezzano.supervisor.pci)
                     (:sup :mezzano.supervisor)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.driver.rtl8168)
 

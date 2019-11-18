@@ -7,7 +7,8 @@
 
 (defpackage :mezzano.supervisor.cdrom
   (:use :cl)
-  (:local-nicknames (:sup :mezzano.supervisor))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals))
   (:export #:cdrom-initialize-device))
 
 (in-package :mezzano.supervisor.cdrom)

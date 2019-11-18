@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant +seconds-in-week+ (* 60 60 24 7))
 (defconstant +weeks-offset+ 2145)

@@ -7,7 +7,8 @@
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
                     (:pci :mezzano.supervisor.pci)
-                    (:virtio :mezzano.supervisor.virtio)))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.supervisor.virtio-pci-transport)
 

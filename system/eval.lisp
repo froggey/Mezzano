@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defvar *eval-hook* 'mezzano.full-eval:eval-in-lexenv
   "A function that takes the form to evaluate and the top-level

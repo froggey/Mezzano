@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun apply-transforms (lambda target-architecture)
   (apply-transforms-1 lambda target-architecture))

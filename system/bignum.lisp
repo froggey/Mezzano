@@ -1,6 +1,6 @@
 ;;;; Bignum arithmetic.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (declaim (inline bignump
                  %n-bignum-fragments

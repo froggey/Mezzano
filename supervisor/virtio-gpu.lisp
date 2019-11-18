@@ -4,7 +4,8 @@
 (defpackage :mezzano.supervisor.virtio-gpu
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sys.int :mezzano.internals))
   (:export #:+virtio-gpu-resp-err-unspec+
            #:+virtio-gpu-resp-err-out-of-memory+
            #:+virtio-gpu-resp-err-invalid-scanout-id+
@@ -454,7 +455,7 @@
 
 ;; In the virtio package for backwards compatiblity reasons.
 (defun virtio::virtio-gpu-register (device)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (sup:debug-print-line "Detected virtio GPU device " device)
   (let ((gpu (make-virtio-gpu :virtio-device device
                               :command-lock (sup:make-mutex "Virtio GPU command lock"))))

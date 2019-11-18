@@ -17,7 +17,8 @@
 
 (defpackage :mezzano.driver.usb.hid
   (:use :cl :mezzano.driver.usb)
-  (:local-nicknames (:sup :mezzano.supervisor)))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.driver.usb.hid)
 

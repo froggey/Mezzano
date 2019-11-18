@@ -106,14 +106,3 @@
 
 (defpackage :mezzano.gui.input-drivers
   (:use :cl))
-
-(defpackage :mezzano.gui.virtualbox-helper
-  (:use :cl))
-
-(defpackage :mezzano.gui.basic-repl
-  (:use :cl)
-  (:export #:spawn))
-
-(defpackage :mezzano.gui.virgl
-  (:use :cl)
-  (:local-nicknames (:gpu :mezzano.supervisor.virtio-gpu)))

@@ -3,7 +3,7 @@
 
 ;;;; Simplify complicated control flow in TAGBODY forms.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *tagbody-statement-stack* '())
 

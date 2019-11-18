@@ -154,7 +154,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun simd-floats-to-colour (vec)
   "Pack 4 floats to 4 bytes in a UB32."
   (declare (type mezzano.simd:sse-vector vec)
-           (notinline sys.int::binary-logand))
+           (notinline mezzano.internals::binary-logand))
   (let* ((unpacked (mezzano.simd:cvtps2dq vec))
          (half-pack (mezzano.simd:packssdw unpacked unpacked))
          (result (mezzano.simd:packuswb half-pack half-pack)))
@@ -190,7 +190,7 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
 (defun simd-pack-colour (simd-colour)
   "Convert SIMD-COLOUR to a COLOUR. Channel values are clamped to 0-1."
   (declare (type simd-colour simd-colour)
-           (notinline sys.int::binary-logand))
+           (notinline mezzano.internals::binary-logand))
   (let* ((argb01 (mezzano.simd:maxps
                   (mezzano.simd:minps simd-colour (mezzano.simd:make-sse-vector-single-float 1.0 1.0 1.0 1.0))
                   (mezzano.simd:make-sse-vector-single-float 0.0 0.0 0.0 0.0)))

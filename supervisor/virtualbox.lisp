@@ -4,7 +4,8 @@
 (defpackage :mezzano.supervisor.virtualbox
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:pci :mezzano.supervisor.pci))
+                    (:pci :mezzano.supervisor.pci)
+                    (:sys.int :mezzano.internals))
   (:export #:virtualbox-graphics-update-framebuffer
            #:virtualbox-read-event))
 
@@ -140,7 +141,7 @@
         value)))
 
 (defun pci::virtualbox-guest-register (device)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (vbox-ensure-fifo-exists)
   (sup:irq-fifo-reset *vbox-event-fifo*)
   (let* ((irq (pci:pci-intr-line device))

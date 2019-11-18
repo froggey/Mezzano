@@ -3,10 +3,10 @@
 
 ;;;; Various packages.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defpackage :mezzano.compiler
-  (:nicknames :sys.c :system.compiler)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:compile
            #:compiler-macro-function
            #:*macroexpand-hook*
@@ -103,16 +103,43 @@
            #:ast-targets)
   (:use :cl))
 
+(defpackage :mezzano.lap
+  (:documentation "The system assembler.")
+  (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:export #:perform-assembly-using-target
+           #:perform-assembly
+           #:emit
+           #:emit-relocation
+           #:immediatep
+           #:resolve-immediate
+           #:*current-address*
+           #:note-fixup
+           #:note-variably-sized-instruction
+           #:*function-reference-resolver*
+           #:label
+           #:make-label
+           #:label-name
+           #:add-to-constant-pool))
+
+(defpackage :mezzano.lap.x86
+  (:documentation "x86 assembler for LAP.")
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:use :cl :mezzano.lap))
+
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:use :cl))
 
-(defpackage :system.internals
-  (:nicknames :sys.int)
+(defpackage :mezzano.internals
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:use :cl))
 
 (defpackage :mezzano.clos
   (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:defclass #:defgeneric #:defmethod
 
            #:find-class
@@ -213,6 +240,8 @@
 ;;; Supervisor manages the hardware, doing paging and memory management.
 (defpackage :mezzano.supervisor
   (:use :cl)
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:export #:current-thread
            #:with-symbol-spinlock
            #:with-pseudo-atomic
@@ -450,32 +479,13 @@
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
 (defpackage :mezzano.runtime
-  (:use :cl))
-
-(defpackage :sys.lap
-  (:documentation "The system assembler.")
   (:use :cl)
-  (:export #:perform-assembly-using-target
-           #:perform-assembly
-           #:emit
-           #:emit-relocation
-           #:immediatep
-           #:resolve-immediate
-           #:*current-address*
-           #:note-fixup
-           #:note-variably-sized-instruction
-           #:*function-reference-resolver*
-           #:label
-           #:make-label
-           #:label-name
-           #:add-to-constant-pool))
-
-(defpackage :sys.lap-x86
-  (:documentation "x86 assembler for LAP.")
-  (:use :cl :sys.lap))
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.compiler.backend
   (:use :cl :mezzano.compiler)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:virtual-register
            #:virtual-register-kind
            #:backend-function
@@ -678,6 +688,7 @@
 
 (defpackage :mezzano.compiler.backend.ast-convert
   (:use :cl :mezzano.compiler :mezzano.compiler.backend)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:convert))
 
 (defpackage :mezzano.compiler.backend.register-allocator
@@ -696,18 +707,25 @@
 
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl)
-  (:local-nicknames (:lap :sys.lap-x86)
+  (:local-nicknames (:lap :mezzano.lap.x86)
                     (:ir :mezzano.compiler.backend)
-                    (:ra :mezzano.compiler.backend.register-allocator)))
+                    (:ra :mezzano.compiler.backend.register-allocator)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.compiler.backend.arm64
   (:use :cl)
   (:local-nicknames (:lap :mezzano.lap.arm64)
                     (:ir :mezzano.compiler.backend)
-                    (:ra :mezzano.compiler.backend.register-allocator)))
+                    (:ra :mezzano.compiler.backend.register-allocator)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.simd
   (:use :cl)
+  (:local-nicknames (:lap :mezzano.lap.x86)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals))
   (:export #:make-mmx-vector
            #:mmx-vector-value
            #:mmx-vector
@@ -731,6 +749,8 @@
 
 (defpackage :mezzano.delimited-continuations
   (:use :cl)
+  (:local-nicknames (:lap :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:export #:delimited-continuation-p
            #:delimited-continuation
            #:make-prompt-tag
@@ -750,5 +770,4 @@
            #:barrier-present-tag
            #:barrier-present-barrier
            #:unknown-prompt-tag
-           #:unknown-prompt-tag-tag)
-  (:local-nicknames (:lap :sys.lap-x86)))
+           #:unknown-prompt-tag-tag))

@@ -127,7 +127,7 @@
          (packet (list header sequence)))
     (setf (ub16ref/be header 0) +dhcp-client-port+
           (ub16ref/be header 2) +dhcp-server-port+
-          (ub16ref/be header 4) (sys.net:packet-length packet)
+          (ub16ref/be header 4) (net:packet-length packet)
           (ub16ref/be header 6) 0)
     (mezzano.network.ethernet:transmit-ethernet-packet
      interface mezzano.network.ethernet:*ethernet-broadcast* mezzano.network.ethernet:+ethertype-ipv4+
@@ -163,7 +163,7 @@
 	       xid)
     (unwind-protect
          (loop
-            (let ((offer (sys.net:receive connection :timeout 4)))
+            (let ((offer (net:receive connection :timeout 4)))
               (when (not offer)
                 ;; Timed out
                 (return-from acquire-lease nil))
@@ -183,7 +183,7 @@
                                    (make-dhcp-option +opt-dhcp-server+ dhcpserver))
                              xid)
                   (loop
-                     (let ((ack (sys.net:receive connection :timeout 4)))
+                     (let ((ack (net:receive connection :timeout 4)))
                        (when (not ack)
                          ;; Timed out
                          (return-from acquire-lease nil))
@@ -200,7 +200,7 @@
                                             :lease-timestamp (get-universal-time)
                                             :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)
                                             :xid xid))))))))))
-      (sys.net:disconnect connection))))
+      (net:disconnect connection))))
 
 (defmethod renew-lease ((lease dhcp-lease))
   (let* ((xid (xid lease))
@@ -215,15 +215,15 @@
                                     :broadcast nil)))
     (unwind-protect
 	 (progn
-	   (sys.net:send packet connection)
-	   (let ((reply (sys.net:receive connection :timeout 4)))
+	   (net:send packet connection)
+	   (let ((reply (net:receive connection :timeout 4)))
 	     (if reply
 		 (let ((reply-options (decode-all-options reply)))
 		   (setf (lease-timestamp lease) (get-universal-time)
 			 (lease-timeout lease) (get-option reply-options +opt-lease-time+))
 		   lease)
 		 nil)))
-      (sys.net:disconnect connection))))
+      (net:disconnect connection))))
 
 (defclass interaction ()
   ((%thread :initarg :thread :reader thread)
@@ -288,7 +288,7 @@
 	    (mezzano.sync.dispatch:dispatch-sync
              (lambda ()
                (deconfigure-interface-1 interface))
-             sys.net::*network-serial-queue*)
+             net::*network-serial-queue*)
 	    (loop for pause = 2 then (* 2 pause)
 	       until lease
 	       if (<= 16 pause) do
@@ -304,19 +304,19 @@
 	    (mezzano.sync.dispatch:dispatch-sync
              (lambda ()
                (configure-interface-1 interface lease))
-             sys.net::*network-serial-queue*)
+             net::*network-serial-queue*)
 	    (loop while lease do
 		 (sleep (ceiling (lease-timeout lease) 2))
 		 (setf lease (renew-lease lease)))))
    :name (format nil "DHCP interaction thread on interface ~A" interface)))
 
-(defmethod sys.net::configure-interface (interface (configuration-type (eql :dhcp)) &key)
+(defmethod net::configure-interface (interface (configuration-type (eql :dhcp)) &key)
   (setf (gethash interface *dhcp-interactions*)
         (make-instance 'interaction
                        :lease nil
                        :thread (start-dhcp-interaction interface))))
 
-(defmethod sys.net::deconfigure-interface (interface (configuration-type (eql :dhcp)) &key)
+(defmethod net::deconfigure-interface (interface (configuration-type (eql :dhcp)) &key)
   (deconfigure-interface-1 interface)
   (let ((interaction (gethash interface *dhcp-interactions*)))
     (mezzano.supervisor:terminate-thread (thread interaction))

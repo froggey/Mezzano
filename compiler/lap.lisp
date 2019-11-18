@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.lap)
+(in-package :mezzano.lap)
 
 (defvar *function-reference-resolver* nil
   "Function used to convert :function memory references into constants.")

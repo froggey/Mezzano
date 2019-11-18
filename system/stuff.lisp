@@ -3,7 +3,7 @@
 
 ;;;; A bunch of functions with no proper home.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant call-arguments-limit 500)
 (defconstant lambda-parameters-limit 500)
@@ -155,9 +155,9 @@
 (defun macroexpand-1 (form &optional env)
   (declare (notinline typep)) ; ### Bootstrap hack.
   (cond ((symbolp form)
-         (let ((var (sys.c::lookup-variable-in-environment form env)))
-           (cond ((typep var 'sys.c::symbol-macro)
-                  (values (sys.c::symbol-macro-expansion var) t))
+         (let ((var (mezzano.compiler::lookup-variable-in-environment form env)))
+           (cond ((typep var 'mezzano.compiler::symbol-macro)
+                  (values (mezzano.compiler::symbol-macro-expansion var) t))
                  (t
                   (values form nil)))))
         ((consp form)

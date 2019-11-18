@@ -5,8 +5,7 @@
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
   (:export)
-  (:import-from #:sys.int
-                #:explode))
+  (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.ext4-file-system)
 
@@ -627,7 +626,7 @@
            (incf start))
           (t (push :relative directory)))
     ;; Last element is the name.
-    (do* ((x (explode #\> namestring start end) (cdr x)))
+    (do* ((x (sys.int::explode #\> namestring start end) (cdr x)))
          ((null (cdr x))
           (let* ((name-element (car x))
                  (end (length name-element)))

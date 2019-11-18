@@ -14,10 +14,10 @@
    (%prefix :initarg :prefix :reader arm64-instruction-prefix))
   (:default-initargs :clobbers '() :early-clobber nil :prefix nil))
 
-(defmethod ra:instruction-clobbers ((instruction arm64-instruction) (architecture sys.c:arm64-target))
+(defmethod ra:instruction-clobbers ((instruction arm64-instruction) (architecture c:arm64-target))
   (arm64-instruction-clobbers instruction))
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction arm64-instruction) (architecture sys.c:arm64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction arm64-instruction) (architecture c:arm64-target))
   (not (arm64-instruction-early-clobber instruction)))
 
 (defmethod ir:replace-all-registers ((instruction arm64-instruction) substitution-function)
@@ -121,8 +121,8 @@
                           :source :x0))
           (ir:remove-instruction backend-function inst))))))
 
-(defmethod ir:perform-target-lowering (backend-function (target sys.c:arm64-target))
+(defmethod ir:perform-target-lowering (backend-function (target c:arm64-target))
   (lower-builtins backend-function))
 
-(defmethod ir:perform-target-lowering-post-ssa (backend-function (target sys.c:arm64-target))
+(defmethod ir:perform-target-lowering-post-ssa (backend-function (target c:arm64-target))
   (lower-complicated-box-instructions backend-function))

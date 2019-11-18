@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.load
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:sys.int #:mezzano.internals))
   (:export #:load-compiled-file
            #:invalid-llf
            #:validate-llf-header

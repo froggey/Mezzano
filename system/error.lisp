@@ -3,7 +3,7 @@
 
 ;;; ERROR and the debugger.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (declaim (special *error-output* *debug-io*))
 (defparameter *infinite-error-protect* 0)

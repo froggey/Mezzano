@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.clos
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:eval #:mezzano.cold-generator.eval))
+                    (#:eval #:mezzano.cold-generator.eval)
+                    (#:sys.int #:mezzano.internals))
   (:export #:configure-clos))
 
 (in-package :mezzano.cold-generator.clos)

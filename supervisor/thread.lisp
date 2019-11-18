@@ -414,7 +414,7 @@ Interrupts must be off and the global thread lock must be held."
   value)
 
 (defun make-thread (function &key name initial-bindings (stack-size *default-stack-size*) (priority :normal))
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :high :normal :low))
   (setf name (copy-name-to-wired-area name))

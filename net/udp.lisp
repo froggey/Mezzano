@@ -61,7 +61,7 @@
         (disconnect connection)))))
 
 (defun udp4-connect (remote-host remote-port)
-  (let ((remote-address (sys.net:resolve-address remote-host)))
+  (let ((remote-address (net:resolve-address remote-host)))
     (multiple-value-bind (host interface)
         (mezzano.network.ip:ipv4-route remote-address)
       (declare (ignore host))
@@ -90,7 +90,7 @@
          (packet (list header (subseq sequence start end))))
     (setf (ub16ref/be header 0) source-port
           (ub16ref/be header 2) destination-port
-          (ub16ref/be header 4) (sys.net:packet-length packet)
+          (ub16ref/be header 4) (net:packet-length packet)
           (ub16ref/be header 6) 0)
     (mezzano.network.ip:transmit-ipv4-packet source destination
                                              mezzano.network.ip:+ip-protocol-udp+

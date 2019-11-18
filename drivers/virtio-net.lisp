@@ -6,7 +6,8 @@
   (:local-nicknames (:nic :mezzano.driver.network-card)
                     (:sup :mezzano.supervisor)
                     (:virtio :mezzano.supervisor.virtio)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.driver.virtio-net)
 

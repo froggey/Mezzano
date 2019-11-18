@@ -416,7 +416,7 @@ Virtual registers must be defined exactly once."
       (format t "Directly converting ~:S~%" simple-transforms)
       (format t "Fully converting ~:S~%" full-transforms)
       (format t "Rejected converting ~:S~%" rejected-transforms))
-    (let ((debugp (/= (sys.c::optimize-quality (ast backend-function) 'debug) 0)))
+    (let ((debugp (/= (mezzano.compiler::optimize-quality (ast backend-function) 'debug) 0)))
       (when (not (endp simple-transforms))
         (ssa-convert-simple-locals backend-function simple-transforms debugp))
       (when (not (endp full-transforms))

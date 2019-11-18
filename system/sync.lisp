@@ -103,10 +103,10 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
         (format stream "~A " name))
       (format stream "=> ~S" (sup:event-state object)))))
 
-(sys.int::defglobal *always-false-event* (sup:make-event :name "Always false"))
+(mezzano.internals::defglobal *always-false-event* (sup:make-event :name "Always false"))
 (defun always-false-event () *always-false-event*)
 
-(sys.int::defglobal *always-true-event* (sup:make-event :name "Always true" :state t))
+(mezzano.internals::defglobal *always-true-event* (sup:make-event :name "Always true" :state t))
 (defun always-true-event () *always-true-event*)
 
 (defmethod get-object-event ((object sup:timer))

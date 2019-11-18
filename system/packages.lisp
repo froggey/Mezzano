@@ -4,7 +4,7 @@
 ;;;; The CL package system.
 ;;;; This file must be loaded last during system bootstrapping.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (declaim (special *package*))
 
@@ -713,8 +713,7 @@
   (setf *keyword-package* (make-package "KEYWORD"))
   (make-package "COMMON-LISP" :nicknames '("CL"))
   (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
-  (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
-  (setf *package* (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS")))
+  (setf *package* (make-package "MEZZANO.INTERNALS" :use '("CL")))
   ;; Now import all the symbols.
   (dotimes (i (length *initial-obarray*))
     (let ((sym (aref *initial-obarray* i)))
@@ -724,6 +723,6 @@
           (setf package (make-package (string package-keyword) :use '("CL"))))
         (setf (symbol-package sym) nil)
         (import-one-symbol sym package)
-        (when (member package-keyword '(:common-lisp :keyword :system))
+        (when (member package-keyword '(:common-lisp :keyword))
           (export-one-symbol sym package)))))
   (values))

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defglobal *rtc-is-utc* t "True if the RTC holds UTC, not local time.")
 (defglobal sys.int::*time-zone* 0 "CL time zone.")

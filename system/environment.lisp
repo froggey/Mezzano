@@ -3,7 +3,7 @@
 
 ;;;; 25. Environment
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defvar *site-info* nil
   "Site information, returned by SHORT- and LONG-SITE-NAME.

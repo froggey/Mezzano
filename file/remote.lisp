@@ -7,9 +7,7 @@
   (:export #:add-remote-file-host
            #:test-host-connectivity)
   (:use #:cl #:mezzano.file-system)
-  (:local-nicknames (:gray :mezzano.gray))
-  (:import-from :sys.int
-                #:explode))
+  (:local-nicknames (:gray :mezzano.gray)))
 
 (in-package :mezzano.file-system.remote)
 
@@ -62,7 +60,7 @@ the server instead of reconnecting for each operation.")
 
 (defclass remote-file-character-stream (gray:fundamental-character-input-stream
                                         gray:fundamental-character-output-stream
-                                        sys.int::external-format-mixin
+                                        mezzano.internals::external-format-mixin
                                         remote-file-stream
                                         gray:unread-char-mixin)
   ())
@@ -96,7 +94,7 @@ the server instead of reconnecting for each operation.")
            (incf start))
           (t (push :relative directory)))
     ;; Last element is the name.
-    (do* ((x (explode #\/ namestring start end) (cdr x)))
+    (do* ((x (mezzano.internals::explode #\/ namestring start end) (cdr x)))
          ((null (cdr x))
           (let* ((name-element (car x))
                  (end (length name-element)))
@@ -227,7 +225,7 @@ the server instead of reconnecting for each operation.")
       (loop
          (restart-case
              (return
-               (sys.net::with-open-network-stream (connection (host-address host)
+               (mezzano.network::with-open-network-stream (connection (host-address host)
                                                               (host-port host))
                  (funcall fn connection)))
            ((retry ()
@@ -311,7 +309,7 @@ the server instead of reconnecting for each operation.")
                                         :host host
                                         :direction direction
                                         :abort-action abort-action
-                                        :external-format (sys.int::make-external-format 'character external-format)))
+                                        :external-format (mezzano.internals::make-external-format 'character external-format)))
                         ((and (subtypep element-type '(unsigned-byte 8))
                               (subtypep '(unsigned-byte 8) element-type))
                          (assert (eql external-format :default) (external-format))
@@ -350,7 +348,7 @@ the server instead of reconnecting for each operation.")
 
 (defun command (pathname connection command &optional payload (start 0) end)
   (with-standard-io-syntax
-    (sys.net:buffered-format connection "~S~%" command))
+    (mezzano.network:buffered-format connection "~S~%" command))
   (when payload
     (write-sequence payload connection :start start :end end))
   (let ((result (with-standard-io-syntax
@@ -553,7 +551,7 @@ The file position must be less than the file length."
   (handler-case
       (with-connection (con host)
         (with-standard-io-syntax
-          (sys.net:buffered-format con "(:PING)~%"))
+          (mezzano.network:buffered-format con "(:PING)~%"))
         (let ((x (with-standard-io-syntax
                    (read-preserving-whitespace con nil :end-of-file))))
           (unless (eql x :pong)

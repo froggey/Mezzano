@@ -855,7 +855,7 @@
 
 ;; TODO: Actually allocate virtual memory.
 (defun %allocate-stack (size &optional wired)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (setf size (align-up size #x1000))
   (let* ((gc-count 0)
          (stack-address nil)

@@ -49,7 +49,8 @@
 ;;;; LOOP Iteration Macro
 
 (defpackage :mezzano.loop
-  (:use #:cl))
+  (:use #:cl)
+  (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package #:mezzano.loop)
 

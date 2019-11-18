@@ -111,7 +111,7 @@
 
 (defmacro formatter (string)
   `(lambda (s &rest args)
-     (declare (sys.int::lambda-name (formatter ,string)))
+     (declare (mezzano.internals::lambda-name (formatter ,string)))
      (formatter-in-package ,string "CL-USER")))
 
 (defvar *errors-are-errors* t)
@@ -377,7 +377,7 @@
   (multiple-value-bind (colon atsign params)
       (parse-params start '(nil #\Space #\, 3))
     `(let ((the-params (list ,@params)))
-       (sys.format::format-integer XP ,(get-arg) ,base the-params ',atsign ',colon))))
+       (mezzano.format::format-integer XP ,(get-arg) ,base the-params ',atsign ',colon))))
 
 (def-format-handler #\D (start end) (impl-integer start end 10))
 (def-format-handler #\B (start end) (impl-integer start end 2))
@@ -395,17 +395,17 @@
     `(let ((the-params ,(if (eql (first params) :no-parameters-specified)
                             '()
                             `(list ,@params))))
-       (sys.format::format-radix XP
-                                 ,(get-arg)
-                                 the-params
-                                 ',atsign
-                                 ',colon))))
+       (mezzano.format::format-radix XP
+                                     ,(get-arg)
+                                     the-params
+                                     ',atsign
+                                     ',colon))))
 
 (def-format-handler #\C (start end)
   (declare (ignore end))
   (multiple-value-bind (colon atsign)
       (parse-params start '())
-    `(sys.format::format-character XP ,(get-arg) ',atsign ',colon)))
+    `(mezzano.format::format-character XP ,(get-arg) ',atsign ',colon)))
 
 ;; TODO.
 (def-format-handler #\F (start end) (impl-integer start end 10))
@@ -747,7 +747,7 @@
 
 (defun format (stream string-or-fn &rest args)
   (cond ((stringp stream)
-         (apply #'format (make-instance 'sys.int::string-output-stream
+         (apply #'format (make-instance 'mezzano.internals::string-output-stream
                                         :element-type 'character
                                         :string stream)
                 string-or-fn args)
@@ -766,9 +766,9 @@
 
 (defun compile-format-string (string)
   (let ((form `(lambda (s &rest args)
-                 (declare (sys.int::lambda-name (formatter ,string)))
+                 (declare (mezzano.internals::lambda-name (formatter ,string)))
                  ,(formatter-fn string "CL-USER" t)))
-        (sys.c::*trace-asm* nil)
+        (mezzano.compiler::*trace-asm* nil)
         (mezzano.compiler.backend::*shut-up* t))
     (cond (*compiling-format-string*
            (values (mezzano.full-eval:eval-in-lexenv form nil) nil))

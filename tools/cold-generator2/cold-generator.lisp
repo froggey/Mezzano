@@ -10,7 +10,8 @@
                     (#:ser #:mezzano.cold-generator.serialize)
                     (#:write #:mezzano.cold-generator.write)
                     (#:util #:mezzano.cold-generator.util)
-                    (#:clos #:mezzano.cold-generator.clos))
+                    (#:clos #:mezzano.cold-generator.clos)
+                    (#:sys.int #:mezzano.internals))
   (:export #:make-image
            #:set-up-cross-compiler))
 
@@ -276,9 +277,9 @@
               (not (probe-file llf-path))
               (<= (file-write-date llf-path) (file-write-date path)))
       (format t "~A is out of date will be recompiled.~%" llf-path)
-      (let ((sys.c::*target-architecture* (env:environment-target environment))
+      (let ((mezzano.compiler::*target-architecture* (env:environment-target environment))
             (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
-        (sys.c::cross-compile-file path :output-file llf-path :package package)))
+        (mezzano.compiler::cross-compile-file path :output-file llf-path :package package)))
     llf-path))
 
 ;; Ugh.
@@ -286,7 +287,7 @@
   (let ((llf-path (merge-pathnames "%%compiler-builtins.llf"
                                    (build-directory environment))))
     (ensure-directories-exist llf-path)
-    (sys.c::save-compiler-builtins llf-path (env:environment-target environment))
+    (mezzano.compiler::save-compiler-builtins llf-path (env:environment-target environment))
     (load-compiled-file environment llf-path :eval t :wired t)))
 
 (defun load-source-file (environment file &key eval wired force-recompile package)
@@ -363,7 +364,7 @@
   (format t ";; Saving Unifont.~%")
   (multiple-value-bind (tree data)
       (with-open-file (s *unifont*)
-        (build-unicode:generate-unifont-table s))
+        (mezzano.cold-generator.build-unicode:generate-unifont-table s))
     (env:set-object-graph-area environment tree :pinned)
     (env:set-object-graph-area environment data :pinned)
     (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp*) tree)
@@ -372,7 +373,8 @@
 (defun save-unicode (environment)
   (format t ";; Saving Unicode data.~%")
   (multiple-value-bind (planes name-store encoding-table name-trie)
-      (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data *unicode-data*))
+      (mezzano.cold-generator.build-unicode:generate-unicode-data-tables
+       (mezzano.cold-generator.build-unicode:read-unicode-data *unicode-data*))
     (env:set-object-graph-area environment planes :pinned)
     (env:set-object-graph-area environment name-store :pinned)
     (env:set-object-graph-area environment encoding-table :pinned)
@@ -384,7 +386,7 @@
 
 (defun save-pci-ids (environment)
   (format t ";; Saving PCI IDs.~%")
-  (let ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*)))
+  (let ((pci-ids (mezzano.cold-generator.build-pci-ids:build-pci-ids *pci-ids*)))
     (env:set-object-graph-area environment pci-ids :wired)
     (setf (env:cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
 
@@ -585,9 +587,9 @@ files will be compiled correctly.")
     (flet ((load-files (file-list)
              (dolist (f file-list)
                (cond ((consp f)
-                      (sys.c::load-for-cross-compiler (first f)))
+                      (mezzano.compiler::load-for-cross-compiler (first f)))
                      (t
-                      (sys.c::load-for-cross-compiler f))))))
+                      (mezzano.compiler::load-for-cross-compiler f))))))
       (load-files *cross-source-files*)
       (load-files *supervisor-source-files*)
       (load-files *source-files*)

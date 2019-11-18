@@ -37,14 +37,14 @@
 
 (defun ethernet-loopback (interface packet)
   ;; This is a bit hacky... (less than it was before!)
-  (let ((loopback-packet (make-array (sys.net::packet-length packet)
+  (let ((loopback-packet (make-array (net::packet-length packet)
                                      :element-type '(unsigned-byte 8))))
-    (sys.net::copy-packet loopback-packet packet)
+    (net::copy-packet loopback-packet packet)
     (mezzano.sync.dispatch:dispatch-async
      (lambda ()
        (sys.int::log-and-ignore-errors
          (receive-ethernet-packet interface loopback-packet)))
-     sys.net::*network-serial-queue*)))
+     net::*network-serial-queue*)))
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))

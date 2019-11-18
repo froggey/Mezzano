@@ -3,7 +3,7 @@
 
 ;;;; Function inlining.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun inline-functions (lambda architecture)
   (il-form lambda architecture))

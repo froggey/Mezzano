@@ -4,7 +4,8 @@
 (defpackage :mezzano.supervisor.virtio-block
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio)))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.supervisor.virtio-block)
 
@@ -106,7 +107,7 @@
 
 (defun virtio::virtio-block-register (device)
   ;; Wired allocation required for the IRQ handler closure.
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (sup:debug-print-line "Detected virtio block device " device)
   (let* ((blk (make-virtio-block :virtio-device device))
          (irq-handler (lambda (interrupt-frame irq)

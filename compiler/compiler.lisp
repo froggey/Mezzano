@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *should-inline-functions* t)
 

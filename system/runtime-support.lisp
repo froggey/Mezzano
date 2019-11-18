@@ -1,9 +1,9 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
-(setf sys.lap:*function-reference-resolver* #'function-reference)
+(setf mezzano.lap:*function-reference-resolver* #'function-reference)
 
 (defstruct function-info
   compiler-macro
@@ -96,7 +96,7 @@
                quality)
          (check-type quality (member compilation-speed debug safety space speed))
          (check-type value (member 0 1 2 3))
-         (setf (getf sys.c::*optimize-policy* quality) value))))
+         (setf (getf mezzano.compiler::*optimize-policy* quality) value))))
     (t
      (cond ((type-specifier-p (first declaration-specifier))
             ;; Actually a type declaration.
@@ -108,7 +108,7 @@
 (defun variable-information (symbol)
   (symbol-mode symbol))
 
-(defun sys.c::function-inline-info (name)
+(defun mezzano.compiler::function-inline-info (name)
   (let ((info (function-info-for name nil)))
     (if info
         (values (eql (function-info-inline-mode info) 't)
@@ -174,7 +174,7 @@
 (defun macro-function (symbol &optional env)
   (check-type symbol symbol)
   (cond (env
-         (sys.c::macro-function-in-environment symbol env))
+         (mezzano.compiler::macro-function-in-environment symbol env))
         (t
          (let ((entry (gethash symbol *macros*)))
            (when entry
@@ -209,7 +209,7 @@
 
 (defun compiler-macro-function (name &optional environment)
   (cond (environment
-         (sys.c::compiler-macro-function-in-environment name environment))
+         (mezzano.compiler::compiler-macro-function-in-environment name environment))
         (t
          (let ((info (function-info-for name nil)))
            (if info

@@ -15,7 +15,7 @@
     (append-instruction *backend-function* i)))
 
 (defun convert (lambda)
-  (sys.c::detect-uses lambda)
+  (mezzano.compiler::detect-uses lambda)
   (codegen-lambda lambda))
 
 (defun codegen-lambda (lambda)
@@ -98,7 +98,7 @@
       (let ((env-arg (lambda-information-environment-arg lambda)))
         (when env-arg
           (let ((env-reg closure-reg))
-            (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
+            (when (not (getf (lambda-information-plist lambda) 'mezzano.compiler::unwind-protect-cleanup))
               ;; Read environment pointer from closure object.
               (let* ((real-env-reg (make-instance 'virtual-register :name :environment))
                      (index (make-instance 'virtual-register)))
@@ -516,7 +516,7 @@
             (t
              (ecase result-mode
                (:tail
-                (cond (sys.c::*perform-tce*
+                (cond (mezzano.compiler::*perform-tce*
                        (emit (make-instance 'tail-funcall-instruction
                                             :function fn-tag
                                             :arguments (list value-tag))))
@@ -695,7 +695,7 @@
                                    (return-from cg-funcall nil))
                                  value)))
          (function (first arguments)))
-    (cond ((and sys.c::*perform-tce*
+    (cond ((and mezzano.compiler::*perform-tce*
                 (eql result-mode :tail))
            (emit (make-instance 'tail-funcall-instruction
                                 :function function
@@ -788,7 +788,7 @@
                                 (when (not value)
                                   (return-from cg-call nil))
                                 value))))
-    (cond ((and sys.c::*perform-tce*
+    (cond ((and mezzano.compiler::*perform-tce*
                 (eql result-mode :tail))
            (emit (make-instance 'tail-call-instruction
                                 :function (ast-name form)
@@ -893,7 +893,7 @@
            (cg-funcall form result-mode))
           ((eql (ast-name form) 'values)
            (cg-values form result-mode))
-          ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-simple-vector)
            (assert (eql (length (ast-arguments form)) 1))
            (assert (typep (first (ast-arguments form)) 'ast-quote))
            (check-type (ast-value (first (ast-arguments form))) (integer 0))
@@ -902,13 +902,13 @@
                                   :result result
                                   :size (ast-value (first (ast-arguments form)))))
              result))
-          ((eql (ast-name form) 'sys.c::make-dx-cons)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-cons)
            (assert (eql (length (ast-arguments form)) 0))
            (let ((result (make-instance 'virtual-register)))
              (emit (make-instance 'make-dx-cons-instruction
                                   :result result))
              result))
-          ((eql (ast-name form) 'sys.c::make-dx-closure)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-closure)
            (assert (eql (length (ast-arguments form)) 2))
            (let ((result (make-instance 'virtual-register)))
              (emit (make-instance 'make-dx-closure-instruction

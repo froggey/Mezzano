@@ -251,7 +251,7 @@
                            :cfg-preds bb-preds
                            :instruction-clobbers clobbers
                            :debug-variable-value-map debug-map
-                           :max-debug-p (= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 3)
+                           :max-debug-p (= (mezzano.compiler::optimize-quality (ir::ast backend-function) 'debug) 3)
                            :vreg-to-id vreg-to-id
                            :id-to-vreg id-to-vreg)))))))
 
@@ -1137,7 +1137,7 @@ Returns the interference graph and the set of spilled virtual registers."
             (build-interference-graph allocator)
           (assign-stack-slots allocator interference-graph spilled-vregs))
       (rewrite-after-allocation allocator)
-      (cond ((= (sys.c::optimize-quality (ir::ast backend-function) 'debug) 0)
+      (cond ((= (mezzano.compiler::optimize-quality (ir::ast backend-function) 'debug) 0)
              (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
             (t
              (rebuild-debug-map allocator)))

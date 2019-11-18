@@ -3,6 +3,8 @@
 
 (defpackage :mezzano.disassemble
   (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals)
+                    (:sys.lap-x86 :mezzano.lap.x86))
   (:export #:disassemble
            #:disassemble-function
            #:make-disassembler-context
@@ -47,7 +49,7 @@
   (when (not (functionp fn))
     (setf fn (fdefinition fn)))
   (check-type fn function)
-  (setf architecture (sys.c::canonicalize-target architecture))
+  (setf architecture (mezzano.compiler::canonicalize-target architecture))
   (let ((*print-gc-metadata* gc-metadata)
         (*print-debug-metadata* debug-metadata)
         (*print-pretty* nil)

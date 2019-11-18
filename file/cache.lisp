@@ -19,7 +19,7 @@
    (%length :initarg :length :accessor file-length*))
   (:default-initargs :position 0 :length 0))
 
-(defclass file-cache-character-stream (sys.int::external-format-mixin
+(defclass file-cache-character-stream (mezzano.internals::external-format-mixin
                                        file-cache-stream)
   ())
 

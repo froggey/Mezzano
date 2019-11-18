@@ -3,7 +3,7 @@
 
 ;;;; type.lisp - Type management.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defmacro deftype (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))

@@ -54,13 +54,13 @@
     (incf from-offset (+ (* from-row from-width) from-col))
     (incf to-offset (+ (* to-row to-width) to-col))
     (values nrows ncols
-            (if (sys.int::%simple-1d-array-p from-array)
+            (if (mezzano.internals::%simple-1d-array-p from-array)
                 from-array
-                (sys.int::%complex-array-storage from-array))
+                (mezzano.internals::%complex-array-storage from-array))
             from-offset from-width
-            (if (sys.int::%simple-1d-array-p to-array)
+            (if (mezzano.internals::%simple-1d-array-p to-array)
                 to-array
-                (sys.int::%complex-array-storage to-array))
+                (mezzano.internals::%complex-array-storage to-array))
             to-offset to-width)))
 
 (defun compute-blit-info-dest (nrows ncols to-array to-row to-col)
@@ -90,9 +90,9 @@
               to-offset to-displaced-offset)))
     (incf to-offset (+ (* to-row to-width) to-col))
     (values nrows ncols
-            (if (sys.int::%simple-1d-array-p to-array)
+            (if (mezzano.internals::%simple-1d-array-p to-array)
                 to-array
-                (sys.int::%complex-array-storage to-array))
+                (mezzano.internals::%complex-array-storage to-array))
             to-offset to-width)))
 
 (declaim (inline simple-ub32-vector-p simple-ub8-vector-p simple-ub1-vector-p))

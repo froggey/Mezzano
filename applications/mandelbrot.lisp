@@ -1,11 +1,11 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mandelbrot
+(defpackage :mezzano.mandelbrot
   (:use :cl)
   (:export #:spawn #:benchmark))
 
-(in-package :mandelbrot)
+(in-package :mezzano.mandelbrot)
 
 (defun hue-to-rgb (h)
   (declare (optimize (speed 3) (safety 0))

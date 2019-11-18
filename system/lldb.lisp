@@ -1,4 +1,4 @@
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defun fetch-thread-function-arguments (thread)
   (when (not (mezzano.supervisor:thread-full-save-p thread))

@@ -3,7 +3,7 @@
 
 ;;;; Constant folding & propagation.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *known-variables* nil
   "An alist mapping lexical-variables to their values, if known.")

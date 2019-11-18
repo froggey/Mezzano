@@ -49,7 +49,7 @@
            (type (unsigned-byte 32) colour)
            ;; Allowing this to be inlined slows down the conversion from vector to integer.
            ;; The compiler can't infer intermediate types in the LDB without it.
-           (notinline sys.int::binary-logand))
+           (notinline mezzano.internals::binary-logand))
   (loop for i fixnum below ncols do
     (let ((mask-byte (aref mask mask-offset)))
       (cond ((eql mask-byte 0)
@@ -108,7 +108,7 @@
            (type fixnum to-offset)
            ;; Allowing this to be inlined slows down the conversion from vector to integer.
            ;; The compiler can't infer intermediate types in the LDB without it.
-           (notinline sys.int::binary-logand))
+           (notinline mezzano.internals::binary-logand))
   (let ((source-alpha (logand source #xFF000000)))
     (cond ((eql source-alpha #x00000000)
            ;; Fully transparent, do nothing.

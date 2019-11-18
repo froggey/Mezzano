@@ -256,7 +256,7 @@
     (unwind-protect
          (catch 'quit
            (loop
-              (sys.int::log-and-ignore-errors
+              (mezzano.internals::log-and-ignore-errors
                (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo)))))
       (comp:close-window (window desktop)))))
 

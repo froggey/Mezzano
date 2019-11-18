@@ -239,7 +239,7 @@
       (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
                        (find-package "CL"))
                   (eql (symbol-package (sys.int::structure-definition-name def))
-                       (find-package "SYS.C")))
+                       (find-package "MEZZANO.COMPILER")))
         (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))))
   (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def))
 

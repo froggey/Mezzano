@@ -14,10 +14,10 @@
    (%prefix :initarg :prefix :reader x86-instruction-prefix))
   (:default-initargs :clobbers '() :early-clobber nil :prefix nil))
 
-(defmethod ra:instruction-clobbers ((instruction x86-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-clobbers ((instruction x86-instruction) (architecture c:x86-64-target))
   (x86-instruction-clobbers instruction))
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-instruction) (architecture c:x86-64-target))
   (not (x86-instruction-early-clobber instruction)))
 
 (defmethod ir:replace-all-registers ((instruction x86-instruction) substitution-function)
@@ -55,10 +55,10 @@
    (%early-clobber :initarg :early-clobber :reader x86-instruction-early-clobber))
   (:default-initargs :clobbers '() :early-clobber nil :imm nil))
 
-(defmethod ra:instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-clobbers ((instruction x86-fake-three-operand-instruction) (architecture c:x86-64-target))
   (x86-instruction-clobbers instruction))
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-fake-three-operand-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-fake-three-operand-instruction) (architecture c:x86-64-target))
   (not (x86-instruction-early-clobber instruction)))
 
 (defmethod ir:instruction-inputs ((instruction x86-fake-three-operand-instruction))
@@ -92,10 +92,10 @@
    (%prefix :initarg :prefix :accessor x86-instruction-prefix))
   (:default-initargs :prefix nil))
 
-(defmethod ra:instruction-clobbers ((instruction x86-atomic-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-clobbers ((instruction x86-atomic-instruction) (architecture c:x86-64-target))
   '())
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-atomic-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-atomic-instruction) (architecture c:x86-64-target))
   t)
 
 (defmethod ir:instruction-inputs ((instruction x86-atomic-instruction))
@@ -136,10 +136,10 @@
    (%prefix :initarg :prefix :accessor x86-instruction-prefix))
   (:default-initargs :prefix nil))
 
-(defmethod ra:instruction-clobbers ((instruction x86-cmpxchg-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-clobbers ((instruction x86-cmpxchg-instruction) (architecture c:x86-64-target))
   '(:rax))
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-cmpxchg-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-cmpxchg-instruction) (architecture c:x86-64-target))
   t)
 
 (defmethod ir:instruction-inputs ((instruction x86-cmpxchg-instruction))
@@ -184,10 +184,10 @@
    (%prefix :initarg :prefix :accessor x86-instruction-prefix))
   (:default-initargs :prefix nil))
 
-(defmethod ra:instruction-clobbers ((instruction x86-cmpxchg16b-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-clobbers ((instruction x86-cmpxchg16b-instruction) (architecture c:x86-64-target))
   '(:rax :rcx :rdx :rbx))
 
-(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-cmpxchg16b-instruction) (architecture sys.c:x86-64-target))
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction x86-cmpxchg16b-instruction) (architecture c:x86-64-target))
   t)
 
 (defmethod ir:instruction-inputs ((instruction x86-cmpxchg16b-instruction))
@@ -437,10 +437,10 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                     :clobbers '()
                     :early-clobber nil))))
 
-(defmethod ir:perform-target-lowering (backend-function (target sys.c:x86-64-target))
+(defmethod ir:perform-target-lowering (backend-function (target c:x86-64-target))
   (lower-builtins backend-function)
   (lower-simd-literal-loads backend-function))
 
-(defmethod ir:perform-target-lowering-post-ssa (backend-function (target sys.c:x86-64-target))
+(defmethod ir:perform-target-lowering-post-ssa (backend-function (target c:x86-64-target))
   (lower-complicated-box-instructions backend-function)
   (lower-fake-three-operand-instructions backend-function))

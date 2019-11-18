@@ -1002,7 +1002,7 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
                             :refresh-rate (+ (ldb (byte 6 0) byte2) 60)))))
 
 (defun decode-edid-detailed-timing (edid offset)
-  (let ((pixel-clock (* (sys.int::ub16ref/le edid (+ offset 0)) 10000))
+  (let ((pixel-clock (* (mezzano.internals::ub16ref/le edid (+ offset 0)) 10000))
         (hactive (logior (aref edid (+ offset 2))
                          (ash (ldb (byte 4 4) (aref edid (+ offset 4))) 8)))
         (hblank (logior (aref edid (+ offset 3))
@@ -1084,9 +1084,9 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
           (aref edid 18) (aref edid 19)))
   (let ((detailed-timings (decode-edid-detailed-timings edid)))
     (make-edid-data
-     :manufacturer-id (sys.int::ub16ref/be edid 8)
-     :product-code (sys.int::ub16ref/le edid 10)
-     :serial-number (sys.int::ub32ref/le edid 12)
+     :manufacturer-id (mezzano.internals::ub16ref/be edid 8)
+     :product-code (mezzano.internals::ub16ref/le edid 10)
+     :serial-number (mezzano.internals::ub32ref/le edid 12)
      :week-of-manufacture (aref edid 16)
      :year-of-manufacture (+ 1990 (aref edid 17))
      ;; TODO: These two can be zero indicating an aspect ratio.

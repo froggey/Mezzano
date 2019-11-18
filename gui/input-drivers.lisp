@@ -44,7 +44,7 @@
 (defun keyboard-forwarder-thread ()
   ;; Read bytes from the keyboard and translate them into HID events for the input manager.
   (loop
-     (sys.int::log-and-ignore-errors
+     (mezzano.internals::log-and-ignore-errors
        (let ((byte (mezzano.supervisor:ps/2-key-read)))
          (cond
            ((eql byte +extended-scan-code+)
@@ -86,7 +86,7 @@
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
-     (sys.int::log-and-ignore-errors
+     (mezzano.internals::log-and-ignore-errors
        (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
          ;; Check sync bit.
          (when (logtest byte-1 #b00001000)

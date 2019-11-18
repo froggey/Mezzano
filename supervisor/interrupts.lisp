@@ -311,7 +311,7 @@ RETURN-FROM/GO must not be used to leave this form."
   (lock (place-spinlock-initializer)))
 
 (defun make-simple-irq (irq-number &optional latch)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (let* ((irq (platform-irq irq-number))
          (simple-irq (%make-simple-irq :irq irq
                                        :latch latch))

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
@@ -65,7 +65,7 @@ Make sure there is a virtio-net NIC attached.~%")
   (format t "Testing internet connectivity.~%")
   (format t "Attempting to resolve google.com... ")
   (finish-output)
-  (let ((goog (sys.net::resolve-address "google.com" nil)))
+  (let ((goog (mezzano.network::resolve-address "google.com" nil)))
     (cond (goog
            (format t "OK!~%")
            (format t "Has address ~A.~%" goog))
@@ -108,11 +108,11 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :cl-vectors)
 (require :cl-paths-ttf)
 ;; TCE is required for Chipz's decompressor.
-(let ((sys.c::*perform-tce* t)
+(let ((mezzano.compiler::*perform-tce* t)
       ;; Prevent extremely excessive inlining.
-      (sys.c::*constprop-lambda-copy-limit* -1)
+      (mezzano.compiler::*constprop-lambda-copy-limit* -1)
       ;; This inhibits TCE when enabled.
-      (sys.c::*verify-special-stack* nil))
+      (mezzano.compiler::*verify-special-stack* nil))
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)

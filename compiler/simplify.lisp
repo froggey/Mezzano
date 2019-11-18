@@ -3,7 +3,7 @@
 
 ;;;; Simplifiy the ast by removing empty nodes and unused variables.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun simplify (lambda architecture)
   (declare (ignore architecture))

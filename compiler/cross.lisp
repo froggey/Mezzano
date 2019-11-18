@@ -87,17 +87,17 @@
 (defpackage :cross-cl-user
   (:use :cross-cl))
 
-(defpackage :system.internals
-  (:nicknames :sys.int)
+(defpackage :mezzano.internals
   (:use :cross-cl))
 
 (defpackage :cross-support
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:use :cross-cl))
 
 (defpackage :mezzano.runtime
   (:use :cross-cl))
 
-(declaim (declaration sys.int::lambda-name))
+(declaim (declaration mezzano.internals::lambda-name))
 
 (in-package :cross-support)
 

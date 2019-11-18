@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.lap-x86)
+(in-package :mezzano.lap.x86)
 
 (defparameter *instruction-assemblers* (make-hash-table))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")
@@ -16,7 +16,7 @@
   "Number of immediate bytes following an encoded effective address.
 Used to make rip-relative addressing line up right.")
 
-(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
+(defmethod mezzano.lap:perform-assembly-using-target ((target mezzano.compiler:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
   (let ((*cpu-mode* cpu-mode))
     (apply 'perform-assembly *instruction-assemblers* code-list args)))
 
@@ -30,7 +30,7 @@ Used to make rip-relative addressing line up right.")
                                      (error "Could not encode instruction ~S." ,insn)))))))
 
 (defun add-instruction (name function)
-  (export name '#:sys.lap-x86)
+  (export name '#:mezzano.lap.x86)
   (setf (gethash name *instruction-assemblers*) function))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -384,7 +384,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
         ((and (= (length form) 2)
               (eql (first form) :function))
          ;; Transform (:function foo) into (:rip (:constant-address (fref foo)))
-         (values nil nil nil nil (list :constant-address (funcall sys.lap:*function-reference-resolver* (second form))) t))
+         (values nil nil nil nil (list :constant-address (funcall mezzano.lap:*function-reference-resolver* (second form))) t))
         ((and (= (length form) 2)
               (eql (first form) :symbol-global-cell))
          ;; Transform (:symbol-global-cell foo) into (:rip (:constant-address (fref foo)))
@@ -773,10 +773,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (defmacro named-call (dst opcode)
   `(when (and (consp ,dst)
               (eql (first ,dst) :named-call))
-     (let ((fref (funcall sys.lap:*function-reference-resolver* (second ,dst))))
+     (let ((fref (funcall mezzano.lap:*function-reference-resolver* (second ,dst))))
        ;; Named direct jump to an FREF.
        ;; Make sure to add the FREF to the constant pool so the GC is aware
-       (sys.lap:add-to-constant-pool fref)
+       (mezzano.lap:add-to-constant-pool fref)
        (emit ',opcode)
        (note-fixup fref)
        (emit #xFF #xFF #xFF #xFF)

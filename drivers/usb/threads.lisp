@@ -30,7 +30,7 @@
                  (ignore-errors
                    (let ((*standard-output* *error-output*))
                      (format *error-output* "~&Error ~A.~%" c)
-                     (sys.int::backtrace)))
+                     (mezzano.internals::backtrace)))
                  (return-from :process-event (values nil c))))
               (controller-disconnect
                (lambda (c)

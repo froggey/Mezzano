@@ -82,7 +82,7 @@
         (mouse-rel-y 0)
         (mouse-state-changed nil))
     (loop
-       (sys.int::log-and-ignore-errors
+       (mezzano.internals::log-and-ignore-errors
         (multiple-value-bind (type code value)
             (mezzano.supervisor.virtio-input:read-virtio-input-device device)
           (case type

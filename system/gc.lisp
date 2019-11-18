@@ -10,7 +10,7 @@
 ;;; - Simon Peyton Jones, Simon Marlow, and Conal Elliott
 ;;; http://community.haskell.org/~simonmar/papers/weak.pdf
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defglobal *gc-debug-scavenge-stack* nil)
 (defglobal *gc-debug-freelist-rebuild* nil)

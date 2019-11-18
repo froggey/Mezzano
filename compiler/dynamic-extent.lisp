@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Convert variables bindings that have been declared dynamic-extent and have
 ;;; supported initializers to calls to their appropriate internal functions.

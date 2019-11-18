@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.supervisor.pci
   (:use :cl)
-  (:local-nicknames (:sup :mezzano.supervisor))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals))
   (:export #:pci-device
            #:pci-device-location
            #:pci-device-boot-id

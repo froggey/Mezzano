@@ -1,6 +1,11 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
+(defpackage :mezzano.gui.basic-repl
+  (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:export #:spawn))
+
 (in-package :mezzano.gui.basic-repl)
 
 (defclass basic-repl (mezzano.gray:unread-char-mixin

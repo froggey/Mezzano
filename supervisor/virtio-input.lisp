@@ -4,7 +4,8 @@
 (defpackage :mezzano.supervisor.virtio-input
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sys.int :mezzano.internals))
   (:export #:*virtio-input-devices*
            #:read-virtio-input-device))
 
@@ -103,7 +104,7 @@
 
 (defun virtio::virtio-input-register (device)
   ;; Wired allocation required for the IRQ handler closure.
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (sup:debug-print-line "Detected virtio input device " device)
   (let* ((input (make-virtio-input :virtio-device device))
          (irq-handler (lambda (interrupt-frame irq)

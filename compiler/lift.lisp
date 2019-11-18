@@ -3,7 +3,7 @@
 
 ;;; This is the compiler pass that performs lambda-lifting.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun lambda-lift (lambda architecture)
   (declare (ignore architecture))

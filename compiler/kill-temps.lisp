@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Attempt to eliminate temporary variables (bound, never assigned, used once).
 ;;; Bound forms are pushed forward through the IR until their one use point

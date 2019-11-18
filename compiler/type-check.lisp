@@ -1,6 +1,6 @@
 ;;;; A pass to insert type checks around THE forms.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defgeneric insert-type-checks-1 (form value-context))
 

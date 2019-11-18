@@ -3,7 +3,7 @@
 
 ;;; The condition/error system.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defparameter *break-on-signals* nil)
 (defparameter *active-handlers* nil)

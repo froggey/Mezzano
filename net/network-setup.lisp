@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.net)
+(in-package :mezzano.network)
 
 ;; Everything in the network stack uses a single serial queue for the moment...
 (defvar *network-serial-queue*)
@@ -142,7 +142,7 @@
                        (mezzano.supervisor:current-boot-id)
                        'network-boot-handler
                        :target *network-serial-queue*))
-  (let ((loopback-interface (make-instance 'sys.net::loopback-interface)))
+  (let ((loopback-interface (make-instance 'loopback-interface)))
     (mezzano.network.ip::ifup loopback-interface "127.0.0.1" 8)
     (mezzano.network.ip:add-route "127.0.0.0" 8 loopback-interface))
   (setf mezzano.network.ip::*routing-table* '()

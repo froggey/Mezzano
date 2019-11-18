@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defvar *load-verbose* nil)
 (defvar *load-print* nil)
@@ -453,7 +453,7 @@
         (*load-print* print)
         ;; There is nothing in the spec about this, but I am sick of
         ;; libraries fiddling with my optimize policy!
-        (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*)))
+        (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*)))
     (cond ((streamp filespec)
            (let* ((*load-pathname* (ignore-errors (pathname filespec)))
                   (*load-truename* (ignore-errors (truename filespec))))

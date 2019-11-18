@@ -3,7 +3,7 @@
 
 ;;;; Lower anything that modifies the special stack to explicit compiler builtins.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *special-bindings*)
 (defvar *verify-special-stack* nil)

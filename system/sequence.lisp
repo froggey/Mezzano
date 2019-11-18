@@ -3,7 +3,7 @@
 
 ;;;; Full versions of the sequence functions.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;;; FIXME: Should be a class, but this is much faster.
 ;;; ### Specialize in TYPEP?

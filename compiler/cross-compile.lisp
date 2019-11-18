@@ -3,7 +3,7 @@
 
 ;;;; Support functions for cross-compilation.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (define-condition sys.int::simple-style-warning (style-warning simple-condition) ())
 
@@ -11,7 +11,7 @@
 
 (defvar *target-architecture*)
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defun mezzano.clos:class-precedence-list (class)
   (c2mop:class-precedence-list class))
@@ -103,15 +103,15 @@
                   :documentation (structure-slot-definition-documentation object)))))
 
 (defstruct (instance-header
-             (:constructor sys.c::%%make-instance-header
+             (:constructor mezzano.compiler::%%make-instance-header
                            (layout)))
   layout)
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun mezzano.runtime::%make-instance-header (layout)
   (assert (not (eql layout t)))
-  (sys.c::%%make-instance-header layout))
+  (%%make-instance-header layout))
 
 (defun mezzano.runtime::%unpack-instance-header (header)
   (sys.int::instance-header-layout header))
@@ -626,9 +626,9 @@
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (let ((sys.lap:*function-reference-resolver* #'resolve-fref))
-        (declare (special sys.lap:*function-reference-resolver*)) ; blech.
-        (sys.lap:perform-assembly-using-target
+      (let ((mezzano.lap:*function-reference-resolver* #'resolve-fref))
+        (declare (special mezzano.lap:*function-reference-resolver*)) ; blech.
+        (mezzano.lap:perform-assembly-using-target
          (canonicalize-target architecture)
          code
          :base-address 16
@@ -1183,7 +1183,7 @@
   `(integer 0 ,most-positive-fixnum))
 
 (defun sys.int::fixnump (object)
-  (sys.c::fixnump object))
+  (fixnump object))
 
 (defun mezzano.runtime::left-shift (integer count)
   (check-type integer integer)

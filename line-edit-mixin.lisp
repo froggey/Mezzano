@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.line-editor
   (:use :cl)
-  (:local-nicknames (:gray :mezzano.gray))
+  (:local-nicknames (:gray :mezzano.gray)
+                    (:sys.int :mezzano.internals))
   (:export #:line-edit-mixin
            #:*line-editor-command-table*
 	   #:global-set-key

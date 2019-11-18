@@ -3,7 +3,7 @@
 
 ;;;; String functions.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (deftype string-designator ()
   `(or string symbol character))

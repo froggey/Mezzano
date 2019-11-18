@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -66,7 +66,7 @@ Returns a fixnum. X & Y must be fixnums."
   ;; FIXME: %FAST-FIXNUM-+ isn't the right function to use.
   ;; The behaviour on overflow is undefined, not wrapping, but the current
   ;; implementation wraps the result.
-  (the fixnum (sys.c::%fast-fixnum-+ x y)))
+  (the fixnum (mezzano.compiler::%fast-fixnum-+ x y)))
 
 (defmacro atomic-incf (place &optional (delta 1) &environment environment)
   "Atomically increment PLACE by DELTA.

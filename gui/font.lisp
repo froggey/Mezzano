@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.gui.font
   (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:open-font
            #:name
            #:size

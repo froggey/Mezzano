@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defgeneric make-load-form (object &optional environment))
 
@@ -42,15 +42,15 @@
                            for def in defs
                            collect (list (first def)
                                          (eval (expand-macrolet-function def))))))
-    (sys.c::extend-environment env :functions macro-bindings)))
+    (mezzano.compiler::extend-environment env :functions macro-bindings)))
 
 (defun make-symbol-macrolet-env (defs env)
   (let ((defs (loop
                  for (name expansion) in defs
-                 collect (make-instance 'sys.c::symbol-macro
+                 collect (make-instance 'mezzano.compiler::symbol-macro
                                         :name name
                                         :expansion expansion))))
-    (sys.c::extend-environment env :variables defs)))
+    (mezzano.compiler::extend-environment env :variables defs)))
 
 (defun handle-top-level-implicit-progn (forms load-fn eval-fn mode env)
   (dolist (f forms)
@@ -62,7 +62,7 @@
       (parse-declares forms)
     (handle-top-level-implicit-progn
      body load-fn eval-fn mode
-     (sys.c::extend-environment env :declarations declares))))
+     (mezzano.compiler::extend-environment env :declarations declares))))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)
@@ -457,11 +457,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defmethod save-one-object (object omap stream)
   ;; Use COMPILE-LAMBDA here instead of COMPILE to get the correct L-T-V behaviour.
-  (let ((sys.c::*load-time-value-hook*
+  (let ((mezzano.compiler::*load-time-value-hook*
          (lambda (form read-only-p)
            (declare (ignore read-only-p))
            (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-             (save-object (sys.c::compile-lambda
+             (save-object (mezzano.compiler::compile-lambda
                            `(lambda ()
                               (declare (special ,ltv-sym))
                               (setq ,ltv-sym ,form))
@@ -473,7 +473,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
              `(sys.int::symbol-global-value ',ltv-sym)))))
     (multiple-value-bind (creation-form initialization-form)
         (make-load-form object)
-      (save-object (sys.c::compile-lambda
+      (save-object (mezzano.compiler::compile-lambda
                     `(lambda ()
                        (declare (sys.int::lambda-name creation-form))
                        (progn ,creation-form))
@@ -483,7 +483,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       (write-byte +llf-funcall-n+ stream)
       (when initialization-form
         (write-object-backlink object omap stream)
-        (save-object (sys.c::compile-lambda
+        (save-object (mezzano.compiler::compile-lambda
                       `(lambda ()
                          (declare (sys.int::lambda-name initialization-form))
                          (progn ,initialization-form))
@@ -712,10 +712,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun add-deferred-lambda (lambda env)
   (if *compile-parallel*
       (let ((fn (make-instance 'deferred-function
-                               :ast (sys.c::pass1-lambda lambda env))))
+                               :ast (mezzano.compiler::pass1-lambda lambda env))))
         (push fn *deferred-functions*)
         fn)
-      (sys.c::compile-lambda lambda env)))
+      (mezzano.compiler::compile-lambda lambda env)))
 
 (defun compile-file-worker (work-fifo return-fifo)
   (unwind-protect
@@ -726,7 +726,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                       (return)))
             ;(format t "Compiling deferred function ~S~%" (deferred-function-ast work))
             (setf (deferred-function-function work)
-                  (sys.c::compile-ast (deferred-function-ast work)))
+                  (mezzano.compiler::compile-ast (deferred-function-ast work)))
             (mezzano.supervisor:fifo-push work return-fifo)))
     (mezzano.supervisor:fifo-push :exit return-fifo)))
 
@@ -751,9 +751,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
            (*compile-file-truename* (truename *compile-file-pathname*))
            (*top-level-form-number* 0)
-           (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
+           (mezzano.compiler::*load-time-value-hook* 'compile-file-load-time-value)
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
-           (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*))
+           (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
            (*gensym-counter* 0)
            (*fixup-table* (make-hash-table :synchronized nil)))
       (do ((form (read input-stream nil eof-marker)
@@ -790,7 +790,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                                                                  (*standard-input* ,*standard-input*)
                                                                                  (*standard-output* ,*standard-output*)
                                                                                  (*trace-output* ,*trace-output*)
-                                                                                 ,@(sys.c::compiler-state-bindings))
+                                                                                 ,@(mezzano.compiler::compiler-state-bindings))
                                                              :priority :low)
                              workers))
                  (loop
@@ -832,8 +832,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (sys.lap:perform-assembly-using-target
-       (sys.c::canonicalize-target architecture)
+      (mezzano.lap:perform-assembly-using-target
+       (mezzano.compiler::canonicalize-target architecture)
        code
        :base-address 16
        :initial-symbols '((nil . :fixup)

@@ -4,7 +4,8 @@
 (defpackage :mezzano.driver.intel-hda
   (:use :cl)
   (:local-nicknames (:pci :mezzano.supervisor.pci)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.driver.intel-hda)
 

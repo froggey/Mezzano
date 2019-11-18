@@ -8,7 +8,8 @@
 (defpackage :mezzano.driver.usb.mass
   (:use :cl :mezzano.driver.usb :mezzano.disk)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.driver.usb.mass)
 

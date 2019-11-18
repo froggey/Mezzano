@@ -194,12 +194,12 @@
 
 (defun http-request (host port path)
   ;; FIXME: Should catch unknown host & do something with that.
-  (sys.net::with-open-network-stream (con host port)
-    (sys.net::buffered-format con "GET ~A HTTP/1.1~%Host: ~A~%~%" path host)
+  (mezzano.network::with-open-network-stream (con host port)
+    (mezzano.network:buffered-format con "GET ~A HTTP/1.1~%Host: ~A~%~%" path host)
     (read-http-response con)))
 
 (defun make-http-stream (pathname body element-type external-format)
-  (if (sys.int::type-equal element-type 'character)
+  (if (mezzano.internals::type-equal element-type 'character)
       (make-instance 'http-character-stream
                      :path pathname
                      :direction :input
@@ -229,8 +229,8 @@
   (check-type direction (member :input :probe))
   (assert (not (eql if-does-not-exist :create)) (if-does-not-exist)
           ":IF-DOES-NOT-EXIST :CREATE not supported.")
-  (when (and (not (sys.int::type-equal element-type '(unsigned-byte 8)))
-             (not (sys.int::type-equal element-type 'character)))
+  (when (and (not (mezzano.internals::type-equal element-type '(unsigned-byte 8)))
+             (not (mezzano.internals::type-equal element-type 'character)))
     (error "Only (UNSIGNED-BYTE 8) and CHARACTER element types supported."))
   (let (version status-code reason-phrase headers body
         (redirect-count 0))

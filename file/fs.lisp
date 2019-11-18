@@ -168,7 +168,7 @@
                     :type ',(pathname-type object)
                     :version ',(pathname-version object))))
 
-(defun sys.int::pathnames-equal (x y)
+(defun mezzano.internals::pathnames-equal (x y)
   (and (equal (pathname-host x) (pathname-host y))
        (equal (pathname-device x) (pathname-device y))
        (equal (pathname-directory x) (pathname-directory y))
@@ -180,14 +180,14 @@
                 (eql (pathname-version x) :newest))
            (equal (pathname-version x) (pathname-version y)))))
 
-(defun sys.int::hash-pathname (pathname depth)
+(defun mezzano.internals::hash-pathname (pathname depth)
   (let ((version (or (pathname-version pathname) :newest)))
-    (logxor (sys.int::sxhash-1 (host-name (pathname-host pathname)) depth)
-            (sys.int::sxhash-1 (pathname-device pathname) depth)
-            (sys.int::sxhash-1 (pathname-directory pathname) depth)
-            (sys.int::sxhash-1 (pathname-name pathname) depth)
-            (sys.int::sxhash-1 (pathname-type pathname) depth)
-            (sys.int::sxhash-1 version depth))))
+    (logxor (mezzano.internals::sxhash-1 (host-name (pathname-host pathname)) depth)
+            (mezzano.internals::sxhash-1 (pathname-device pathname) depth)
+            (mezzano.internals::sxhash-1 (pathname-directory pathname) depth)
+            (mezzano.internals::sxhash-1 (pathname-name pathname) depth)
+            (mezzano.internals::sxhash-1 (pathname-type pathname) depth)
+            (mezzano.internals::sxhash-1 version depth))))
 
 (defun pathname-match-directory (p w)
   (let ((p-dir (pathname-directory p))
@@ -314,7 +314,7 @@
     (file-stream
      (pathname (file-stream-pathname pathname)))
     (synonym-stream
-     (pathname (sys.int::follow-synonym-stream pathname)))
+     (pathname (mezzano.internals::follow-synonym-stream pathname)))
     (string
      (parse-namestring pathname))
     (t

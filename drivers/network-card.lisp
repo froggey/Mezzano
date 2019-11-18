@@ -6,7 +6,8 @@
 (defpackage :mezzano.driver.network-card
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:sync :mezzano.sync))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals))
   (:export #:network-card
            #:register-network-card
            #:unregister-network-card

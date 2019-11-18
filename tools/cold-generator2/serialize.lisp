@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.serialize
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:sys.int #:mezzano.internals))
   (:export #:make-image
            #:serialize-image
            #:serialize-object

@@ -105,7 +105,7 @@
                                         (thread-pool-lock thread-pool)
                                         (/ idle-time-remaining internal-time-units-per-second)))))))
          (setf (sup:thread-thread-pool self) thread-pool)
-         (sys.int::unwind-protect-unwind-only
+         (mezzano.internals::unwind-protect-unwind-only
               (catch 'terminate-work
                 (funcall (work-item-function work)))
            ;; Getting here means an unwind occured in the work item and

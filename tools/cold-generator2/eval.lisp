@@ -19,7 +19,7 @@
       `',fn))
 
 (defun apply-toplevel (fn args env)
-  (cond ((eql fn (env:translate-symbol env 'sys.int::%defun))
+  (cond ((eql fn (env:translate-symbol env 'mezzano.internals::%defun))
          (apply #'env:%defun env args))
         ((eql fn (env:translate-symbol env 'list))
          args)

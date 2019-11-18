@@ -3,7 +3,7 @@
 
 ;;;; setf.lisp
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 

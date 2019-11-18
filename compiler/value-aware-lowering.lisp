@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Lower forms based on the number of values they're expected to generated.
 ;;; Either no value (for effect, not 0 values), one value or mulitple (including 0) values.

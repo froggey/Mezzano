@@ -3,7 +3,7 @@
 
 ;;;; array.lisp
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant array-rank-limit (- (ash 1 +object-data-size+) +complex-array-axis-0+))
 (defconstant array-dimension-limit (ash 1 +object-data-size+))

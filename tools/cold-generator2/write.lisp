@@ -5,7 +5,8 @@
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
                     (#:ser #:mezzano.cold-generator.serialize)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:sys.int #:mezzano.internals))
   (:export #:image-header
            #:image-header-uuid
            #:image-header-entry-fref
