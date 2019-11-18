@@ -59,34 +59,38 @@ The object is loaded into RBX, then the entry point is called.
 
 Function references (frefs) are used to provide a uniform representation of
 function names that can be called efficiently.
-The fref is loaded into R13, then the entry point is called.
+They can be called directly using the :NAMED-CALL assembly syntax.
 
-(call (:object :r13 #.+fref-entry-point+))
+(call (:named-call <function-name>))
+
+<function-name> will be resolved to an fref by the assembler, similar
+to :FUNCTION syntax.
 
 
 ***  Function references and undefined functions.
 
-When a function is not defined, the entry point of the corresponding fref
-is points to the undefined function thunk.
-This assembly thunk tail calls to SYS.INT::RAISE-UNDEFINED-FUNCTION, leaving
-the fref and the original arguments intact.
+The first word if a function reference always points to the entry point
+of the undefined function trampoline. When a function is not defined, the
+fref is configured for closure mode and has its function pointed at itself.
+Calling an fref that is configured this way will call the undefined function
+trampoline with the fref as the closure argument. It then tail-calls to
+SYS.INT::RAISE-UNDEFINED-FUNCTION, with the fref as the closure argument
+and with the original arguments intact.
 
 
 ***  Function references and closures.
 
-When a function reference's function is set to a closure, the entry point of
-the fref will point to the closure trampoline. This assembly thunk loads the
-function object from the fref and invokes it using the funcallable object
-calling convention, leaving the closure object in RBX.
+When a function reference's function is set to a closure, fref is configured
+so that it loads the associated function into RBX and then performs an
+indirect call to the entry point of the function.
 
 
 **  Funcallable-instances.
 
-A funcallable-instance behaves like a normal compiled function, except that
-the body of a funcallable-instance is a thunk which loads the function
-associated with the funcallable-instance from the constant pool and invokes
-it using the funcallable object calling convention.
-This may be changed in the future so that they behave more like closures.
+The entry point of a funcallable instance always points to the funcallable-
+instance trampoline. This trampoline loads the appropriate function from
+the funcallable instance and tails calls to it with the original arguments.
+They are treated like closures by function references.
 
 
 *  Return convention.
@@ -119,11 +123,11 @@ follow the normal object representation and are known by their address. They
 are aligned to 16 bytes, which allows the address to be treated like a fixnum
 even though it is a raw, unboxed value.
 
-+0  Target address.
-    For BLOCK, this points directly to a thunk that sets RSP/RBP correctly.
-    For TAGBODY, this points to a position-independent jump table.
-    There is one entry in the jump table per NLX go-tag. Each entry points to
-    a thunk like the BLOCK thunk.
++0  Target address table.
+    This points to a position-independent jump table.
+    There is one entry in the jump table per NLX go-tag or exactly one
+    for a BLOCK. Each entry points to a thunk that restores RSP/RBP while
+    maintaining correct GC metadata.
 +8  Saved special stack pointer.
     This is saved with address mark bit clear to simplify the implementation
     of GET-BLOCK/TAGBODY-INFO-BINDING-STACK-POINTER if it is non-NIL. This slot
@@ -134,7 +138,7 @@ even though it is a raw, unboxed value.
 +24 Saved frame pointer.
 
 1) If the NLX was caused by a RETURN-FROM, then the result form is evaulated
-   and any return values are saved on the stack.
+   and any return values are saved on the stack as if by MULTIPLE-VALUE-PROG1.
 2) SYS.INT::%%UNWIND-TO is called to unwind the special stack to the saved
    position. If an unwind-protect cleanup function triggers another non-local
    exit, then %%UNWIND-TO will never return and this non-local exit will be
@@ -151,6 +155,9 @@ performing the NLX because the function performing the NLX does not have the
 correct GC metadata available during compilation.
 
 Mezzano currently implements EXIT-EXTENT:MEDIUM, but this may change.
+
+BLOCK/RETURN-FROM may use a more optimized value passing convention depending
+on the number of values expected at the block exit.
 
 
 **  CATCH and THROW.
