@@ -516,7 +516,11 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
        form))
 
 (defmethod lower-env-form ((form lexical-variable))
-  (if (localp form)
+  (if (or (localp form)
+          ;; A lexical defined in the current environment that isn't written
+          ;; to can be refered to directly.
+          (and (eql (lexical-variable-definition-point form) *current-lambda*)
+               (zerop (lexical-variable-write-count form))))
       form
       (dolist (e *environment*
                (error "Can't find variable ~S in environment." form))
