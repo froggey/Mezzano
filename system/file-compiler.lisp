@@ -765,7 +765,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (with-open-file (input-stream input-file :external-format external-format)
     (when verbose
       (format t ";; Compiling file ~S.~%" input-file))
-    (let* ((*package* *package*)
+    (let* ((start-time (get-internal-run-time))
+           (*package* *package*)
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
            (*compile-print* print)
@@ -893,6 +894,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (when (car cmd)
                 (write-byte (car cmd) output-stream))))
           (write-byte +llf-end-of-load+ output-stream)
+          (when *compile-print*
+            (format t ";; Compile-file took ~D seconds.~%"
+                    (float (/ (- (get-internal-run-time) start-time)
+                              internal-time-units-per-second))))
           (values (truename output-stream) nil nil))))))
 
 (defmacro with-compilation-unit ((&key override) &body body)
