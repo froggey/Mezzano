@@ -313,6 +313,7 @@
            #:mutex-p
            #:make-mutex
            #:with-mutex
+           #:mutex-name
            #:mutex-held-p
            #:mutex-contested-count
            #:acquire-mutex
@@ -320,12 +321,14 @@
            #:condition-variable
            #:condition-variable-p
            #:make-condition-variable
+           #:condition-variable-name
            #:condition-wait
            #:condition-wait-for
            #:condition-notify
            #:rw-lock
            #:rw-lock-p
            #:make-rw-lock
+           #:rw-lock-name
            #:rw-lock-read-acquire
            #:rw-lock-read-release
            #:with-rw-lock-read

@@ -79,17 +79,22 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (mezzano.supervisor::wait-queue-name object))))
 
-(defmethod print-object ((object mezzano.supervisor::mutex) stream)
+(defmethod print-object ((object mezzano.supervisor:mutex) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (mezzano.supervisor::mutex-name object))
+    (format stream "~S" (mezzano.supervisor:mutex-name object))
     (let ((owner (mezzano.supervisor::mutex-owner object)))
       (if owner
           (format stream " held by ~S" owner)
           (format stream " unlocked")))))
 
-(defmethod print-object ((object mezzano.supervisor::condition-variable) stream)
+(defmethod print-object ((object mezzano.supervisor:condition-variable) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (mezzano.supervisor::condition-variable-name object))))
+    (format stream "~S" (mezzano.supervisor:condition-variable-name object))))
+
+(defmethod print-object ((object mezzano.supervisor:rw-lock) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S :State ~X" (mezzano.supervisor:rw-lock-name object)
+            (mezzano.supervisor::rw-lock-state object))))
 
 (defmethod print-object ((object package) stream)
   (print-unreadable-object (object stream :type t)
