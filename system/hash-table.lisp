@@ -17,7 +17,7 @@
   (storage (error "No storage provided.") :type simple-vector)
   (storage-epoch *gc-epoch*)
   (synchronized t)
-  (lock (error "No lock provided.")))
+  lock)
 
 (declaim (inline %make-hash-table))
 
@@ -53,13 +53,15 @@
   (check-type size (integer 0) "a non-negative integer")
   (check-type rehash-size (or (integer 1 *) (float (1.0) *)))
   (check-type rehash-threshold (real 0 1))
-  (%make-hash-table :test test
-                    :hash-function (hash-table-test-hash-function test)
-                    :rehash-size rehash-size
-                    :rehash-threshold rehash-threshold
-                    :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)
-                    :synchronized synchronized
-                    :lock (if synchronized (mezzano.supervisor:make-mutex "Hash-table lock") nil)))
+  (let ((ht (%make-hash-table :test test
+                              :hash-function (hash-table-test-hash-function test)
+                              :rehash-size rehash-size
+                              :rehash-threshold rehash-threshold
+                              :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)
+                              :synchronized synchronized)))
+    (when synchronized
+      (setf (hash-table-lock ht) (mezzano.supervisor:make-mutex ht)))
+    ht))
 
 (defmacro with-hash-table-lock ((hash-table) &body body)
   (let ((sym (gensym)))
