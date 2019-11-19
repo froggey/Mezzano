@@ -478,11 +478,12 @@
                          (and (not compile) (not load) (not eval)))
                      nil)
                     (t (error "Impossible!"))))))
-             ;; 6. Otherwise, the form is a top level form that is not one of the
-             ;;    special cases. In compile-time-too mode, the compiler first
-             ;;    evaluates the form in the evaluation environment and then minimally
-             ;;    compiles it. In not-compile-time mode, the form is simply minimally
-             ;;    compiled. All subforms are treated as non-top-level forms.
+             ;; 6. Otherwise, the form is a top level form that is not one
+             ;;    of the special cases. In compile-time-too mode, the compiler
+             ;;    first evaluates the form in the evaluation environment
+             ;;    and then minimally compiles it. In not-compile-time mode,
+             ;;    the form is simply minimally compiled. All subforms are
+             ;;    treated as non-top-level forms.
              (t (when (eql mode :compile-time-too)
                   (x-eval expansion env))
                 (when *output-fasl*
@@ -977,18 +978,22 @@
              (*compile-file-truename* (truename *compile-file-pathname*))
              (*gensym-counter* 0)
              (cl:*features* *features*)
-             (sys.int::*top-level-form-number* 0))
+             (sys.int::*top-level-form-number* 0)
+             (location-stream (make-instance 'sys.int::location-tracking-stream
+                                             :stream input)))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
-        (loop for form = (read input nil input) do
-             (when (eql form input)
-               (return))
-             (when *compile-print*
-               (let ((*print-length* 3)
-                     (*print-level* 2))
-                 (format t ";; X-compiling: ~S~%" form)))
-             (x-compile-top-level form nil)
-             (incf sys.int::*top-level-form-number*))
+        (sys.int::with-reader-location-tracking
+          (loop
+             for form = (read location-stream nil input)
+             until (eql form input)
+             do
+               (when *compile-print*
+                 (let ((*print-length* 3)
+                       (*print-level* 2))
+                   (format t ";; X-compiling: ~S~%" form)))
+               (x-compile-top-level form nil)
+               (incf sys.int::*top-level-form-number*)))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *pending-llf-commands*)))
@@ -1163,3 +1168,52 @@
   ;; Always use (type foo ..)  over (foo ..)
   (member declaration '(special constant sys.int::global inline notinline
                         sys.int::maybe-inline type ftype declaration optimize)))
+
+(in-package :mezzano.internals)
+
+(defgeneric location-tracking-stream-line (stream)
+  (:method (stream) nil))
+(defgeneric location-tracking-stream-character (stream)
+  (:method (stream) nil))
+
+(defclass location-tracking-stream (sb-gray:fundamental-character-input-stream)
+  ((%stream :initarg :stream :reader location-tracking-stream-stream)
+   (%line :initarg :line :accessor location-tracking-stream-line)
+   (%character :initarg :character :accessor location-tracking-stream-character)
+   (%unread-character :accessor location-tracking-stream-unread-character))
+  (:default-initargs :character 0 :line 1))
+
+(defgeneric location-tracking-stream-location (stream)
+  (:documentation "Return a SOURCE-LOCATION indicating the current location in the stream. Returns NIL if location tracking is unavailable.
+This should only fill in the START- slots and ignore the END- slots.")
+  (:method (stream) nil))
+
+(defmethod location-tracking-stream-location ((stream location-tracking-stream))
+  (make-source-location
+   :start-position (let ((inner (location-tracking-stream-stream stream)))
+                     (if (typep inner 'file-stream)
+                         (file-position inner)
+                         nil))
+   :start-line (location-tracking-stream-line stream)
+   :start-character (location-tracking-stream-character stream)))
+
+(defmethod sb-gray:stream-read-char ((stream location-tracking-stream))
+  (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))
+    (cond ((eql ch :eof))
+          ((eql ch #\Newline)
+           (incf (location-tracking-stream-line stream))
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (setf (location-tracking-stream-character stream) 0))
+          (t
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (incf (location-tracking-stream-character stream))))
+    ch))
+
+(defmethod sb-gray:stream-unread-char ((stream location-tracking-stream) character)
+  (when (eql character #\Newline)
+    (decf (location-tracking-stream-line stream)))
+  (setf (location-tracking-stream-character stream)
+        (location-tracking-stream-unread-character stream))
+  (unread-char character (location-tracking-stream-stream stream)))

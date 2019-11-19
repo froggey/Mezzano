@@ -490,3 +490,56 @@ CASE may be one of:
 
 (defun fresh-line (&optional stream)
   (mezzano.gray:stream-fresh-line (frob-output-stream stream)))
+
+;;; Location tracking stream. See reader.lisp for the other half.
+
+(defgeneric location-tracking-stream-line (stream)
+  (:documentation "Return STREAM's current line, or NIL.
+Lines are counted from 1.")
+  (:method (stream) nil))
+(defgeneric location-tracking-stream-character (stream)
+  (:documentation "Return STREAM's current character index, or NIL.
+Characters are counted from 0.")
+  (:method (stream) nil))
+
+(defgeneric location-tracking-stream-location (stream)
+  (:documentation "Return a SOURCE-LOCATION indicating the current location in the stream. Returns NIL if location tracking is unavailable.
+This should only fill in the START- slots and ignore the END- slots.")
+  (:method (stream) nil))
+
+(defclass location-tracking-stream (mezzano.gray:fundamental-character-input-stream)
+  ((%stream :initarg :stream :reader location-tracking-stream-stream)
+   (%line :initarg :line :accessor location-tracking-stream-line)
+   (%character :initarg :character :accessor location-tracking-stream-character)
+   (%unread-character :accessor location-tracking-stream-unread-character))
+  (:default-initargs :character 0 :line 1))
+
+(defmethod location-tracking-stream-location ((stream location-tracking-stream))
+  (make-source-location
+   :start-position (let ((inner (location-tracking-stream-stream stream)))
+                     (if (typep inner 'file-stream)
+                         (file-position inner)
+                         nil))
+   :start-line (location-tracking-stream-line stream)
+   :start-character (location-tracking-stream-character stream)))
+
+(defmethod mezzano.gray:stream-read-char ((stream location-tracking-stream))
+  (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))
+    (cond ((eql ch :eof))
+          ((eql ch #\Newline)
+           (incf (location-tracking-stream-line stream))
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (setf (location-tracking-stream-character stream) 0))
+          (t
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (incf (location-tracking-stream-character stream))))
+    ch))
+
+(defmethod mezzano.gray:stream-unread-char ((stream location-tracking-stream) character)
+  (when (eql character #\Newline)
+    (decf (location-tracking-stream-line stream)))
+  (setf (location-tracking-stream-character stream)
+        (location-tracking-stream-unread-character stream))
+  (unread-char character (location-tracking-stream-stream stream)))

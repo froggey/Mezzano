@@ -755,22 +755,26 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
            (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
            (*gensym-counter* 0)
-           (*fixup-table* (make-hash-table :synchronized nil)))
-      (do ((form (read input-stream nil eof-marker)
-                 (read input-stream nil eof-marker)))
-          ((eql form eof-marker))
-        (when *compile-print*
-          (let ((*print-length* 3)
-                (*print-level* 3))
-            (declare (special *print-length* *print-level*))
-            (format t ";; Compiling form ~S.~%" form)))
-        ;; TODO: Deal with lexical environments.
-        (handle-top-level-form form
-                               (lambda (f env)
-                                 (compile-top-level-form f env))
-                               (lambda (f env)
-                                 (eval-in-lexenv f env)))
-        (incf *top-level-form-number*))
+           (*fixup-table* (make-hash-table :synchronized nil))
+           (location-stream (make-instance 'sys.int::location-tracking-stream
+                                           :stream input-stream)))
+      (sys.int::with-reader-location-tracking
+        (loop
+           for form = (read location-stream nil eof-marker)
+           until (eql form eof-marker)
+           do
+             (when *compile-print*
+               (let ((*print-length* 3)
+                     (*print-level* 3))
+                 (declare (special *print-length* *print-level*))
+                 (format t ";; Compiling form ~S.~%" form)))
+           ;; TODO: Deal with lexical environments.
+             (handle-top-level-form form
+                                    (lambda (f env)
+                                      (compile-top-level-form f env))
+                                    (lambda (f env)
+                                      (eval-in-lexenv f env)))
+             (incf *top-level-form-number*)))
       (when *deferred-functions*
         (let* ((n-functions (length *deferred-functions*))
                (n-workers mezzano.supervisor::*n-up-cpus*)
