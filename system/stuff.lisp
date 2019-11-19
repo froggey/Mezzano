@@ -380,16 +380,27 @@
        (adjust-array objects (* (array-dimension objects 0) 2)))
     objects))
 
-(defun print-contended-mutexes (&key (threshold 0))
-  (let ((mutexes (sort (remove-if
-                        (lambda (m)
-                          (<= (mezzano.supervisor:mutex-contested-count m) threshold))
-                        (get-all-objects #'mezzano.supervisor:mutex-p))
-                       #'>
-                       :key #'mezzano.supervisor:mutex-contested-count)))
+(defun contestable-lock-p (object)
+  (or (mezzano.supervisor:mutex-p object)
+      (mezzano.supervisor:rw-lock-p object)))
+
+(defun lock-contested-count (lock)
+  (if (mezzano.supervisor:mutex-p lock)
+      (mezzano.supervisor:mutex-contested-count lock)
+      (+ (mezzano.supervisor:rw-lock-read-contested-count lock)
+         (mezzano.supervisor:rw-lock-write-contested-count lock))))
+
+(defun print-contested-mutexes (&key (threshold 0))
+  (let ((mutexes (sort
+                  (remove-if
+                   (lambda (m)
+                     (<= (lock-contested-count m) threshold))
+                   (get-all-objects #'contestable-lock-p))
+                  #'>
+                  :key #'lock-contested-count)))
     (loop
        for m across mutexes
-       do (format t "~S: ~:D times.~%" m (mezzano.supervisor:mutex-contested-count m)))))
+       do (format t "~S: ~:D times.~%" m (lock-contested-count m)))))
 
 ;;; Memory grovelling
 
