@@ -17,9 +17,37 @@
   (storage (error "No storage provided.") :type simple-vector)
   (storage-epoch *gc-epoch*)
   (synchronized t)
-  lock)
+  lock
+  ;; If true, then all keys are stable over GCs and no rehashing is required
+  ;; when the GC epoch changes.
+  (gc-invariant t))
 
 (declaim (inline %make-hash-table))
+
+(defun object-hash-gc-invariant-under-test (object test)
+  "Returns true if an object's hash will stay the same after a garbage collection cycle."
+  (ecase test
+    (eq
+     ;; All immediate & pinned objects are invariant.
+     (or (immediatep object)
+         (eql (ldb +address-tag+ (lisp-object-address object))
+              +address-tag-pinned+)))
+    (eql
+     ;; As with EQ, plus some numbers
+     (or (immediatep object)
+         (eql (ldb +address-tag+ (lisp-object-address object))
+              +address-tag-pinned+)
+         (numberp object)))
+    ((equal equalp)
+     ;; Conses & pathnames aren't included because this is a cheap test
+     ;; and does not recurse down to ensure all elements are invariant.
+     (or (immediatep object)
+         (and (eql (ldb +address-tag+ (lisp-object-address object))
+                   +address-tag-pinned+)
+              (not (consp object)))
+         (numberp object)
+         (stringp object)
+         (bit-vector-p object)))))
 
 (defun hash-table-size (hash-table)
   (ash (%object-header-data (hash-table-storage hash-table)) -1))
@@ -87,6 +115,10 @@
   (declare (ignore default))
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
+    (when (and (hash-table-gc-invariant hash-table)
+               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      ;; Hash table is no longer invariant.
+      (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
       (cond
@@ -122,6 +154,10 @@
 (defun (cas gethash) (old-value new-value key hash-table &optional default)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
+    (when (and (hash-table-gc-invariant hash-table)
+               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      ;; Hash table is no longer invariant.
+      (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
       (cond
@@ -180,6 +216,7 @@
   (with-hash-table-lock (hash-table)
     (setf (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
+          (hash-table-gc-invariant hash-table) t
           (hash-table-storage hash-table) (make-array (length (hash-table-storage hash-table))
                                                       :initial-element *hash-table-unbound-value*))
     hash-table))
@@ -215,8 +252,9 @@ Requires at least one completely unbound slot to terminate."
      (let ((epoch *gc-epoch*))
        (multiple-value-bind (offset free-slot)
            (find-hash-table-slot-1 key hash-table)
-         (when (and (eql epoch *gc-epoch*)
-                    (eql (hash-table-storage-epoch hash-table) *gc-epoch*))
+         (when (or (hash-table-gc-invariant hash-table)
+                   (and (eql epoch *gc-epoch*)
+                        (eql (hash-table-storage-epoch hash-table) *gc-epoch*)))
            (return (values offset free-slot)))
          (hash-table-rehash hash-table nil)))))
 
@@ -234,12 +272,17 @@ is below the rehash-threshold."
                                                       :initial-element *hash-table-unbound-value*)
           (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
+          (hash-table-gc-invariant hash-table) t
           (hash-table-storage-epoch hash-table) *gc-epoch*)
     (dotimes (i old-size hash-table)
       (let ((key (svref old-storage (* i 2)))
             (value (svref old-storage (1+ (* i 2)))))
         (unless (or (eq key *hash-table-unbound-value*)
                     (eq value *hash-table-tombstone*))
+          (when (and (hash-table-gc-invariant hash-table)
+                     (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+            ;; Hash table is no longer invariant.
+            (setf (hash-table-gc-invariant hash-table) nil))
           (multiple-value-bind (slot free-slot)
               (find-hash-table-slot-1 key hash-table)
             (when slot
