@@ -505,6 +505,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun save-object (object omap stream)
   (when (typep object 'deferred-function)
     (assert (deferred-function-function object))
+    ;; Perform any additional commands for this deferred function.
+    (when (deferred-function-additional-commands object)
+      (dolist (cmd (reverse (deferred-function-additional-commands object)))
+        (dolist (o (cdr cmd))
+          (save-object o omap stream))
+        (when (and (not *llf-dry-run*)
+                   (car cmd))
+          (write-byte (car cmd) stream))))
     (return-from save-object
       (save-object (deferred-function-function object) omap stream)))
   (when (null (gethash object omap))
@@ -559,8 +567,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                      collect `(setf (%struct-slot ',object ',class-name ',(mezzano.clos:slot-definition-name slot))
                                     ',(slot-value object (mezzano.clos:slot-definition-name slot)))))))))
 
+(defvar *current-deferred-function* nil)
+
 (defun add-to-llf (action &rest objects)
-  (push (list* action objects) *llf-forms*))
+  (if *current-deferred-function*
+      (push (list* action objects)
+            (deferred-function-additional-commands
+                *current-deferred-function*))
+      (push (list* action objects) *llf-forms*)))
 
 (defun compile-file-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
@@ -570,14 +584,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                (setq ,ltv-sym ,form))
                             nil)
     `(sys.int::symbol-global-value ',ltv-sym)))
-
-;; Not supported because this involves adding stuff to the LLF,
-;; instead of just compiling code.
-;; Can happen due to inlining.
-(defun parallel-compile-file-ltv-hook (form read-only-p)
-  (declare (ignore read-only-p))
-  (error "Tried to compile load-time-value form ~S on a worker thread. Not supported."
-         form))
 
 (defun compile-top-level-form (form env)
   (cond
@@ -714,13 +720,22 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defclass deferred-function ()
   ((%ast :initarg :ast :reader deferred-function-ast)
-   (%compiled-function :initarg :compiled-function :accessor deferred-function-function))
-  (:default-initargs :compiled-function nil))
+   (%tlf-number :initarg :tlf-number :reader deferred-function-tlf-number)
+   (%compiled-function :initarg :compiled-function :accessor deferred-function-function)
+   (%additional-commands :initarg :additional-commands :accessor deferred-function-additional-commands))
+  (:default-initargs
+   :tlf-number nil
+   :compiled-function nil
+   :additional-commands nil))
 
 (defun add-deferred-lambda (lambda env)
-  (if *compile-parallel*
+  (if (and *compile-parallel*
+           ;; If true, then this is a worker thread compiling something.
+           ;; Don't schedule more work, just do it here.
+           (not *current-deferred-function*))
       (let ((fn (make-instance 'deferred-function
-                               :ast (mezzano.compiler::pass1-lambda lambda env))))
+                               :ast (mezzano.compiler::pass1-lambda lambda env)
+                               :tlf-number *top-level-form-number*)))
         (push fn *deferred-functions*)
         fn)
       (mezzano.compiler::compile-lambda lambda env)))
@@ -731,8 +746,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           (let ((work (mezzano.supervisor:fifo-pop work-fifo)))
             (when (eql work :finished)
               (return))
-            (setf (deferred-function-function work)
-                  (mezzano.compiler::compile-ast (deferred-function-ast work)))
+            (let* ((*current-deferred-function* work)
+                   (*top-level-form-number* (deferred-function-tlf-number work)))
+              (setf (deferred-function-function work)
+                    (mezzano.compiler::compile-ast (deferred-function-ast work))))
             (handler-bind
                 ((error (lambda (c)
                           (mezzano.supervisor:fifo-push `(:error ,work ,c) return-fifo))))
@@ -812,8 +829,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                                   (*fixup-table* ,*fixup-table*)
                                                   (*compile-verbose* ,*compile-verbose*)
                                                   (*compile-print* ,*compile-print*)
-                                                  ,@(mezzano.compiler::compiler-state-bindings)
-                                                  (mezzano.compiler::*load-time-value-hook* parallel-compile-file-ltv-hook))
+                                                  (*compile-file-pathname* ,*compile-file-pathname*)
+                                                  (*compile-file-truename* ,*compile-file-truename*)
+                                                  ,@(mezzano.compiler::compiler-state-bindings))
                               :priority :low)
                              workers))
                  (loop
