@@ -226,7 +226,7 @@
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
 structures to exist, and for memory to be allocated, but not much beyond that."
-  (setf *cold-start-start-time* (get-internal-real-time))
+  (setf *cold-start-start-time* (get-internal-run-time))
   (cold-array-initialization)
   (setf *package* nil
         *terminal-io* :cold-stream
@@ -345,7 +345,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
     (gc)
     (room)
     (mezzano.supervisor:snapshot)
-    (setf *cold-start-end-time* (get-internal-real-time))
+    (setf *cold-start-end-time* (get-internal-run-time))
     (format t "Hello, world.~%Cold start took ~:D seconds (~:D seconds of GC time).~%"
             (float (/ (- *cold-start-end-time*
                          *cold-start-start-time*)
