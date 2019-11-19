@@ -380,6 +380,17 @@
        (adjust-array objects (* (array-dimension objects 0) 2)))
     objects))
 
+(defun print-contended-mutexes (&key (threshold 0))
+  (let ((mutexes (sort (remove-if
+                        (lambda (m)
+                          (<= (mezzano.supervisor:mutex-contested-count m) threshold))
+                        (get-all-objects #'mezzano.supervisor:mutex-p))
+                       #'>
+                       :key #'mezzano.supervisor:mutex-contested-count)))
+    (loop
+       for m across mutexes
+       do (format t "~S: ~:D times.~%" m (mezzano.supervisor:mutex-contested-count m)))))
+
 ;;; Memory grovelling
 
 (defun hexdump (start length &key memory width endian)

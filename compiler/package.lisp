@@ -314,6 +314,7 @@
            #:make-mutex
            #:with-mutex
            #:mutex-held-p
+           #:mutex-contested-count
            #:acquire-mutex
            #:release-mutex
            #:condition-variable
