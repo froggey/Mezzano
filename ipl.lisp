@@ -114,6 +114,8 @@ Make sure there is a virtio-net NIC attached.~%")
       ;; This inhibits TCE when enabled.
       (mezzano.compiler::*verify-special-stack* nil))
   (require :chipz))
+(let ((*compile-parallel* nil)) ; doesn't work with babel
+  (require :babel))
 (require :png-read)
 (require :cl-jpeg)
 (require :skippy)
@@ -123,8 +125,9 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :cl-video-wav)
 (require :cl-wav)
 ;; Swank doesn't really support logical pathname shenanigans.
-(load (merge-pathnames "slime/swank-loader.lisp" (user-homedir-pathname)))
-(eval (read-from-string "(swank-loader::init)"))
+(let ((*compile-parallel* nil)) ; doesn't work with swank
+  (load (merge-pathnames "slime/swank-loader.lisp" (user-homedir-pathname)))
+  (eval (read-from-string "(swank-loader::init)")))
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t :interface \"0.0.0.0\")"))
 
 ;; And the GUI.

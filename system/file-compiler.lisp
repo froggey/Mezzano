@@ -571,6 +571,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                             nil)
     `(sys.int::symbol-global-value ',ltv-sym)))
 
+;; Not supported because this involves adding stuff to the LLF,
+;; instead of just compiling code.
+;; Can happen due to inlining.
+(defun parallel-compile-file-ltv-hook (form read-only-p)
+  (declare (ignore read-only-p))
+  (error "Tried to compile load-time-value form ~S on a worker thread. Not supported."
+         form))
+
 (defun compile-top-level-form (form env)
   (cond
     ;; Special case (define-lap-function name (options...) code...)
@@ -722,12 +730,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        (loop
           (let ((work (mezzano.supervisor:fifo-pop work-fifo)))
             (when (eql work :finished)
-              (format t "Compile file worker thread ~S completed."
-                      (return)))
-            ;(format t "Compiling deferred function ~S~%" (deferred-function-ast work))
+              (return))
             (setf (deferred-function-function work)
                   (mezzano.compiler::compile-ast (deferred-function-ast work)))
-            (mezzano.supervisor:fifo-push work return-fifo)))
+            (handler-bind
+                ((error (lambda (c)
+                          (mezzano.supervisor:fifo-push `(:error ,work ,c) return-fifo))))
+              (mezzano.supervisor:fifo-push work return-fifo))))
     (mezzano.supervisor:fifo-push :exit return-fifo)))
 
 (defun compile-file (input-file &key
@@ -743,7 +752,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
            (*compile-print* print)
-           (*compile-parallel* parallel)
+           ;; Only perform parallel compilation when there are multiple cores.
+           (*compile-parallel* (and parallel
+                                    (or (eql parallel :force)
+                                        (> mezzano.supervisor::*n-up-cpus* 1))))
            (*deferred-functions* '())
            (*llf-forms* nil)
            (omap (make-hash-table))
@@ -755,7 +767,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
            (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
            (*gensym-counter* 0)
-           (*fixup-table* (make-hash-table :synchronized nil))
+           (*fixup-table* (make-hash-table :synchronized (if *compile-parallel* t nil)))
            (location-stream (make-instance 'sys.int::location-tracking-stream
                                            :stream input-stream)))
       (sys.int::with-reader-location-tracking
@@ -767,7 +779,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (let ((*print-length* 3)
                      (*print-level* 3))
                  (declare (special *print-length* *print-level*))
-                 (format t ";; Compiling form ~S.~%" form)))
+                 (format t ";; ~A form ~S.~%"
+                         (if *compile-parallel* "Processing" "Compiling")
+                         form)))
            ;; TODO: Deal with lexical environments.
              (handle-top-level-form form
                                     (lambda (f env)
@@ -785,24 +799,56 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (progn
                  (loop
                     repeat n-workers
-                    do (push (mezzano.supervisor:make-thread (lambda () (compile-file-worker work-fifo return-fifo))
-                                                             :name (format nil "Compile file worker")
-                                                             :initial-bindings `((*terminal-io* ,*terminal-io*)
-                                                                                 (*debug-io* ,*debug-io*)
-                                                                                 (*error-output* ,*error-output*)
-                                                                                 (*query-io* ,*query-io*)
-                                                                                 (*standard-input* ,*standard-input*)
-                                                                                 (*standard-output* ,*standard-output*)
-                                                                                 (*trace-output* ,*trace-output*)
-                                                                                 ,@(mezzano.compiler::compiler-state-bindings))
-                                                             :priority :low)
+                    do (push (mezzano.supervisor:make-thread
+                              (lambda () (compile-file-worker work-fifo return-fifo))
+                              :name (format nil "Compile file worker")
+                              :initial-bindings `((*terminal-io* ,*terminal-io*)
+                                                  (*debug-io* ,*debug-io*)
+                                                  (*error-output* ,*error-output*)
+                                                  (*query-io* ,*query-io*)
+                                                  (*standard-input* ,*standard-input*)
+                                                  (*standard-output* ,*standard-output*)
+                                                  (*trace-output* ,*trace-output*)
+                                                  (*fixup-table* ,*fixup-table*)
+                                                  (*compile-verbose* ,*compile-verbose*)
+                                                  (*compile-print* ,*compile-print*)
+                                                  ,@(mezzano.compiler::compiler-state-bindings)
+                                                  (mezzano.compiler::*load-time-value-hook* parallel-compile-file-ltv-hook))
+                              :priority :low)
                              workers))
                  (loop
                     for fn in *deferred-functions*
                     do (mezzano.supervisor:fifo-push fn work-fifo))
-                 (loop
-                    repeat n-functions
-                    do (mezzano.supervisor:fifo-pop return-fifo))
+                 (when *compile-print*
+                   (format t ";; Parallel compiling ~:D functions over ~D workers...~%" n-functions n-workers))
+                 (let ((start-time (get-internal-run-time)))
+                   (loop
+                      with i = 0
+                      repeat n-functions
+                      do
+                        (when *compile-print*
+                          (when (eql i 0)
+                            (write-string ";; ")))
+                        (let ((status (mezzano.supervisor:fifo-pop return-fifo)))
+                          (when (and (consp status)
+                                     (eql (first status) :error))
+                            (format t "Error while compiling ~S.~%" (second status))
+                            (loop
+                               for worker in workers
+                               do (mezzano.supervisor:terminate-thread worker))
+                            (error (third status))))
+                        (when *compile-print*
+                          (write-char #\.)
+                          (incf i)
+                          (when (eql i 72)
+                            (terpri)
+                            (setf i 0))))
+                   (when *compile-print*
+                     (fresh-line)
+                     (format t ";; Compiled ~:D functions in ~D seconds.~%"
+                             n-functions
+                             (float (/ (- (get-internal-run-time) start-time)
+                                       internal-time-units-per-second)))))
                  (loop
                     repeat n-workers
                     do (mezzano.supervisor:fifo-push :finished work-fifo)))
