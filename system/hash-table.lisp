@@ -38,7 +38,7 @@
          (eql (ldb +address-tag+ (lisp-object-address object))
               +address-tag-pinned+)
          (numberp object)))
-    ((equal equalp)
+    (equal
      ;; Conses & pathnames aren't included because this is a cheap test
      ;; and does not recurse down to ensure all elements are invariant.
      (or (immediatep object)
@@ -46,6 +46,13 @@
                    +address-tag-pinned+)
               (not (consp object)))
          (numberp object)
+         (stringp object)
+         (bit-vector-p object)))
+    (equalp
+     ;; Don't allow arbitray pinned heap objects. EQUALP gets really hairy.
+     (or (immediatep object)
+         (numberp object)
+         (symbolp object)
          (stringp object)
          (bit-vector-p object)))))
 
@@ -71,7 +78,9 @@
     ((equal) 'sxhash)
     ((equalp) 'equalp-hash)))
 
-(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t))
+;;; Unsynchronized hash-tables are safe for use with concurrent readers
+;;; as long as they only contains gc-invariant keys.
+(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t) enforce-gc-invariant-keys)
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
         ((eql test #'eql) (setf test 'eql))
@@ -86,7 +95,10 @@
                               :rehash-size rehash-size
                               :rehash-threshold rehash-threshold
                               :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)
-                              :synchronized synchronized)))
+                              :synchronized synchronized
+                              :gc-invariant (if enforce-gc-invariant-keys
+                                                :mandatory
+                                                t))))
     (when synchronized
       (setf (hash-table-lock ht) (mezzano.supervisor:make-mutex ht)))
     ht))
@@ -117,6 +129,9 @@
   (with-hash-table-lock (hash-table)
     (when (and (hash-table-gc-invariant hash-table)
                (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
+        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
+               key (hash-table-test hash-table)))
       ;; Hash table is no longer invariant.
       (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
@@ -156,6 +171,9 @@
   (with-hash-table-lock (hash-table)
     (when (and (hash-table-gc-invariant hash-table)
                (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
+        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
+               key (hash-table-test hash-table)))
       ;; Hash table is no longer invariant.
       (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
@@ -216,7 +234,8 @@
   (with-hash-table-lock (hash-table)
     (setf (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
-          (hash-table-gc-invariant hash-table) t
+          ;; Make sure to preserve :MANDATORY.
+          (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
           (hash-table-storage hash-table) (make-array (length (hash-table-storage hash-table))
                                                       :initial-element *hash-table-unbound-value*))
     hash-table))
@@ -272,7 +291,8 @@ is below the rehash-threshold."
                                                       :initial-element *hash-table-unbound-value*)
           (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
-          (hash-table-gc-invariant hash-table) t
+          ;; Make sure to preserve :MANDATORY.
+          (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
           (hash-table-storage-epoch hash-table) *gc-epoch*)
     (dotimes (i old-size hash-table)
       (let ((key (svref old-storage (* i 2)))
