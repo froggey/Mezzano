@@ -13,13 +13,13 @@
 (in-package :mezzano.gui.desktop)
 
 (defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzano.gui.fancy-repl:spawn)")
-                  ("LOCAL:>Icons>Chat.png" "IRC" "(irc-client:spawn)")
+                  ("LOCAL:>Icons>Chat.png" "IRC" "(mezzano.irc-client:spawn)")
                   ("LOCAL:>Icons>Editor.png" "Editor" "(med:spawn)")
-                  ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mandelbrot:spawn)")
+                  ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mezzano.mandelbrot:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Peek" "(mezzano.gui.peek:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
                   ("LOCAL:>Icons>Filer.png" "Filer" "(mezzano.gui.filer:spawn)")
-                  ("LOCAL:>Icons>Telnet.png" "Telnet" "(telnet:spawn)")))
+                  ("LOCAL:>Icons>Telnet.png" "Telnet" "(mezzano.telnet:spawn)")))
 
 ;;; Events for modifying the desktop.
 
