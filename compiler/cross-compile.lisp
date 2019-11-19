@@ -1217,3 +1217,25 @@ This should only fill in the START- slots and ignore the END- slots.")
   (setf (location-tracking-stream-character stream)
         (location-tracking-stream-unread-character stream))
   (unread-char character (location-tracking-stream-stream stream)))
+
+(defun mezzano.supervisor:rw-lock-read-acquire (lock)
+  (declare (ignore lock))
+  t)
+
+(defun mezzano.supervisor:rw-lock-read-release (lock)
+  (declare (ignore lock))
+  (values))
+
+(defun mezzano.supervisor:rw-lock-write-acquire (lock)
+  (declare (ignore lock))
+  t)
+
+(defun mezzano.supervisor:rw-lock-write-release (lock)
+  (declare (ignore lock))
+  (values))
+
+(defmacro mezzano.supervisor:with-rw-lock-read ((lock) &body body)
+  `(progn ,@body))
+
+(defmacro mezzano.supervisor:with-rw-lock-write ((lock) &body body)
+  `(progn ,@body))

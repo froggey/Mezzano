@@ -268,7 +268,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *setf-function-info* (make-hash-table :test #'eq)
         *cas-function-info* (make-hash-table :test #'eq))
   (setf *setf-expanders* (make-hash-table :test #'eq))
-  (setf *type-info* (make-hash-table :test #'eq))
+  (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
   (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq))
   (loop

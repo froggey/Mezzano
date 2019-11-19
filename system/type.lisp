@@ -37,14 +37,17 @@
 
 ;; Initialized here for the cold generator and in cold-start for normal operation
 (defvar *type-info* (make-hash-table))
+(defvar *type-info-lock* nil)
 
 (defun type-info-for (name &optional (create t))
   (check-type name symbol)
-  (let ((entry (gethash name *type-info*)))
+  (let ((entry (mezzano.supervisor:with-rw-lock-read (*type-info-lock*)
+                 (gethash name *type-info*))))
     (when (and (not entry) create)
-      (let ((new-entry (make-type-info)))
-        (setf entry (or (cas (gethash name *type-info*) nil new-entry)
-                        new-entry))))
+      (mezzano.supervisor:with-rw-lock-write (*type-info-lock*)
+        (let ((new-entry (make-type-info)))
+          (setf entry (or (cas (gethash name *type-info*) nil new-entry)
+                          new-entry)))))
     entry))
 
 (defun %deftype (name expander documentation)
