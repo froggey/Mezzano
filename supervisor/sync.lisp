@@ -1040,7 +1040,7 @@ This function is not thread-safe. The watcher must not be modified during a
 to WATCHER-WAIT and WATCHER-WAIT must not be called simultaneously from
 multiple threads."
   (check-type watcher watcher)
-  (thread-pool-blocking-hijack watcher-wait watcher wait-p)
+  (thread-pool-blocking-hijack watcher-wait watcher)
   (loop
      (let ((completed (%call-on-wired-stack-without-interrupts
                        #'watcher-wait-1 nil
