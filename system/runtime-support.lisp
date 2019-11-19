@@ -659,8 +659,8 @@ VALUE may be nil to make the fref unbound."
   ;; FIXME: FREF should be locked for the duration.
   ;; FIXME: Fences.
   ;; FIXME: Cross-CPU synchronization.
-  (etypecase value
-    (null
+  (cond
+    ((not value)
      ;; Making it unbound.
      (setf (%object-ref-t fref +fref-function+) fref)
      (%activate-function-reference-full-path fref))
@@ -668,7 +668,7 @@ VALUE may be nil to make the fref unbound."
      ;; Plain function, use the fast path.
      (setf (%object-ref-t fref +fref-function+) value)
      (%activate-function-reference-fast-path
-      fref (%object-ref-t value +function-entry-point+)))
+      fref (%object-ref-unsigned-byte-64 value +function-entry-point+)))
     (t
      ;; Bound to an unusual function. Full path.
      (setf (%object-ref-t fref +fref-function+) value)
