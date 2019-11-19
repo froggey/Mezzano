@@ -323,6 +323,18 @@
            #:condition-wait
            #:condition-wait-for
            #:condition-notify
+           #:rw-lock
+           #:rw-lock-p
+           #:make-rw-lock
+           #:rw-lock-read-acquire
+           #:rw-lock-read-release
+           #:with-rw-lock-read
+           #:rw-lock-read-contested-count
+           #:rw-lock-write-acquire
+           #:rw-lock-write-release
+           #:with-rw-lock-write
+           #:rw-lock-write-held-p
+           #:rw-lock-write-contested-count
            #:latch
            #:latch-p
            #:make-latch

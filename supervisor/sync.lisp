@@ -388,6 +388,291 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                  (pop-one)))))))
   (values))
 
+;;;; Reader/writer locks.
+
+(defconstant +rw-lock-state-mode+ (byte 2 0))
+(defconstant +rw-lock-mode-readers+ #b00) ; or unlocked if count=0
+(defconstant +rw-lock-mode-read-locked-contested+ #b01)
+(defconstant +rw-lock-mode-write-locked+ #b10)
+(defconstant +rw-lock-mode-write-locked-contested+ #b11)
+;; Once the state field enters the contested state it
+;; can only be modified with the internal lock held
+;; or by all readers except the last unlocking it.
+(defconstant +rw-lock-mode-contested-bit+ 1)
+(defconstant +rw-lock-mode-write-bit+ 2)
+
+(defconstant +rw-lock-state-unlocked+ 0)
+(defconstant +rw-lock-state-reader-increment+ 4)
+
+(defstruct (rw-lock
+             (:constructor %make-rw-lock (name))
+             (:area :wired))
+  name
+  (state +rw-lock-state-unlocked+)
+  (lock (place-spinlock-initializer))
+  writer-wait-queue
+  reader-wait-queue
+  (n-pending-readers 0)
+  (read-contested-count 0)
+  (write-contested-count 0)
+  write-owner)
+
+(defun make-rw-lock (&optional name)
+  (let ((rw-lock (%make-rw-lock name)))
+    (setf (rw-lock-writer-wait-queue rw-lock) (make-wait-queue
+                                               :name (sys.int::cons-in-area
+                                                      :writer
+                                                      (sys.int::cons-in-area
+                                                       rw-lock nil :wired)
+                                                      :wired))
+          (rw-lock-reader-wait-queue rw-lock) (make-wait-queue
+                                               :name (sys.int::cons-in-area
+                                                      :reader
+                                                      (sys.int::cons-in-area
+                                                       rw-lock
+                                                       nil
+                                                       :wired)
+                                                      :wired)))
+    rw-lock))
+
+(defun rw-lock-read-acquire-slow (sp fp rw-lock)
+  ;; Slow path for acquiring a RW lock.
+  ;; Returns true if the lock was *not* acquired, false if it was.
+  (acquire-place-spinlock (rw-lock-lock rw-lock))
+  (lock-wait-queue (rw-lock-reader-wait-queue rw-lock))
+  (incf (rw-lock-read-contested-count rw-lock))
+  ;; Move to the appropriate contested state.
+  (let* ((self (current-thread))
+         (current (rw-lock-state rw-lock)))
+    (when (and (not (logtest current +rw-lock-mode-contested-bit+))
+               (or (not (logtest +rw-lock-mode-write-bit+ current))
+                   (not (eql (sys.int::cas (rw-lock-state rw-lock)
+                                           current
+                                           (logior +rw-lock-mode-contested-bit+ current))
+                             current))))
+        ;; Failed to contest the lock or the lock is uncontested-read. Start over.
+        (unlock-wait-queue (rw-lock-reader-wait-queue rw-lock))
+        (release-place-spinlock (rw-lock-lock rw-lock))
+        (return-from rw-lock-read-acquire-slow t))
+    ;; Now we can safely sleep on the reader wait queue.
+    ;; The unlock paths will directly transfer ownership to this thread.
+    (push-wait-queue self (rw-lock-reader-wait-queue rw-lock))
+    ;; Sadly this isn't an accurate count due to interrupts.
+    ;; Nothing will ever decrement the count if this thread has to
+    ;; restart the acquire call.
+    ;; RELEASE-SLOW accounts for this.
+    (incf (rw-lock-n-pending-readers rw-lock))
+    ;; Now sleep.
+    ;; Must take the thread lock before dropping the mutex lock or release
+    ;; may be able to remove the thread from the sleep queue before it goes
+    ;; to sleep.
+    (acquire-global-thread-lock)
+    (unlock-wait-queue (rw-lock-reader-wait-queue rw-lock))
+    (release-place-spinlock (rw-lock-lock rw-lock))
+    (setf (thread-wait-item self) rw-lock
+          (thread-state self) :sleeping
+          (thread-unsleep-helper self) #'rw-lock-read-acquire
+          (thread-unsleep-helper-argument self) rw-lock)
+    ;; Returns NIL (don't retry, lock successful)
+    (%reschedule-via-wired-stack sp fp)))
+
+(defun rw-lock-read-acquire (rw-lock &optional (wait-p t))
+  (cond (wait-p
+         (loop
+            (let ((state (rw-lock-state rw-lock)))
+              (when (logtest (logior +rw-lock-mode-write-bit+ +rw-lock-mode-contested-bit+) state)
+                ;; Lock is contested or write-locked. Fail.
+                (return nil))
+              ;; Try to acquire as an uncontested reader.
+              ;; Retry if the lock state changed under us.
+              (when (eql (sys.int::cas (rw-lock-state rw-lock) state (+ state +rw-lock-state-reader-increment+)) state)
+                ;; Easy!
+                (return t)))))
+        (t
+         (loop
+            ;; Examine the state variable.
+            (let ((state (rw-lock-state rw-lock)))
+              ;; Try to acquire as an uncontested reader.
+              (when (and (not (logtest (logior +rw-lock-mode-write-bit+ +rw-lock-mode-contested-bit+) state))
+                         (eql (sys.int::cas (rw-lock-state rw-lock) state (+ state +rw-lock-state-reader-increment+)) state))
+                ;; Easy!
+                (return)))
+            ;; Going to block.
+            (when (not (%call-on-wired-stack-without-interrupts
+                        #'rw-lock-read-acquire-slow nil rw-lock))
+              ;; Retry not required, lock is now write-locked.
+              (return)))
+         t)))
+
+(defun rw-lock-release-slow (rw-lock)
+  (safe-without-interrupts (rw-lock)
+    (block nil
+      (with-place-spinlock ((rw-lock-lock rw-lock))
+        ;; Try to wake writers first.
+        (with-wait-queue-lock ((rw-lock-writer-wait-queue rw-lock))
+          (when (not (wait-queue-empty-p (rw-lock-writer-wait-queue rw-lock)))
+            ;; Writer present, move to write-contested mode and hand
+            ;; the lock over.
+            (setf (rw-lock-state rw-lock) +rw-lock-mode-write-locked-contested+)
+            ;; TODO: Move to write-locked uncontested if this is the only writer/reader.
+            (wake-thread (pop-wait-queue (rw-lock-writer-wait-queue rw-lock)))
+            ;; Woken one writer, stop here.
+            (return nil)))
+        ;; Look for readers now.
+        (with-wait-queue-lock ((rw-lock-reader-wait-queue rw-lock))
+          (cond ((wait-queue-empty-p (rw-lock-reader-wait-queue rw-lock))
+                 ;; No readers? Everybody went home.
+                 (setf (rw-lock-state rw-lock) +rw-lock-state-unlocked+))
+                (t
+                 ;; Move to the uncontested read state with the appropriate number
+                 ;; of readers.
+                 ;; Setting the reader count before waking them prevents woken
+                 ;; readers from unlocking the lock too soon.
+                 (setf (rw-lock-state rw-lock) (* (rw-lock-n-pending-readers rw-lock)
+                                                  +rw-lock-state-reader-increment+))
+                 ;; Now wake all pending readers.
+                 (loop
+                    until (wait-queue-empty-p (rw-lock-reader-wait-queue rw-lock))
+                    do
+                      (wake-thread (pop-wait-queue (rw-lock-reader-wait-queue rw-lock)))
+                      (decf (rw-lock-n-pending-readers rw-lock)))
+                 ;; N-PENDING-READERS may be out of sync due to interrupts.
+                 ;; Patch things up here.
+                 (when (not (zerop (rw-lock-n-pending-readers rw-lock)))
+                   (loop
+                      for current = (rw-lock-state rw-lock)
+                      for new = (- current (* (rw-lock-n-pending-readers rw-lock)
+                                              +rw-lock-state-reader-increment+))
+                      until (eql (sys.int::cas (rw-lock-state rw-lock) current new) current))
+                   (setf (rw-lock-n-pending-readers rw-lock) 0)))))))))
+
+(defun rw-lock-read-release (rw-lock)
+  (loop
+     (let ((state (rw-lock-state rw-lock)))
+       (ensure (not (logtest state +rw-lock-mode-write-bit+)))
+       (ensure (plusp (logand state (lognot +rw-lock-mode-contested-bit+))))
+       (cond ((eql (logior +rw-lock-state-reader-increment+
+                           +rw-lock-mode-contested-bit+)
+                   state)
+              ;; Lock is contested and we are the last reader.
+              (rw-lock-release-slow rw-lock)
+              (return))
+             (t
+              ;; Locked for reading, nothing pending or we're not
+              ;; the last reader. Just decrement the reader count.
+              (ensure (eql (ldb +rw-lock-state-mode+ state) +rw-lock-mode-readers+))
+              (let ((new (- state +rw-lock-state-reader-increment+)))
+                (when (eql (sys.int::cas (rw-lock-state rw-lock) state new) state)
+                  ;; Successfully released as a reader.
+                  (return)))))))
+  (values))
+
+(defmacro with-rw-lock-read ((rw-lock) &body body)
+  (let ((lock (gensym "RW-LOCK")))
+    `(let ((,lock ,rw-lock))
+       (rw-lock-read-acquire ,lock)
+       (unwind-protect
+            (progn ,@body)
+         (rw-lock-read-release ,lock)))))
+
+(defun rw-lock-write-acquire-slow (sp fp rw-lock)
+  ;; Slow path for acquiring a RW lock.
+  ;; Returns true if the lock was *not* acquired, false if it was.
+  (acquire-place-spinlock (rw-lock-lock rw-lock))
+  (lock-wait-queue (rw-lock-writer-wait-queue rw-lock))
+  (incf (rw-lock-write-contested-count rw-lock))
+  ;; Move to the appropriate contested state.
+  (let* ((self (current-thread))
+         (current (rw-lock-state rw-lock)))
+    ;; Don't contest if the lock actually unlocked.
+    (when (or (eql current +rw-lock-state-unlocked+)
+              (not (eql (sys.int::cas (rw-lock-state rw-lock)
+                                      current
+                                      (logior current +rw-lock-mode-contested-bit+))
+                        current)))
+      ;; Failed to contest the lock. Start over.
+      (unlock-wait-queue (rw-lock-writer-wait-queue rw-lock))
+      (release-place-spinlock (rw-lock-lock rw-lock))
+      (return-from rw-lock-write-acquire-slow t))
+    ;; Now we can safely sleep on the writer wait queue.
+    ;; The unlock paths will directly transfer ownership to this thread.
+    (push-wait-queue self (rw-lock-writer-wait-queue rw-lock))
+    ;; Now sleep.
+    ;; Must take the thread lock before dropping the mutex lock or release
+    ;; may be able to remove the thread from the sleep queue before it goes
+    ;; to sleep.
+    (acquire-global-thread-lock)
+    (unlock-wait-queue (rw-lock-writer-wait-queue rw-lock))
+    (release-place-spinlock (rw-lock-lock rw-lock))
+    (setf (thread-wait-item self) rw-lock
+          (thread-state self) :sleeping
+          (thread-unsleep-helper self) #'rw-lock-write-acquire
+          (thread-unsleep-helper-argument self) rw-lock)
+    ;; Returns NIL (don't retry, lock successful)
+    (%reschedule-via-wired-stack sp fp)))
+
+(defun rw-lock-write-acquire (rw-lock &optional (wait-p t))
+  (loop
+     (when (eql (sys.int::cas (rw-lock-state rw-lock)
+                              +rw-lock-state-unlocked+
+                              +rw-lock-mode-write-locked+)
+                +rw-lock-state-unlocked+)
+       ;; CAS passed, lock is now write-locked.
+       (setf (rw-lock-write-owner rw-lock) (current-thread))
+       (return t))
+     (when (eql (rw-lock-write-owner rw-lock) (current-thread))
+       (if *lock-violations-are-fatal*
+           (panic "Recursive write locking detected on " rw-lock " " (rw-lock-name rw-lock))
+           (error 'sys.int::mutex-error
+                  :mutex rw-lock
+                  :format-control "Recursive locking detected on ~S ~S"
+                  :format-arguments (list rw-lock (rw-lock-name rw-lock)))))
+     (when (not wait-p)
+       (return nil))
+     (when (not (%call-on-wired-stack-without-interrupts
+                 #'rw-lock-write-acquire-slow nil rw-lock))
+       ;; Retry not required, lock is now write-locked.
+       (setf (rw-lock-write-owner rw-lock) (current-thread))
+       (return t))))
+
+(defun rw-lock-write-release (rw-lock)
+  (let ((current-owner (rw-lock-write-owner rw-lock)))
+    (cond ((not current-owner)
+           (if *lock-violations-are-fatal*
+               (panic "Trying to release unheld rw-lock " rw-lock)
+               (error 'sys.int::mutex-error
+                      :mutex rw-lock
+                      :format-control "Trying to release unheld rw-lock ~S ~S"
+                      :format-arguments (list rw-lock (rw-lock-name rw-lock)))))
+          ((not (eql current-owner (current-thread)))
+           (if *lock-violations-are-fatal*
+               (panic "Trying to release rw-lock " rw-lock " held by other thread " current-owner)
+               (error 'sys.int::mutex-error
+                      :mutex rw-lock
+                      :format-control "Trying to release rw-lock ~S ~S held by other thread ~S"
+                      :format-arguments (list rw-lock (rw-lock-name rw-lock) current-owner))))))
+  (setf (rw-lock-write-owner rw-lock) nil)
+  ;; Try to move out of the uncontested state.
+  (let ((state (sys.int::cas (rw-lock-state rw-lock)
+                             +rw-lock-mode-write-locked+
+                             +rw-lock-state-unlocked+)))
+    (when (not (eql state +rw-lock-mode-write-locked+))
+      ;; Lock must be contested.
+      (ensure (eql state +rw-lock-mode-write-locked-contested+))
+      (rw-lock-release-slow rw-lock)))
+  (values))
+
+(defmacro with-rw-lock-write ((rw-lock) &body body)
+  (let ((lock (gensym "RW-LOCK")))
+    `(let ((,lock ,rw-lock))
+       (rw-lock-write-acquire ,lock)
+       (unwind-protect
+            (progn ,@body)
+         (rw-lock-write-release ,lock)))))
+
+(defun rw-lock-write-held-p (rw-lock)
+  (eql (rw-lock-write-owner rw-lock) (current-thread)))
+
 ;;;; The EVENT primitive, used by WAIT-FOR-OBJECTS
 ;;;; to support waiting for multiple objects.
 
