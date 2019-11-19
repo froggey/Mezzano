@@ -271,7 +271,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
-  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq))
+  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        mezzano.clos::*class-reference-table-lock* (mezzano.supervisor:make-rw-lock 'mezzano.clos::*class-reference-table*))
   (loop
      for (name . class) across mezzano.clos::*initial-class-table*
      do (setf (find-class name) class))
