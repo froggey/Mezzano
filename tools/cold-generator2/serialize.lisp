@@ -245,10 +245,15 @@ Must not call SERIALIZE-OBJECT."))
   (initialize-object-header image value sys.int::+object-tag-function-reference+ 0)
   (setf (object-slot image value sys.int::+fref-name+)
         (serialize-object (env:function-reference-name object) image environment))
-  (let ((undef-fn (serialize-object (env:cross-symbol-value environment 'sys.int::*undefined-function-trampoline*)
+  ;; Undefined frefs point directly at raise-undefined-function.
+  (let ((undef-fref (serialize-object (env:function-reference
+                                       environment
+                                       (env:translate-symbol
+                                        environment
+                                        'sys.int::raise-undefined-function))
                                     image environment)))
     (setf (object-slot image value sys.int::+fref-undefined-entry-point+)
-          (object-slot image undef-fn sys.int::+function-entry-point+)))
+          (object-slot-location image undef-fref sys.int::+fref-code+)))
   (let* ((fn (env:function-reference-function object))
          (fn-value (serialize-object fn image environment)))
     (if fn

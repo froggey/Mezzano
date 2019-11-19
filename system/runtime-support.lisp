@@ -553,8 +553,10 @@
   (let ((fref (mezzano.runtime::%allocate-function
                +object-tag-function-reference+ 0 8 t)))
     (setf (%object-ref-t fref +fref-name+) name)
-    (setf (%object-ref-t fref +fref-undefined-entry-point+)
-          (%object-ref-t *undefined-function-trampoline* +function-entry-point+))
+    ;; Undefined frefs point directly at raise-undefined-function.
+    (setf (%object-ref-unsigned-byte-64 fref +fref-undefined-entry-point+)
+          (%function-reference-code-location
+           (function-reference 'raise-undefined-function)))
     (setf (%object-ref-t fref +fref-function+) fref)
     ;; (nop (:rax))
     ;; (jmp <direct-target>) ; initially 0 to activate the fallback path.

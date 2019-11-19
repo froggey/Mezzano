@@ -11,12 +11,6 @@
 
 (in-package :mezzano.cold-generator.x86-64)
 
-(defparameter *undefined-function-thunk*
-  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-    ;; Just call though to the appropriate function.
-    (lap:jmp (:named-call sys.int::raise-undefined-function)))
-  "Code for the undefined function thunk.")
-
 (defparameter *funcallable-instance-trampoline*
   `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
     ;; Load the real function from the funcallable-instance.
@@ -219,11 +213,6 @@
       (values))))
 
 (defmethod configure-system-for-target (environment (target (eql :x86-64)))
-  (setf (env:cross-symbol-value environment 'sys.int::*undefined-function-trampoline*)
-        (env:compile-lap environment
-                         *undefined-function-thunk*
-                         :area :wired-function
-                         :name (env:translate-symbol environment 'sys.int::%%undefined-function-trampoline%%)))
   (setf (env:cross-symbol-value environment 'sys.int::*funcallable-instance-trampoline*)
         (env:compile-lap environment
                          *funcallable-instance-trampoline*
