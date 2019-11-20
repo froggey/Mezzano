@@ -368,7 +368,7 @@
     (loop
        (setf (fill-pointer objects) 0)
        ;; Don't include :CONS as it's just full of CONSes
-       (dolist (area '(:general :pinned :wired))
+       (dolist (area '(:general :pinned :wired :wired-function :function))
          (walk-area area
                     (lambda (object address size)
                       (declare (ignore address size))
