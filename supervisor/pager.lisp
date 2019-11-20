@@ -45,6 +45,8 @@
   (sys.int::memref-unsigned-byte-64 page-table index))
 (defun (setf page-table-entry) (value page-table &optional (index 0))
   (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
+(defun (sys.int::cas page-table-entry) (old new page-table &optional (index 0))
+  (sys.int::cas (sys.int::memref-unsigned-byte-64 page-table index) old new))
 
 (declaim (inline zeroize-page zeroize-physical-page))
 (defun zeroize-page (addr)
@@ -771,21 +773,43 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
   (declare (ignore writep))
-  (with-rw-lock-write (*vm-lock* :wait-p nil)
+  ;; GC write barrier.
+  ;; If a read-only non-COW page is written to then set the appropriate
+  ;; card table entry and make the page writable again.
+  ;; Other threads can change the page from read-only to read-write
+  ;; under us, so check for that and assume success in that case.
+  (with-rw-lock-read (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
                  (page-present-p pte)
-                 (not (page-writable-p pte))
                  (not (page-copy-on-write-p pte))
                  block-info
                  (block-info-writable-p block-info)
                  (block-info-track-dirty-p block-info))
+        ;; CAS loop to attempt a PTE update.
+        ;; The fast path will only ever change a page from
+        ;; not-present to present or from read-only to read-write.
+        ;; So this page will never disappear out from under us and
+        ;; looping without repeating the above checks is safe.
+        (loop
+           (let ((pte-value (page-table-entry pte)))
+             (when (pte-page-writable-p pte-value)
+               ;; Page was writable all along. Possibly a stale
+               ;; TLB entry or another thread hit the write barrier
+               ;; at the same time.
+               (flush-tlb-single fault-address)
+               (return))
+             (when (update-pte-atomic pte pte-value :writable t)
+               ;; Page table updated successfully.
+               (return))))
         ;; Tracking dirty bits for the GC.
         (setf (sys.int::card-table-dirty-gen fault-address) 0)
-        (update-pte pte :writable t)
         (flush-tlb-single fault-address)
-        (return-from wait-for-page-fast-path t))
+        (return-from wait-for-page-fast-path t))))
+  (with-rw-lock-write (*vm-lock* :wait-p nil)
+    (let ((pte (get-pte-for-address fault-address nil))
+          (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
                  (not (page-present-p pte))
                  block-info
@@ -817,7 +841,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               ;; At this point all other CPUs should know that this entry is non-present,
               ;; so the worst case is that a phony page fault is taken.
               (flush-tlb-single fault-address))
-            t))))))
+            (return-from wait-for-page-fast-path t)))))))
 
 (defun wait-for-page-via-interrupt (interrupt-frame address writep ist-state)
   "Called by the page fault handler when a page fault occurs.
