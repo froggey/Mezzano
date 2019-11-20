@@ -25,8 +25,8 @@
 (defclass thread-pool ()
   ((%name :initarg :name :reader thread-pool-name)
    (%initial-bindings :initarg :initial-bindings :reader thread-pool-initial-bindings)
-   (%lock :initform (sup:make-mutex "Thread-Pool lock") :reader thread-pool-lock)
-   (%cvar :initform (sup:make-condition-variable "Thread-Pool cvar") :reader thread-pool-cvar)
+   (%lock :reader thread-pool-lock)
+   (%cvar :reader thread-pool-cvar)
    (%pending :initform '() :accessor thread-pool-pending)
    (%working-threads :initform '() :accessor thread-pool-working-threads)
    (%idle-threads :initform '() :accessor thread-pool-idle-threads)
@@ -35,6 +35,10 @@
    (%shutdown :initform nil :accessor thread-pool-shutdown-p)
    (%keepalive-time :initarg :keepalive-time :accessor thread-pool-keepalive-time))
   (:default-initargs :name nil :initial-bindings '()))
+
+(defmethod initialize-instance :after ((instance thread-pool) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)
+        (slot-value instance '%cvar) (sup:make-condition-variable instance)))
 
 (defclass work-item ()
   ((%name :initarg :name :reader work-item-name)
