@@ -6,9 +6,12 @@
 (in-package :mezzano.clos)
 
 (defstruct (single-dispatch-emf-table
-             (:constructor make-single-dispatch-emf-table ()))
-  (update-lock (mezzano.supervisor:make-mutex "1-dispatch EMF table update lock"))
+             (:constructor %make-single-dispatch-emf-table (update-lock)))
+  update-lock
   (table (make-fast-class-hash-table)))
+
+(defun make-single-dispatch-emf-table (generic-function)
+  (%make-single-dispatch-emf-table (mezzano.supervisor:make-mutex `(single-dispatch-emf-cache ,generic-function))))
 
 (defun single-dispatch-emf-table-count (emf-table)
   (fast-class-hash-table-count

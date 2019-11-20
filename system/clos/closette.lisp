@@ -1571,7 +1571,7 @@ has only has class specializer."
     (setf (safe-generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
   (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
-                                         (make-single-dispatch-emf-table))
+                                         (make-single-dispatch-emf-table gf))
                                         ((generic-function-unspecialized-dispatch-p gf)
                                          nil)
                                         (t
