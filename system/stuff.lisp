@@ -380,6 +380,30 @@
        (adjust-array objects (* (array-dimension objects 0) 2)))
     objects))
 
+(defun get-all-object-references (object)
+  "Find all objects that refer to OBJECT."
+  (let* ((objects (make-array 10000 :fill-pointer 0))
+         (helper (locally
+                     ;; Hide this from the compiler.
+                     ;; The closure needs to be created here, not brought
+                     ;; forwards into the lambda passed to walk-all-areas.
+                     (declare (notinline identity))
+                   (identity
+                    (lambda (container inner-object index)
+                      (declare (ignore index))
+                      (when (eql inner-object object)
+                        (vector-push container objects)))))))
+    (loop
+       (setf (fill-pointer objects) 0)
+       (walk-all-areas
+        (lambda (object address size)
+          (declare (ignore address size))
+          (walk-object-references object helper)))
+       (when (not (eql (fill-pointer objects) (array-dimension objects 0)))
+         (return))
+       (adjust-array objects (* (array-dimension objects 0) 2)))
+    objects))
+
 (defun contestable-lock-p (object)
   (or (mezzano.supervisor:mutex-p object)
       (mezzano.supervisor:rw-lock-p object)))

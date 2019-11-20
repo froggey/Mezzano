@@ -19,13 +19,14 @@
   (%type-check function +object-tag-function+ 'compiled-function)
   (ldb +function-header-metadata-size+ (%object-header-data function)))
 
-(defun function-pool-object (function offset)
+(defun function-pool-base (function)
   (%type-check function +object-tag-function+ 'compiled-function)
+  (- (truncate (function-code-size function) 8) 1))
+
+(defun function-pool-object (function offset)
   (check-type offset (integer 0))
   (assert (< offset (function-pool-size function)))
-  (let ((address (logand (lisp-object-address function) -16))
-        (mc-size (truncate (function-code-size function) 8))) ; in words.
-    (memref-t address (+ mc-size offset))))
+  (%object-ref-t function (+ (function-pool-base function) offset)))
 
 (defun function-code-byte (function offset)
   (%type-check function +object-tag-function+ 'compiled-function)

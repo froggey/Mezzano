@@ -249,6 +249,12 @@ Should be kept in sync with data-types.")
                              *old-gen-newspace-bit*)
                      *cons-area-old-gen-bump*))
 
+(defparameter *area-names* '(:pinned :wired :wired-function :function :general :cons))
+
+(defun walk-all-areas (fn)
+  (dolist (area *area-names*)
+    (walk-area area fn)))
+
 (defun walk-area (area fn)
   "Call FN with the value, address and size of every object in AREA.
 FN will be called with the world stopped, it must not allocate."
@@ -324,3 +330,82 @@ FN will be called with the world stopped, it must not allocate."
                  (when (%object-of-type-p object +object-tag-freelist-entry+)
                    (incf (aref counts (integer-length (1- size)))))))
     counts))
+
+(defun walk-object-references (object fn)
+  "Walk an object and call FN with the object, the value of any unspecialized field, and the field index.
+An unspecialized field is a field that may hold any Lisp value, not specialized
+on floats or integers."
+  (cond ((consp object)
+         (funcall fn object (car object) :car)
+         (funcall fn object (cdr object) :cdr))
+        ((%value-has-tag-p object +tag-object+)
+         (case (%object-tag object)
+           (#.+object-tag-array-t+
+            (dotimes (i (length object))
+              (funcall fn object (svref object i) i)))
+           ((#.+object-tag-simple-string+
+             #.+object-tag-string+
+             #.+object-tag-simple-array+
+             #.+object-tag-array+)
+            ;; Don't include the axes, they're not references.
+            (funcall fn object (%complex-array-storage object) +complex-array-storage+)
+            (funcall fn object (%complex-array-fill-pointer object) +complex-array-fill-pointer+)
+            (funcall fn object (%complex-array-info object) +complex-array-info+))
+           (#.+object-tag-ratio+
+            (funcall fn object (numerator object) +ratio-numerator+)
+            (funcall fn object (denominator object) +ratio-denominator+))
+           (#.+object-tag-complex-rational+
+            (funcall fn object (realpart object) +complex-realpart+)
+            (funcall fn object (imagpart object) +complex-imagpart+))
+           (#.+object-tag-symbol-value-cell+
+            (dotimes (i (%object-header-data object))
+              (funcall fn object (%object-ref-t object i) i)))
+           (#.+object-tag-symbol+
+            (dotimes (i 5)
+              (funcall fn object (%object-ref-t object i) i)))
+           ;;+object-tag-weak-pointer-vector+
+           (#.+object-tag-instance+
+            ;; Gets a bit hairy with gc link-snapping...
+            (let* ((direct-layout (%instance-layout object))
+                   (layout (if (layout-p direct-layout)
+                               direct-layout
+                               (mezzano.runtime::obsolete-instance-layout-old-layout
+                                direct-layout)))
+                   (heap-layout (layout-heap-layout layout)))
+              (funcall fn object layout -1)
+              (cond ((eql heap-layout 't)
+                     (dotimes (i (layout-heap-size layout))
+                       (funcall fn object (%object-ref-t object i) i)))
+                    (heap-layout
+                     (dotimes (i (layout-heap-size layout))
+                       (when (eql (bit heap-layout i) 1)
+                         (funcall fn object (%object-ref-t object i) i)))))))
+           (#.+object-tag-function-reference+
+            (funcall fn object (%object-ref-t object +fref-name+) +fref-name+)
+            (funcall fn object (%object-ref-t object +fref-function+) +fref-function+))
+           ;;+object-tag-weak-pointer+
+           (#.+object-tag-function+
+            (let ((pool-base (function-pool-base object)))
+              (dotimes (i (function-pool-size object))
+                (funcall fn object (%object-ref-t object (+ pool-base i)) (+ pool-base i)))))
+           (#.+object-tag-funcallable-instance+
+            ;; Gets a bit hairy with gc link-snapping...
+            (let* ((direct-layout (%instance-layout object))
+                   (layout (if (layout-p direct-layout)
+                               direct-layout
+                               (mezzano.runtime::obsolete-instance-layout-old-layout
+                                direct-layout)))
+                   (heap-layout (layout-heap-layout layout)))
+              (funcall fn object layout -1)
+              (funcall fn object (%object-ref-t fn +funcallable-instance-function+) +funcallable-instance-function+)
+              (cond ((eql heap-layout 't)
+                     (dotimes (i (layout-heap-size layout))
+                       (funcall fn object (%object-ref-t object i) i)))
+                    (heap-layout
+                     (dotimes (i (layout-heap-size layout))
+                       (when (eql (bit heap-layout i) 1)
+                         (funcall fn object (%object-ref-t object i) i)))))))
+           (#.+object-tag-closure+
+            (loop
+               for i from 1 below (%object-header-data object)
+               do (funcall fn object (%object-ref-t object i) i)))))))
