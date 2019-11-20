@@ -39,22 +39,34 @@
               +address-tag-pinned+)
          (numberp object)))
     (equal
-     ;; Conses & pathnames aren't included because this is a cheap test
-     ;; and does not recurse down to ensure all elements are invariant.
-     (or (immediatep object)
-         (and (eql (ldb +address-tag+ (lisp-object-address object))
-                   +address-tag-pinned+)
-              (not (consp object)))
-         (numberp object)
-         (stringp object)
-         (bit-vector-p object)))
+     (labels ((frob (object depth)
+                (when (zerop depth)
+                  ;; Hard limit on recursion limit for conses, to avoid more complicated
+                  ;; circularity checks.
+                  ;; TODO: Do the normal fast/slow circularity check and chase
+                  ;; all the way down the cdr.
+                  (return-from frob nil))
+                (or (immediatep object)
+                    (and (eql (ldb +address-tag+ (lisp-object-address object))
+                              +address-tag-pinned+)
+                         ;; Pathnames are never pinned and conses are checked below.
+                         (not (consp object)))
+                    (numberp object)
+                    (stringp object)
+                    (bit-vector-p object)
+                    (pathnamep object)
+                    (and (consp object)
+                         (frob (car object) (1- depth))
+                         (frob (cdr object) (1- depth))))))
+       (frob object 10)))
     (equalp
      ;; Don't allow arbitray pinned heap objects. EQUALP gets really hairy.
      (or (immediatep object)
          (numberp object)
          (symbolp object)
          (stringp object)
-         (bit-vector-p object)))))
+         (bit-vector-p object)
+         (pathnamep object)))))
 
 (defun hash-table-size (hash-table)
   (ash (%object-header-data (hash-table-storage hash-table)) -1))
