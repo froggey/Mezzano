@@ -406,7 +406,8 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
 
 (defstruct (rw-lock
              (:constructor %make-rw-lock (name))
-             (:area :wired))
+             (:area :wired)
+             :slot-offsets)
   name
   (state +rw-lock-state-unlocked+)
   (lock (place-spinlock-initializer))
@@ -440,7 +441,6 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
   ;; Returns true if the lock was *not* acquired, false if it was.
   (acquire-place-spinlock (rw-lock-lock rw-lock))
   (lock-wait-queue (rw-lock-reader-wait-queue rw-lock))
-  (incf (rw-lock-read-contested-count rw-lock))
   ;; Move to the appropriate contested state.
   (let* ((self (current-thread))
          (current (rw-lock-state rw-lock)))
@@ -454,6 +454,8 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
         (unlock-wait-queue (rw-lock-reader-wait-queue rw-lock))
         (release-place-spinlock (rw-lock-lock rw-lock))
         (return-from rw-lock-read-acquire-slow t))
+    ;; Successfully contested the lock (or it was already contested).
+    (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-read-contested-count+ 1)
     ;; Now we can safely sleep on the reader wait queue.
     ;; The unlock paths will directly transfer ownership to this thread.
     (push-wait-queue self (rw-lock-reader-wait-queue rw-lock))
@@ -479,17 +481,6 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
 (defun rw-lock-read-acquire (rw-lock &optional (wait-p t))
   (cond (wait-p
          (loop
-            (let ((state (rw-lock-state rw-lock)))
-              (when (logtest (logior +rw-lock-mode-write-bit+ +rw-lock-mode-contested-bit+) state)
-                ;; Lock is contested or write-locked. Fail.
-                (return nil))
-              ;; Try to acquire as an uncontested reader.
-              ;; Retry if the lock state changed under us.
-              (when (eql (sys.int::cas (rw-lock-state rw-lock) state (+ state +rw-lock-state-reader-increment+)) state)
-                ;; Easy!
-                (return t)))))
-        (t
-         (loop
             ;; Examine the state variable.
             (let ((state (rw-lock-state rw-lock)))
               ;; Try to acquire as an uncontested reader.
@@ -502,7 +493,19 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                         #'rw-lock-read-acquire-slow nil rw-lock))
               ;; Retry not required, lock is now write-locked.
               (return)))
-         t)))
+         t)
+        (t
+         (loop
+            (let ((state (rw-lock-state rw-lock)))
+              (when (logtest (logior +rw-lock-mode-write-bit+ +rw-lock-mode-contested-bit+) state)
+                ;; Lock is contested or write-locked. Fail.
+                (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-read-contested-count+ 1)
+                (return nil))
+              ;; Try to acquire as an uncontested reader.
+              ;; Retry if the lock state changed under us.
+              (when (eql (sys.int::cas (rw-lock-state rw-lock) state (+ state +rw-lock-state-reader-increment+)) state)
+                ;; Easy!
+                (return t)))))))
 
 (defun rw-lock-release-slow (rw-lock)
   (safe-without-interrupts (rw-lock)
@@ -567,20 +570,19 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                   (return)))))))
   (values))
 
-(defmacro with-rw-lock-read ((rw-lock) &body body)
+(defmacro with-rw-lock-read ((rw-lock &key (wait-p t)) &body body)
   (let ((lock (gensym "RW-LOCK")))
     `(let ((,lock ,rw-lock))
-       (rw-lock-read-acquire ,lock)
-       (unwind-protect
-            (progn ,@body)
-         (rw-lock-read-release ,lock)))))
+       (when (rw-lock-read-acquire ,lock ,wait-p)
+         (unwind-protect
+              (progn ,@body)
+           (rw-lock-read-release ,lock))))))
 
 (defun rw-lock-write-acquire-slow (sp fp rw-lock)
   ;; Slow path for acquiring a RW lock.
   ;; Returns true if the lock was *not* acquired, false if it was.
   (acquire-place-spinlock (rw-lock-lock rw-lock))
   (lock-wait-queue (rw-lock-writer-wait-queue rw-lock))
-  (incf (rw-lock-write-contested-count rw-lock))
   ;; Move to the appropriate contested state.
   (let* ((self (current-thread))
          (current (rw-lock-state rw-lock)))
@@ -594,6 +596,8 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
       (unlock-wait-queue (rw-lock-writer-wait-queue rw-lock))
       (release-place-spinlock (rw-lock-lock rw-lock))
       (return-from rw-lock-write-acquire-slow t))
+    ;; Successfully contested the lock (or it was already contested).
+    (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-write-contested-count+ 1)
     ;; Now we can safely sleep on the writer wait queue.
     ;; The unlock paths will directly transfer ownership to this thread.
     (push-wait-queue self (rw-lock-writer-wait-queue rw-lock))
@@ -628,6 +632,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                   :format-control "Recursive locking detected on ~S ~S"
                   :format-arguments (list rw-lock (rw-lock-name rw-lock)))))
      (when (not wait-p)
+       (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-write-contested-count+ 1)
        (return nil))
      (when (not (%call-on-wired-stack-without-interrupts
                  #'rw-lock-write-acquire-slow nil rw-lock))
@@ -662,13 +667,13 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
       (rw-lock-release-slow rw-lock)))
   (values))
 
-(defmacro with-rw-lock-write ((rw-lock) &body body)
+(defmacro with-rw-lock-write ((rw-lock &key (wait-p t)) &body body)
   (let ((lock (gensym "RW-LOCK")))
     `(let ((,lock ,rw-lock))
-       (rw-lock-write-acquire ,lock)
-       (unwind-protect
-            (progn ,@body)
-         (rw-lock-write-release ,lock)))))
+       (when (rw-lock-write-acquire ,lock ,wait-p)
+         (unwind-protect
+              (progn ,@body)
+           (rw-lock-write-release ,lock))))))
 
 (defun rw-lock-write-held-p (rw-lock)
   (eql (rw-lock-write-owner rw-lock) (current-thread)))
