@@ -1218,6 +1218,10 @@ This should only fill in the START- slots and ignore the END- slots.")
         (location-tracking-stream-unread-character stream))
   (unread-char character (location-tracking-stream-stream stream)))
 
+(defun mezzano.supervisor:make-rw-lock (&optional name)
+  (declare (ignore name))
+  :rw-lock)
+
 (defun mezzano.supervisor:rw-lock-read-acquire (lock &optional wait-p)
   (declare (ignore lock wait-p))
   t)

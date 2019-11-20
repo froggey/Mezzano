@@ -5,6 +5,12 @@
 
 (in-package :cross-support)
 
+(defun make-hash-table (&rest args &key test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys)
+  (declare (ignore test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys))
+  (remf args :synchronized)
+  (remf args :enforce-gc-invariant-keys)
+  (apply #'cl:make-hash-table args))
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
