@@ -21,6 +21,7 @@
 (sys.int::defglobal *paging-read-only*)
 (sys.int::defglobal *bml4*)
 
+(sys.int::defglobal *page-replacement-list-lock*)
 (sys.int::defglobal *page-replacement-list-head*)
 (sys.int::defglobal *page-replacement-list-tail*)
 
@@ -653,22 +654,26 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (setf (physical-page-frame-type frame) new-type)))
     frame))
 
-;;; This list is also modified by the page fault handler.
-;;; No locking is required for this at the moment, as neither the pager nor the snapshotter
-;;; ever cause page faults. Extra locking might be required in the future (SMP, preemption, etc).
+;;; WAIT-FOR-PAGE-FAST-PATH calls this concurrently with the *VM-LOCK*
+;;; read-held, so append requires an additional lock.
+;;; All other accesses to the replacement list are perfomed with the
+;;; full *VM-LOCK* write-held so don't need to lock.
 (defun append-to-page-replacement-list (frame)
-  (cond (*page-replacement-list-head*
-         (setf (physical-page-frame-next *page-replacement-list-tail*) frame
-               (physical-page-frame-prev frame) *page-replacement-list-tail*
-               (physical-page-frame-next frame) nil
-               *page-replacement-list-tail* frame))
-        (t
-         (setf *page-replacement-list-head* frame
-               *page-replacement-list-tail* frame
-               (physical-page-frame-next frame) nil
-               (physical-page-frame-prev frame) nil))))
+  (safe-without-interrupts (frame)
+    (with-place-spinlock (*page-replacement-list-lock*)
+      (cond (*page-replacement-list-head*
+             (setf (physical-page-frame-next *page-replacement-list-tail*) frame
+                   (physical-page-frame-prev frame) *page-replacement-list-tail*
+                   (physical-page-frame-next frame) nil
+                   *page-replacement-list-tail* frame))
+            (t
+             (setf *page-replacement-list-head* frame
+                   *page-replacement-list-tail* frame
+                   (physical-page-frame-next frame) nil
+                   (physical-page-frame-prev frame) nil))))))
 
 (defun remove-from-page-replacement-list (frame)
+  (ensure (rw-lock-write-held-p *vm-lock*))
   (when (eql *page-replacement-list-head* frame)
     (setf *page-replacement-list-head* (physical-page-frame-next frame)))
   (when (physical-page-frame-next frame)
@@ -773,14 +778,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
   (declare (ignore writep))
-  ;; GC write barrier.
-  ;; If a read-only non-COW page is written to then set the appropriate
-  ;; card table entry and make the page writable again.
-  ;; Other threads can change the page from read-only to read-write
-  ;; under us, so check for that and assume success in that case.
   (with-rw-lock-read (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
+      ;; GC write barrier.
+      ;; If a read-only non-COW page is written to then set the appropriate
+      ;; card table entry and make the page writable again.
+      ;; Other threads can change the page from read-only to read-write
+      ;; under us, so check for that and assume success in that case.
       (when (and pte
                  (page-present-p pte)
                  (not (page-copy-on-write-p pte))
@@ -806,42 +811,62 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         ;; Tracking dirty bits for the GC.
         (setf (sys.int::card-table-dirty-gen fault-address) 0)
         (flush-tlb-single fault-address)
-        (return-from wait-for-page-fast-path t))))
-  (with-rw-lock-write (*vm-lock* :wait-p nil)
-    (let ((pte (get-pte-for-address fault-address nil))
-          (block-info (block-info-for-virtual-address fault-address)))
+        (return-from wait-for-page-fast-path t))
+      ;; Pager fast zero page mapping.
+      ;; If a page is non-present in the page table and marked
+      ;; as zero-fill in the block map, then allocate, zero and map it.
+      ;; This is also where phony faults are detected and ignored. These can
+      ;; occur when another thread updates the page tables while we're
+      ;; handling this fault.
+      ;; Other threads will set the zero fill flag to 0 if they install a
+      ;; page themselves.
       (when (and pte
-                 (not (page-present-p pte))
                  block-info
-                 (block-info-present-p block-info)
-                 (block-info-zero-fill-p block-info))
-        ;; Mapping a zero page into an existing PTE.
+                 (block-info-present-p block-info))
+        ;; Optimistically allocate a frame to map.
         (let ((frame (allocate-physical-pages 1 :type :active)))
           (when frame
-            ;(debug-print-line "Zero page fast path for " fault-address)
+            ;;(debug-print-line "Optimistic zero page fast path for " fault-address)
             (let ((page-addr (convert-to-pmap-address (ash frame 12))))
-              (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
-                    (physical-page-virtual-address frame) (logand fault-address (lognot (1- +4k-page-size+))))
-              (append-to-page-replacement-list frame)
               (zeroize-page page-addr)
-              ;; Clear the zero-fill flag.
-              (set-address-flags fault-address (logand block-info
-                                                       sys.int::+block-map-flag-mask+
-                                                       (lognot sys.int::+block-map-zero-fill+)))
-              ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
-              ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-              ;; This sets the dirty bits in the page tables properly.
-              (setf (page-table-entry pte 0) (make-pte frame
-                                                       :writable (and (block-info-writable-p block-info)
-                                                                      (not (block-info-track-dirty-p block-info)))
-                                                       :dirty t))
-              ;; Play a little fast & loose with TLB shootdown here.
-              ;; The fast path runs on the exception stack with interrupts
-              ;; disabled. TLB shootdown requires interrupts to be enabled.
-              ;; At this point all other CPUs should know that this entry is non-present,
-              ;; so the worst case is that a phony page fault is taken.
-              (flush-tlb-single fault-address))
-            (return-from wait-for-page-fast-path t)))))))
+              ;; CAS loop to try to install our frame.
+              (loop
+                 (let ((pte-value (page-table-entry pte)))
+                   (when (or (pte-page-present-p pte-value)
+                             (not (block-info-zero-fill-p block-info)))
+                     ;; Give up.
+                     (release-physical-pages frame 1)
+                     ;; TODO: figure out if this was a phony page fault or not
+                     ;; to avoid the full trip to the pager.
+                     (return-from wait-for-page-fast-path nil))
+                   ;; Stuff the page in now.
+                   ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
+                   ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                   ;; This sets the dirty bits in the page tables properly.
+                   (when (eql (sys.int::cas (page-table-entry pte)
+                                            pte-value
+                                            (make-pte frame
+                                                      :writable (and (block-info-writable-p block-info)
+                                                                     (not (block-info-track-dirty-p block-info)))
+                                                      :dirty t))
+                              pte-value)
+                     ;; Success! Our page was mapped. Now finish up.
+                     (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
+                           (physical-page-virtual-address frame) (logand fault-address (lognot (1- +4k-page-size+))))
+                     (append-to-page-replacement-list frame)
+                     ;; Clear the zero-fill flag.
+                     ;; We set the PTE so this is our page. Other threads won't write
+                     ;; to the block map for this address so additional locking isn't needed.
+                     (set-address-flags fault-address (logand block-info
+                                                              sys.int::+block-map-flag-mask+
+                                                              (lognot sys.int::+block-map-zero-fill+)))
+                     ;; Play a little fast & loose with TLB shootdown here.
+                     ;; The fast path runs on the exception stack with interrupts
+                     ;; disabled. TLB shootdown requires interrupts to be enabled.
+                     ;; At this point all other CPUs should know that this entry is non-present,
+                     ;; so the worst case is that a phony page fault is taken.
+                     (flush-tlb-single fault-address)
+                     (return-from wait-for-page-fast-path t)))))))))))
 
 (defun wait-for-page-via-interrupt (interrupt-frame address writep ist-state)
   "Called by the page fault handler when a page fault occurs.
@@ -896,7 +921,8 @@ It will put the thread to sleep, while it waits for the page."
           *pager-fast-path-enabled* t
           *pager-lazy-block-allocation-enabled* t
           *pager-meter* 0))
-  (setf *page-replacement-list-head* nil
+  (setf *page-replacement-list-lock* (place-spinlock-initializer)
+        *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
   (setf *pager-fast-path-hits* 0
         *pager-fast-path-misses* 0)
