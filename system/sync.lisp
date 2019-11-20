@@ -240,7 +240,7 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
    (%n-pending :initform 0 :reader mailbox-n-pending-messages)
    (%head :accessor mailbox-head)
    (%tail :accessor mailbox-tail)
-   (%lock :initform (sup:make-mutex "Internal mailbox lock") :reader mailbox-lock))
+   (%lock :reader mailbox-lock))
   (:default-initargs :name nil :capacity nil))
 
 (defmethod print-object ((object mailbox) stream)
@@ -252,6 +252,7 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
 
 (defmethod initialize-instance :after ((instance mailbox) &key)
   (check-type (mailbox-capacity instance) (or null (integer 1)))
+  (setf (slot-value instance '%lock) (sup:make-mutex instance))
   ;; Mailbox is initially empty.
   (setf (slot-value instance '%not-full-event) (sup:make-event
                                                 :name `(mailbox-send-possible-event ,instance)
