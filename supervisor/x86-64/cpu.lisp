@@ -255,7 +255,7 @@ Protected by the world stop lock."
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
 TLB shootdown must be protected by the VM lock."
-  (ensure (mutex-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
+  (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))

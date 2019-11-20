@@ -126,12 +126,13 @@ the data. Free the page with FREE-PAGE when done."
 (defconstant +image-header-freelist+ 104)
 
 (defun initialize-paging-system ()
-  (cond ((boot-option +boot-option-freestanding+)
-         (initialize-freestanding-paging-system))
-        (t
-         (detect-paging-disk)
-         (when (not *paging-disk*)
-           (panic "Could not find boot device. Sorry.")))))
+  (with-rw-lock-write (*vm-lock*)
+    (cond ((boot-option +boot-option-freestanding+)
+           (initialize-freestanding-paging-system))
+          (t
+           (detect-paging-disk)
+           (when (not *paging-disk*)
+             (panic "Could not find boot device. Sorry."))))))
 
 (defun initialize-freestanding-paging-system ()
   (setf *paging-disk* :freestanding
@@ -406,7 +407,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (ensure (or (< base #x80000000) ; wired area
                 (and (<= #x200000000000 base) ; wired stack area.
                      (< base #x208000000000)))))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     ;; Ensure there's enough fudged memory before allocating.
     (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
       (pager-log "Not allocating " length " bytes, too few blocks remaining. "
@@ -465,7 +466,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun release-memory-range-in-pager (base length ignore3)
   (declare (ignore ignore3))
   (pager-log-op "Release range " base "-" (+ base length))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (let ((stackp (stack-area-p base))
           (card-base (+ sys.int::+card-table-base+
                         (* (truncate base sys.int::+card-size+)
@@ -514,7 +515,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun protect-memory-range-in-pager (base length flags)
   (pager-log-op "Protect range " base "-" (+ base length) "  " flags)
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
       (let* ((address (+ base (* i #x1000)))
@@ -552,7 +553,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun update-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
   (declare (ignore ignore1 ignore2 ignore3))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (map-ptes
      sys.int::*wired-area-base* sys.int::*wired-area-bump*
@@ -581,6 +582,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (finish-tlb-shootdown)))
 
 (defun pager-allocate-page (&key (new-type :active))
+  (ensure (rw-lock-write-held-p *vm-lock*))
   (check-tlb-shootdown-not-in-progress)
   (let ((frame (allocate-physical-pages 1 :type new-type)))
     (when (not frame)
@@ -675,7 +677,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (setf (physical-page-frame-next (physical-page-frame-prev frame)) (physical-page-frame-next frame))))
 
 (defun wait-for-page (address)
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (let ((pte (get-pte-for-address address))
           (block-info (block-info-for-virtual-address address)))
       #+(or)(debug-print-line "WFP " address " block " block-info)
@@ -769,7 +771,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
   (declare (ignore writep))
-  (with-mutex (*vm-lock* :wait-p nil)
+  (with-rw-lock-write (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
@@ -849,14 +851,17 @@ It will put the thread to sleep, while it waits for the page."
   ;; Page alignment required.
   (assert (page-aligned-p base))
   (assert (page-aligned-p size))
-  (with-mutex (*vm-lock*)
-    (dotimes (i (truncate size #x1000))
-      (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
-        (when (not (page-present-p pte 0))
-          (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
-                                                   :writable t
-                                                   :wired t
-                                                   :cache-mode :uncached)))))))
+  ;; Take *VM-LOCK* with the snapshot inhibited so we don't get caught
+  ;; holding it. It gets recreated each boot.
+  (with-snapshot-inhibited ()
+    (with-rw-lock-write (*vm-lock*)
+      (dotimes (i (truncate size #x1000))
+        (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
+          (when (not (page-present-p pte 0))
+            (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
+                                                     :writable t
+                                                     :wired t
+                                                     :cache-mode :uncached))))))))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))
@@ -878,10 +883,9 @@ It will put the thread to sleep, while it waits for the page."
           *pager-current-thread* nil))
   (setf *pager-disk-request* (make-disk-request))
   ;; The VM lock is recreated each boot because it is only held by
-  ;; the ephemeral pager and snapshot threads.
-  ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
-  ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
-  (setf *vm-lock* (make-mutex "Global VM Lock"))
+  ;; the ephemeral pager & snapshot threads or by threads that have
+  ;; inhibited snapshot (just callers of MAP-PHYSICAL-MEMORY).
+  (setf *vm-lock* (make-rw-lock '*vm-lock*))
   ;; Set all the dirty bits for wired pages. They were not saved over snapshot.
   (map-ptes
    sys.int::*wired-area-base* sys.int::*wired-area-bump*
