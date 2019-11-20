@@ -780,6 +780,64 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
              (release-place-spinlock *big-wait-for-objects-lock*)
              (%reschedule-via-wired-stack sp fp))))))
 
+;;;; A concurrent object pool.
+
+(defstruct (object-pool
+             (:constructor make-object-pool (name object-limit field-getter field-setter))
+             (:area :wired)
+             :slot-offsets)
+  name
+  ;; Using a generation count avoids the ABA problem.
+  ;; It and the head slots must be adjacent.
+  (generation 0 :type fixnum)
+  (head nil)
+  ;; An approximate count of the number of objects in the pool.
+  (n-objects 0 :type fixnum)
+  (object-limit (error "not specified") :type fixnum)
+  (field-setter (error "not specified") :type function)
+  (field-getter (error "not specified") :type function)
+  (hit-count 0 :type fixnum)
+  (miss-count 0 :type fixnum))
+
+(defun object-pool-push (pool object)
+  (loop
+     (when (>= (object-pool-n-objects pool)
+               (object-pool-object-limit pool))
+       ;; Make sure to clear the link field if we set it to something
+       ;; in another loop.
+       (funcall (object-pool-field-setter pool) nil object)
+       (return nil))
+     (let ((current-object (object-pool-head pool))
+           (current-generation (object-pool-generation pool)))
+       ;; Point the new object's link field at the head object.
+       (funcall (object-pool-field-setter pool)
+                current-object object)
+       (when (sys.int::%dcas-object
+              pool +object-pool-generation+
+              current-generation current-object
+              ;; Avoid fixnum overflow when writing the generation.
+              (sys.int::wrapping-fixnum-+ current-generation 1)
+              object)
+         (sys.int::atomic-incf (object-pool-n-objects pool))
+         (return t)))))
+
+(defun object-pool-pop (pool)
+  (loop
+     (let ((current-object (object-pool-head pool))
+           (current-generation (object-pool-generation pool)))
+       (when (not current-object)
+         (sys.int::atomic-incf (object-pool-miss-count pool))
+         (return nil))
+       (let ((next-object (funcall (object-pool-field-getter pool) current-object)))
+       (when (sys.int::%dcas-object
+              pool +object-pool-generation+
+              current-generation current-object
+              ;; Avoid fixnum overflow when writing the generation.
+              (sys.int::wrapping-fixnum-+ current-generation 1) next-object)
+         (sys.int::atomic-decf (object-pool-n-objects pool))
+         (sys.int::atomic-incf (object-pool-hit-count pool))
+         (return current-object))))))
+
 ;;; Event/object watcher.
 ;;;
 ;;; This is a generalization of WAIT-FOR-OBJECTS that allows users
@@ -793,17 +851,12 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
 ;; Object pools are used for watcher & associated structures.
 ;; This is to reduce allocation in the wired area which is
 ;; very slow, and GCing the wired area requires a full GC cycle.
-(sys.int::defglobal *watcher-pool-lock* (make-mutex "watcher pool"))
-(sys.int::defglobal *watcher-pool-hit-count* 0)
-(sys.int::defglobal *watcher-pool-miss-count* 0)
-
-(sys.int::defglobal *watcher-watcher-pool* nil)
-(sys.int::defglobal *watcher-watcher-pool-size* 0)
-(sys.int::defglobal *watcher-watcher-pool-limit* 1000)
-
-(sys.int::defglobal *watcher-monitor-pool* nil)
-(sys.int::defglobal *watcher-monitor-pool-size* 0)
-(sys.int::defglobal *watcher-monitor-pool-limit* 1000)
+(sys.int::defglobal *watcher-watcher-pool*
+    (make-object-pool '*watcher-watcher-pool* 1000
+                      #'watcher-watched-objects #'(setf watcher-watched-objects)))
+(sys.int::defglobal *watcher-monitor-pool*
+    (make-object-pool '*watcher-monitor-pool* 1000
+                      #'watcher-event-monitor-watcher #'(setf watcher-event-monitor-watcher)))
 
 (defstruct (watcher
              (:constructor %make-watcher (name))
@@ -846,22 +899,12 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
 (defun make-watcher (&key name)
   "Create a new event watcher."
   ;; Structured so that CONS-IN-AREA isn't called inside the pool lock.
-  ;; Snapshot should be inhibited so that the lock is never held at the
-  ;; start of boot.
   (flet ((pop-pool ()
-           (with-snapshot-inhibited ()
-             (with-mutex (*watcher-pool-lock*)
-               (let ((watcher *watcher-watcher-pool*))
-                 (cond (watcher
-                        (setf *watcher-watcher-pool* (watcher-watched-objects watcher))
-                        (decf *watcher-watcher-pool-size*)
-                        (setf (watcher-name watcher) name
-                              (watcher-watched-objects watcher) nil)
-                        (incf *watcher-pool-hit-count*)
-                        watcher)
-                       (t
-                        (incf *watcher-pool-miss-count*)
-                        nil)))))))
+           (let ((watcher (object-pool-pop *watcher-watcher-pool*)))
+             (when watcher
+               (setf (watcher-name watcher) name
+                     (watcher-watched-objects watcher) nil)
+               watcher))))
     (declare (dynamic-extent #'pop-pool))
     (or (pop-pool)
         (%make-watcher name))))
@@ -881,53 +924,33 @@ after this function returns."
 
 (defun unmake-watcher (watcher)
   (assert (null (watcher-watched-objects watcher)))
-  (with-snapshot-inhibited ()
-    (with-mutex (*watcher-pool-lock*)
-      (when (< *watcher-watcher-pool-size* *watcher-watcher-pool-limit*)
-        (incf *watcher-watcher-pool-size*)
-        (setf (watcher-name watcher) 'pooled-watcher) ; don't leak the old name
-        (shiftf (watcher-watched-objects watcher)
-                *watcher-watcher-pool*
-                watcher)))))
+  (setf (watcher-name watcher) 'pooled-watcher) ; don't leak the old name
+  (object-pool-push *watcher-watcher-pool* watcher))
 
 (defun make-watcher-event-monitor (watcher object event)
   "Create a new event watcher monitor."
   ;; Structured so that CONS-IN-AREA isn't called inside the pool lock.
   (flet ((pop-pool ()
-           (with-snapshot-inhibited ()
-             (with-mutex (*watcher-pool-lock*)
-               (let ((monitor *watcher-monitor-pool*))
-                 (cond (monitor
-                        (setf *watcher-monitor-pool* (watcher-event-monitor-watcher monitor))
-                        (decf *watcher-monitor-pool-size*)
-                        (setf (watcher-event-monitor-watcher monitor) watcher
-                              (watcher-event-monitor-event monitor) event
-                              (watcher-event-monitor-object monitor) object)
-                        (incf *watcher-pool-hit-count*)
-                        monitor)
-                       (t
-                        (incf *watcher-pool-miss-count*)
-                        nil)))))))
+           (let ((monitor (object-pool-pop *watcher-monitor-pool*)))
+             (when monitor
+               (setf (watcher-event-monitor-watcher monitor) watcher
+                     (watcher-event-monitor-event monitor) event
+                     (watcher-event-monitor-object monitor) object)
+               monitor))))
     (declare (dynamic-extent #'pop-pool))
     (or (pop-pool)
         (%make-watcher-event-monitor watcher object event))))
 
 (defun unmake-watcher-event-monitor (monitor)
-  (with-snapshot-inhibited ()
-    (with-mutex (*watcher-pool-lock*)
-      (when (< *watcher-monitor-pool-size* *watcher-monitor-pool-limit*)
-        (incf *watcher-monitor-pool-size*)
-        ;; Don't leak objects.
-        (setf (car (watcher-event-monitor-result-cons monitor)) nil
-              (cdr (watcher-event-monitor-result-cons monitor)) nil
-              (watcher-event-monitor-object monitor) nil
-              (watcher-event-monitor-event monitor) nil
-              (watcher-event-monitor-watcher monitor) nil
-              (watcher-event-monitor-event-next monitor) nil
-              (watcher-event-monitor-watcher-next monitor) nil)
-        (shiftf (watcher-event-monitor-watcher monitor)
-                *watcher-monitor-pool*
-                monitor)))))
+  ;; Don't leak objects.
+  (setf (car (watcher-event-monitor-result-cons monitor)) nil
+        (cdr (watcher-event-monitor-result-cons monitor)) nil
+        (watcher-event-monitor-object monitor) nil
+        (watcher-event-monitor-event monitor) nil
+        (watcher-event-monitor-watcher monitor) nil
+        (watcher-event-monitor-event-next monitor) nil
+        (watcher-event-monitor-watcher-next monitor) nil)
+  (object-pool-push *watcher-monitor-pool* monitor))
 
 (defun watcher-add-object (object watcher)
   "Begin watching a new object.
