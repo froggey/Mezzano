@@ -826,9 +826,11 @@ It will put the thread to sleep, while it waits for the page."
       (panic "Page fault in pager!"))
     (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address writep))
-      (incf *pager-fast-path-hits*)
+      (sys.int::%atomic-fixnum-add-symbol
+       '*pager-fast-path-hits* 1)
       (return-from wait-for-page-via-interrupt))
-    (incf *pager-fast-path-misses*)
+    (sys.int::%atomic-fixnum-add-symbol
+     '*pager-fast-path-misses* 1)
     (with-symbol-spinlock (*pager-lock*)
       (acquire-global-thread-lock)
       (setf (thread-state self) :waiting-for-page
