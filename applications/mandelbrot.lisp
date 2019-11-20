@@ -20,7 +20,7 @@
          (index (truncate h^))
          (f (- h^ (float index 0.0f0)))
          (q (- 1.0f0 f)))
-    (declare (type single-float h* h^ x)
+    (declare (type single-float h* h^)
              (type fixnum index))
     (case index
       (0 (values 1.0f0 f     0.0f0))
