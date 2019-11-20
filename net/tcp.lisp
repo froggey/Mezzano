@@ -209,18 +209,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
    (%rto :accessor tcp-connection-rto :initarg :rto)
    (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
-   (%lock :reader tcp-connection-lock
-          :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
-   (%cvar :reader tcp-connection-cvar
-          :initform (mezzano.supervisor:make-condition-variable "TCP connection cvar"))
-   (%receive-event :reader tcp-connection-receive-event
-                   :initform (mezzano.supervisor:make-event :name "TCP connection data available"))
+   (%lock :reader tcp-connection-lock)
+   (%cvar :reader tcp-connection-cvar)
+   (%receive-event :reader tcp-connection-receive-event)
    (%pending-error :accessor tcp-connection-pending-error :initform nil)
-   (%retransmit-timer :reader tcp-connection-retransmit-timer
-                      :initform (mezzano.supervisor:make-timer :name "TCP connection retransmit"))
+   (%retransmit-timer :reader tcp-connection-retransmit-timer)
    (%retransmit-source :reader tcp-connection-retransmit-source)
-   (%timeout-timer :reader tcp-connection-timeout-timer
-                   :initform (mezzano.supervisor:make-timer :name "TCP connection timeout"))
+   (%timeout-timer :reader tcp-connection-timeout-timer)
    (%timeout-source :reader tcp-connection-timeout-source)
    (%timeout :initarg :timeout :reader tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
@@ -303,6 +298,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
        (close-connection connection)))))
 
 (defmethod initialize-instance :after ((instance tcp-connection) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)
+        (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable instance)
+        (slot-value instance '%receive-event) (mezzano.supervisor:make-event :name `(:data-available ,instance))
+        (slot-value instance '%retransmit-timer) (mezzano.supervisor:make-timer :name `(:tcp-retransmit ,instance))
+        (slot-value instance '%timeout-timer) (mezzano.supervisor:make-timer :name `(:tcp-timeout ,instance)))
   (setf (slot-value instance '%retransmit-source)
         (mezzano.sync.dispatch:make-source (tcp-connection-retransmit-timer instance)
                                            (lambda ()
