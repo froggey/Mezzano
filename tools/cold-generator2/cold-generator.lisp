@@ -498,6 +498,11 @@
                                                 (build-directory environment)))))
         (format t ";; Writing map file to ~S.~%" map-file-path)
         (ser:write-map-file map-file-path image))
+      (let ((symtabl-file-path (or map-file
+                               (merge-pathnames (make-pathname :type "symbol-table" :defaults image-name)
+                                                (build-directory environment)))))
+        (format t ";; Writing symbol table to ~S.~%" symtabl-file-path)
+        (ser:write-symbol-table symtabl-file-path image))
       (let ((image-header (make-instance 'write:image-header
                                          :uuid (cond ((stringp uuid) (util:parse-uuid uuid))
                                                      ((not uuid) (util:generate-uuid))

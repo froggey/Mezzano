@@ -22,6 +22,7 @@
            #:image-function-area
            #:do-image-stacks
            #:write-map-file
+           #:write-symbol-table
            ))
 
 (in-package :mezzano.cold-generator.serialize)
@@ -964,17 +965,35 @@ Must not call SERIALIZE-OBJECT."))
       (maphash (lambda (obj addr)
                  (typecase obj
                    (env:cross-compiled-function
-                    (push (cons (+ (- addr 9) 16)
+                    (push (cons (+ (- addr sys.int::+tag-object+) 16)
                                 (aref (env:function-constants obj) 0))
                           functions))
                    (env:function-reference
-                    (push (cons (+ (- addr 9) 32)
+                    (push (cons (+ (- addr sys.int::+tag-object+) 32)
                                 (format nil "{Fref ~A}" (env:function-reference-name obj)))
                           functions))))
                (image-object-values image))
       (loop
          for (addr . name) in (sort functions '< :key 'car)
          do (format s "~X ~A~%" addr
+                    (cl-ppcre:regex-replace (string #\Newline)
+                                            (format nil "~A" name)
+                                            "#\\Newline"))))))
+
+(defun write-symbol-table (map-file-path image)
+  (with-open-file (s map-file-path
+                     :direction :output
+                     :if-exists :supersede)
+    (let ((*print-right-margin* 10000)
+          (symbols '()))
+      (maphash (lambda (obj addr)
+                 (when (symbolp obj)
+                   (push (list (symbol-name obj) addr (object-slot image addr sys.int::+symbol-value-cell-value+))
+                         symbols)))
+               (image-object-values image))
+      (loop
+         for (name addr cell-addr) in (sort symbols '< :key 'second)
+         do (format s "~X ~X ~A~%" addr cell-addr
                     (cl-ppcre:regex-replace (string #\Newline)
                                             (format nil "~A" name)
                                             "#\\Newline"))))))
