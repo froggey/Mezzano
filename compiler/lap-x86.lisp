@@ -3,7 +3,7 @@
 
 (in-package :mezzano.lap.x86)
 
-(defparameter *instruction-assemblers* (make-hash-table))
+(defparameter *instruction-assemblers* (make-hash-table :synchronized nil :enforce-gc-invariant-keys t))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")
 (defvar *fixup-target*)
 

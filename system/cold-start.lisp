@@ -264,9 +264,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *deferred-%defpackage-calls* '())
   ;; System tables.
   (setf *macros* (make-hash-table :test #'eq))
-  (setf *symbol-function-info* (make-hash-table :test #'eq)
-        *setf-function-info* (make-hash-table :test #'eq)
-        *cas-function-info* (make-hash-table :test #'eq))
+  (setf *symbol-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *setf-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *cas-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *function-info-lock* (mezzano.supervisor:make-rw-lock "Function info"))
   (setf *setf-expanders* (make-hash-table :test #'eq))
   (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
