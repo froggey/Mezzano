@@ -902,6 +902,23 @@
                                   :result result
                                   :size (ast-value (first (ast-arguments form)))))
              result))
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-typed-vector)
+           (assert (eql (length (ast-arguments form)) 3))
+           ;; Length.
+           (assert (typep (first (ast-arguments form)) 'ast-quote))
+           (check-type (ast-value (first (ast-arguments form))) (integer 0))
+           ;; Array type.
+           (assert (typep (second (ast-arguments form)) 'ast-quote))
+           #++(check-type (ast-value (second (ast-arguments form))) sys.int::specialized-array-definition)
+           ;; Zero-fill-p.
+           (assert (typep (third (ast-arguments form)) 'ast-quote))
+           (let ((result (make-instance 'virtual-register)))
+             (emit (make-instance 'make-dx-typed-vector-instruction
+                                  :result result
+                                  :size (ast-value (first (ast-arguments form)))
+                                  :type (ast-value (second (ast-arguments form)))
+                                  :zero-fill-p (ast-value (third (ast-arguments form)))))
+             result))
           ((eql (ast-name form) 'mezzano.compiler::make-dx-cons)
            (assert (eql (length (ast-arguments form)) 0))
            (let ((result (make-instance 'virtual-register)))

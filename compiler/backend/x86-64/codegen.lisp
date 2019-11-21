@@ -1147,6 +1147,50 @@
     (emit `(lap:lea64 ,(ir:make-dx-simple-vector-result instruction) (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
                                                                                sys.int::+tag-object+))))))
 
+(defun size-dx-typed-vector (instruction)
+  (let* ((n-elements (ir:make-dx-typed-vector-size instruction))
+         (type (ir:make-dx-typed-vector-type instruction))
+         (element-words (ceiling (* (sys.int::specialized-array-definition-element-size type)
+                                    n-elements)
+                                 64)))
+    (when (sys.int::specialized-array-definition-pad-p type)
+      (incf element-words))
+    element-words))
+
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*)
+        (allocate-stack-slots
+         (1+ (size-dx-typed-vector instruction))
+         :aligned t
+         :livep (eql (sys.int::specialized-array-definition-type
+                      (ir:make-dx-typed-vector-type instruction))
+                     't))))
+
+(defmethod emit-lap (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (let* ((slots (gethash instruction *prepass-data*))
+         (size (size-dx-typed-vector instruction))
+         (words (1+ size)))
+    (when (oddp words)
+      (incf words))
+    ;; Initialize the header.
+    (emit `(lap:mov64 (:stack ,(+ slots words -1))
+                      ,(logior (ash (ir:make-dx-typed-vector-size instruction)
+                                    sys.int::+object-data-shift+)
+                               (ash (sys.int::specialized-array-definition-tag
+                                     (ir:make-dx-typed-vector-type instruction))
+                                    sys.int::+object-type-shift+))))
+    ;; Generate pointer.
+    (emit `(lap:lea64 ,(ir:make-dx-typed-vector-result instruction)
+                      (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
+                                sys.int::+tag-object+))))
+    ;; Possibly zero fill.
+    (when (ir:make-dx-typed-vector-zero-fill-p instruction)
+      (emit `(lap:xor32 :eax :eax)
+            `(lap:mov64 :rcx ,(* size 8))
+            `(lap:lea64 :rdi (:object ,(ir:make-dx-typed-vector-result instruction) 0))
+            `(lap:rep)
+            `(lap:stos8)))))
+
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
 

@@ -658,6 +658,12 @@
            #:make-dx-closure-function
            #:make-dx-closure-environment
 
+           #:make-dx-typed-vector-instruction
+           #:make-dx-typed-vector-result
+           #:make-dx-typed-vector-size
+           #:make-dx-typed-vector-type
+           #:make-dx-typed-vector-zero-fill-p
+
            #:box-type
            #:box-instruction
            #:box-destination

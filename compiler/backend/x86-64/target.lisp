@@ -115,6 +115,11 @@
     :xmm0 :xmm1 :xmm2 :xmm3 :xmm4 :xmm5 :xmm6 :xmm7 :xmm8
     :xmm9 :xmm10 :xmm11 :xmm12 :xmm13 :xmm14 :xmm15))
 
+(defmethod ra:instruction-clobbers ((instruction ir:make-dx-typed-vector-instruction) (architecture c:x86-64-target))
+  (if (ir:make-dx-typed-vector-zero-fill-p instruction)
+      '(:rax :rcx)
+      '()))
+
 (defmethod ra:instruction-clobbers ((instruction ir:make-dx-closure-instruction) (architecture c:x86-64-target))
   '(:rax :rcx))
 

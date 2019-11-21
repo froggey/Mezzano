@@ -900,6 +900,32 @@
 (defmethod instruction-pure-p ((instruction make-dx-simple-vector-instruction))
   t)
 
+(defclass make-dx-typed-vector-instruction (backend-instruction)
+  ((%result :initarg :result :accessor make-dx-typed-vector-result)
+   (%size :initarg :size :accessor make-dx-typed-vector-size)
+   (%type :initarg :type :accessor make-dx-typed-vector-type)
+   (%zero-fill-p :initarg :zero-fill-p :accessor make-dx-typed-vector-zero-fill-p)))
+
+(defmethod instruction-inputs ((instruction make-dx-typed-vector-instruction))
+  (list))
+
+(defmethod instruction-outputs ((instruction make-dx-typed-vector-instruction))
+  (list (make-dx-typed-vector-result instruction)))
+
+(defmethod replace-all-registers ((instruction make-dx-typed-vector-instruction) substitution-function)
+  (setf (make-dx-typed-vector-result instruction) (funcall substitution-function (make-dx-typed-vector-result instruction))))
+
+(defmethod print-instruction ((instruction make-dx-typed-vector-instruction))
+  (format t "   ~S~%"
+          `(:make-dx-typed-vector
+            ,(make-dx-typed-vector-result instruction)
+            ,(make-dx-typed-vector-size instruction)
+            ,(make-dx-typed-vector-type instruction)
+            ,(make-dx-typed-vector-zero-fill-p instruction))))
+
+(defmethod instruction-pure-p ((instruction make-dx-typed-vector-instruction))
+  t)
+
 (defclass make-dx-cons-instruction (backend-instruction)
   ((%result :initarg :result :accessor make-dx-cons-result)))
 
