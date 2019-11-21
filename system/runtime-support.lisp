@@ -683,17 +683,22 @@ VALUE may be nil to make the fref unbound."
      (%activate-function-reference-full-path fref)))
   value)
 
+(defun trace-wrapper-p (object)
+  (and (funcallable-instance-p object) ; Avoid typep in the usual case.
+       (locally
+           (declare (notinline find-class)) ; bootstrap hack.
+         ;; The trace-wrapper class might not be defined during early boot
+         (let ((class (find-class 'trace-wrapper nil)))
+           (and class
+                (typep object class))))))
+
 (defun fdefinition (name)
   (let* ((fref (function-reference name nil))
          (fn (and fref (function-reference-function fref))))
     (when (not fn)
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
-    ;; FIXME: Doesn't match the behaviour of FUNCTION.
-    (when (and (funcallable-instance-p fn) ; Avoid typep in the usual case.
-               (locally
-                   (declare (notinline typep)) ; bootstrap hack.
-                 (typep fn 'trace-wrapper)))
+    (when (trace-wrapper-p fn)
       (setf fn (trace-wrapper-original fn)))
     fn))
 
@@ -705,9 +710,7 @@ VALUE may be nil to make the fref unbound."
     (remhash name *macros*))
   (let* ((fref (function-reference name))
          (existing (function-reference-function fref)))
-    (when (locally
-              (declare (notinline typep)) ; bootstrap hack.
-            (typep existing 'trace-wrapper))
+    (when (trace-wrapper-p existing)
       ;; Update the traced function instead of setting the fref's function.
       (setf (trace-wrapper-original existing) value)
       (return-from fdefinition value))
@@ -728,9 +731,7 @@ VALUE may be nil to make the fref unbound."
       ;; Check for and update any existing TRACE-WRAPPER.
       ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
       (let ((existing (function-reference-function fref)))
-        (when (locally
-                  (declare (notinline typep)) ; bootstrap hack.
-                (typep existing 'trace-wrapper))
+        (when (trace-wrapper-p existing)
           ;; Untrace the function.
           (%untrace (function-reference-name fref)))
         (setf (function-reference-function (function-reference name)) nil))))

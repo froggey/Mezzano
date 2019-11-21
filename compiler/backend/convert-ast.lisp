@@ -309,12 +309,15 @@
          (fref-index (make-instance 'virtual-register))
          (fname-reg (make-instance 'virtual-register))
          (is-undefined (make-instance 'virtual-register))
+         (funcallable-instance-tag (make-instance 'virtual-register))
+         (is-funcallable-instance (make-instance 'virtual-register))
          (result (make-instance 'virtual-register))
          (fref-function (make-instance 'virtual-register))
          (fdefinition-function (make-instance 'virtual-register))
          (out (make-instance 'label :name :out :phis (list result)))
          (is-undefined-label (make-instance 'label :name :is-undefined))
-         (is-defined-label (make-instance 'label :name :is-defined)))
+         (is-defined-label (make-instance 'label :name :is-defined))
+         (is-not-funcallable-instance-label (make-instance 'label :name :is-not-funcallable-instance)))
     (emit (make-instance 'constant-instruction
                          :destination fref-reg
                          :value (sys.int::function-reference (ast-name form))))
@@ -333,8 +336,21 @@
                          :value is-undefined
                          :true-target is-undefined-label
                          :false-target is-defined-label))
+    (emit is-defined-label)
+    ;; Test if this is a funcallable instance (quick test for trace-wrapper).
+    (emit (make-instance 'constant-instruction
+                         :destination funcallable-instance-tag
+                         :value sys.int::+object-tag-funcallable-instance+))
+    (emit (make-instance 'call-instruction
+                         :result is-funcallable-instance
+                         :function 'mezzano.runtime::%%object-of-type-p
+                         :arguments (list fref-function funcallable-instance-tag)))
+    (emit (make-instance 'branch-instruction
+                         :value is-undefined
+                         :true-target is-undefined-label
+                         :false-target is-not-funcallable-instance-label))
     (emit is-undefined-label)
-    ;; Not defined, fall back to FDEFINITION.
+    ;; Not defined or is a funcallable-instance, fall back to FDEFINITION
     (emit (make-instance 'constant-instruction
                          :destination fname-reg
                          :value (ast-name form)))
@@ -345,7 +361,7 @@
     (emit (make-instance 'jump-instruction
                          :target out
                          :values (list fdefinition-function)))
-    (emit is-defined-label)
+    (emit is-not-funcallable-instance-label)
     (emit (make-instance 'jump-instruction
                          :target out
                          :values (list fref-function)))
