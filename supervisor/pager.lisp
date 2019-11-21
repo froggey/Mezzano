@@ -777,7 +777,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
-  (declare (ignore writep))
   (with-rw-lock-read (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
@@ -815,7 +814,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Pager fast zero page mapping.
       ;; If a page is non-present in the page table and marked
       ;; as zero-fill in the block map, then allocate, zero and map it.
-      ;; This is also where phony faults are detected and ignored. These can
+      ;; This is also where spurious faults are detected and ignored. These can
       ;; occur when another thread updates the page tables while we're
       ;; handling this fault.
       ;; Other threads will set the zero fill flag to 0 if they install a
@@ -836,9 +835,22 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                              (not (block-info-zero-fill-p block-info)))
                      ;; Give up.
                      (release-physical-pages frame 1)
-                     ;; TODO: figure out if this was a phony page fault or not
-                     ;; to avoid the full trip to the pager.
-                     (return-from wait-for-page-fast-path nil))
+                     ;; For a fault to be spurious the page must be present
+                     ;; and one of the following must be true:
+                     ;; 1) the access was a read
+                     ;; 2) the page is writable
+                     ;; 3) the page is not-cow, the block is
+                     ;;    writable and track-dirty.
+                     (cond ((and (pte-page-present-p pte-value)
+                                 (or (not writep)
+                                     (pte-page-writable-p pte-value)
+                                     (and (not (pte-page-copy-on-write-p pte-value))
+                                          (block-info-writable-p block-info)
+                                          (block-info-track-dirty-p block-info))))
+                            (flush-tlb-single fault-address)
+                            (return-from wait-for-page-fast-path t))
+                           (t
+                            (return))))
                    ;; Stuff the page in now.
                    ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
                    ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
@@ -864,7 +876,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                      ;; The fast path runs on the exception stack with interrupts
                      ;; disabled. TLB shootdown requires interrupts to be enabled.
                      ;; At this point all other CPUs should know that this entry is non-present,
-                     ;; so the worst case is that a phony page fault is taken.
+                     ;; so the worst case is that a spurious page fault is taken.
                      (flush-tlb-single fault-address)
                      (return-from wait-for-page-fast-path t)))))))))))
 

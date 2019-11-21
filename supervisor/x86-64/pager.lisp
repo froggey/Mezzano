@@ -34,9 +34,11 @@
 (defun page-writable-p (page-table &optional (index 0))
   (pte-page-writable-p (page-table-entry page-table index)))
 
+(defun pte-page-copy-on-write-p (pte)
+  (logtest +x86-64-pte-copy-on-write+ pte))
+
 (defun page-copy-on-write-p (page-table &optional (index 0))
-  (logtest +x86-64-pte-copy-on-write+
-           (page-table-entry page-table index)))
+  (pte-page-copy-on-write-p (page-table-entry page-table index)))
 
 (defun page-dirty-p (page-table &optional (index 0))
   (logtest +x86-64-pte-dirty+
