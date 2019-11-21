@@ -75,6 +75,11 @@
            ;; If the initial element is known and matches the zero initializer
            ;; for this array, we can skip setting and have make-dx-t-v zero
            ;; the vector for us.
+           ;; TODO: There's no way to tell the difference between no
+           ;; :initial-element and an :initial-element of zero.
+           ;; An unspecified :initial-element would mean that make-dx-t-v
+           ;; would not need to zero and that no further initialization needs
+           ;; to be done.
            (if (and (typep (fifth (ast-arguments initform)) 'ast-quote)
                     (eql (ast-value (fifth (ast-arguments initform)))
                          (sys.int::specialized-array-definition-zero-element
