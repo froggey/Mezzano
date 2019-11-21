@@ -29,6 +29,44 @@
 
 ;;; Cold stream methods.
 
+(defparameter *cold-stream-is-line-buffered* t)
+(defparameter *cold-stream-buffers* '())
+(defparameter *cold-stream-lock* (mezzano.supervisor:make-mutex '*cold-stream-buffers*))
+
+(defmacro with-cold-stream-buffer ((buffer) &body body)
+  `(let ((buffer (get-cold-stream-buffer)))
+     ,@body))
+
+(defun get-cold-stream-buffer ()
+  (mezzano.supervisor:with-mutex (*cold-stream-lock*)
+    (do ((self (mezzano.supervisor:current-thread))
+         (entry nil)
+         (i *cold-stream-buffers*)
+         (prev nil))
+        ((endp i)
+         (when (not entry)
+           (setf entry (cons (make-weak-pointer self)
+                             (make-array 100
+                                         :element-type 'character
+                                         :fill-pointer 0
+                                         :adjustable t
+                                         :area :wired)))
+           (push entry *cold-stream-buffers*))
+         (cdr entry))
+      (let ((thread (weak-pointer-value (car (first i)))))
+        (when (eql thread self)
+          (setf entry (first i)))
+        (cond (thread
+               (setf prev i))
+              (t
+               ;; Entry is dead, flush & remove it.
+               (when (not (zerop (length (cdr (first i)))))
+                 (mezzano.supervisor::debug-write-string (cdr (first i))))
+               (if prev
+                   (setf (rest prev) (rest i))
+                   (setf *cold-stream-buffers* (rest i)))))
+        (setf i (rest i))))))
+
 (defmethod mezzano.gray:stream-read-char ((stream cold-stream))
   (or (cold-read-char stream) :eof))
 
@@ -38,17 +76,45 @@
 (defmethod mezzano.gray:stream-unread-char ((stream cold-stream) character)
   (cold-unread-char character stream))
 
-(defmethod mezzano.gray:stream-write-char ((stream cold-stream) character)
-  (cold-write-char character stream))
-
 (defmethod mezzano.gray:stream-clear-input ((stream cold-stream))
   (cold-clear-input stream))
 
+(defmethod mezzano.gray:stream-write-char ((stream cold-stream) character)
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (vector-push-extend character buffer))
+         (when (eql character #\Newline)
+           (finish-output stream)))
+        (t
+         (cold-write-char character stream))))
+
 (defmethod mezzano.gray:stream-start-line-p ((stream cold-stream))
-  (cold-start-line-p stream))
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (zerop (length buffer))))
+        (t
+         (cold-start-line-p stream))))
 
 (defmethod mezzano.gray:stream-line-column ((stream cold-stream))
-  (cold-line-column stream))
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (length buffer)))
+        (t
+         (cold-line-column stream))))
+
+(defmethod mezzano.gray:stream-finish-output ((stream cold-stream))
+  (when *cold-stream-is-line-buffered*
+    (with-cold-stream-buffer (buffer)
+      (mezzano.supervisor::debug-write-string buffer)
+      (setf (fill-pointer buffer) 0))))
+
+(defmethod mezzano.gray:stream-force-output ((stream cold-stream))
+  (finish-output stream))
+
+(defmethod mezzano.gray:stream-clear-output ((stream cold-stream))
+  (when *cold-stream-is-line-buffered*
+    (with-cold-stream-buffer (buffer)
+      (setf (fill-pointer buffer) 0))))
 
 (defmethod mezzano.gray:stream-line-length ((stream cold-stream))
   (cold-line-length stream))
