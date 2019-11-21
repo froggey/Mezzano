@@ -90,6 +90,9 @@
     ((equal) 'sxhash)
     ((equalp) 'equalp-hash)))
 
+(defun hash-table-enforce-gc-invariant-keys (hash-table)
+  (eql (hash-table-gc-invariant hash-table) :mandatory))
+
 ;;; Unsynchronized hash-tables are safe for use with concurrent readers
 ;;; as long as they only contains gc-invariant keys.
 (defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t) enforce-gc-invariant-keys)

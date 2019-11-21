@@ -440,15 +440,30 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
      (save-integer (%double-float-as-integer (realpart object)) stream)
      (save-integer (%double-float-as-integer (imagpart object)) stream))))
 
+(defun load-hash-table-entries (hash-table entries)
+  (loop
+     for i below (length entries) by 2
+     for key = (svref entries i)
+     for value = (svref entries (1+ i))
+     do (setf (gethash key hash-table) value)))
+
 (defmethod make-load-form ((object hash-table) &optional environment)
   (declare (ignore environment))
   (values `(make-hash-table :test ',(hash-table-test object)
                             :rehash-size ',(hash-table-rehash-size object)
-                            :rehash-threshold ',(hash-table-rehash-threshold object))
-          `(progn
-             ,@(loop
-                  for keys being the hash-keys in object using (hash-value value)
-                  collect `(setf (gethash ',keys ',object) ',value)))))
+                            :rehash-threshold ',(hash-table-rehash-threshold object)
+                            :synchronized ',(hash-table-synchronized object)
+                            :enforce-gc-invariant-keys ',(hash-table-enforce-gc-invariant-keys object))
+          (if (not (zerop (hash-table-count object)))
+              `(load-hash-table-entries
+                ',object
+                ',(loop
+                     with entries = (make-array (* (hash-table-count object) 2))
+                     for i from 0 by 2
+                     for key being the hash-keys in object using (hash-value value)
+                     do (setf (svref entries i) key
+                              (svref entries (1+ i)) value)
+                     finally (return entries))))))
 
 (defmethod save-one-object ((object instance-header) omap stream)
   (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
