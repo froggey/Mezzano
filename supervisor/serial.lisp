@@ -170,12 +170,31 @@
                  (with-utf-8-bytes (char byte)
                    (debug-serial-write-byte-1 byte)))))))))
 
+(defun debug-serial-flush-buffer (buf)
+  (safe-without-interrupts (buf)
+    (with-symbol-spinlock (*debug-serial-lock*)
+      (let ((buf-data (car buf)))
+        ;; To get inline wired accessors....
+        (declare (type (simple-array (unsigned-byte 8) (*)) buf-data)
+                 (optimize speed (safety 0)))
+        (dotimes (i (cdr buf))
+          (let ((byte (aref buf-data (the fixnum i))))
+            (cond ((eql byte #.(char-code #\Newline))
+                   (setf *serial-at-line-start* t)
+                   ;; Turn #\Newline into CRLF
+                   (debug-serial-write-byte-1 #x0D)
+                   (debug-serial-write-byte-1 #x0A))
+                  (t
+                   (setf *serial-at-line-start* nil)
+                   (debug-serial-write-byte-1 byte)))))))))
+
 (defun debug-serial-stream (op &optional arg)
   (ecase op
     (:read-char (panic "Serial read char not implemented."))
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
+    (:flush-buffer (debug-serial-flush-buffer arg))
     (:force-output)
     (:start-line-p *serial-at-line-start*)))
 
