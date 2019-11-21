@@ -470,43 +470,26 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                omap stream)
   (write-byte +llf-instance-header+ stream))
 
+(defvar *compiling-make-load-form* nil)
+
 (defmethod save-one-object (object omap stream)
   ;; Use COMPILE-LAMBDA here instead of COMPILE to get the correct L-T-V behaviour.
-  (let ((mezzano.compiler::*load-time-value-hook*
-         (lambda (form read-only-p)
-           (declare (ignore read-only-p))
-           (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-             (save-object (mezzano.compiler::compile-lambda
-                           `(lambda ()
-                              (declare (special ,ltv-sym))
-                              (setq ,ltv-sym ,form))
-                           nil)
-                          omap stream)
-             (save-object 0 omap stream)
-             (write-byte +llf-funcall-n+ stream)
-             (write-byte +llf-drop+ stream)
-             `(sys.int::symbol-global-value ',ltv-sym)))))
+  (let* ((*compiling-make-load-form* (cons omap stream))
+         (mezzano.compiler::*load-time-value-hook*
+          (lambda (form read-only-p)
+            (declare (ignore read-only-p))
+            (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
+              (compile-top-level-form `(locally
+                                           (declare (special ,ltv-sym))
+                                         (setq ,ltv-sym ,form))
+                                      nil)
+              `(sys.int::symbol-global-value ',ltv-sym)))))
     (multiple-value-bind (creation-form initialization-form)
         (make-load-form object)
-      (save-object (mezzano.compiler::compile-lambda
-                    `(lambda ()
-                       (declare (sys.int::lambda-name creation-form))
-                       (progn ,creation-form))
-                    nil)
-                   omap stream)
-      (save-object 0 omap stream)
-      (write-byte +llf-funcall-n+ stream)
+      (compile-top-level-form-for-value creation-form nil)
       (when initialization-form
         (write-object-backlink object omap stream)
-        (save-object (mezzano.compiler::compile-lambda
-                      `(lambda ()
-                         (declare (sys.int::lambda-name initialization-form))
-                         (progn ,initialization-form))
-                      nil)
-                     omap stream)
-        (save-object 0 omap stream)
-        (write-byte +llf-funcall-n+ stream)
-        (write-byte +llf-drop+ stream)))))
+        (compile-top-level-form initialization-form nil)))))
 
 (defun write-object-backlink (object omap stream)
   (when (not *llf-dry-run*)
@@ -585,11 +568,21 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defvar *current-deferred-function* nil)
 
 (defun add-to-llf (action &rest objects)
-  (if *current-deferred-function*
-      (push (list* action objects)
-            (deferred-function-additional-commands
-                *current-deferred-function*))
-      (push (list* action objects) *llf-forms*)))
+  (cond (*current-deferred-function*
+         ;; Running in a worker thread to compile a function.
+         (push (list* action objects)
+               (deferred-function-additional-commands
+                   *current-deferred-function*)))
+        (*compiling-make-load-form*
+         ;; Compiling a call to make-load-form.
+         ;; This occurs when saving objects, so the work must not be deferred.
+         (dolist (o objects)
+           (save-object o (car *compiling-make-load-form*) (cdr *compiling-make-load-form*)))
+         (when (and action (not *llf-dry-run*))
+           (write-byte action (cdr *compiling-make-load-form*))))
+        (t
+         ;; Normal operation, save the forms in the command list.
+         (push (list* action objects) *llf-forms*))))
 
 (defun compile-file-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
@@ -747,7 +740,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (if (and *compile-parallel*
            ;; If true, then this is a worker thread compiling something.
            ;; Don't schedule more work, just do it here.
-           (not *current-deferred-function*))
+           (not *current-deferred-function*)
+           ;; If true then a make-load-form is actively being compiled
+           ;; and is running in the context of save-object, now long past
+           ;; the time that parallel compilation can be done.
+           (not *compiling-make-load-form*))
       (let ((fn (make-instance 'deferred-function
                                :ast (mezzano.compiler::pass1-lambda lambda env)
                                :tlf-number *top-level-form-number*)))
@@ -901,7 +898,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                        :if-exists :supersede
                                        :direction :output)
           (write-llf-header output-stream input-file)
-
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
