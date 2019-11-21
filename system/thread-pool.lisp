@@ -9,6 +9,7 @@
            #:work-item
            #:make-thread-pool
            #:thread-pool-add
+           #:thread-pool-add-many
            #:thread-pool-cancel-item
            #:thread-pool-flush
            #:thread-pool-shutdown
@@ -119,15 +120,24 @@
            (decf (thread-pool-n-total-threads thread-pool)))
          (setf (sup:thread-thread-pool self) nil)))))
 
-(defun thread-pool-add (function thread-pool &key name priority)
+(defun thread-pool-add (function thread-pool &key name priority bindings)
   "Add a work item to the thread-pool.
 Functions are called concurrently and in FIFO order.
 A work item is returned, which can be passed to THREAD-POOL-CANCEL-ITEM
-to attempt cancel the work."
+to attempt cancel the work.
+BINDINGS is a list of (SYMBOL VALUE) pairs which specify special bindings
+that should be active when FUNCTION is called. These override the
+thread pool's initial-bindings."
   (declare (ignore priority)) ; TODO
   (check-type function function)
   (let ((work (make-instance 'work-item
-                             :function function
+                             :function (if bindings
+                                           (let ((vars (mapcar #'first bindings))
+                                                 (vals (mapcar #'second bindings)))
+                                             (lambda ()
+                                               (progv vars vals
+                                                 (funcall function))))
+                                           function)
                              :name name
                              :thread-pool thread-pool)))
     (sup:with-mutex ((thread-pool-lock thread-pool) :resignal-errors t)
@@ -147,6 +157,21 @@ to attempt cancel the work."
         (incf (thread-pool-n-total-threads thread-pool)))
       (sup:condition-notify (thread-pool-cvar thread-pool)))
     work))
+
+(defun thread-pool-add-many (function values thread-pool &key name priority bindings)
+  "Add many work items to the pool.
+A work item is created for each element of VALUES and FUNCTION is called
+in the pool with that element.
+Returns a list of the work items added."
+  (loop
+     for value in values
+     collect (thread-pool-add
+              (let ((value value))
+                (lambda () (funcall function value)))
+              thread-pool
+              :name name
+              :priority priority
+              :bindings bindings)))
 
 (defun thread-pool-cancel-item (item)
   "Cancel a work item, removing it from its thread-pool.
