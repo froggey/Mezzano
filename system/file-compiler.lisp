@@ -859,7 +859,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                       do
                         (when *compile-print*
                           (when (eql i 0)
-                            (write-string ";; ")))
+                            (write-string ";; ")
+                            (finish-output)))
                         (let ((status (mezzano.supervisor:fifo-pop return-fifo)))
                           (when (and (consp status)
                                      (eql (first status) :error))
@@ -870,6 +871,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                             (error (third status))))
                         (when *compile-print*
                           (write-char #\.)
+                          (finish-output)
                           (incf i)
                           (when (eql i 72)
                             (terpri)
