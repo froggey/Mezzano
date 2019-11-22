@@ -809,6 +809,8 @@
                               (type-info-compound-type info)))))
     (when compound-test
       (return-from typep (funcall compound-test object type-specifier))))
+  (when (eql type-specifier 'nil)
+    (return-from typep nil))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier environment)
     (if expanded-p
