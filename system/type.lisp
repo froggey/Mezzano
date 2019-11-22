@@ -795,11 +795,11 @@
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
     (let ((class (find-class type-specifier nil)))
-      (when (and class
-                 (if (mezzano.runtime::structure-class-p class)
-                     (structure-type-p object class)
-                     (class-typep object class)))
-        (return-from typep t))))
+      (when class
+        (return-from typep
+          (if (mezzano.runtime::structure-class-p class)
+              (structure-type-p object class)
+              (class-typep object class))))))
   (let ((compound-test (let ((info (type-info-for
                                     (if (symbolp type-specifier)
                                         type-specifier
@@ -811,8 +811,9 @@
       (return-from typep (funcall compound-test object type-specifier))))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier environment)
-    (when expanded-p
-      (typep object expansion))))
+    (if expanded-p
+        (typep object expansion)
+        (error "~S is not a known type-specifier" type-specifier))))
 
 (defun check-type-error (place value typespec string)
   (restart-case (if string
