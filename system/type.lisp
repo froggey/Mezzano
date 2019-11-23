@@ -687,12 +687,15 @@
                                                     t2-dimension-spec)))))
                        t))))
           ((and (consp t1) (eql (first t1) 'eql))
-           (destructuring-bind (object) (rest t1)
-             (values (if (and (consp t2) (eql (first t2) 'function))
-                         ;; Reduce complicated FUNCTION types down to the symbol
-                         (typep object 'function)
-                         (typep object t2))
-                     t)))
+           (handler-case
+               (destructuring-bind (object) (rest t1)
+                 (values (if (and (consp t2) (eql (first t2) 'function))
+                             ;; Reduce complicated FUNCTION types down to the symbol
+                             (typep object 'function)
+                             (typep object t2))
+                         t))
+             (unknown-type-specifier-error ()
+               (values nil nil))))
           ((and (consp t1) (eql (first t1) 'member))
            (subtypep `(or ,@(loop for object in (rest t1)
                                collect `(eql ,object)))
@@ -815,7 +818,7 @@
       (typeexpand-1 type-specifier environment)
     (if expanded-p
         (typep object expansion)
-        (error "~S is not a known type-specifier" type-specifier))))
+        (error 'unknown-type-specifier-error :type-specifier type-specifier))))
 
 (defun check-type-error (place value typespec string)
   (restart-case (if string

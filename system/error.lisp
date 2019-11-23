@@ -216,6 +216,13 @@
   ((mutex :initarg :mutex
           :reader mutex-error-mutex)))
 
+(define-condition unknown-type-specifier-error (error)
+  ((type-specifier :initarg :type-specifier
+                   :reader unknown-type-specifier-error-type-specifier))
+  (:report (lambda (condition stream)
+             (format stream "~S is not a known type-specifier"
+                     (unknown-type-specifier-error-type-specifier condition)))))
+
 (defun error (datum &rest arguments)
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))

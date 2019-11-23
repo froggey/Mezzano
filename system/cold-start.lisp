@@ -217,6 +217,11 @@
     (error "Early call to FIND-CLASS for ~S" name))
   nil)
 
+;;; Early handler bind
+(defun %handler-bind (bindings thunk)
+  (declare (ignore bindings))
+  (funcall thunk))
+
 (defvar *warm-llf-files*)
 
 (defvar *cold-start-start-time*)
