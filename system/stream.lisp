@@ -596,12 +596,15 @@ This should only fill in the START- slots and ignore the END- slots.")
 
 (defmethod location-tracking-stream-location ((stream location-tracking-stream))
   (make-source-location
-   :start-position (let ((inner (location-tracking-stream-stream stream)))
-                     (if (typep inner 'file-stream)
-                         (file-position inner)
-                         nil))
-   :start-line (location-tracking-stream-line stream)
-   :start-character (location-tracking-stream-character stream)))
+   :file (and *compile-file-pathname*
+              (ignore-errors (namestring *compile-file-pathname*)))
+   :top-level-form-number *top-level-form-number*
+   :position (let ((inner (location-tracking-stream-stream stream)))
+               (if (typep inner 'file-stream)
+                   (file-position inner)
+                   nil))
+   :line (location-tracking-stream-line stream)
+   :character (location-tracking-stream-character stream)))
 
 (defmethod mezzano.gray:stream-read-char ((stream location-tracking-stream))
   (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))

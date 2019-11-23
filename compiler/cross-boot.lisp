@@ -86,28 +86,6 @@
       (setf (gethash key hash-table) new))
     existing))
 
-(defmacro sys.int::cas (place old new)
-  ;; As a special cross-build exception, support hash-tables.
-  (cond ((and (consp place)
-              (eql (first place) 'gethash))
-         (destructuring-bind (key hash-table &optional default)
-             (rest place)
-           `(cas-hash-table ,key ,hash-table ,default ,old ,new)))
-        (t
-         `(error "Cross-cas ~S not supported" place))))
-
-(defun sys.int::%defun (name lambda &optional documentation)
-  (declare (ignore documentation))
-  ;; Completely ignore CAS functions when cross compiling, they're not needed.
-  (unless (and (consp name) (eql (first name) 'sys.int::cas))
-    (setf (fdefinition name) lambda))
-  name)
-
-(defun fboundp (name)
-  (if (and (consp name) (eql (first name) 'sys.int::cas))
-      nil
-      (cl:fboundp name)))
-
 (defun sys.int::set-variable-docstring (name docstring)
   (declare (ignore name docstring)))
 

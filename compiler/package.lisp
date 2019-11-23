@@ -132,10 +132,84 @@
   (:local-nicknames (:sys.int :mezzano.internals))
   (:use :cl))
 
+(defpackage :mezzano.extensions
+  (:use :cl)
+  (:export
+   #:*module-provider-functions*
+   #:*ed-hook*
+   #:*inspect-hook*
+   #:lisp-version-string
+   #:setf-expander-function
+   #:gc
+
+   ;; Weak pointers
+   #:weak-pointer
+   #:weak-pointer-p
+   #:make-weak-pointer
+   #:weak-pointer-value
+   #:weak-pointer-key
+   #:weak-pointer-pair
+
+   ;; Atomics
+   #:cas
+   #:get-cas-expansion
+   #:atomic-incf
+   #:atomic-decf
+
+   ;; Package local nicknames
+   #:find-global-package
+   #:package-local-nicknames
+   #:package-locally-nicknamed-by-list
+   #:add-package-local-nickname
+   #:remove-package-local-nickname
+   ))
+
+(defpackage :mezzano.debug
+  (:use :cl)
+  (:export
+   ;; Backtraces & frames.
+   #:backtrace
+   #:map-backtrace
+   #:frame
+   #:frame-depth
+   #:frame-function
+   #:print-frame
+   #:local-variable
+   #:local-variable-name
+   #:local-variable-value
+   #:frame-local-variables
+   ;; Source locations
+   #:source-location
+   #:source-location-top-level-form-number
+   #:source-location-file
+   #:source-location-line
+   #:source-location-end-line
+   #:source-location-character
+   #:source-location-end-character
+   #:source-location-position
+   #:source-location-end-position
+   #:function-source-location
+   ;; Cross-references
+   #:list-callers
+   #:list-callees
+   ;; Other introspection.
+   #:macro-function-lambda-list
+   #:function-lambda-list
+   #:function-name
+))
+
 (defpackage :mezzano.internals
   (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
                     (:sys.int :mezzano.internals))
   (:use :cl))
+
+;; Compatibility imports so these symbols have the right home package
+;; but can still be accessed in internals.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (dolist (package '(:mezzano.extensions
+                     :mezzano.debug))
+    (do-external-symbols (sym package)
+      (import sym :mezzano.internals))))
 
 (defpackage :mezzano.clos
   (:use :cl)

@@ -1072,21 +1072,26 @@
        (gethash form *reader-form-locations*)))
 
 (defstruct source-location
+  ;; Namestring
+  file
+  top-level-form-number
   ;; Raw file position.
-  start-position end-position
+  position end-position
   ;; Line number (from 1).
-  start-line end-line
+  line end-line
   ;; Character index (from 0).
-  start-character end-character)
+  character end-character)
 
 (defun combine-source-locations (start-location end-location)
   (make-source-location
-   :start-position (source-location-start-position start-location)
-   :end-position (source-location-start-position end-location)
-   :start-line (source-location-start-line start-location)
-   :end-line (source-location-start-line end-location)
-   :start-character (source-location-start-character start-location)
-   :end-character (source-location-start-character end-location)))
+   :file (source-location-file start-location)
+   :top-level-form-number (source-location-top-level-form-number start-location)
+   :position (source-location-position start-location)
+   :end-position (source-location-position end-location)
+   :line (source-location-line start-location)
+   :end-line (source-location-line end-location)
+   :character (source-location-character start-location)
+   :end-character (source-location-character end-location)))
 
 (defun set-reader-form-location (form start-location end-location)
   (when (and start-location end-location

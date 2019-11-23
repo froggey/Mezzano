@@ -3,6 +3,30 @@
 
 ;;;; Support functions for cross-compilation.
 
+(in-package :cross-support)
+
+(defmacro mezzano.extensions:cas (place old new)
+  ;; As a special cross-build exception, support hash-tables.
+  (cond ((and (consp place)
+              (eql (first place) 'gethash))
+         (destructuring-bind (key hash-table &optional default)
+             (rest place)
+           `(cas-hash-table ,key ,hash-table ,default ,old ,new)))
+        (t
+         `(error "Cross-cas ~S not supported" place))))
+
+(defun sys.int::%defun (name lambda &optional documentation)
+  (declare (ignore documentation))
+  ;; Completely ignore CAS functions when cross compiling, they're not needed.
+  (unless (and (consp name) (eql (first name) 'mezzano.extensions:cas))
+    (setf (fdefinition name) lambda))
+  name)
+
+(defun fboundp (name)
+  (if (and (consp name) (eql (first name) 'mezzano.extensions:cas))
+      nil
+      (cl:fboundp name)))
+
 (in-package :mezzano.compiler)
 
 (define-condition sys.int::simple-style-warning (style-warning simple-condition) ())
@@ -1190,12 +1214,15 @@ This should only fill in the START- slots and ignore the END- slots.")
 
 (defmethod location-tracking-stream-location ((stream location-tracking-stream))
   (make-source-location
-   :start-position (let ((inner (location-tracking-stream-stream stream)))
-                     (if (typep inner 'file-stream)
-                         (file-position inner)
-                         nil))
-   :start-line (location-tracking-stream-line stream)
-   :start-character (location-tracking-stream-character stream)))
+   :file (and *compile-file-pathname*
+              (ignore-errors (namestring *compile-file-pathname*)))
+   :top-level-form-number *top-level-form-number*
+   :position (let ((inner (location-tracking-stream-stream stream)))
+               (if (typep inner 'file-stream)
+                   (file-position inner)
+                   nil))
+   :line (location-tracking-stream-line stream)
+   :character (location-tracking-stream-character stream)))
 
 (defmethod sb-gray:stream-read-char ((stream location-tracking-stream))
   (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))

@@ -362,7 +362,7 @@ Returns NIL if the function captures no variables."
            (n-frames 0)
            (*current-debug-frame*))
       (let ((prev-fp nil))
-        (map-backtrace
+        (%map-backtrace
          (lambda (i fp)
            (incf n-frames)
            (push (list (1- i) fp prev-fp) frames)
@@ -378,7 +378,7 @@ Returns NIL if the function captures no variables."
       (fresh-line)
       (show-restarts restarts)
       (fresh-line)
-      (backtrace *default-frames-to-print*)
+      (backtrace :limit *default-frames-to-print*)
       (fresh-line)
       (write-line "Enter a restart number or evaluate a form. :help for help.")
       (clear-input)
@@ -521,7 +521,7 @@ Returns NIL if the function captures no variables."
        for restart in restarts
        do (format t "~S ~S: ~A~%" (- restart-count i 1) (restart-name restart) restart))))
 
-(defun map-backtrace (fn)
+(defun %map-backtrace (fn)
   (do ((i 0 (1+ i))
        (fp (read-frame-pointer)
            (memref-unsigned-byte-64 fp 0)))
@@ -530,15 +530,64 @@ Returns NIL if the function captures no variables."
            (eql (memref-signed-byte-64 fp 1) 0)))
     (funcall fn i fp)))
 
-(defun backtrace (&optional limit)
-  (map-backtrace
+(defstruct frame
+  (depth 0 :read-only t)
+  (fp 0 :read-only t))
+
+(defstruct local-variable
+  (name nil :read-only t)
+  location
+  representation)
+
+(defun frame-local-variables (frame &key show-hidden)
+  (loop
+     for (name id location repr) in (frame-locals (list 0 (frame-fp frame) nil)
+                                                  :show-hidden show-hidden)
+     collect (make-local-variable :name name :location location :representation repr)))
+
+(defun local-variable-value (frame local-variable)
+  (let ((value (read-frame-slot (list 0 (frame-fp frame) nil)
+                                (local-variable-location local-variable)
+                                (local-variable-representation local-variable))))
+    (if (eql value :$inaccessible-value$)
+        (values nil nil)
+        (values value t))))
+
+(defun frame-function (frame)
+  "Return the function associated with frame.
+Returns the function that was called, the actual function object being
+executed, and the offset into it."
+  (multiple-value-bind (actual-function offset)
+      (function-from-frame (list nil (frame-fp frame) nil))
+    (values actual-function actual-function offset)))
+
+(defun print-frame (frame &key (stream *debug-io*))
+  (format stream "~S" (frame-function frame)))
+
+(defgeneric function-source-location (function &key))
+
+(defmethod function-source-location ((function compiled-function) &key (offset 0))
+  (let* ((info (function-debug-info function))
+         (pathname (mezzano.internals::debug-info-source-pathname info))
+         (tlf (mezzano.internals::debug-info-source-top-level-form-number info)))
+    (make-source-location :file pathname
+                          :top-level-form-number tlf)))
+
+(defun map-backtrace (fn)
+  (%map-backtrace
+   (lambda (depth fp)
+     (funcall fn (make-frame :depth depth :fp fp)))))
+
+(defun backtrace (&key (stream *debug-io*) limit)
+  "Print a backtrace on STREAM."
+  (%map-backtrace
    (lambda (i fp)
      (when (and limit (> i limit))
        (return-from backtrace))
      (let* ((return-address (memref-unsigned-byte-64 fp 1))
             (fn (function-from-frame (list nil fp nil)))
             (name (when (functionp fn) (function-name fn))))
-       (format t "~&~X ~X ~S" fp return-address name)))))
+       (format stream "~&~X ~X ~S" fp return-address name)))))
 
 (defvar *traced-functions* '())
 (defvar *trace-depth* 0)
@@ -612,3 +661,71 @@ Returns NIL if the function captures no variables."
 
 (defmacro untrace (&rest functions)
   `(%untrace ,@(loop for fn in functions collect `',fn)))
+
+(defun find-all-frefs ()
+  (remove-duplicates
+   (coerce (get-all-objects
+            #'function-reference-p)
+          'list)))
+
+(defun get-all-frefs-in-function (function)
+  (when (funcallable-instance-p function)
+    (setf function (funcallable-instance-function function)))
+  (when (closure-p function)
+    (setf function (%closure-function function)))
+  (loop
+     for i below (function-pool-size function)
+     for entry = (function-pool-object function i)
+     when (function-reference-p entry)
+     collect entry
+     when (compiled-function-p entry) ; closures
+     append (get-all-frefs-in-function entry)))
+
+(defun specializer-name (specializer)
+  (if (typep specializer 'standard-class)
+      (mezzano.clos:class-name specializer)
+      specializer))
+
+(defun list-callers (function-designator)
+  (loop
+     with fref-for-fn = (function-reference function-designator)
+     with callers = '()
+     for fref in (find-all-frefs)
+     for fn = (function-reference-function fref)
+     for name = (function-reference-name fref)
+     when fn
+     do
+       (cond ((typep fn 'standard-generic-function)
+              (dolist (m (mezzano.clos:generic-function-methods fn))
+                  (let* ((mf (mezzano.clos:method-function m))
+                         (mf-frefs (get-all-frefs-in-function mf)))
+                    (when (member fref-for-fn mf-frefs)
+                      (push `((defmethod ,name
+                                  ,@(mezzano.clos:method-qualifiers m)
+                                ,(mapcar #'specializer-name
+                                         (mezzano.clos:method-specializers m)))
+                              ,(function-source-location mf))
+                            callers)))))
+               ((member fref-for-fn
+                        (get-all-frefs-in-function fn))
+                (push `((defun ,name) ,(function-source-location fn)) callers)))
+     finally (return callers)))
+
+(defun list-callees (function-designator)
+  (let* ((fn (fdefinition function-designator))
+         ;; Grovel around in the function's constant pool looking for
+         ;; function-references.  These may be for #', but they're
+         ;; probably going to be for normal calls.
+         ;; TODO: This doesn't work well on interpreted functions or
+         ;; funcallable instances.
+         (callees (remove-duplicates (get-all-frefs-in-function fn))))
+    (loop
+       for fref in callees
+       for name = (function-reference-name fref)
+       for fn = (function-reference-function fref)
+       when fn
+       collect `((defun ,name) ,(function-source-location fn)))))
+
+(defun function-lambda-list (function)
+  (debug-info-lambda-list
+   (function-debug-info function)))

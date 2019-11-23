@@ -366,6 +366,15 @@ A list of two elements, the short & long name." )
       (format nil "~A ~A" *lisp-implementation-version* *git-revision*)
       *lisp-implementation-version*))
 
+(defun lisp-version-string ()
+  "Return a string that identifies the current Lisp implementation version.
+This string will change when backwards-incompatible changes are made.
+It is the implementation of UIOP's lisp-version-string function."
+  (let ((s (lisp-implementation-version)))
+    (format nil "~A-~D"
+            *lisp-implementation-version*
+            *llf-version*)))
+
 (defun short-site-name () (first *site-info*))
 (defun long-site-name () (second *site-info*))
 

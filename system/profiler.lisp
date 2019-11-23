@@ -268,7 +268,7 @@ thread states & call-stacks."
   (let ((first nil)
         (tree '()))
     (block nil
-      (mezzano.internals::map-backtrace
+      (mezzano.internals::%map-backtrace
        (lambda (i fp)
          (let* ((fn (mezzano.internals::function-from-frame (list nil fp nil))))
            (when (eql i 3)
