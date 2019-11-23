@@ -17,7 +17,7 @@
 
 (defstruct (readtable
              (:predicate readtablep)
-             (:copier))
+             (:copier nil))
   (case :upcase :type (member :upcase :downcase :preserve :invert))
   (base-characters (make-array 256 :initial-element nil) :type (simple-vector 256))
   (extended-characters (make-hash-table) :type hash-table))
