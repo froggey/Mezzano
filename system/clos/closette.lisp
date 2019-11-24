@@ -2838,15 +2838,14 @@ always match."
     ((generic-function null)
      function-name
      &rest all-keys
-     &key generic-function-class method-class &allow-other-keys)
+     &key &allow-other-keys)
   (multiple-value-bind (generic-function-class initargs)
       (apply #'normalize-e-g-f-args all-keys)
     (let ((gf (apply #'make-instance
                      (or generic-function-class
                          *the-class-standard-gf*)
                      :name function-name
-                     :method-class method-class
-                     all-keys)))
+                     initargs)))
       ;; Not entirely sure where this should be done.
       ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
       (setf (fdefinition function-name) gf)
