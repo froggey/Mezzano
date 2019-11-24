@@ -898,6 +898,24 @@ This is required to make the GC interrupt safe."
                   (scavenge-stack stack-pointer frame-pointer return-address cycle-kind))))))))
 
 (defun gc-info-for-function-offset (function offset)
+  (when (function-reference-p function)
+    (when *gc-debug-scavenge-stack*
+      (gc-log "In FREF " function ":" offset))
+    ;; Peer through the fref to get the real target function.
+    (setf function (function-reference-function function))
+    (when (not function)
+      ;; Unbound fref, going to raise-undefined-function.
+      (setf function #'raise-undefined-function))
+    ;; Peel away any closures or funcallable instances.
+    (loop
+       while (funcallable-instance-p function)
+       do (setf function (funcallable-instance-function function)))
+    (when (closure-p function)
+      (setf function (%closure-function function)))
+    ;; Starting at the beginning, skipping the header.
+    (setf offset 16))
+  (when (not (%object-of-type-p function +object-tag-function+))
+    (mezzano.supervisor:panic function " is not a function with GCMD"))
   ;; Defaults.
   (let ((framep nil)
         (interruptp nil)
