@@ -3,7 +3,7 @@
 
 ;;;; type.lisp - Type management.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defmacro deftype (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
@@ -37,14 +37,17 @@
 
 ;; Initialized here for the cold generator and in cold-start for normal operation
 (defvar *type-info* (make-hash-table))
+(defvar *type-info-lock* nil)
 
 (defun type-info-for (name &optional (create t))
   (check-type name symbol)
-  (let ((entry (gethash name *type-info*)))
+  (let ((entry (mezzano.supervisor:with-rw-lock-read (*type-info-lock*)
+                 (gethash name *type-info*))))
     (when (and (not entry) create)
-      (let ((new-entry (make-type-info)))
-        (setf entry (or (cas (gethash name *type-info*) nil new-entry)
-                        new-entry))))
+      (mezzano.supervisor:with-rw-lock-write (*type-info-lock*)
+        (let ((new-entry (make-type-info)))
+          (setf entry (or (cas (gethash name *type-info*) nil new-entry)
+                          new-entry)))))
     entry))
 
 (defun %deftype (name expander documentation)
@@ -684,12 +687,15 @@
                                                     t2-dimension-spec)))))
                        t))))
           ((and (consp t1) (eql (first t1) 'eql))
-           (destructuring-bind (object) (rest t1)
-             (values (if (and (consp t2) (eql (first t2) 'function))
-                         ;; Reduce complicated FUNCTION types down to the symbol
-                         (typep object 'function)
-                         (typep object t2))
-                     t)))
+           (handler-case
+               (destructuring-bind (object) (rest t1)
+                 (values (if (and (consp t2) (eql (first t2) 'function))
+                             ;; Reduce complicated FUNCTION types down to the symbol
+                             (typep object 'function)
+                             (typep object t2))
+                         t))
+             (unknown-type-specifier-error ()
+               (values nil nil))))
           ((and (consp t1) (eql (first t1) 'member))
            (subtypep `(or ,@(loop for object in (rest t1)
                                collect `(eql ,object)))
@@ -792,11 +798,11 @@
           (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
     (let ((class (find-class type-specifier nil)))
-      (when (and class
-                 (if (mezzano.runtime::structure-class-p class)
-                     (structure-type-p object class)
-                     (class-typep object class)))
-        (return-from typep t))))
+      (when class
+        (return-from typep
+          (if (mezzano.runtime::structure-class-p class)
+              (structure-type-p object class)
+              (class-typep object class))))))
   (let ((compound-test (let ((info (type-info-for
                                     (if (symbolp type-specifier)
                                         type-specifier
@@ -806,10 +812,13 @@
                               (type-info-compound-type info)))))
     (when compound-test
       (return-from typep (funcall compound-test object type-specifier))))
+  (when (eql type-specifier 'nil)
+    (return-from typep nil))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier environment)
-    (when expanded-p
-      (typep object expansion))))
+    (if expanded-p
+        (typep object expansion)
+        (error 'unknown-type-specifier-error :type-specifier type-specifier))))
 
 (defun check-type-error (place value typespec string)
   (restart-case (if string
@@ -894,12 +903,14 @@
                (and info
                     (type-info-maybe-class info))))
     (return-from compile-typep-expression
-      (let ((class (gensym "CLASS")))
-        `(let ((,class (mezzano.clos:find-class-in-reference
+      (let ((class (gensym "CLASS"))
+            (object-sym (gensym "OBJECT")))
+        `(let ((,object-sym ,object)
+               (,class (mezzano.clos:find-class-in-reference
                         (load-time-value (mezzano.clos:class-reference ',type-specifier))
                         nil)))
            (if ,class
-               (class-typep ,object ,class)
+               (class-typep ,object-sym ,class)
                nil)))))
   nil)
 )

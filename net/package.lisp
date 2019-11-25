@@ -1,9 +1,9 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :system.networking
+(defpackage :mezzano.network
   (:use :cl)
-  (:nicknames :sys.net :mezzano.network)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:copy-packet #:packet-length
            #:buffered-format
            #:send #:receive
@@ -16,7 +16,9 @@
 
 (defpackage :mezzano.network.ethernet
   (:use :cl)
-  (:import-from :sys.int
+  (:local-nicknames (:net :mezzano.network)
+                    (:sys.int :mezzano.internals))
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
@@ -32,7 +34,7 @@
 
 (defpackage :mezzano.network.arp
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
@@ -41,12 +43,14 @@
 
 (defpackage :mezzano.network.ip
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:import-from :sys.net
+  (:import-from :mezzano.network
                 #:octet)
+  (:local-nicknames (:net :mezzano.network)
+                    (:sys.int :mezzano.internals))
   (:export #:make-ipv4-address
            #:format-ipv4-address
            #:ipv4-address-to-string
@@ -76,11 +80,13 @@
 
 (defpackage :mezzano.network.tcp
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:local-nicknames (:gray :mezzano.gray))
+  (:local-nicknames (:gray :mezzano.gray)
+                    (:net :mezzano.network)
+                    (:sys.int :mezzano.internals))
   (:export #:tcp-stream-connect
            #:tcp-listen
            #:tcp-accept
@@ -102,22 +108,25 @@
 
 (defpackage :mezzano.network.udp
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
-  (:import-from :sys.net
+  (:import-from :mezzano.network
                 #:send
                 #:receive
                 #:disconnect)
+  (:local-nicknames (:net :mezzano.network))
   (:export #:with-udp-connection))
 
 (defpackage :mezzano.network.dns
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
+  (:local-nicknames (:net :mezzano.network)
+                    (:sys.int :mezzano.internals))
   (:export #:resolve-address
            #:*dns-servers*
            #:add-dns-server
@@ -125,10 +134,12 @@
 
 (defpackage :mezzano.network.dhcp
   (:use :cl)
-  (:import-from :sys.int
+  (:import-from :mezzano.internals
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
+  (:local-nicknames (:net :mezzano.network)
+                    (:sys.int :mezzano.internals))
   (:export #:acquire-lease #:renew-lease #:dhcp-lease #:start-dhcp-interaction
 	   #:dhcp-invalid-option #:dhcp-error #:ip-address #:netmask #:gateway #:interface #:ntp-servers
 	   #:dns-servers #:dhcp-server #:lease-timeout #:lease-timestamp #:mezzano-server))

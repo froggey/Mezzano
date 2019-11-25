@@ -432,6 +432,15 @@ An integer, measured in internal time units.")
   (dotimes (i (string-length string))
     (debug-video-write-char (char string i))))
 
+(defun debug-video-flush-buffer (buf)
+  (let ((buf-data (car buf)))
+    ;; To get inline wired accessors....
+    (declare (type (simple-array (unsigned-byte 8) (*)) buf-data)
+             (optimize speed (safety 0)))
+    (dotimes (i (cdr buf))
+      (let ((byte (aref buf-data (the fixnum i))))
+        (debug-video-write-char (code-char byte))))))
+
 (defun debug-video-stream (op &optional arg)
   (ecase op
     (:read-char (loop (thread-yield)))
@@ -439,4 +448,5 @@ An integer, measured in internal time units.")
     (:write-char (debug-video-write-char arg))
     (:write-string (debug-video-write-string arg))
     (:force-output)
-    (:start-line-p (eql *debug-video-x* 0))))
+    (:start-line-p (eql *debug-video-x* 0))
+    (:flush-buffer (debug-video-flush-buffer arg))))

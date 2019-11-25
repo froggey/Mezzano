@@ -264,9 +264,6 @@
                               :outputs (list result)))))))
 
 (define-support-object sys.int::%unbound-value :unbound-value)
-(define-support-object sys.int::%undefined-function :undefined-function)
-(define-support-object sys.int::%closure-trampoline :closure-trampoline)
-(define-support-object sys.int::%funcallable-instance-trampoline :funcallable-instance-trampoline)
 (define-support-object sys.int::%symbol-binding-cache-sentinel :symbol-binding-cache-sentinel)
 
 (define-builtin eq ((lhs rhs) :e)

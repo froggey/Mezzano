@@ -21,12 +21,15 @@
 (sys.int::defglobal *paging-read-only*)
 (sys.int::defglobal *bml4*)
 
+(sys.int::defglobal *page-replacement-list-lock*)
 (sys.int::defglobal *page-replacement-list-head*)
 (sys.int::defglobal *page-replacement-list-tail*)
 
 (sys.int::defglobal *pager-lazy-block-allocation-enabled*)
 
 (sys.int::defglobal *store-fudge-factor*)
+
+(sys.int::defglobal *pager-meter*)
 
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
@@ -43,6 +46,8 @@
   (sys.int::memref-unsigned-byte-64 page-table index))
 (defun (setf page-table-entry) (value page-table &optional (index 0))
   (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
+(defun (sys.int::cas page-table-entry) (old new page-table &optional (index 0))
+  (sys.int::cas (sys.int::memref-unsigned-byte-64 page-table index) old new))
 
 (declaim (inline zeroize-page zeroize-physical-page))
 (defun zeroize-page (addr)
@@ -124,12 +129,13 @@ the data. Free the page with FREE-PAGE when done."
 (defconstant +image-header-freelist+ 104)
 
 (defun initialize-paging-system ()
-  (cond ((boot-option +boot-option-freestanding+)
-         (initialize-freestanding-paging-system))
-        (t
-         (detect-paging-disk)
-         (when (not *paging-disk*)
-           (panic "Could not find boot device. Sorry.")))))
+  (with-rw-lock-write (*vm-lock*)
+    (cond ((boot-option +boot-option-freestanding+)
+           (initialize-freestanding-paging-system))
+          (t
+           (detect-paging-disk)
+           (when (not *paging-disk*)
+             (panic "Could not find boot device. Sorry."))))))
 
 (defun initialize-freestanding-paging-system ()
   (setf *paging-disk* :freestanding
@@ -404,7 +410,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (ensure (or (< base #x80000000) ; wired area
                 (and (<= #x200000000000 base) ; wired stack area.
                      (< base #x208000000000)))))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     ;; Ensure there's enough fudged memory before allocating.
     (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
       (pager-log "Not allocating " length " bytes, too few blocks remaining. "
@@ -463,7 +469,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun release-memory-range-in-pager (base length ignore3)
   (declare (ignore ignore3))
   (pager-log-op "Release range " base "-" (+ base length))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (let ((stackp (stack-area-p base))
           (card-base (+ sys.int::+card-table-base+
                         (* (truncate base sys.int::+card-size+)
@@ -512,7 +518,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun protect-memory-range-in-pager (base length flags)
   (pager-log-op "Protect range " base "-" (+ base length) "  " flags)
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (dotimes (i (truncate length #x1000))
       (let* ((address (+ base (* i #x1000)))
@@ -550,7 +556,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun update-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
   (declare (ignore ignore1 ignore2 ignore3))
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (map-ptes
      sys.int::*wired-area-base* sys.int::*wired-area-bump*
@@ -563,11 +569,23 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          ;; dirty bits in the wired area yet.
          #-arm64
          (update-pte pte :dirty nil))))
+    (map-ptes
+     sys.int::*wired-function-area-limit* sys.int::*function-area-base*
+     (dx-lambda (wired-page pte)
+       (when (not pte)
+         (panic "Missing pte for wired function page " wired-page))
+       (when (page-dirty-p pte)
+         (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         ;; ARM64's dirty bit emulation does not support emulating
+         ;; dirty bits in the wired area yet.
+         #-arm64
+         (update-pte pte :dirty nil))))
     (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
 (defun pager-allocate-page (&key (new-type :active))
+  (ensure (rw-lock-write-held-p *vm-lock*))
   (check-tlb-shootdown-not-in-progress)
   (let ((frame (allocate-physical-pages 1 :type new-type)))
     (when (not frame)
@@ -636,22 +654,26 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (setf (physical-page-frame-type frame) new-type)))
     frame))
 
-;;; This list is also modified by the page fault handler.
-;;; No locking is required for this at the moment, as neither the pager nor the snapshotter
-;;; ever cause page faults. Extra locking might be required in the future (SMP, preemption, etc).
+;;; WAIT-FOR-PAGE-FAST-PATH calls this concurrently with the *VM-LOCK*
+;;; read-held, so append requires an additional lock.
+;;; All other accesses to the replacement list are perfomed with the
+;;; full *VM-LOCK* write-held so don't need to lock.
 (defun append-to-page-replacement-list (frame)
-  (cond (*page-replacement-list-head*
-         (setf (physical-page-frame-next *page-replacement-list-tail*) frame
-               (physical-page-frame-prev frame) *page-replacement-list-tail*
-               (physical-page-frame-next frame) nil
-               *page-replacement-list-tail* frame))
-        (t
-         (setf *page-replacement-list-head* frame
-               *page-replacement-list-tail* frame
-               (physical-page-frame-next frame) nil
-               (physical-page-frame-prev frame) nil))))
+  (safe-without-interrupts (frame)
+    (with-place-spinlock (*page-replacement-list-lock*)
+      (cond (*page-replacement-list-head*
+             (setf (physical-page-frame-next *page-replacement-list-tail*) frame
+                   (physical-page-frame-prev frame) *page-replacement-list-tail*
+                   (physical-page-frame-next frame) nil
+                   *page-replacement-list-tail* frame))
+            (t
+             (setf *page-replacement-list-head* frame
+                   *page-replacement-list-tail* frame
+                   (physical-page-frame-next frame) nil
+                   (physical-page-frame-prev frame) nil))))))
 
 (defun remove-from-page-replacement-list (frame)
+  (ensure (rw-lock-write-held-p *vm-lock*))
   (when (eql *page-replacement-list-head* frame)
     (setf *page-replacement-list-head* (physical-page-frame-next frame)))
   (when (physical-page-frame-next frame)
@@ -662,7 +684,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (setf (physical-page-frame-next (physical-page-frame-prev frame)) (physical-page-frame-next frame))))
 
 (defun wait-for-page (address)
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (let ((pte (get-pte-for-address address))
           (block-info (block-info-for-virtual-address address)))
       #+(or)(debug-print-line "WFP " address " block " block-info)
@@ -755,56 +777,110 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address writep)
-  (declare (ignore writep))
-  (with-mutex (*vm-lock* :wait-p nil)
+  (with-rw-lock-read (*vm-lock* :wait-p nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
+      ;; GC write barrier.
+      ;; If a read-only non-COW page is written to then set the appropriate
+      ;; card table entry and make the page writable again.
+      ;; Other threads can change the page from read-only to read-write
+      ;; under us, so check for that and assume success in that case.
       (when (and pte
                  (page-present-p pte)
-                 (not (page-writable-p pte))
                  (not (page-copy-on-write-p pte))
                  block-info
                  (block-info-writable-p block-info)
                  (block-info-track-dirty-p block-info))
+        ;; CAS loop to attempt a PTE update.
+        ;; The fast path will only ever change a page from
+        ;; not-present to present or from read-only to read-write.
+        ;; So this page will never disappear out from under us and
+        ;; looping without repeating the above checks is safe.
+        (loop
+           (let ((pte-value (page-table-entry pte)))
+             (when (pte-page-writable-p pte-value)
+               ;; Page was writable all along. Possibly a stale
+               ;; TLB entry or another thread hit the write barrier
+               ;; at the same time.
+               (flush-tlb-single fault-address)
+               (return))
+             (when (update-pte-atomic pte pte-value :writable t)
+               ;; Page table updated successfully.
+               (return))))
         ;; Tracking dirty bits for the GC.
         (setf (sys.int::card-table-dirty-gen fault-address) 0)
-        (update-pte pte :writable t)
         (flush-tlb-single fault-address)
         (return-from wait-for-page-fast-path t))
+      ;; Pager fast zero page mapping.
+      ;; If a page is non-present in the page table and marked
+      ;; as zero-fill in the block map, then allocate, zero and map it.
+      ;; This is also where spurious faults are detected and ignored. These can
+      ;; occur when another thread updates the page tables while we're
+      ;; handling this fault.
+      ;; Other threads will set the zero fill flag to 0 if they install a
+      ;; page themselves.
       (when (and pte
-                 (not (page-present-p pte))
                  block-info
-                 (block-info-present-p block-info)
-                 (block-info-zero-fill-p block-info))
-        ;; Mapping a zero page into an existing PTE.
+                 (block-info-present-p block-info))
+        ;; Optimistically allocate a frame to map.
         (let ((frame (allocate-physical-pages 1 :type :active)))
           (when frame
-            ;(debug-print-line "Zero page fast path for " fault-address)
+            ;;(debug-print-line "Optimistic zero page fast path for " fault-address)
             (let ((page-addr (convert-to-pmap-address (ash frame 12))))
-              (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
-                    (physical-page-virtual-address frame) (logand fault-address (lognot (1- +4k-page-size+))))
-              (append-to-page-replacement-list frame)
               (zeroize-page page-addr)
-              ;; Clear the zero-fill flag.
-              (set-address-flags fault-address (logand block-info
-                                                       sys.int::+block-map-flag-mask+
-                                                       (lognot sys.int::+block-map-zero-fill+)))
-              ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
-              ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-              ;; This sets the dirty bits in the page tables properly.
-              (setf (page-table-entry pte 0) (make-pte frame
-                                                       :writable (and (block-info-writable-p block-info)
-                                                                      (not (block-info-track-dirty-p block-info)))
-                                                       :dirty t))
-              ;; Play a little fast & loose with TLB shootdown here.
-              ;; The fast path runs on the exception stack with interrupts
-              ;; disabled. TLB shootdown requires interrupts to be enabled.
-              ;; At this point all other CPUs should know that this entry is non-present,
-              ;; so the worst case is that a phony page fault is taken.
-              (flush-tlb-single fault-address))
-            t))))))
+              ;; CAS loop to try to install our frame.
+              (loop
+                 (let ((pte-value (page-table-entry pte)))
+                   (when (or (pte-page-present-p pte-value)
+                             (not (block-info-zero-fill-p block-info)))
+                     ;; Give up.
+                     (release-physical-pages frame 1)
+                     ;; For a fault to be spurious the page must be present
+                     ;; and one of the following must be true:
+                     ;; 1) the access was a read
+                     ;; 2) the page is writable
+                     ;; 3) the page is not-cow, the block is
+                     ;;    writable and track-dirty.
+                     (cond ((and (pte-page-present-p pte-value)
+                                 (or (not writep)
+                                     (pte-page-writable-p pte-value)
+                                     (and (not (pte-page-copy-on-write-p pte-value))
+                                          (block-info-writable-p block-info)
+                                          (block-info-track-dirty-p block-info))))
+                            (flush-tlb-single fault-address)
+                            (return-from wait-for-page-fast-path t))
+                           (t
+                            (return))))
+                   ;; Stuff the page in now.
+                   ;; Mark the page as dirty to make sure the snapshotter & swap code know to swap it out.
+                   ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                   ;; This sets the dirty bits in the page tables properly.
+                   (when (eql (sys.int::cas (page-table-entry pte)
+                                            pte-value
+                                            (make-pte frame
+                                                      :writable (and (block-info-writable-p block-info)
+                                                                     (not (block-info-track-dirty-p block-info)))
+                                                      :dirty t))
+                              pte-value)
+                     ;; Success! Our page was mapped. Now finish up.
+                     (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
+                           (physical-page-virtual-address frame) (logand fault-address (lognot (1- +4k-page-size+))))
+                     (append-to-page-replacement-list frame)
+                     ;; Clear the zero-fill flag.
+                     ;; We set the PTE so this is our page. Other threads won't write
+                     ;; to the block map for this address so additional locking isn't needed.
+                     (set-address-flags fault-address (logand block-info
+                                                              sys.int::+block-map-flag-mask+
+                                                              (lognot sys.int::+block-map-zero-fill+)))
+                     ;; Play a little fast & loose with TLB shootdown here.
+                     ;; The fast path runs on the exception stack with interrupts
+                     ;; disabled. TLB shootdown requires interrupts to be enabled.
+                     ;; At this point all other CPUs should know that this entry is non-present,
+                     ;; so the worst case is that a spurious page fault is taken.
+                     (flush-tlb-single fault-address)
+                     (return-from wait-for-page-fast-path t)))))))))))
 
-(defun wait-for-page-via-interrupt (interrupt-frame address writep)
+(defun wait-for-page-via-interrupt (interrupt-frame address writep ist-state)
   "Called by the page fault handler when a page fault occurs.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread))
@@ -813,9 +889,11 @@ It will put the thread to sleep, while it waits for the page."
       (panic "Page fault in pager!"))
     (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address writep))
-      (incf *pager-fast-path-hits*)
+      (sys.int::%atomic-fixnum-add-symbol
+       '*pager-fast-path-hits* 1)
       (return-from wait-for-page-via-interrupt))
-    (incf *pager-fast-path-misses*)
+    (sys.int::%atomic-fixnum-add-symbol
+     '*pager-fast-path-misses* 1)
     (with-symbol-spinlock (*pager-lock*)
       (acquire-global-thread-lock)
       (setf (thread-state self) :waiting-for-page
@@ -826,6 +904,7 @@ It will put the thread to sleep, while it waits for the page."
                  (eql (thread-wait-item pager) '*pager-waiting-threads*))
         (setf (thread-state pager) :runnable)
         (push-run-queue pager)))
+    (restore-page-fault-ist ist-state)
     (%reschedule-via-interrupt interrupt-frame)))
 
 (defun map-physical-memory (base size name)
@@ -833,14 +912,17 @@ It will put the thread to sleep, while it waits for the page."
   ;; Page alignment required.
   (assert (page-aligned-p base))
   (assert (page-aligned-p size))
-  (with-mutex (*vm-lock*)
-    (dotimes (i (truncate size #x1000))
-      (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
-        (when (not (page-present-p pte 0))
-          (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
-                                                   :writable t
-                                                   :wired t
-                                                   :cache-mode :uncached)))))))
+  ;; Take *VM-LOCK* with the snapshot inhibited so we don't get caught
+  ;; holding it. It gets recreated each boot.
+  (with-snapshot-inhibited ()
+    (with-rw-lock-write (*vm-lock*)
+      (dotimes (i (truncate size #x1000))
+        (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
+          (when (not (page-present-p pte 0))
+            (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
+                                                     :writable t
+                                                     :wired t
+                                                     :cache-mode :uncached))))))))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))
@@ -849,8 +931,10 @@ It will put the thread to sleep, while it waits for the page."
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)
           *pager-fast-path-enabled* t
-          *pager-lazy-block-allocation-enabled* t))
-  (setf *page-replacement-list-head* nil
+          *pager-lazy-block-allocation-enabled* t
+          *pager-meter* 0))
+  (setf *page-replacement-list-lock* (place-spinlock-initializer)
+        *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
   (setf *pager-fast-path-hits* 0
         *pager-fast-path-misses* 0)
@@ -861,10 +945,9 @@ It will put the thread to sleep, while it waits for the page."
           *pager-current-thread* nil))
   (setf *pager-disk-request* (make-disk-request))
   ;; The VM lock is recreated each boot because it is only held by
-  ;; the ephemeral pager and snapshot threads.
-  ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
-  ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
-  (setf *vm-lock* (make-mutex "Global VM Lock"))
+  ;; the ephemeral pager & snapshot threads or by threads that have
+  ;; inhibited snapshot (just callers of MAP-PHYSICAL-MEMORY).
+  (setf *vm-lock* (make-rw-lock '*vm-lock*))
   ;; Set all the dirty bits for wired pages. They were not saved over snapshot.
   (map-ptes
    sys.int::*wired-area-base* sys.int::*wired-area-bump*
@@ -908,22 +991,27 @@ It will put the thread to sleep, while it waits for the page."
              (%reschedule-via-wired-stack sp fp))
             (%disable-interrupts)
             (acquire-place-spinlock (sys.int::symbol-global-value '*pager-lock*)))))
-     (cond ((eql (thread-state *pager-current-thread*) :pager-request)
-            (handle-pager-request))
-           ;; Page it in
-           ((wait-for-page (thread-wait-item *pager-current-thread*))
-            ;; Release the thread.
-            (wake-thread *pager-current-thread*))
-           ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
-           ((or (not (boundp '*panic-on-unhandled-paging-requests*))
-                *panic-on-unhandled-paging-requests*)
-            (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
-              (declare (dynamic-extent message))
-              (panic-1 message (lambda ()
-                                 (dump-thread-saved-pc *pager-current-thread*)
-                                 (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
-                                 (debug-print-line "-------")))))
-           (t
-            (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
-            (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
-     (setf *pager-current-thread* nil)))
+     (let ((start-time (get-high-precision-timer)))
+       (cond ((eql (thread-state *pager-current-thread*) :pager-request)
+              (handle-pager-request))
+             ;; Page it in
+             ((wait-for-page (thread-wait-item *pager-current-thread*))
+              ;; Release the thread.
+              (wake-thread *pager-current-thread*))
+             ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
+             ((or (not (boundp '*panic-on-unhandled-paging-requests*))
+                  *panic-on-unhandled-paging-requests*)
+              (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
+                (declare (dynamic-extent message))
+                (panic-1 message (lambda ()
+                                   (dump-thread-saved-pc *pager-current-thread*)
+                                   (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                                   (debug-print-line "-------")))))
+             (t
+              (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
+              (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
+       (setf *pager-current-thread* nil)
+       ;; Update meter.
+       (sys.int::%atomic-fixnum-add-symbol
+        '*pager-meter* (high-precision-time-units-to-internal-time-units
+                        (- (get-high-precision-timer) start-time))))))

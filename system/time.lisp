@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant +seconds-in-week+ (* 60 60 24 7))
 (defconstant +weeks-offset+ 2145)
@@ -63,12 +63,21 @@
   (let ((start-bytes-consed mezzano.runtime::*bytes-consed*)
         (start-time (get-universal-time))
         (start-gc-time *gc-time*)
-        (start-cycle (tsc)))
+        (start-alloc-time mezzano.runtime::*allocation-time*)
+        (start-cycle (tsc))
+        (start-pager mezzano.supervisor::*pager-meter*))
     (multiple-value-prog1 (funcall fn)
-      (let ((finish-cycle (tsc))
-            (finish-time (get-universal-time))
-            (finish-bytes-consed mezzano.runtime::*bytes-consed*))
+      (let* ((finish-cycle (- (tsc) start-cycle))
+             (finish-time (- (get-universal-time) start-time))
+             (finish-pager (float (/ (- mezzano.supervisor::*pager-meter* start-pager) internal-time-units-per-second)))
+             (finish-bytes-consed (- mezzano.runtime::*bytes-consed* start-bytes-consed))
+             (finish-gc-time (- *gc-time* start-gc-time))
+             (finish-alloc-time (float (/ (- mezzano.runtime::*allocation-time* start-alloc-time) internal-time-units-per-second))))
         (fresh-line *trace-output*)
-        (format *trace-output* "; Execution took ~:D seconds (~:D seconds of GC time).~%" (- finish-time start-time) (- *gc-time* start-gc-time))
-        (format *trace-output* "; Execution took ~:D cycles.~%" (- finish-cycle start-cycle))
-        (format *trace-output* "; ~:D bytes consed.~%" (- finish-bytes-consed start-bytes-consed))))))
+        (format *trace-output* "; Execution took ~:D seconds (~:D seconds of GC time, ~:D allocation time).~%"
+                finish-time finish-gc-time finish-alloc-time)
+        (when (plusp finish-time)
+          (format *trace-output* "; Pager ran for ~:D seconds.~%" finish-pager))
+        (format *trace-output* "; Execution took ~:D cycles (~:D seconds).~%"
+                finish-cycle (float (/ (mezzano.supervisor:high-precision-time-units-to-internal-time-units finish-cycle) internal-time-units-per-second)))
+        (format *trace-output* "; ~:D bytes consed.~%" finish-bytes-consed)))))

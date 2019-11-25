@@ -49,7 +49,8 @@
 ;;;; LOOP Iteration Macro
 
 (defpackage :mezzano.loop
-  (:use #:cl))
+  (:use #:cl)
+  (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package #:mezzano.loop)
 
@@ -144,9 +145,12 @@
       (gensym (string pref))))
 
 
+;; FIXME: This used to be 'real, but that really puts pressure on the
+;; compiler to be smart now. Unfortunately it isn't smart, so...
+(defvar *loop-real-data-type* 't)
 
-(defvar *loop-real-data-type* 'real)
-
+;; FIXME: Likewise, but 'list.
+(defvar *loop-list-data-type* 't)
 
 (defun loop-optimization-quantities (env)
   ;;@@@@ The ANSI conditionalization here is for those lisps that implement
@@ -349,7 +353,7 @@ constructed.
 
 
 (defmacro with-minimax-value (lm &body body)
-  (let ((init (loop-typed-init (loop-minimax-type lm)))
+  (let ((init (or (loop-typed-init (loop-minimax-type lm)) 0))
 	(which (car (loop-minimax-operations lm)))
 	(infinity-data (loop-minimax-infinity-data lm))
 	(answer-var (loop-minimax-answer-variable lm))
@@ -1009,9 +1013,7 @@ collected result will be returned as the value of the LOOP."
 				   `((destructuring-bind ,@crocks
 					 ,@forms))
 				 forms)))))))
-      (do () (nil)
-	(setq answer `(block ,(pop *loop-names*) ,answer))
-	(unless *loop-names* (return nil)))
+      (setf answer `(block ,(first *loop-names*) ,answer))
       answer)))
 
 
@@ -1085,10 +1087,20 @@ collected result will be returned as the value of the LOOP."
 
 
 (defun loop-typed-init (data-type)
-  (when (and data-type (subtypep data-type 'number))
-    (if (or (subtypep data-type 'float) (subtypep data-type '(complex float)))
-	(coerce 0 data-type)
-	0)))
+  (when data-type
+    ;; FIXME: This should pass the macro environment to typeexpand.
+    (let ((expanded-type (sys.int::typeexpand data-type)))
+      ;; Best effort... TODO: Make this more complete.
+      (cond ((or (subtypep expanded-type 'float)
+                 (subtypep expanded-type '(complex float)))
+             (coerce 0 data-type))
+            ((subtypep expanded-type 'number)
+             0)
+            ((subtypep expanded-type 'vector)
+             ;; FIXME: This doesn't work for sized vectors.
+             (coerce nil expanded-type))
+            (t
+             nil)))))
 
 
 (defun loop-optional-type (&optional variable)
@@ -1280,7 +1292,7 @@ collected result will be returned as the value of the LOOP."
     (when *loop-names*
       (loop-error "You may only use one NAMED clause in your loop: NAMED ~S ... NAMED ~S."
 		  (car *loop-names*) name))
-    (setq *loop-names* (list name nil))))
+    (setq *loop-names* (list name))))
 
 (defun loop-do-return ()
   (loop-pseudo-body (loop-construct-return (loop-get-form))))
@@ -1616,7 +1628,7 @@ collected result will be returned as the value of the LOOP."
   (multiple-value-bind (list constantp list-value) (loop-constant-fold-if-possible val)
     (let ((listvar var))
       (cond ((and var (symbolp var)) (loop-make-iteration-variable var list data-type))
-	    (t (loop-make-variable (setq listvar (loop-gentemp)) list 'list)
+	    (t (loop-make-variable (setq listvar (loop-gentemp)) list *loop-list-data-type*)
 	       (loop-make-iteration-variable var nil data-type)))
       (multiple-value-bind (list-step step-function) (loop-list-step listvar)
 	(declare #+(and (not LOOP-Prefer-POP) (not CLOE)) (ignore step-function))
@@ -1654,7 +1666,7 @@ collected result will be returned as the value of the LOOP."
   (multiple-value-bind (list constantp list-value) (loop-constant-fold-if-possible val)
     (let ((listvar (loop-gentemp 'loop-list-)))
       (loop-make-iteration-variable var nil data-type)
-      (loop-make-variable listvar list 'list)
+      (loop-make-variable listvar list *loop-list-data-type*)
       (multiple-value-bind (list-step step-function) (loop-list-step listvar)
 	#-LOOP-Prefer-POP (declare (ignore step-function))
 	(let* ((first-endtest `(endp ,listvar))

@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.gui.popup-io-stream
   (:use :cl :mezzano.gui.font)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:popup-io-stream
            #:lazy-popup-io-stream))
 

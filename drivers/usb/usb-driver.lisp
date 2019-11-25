@@ -486,7 +486,7 @@
         (%get-configuration usbd device length config-buf)
 
         (with-trace-level (3)
-          (print-descriptor sys.int::*cold-stream* config-buf))
+          (print-descriptor mezzano.internals::*cold-stream* config-buf))
 
         ;; split configuration descriptor into separate descriptors
         (do* ((offset 0 (+ offset (aref config-buf offset)))

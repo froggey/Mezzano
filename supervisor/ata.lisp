@@ -4,7 +4,8 @@
 (defpackage :mezzano.supervisor.ata
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:pci :mezzano.supervisor.pci))
+                    (:pci :mezzano.supervisor.pci)
+                    (:sys.int :mezzano.internals))
   (:export #:read-ata-string
            ;; Bits in registers.
            #:+ata-dev+
@@ -817,7 +818,7 @@ This is used to implement the INTRQ_Wait state."
   (setf (sup:event-state (ata-controller-irq-latch controller)) t))
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (sup:debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
   (let* ((dma32-bounce-buffer (sup::allocate-physical-pages 1
                                                             :mandatory-p "ATA DMA bounce buffer"

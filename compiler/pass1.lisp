@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun parse-lambda (lambda)
   "Parse a lambda expression, extracting the body, lambda-list, declare expressions, any name declared with lambda-name and a docstring."
@@ -95,7 +95,7 @@
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (check-known-declarations declares)
-    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
+    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((optimize-env (extend-environment env :declarations declares))
              (info (make-instance 'lambda-information
@@ -145,8 +145,6 @@
                                              (init-form (pass1-form (second binding) env)))
                                          (list (add-var var) init-form)))
                                      aux))
-          (when fref-arg
-            (setf (lambda-information-fref-arg info) (add-var fref-arg)))
           (when closure-arg
             (setf (lambda-information-closure-arg info) (add-var closure-arg)))
           (when count-arg
@@ -158,7 +156,9 @@
                                                            (pick-variables 'special declares))
                                         :declarations declares))
                ;; Process lambda body.
-               (body-ast (pass1-form `(progn ,@body) env))
+               (body-ast (pass1-wrap-body-with-type-declarations
+                          (pass1-form `(progn ,@body) env)
+                          env declares '()))
                ;; Actually bind &AUX variables, now that the body has been processed.
                (body-with-aux (if aux-bindings
                                   (ast `(let ,aux-bindings ,body-ast))
@@ -180,8 +180,6 @@
             (check-variable-usage (second (first opt))))
           (when (lexical-variable-p (third opt))
             (check-variable-usage (third opt))))
-        (when (lexical-variable-p (lambda-information-fref-arg info))
-          (check-variable-usage (lambda-information-fref-arg info)))
         (when (lexical-variable-p (lambda-information-closure-arg info))
           (check-variable-usage (lambda-information-closure-arg info)))
         (when (lexical-variable-p (lambda-information-count-arg info))
@@ -440,10 +438,12 @@
                                                  (setf (getf (lambda-information-plist lambda) 'notinline) t))
                                                (list var lambda))))
                                          functions)
-                       :body (pass1-form `(progn ,@body)
-                                         (extend-environment env
-                                                             :functions bindings
-                                                             :declarations declares)))))))
+                       :body (let ((env (extend-environment env
+                                                            :functions bindings
+                                                            :declarations declares)))
+                               (pass1-wrap-body-with-type-declarations
+                                (pass1-form `(progn ,@body) env)
+                                env declares '())))))))
 
 (defun pass1-function (form env)
   (destructuring-bind (name) (cdr form)
@@ -497,18 +497,20 @@
                                       :declarations (remove-if-not (lambda (x) (eql x 'optimize))
                                                                    declares
                                                                    :key #'first))))
-        (make-instance 'ast-let
-                       :environment env
-                       :bindings (mapcar (lambda (x)
-                                           (let ((lambda (pass1-lambda-inner (third x) env)))
-                                             (when (function-declared-dynamic-extent-p (first x) declares)
-                                               (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
-                                             (when (function-declared-notinline-p (first x) declares)
-                                               (setf (getf (lambda-information-plist lambda) 'notinline) t))
-                                             (list (second x) lambda)))
-                                         raw-bindings)
-                       :body (pass1-form `(progn ,@body)
-                                         (extend-environment env :declarations declares)))))))
+         (make-instance 'ast-let
+                        :environment env
+                        :bindings (mapcar (lambda (x)
+                                            (let ((lambda (pass1-lambda-inner (third x) env)))
+                                              (when (function-declared-dynamic-extent-p (first x) declares)
+                                                (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                                              (when (function-declared-notinline-p (first x) declares)
+                                                (setf (getf (lambda-information-plist lambda) 'notinline) t))
+                                              (list (second x) lambda)))
+                                          raw-bindings)
+                        :body (let ((env (extend-environment env :declarations declares)))
+                                (pass1-wrap-body-with-type-declarations
+                                 (pass1-form `(progn ,@body) env)
+                                 env declares '())))))))
 
 (defun check-variable-bindable (var)
   (when (and (typep var 'special-variable)
@@ -546,19 +548,21 @@
                                       (list name init-form var))))
                                 bindings)))
         (prog1
-            (make-instance 'ast-let
-                           :environment env
-                           :bindings (mapcar (lambda (b)
-                                               (list (third b)
-                                                     (wrap-type-check (third b)
-                                                                      (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
-                                             variables)
-                           :body (pass1-form `(progn ,@body)
-                                             (extend-environment env
+             (make-instance 'ast-let
+                            :environment env
+                            :bindings (mapcar (lambda (b)
+                                                (list (third b)
+                                                      (wrap-type-check (third b)
+                                                                       (pass1-form (wrap-initform-with-the (second b) (third b) declares) env))))
+                                              variables)
+                            :body (let ((env (extend-environment env
                                                                  :variables (mapcar (lambda (b)
                                                                                       (list (first b) (third b)))
                                                                                     variables)
                                                                  :declarations declares)))
+                                    (pass1-wrap-body-with-type-declarations
+                                     (pass1-form `(progn ,@body) env)
+                                     env declares names)))
           (loop
              for (name init-form var) in variables
              when (lexical-variable-p var)
@@ -629,8 +633,10 @@
                                             :variables (list (list name var))
                                             :declarations (fake-type-declarations-for declares name)))
               (push var vars))))
-        (setf (body inner) (pass1-form `(progn ,@body)
-                                       (extend-environment env :declarations declares)))
+        (setf (body inner) (let ((env (extend-environment env :declarations declares)))
+                             (pass1-wrap-body-with-type-declarations
+                              (pass1-form `(progn ,@body) env)
+                              env declares var-names)))
         (dolist (var vars)
           (when (lexical-variable-p var)
             (check-variable-usage var)))
@@ -641,11 +647,43 @@
   (destructuring-bind (form &optional read-only-p) (cdr form)
     (pass1-form (funcall *load-time-value-hook* form read-only-p) '())))
 
+;; As soon as a scope with a type declaration is entered, it is as though
+;; ```(the typespec var)``` is executed. So do that.
+;; Inserting references to the variable will get this right.
+;; This has an unusual interaction with special variables and requires that
+;; they must be bound on entry to the block.
+(defun pass1-wrap-body-with-type-declarations (body env declarations exclude-variables)
+  (let ((vars '()))
+    (flet ((process (var)
+             (when (not (member var exclude-variables))
+               (push var vars))))
+      (loop
+         for (what type . names) in declarations
+         when (eql what 'type)
+         do (loop for name in names do (process name)))
+      (loop
+         for (what . names) in declarations
+         when (non-type-type-declaration-p what)
+         do (loop for name in names do (process name))))
+    (if vars
+        (make-instance 'ast-progn
+                       :environment env
+                       :forms (append (loop
+                                         for var in (remove-duplicates (reverse vars))
+                                         collect (pass1-form var env))
+                                      (list body)))
+        body)))
+
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
     (check-known-declarations declares)
-    (pass1-form `(progn ,@body) (extend-environment env :declarations declares))))
+    (let ((env (extend-environment env :declarations declares)))
+      (pass1-wrap-body-with-type-declarations
+       (pass1-form `(progn ,@body) env)
+       env
+       declares
+       '()))))
 
 (defun pass1-locally (form env)
   (pass1-locally-body (cdr form) env))
@@ -812,10 +850,13 @@
                       collect (list name
                                     (make-instance 'symbol-macro
                                                    :name name
-                                                   :expansion expansion)))))
-        (pass1-form `(progn ,@body) (extend-environment env
-                                                        :variables defs
-                                                        :declarations declares))))))
+                                                   :expansion expansion))))
+             (env (extend-environment env
+                                      :variables defs
+                                      :declarations declares)))
+        (pass1-wrap-body-with-type-declarations
+         (pass1-form `(progn ,@body) env)
+         env declares (mapcar #'first definitions))))))
 
 ;; Turn a list of statements (mixed go tags and forms) into
 ;; a list of (go-tag form). If there is no initial go tag, then one will

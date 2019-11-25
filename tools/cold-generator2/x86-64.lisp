@@ -6,28 +6,10 @@
   (:import-from #:mezzano.cold-generator
                 #:configure-system-for-target)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:lap #:sys.lap-x86)))
+                    (#:lap #:mezzano.lap.x86)
+                    (#:sys.int #:mezzano.internals)))
 
 (in-package :mezzano.cold-generator.x86-64)
-
-(defparameter *undefined-function-thunk*
-  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-    ;; Call helper using the function calling convention, leaving fref intact.
-    (lap:mov64 :rbx (:function sys.int::raise-undefined-function))
-    (lap:mov64 :rbx (:object :rbx ,sys.int::+fref-function+))
-    (lap:jmp (:object :rbx ,sys.int::+function-entry-point+)))
-  "Code for the undefined function thunk.")
-
-(defparameter *closure-trampoline*
-  `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-    ;; Load the real function from the fref.
-    (lap:mov64 :rbx (:object :r13 ,sys.int::+fref-function+))
-    ;; Invoke the real function via the FUNCTION calling convention.
-    ;; This will work even if the fref was altered or made funbound.
-    ;; (SETF FUNCTION-REFERENCE-FUNCTION) will set the function to the
-    ;; undefined-function thunk in that case, so everything works fine.
-    (lap:jmp (:object :rbx ,sys.int::+function-entry-point+)))
-  "Trampoline used for calling a closure or funcallable-instance via an fref.")
 
 (defparameter *funcallable-instance-trampoline*
   `((:gc :no-frame :layout #*0 :incoming-arguments :rcx)
@@ -86,7 +68,9 @@
     (lap:lea64 :r8 (:rsp ,sys.int::+tag-object+))
     (lap:mov32 :ecx ,(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args.
     (:gc :frame :interrupt t)
-    (lap:call (:object :r13 ,sys.int::+fref-entry-point+))
+    ;; TODO: Turn this into a direct named call.
+    (lap:lea64 :rax (:object :r13 ,sys.int::+fref-code+))
+    (lap:call :rax)
     ;; Restore registers, then return.
     (lap:mov64 :r15 (:rbp -112))
     (lap:mov64 :r14 (:rbp -104))
@@ -217,7 +201,7 @@
            *common-interrupt-code*)))
     (multiple-value-bind (fn symbols)
         (env:compile-lap environment isr-code
-                         :area :wired
+                         :area :wired-function
                          :name (env:translate-symbol environment 'sys.int::%%interrupt-service-routines))
       (loop
          for (name . value) in symbols
@@ -229,19 +213,9 @@
       (values))))
 
 (defmethod configure-system-for-target (environment (target (eql :x86-64)))
-  (env:add-special environment :undefined-function
-                   (env:compile-lap environment
-                                    *undefined-function-thunk*
-                                    :area :wired
-                                    :name (env:translate-symbol environment 'sys.int::%%undefined-function-trampoline)))
-  (env:add-special environment :closure-trampoline
-                   (env:compile-lap environment
-                                    *closure-trampoline*
-                                    :area :wired
-                                    :name (env:translate-symbol environment 'sys.int::%%closure-trampoline)))
-  (env:add-special environment :funcallable-instance-trampoline
-                   (env:compile-lap environment
-                                    *funcallable-instance-trampoline*
-                                    :area :wired
-                                    :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline)))
+  (setf (env:cross-symbol-value environment 'sys.int::*funcallable-instance-trampoline*)
+        (env:compile-lap environment
+                         *funcallable-instance-trampoline*
+                         :area :wired-function
+                         :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline%%)))
   (create-low-level-interrupt-support environment))

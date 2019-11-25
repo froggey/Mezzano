@@ -37,14 +37,14 @@
 (defun emit-debug-info (info spill-locations)
   (emit `(:debug ,(loop
                      for (variable location repr) in info
-                     collect (list* (sys.c::lexical-variable-name variable)
+                     collect (list* (c:lexical-variable-name variable)
                                     (if (typep location 'ir:virtual-register)
                                         (or (gethash location spill-locations)
                                             (error "Missing stack slot for spilled virtual ~S" location))
                                         location)
                                     repr
-                                    (if (getf (sys.c:lexical-variable-plist variable)
-                                              'sys.c::hide-from-debug-info)
+                                    (if (getf (c:lexical-variable-plist variable)
+                                              'c::hide-from-debug-info)
                                         (list :hidden t)
                                         ()))))))
 
@@ -70,10 +70,10 @@
       (setf (aref tmp 0) :raw)
       (setf stack-layout tmp)))
   (let ((environment-slot nil))
-    (when (sys.c:lambda-information-environment-layout
+    (when (c:lambda-information-environment-layout
            (ir::ast backend-function))
-      (setf environment-slot (sys.c:lexical-variable-name
-                              (first (sys.c:lambda-information-environment-layout
+      (setf environment-slot (c:lexical-variable-name
+                              (first (c:lambda-information-environment-layout
                                       (ir::ast backend-function))))))
     (values stack-layout
             spill-locations
@@ -107,7 +107,7 @@
                  (vector-push-extend value *literals/128*))))
     `(:rip (+ literal-pool/128 ,(* pos 16)))))
 
-(defmethod ir:perform-target-lap-generation (backend-function debug-map spill-locations stack-layout (*target* sys.c:x86-64-target))
+(defmethod ir:perform-target-lap-generation (backend-function debug-map spill-locations stack-layout (*target* c:x86-64-target))
   (multiple-value-bind (uses defs)
       (ir::build-use/def-maps backend-function)
     (multiple-value-bind (*stack-layout* *spill-locations* environment-slot)
@@ -119,7 +119,7 @@
             (*labels* (make-hash-table :test 'eq :synchronized nil)))
         (ir:do-instructions (inst-or-label backend-function)
           (cond ((typep inst-or-label 'ir:label)
-                 (setf (gethash inst-or-label *labels*) (sys.lap:make-label)))
+                 (setf (gethash inst-or-label *labels*) (mezzano.lap:make-label)))
                 (t
                  (lap-prepass backend-function inst-or-label uses defs))))
         (let ((*emitted-lap* '())
@@ -178,45 +178,44 @@
 
 (defmethod emit-lap (backend-function (instruction ir:argument-setup-instruction) uses defs)
   ;; Check the argument count.
-  (let ((args-ok (sys.lap:make-label :args-ok)))
+  (let ((args-ok (mezzano.lap:make-label :args-ok)))
     (flet ((emit-arg-error ()
              ;; If this is a closure, then it must have been invoked using
              ;; the closure calling convention and the closure object will
              ;; still be in RBX. For non-closures, reconstruct the function
              ;; object and put that in RBX.
-             (when (not (sys.c::lambda-information-environment-arg (ir::ast backend-function)))
+             (when (not (c:lambda-information-environment-arg (ir::ast backend-function)))
                (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
-             (emit `(lap:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
-                   ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
-                   ;; the arguments in place.
-                   `(lap:leave)
+             ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
+             ;; the arguments in place.
+             (emit `(lap:leave)
                    `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-                   `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))
+                   `(lap:jmp (:named-call sys.int::raise-invalid-argument-error))
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       (cond ((ir:argument-setup-rest instruction)
              ;; If there are no required parameters, then don't generate a lower-bound check.
              (when (ir:argument-setup-required instruction)
                ;; Minimum number of arguments.
-               (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+               (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                      `(lap:jnl ,args-ok))
                (emit-arg-error)))
             ((and (ir:argument-setup-required instruction)
                   (ir:argument-setup-optional instruction))
              ;; A range.
              (emit `(lap:mov32 :eax :ecx)
-                   `(lap:sub32 :eax ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
-                   `(lap:cmp32 :eax ,(sys.c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+                   `(lap:sub32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                   `(lap:cmp32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
             ((ir:argument-setup-optional instruction)
              ;; Maximum number of arguments.
-             (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+             (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
                    `(lap:jna ,args-ok))
              (emit-arg-error))
             ((ir:argument-setup-required instruction)
              ;; Exact number of arguments.
-             (emit `(lap:cmp32 :ecx ,(sys.c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+             (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                    `(lap:je ,args-ok))
              (emit-arg-error))
             ;; No arguments
@@ -224,13 +223,11 @@
              (emit `(lap:test32 :ecx :ecx)
                    `(lap:jz ,args-ok))
              (emit-arg-error)))))
-  ;; Spill count/fref.
+  ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
                (not (endp (gethash reg uses)))
                (gethash reg *spill-locations*))))
-    (when (usedp (ir:argument-setup-fref instruction))
-      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-fref instruction)) :r13)))
     (when (usedp (ir:argument-setup-count instruction))
       (emit `(lap:mov64 ,(effective-address (ir:argument-setup-count instruction)) :rcx)))
     ;; Arguments are delivered in registers, and then on the caller's stack.
@@ -275,10 +272,10 @@
 (defun emit-dx-rest-list (argument-setup)
   (let* ((regular-argument-count (+ (length (ir:argument-setup-required argument-setup))
                                     (length (ir:argument-setup-optional argument-setup))))
-         (rest-clear-loop-head (sys.lap:make-label :rest-clear-loop-head))
-         (rest-loop-head (sys.lap:make-label :rest-loop-head))
-         (rest-loop-end (sys.lap:make-label :rest-loop-end))
-         (rest-list-done (sys.lap:make-label :rest-list-done))
+         (rest-clear-loop-head (mezzano.lap:make-label :rest-clear-loop-head))
+         (rest-loop-head (mezzano.lap:make-label :rest-loop-head))
+         (rest-loop-end (mezzano.lap:make-label :rest-loop-end))
+         (rest-list-done (mezzano.lap:make-label :rest-list-done))
          ;; Number of arguments processed and total number of arguments.
          (saved-argument-count 0)
          (rest-dx-root (gethash argument-setup *prepass-data*)))
@@ -287,77 +284,77 @@
     ;; R13 is free. Argument registers may or may not be free
     ;; depending on the number of required/optional arguments.
     ;; Number of supplied arguments.
-    (emit `(sys.lap-x86:mov64 (:stack ,saved-argument-count) :rcx))
+    (emit `(lap:mov64 (:stack ,saved-argument-count) :rcx))
     ;; Tell the GC to used the number of arguments saved on the stack. RCX will
     ;; be used later.
     (emit-gc-info :incoming-arguments saved-argument-count)
     ;; The cons cells are allocated in one single chunk.
-    (emit `(sys.lap-x86:mov64 :r13 nil))
+    (emit `(lap:mov64 :r13 nil))
     ;; Remove required/optional arguments from the count.
     ;; If negative or zero, the &REST list is empty.
     (cond ((zerop regular-argument-count)
-           (emit `(sys.lap-x86:test64 :rcx :rcx))
-           (emit `(sys.lap-x86:jz ,rest-list-done)))
+           (emit `(lap:test64 :rcx :rcx))
+           (emit `(lap:jz ,rest-list-done)))
           (t
-           (emit `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw regular-argument-count)))
-           (emit `(sys.lap-x86:jle ,rest-list-done))))
+           (emit `(lap:sub64 :rcx ,(c::fixnum-to-raw regular-argument-count)))
+           (emit `(lap:jle ,rest-list-done))))
     ;; Save the length.
-    (emit `(sys.lap-x86:mov64 :rdx :rcx))
+    (emit `(lap:mov64 :rdx :rcx))
     ;; Double it, each cons takes two words.
-    (emit `(sys.lap-x86:shl64 :rdx 1))
+    (emit `(lap:shl64 :rdx 1))
     ;; Add a header word and word of padding so it can be treated like a simple-vector.
-    (emit `(sys.lap-x86:add64 :rdx ,(sys.c::fixnum-to-raw 2)))
+    (emit `(lap:add64 :rdx ,(c::fixnum-to-raw 2)))
     ;; Fixnum to raw integer * 8.
-    (emit `(sys.lap-x86:shl64 :rdx ,(- 3 sys.int::+n-fixnum-bits+)))
+    (emit `(lap:shl64 :rdx ,(- 3 sys.int::+n-fixnum-bits+)))
     ;; Allocate on the stack.
-    (emit `(sys.lap-x86:sub64 :rsp :rdx))
+    (emit `(lap:sub64 :rsp :rdx))
     ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
-    (emit `(sys.lap-x86:lea64 :rdx ((:rcx 2) ,(sys.c::fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
-    (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
-    (emit `(sys.lap-x86:mov64 (:rsp) :rdx))
+    (emit `(lap:lea64 :rdx ((:rcx 2) ,(c::fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
+    (emit `(lap:shl64 :rdx ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
+    (emit `(lap:mov64 (:rsp) :rdx))
     ;; Clear the padding slot.
-    (emit `(sys.lap-x86:mov64 (:rsp 8) 0))
+    (emit `(lap:mov64 (:rsp 8) 0))
     ;; For each cons, clear the car and set the cdr to the next cons.
-    (emit `(sys.lap-x86:lea64 :rdi (:rsp 16)))
-    (emit `(sys.lap-x86:mov64 :rdx :rcx))
+    (emit `(lap:lea64 :rdi (:rsp 16)))
+    (emit `(lap:mov64 :rdx :rcx))
     (emit rest-clear-loop-head)
-    (emit `(sys.lap-x86:mov64 (:rdi 0) 0)) ; car
-    (emit `(sys.lap-x86:lea64 :rax (:rdi ,(+ 16 sys.int::+tag-cons+))))
-    (emit `(sys.lap-x86:mov64 (:rdi 8) :rax)) ; cdr
-    (emit `(sys.lap-x86:add64 :rdi 16))
-    (emit `(sys.lap-x86:sub64 :rdx ,(sys.c::fixnum-to-raw 1)))
-    (emit `(sys.lap-x86:ja ,rest-clear-loop-head))
+    (emit `(lap:mov64 (:rdi 0) 0)) ; car
+    (emit `(lap:lea64 :rax (:rdi ,(+ 16 sys.int::+tag-cons+))))
+    (emit `(lap:mov64 (:rdi 8) :rax)) ; cdr
+    (emit `(lap:add64 :rdi 16))
+    (emit `(lap:sub64 :rdx ,(c::fixnum-to-raw 1)))
+    (emit `(lap:ja ,rest-clear-loop-head))
     ;; Set the cdr of the final cons to NIL.
-    (emit `(sys.lap-x86:mov64 (:rdi -8) nil))
+    (emit `(lap:mov64 (:rdi -8) nil))
     ;; Create the DX root object for the vector.
-    (emit `(sys.lap-x86:lea64 :rax (:rsp ,sys.int::+tag-dx-root-object+)))
-    (emit `(sys.lap-x86:mov64 (:stack ,rest-dx-root) :rax))
+    (emit `(lap:lea64 :rax (:rsp ,sys.int::+tag-dx-root-object+)))
+    (emit `(lap:mov64 (:stack ,rest-dx-root) :rax))
     ;; It's now safe to write values into the list/vector.
-    (emit `(sys.lap-x86:lea64 :rdi (:rsp 16)))
+    (emit `(lap:lea64 :rdi (:rsp 16)))
     ;; Add register arguments to the list.
     (loop
        for reg in (nthcdr regular-argument-count '(:r8 :r9 :r10 :r11 :r12))
-       do (emit `(sys.lap-x86:mov64 (:rdi) ,reg)
-                `(sys.lap-x86:add64 :rdi 16)
-                `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw 1))
-                `(sys.lap-x86:jz ,rest-loop-end)))
+       do (emit `(lap:mov64 (:rdi) ,reg)
+                `(lap:add64 :rdi 16)
+                `(lap:sub64 :rcx ,(c::fixnum-to-raw 1))
+                `(lap:jz ,rest-loop-end)))
     ;; Now add the stack arguments.
     ;; Skip past required/optional arguments on the stack, the saved frame pointer and the return address.
-    (emit `(sys.lap-x86:lea64 :rsi (:rbp ,(* (+ (max 0 (- regular-argument-count 5)) 2) 8))))
+    (emit `(lap:lea64 :rsi (:rbp ,(* (+ (max 0 (- regular-argument-count 5)) 2) 8))))
     (emit rest-loop-head)
     ;; Load from stack.
-    (emit `(sys.lap-x86:mov64 :r13 (:rsi)))
+    (emit `(lap:mov64 :r13 (:rsi)))
     ;; Store into current car.
-    (emit `(sys.lap-x86:mov64 (:rdi) :r13))
+    (emit `(lap:mov64 (:rdi) :r13))
     ;; Advance.
-    (emit `(sys.lap-x86:add64 :rsi 8))
-    (emit `(sys.lap-x86:add64 :rdi 16))
+    (emit `(lap:add64 :rsi 8))
+    (emit `(lap:add64 :rdi 16))
     ;; Stop when no more arguments.
-    (emit `(sys.lap-x86:sub64 :rcx ,(sys.c::fixnum-to-raw 1)))
-    (emit `(sys.lap-x86:jnz ,rest-loop-head))
+    (emit `(lap:sub64 :rcx ,(c::fixnum-to-raw 1)))
+    (emit `(lap:jnz ,rest-loop-head))
     (emit rest-loop-end)
     ;; There were &REST arguments, create the cons.
-    (emit `(sys.lap-x86:lea64 :r13 (:rsp ,(+ 16 sys.int::+tag-cons+))))
+    (emit `(lap:lea64 :r13 (:rsp ,(+ 16 sys.int::+tag-cons+))))
     ;; Code above jumps directly here with NIL in R13 when there are no arguments.
     (emit rest-list-done)))
 
@@ -505,36 +502,36 @@
   inverse jump-instruction cmov-instruction)
 
 (defparameter *predicate-instructions-1*
-  '((:o  :no  sys.lap-x86:jo   sys.lap-x86:cmov64o)
-    (:no :o   sys.lap-x86:jno  sys.lap-x86:cmov64no)
-    (:b  :nb  sys.lap-x86:jb   sys.lap-x86:cmov64b)
-    (:nb :b   sys.lap-x86:jnb  sys.lap-x86:cmov64nb)
-    (:c  :nc  sys.lap-x86:jc   sys.lap-x86:cmov64c)
-    (:nc :c   sys.lap-x86:jnc  sys.lap-x86:cmov64nc)
-    (:ae :nae sys.lap-x86:jae  sys.lap-x86:cmov64ae)
-    (:nae :ae sys.lap-x86:jnae sys.lap-x86:cmov64nae)
-    (:e  :ne  sys.lap-x86:je   sys.lap-x86:cmov64e)
-    (:ne :e   sys.lap-x86:jne  sys.lap-x86:cmov64ne)
-    (:z  :nz  sys.lap-x86:jz   sys.lap-x86:cmov64z)
-    (:nz :z   sys.lap-x86:jnz  sys.lap-x86:cmov64nz)
-    (:be :nbe sys.lap-x86:jbe  sys.lap-x86:cmov64be)
-    (:nbe :be sys.lap-x86:jnbe sys.lap-x86:cmov64nbe)
-    (:a  :na  sys.lap-x86:ja   sys.lap-x86:cmov64a)
-    (:na :a   sys.lap-x86:jna  sys.lap-x86:cmov64na)
-    (:s  :ns  sys.lap-x86:js   sys.lap-x86:cmov64s)
-    (:ns :s   sys.lap-x86:jns  sys.lap-x86:cmov64ns)
-    (:p  :np  sys.lap-x86:jp   sys.lap-x86:cmov64p)
-    (:np :p   sys.lap-x86:jnp  sys.lap-x86:cmov64np)
-    (:pe :po  sys.lap-x86:jpe  sys.lap-x86:cmov64pe)
-    (:po :pe  sys.lap-x86:jpo  sys.lap-x86:cmov64po)
-    (:l  :nl  sys.lap-x86:jl   sys.lap-x86:cmov64l)
-    (:nl :l   sys.lap-x86:jnl  sys.lap-x86:cmov64nl)
-    (:ge :nge sys.lap-x86:jge  sys.lap-x86:cmov64ge)
-    (:nge :ge sys.lap-x86:jnge sys.lap-x86:cmov64nge)
-    (:le :nle sys.lap-x86:jle  sys.lap-x86:cmov64le)
-    (:nle :le sys.lap-x86:jnle sys.lap-x86:cmov64nle)
-    (:g  :ng  sys.lap-x86:jg   sys.lap-x86:cmov64g)
-    (:ng :g   sys.lap-x86:jng  sys.lap-x86:cmov64ng)))
+  '((:o  :no  lap:jo   lap:cmov64o)
+    (:no :o   lap:jno  lap:cmov64no)
+    (:b  :nb  lap:jb   lap:cmov64b)
+    (:nb :b   lap:jnb  lap:cmov64nb)
+    (:c  :nc  lap:jc   lap:cmov64c)
+    (:nc :c   lap:jnc  lap:cmov64nc)
+    (:ae :nae lap:jae  lap:cmov64ae)
+    (:nae :ae lap:jnae lap:cmov64nae)
+    (:e  :ne  lap:je   lap:cmov64e)
+    (:ne :e   lap:jne  lap:cmov64ne)
+    (:z  :nz  lap:jz   lap:cmov64z)
+    (:nz :z   lap:jnz  lap:cmov64nz)
+    (:be :nbe lap:jbe  lap:cmov64be)
+    (:nbe :be lap:jnbe lap:cmov64nbe)
+    (:a  :na  lap:ja   lap:cmov64a)
+    (:na :a   lap:jna  lap:cmov64na)
+    (:s  :ns  lap:js   lap:cmov64s)
+    (:ns :s   lap:jns  lap:cmov64ns)
+    (:p  :np  lap:jp   lap:cmov64p)
+    (:np :p   lap:jnp  lap:cmov64np)
+    (:pe :po  lap:jpe  lap:cmov64pe)
+    (:po :pe  lap:jpo  lap:cmov64po)
+    (:l  :nl  lap:jl   lap:cmov64l)
+    (:nl :l   lap:jnl  lap:cmov64nl)
+    (:ge :nge lap:jge  lap:cmov64ge)
+    (:nge :ge lap:jnge lap:cmov64nge)
+    (:le :nle lap:jle  lap:cmov64le)
+    (:nle :le lap:jnle lap:cmov64nle)
+    (:g  :ng  lap:jg   lap:cmov64g)
+    (:ng :g   lap:jng  lap:cmov64ng)))
 
 (defparameter *predicate-instructions*
   (let ((ht (make-hash-table :test 'eq)))
@@ -590,15 +587,15 @@
              (emit `(lap:mov64 ,dest (:constant ,(ir:compile-backend-function value *target*)))))
             ((member value '(nil t))
              (emit `(lap:mov32 ,(lap::convert-width dest 32) ,value)))
-            ((sys.c::fixnump value)
-             (load-int (sys.c::fixnum-to-raw value)))
+            ((c::fixnump value)
+             (load-int (c::fixnum-to-raw value)))
             ((characterp value)
-             (load-int (sys.c::character-to-raw value)))
+             (load-int (c::character-to-raw value)))
             (t
              (emit `(lap:mov64 ,dest (:constant ,value))))))))
 
 (defmethod emit-lap (backend-function (instruction ir:return-instruction) uses defs)
-  (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw 1))
+  (emit `(lap:mov32 :ecx ,(c::fixnum-to-raw 1))
         `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0)
@@ -619,7 +616,7 @@
     (emit `(lap:jmp ,(resolve-label (ir:jump-target instruction))))))
 
 (defmethod emit-lap (backend-function (instruction ir:switch-instruction) uses defs)
-  (let ((jump-table (sys.lap:make-label)))
+  (let ((jump-table (mezzano.lap:make-label)))
     (emit `(lap:lea64 :rax (:rip ,jump-table))
           `(lap:add64 :rax (:rax (,(ir:switch-value instruction) ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
           `(lap:jmp :rax))
@@ -655,9 +652,9 @@
       ((eql 0)
        (emit `(lap:xor32 :ecx :ecx)))
       ((unsigned-byte 30)
-       (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw (length call-arguments)))))
+       (emit `(lap:mov32 :ecx ,(c::fixnum-to-raw (length call-arguments)))))
       (t
-       (emit `(lap:mov64 :rcx ,(sys.c::fixnum-to-raw (length call-arguments))))))))
+       (emit `(lap:mov64 :rcx ,(c::fixnum-to-raw (length call-arguments))))))))
 
 (defun call-argument-teardown (call-arguments)
   (let* ((stack-args (nthcdr 5 call-arguments))
@@ -669,27 +666,24 @@
 
 (defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
-        `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+  (emit `(lap:call (:named-call ,(ir:call-function instruction))))
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction)))
-        `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+  (emit `(lap:call (:named-call ,(ir:call-function instruction))))
   (emit-gc-info :multiple-values 0)
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:mov64 :r13 (:function ,(ir:call-function instruction))))
   (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
                `(:gc :no-frame :layout #*0)
-               `(lap:jmp (:object :r13 ,sys.int::+fref-entry-point+))))
+               `(lap:jmp (:named-call ,(ir:call-function instruction)))))
         (t
-         (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+         (emit `(lap:call (:named-call ,(ir:call-function instruction))))
          (emit-gc-info :multiple-values 0)
          (emit `(lap:leave)
                ;; Don't use emit-gc-info, using a custom layout.
@@ -729,9 +723,9 @@
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
-    (let ((loop-head (sys.lap:make-label))
-          (loop-exit (sys.lap:make-label))
-          (clear-loop-head (sys.lap:make-label)))
+    (let ((loop-head (mezzano.lap:make-label))
+          (loop-exit (mezzano.lap:make-label))
+          (clear-loop-head (mezzano.lap:make-label)))
       ;; RAX = n values to copy (count * 8).
       (emit `(lap:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
             `(lap:cmp64 :rax 0)
@@ -775,9 +769,9 @@
   (let ((stack-pointer-save-area (gethash instruction *prepass-data*)))
     (emit `(lap:mov64 (:stack ,stack-pointer-save-area) :rsp))
     ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
-    (let ((loop-head (sys.lap:make-label))
-          (loop-exit (sys.lap:make-label))
-          (clear-loop-head (sys.lap:make-label)))
+    (let ((loop-head (mezzano.lap:make-label))
+          (loop-exit (mezzano.lap:make-label))
+          (clear-loop-head (mezzano.lap:make-label)))
       ;; RAX = n values to copy (count * 8).
       (emit `(lap:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
             `(lap:cmp64 :rax 0)
@@ -819,8 +813,8 @@
 
 (defmethod emit-lap (backend-function (instruction ir:begin-nlx-instruction) uses defs)
   (let ((control-info (gethash instruction *prepass-data*))
-        (jump-table (sys.lap:make-label))
-        (over (sys.lap:make-label)))
+        (jump-table (mezzano.lap:make-label))
+        (over (mezzano.lap:make-label)))
     (emit `(lap:lea64 :rax (:rip ,jump-table))
           `(lap:mov64 (:stack ,(+ control-info 3)) :rax)
           `(lap:gs)
@@ -895,13 +889,13 @@
          (sv-save-area (first save-data))
          (saved-stack-pointer (second save-data))
          (register-only-area (third save-data))
-         (save-done (sys.lap:make-label :values-save-done))
-         (save-loop-head (sys.lap:make-label :values-save-loop))
-         (full-save (sys.lap:make-label :full-save)))
+         (save-done (mezzano.lap:make-label :values-save-done))
+         (save-loop-head (mezzano.lap:make-label :values-save-loop))
+         (full-save (mezzano.lap:make-label :full-save)))
     ;; Save RSP, this gets unconditionally restored to simplify other paths.
     (emit `(lap:mov64 (:stack ,saved-stack-pointer) :rsp))
     ;; Try a fast register-only save first.
-    (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw 5)))
+    (emit `(lap:cmp64 :rcx ,(c::fixnum-to-raw 5)))
     (emit `(lap:ja ,full-save))
     (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) :rcx))
     (emit `(lap:mov64 (:stack ,(+ register-only-area 1)) :r8))
@@ -915,8 +909,8 @@
     (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) nil))
     ;; Allocate an appropriately sized DX simple vector.
     ;; Add one for the header, then round the count up to an even number.
-    (emit `(lap:lea64 :rax (:rcx ,(sys.c::fixnum-to-raw 2))))
-    (emit `(lap:and64 :rax ,(sys.c::fixnum-to-raw (lognot 1))))
+    (emit `(lap:lea64 :rax (:rcx ,(c::fixnum-to-raw 2))))
+    (emit `(lap:and64 :rax ,(c::fixnum-to-raw (lognot 1))))
     ;; Adjust RSP. rax to raw * 8.
     (emit `(lap:shl64 :rax ,(- 3 sys.int::+n-fixnum-bits+)))
     (emit `(lap:sub64 :rsp :rax))
@@ -925,8 +919,8 @@
     (emit `(lap:shl64 :rax ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(lap:mov64 (:rsp) :rax))
     ;; Clear the SV body. Don't modify RCX, needed for MV GC info.
-    (let ((clear-loop-head (sys.lap:make-label :mvp1-clear-loop))
-          (clear-loop-end (sys.lap:make-label :mvp1-clear-loop-end)))
+    (let ((clear-loop-head (mezzano.lap:make-label :mvp1-clear-loop))
+          (clear-loop-end (mezzano.lap:make-label :mvp1-clear-loop-end)))
       (emit `(lap:mov64 :rdx :rcx))
       (emit `(lap:test64 :rdx :rdx))
       (emit `(lap:jz ,clear-loop-end))
@@ -934,7 +928,7 @@
       (emit `(lap:xor32 :eax :eax))
       (emit clear-loop-head)
       (emit `(lap:stos64))
-      (emit `(lap:sub64 :rdx ,(sys.c::fixnum-to-raw 1)))
+      (emit `(lap:sub64 :rdx ,(c::fixnum-to-raw 1)))
       (emit `(lap:jnz ,clear-loop-head))
       (emit clear-loop-end))
     ;; Create & save the DX root value.
@@ -945,14 +939,14 @@
        for reg in '(:r8 :r9 :r10 :r11 :r12)
        for offset from 0
        do
-         (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw offset)))
+         (emit `(lap:cmp64 :rcx ,(c::fixnum-to-raw offset)))
          (emit `(lap:jle ,save-done))
        ;; 1+ to skip header.
          (emit `(lap:mov64 (:rsp ,(* (1+ offset) 8)) ,reg)))
     ;; Save values in the MV area.
     ;; Number of values remaining.
     (emit `(lap:mov64 :rax :rcx))
-    (emit `(lap:sub64 :rax ,(sys.c::fixnum-to-raw 5)))
+    (emit `(lap:sub64 :rax ,(c::fixnum-to-raw 5)))
     (emit `(lap:jle ,save-done))
     ;; Save into the simple-vector.
     (emit `(lap:lea64 :rdi (:rsp ,(* 6 8)))) ; skip header and registers.
@@ -965,7 +959,7 @@
     (emit `(lap:mov64 (:rdi) :rbx))
     (emit `(lap:add64 :rsi 1))
     (emit `(lap:add64 :rdi 8))
-    (emit `(lap:sub64 :rax ,(sys.c::fixnum-to-raw 1)))
+    (emit `(lap:sub64 :rax ,(c::fixnum-to-raw 1)))
     (emit `(lap:jnz ,save-loop-head))
     ;; Finished saving values.
     (emit save-done)))
@@ -975,8 +969,8 @@
          (sv-save-area (first save-data))
          (saved-stack-pointer (second save-data))
          (register-only-area (third save-data))
-         (full-restore (sys.lap:make-label :values-full-restore))
-         (restore-done (sys.lap:make-label :values-restore-done)))
+         (full-restore (mezzano.lap:make-label :values-full-restore))
+         (restore-done (mezzano.lap:make-label :values-restore-done)))
     ;; See if the fast register path was used.
     (emit `(lap:cmp64 (:stack ,(+ register-only-area 0)) nil))
     (emit `(lap:je ,full-restore))
@@ -993,9 +987,8 @@
     (emit `(lap:lea64 :r8 (:rax ,(- sys.int::+tag-object+
                                             sys.int::+tag-dx-root-object+))))
     ;; Call helper.
-    (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw 1)))
-    (emit `(lap:mov64 :r13 (:function sys.int::values-simple-vector)))
-    (emit `(lap:call (:object :r13 ,sys.int::+fref-entry-point+)))
+    (emit `(lap:mov32 :ecx ,(c::fixnum-to-raw 1)))
+    (emit `(lap:call (:named-call sys.int::values-simple-vector)))
     (emit-gc-info :multiple-values 0)
     (emit restore-done)
     ;; Kill the dx root, restore the old stack pointer, and wipe the register area
@@ -1023,11 +1016,11 @@
      do
        (cond (regs
               (let ((reg (pop regs)))
-                (emit `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw i))
+                (emit `(lap:cmp64 :rcx ,(c::fixnum-to-raw i))
                       `(lap:cmov64le ,reg (:constant nil)))))
              (t
               (emit `(lap:mov64 :r13 nil)
-                    `(lap:cmp64 :rcx ,(sys.c::fixnum-to-raw i))
+                    `(lap:cmp64 :rcx ,(c::fixnum-to-raw i))
                     `(lap:gs)
                     `(lap:cmov64nle :r13 (,(+ (- 8 sys.int::+tag-object+)
                                              (* (+ mezzano.supervisor::+thread-mv-slots+
@@ -1040,7 +1033,7 @@
          (emit `(lap:mov64 :r8 nil)
                `(lap:xor32 :ecx :ecx)))
         (t
-         (emit `(lap:mov32 :ecx ,(sys.c::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
+         (emit `(lap:mov32 :ecx ,(c::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
          (loop
             for value in (nthcdr 5 (ir:values-values instruction))
             for i from 0
@@ -1052,7 +1045,7 @@
                                      (* i 8)))
                                 :r13))
               (emit-gc-info :multiple-values 1)
-              (emit `(lap:add64 :rcx ,(sys.c::fixnum-to-raw 1)))
+              (emit `(lap:add64 :rcx ,(c::fixnum-to-raw 1)))
               (emit-gc-info :multiple-values 0)))))
 
 (defmethod lap-prepass (backend-function (instruction ir:push-special-stack-instruction) uses defs)
@@ -1084,60 +1077,60 @@
 
 (defmethod emit-lap (backend-function (instruction ir:flush-binding-cache-entry-instruction) uses defs)
   (emit `(lap:mov64 :rax ,(ir:flush-binding-cache-entry-symbol instruction))
-        `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
+        `(lap:shr32 :eax 4)
+        `(lap:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   ;; Store the new binding stack entry into the cache entry.
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) ,(ir:flush-binding-cache-entry-new-value instruction))))
+  (emit `(lap:gs)
+        `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) ,(ir:flush-binding-cache-entry-new-value instruction))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbind-instruction) uses defs)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+)))
+  (emit `(lap:gs)
+        `(lap:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+)))
   ;; Pop the stack.
-  (emit `(sys.lap-x86:mov64 :r13 (:object :rbx 0))
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r13))
+  (emit `(lap:mov64 :r13 (:object :rbx 0))
+        `(lap:gs)
+        `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r13))
   ;; Recompute the symbol hash.
-  (emit `(sys.lap-x86:mov64 :rax (:object :rbx ,sys.int::+symbol-value-cell-symbol+))
-        `(sys.lap-x86:shr32 :eax 4)
-        `(sys.lap-x86:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
+  (emit `(lap:mov64 :rax (:object :rbx ,sys.int::+symbol-value-cell-symbol+))
+        `(lap:shr32 :eax 4)
+        `(lap:and32 :eax ,(1- mezzano.supervisor::+thread-symbol-cache-size+)))
   ;; Flush the binding cell cache for this entry.
-  (let ((after-flush (sys.lap:make-label)))
-    (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :rbx))
-    (emit `(sys.lap-x86:jne ,after-flush))
-    (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :symbol-binding-cache-sentinel))
+  (let ((after-flush (mezzano.lap:make-label)))
+    (emit `(lap:gs)
+          `(lap:cmp64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :rbx))
+    (emit `(lap:jne ,after-flush))
+    (emit `(lap:gs)
+          `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-symbol-cache+ :rax) :symbol-binding-cache-sentinel))
     (emit after-flush)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-block-or-tagbody-instruction) uses defs)
   ;; Top entry in the binding stack is a block or tagbody entry.
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
-        `(sys.lap-x86:mov64 :r13 (:object :rbx 1))
-        `(sys.lap-x86:mov64 :rax (:object :rbx 2))
-        `(sys.lap-x86:mov64 (:object :r13 0 :rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) nil)
-        `(sys.lap-x86:mov64 :rbx (:object :rbx 0))
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :rbx)))
+  (emit `(lap:gs)
+        `(lap:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
+        `(lap:mov64 :r13 (:object :rbx 1))
+        `(lap:mov64 :rax (:object :rbx 2))
+        `(lap:mov64 (:object :r13 0 :rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) nil)
+        `(lap:mov64 :rbx (:object :rbx 0))
+        `(lap:gs)
+        `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :rbx)))
 
 (defmethod emit-lap (backend-function (instruction ir:disestablish-unwind-protect-instruction) uses defs)
   ;; Top entry in the binding stack is an unwind-protect entry.
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r8 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
-        `(sys.lap-x86:mov64 :r13 (:object :r8 1))
-        `(sys.lap-x86:mov64 :rbx (:object :r8 2))
-        `(sys.lap-x86:mov64 :r8 (:object :r8 0))
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r8)
-        `(sys.lap-x86:xor32 :ecx :ecx)
-        `(sys.lap-x86:call (:object :r13 0))))
+  (emit `(lap:gs)
+        `(lap:mov64 :r8 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
+        `(lap:mov64 :r13 (:object :r8 1))
+        `(lap:mov64 :rbx (:object :r8 2))
+        `(lap:mov64 :r8 (:object :r8 0))
+        `(lap:gs)
+        `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :r8)
+        `(lap:xor32 :ecx :ecx)
+        `(lap:call (:object :r13 0))))
 
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-simple-vector-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots (1+ (ir:make-dx-simple-vector-size instruction)) :aligned t)))
@@ -1153,6 +1146,50 @@
     ;; Generate pointer.
     (emit `(lap:lea64 ,(ir:make-dx-simple-vector-result instruction) (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
                                                                                sys.int::+tag-object+))))))
+
+(defun size-dx-typed-vector (instruction)
+  (let* ((n-elements (ir:make-dx-typed-vector-size instruction))
+         (type (ir:make-dx-typed-vector-type instruction))
+         (element-words (ceiling (* (sys.int::specialized-array-definition-element-size type)
+                                    n-elements)
+                                 64)))
+    (when (sys.int::specialized-array-definition-pad-p type)
+      (incf element-words))
+    element-words))
+
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*)
+        (allocate-stack-slots
+         (1+ (size-dx-typed-vector instruction))
+         :aligned t
+         :livep (eql (sys.int::specialized-array-definition-type
+                      (ir:make-dx-typed-vector-type instruction))
+                     't))))
+
+(defmethod emit-lap (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (let* ((slots (gethash instruction *prepass-data*))
+         (size (size-dx-typed-vector instruction))
+         (words (1+ size)))
+    (when (oddp words)
+      (incf words))
+    ;; Initialize the header.
+    (emit `(lap:mov64 (:stack ,(+ slots words -1))
+                      ,(logior (ash (ir:make-dx-typed-vector-size instruction)
+                                    sys.int::+object-data-shift+)
+                               (ash (sys.int::specialized-array-definition-tag
+                                     (ir:make-dx-typed-vector-type instruction))
+                                    sys.int::+object-type-shift+))))
+    ;; Generate pointer.
+    (emit `(lap:lea64 ,(ir:make-dx-typed-vector-result instruction)
+                      (:rbp ,(+ (- (* (1+ (+ slots words -1)) 8))
+                                sys.int::+tag-object+))))
+    ;; Possibly zero fill.
+    (when (ir:make-dx-typed-vector-zero-fill-p instruction)
+      (emit `(lap:xor32 :eax :eax)
+            `(lap:mov64 :rcx ,(* size 8))
+            `(lap:lea64 :rdi (:object ,(ir:make-dx-typed-vector-result instruction) 0))
+            `(lap:rep)
+            `(lap:stos8)))))
 
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
@@ -1189,8 +1226,8 @@
         `(lap:sar64 ,(ir:unbox-destination instruction) ,sys.int::+n-fixnum-bits+)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-unsigned-byte-64-instruction) uses defs)
-  (let ((bignum-path (sys.lap:make-label))
-        (out (sys.lap:make-label)))
+  (let ((bignum-path (mezzano.lap:make-label))
+        (out (mezzano.lap:make-label)))
     (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
           `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))
@@ -1201,8 +1238,8 @@
           out)))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-signed-byte-64-instruction) uses defs)
-  (let ((bignum-path (sys.lap:make-label))
-        (out (sys.lap:make-label)))
+  (let ((bignum-path (mezzano.lap:make-label))
+        (out (mezzano.lap:make-label)))
     (emit `(lap:test64 ,(ir:unbox-source instruction) 1)
           `(lap:jnz ,bignum-path)
           `(lap:mov64 ,(ir:unbox-destination instruction) ,(ir:unbox-source instruction))

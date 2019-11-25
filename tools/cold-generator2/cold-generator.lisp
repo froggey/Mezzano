@@ -10,7 +10,8 @@
                     (#:ser #:mezzano.cold-generator.serialize)
                     (#:write #:mezzano.cold-generator.write)
                     (#:util #:mezzano.cold-generator.util)
-                    (#:clos #:mezzano.cold-generator.clos))
+                    (#:clos #:mezzano.cold-generator.clos)
+                    (#:sys.int #:mezzano.internals))
   (:export #:make-image
            #:set-up-cross-compiler))
 
@@ -19,31 +20,31 @@
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
     ("supervisor/x86-64/cpu.lisp" :x86-64)
-    ("supervisor/arm64/cpu.lisp" :arm64)
+    ;;("supervisor/arm64/cpu.lisp" :arm64) fixme
     "supervisor/interrupts.lisp"
     ("supervisor/x86-64/interrupts.lisp" :x86-64)
-    ("supervisor/arm64/interrupts.lisp" :arm64)
-    ("supervisor/arm64/gic.lisp" :arm64)
+    ;;("supervisor/arm64/interrupts.lisp" :arm64)
+    ;;("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
-    ("supervisor/uart.lisp" :arm64)
+    ;;("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/partition.lisp"
     "supervisor/thread.lisp"
     ("supervisor/x86-64/thread.lisp" :x86-64)
-    ("supervisor/arm64/thread.lisp" :arm64)
+    ;;("supervisor/arm64/thread.lisp" :arm64)
     "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     ("supervisor/x86-64/snapshot.lisp" :x86-64)
-    ("supervisor/arm64/snapshot.lisp" :arm64)
+    ;;("supervisor/arm64/snapshot.lisp" :arm64)
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
     ("supervisor/x86-64/pager.lisp" :x86-64)
-    ("supervisor/arm64/pager.lisp" :arm64)
+    ;;("supervisor/arm64/pager.lisp" :arm64)
     "supervisor/time.lisp"
     ("supervisor/x86-64/time.lisp" :x86-64)
-    ("supervisor/arm64/time.lisp" :arm64)
+    ;;("supervisor/arm64/time.lisp" :arm64)
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
@@ -62,16 +63,16 @@
     "supervisor/acpi.lisp"
     "supervisor/efi.lisp"
     ("supervisor/x86-64/platform.lisp" :x86-64)
-    ("supervisor/arm64/platform.lisp" :arm64)
+    ;;("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
     ("runtime/runtime-x86-64.lisp" :x86-64)
-    ("runtime/runtime-arm64.lisp" :arm64)
+    ;;("runtime/runtime-arm64.lisp" :arm64)
     "system/data-types.lisp"
     "runtime/allocate.lisp"
     "runtime/cons.lisp"
     "runtime/numbers.lisp"
     ("runtime/float-x86-64.lisp" :x86-64)
-    ("runtime/float-arm64.lisp" :arm64)
+    ;;("runtime/float-arm64.lisp" :arm64)
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
@@ -98,7 +99,7 @@
     "system/runtime-numbers.lisp"
     "system/bignum.lisp"
     ("system/bignum-x86-64.lisp" :x86-64)
-    ("system/bignum-arm64.lisp" :arm64)
+    ;;("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
     "system/gc.lisp"
     "system/room.lisp"
@@ -117,9 +118,10 @@
 ))
 
 (defparameter *warm-source-files*
-  '("system/clos/package.lisp"
-    "system/clos/macros.lisp"
+  '("system/clos/macros.lisp"
+    "system/clos/fast-class-hash-table.lisp"
     "system/clos/single-dispatch-emf-table.lisp"
+    "system/clos/multiple-dispatch-emf-table.lisp"
     "system/clos/closette.lisp"
     "system/clos/struct.lisp"
     "system/clos/method-combination.lisp"
@@ -141,8 +143,8 @@
     "system/standard-streams.lisp"
     "system/stream.lisp"
     "system/ansi-loop.lisp"
-    "system/environment.lisp"
     "compiler/package.lisp"
+    "system/environment.lisp"
     "compiler/compiler.lisp"
     "compiler/lap.lisp"
     "compiler/lap-x86.lisp"
@@ -166,6 +168,7 @@
     "compiler/simplify-control-flow.lisp"
     "compiler/blexit.lisp"
     "compiler/transforms.lisp"
+    "compiler/type-check.lisp"
     "compiler/backend/backend.lisp"
     "compiler/backend/instructions.lisp"
     "compiler/backend/cfg.lisp"
@@ -274,9 +277,9 @@
               (not (probe-file llf-path))
               (<= (file-write-date llf-path) (file-write-date path)))
       (format t "~A is out of date will be recompiled.~%" llf-path)
-      (let ((sys.c::*target-architecture* (env:environment-target environment))
+      (let ((mezzano.compiler::*target-architecture* (env:environment-target environment))
             (cross-cl:*features* (list* (env:environment-target environment) cross-cl:*features*)))
-        (sys.c::cross-compile-file path :output-file llf-path :package package)))
+        (mezzano.compiler::cross-compile-file path :output-file llf-path :package package)))
     llf-path))
 
 ;; Ugh.
@@ -284,7 +287,7 @@
   (let ((llf-path (merge-pathnames "%%compiler-builtins.llf"
                                    (build-directory environment))))
     (ensure-directories-exist llf-path)
-    (sys.c::save-compiler-builtins llf-path (env:environment-target environment))
+    (mezzano.compiler::save-compiler-builtins llf-path (env:environment-target environment))
     (load-compiled-file environment llf-path :eval t :wired t)))
 
 (defun load-source-file (environment file &key eval wired force-recompile package)
@@ -361,7 +364,7 @@
   (format t ";; Saving Unifont.~%")
   (multiple-value-bind (tree data)
       (with-open-file (s *unifont*)
-        (build-unicode:generate-unifont-table s))
+        (mezzano.cold-generator.build-unicode:generate-unifont-table s))
     (env:set-object-graph-area environment tree :pinned)
     (env:set-object-graph-area environment data :pinned)
     (setf (env:cross-symbol-value environment 'sys.int::*unifont-bmp*) tree)
@@ -370,7 +373,8 @@
 (defun save-unicode (environment)
   (format t ";; Saving Unicode data.~%")
   (multiple-value-bind (planes name-store encoding-table name-trie)
-      (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data *unicode-data*))
+      (mezzano.cold-generator.build-unicode:generate-unicode-data-tables
+       (mezzano.cold-generator.build-unicode:read-unicode-data *unicode-data*))
     (env:set-object-graph-area environment planes :pinned)
     (env:set-object-graph-area environment name-store :pinned)
     (env:set-object-graph-area environment encoding-table :pinned)
@@ -382,7 +386,7 @@
 
 (defun save-pci-ids (environment)
   (format t ";; Saving PCI IDs.~%")
-  (let ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*)))
+  (let ((pci-ids (mezzano.cold-generator.build-pci-ids:build-pci-ids *pci-ids*)))
     (env:set-object-graph-area environment pci-ids :wired)
     (setf (env:cross-symbol-value environment 'sys.int::*pci-ids*) pci-ids)))
 
@@ -431,6 +435,8 @@
   (setf (env:cross-symbol-value environment 'sys.int::*exception-stack*)
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*irq-stack*)
+        (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'sys.int::*page-fault-stack*)
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
@@ -492,6 +498,11 @@
                                                 (build-directory environment)))))
         (format t ";; Writing map file to ~S.~%" map-file-path)
         (ser:write-map-file map-file-path image))
+      (let ((symtabl-file-path (or map-file
+                               (merge-pathnames (make-pathname :type "symbol-table" :defaults image-name)
+                                                (build-directory environment)))))
+        (format t ";; Writing symbol table to ~S.~%" symtabl-file-path)
+        (ser:write-symbol-table symtabl-file-path image))
       (let ((image-header (make-instance 'write:image-header
                                          :uuid (cond ((stringp uuid) (util:parse-uuid uuid))
                                                      ((not uuid) (util:generate-uuid))
@@ -509,7 +520,9 @@
         (format t ";; Writing image with UUID ~/mezzano.cold-generator.util:format-uuid/.~%"
                 (write:image-header-uuid image-header))
         (format t ";; Nil at ~X~%" (write:image-header-nil image-header))
-        (format t ";; Entry-Fref at ~X~%" (write:image-header-entry-fref image-header))
+        (format t ";; Entry-Fref at ~X (~X)~%"
+                (write:image-header-entry-fref image-header)
+                (+ (write:image-header-entry-fref image-header) 23))
         (format t ";; Initial-Thread at ~X~%" (write:image-header-initial-thread image-header))
         (cond ((streamp image-name)
                (write:write-image image image-name image-header
@@ -550,7 +563,6 @@
     "system/printer.lisp"
     "system/numbers.lisp"
     "system/character.lisp"
-    "system/clos/package.lisp"
     "system/clos/macros.lisp"
     "system/clos/closette.lisp"
     "system/data-types.lisp"
@@ -564,7 +576,7 @@
     "supervisor/entry.lisp"
     "supervisor/physical.lisp"
     "supervisor/x86-64/cpu.lisp"
-    "supervisor/arm64/cpu.lisp"
+    ;;"supervisor/arm64/cpu.lisp" fixme
     "supervisor/support.lisp"
     "runtime/struct.lisp"
     "runtime/array.lisp"
@@ -580,9 +592,9 @@ files will be compiled correctly.")
     (flet ((load-files (file-list)
              (dolist (f file-list)
                (cond ((consp f)
-                      (sys.c::load-for-cross-compiler (first f)))
+                      (mezzano.compiler::load-for-cross-compiler (first f)))
                      (t
-                      (sys.c::load-for-cross-compiler f))))))
+                      (mezzano.compiler::load-for-cross-compiler f))))))
       (load-files *cross-source-files*)
       (load-files *supervisor-source-files*)
       (load-files *source-files*)

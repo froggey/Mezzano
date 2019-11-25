@@ -10,11 +10,11 @@
 (in-package :mezzano.fast-eval)
 
 (defun eval-compile (form env)
-  (let ((sys.c::*load-time-value-hook* 'sys.c::eval-load-time-value)
+  (let ((mezzano.compiler::*load-time-value-hook* 'mezzano.compiler::eval-load-time-value)
         (*compile-file-pathname* (or *compile-file-pathname*
                                      *load-pathname*)))
-    (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
-                                    env))))
+    (funcall (mezzano.compiler::compile-lambda `(lambda () (progn ,form))
+                                               env))))
 
 (defun eval-progn-body (forms env)
   (do ((itr forms (cdr itr)))
@@ -53,7 +53,7 @@
     ((progn) (eval-progn-body (rest form) env))
     ((eval-when)
      (multiple-value-bind (compile load eval)
-         (sys.int::parse-eval-when-situation (second form))
+         (mezzano.internals::parse-eval-when-situation (second form))
        (declare (ignore compile load))
        (when eval
          (eval-progn-body (cddr form) env))))
@@ -99,8 +99,8 @@
 (defun eval-call (form env)
   ;; Don't use FDEFINITION, poke directly in the fref to stop trace wrappers
   ;; from being hidden.
-  (let ((fn (sys.int::function-reference-function
-             (sys.int::function-reference (first form)))))
+  (let ((fn (mezzano.internals::function-reference-function
+             (mezzano.internals::function-reference (first form)))))
     (cond (fn
            (apply fn
                   (mapcar (lambda (f) (eval-in-lexenv f env))

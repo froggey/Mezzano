@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.supervisor.pci
   (:use :cl)
-  (:local-nicknames (:sup :mezzano.supervisor))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals))
   (:export #:pci-device
            #:pci-device-location
            #:pci-device-boot-id
@@ -141,7 +142,7 @@
   claimed)
 
 (defun make-pci-address (bus device function)
-  (declare (type (integer 0 255) bus register)
+  (declare (type (integer 0 255) bus)
            (type (integer 0 31) device)
            (type (integer 0 7) function))
   (logior #x80000000

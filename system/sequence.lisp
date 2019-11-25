@@ -3,7 +3,7 @@
 
 ;;;; Full versions of the sequence functions.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;;; FIXME: Should be a class, but this is much faster.
 ;;; ### Specialize in TYPEP?
@@ -1163,9 +1163,8 @@
      ;; case, so do relevant length checking here:
      (let ((s1 (coerce sequence1 'list))
            (s2 (coerce sequence2 'list))
-           (pred-fun predicate)
-           (key-fun (or key
-                        #'identity)))
+           (pred-fun (%coerce-to-callable predicate))
+           (key-fun (%coerce-to-callable (or key #'identity))))
        (when (subtypep 'list result-type) ; result-type = 'list
          (return-from merge (merge-lists s1 s2 pred-fun key-fun)))
        (when (and (subtypep 'null result-type)

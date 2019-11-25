@@ -3,6 +3,8 @@
 
 (defpackage :mezzano.disassemble
   (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals)
+                    (:sys.lap-x86 :mezzano.lap.x86))
   (:export #:disassemble
            #:disassemble-function
            #:make-disassembler-context
@@ -47,7 +49,7 @@
   (when (not (functionp fn))
     (setf fn (fdefinition fn)))
   (check-type fn function)
-  (setf architecture (sys.c::canonicalize-target architecture))
+  (setf architecture (mezzano.compiler::canonicalize-target architecture))
   (let ((*print-gc-metadata* gc-metadata)
         (*print-debug-metadata* debug-metadata)
         (*print-pretty* nil)
@@ -241,7 +243,13 @@
                                       ((and (eql (inst-opcode instruction) 'sys.lap-x86:lea64)
                                             (eql target sys.int::+tag-object+))
                                        ;; The function itself, used for invalid args handling.
-                                       (push (format nil "'~S" (context-function context)) annotations)))
+                                       (push (format nil "'~S" (context-function context)) annotations))
+                                      ((member (inst-opcode instruction) '(sys.lap-x86:call sys.lap-x86:jmp))
+                                       ;; Hopefully a real object!
+                                       (let ((obj (sys.int::%%assemble-value
+                                                   (sys.int::base-address-of-internal-pointer (+ address target))
+                                                   sys.int::+tag-object+)))
+                                         (push (format nil "'~S" obj) annotations))))
                                 (format t "(:RIP #x~X)" (+ address target))))))
                           ((and (eql (ea-base operand) :rbp)
                                 (eql (logand (ea-disp operand) 7) 0)
@@ -281,14 +289,10 @@
                            (push (format nil "'~S" nil) annotations))
                           ((eql operand (sys.int::lisp-object-address t))
                            (push (format nil "'~S" t) annotations))
-                          ((eql operand (sys.int::lisp-object-address (sys.int::%undefined-function)))
-                           (push (format nil "'~S" (sys.int::%undefined-function)) annotations))
-                          ((eql operand (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
-                           (push (format nil "'~S" (sys.int::%closure-trampoline)) annotations))
                           ((eql operand (sys.int::lisp-object-address (sys.int::%unbound-value)))
                            (push (format nil "'~S" (sys.int::%unbound-value)) annotations))
-                          ((eql operand (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))
-                           (push (format nil "'~S" (sys.int::%funcallable-instance-trampoline)) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
+                           (push (format nil "'~S" (sys.int::%symbol-binding-cache-sentinel)) annotations))
                           ((not (logbitp 0 operand))
                            (push (format nil "'~D" (ash operand -1)) annotations))
                           ((and (eql (logand operand 15) sys.int::+tag-immediate+)

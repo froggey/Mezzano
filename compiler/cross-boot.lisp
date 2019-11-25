@@ -5,6 +5,12 @@
 
 (in-package :cross-support)
 
+(defun make-hash-table (&rest args &key test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys)
+  (declare (ignore test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys))
+  (remf args :synchronized)
+  (remf args :enforce-gc-invariant-keys)
+  (apply #'cl:make-hash-table args))
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
@@ -79,28 +85,6 @@
     (when (eql old existing)
       (setf (gethash key hash-table) new))
     existing))
-
-(defmacro sys.int::cas (place old new)
-  ;; As a special cross-build exception, support hash-tables.
-  (cond ((and (consp place)
-              (eql (first place) 'gethash))
-         (destructuring-bind (key hash-table &optional default)
-             (rest place)
-           `(cas-hash-table ,key ,hash-table ,default ,old ,new)))
-        (t
-         `(error "Cross-cas ~S not supported" place))))
-
-(defun sys.int::%defun (name lambda &optional documentation)
-  (declare (ignore documentation))
-  ;; Completely ignore CAS functions when cross compiling, they're not needed.
-  (unless (and (consp name) (eql (first name) 'sys.int::cas))
-    (setf (fdefinition name) lambda))
-  name)
-
-(defun fboundp (name)
-  (if (and (consp name) (eql (first name) 'sys.int::cas))
-      nil
-      (cl:fboundp name)))
 
 (defun sys.int::set-variable-docstring (name docstring)
   (declare (ignore name docstring)))
@@ -239,7 +223,7 @@
       (unless (or (eql (symbol-package (sys.int::structure-definition-name def))
                        (find-package "CL"))
                   (eql (symbol-package (sys.int::structure-definition-name def))
-                       (find-package "SYS.C")))
+                       (find-package "MEZZANO.COMPILER")))
         (eval `(cl:deftype ,(sys.int::structure-definition-name def) () '(satisfies ,predicate))))))
   (setf (gethash (sys.int::structure-definition-name def) *structure-types*) def))
 
@@ -279,7 +263,7 @@
 (defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 62)))
 (alexandria:define-constant sys.int::lambda-list-keywords
-    '(&allow-other-keys &aux &body &environment &key &optional &rest &whole sys.int::&fref sys.int::&closure)
+    '(&allow-other-keys &aux &body &environment &key &optional &rest &whole sys.int::&closure)
   :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp))
 
@@ -451,3 +435,27 @@
   (declare (ignore tag))
   (when (not (typep object type))
     (error "Type error: ~S not of type ~S." object type)))
+
+(defun sys.int::latin1-char-p (character)
+  (check-type character character)
+  (< (char-code character) 256))
+
+(defun sys.int::frob-stream (stream default)
+  (cond ((eql stream 'nil)
+         default)
+        ((eql stream 't)
+         *terminal-io*)
+        (t
+         ;; TODO: check that the stream is open.
+         (check-type stream stream)
+         stream)))
+
+(defun sys.int::frob-input-stream (stream)
+  (sys.int::frob-stream stream *standard-input*))
+
+(defun sys.int::frob-output-stream (stream)
+  (sys.int::frob-stream stream *standard-output*))
+
+(defmacro sys.int::with-stream-editor ((stream recursive-p) &body body)
+  (declare (ignore stream recursive-p))
+  `(progn ,@body))

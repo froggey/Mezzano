@@ -4,7 +4,8 @@
 (defpackage :mezzano.cold-generator.load
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:sys.int #:mezzano.internals))
   (:export #:load-compiled-file
            #:invalid-llf
            #:validate-llf-header
@@ -140,7 +141,9 @@
                        gc-info
                        constants
                        fixups
-                       (loader-allocation-area loader))))
+                       (ecase (loader-allocation-area loader)
+                         ((nil) :function)
+                         ((:wired) :wired-function)))))
 
 (defun load-structure-definition (loader)
   (let* ((has-standard-constructor (stack-pop loader))

@@ -61,14 +61,9 @@
                          :inputs (list :rax)
                          :outputs (list :rax)))
     (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-64-rax))
-                         :inputs '()
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
                          :opcode 'lap:call
-                         :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
-                         :inputs '(:r13 :rax)
+                         :operands (list `(:named-call sys.int::%%make-bignum-64-rax))
+                         :inputs '(:rax)
                          :outputs (list :r8)
                          :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
                                      :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
@@ -156,14 +151,9 @@
                          :inputs (list :rax)
                          :outputs (list :rax)))
     (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-64-rax))
-                         :inputs '()
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
                          :opcode 'lap:call
-                         :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
-                         :inputs '(:r13 :rax)
+                         :operands (list `(:named-call sys.int::%%make-bignum-64-rax))
+                         :inputs '(:rax)
                          :outputs (list :r8)
                          :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
                                      :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
@@ -219,7 +209,6 @@
         (high-half (make-instance 'ir:virtual-register :kind :integer))
         (no-overflow (make-instance 'ir:label :name :*-no-overflow))
         (overflow (make-instance 'ir:label :name :*-overflow))
-        (overflow-temp (make-instance 'ir:virtual-register :kind :integer))
         (fixnum-result (make-instance 'ir:virtual-register))
         (bignum-result (make-instance 'ir:virtual-register))
         (lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
@@ -257,7 +246,7 @@
     ;; Build a bignum on overflow.
     ;; 128-bit result in rdx:rax.
     (emit overflow)
-    ;; Unbox the result.
+    ;; Punt to the helper function.
     (emit (make-instance 'ir:move-instruction
                          :destination :rax
                          :source low-half))
@@ -265,49 +254,9 @@
                          :destination :rdx
                          :source high-half))
     (emit (make-instance 'x86-instruction
-                         :opcode 'lap:shrd64
-                         :operands (list :rax :rdx sys.int::+n-fixnum-bits+)
-                         :inputs (list :rax :rdx)
-                         :outputs (list :rax)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:sar64
-                         :operands (list :rdx sys.int::+n-fixnum-bits+)
-                         :inputs (list :rdx)
-                         :outputs (list :rdx)))
-    ;; Check if the result will fit in 64 bits.
-    ;; Save the high bits.
-    (emit (make-instance 'ir:move-instruction
-                         :destination overflow-temp
-                         :source :rdx))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cqo
-                         :operands (list)
-                         :inputs (list :rax)
-                         :outputs (list :rdx)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cmp64
-                         :operands (list overflow-temp :rdx)
-                         :inputs (list overflow-temp :rdx)
-                         :outputs (list)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :rdx overflow-temp)
-                         :inputs (list overflow-temp)
-                         :outputs (list :rdx)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:mov64
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-128-rdx-rax))
-                         :inputs (list)
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
-                         :opcode 'lap:cmov64e
-                         :operands (list :r13 '(:function sys.int::%%make-bignum-64-rax))
-                         :inputs (list :r13)
-                         :outputs (list :r13)))
-    (emit (make-instance 'x86-instruction
                          :opcode 'lap:call
-                         :operands (list `(:object :r13 ,sys.int::+fref-entry-point+))
-                         :inputs (list :r13 :rax :rdx)
+                         :operands (list `(:named-call sys.int::%%fixnum-multiply-overflow))
+                         :inputs (list :rax :rdx)
                          :outputs (list :r8)
                          :clobbers '(:rax :rcx :rdx :rsi :rdi :rbx :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15
                                      :mm0 :mm1 :mm2 :mm3 :mm4 :mm5 :mm6 :mm7
@@ -398,7 +347,7 @@
                               :lhs lhs
                               :rhs rhs)))))
 
-(define-builtin sys.c::%fast-fixnum-logand ((lhs rhs) result)
+(define-builtin c::%fast-fixnum-logand ((lhs rhs) result)
   (cond ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-fake-three-operand-instruction
                               :opcode 'lap:and64
@@ -428,7 +377,7 @@
                               :lhs lhs
                               :rhs rhs)))))
 
-(define-builtin sys.c::%fast-fixnum-logior ((lhs rhs) result)
+(define-builtin c::%fast-fixnum-logior ((lhs rhs) result)
   (cond ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-fake-three-operand-instruction
                               :opcode 'lap:or64
@@ -458,7 +407,7 @@
                               :lhs lhs
                               :rhs rhs)))))
 
-(define-builtin sys.c::%fast-fixnum-logxor ((lhs rhs) result)
+(define-builtin c::%fast-fixnum-logxor ((lhs rhs) result)
   (cond ((constant-value-p rhs '(signed-byte 31))
          (emit (make-instance 'x86-fake-three-operand-instruction
                               :opcode 'lap:xor64
@@ -504,7 +453,7 @@
                                        :outputs '(:rdx)))
                   (emit (make-instance 'x86-instruction
                                        :opcode 'lap:and64
-                                       :operands `(:rdx ,(sys.c::fixnum-to-raw -1))
+                                       :operands `(:rdx ,(c::fixnum-to-raw -1))
                                        :inputs '(:rdx)
                                        :outputs '(:rdx)))
                   (emit (make-instance 'ir:move-instruction
@@ -526,7 +475,7 @@
                                          :opcode 'lap:and64
                                          :result temp2
                                          :lhs temp1
-                                         :rhs (sys.c::fixnum-to-raw -1)))
+                                         :rhs (c::fixnum-to-raw -1)))
                   (emit (make-instance 'ir:move-instruction
                                        :destination result
                                        :source temp2)))))))
@@ -547,7 +496,7 @@
            ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:cmp64
-                                :operands (list count (sys.c::fixnum-to-raw 64))
+                                :operands (list count (c::fixnum-to-raw 64))
                                 :inputs (list count)
                                 :outputs (list)))
            (emit (make-instance 'x86-branch-instruction
@@ -572,7 +521,7 @@
                                 :opcode 'lap:and64
                                 :result temp2
                                 :lhs temp1
-                                :rhs (sys.c::fixnum-to-raw -1)))
+                                :rhs (c::fixnum-to-raw -1)))
            ;; Done
            (emit (make-instance 'ir:jump-instruction
                                 :target done
@@ -588,7 +537,7 @@
                                 :outputs '(:rdx)))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:and64
-                                :operands `(:rdx ,(sys.c::fixnum-to-raw -1))
+                                :operands `(:rdx ,(c::fixnum-to-raw -1))
                                 :inputs '(:rdx)
                                 :outputs '(:rdx)))
            (emit (make-instance 'ir:move-instruction

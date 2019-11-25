@@ -1,9 +1,9 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.lap-x86)
+(in-package :mezzano.lap.x86)
 
-(defparameter *instruction-assemblers* (make-hash-table))
+(defparameter *instruction-assemblers* (make-hash-table :synchronized nil :enforce-gc-invariant-keys t))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")
 (defvar *fixup-target*)
 
@@ -16,7 +16,7 @@
   "Number of immediate bytes following an encoded effective address.
 Used to make rip-relative addressing line up right.")
 
-(defmethod sys.lap:perform-assembly-using-target ((target sys.c:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
+(defmethod mezzano.lap:perform-assembly-using-target ((target mezzano.compiler:x86-64-target) code-list &rest args &key (cpu-mode 64) &allow-other-keys)
   (let ((*cpu-mode* cpu-mode))
     (apply 'perform-assembly *instruction-assemblers* code-list args)))
 
@@ -30,7 +30,7 @@ Used to make rip-relative addressing line up right.")
                                      (error "Could not encode instruction ~S." ,insn)))))))
 
 (defun add-instruction (name function)
-  (export name '#:sys.lap-x86)
+  (export name '#:mezzano.lap.x86)
   (setf (gethash name *instruction-assemblers*) function))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -367,7 +367,7 @@ Used to make rip-relative addressing line up right.")
             (if index scale nil)
             ;; subtract +tag-object+, skip object header.
             ;; Return an expression, so slot goes through symbol resolution, etc.
-            `(+ (- #b1001) 8 (* ,slot ,slot-scale))
+            `(+ (- ,sys.int::+tag-object+) 8 (* ,slot ,slot-scale))
             nil
             segment)))
 
@@ -384,7 +384,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
         ((and (= (length form) 2)
               (eql (first form) :function))
          ;; Transform (:function foo) into (:rip (:constant-address (fref foo)))
-         (values nil nil nil nil (list :constant-address (funcall sys.lap:*function-reference-resolver* (second form))) t))
+         (values nil nil nil nil (list :constant-address (funcall mezzano.lap:*function-reference-resolver* (second form))) t))
         ((and (= (length form) 2)
               (eql (first form) :symbol-global-cell))
          ;; Transform (:symbol-global-cell foo) into (:rip (:constant-address (fref foo)))
@@ -399,8 +399,8 @@ Remaining values describe the effective address: base index scale disp rip-relat
               (not (reg-class (first form)))
               (reg-class (second form)))
          (ecase (first form)
-           (:car (values nil (second form) nil nil -3))
-           (:cdr (values nil (second form) nil nil (+ -3 8)))))
+           (:car (values nil (second form) nil nil (- sys.int::+tag-cons+)))
+           (:cdr (values nil (second form) nil nil (+ (- sys.int::+tag-cons+) 8)))))
         ((and (member (first form) '(:cs :ss :ds :es :fs :gs))
               (eql (second form) :object))
          (parse-object-ea (rest form) (first form) 8))
@@ -770,7 +770,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-conditional-instruction j (dst) (condition-bits)
   (jmp-imm dst (logior #x70 condition-bits) (list #x0F (logior #x80 condition-bits))))
 
+(defmacro named-call (dst opcode)
+  `(when (and (consp ,dst)
+              (eql (first ,dst) :named-call))
+     (let ((fref (funcall mezzano.lap:*function-reference-resolver* (second ,dst))))
+       ;; Named direct jump to an FREF.
+       ;; Make sure to add the FREF to the constant pool so the GC is aware
+       (mezzano.lap:add-to-constant-pool fref)
+       (emit ',opcode)
+       (note-fixup fref)
+       (emit #xFF #xFF #xFF #xFF)
+       (return-from instruction t))))
+
 (define-instruction jmp (dst)
+  (named-call dst #xE9)
   (jmp-imm dst #xEB #xE9)
   (when (= *cpu-mode* 16)
     (modrm-single :gpr-16 dst #xff 4))
@@ -996,6 +1009,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (return-from instruction t))))
 
 (define-instruction call (dst)
+  (named-call dst #xE8)
   (when (and (not (reg-class dst))
              (immediatep dst))
     ;; Not actually variably sized, but uses *current-address*.

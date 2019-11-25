@@ -529,22 +529,22 @@
 (defmethod mezzano.gray:stream-line-column ((stream text-widget))
   (cursor-column stream))
 
-(defmethod sys.int::stream-cursor-pos ((stream text-widget))
+(defmethod mezzano.internals::stream-cursor-pos ((stream text-widget))
   (values (cursor-x stream)
           (+ (cursor-line stream)
              (cursor-y stream))))
 
-(defmethod sys.int::stream-move-to ((stream text-widget) x y)
+(defmethod mezzano.internals::stream-move-to ((stream text-widget) x y)
   (check-type x integer)
   (check-type y integer)
   (with-cursor-hidden (stream)
     (setf (cursor-x stream) x
           (cursor-y stream) (max (- y (cursor-line stream)) 0))))
 
-(defmethod sys.int::stream-character-width ((stream text-widget) character)
+(defmethod mezzano.internals::stream-character-width ((stream text-widget) character)
   (glyph-advance (character-to-glyph (font stream) character)))
 
-(defmethod sys.int::stream-compute-motion ((stream text-widget) string &optional (start 0) end initial-x initial-y)
+(defmethod mezzano.internals::stream-compute-motion ((stream text-widget) string &optional (start 0) end initial-x initial-y)
   (unless end (setf end (length string)))
   (unless initial-x (setf initial-x (cursor-x stream)))
   (unless initial-y (setf initial-y (+ (cursor-line stream)
@@ -556,7 +556,7 @@
        ((>= i end)
         (values initial-x initial-y))
     (let* ((ch (char string i))
-           (advance (sys.int::stream-character-width stream ch)))
+           (advance (mezzano.internals::stream-character-width stream ch)))
       (when (or (eql ch #\Newline)
                 (> (+ initial-x advance) win-width))
         (setf initial-x 0
@@ -566,7 +566,7 @@
       (unless (eql ch #\Newline)
         (incf initial-x advance)))))
 
-(defmethod sys.int::stream-clear-between ((stream text-widget) start-x start-y end-x end-y)
+(defmethod mezzano.internals::stream-clear-between ((stream text-widget) start-x start-y end-x end-y)
   (with-cursor-hidden (stream)
     (let* ((framebuffer (framebuffer stream))
            (win-width (width stream))

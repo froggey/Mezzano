@@ -3,7 +3,7 @@
 
 ;;; This is the compiler pass that performs lambda-lifting.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun lambda-lift (lambda architecture)
   (declare (ignore architecture))
@@ -69,7 +69,6 @@
                 (lambda-information-rest-arg fn)
                 (not (lambda-information-enable-keys fn))
                 (not (lambda-information-environment-arg fn))
-                (not (lambda-information-fref-arg fn))
                 (not (lambda-information-closure-arg fn))
                 (not (lambda-information-count-arg fn))
                 (every (lambda (x)
@@ -162,8 +161,7 @@
         (key-args (lambda-information-key-args lambda)))
     (when (getf (lambda-information-plist lambda) 'notinline)
       (return-from lift-lambda))
-    (when (or (lambda-information-fref-arg lambda)
-              (lambda-information-closure-arg lambda)
+    (when (or (lambda-information-closure-arg lambda)
               (lambda-information-count-arg lambda))
       (return-from lift-lambda))
     (when (lambda-information-environment-arg lambda)
@@ -283,7 +281,6 @@
       ;; Only supports lifting lambdas with required args *and* a &rest arg.
       (when (and (not (lambda-information-enable-keys lambda))
                  (endp (lambda-information-optional-args lambda))
-                 (not (lambda-information-fref-arg lambda))
                  (not (lambda-information-count-arg lambda))
                  (not (lambda-information-closure-arg lambda))
                  (lambda-information-rest-arg lambda)
@@ -348,7 +345,6 @@
                   (not (lambda-information-enable-keys form))
                   (typep (lambda-information-rest-arg form) 'lexical-variable)
                   (localp (lambda-information-rest-arg form))
-                  (not (lambda-information-fref-arg form))
                   (not (lambda-information-closure-arg form))
                   (not (lambda-information-count-arg form))
                   ;; Inner lambda must be a lambda.

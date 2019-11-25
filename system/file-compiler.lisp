@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defgeneric make-load-form (object &optional environment))
 
@@ -42,15 +42,15 @@
                            for def in defs
                            collect (list (first def)
                                          (eval (expand-macrolet-function def))))))
-    (sys.c::extend-environment env :functions macro-bindings)))
+    (mezzano.compiler::extend-environment env :functions macro-bindings)))
 
 (defun make-symbol-macrolet-env (defs env)
   (let ((defs (loop
                  for (name expansion) in defs
-                 collect (make-instance 'sys.c::symbol-macro
+                 collect (make-instance 'mezzano.compiler::symbol-macro
                                         :name name
                                         :expansion expansion))))
-    (sys.c::extend-environment env :variables defs)))
+    (mezzano.compiler::extend-environment env :variables defs)))
 
 (defun handle-top-level-implicit-progn (forms load-fn eval-fn mode env)
   (dolist (f forms)
@@ -62,7 +62,7 @@
       (parse-declares forms)
     (handle-top-level-implicit-progn
      body load-fn eval-fn mode
-     (sys.c::extend-environment env :declarations declares))))
+     (mezzano.compiler::extend-environment env :declarations declares))))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)
@@ -440,58 +440,56 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
      (save-integer (%double-float-as-integer (realpart object)) stream)
      (save-integer (%double-float-as-integer (imagpart object)) stream))))
 
+(defun load-hash-table-entries (hash-table entries)
+  (loop
+     for i below (length entries) by 2
+     for key = (svref entries i)
+     for value = (svref entries (1+ i))
+     do (setf (gethash key hash-table) value)))
+
 (defmethod make-load-form ((object hash-table) &optional environment)
   (declare (ignore environment))
   (values `(make-hash-table :test ',(hash-table-test object)
                             :rehash-size ',(hash-table-rehash-size object)
-                            :rehash-threshold ',(hash-table-rehash-threshold object))
-          `(progn
-             ,@(loop
-                  for keys being the hash-keys in object using (hash-value value)
-                  collect `(setf (gethash ',keys ',object) ',value)))))
+                            :rehash-threshold ',(hash-table-rehash-threshold object)
+                            :synchronized ',(hash-table-synchronized object)
+                            :enforce-gc-invariant-keys ',(hash-table-enforce-gc-invariant-keys object))
+          (if (not (zerop (hash-table-count object)))
+              `(load-hash-table-entries
+                ',object
+                ',(loop
+                     with entries = (make-array (* (hash-table-count object) 2))
+                     for i from 0 by 2
+                     for key being the hash-keys in object using (hash-value value)
+                     do (setf (svref entries i) key
+                              (svref entries (1+ i)) value)
+                     finally (return entries))))))
 
 (defmethod save-one-object ((object instance-header) omap stream)
   (save-object (sys.int::layout-class (mezzano.runtime::%unpack-instance-header object))
                omap stream)
   (write-byte +llf-instance-header+ stream))
 
+(defvar *compiling-make-load-form* nil)
+
 (defmethod save-one-object (object omap stream)
   ;; Use COMPILE-LAMBDA here instead of COMPILE to get the correct L-T-V behaviour.
-  (let ((sys.c::*load-time-value-hook*
-         (lambda (form read-only-p)
-           (declare (ignore read-only-p))
-           (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-             (save-object (sys.c::compile-lambda
-                           `(lambda ()
-                              (declare (special ,ltv-sym))
-                              (setq ,ltv-sym ,form))
-                           nil)
-                          omap stream)
-             (save-object 0 omap stream)
-             (write-byte +llf-funcall-n+ stream)
-             (write-byte +llf-drop+ stream)
-             `(sys.int::symbol-global-value ',ltv-sym)))))
+  (let* ((*compiling-make-load-form* (cons omap stream))
+         (mezzano.compiler::*load-time-value-hook*
+          (lambda (form read-only-p)
+            (declare (ignore read-only-p))
+            (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
+              (compile-top-level-form `(locally
+                                           (declare (special ,ltv-sym))
+                                         (setq ,ltv-sym ,form))
+                                      nil)
+              `(sys.int::symbol-global-value ',ltv-sym)))))
     (multiple-value-bind (creation-form initialization-form)
         (make-load-form object)
-      (save-object (sys.c::compile-lambda
-                    `(lambda ()
-                       (declare (sys.int::lambda-name creation-form))
-                       (progn ,creation-form))
-                    nil)
-                   omap stream)
-      (save-object 0 omap stream)
-      (write-byte +llf-funcall-n+ stream)
+      (compile-top-level-form-for-value creation-form nil)
       (when initialization-form
         (write-object-backlink object omap stream)
-        (save-object (sys.c::compile-lambda
-                      `(lambda ()
-                         (declare (sys.int::lambda-name initialization-form))
-                         (progn ,initialization-form))
-                      nil)
-                     omap stream)
-        (save-object 0 omap stream)
-        (write-byte +llf-funcall-n+ stream)
-        (write-byte +llf-drop+ stream)))))
+        (compile-top-level-form initialization-form nil)))))
 
 (defun write-object-backlink (object omap stream)
   (when (not *llf-dry-run*)
@@ -505,6 +503,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun save-object (object omap stream)
   (when (typep object 'deferred-function)
     (assert (deferred-function-function object))
+    ;; Perform any additional commands for this deferred function.
+    (when (deferred-function-additional-commands object)
+      (dolist (cmd (reverse (deferred-function-additional-commands object)))
+        (dolist (o (cdr cmd))
+          (save-object o omap stream))
+        (when (and (not *llf-dry-run*)
+                   (car cmd))
+          (write-byte (car cmd) stream))))
     (return-from save-object
       (save-object (deferred-function-function object) omap stream)))
   (when (null (gethash object omap))
@@ -559,8 +565,24 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                      collect `(setf (%struct-slot ',object ',class-name ',(mezzano.clos:slot-definition-name slot))
                                     ',(slot-value object (mezzano.clos:slot-definition-name slot)))))))))
 
+(defvar *current-deferred-function* nil)
+
 (defun add-to-llf (action &rest objects)
-  (push (list* action objects) *llf-forms*))
+  (cond (*current-deferred-function*
+         ;; Running in a worker thread to compile a function.
+         (push (list* action objects)
+               (deferred-function-additional-commands
+                   *current-deferred-function*)))
+        (*compiling-make-load-form*
+         ;; Compiling a call to make-load-form.
+         ;; This occurs when saving objects, so the work must not be deferred.
+         (dolist (o objects)
+           (save-object o (car *compiling-make-load-form*) (cdr *compiling-make-load-form*)))
+         (when (and action (not *llf-dry-run*))
+           (write-byte action (cdr *compiling-make-load-form*))))
+        (t
+         ;; Normal operation, save the forms in the command list.
+         (push (list* action objects) *llf-forms*))))
 
 (defun compile-file-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
@@ -706,28 +728,44 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defclass deferred-function ()
   ((%ast :initarg :ast :reader deferred-function-ast)
-   (%compiled-function :initarg :compiled-function :accessor deferred-function-function))
-  (:default-initargs :compiled-function nil))
+   (%tlf-number :initarg :tlf-number :reader deferred-function-tlf-number)
+   (%compiled-function :initarg :compiled-function :accessor deferred-function-function)
+   (%additional-commands :initarg :additional-commands :accessor deferred-function-additional-commands))
+  (:default-initargs
+   :tlf-number nil
+   :compiled-function nil
+   :additional-commands nil))
 
 (defun add-deferred-lambda (lambda env)
-  (if *compile-parallel*
+  (if (and *compile-parallel*
+           ;; If true, then this is a worker thread compiling something.
+           ;; Don't schedule more work, just do it here.
+           (not *current-deferred-function*)
+           ;; If true then a make-load-form is actively being compiled
+           ;; and is running in the context of save-object, now long past
+           ;; the time that parallel compilation can be done.
+           (not *compiling-make-load-form*))
       (let ((fn (make-instance 'deferred-function
-                               :ast (sys.c::pass1-lambda lambda env))))
+                               :ast (mezzano.compiler::pass1-lambda lambda env)
+                               :tlf-number *top-level-form-number*)))
         (push fn *deferred-functions*)
         fn)
-      (sys.c::compile-lambda lambda env)))
+      (mezzano.compiler::compile-lambda lambda env)))
 
 (defun compile-file-worker (work-fifo return-fifo)
   (unwind-protect
        (loop
           (let ((work (mezzano.supervisor:fifo-pop work-fifo)))
             (when (eql work :finished)
-              (format t "Compile file worker thread ~S completed."
-                      (return)))
-            ;(format t "Compiling deferred function ~S~%" (deferred-function-ast work))
-            (setf (deferred-function-function work)
-                  (sys.c::compile-ast (deferred-function-ast work)))
-            (mezzano.supervisor:fifo-push work return-fifo)))
+              (return))
+            (let* ((*current-deferred-function* work)
+                   (*top-level-form-number* (deferred-function-tlf-number work)))
+              (setf (deferred-function-function work)
+                    (mezzano.compiler::compile-ast (deferred-function-ast work))))
+            (handler-bind
+                ((error (lambda (c)
+                          (mezzano.supervisor:fifo-push `(:error ,work ,c) return-fifo))))
+              (mezzano.supervisor:fifo-push work return-fifo))))
     (mezzano.supervisor:fifo-push :exit return-fifo)))
 
 (defun compile-file (input-file &key
@@ -739,11 +777,15 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (with-open-file (input-stream input-file :external-format external-format)
     (when verbose
       (format t ";; Compiling file ~S.~%" input-file))
-    (let* ((*package* *package*)
+    (let* ((start-time (get-internal-run-time))
+           (*package* *package*)
            (*readtable* *readtable*)
            (*compile-verbose* verbose)
            (*compile-print* print)
-           (*compile-parallel* parallel)
+           ;; Only perform parallel compilation when there are multiple cores.
+           (*compile-parallel* (and parallel
+                                    (or (eql parallel :force)
+                                        (> mezzano.supervisor::*n-up-cpus* 1))))
            (*deferred-functions* '())
            (*llf-forms* nil)
            (omap (make-hash-table))
@@ -751,26 +793,32 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
            (*compile-file-truename* (truename *compile-file-pathname*))
            (*top-level-form-number* 0)
-           (sys.c::*load-time-value-hook* 'compile-file-load-time-value)
+           (mezzano.compiler::*load-time-value-hook* 'compile-file-load-time-value)
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
-           (sys.c::*optimize-policy* (copy-list sys.c::*optimize-policy*))
+           (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
            (*gensym-counter* 0)
-           (*fixup-table* (make-hash-table :synchronized nil)))
-      (do ((form (read input-stream nil eof-marker)
-                 (read input-stream nil eof-marker)))
-          ((eql form eof-marker))
-        (when *compile-print*
-          (let ((*print-length* 3)
-                (*print-level* 3))
-            (declare (special *print-length* *print-level*))
-            (format t ";; Compiling form ~S.~%" form)))
-        ;; TODO: Deal with lexical environments.
-        (handle-top-level-form form
-                               (lambda (f env)
-                                 (compile-top-level-form f env))
-                               (lambda (f env)
-                                 (eval-in-lexenv f env)))
-        (incf *top-level-form-number*))
+           (*fixup-table* (make-hash-table :synchronized (if *compile-parallel* t nil)))
+           (location-stream (make-instance 'sys.int::location-tracking-stream
+                                           :stream input-stream)))
+      (sys.int::with-reader-location-tracking
+        (loop
+           for form = (read location-stream nil eof-marker)
+           until (eql form eof-marker)
+           do
+             (when *compile-print*
+               (let ((*print-length* 3)
+                     (*print-level* 3))
+                 (declare (special *print-length* *print-level*))
+                 (format t ";; ~A form ~S.~%"
+                         (if *compile-parallel* "Processing" "Compiling")
+                         form)))
+           ;; TODO: Deal with lexical environments.
+             (handle-top-level-form form
+                                    (lambda (f env)
+                                      (compile-top-level-form f env))
+                                    (lambda (f env)
+                                      (eval-in-lexenv f env)))
+             (incf *top-level-form-number*)))
       (when *deferred-functions*
         (let* ((n-functions (length *deferred-functions*))
                (n-workers mezzano.supervisor::*n-up-cpus*)
@@ -781,24 +829,59 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (progn
                  (loop
                     repeat n-workers
-                    do (push (mezzano.supervisor:make-thread (lambda () (compile-file-worker work-fifo return-fifo))
-                                                             :name (format nil "Compile file worker")
-                                                             :initial-bindings `((*terminal-io* ,*terminal-io*)
-                                                                                 (*debug-io* ,*debug-io*)
-                                                                                 (*error-output* ,*error-output*)
-                                                                                 (*query-io* ,*query-io*)
-                                                                                 (*standard-input* ,*standard-input*)
-                                                                                 (*standard-output* ,*standard-output*)
-                                                                                 (*trace-output* ,*trace-output*)
-                                                                                 ,@(sys.c::compiler-state-bindings))
-                                                             :priority :low)
+                    do (push (mezzano.supervisor:make-thread
+                              (lambda () (compile-file-worker work-fifo return-fifo))
+                              :name (format nil "Compile file worker")
+                              :initial-bindings `((*terminal-io* ,*terminal-io*)
+                                                  (*debug-io* ,*debug-io*)
+                                                  (*error-output* ,*error-output*)
+                                                  (*query-io* ,*query-io*)
+                                                  (*standard-input* ,*standard-input*)
+                                                  (*standard-output* ,*standard-output*)
+                                                  (*trace-output* ,*trace-output*)
+                                                  (*fixup-table* ,*fixup-table*)
+                                                  (*compile-verbose* ,*compile-verbose*)
+                                                  (*compile-print* ,*compile-print*)
+                                                  (*compile-file-pathname* ,*compile-file-pathname*)
+                                                  (*compile-file-truename* ,*compile-file-truename*)
+                                                  ,@(mezzano.compiler::compiler-state-bindings))
+                              :priority :low)
                              workers))
                  (loop
                     for fn in *deferred-functions*
                     do (mezzano.supervisor:fifo-push fn work-fifo))
-                 (loop
-                    repeat n-functions
-                    do (mezzano.supervisor:fifo-pop return-fifo))
+                 (when *compile-print*
+                   (format t ";; Parallel compiling ~:D functions over ~D workers...~%" n-functions n-workers))
+                 (let ((start-time (get-internal-run-time)))
+                   (loop
+                      with i = 0
+                      repeat n-functions
+                      do
+                        (when *compile-print*
+                          (when (eql i 0)
+                            (write-string ";; ")
+                            (finish-output)))
+                        (let ((status (mezzano.supervisor:fifo-pop return-fifo)))
+                          (when (and (consp status)
+                                     (eql (first status) :error))
+                            (format t "Error while compiling ~S.~%" (second status))
+                            (loop
+                               for worker in workers
+                               do (mezzano.supervisor:terminate-thread worker))
+                            (error (third status))))
+                        (when *compile-print*
+                          (write-char #\.)
+                          (finish-output)
+                          (incf i)
+                          (when (eql i 72)
+                            (terpri)
+                            (setf i 0))))
+                   (when *compile-print*
+                     (fresh-line)
+                     (format t ";; Compiled ~:D functions in ~D seconds.~%"
+                             n-functions
+                             (float (/ (- (get-internal-run-time) start-time)
+                                       internal-time-units-per-second)))))
                  (loop
                     repeat n-workers
                     do (mezzano.supervisor:fifo-push :finished work-fifo)))
@@ -817,7 +900,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                        :if-exists :supersede
                                        :direction :output)
           (write-llf-header output-stream input-file)
-
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
@@ -825,6 +907,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (when (car cmd)
                 (write-byte (car cmd) output-stream))))
           (write-byte +llf-end-of-load+ output-stream)
+          (when *compile-print*
+            (format t ";; Compile-file took ~D seconds.~%"
+                    (float (/ (- (get-internal-run-time) start-time)
+                              internal-time-units-per-second))))
           (values (truename output-stream) nil nil))))))
 
 (defmacro with-compilation-unit ((&key override) &body body)
@@ -832,16 +918,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (sys.lap:perform-assembly-using-target
-       (sys.c::canonicalize-target architecture)
+      (mezzano.lap:perform-assembly-using-target
+       (mezzano.compiler::canonicalize-target architecture)
        code
        :base-address 16
        :initial-symbols '((nil . :fixup)
                           (t . :fixup)
                           (:unbound-value . :fixup)
-                          (:undefined-function . :fixup)
-                          (:closure-trampoline . :fixup)
-                          (:funcallable-instance-trampoline . :fixup)
                           (:symbol-binding-cache-sentinel . :fixup))
        :info (list name debug-info))
     (declare (ignore symbols))

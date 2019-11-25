@@ -186,7 +186,10 @@ Queues must implement DISPATCH-ASYNC."))
   ((%name :initarg :name :reader standard-queue-name)
    (%target :initarg :target :reader standard-queue-target)
    (%active :initarg :active :accessor standard-queue-active-p)
-   (%lock :initform (sup:make-mutex) :reader queue-lock)))
+   (%lock :reader queue-lock)))
+
+(defmethod initialize-instance :after ((instance standard-queue) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)))
 
 (defclass standard-serial-queue (standard-queue serial-queue)
   ((%queue-running :initform nil :accessor queue-running-p)

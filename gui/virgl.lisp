@@ -1,6 +1,10 @@
 ;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
+(defpackage :mezzano.gui.virgl
+  (:use :cl)
+  (:local-nicknames (:gpu :mezzano.supervisor.virtio-gpu)))
+
 (in-package :mezzano.gui.virgl)
 
 ;;; Renderer capabilities.
@@ -165,7 +169,7 @@
 
 (defun vector-push-extend-single/le (new-element vector)
   (check-type new-element single-float)
-  (vector-push-extend-ub32/le (sys.int::%single-float-as-integer new-element) vector))
+  (vector-push-extend-ub32/le (mezzano.internals::%single-float-as-integer new-element) vector))
 
 (defun vector-push-extend-ub64/le (new-element vector)
   (let ((here (vector-push-extend 0 vector)))
@@ -181,7 +185,7 @@
 
 (defun vector-push-extend-double/le (new-element vector)
   (check-type new-element double-float)
-  (vector-push-extend-ub64/le (sys.int::%double-float-as-integer new-element) vector))
+  (vector-push-extend-ub64/le (mezzano.internals::%double-float-as-integer new-element) vector))
 
 (defun encode-clear (cmd-buf
                      buffers ; +pipe-clear-*+
@@ -269,9 +273,10 @@
                              num-tokens
                              ;; Only for stream-output
                              so-stride so-outputs)
-  (let* ((tgsi-text-bytes (sys.int::encode-utf-8-string tgsi-text
-                                                        :eol-style :lf
-                                                        :nul-terminate t))
+  (let* ((tgsi-text-bytes (mezzano.internals::encode-utf-8-string
+                           tgsi-text
+                           :eol-style :lf
+                           :nul-terminate t))
          (text-words (truncate (+ (length tgsi-text-bytes) 3) 4))
          (cmd-buf (make-array 100
                               :element-type '(unsigned-byte 8)

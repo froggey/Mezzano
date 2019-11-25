@@ -90,7 +90,8 @@
     (alloc-blocks sys.int::*wired-area-base* sys.int::*wired-area-bump*)
     (alloc-blocks sys.int::+card-table-base+
                   (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
-                  :sparse t))
+                  :sparse t)
+    (alloc-blocks sys.int::*wired-function-area-limit* sys.int::*function-area-base*))
   ;; I bet this could be partially done with CoW. Evil.
   ;; Copy without interrupts to avoid smearing.
   (without-interrupts
@@ -112,7 +113,8 @@
       (copy-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
       (copy-pages sys.int::+card-table-base+
                   (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
-                  :sparse t))))
+                  :sparse t)
+      (copy-pages sys.int::*wired-function-area-limit* sys.int::*function-area-base*))))
 
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
@@ -159,7 +161,7 @@ Returns 4 values:
   FREEP - True if FRAME should be freed after it has been written back.
   BLOCK-ID - ID of the block to write to. This will always be a valid block, not a deferred block.
   ADDRESS - Virtual address of the page to write back."
-  (with-mutex (*vm-lock*)
+  (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (multiple-value-bind (frame freep block-id address)
         (pop-pending-snapshot-page-1)
@@ -347,7 +349,7 @@ Returns 4 values:
       (when (not (zerop *snapshot-inhibit*))
         (set-snapshot-light nil)
         (return-from take-snapshot :retry))
-      (with-mutex (*vm-lock*)
+      (with-rw-lock-write (*vm-lock*)
         (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
         (debug-print-line "Copying wired area.")
         (snapshot-copy-wired-area)
@@ -363,8 +365,8 @@ Returns 4 values:
     (snapshot-write-back-pages)
     ;; Update the block map & freelist entries in the header.
     (debug-print-line "Updating disk header.")
-    (let ((header (convert-to-pmap-address (* (with-mutex (*vm-lock*)
-                                              (pager-allocate-page :new-type :other))
+    (let ((header (convert-to-pmap-address (* (with-rw-lock-write (*vm-lock*)
+                                                (pager-allocate-page :new-type :other))
                                             +4k-page-size+))))
       (disk-submit-request *snapshot-disk-request*
                            *paging-disk*
@@ -378,7 +380,7 @@ Returns 4 values:
       (setf (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0) freelist-block)
       (snapshot-write-disk 0 header)
       (free-page header))
-    (with-mutex (*vm-lock*)
+    (with-rw-lock-write (*vm-lock*)
       (store-release-deferred-blocks previously-deferred-free-blocks)))
   (set-snapshot-light nil)
   (debug-print-line "End snapshot."))
@@ -432,6 +434,7 @@ Returns 4 values:
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...
   (allocate-snapshot-wired-backing-pages sys.int::*wired-area-base* sys.int::*wired-area-bump*)
+  (allocate-snapshot-wired-backing-pages sys.int::*wired-function-area-limit* sys.int::*function-area-base*)
   ;; FIXME: The card table is mostly sparse. The system spends ages scanning
   ;; it during boot looking for allocated regions but mostly doing nothing.
   ;; Could modify the bootloader to allocate backing pages.

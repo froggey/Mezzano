@@ -1,11 +1,11 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :http-demo
+(defpackage :mezzano.http-demo
   (:use :cl)
   (:export #:start-server #:stop-server))
 
-(in-package :http-demo)
+(in-package :mezzano.http-demo)
 
 (defun parse-http-request (line)
   (format t "Parsing request ~S.~%" line)
@@ -106,14 +106,14 @@
                         (with-open-file (s "logo300x100.jpg"
                                            :element-type '(unsigned-byte 8)
                                            :if-does-not-exist nil)
-                          (cond (s (sys.net:buffered-format stream "HTTP/1.0 200 OK~%~%")
+                          (cond (s (mezzano.network:buffered-format stream "HTTP/1.0 200 OK~%~%")
                                    (let* ((file-size (file-length s))
                                           (buf (make-array file-size :element-type '(unsigned-byte 8))))
                                      (read-sequence buf s)
                                      (write-sequence buf stream)))
-                                (t (sys.net:buffered-format stream "HTTP/1.0 404 Not Found~%~%")))))
-                       (t (sys.net:buffered-format stream "HTTP/1.0 404 Not Found~%~%"))))
-                (t (sys.net:buffered-format stream "HTTP/1.0 400 Bad Request~%~%"))))))))
+                                (t (mezzano.network:buffered-format stream "HTTP/1.0 404 Not Found~%~%")))))
+                       (t (mezzano.network:buffered-format stream "HTTP/1.0 404 Not Found~%~%"))))
+                (t (mezzano.network:buffered-format stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
 (defclass http-server ()
   ((%context :initarg :context :reader http-server-context)

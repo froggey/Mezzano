@@ -42,11 +42,29 @@
 (defclass intel-gma ()
   ((%device :initarg :device :reader gma-device)
    (%registers :initarg :registers :reader gma-registers)
+   (%gm :initarg :gm :reader gma-gm)
+   (%gtt :initarg :gtt :reader gma-gtt)
    (%edid :initarg :edid :reader gma-edid)
    (%lock :reader gma-lock)))
 
 (defmethod initialize-instance :after ((instance intel-gma) &key)
   (setf (slot-value instance '%lock) (sup:make-mutex instance)))
+
+;; PCI BAR indices.
+(defconstant +pci-bar-mmadr+ 0)
+(defconstant +pci-bar-iobar+ 1)
+(defconstant +pci-bar-gmadr+ 2)
+(defconstant +pci-bar-gttadr+ 3)
+
+;; Additional PCI config registers.
+(defconstant +pci-config-mggc+ #x52 "GMCH Graphics Control")
+(defconstant +mggc-gms+ (byte 3 4) "Graphics Mode Select")
+(defconstant +mggc-gms-none+ #b000)
+(defconstant +mggc-gms-1mb+ #b001)
+(defconstant +mggc-gms-8mb+ #b011)
+(defconstant +mggc-ivd+ (byte 1 1) "IGD VGA Disable")
+(defconstant +pci-config-mdeven+ #x54 "Device Enable")
+(defconstant +pci-config-bsm+ #x5C "Base of Stolen Memory")
 
 ;;; Clock Control and Power Management Registers
 (defconstant +vga0+              #x06000)
@@ -282,7 +300,7 @@
        ,@body)))
 
 (defun framebuffer-address (device)
-  (logand (pci:pci-io-region (gma-device device) 2) (lognot #xF)))
+  (logand (pci:pci-io-region (gma-device device) +pci-bar-gmadr+) (lognot #xF)))
 
 (defconstant +reference-frequency+ 96000000)
 
@@ -984,7 +1002,7 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
                             :refresh-rate (+ (ldb (byte 6 0) byte2) 60)))))
 
 (defun decode-edid-detailed-timing (edid offset)
-  (let ((pixel-clock (* (sys.int::ub16ref/le edid (+ offset 0)) 10000))
+  (let ((pixel-clock (* (mezzano.internals::ub16ref/le edid (+ offset 0)) 10000))
         (hactive (logior (aref edid (+ offset 2))
                          (ash (ldb (byte 4 4) (aref edid (+ offset 4))) 8)))
         (hblank (logior (aref edid (+ offset 3))
@@ -1066,9 +1084,9 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
           (aref edid 18) (aref edid 19)))
   (let ((detailed-timings (decode-edid-detailed-timings edid)))
     (make-edid-data
-     :manufacturer-id (sys.int::ub16ref/be edid 8)
-     :product-code (sys.int::ub16ref/le edid 10)
-     :serial-number (sys.int::ub32ref/le edid 12)
+     :manufacturer-id (mezzano.internals::ub16ref/be edid 8)
+     :product-code (mezzano.internals::ub16ref/le edid 10)
+     :serial-number (mezzano.internals::ub32ref/le edid 12)
      :week-of-manufacture (aref edid 16)
      :year-of-manufacture (+ 1990 (aref edid 17))
      ;; TODO: These two can be zero indicating an aspect ratio.
@@ -1112,32 +1130,31 @@ Returns the N, M1, M2, P1, P2, and the actual dot clock frequency."
                     (decode-edid-standard-timings edid)))))
 
 (defun intel-gma-probe (pci-device)
-  (let ((registers (pci:pci-io-region pci-device 0)))
-    (pci:pci-io-region pci-device 1)
-    (pci:pci-io-region pci-device 2)
-    (pci:pci-io-region pci-device 3)
-    (let ((card (make-instance 'intel-gma
-                               :device pci-device
-                               :registers registers)))
-      (setf *card* card)
-      (format t "Detected intel-gma at ~S~%" pci-device)
-      (let ((mode (save-current-mode-parameters card))
-            (framebuffer (framebuffer-address card)))
-        ;; Take ownership of the compositor framebuffer.
-        (when (and (eql (sup::framebuffer-layout (sup:current-framebuffer)) :x8r8g8b8)
-                   (eql (framebuffer-address card)
-                        (sup::framebuffer-base-address (sup:current-framebuffer))))
-          (sup::video-set-framebuffer
-           framebuffer
-           (timing-horz-active mode)
-           (timing-vert-active mode)
-           (* (timing-horz-active mode) 4)
-           :x8r8g8b8
-           :device card)
-          (mezzano.gui.compositor:force-redisplay t)))
-      (setf (slot-value card '%edid)
-            (ignore-errors (decode-raw-edid (read-raw-edid card))))
-      card)))
+  (format t "Detected intel-gma at ~S~%" pci-device)
+  (let* ((card (make-instance 'intel-gma
+                              :device pci-device
+                              :registers (pci:pci-io-region pci-device +pci-bar-mmadr+)
+                              :gm (pci:pci-io-region pci-device +pci-bar-gmadr+)
+                              :gtt (pci:pci-io-region pci-device +pci-bar-gttadr+)))
+         (mode (save-current-mode-parameters card))
+         (framebuffer (framebuffer-address card)))
+    (pci:pci-io-region pci-device +pci-bar-iobar+)
+    (setf *card* card)
+    ;; Take ownership of the compositor framebuffer.
+    (when (and (eql (sup::framebuffer-layout (sup:current-framebuffer)) :x8r8g8b8)
+               (eql (framebuffer-address card)
+                    (sup::framebuffer-base-address (sup:current-framebuffer))))
+      (sup::video-set-framebuffer
+       framebuffer
+       (timing-horz-active mode)
+       (timing-vert-active mode)
+       (* (timing-horz-active mode) 4)
+       :x8r8g8b8
+       :device card)
+      (mezzano.gui.compositor:force-redisplay t))
+    (setf (slot-value card '%edid)
+          (ignore-errors (decode-raw-edid (read-raw-edid card))))
+    card))
 
 ;; Scary warning:
 ;;   Be careful adding new IDs here.

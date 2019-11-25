@@ -22,17 +22,23 @@
 (defun flush-tlb-single (address)
   (sys.int::%invlpg address))
 
+(defun pte-page-present-p (pte)
+  (logtest +x86-64-pte-present+ pte))
+
 (defun page-present-p (page-table &optional (index 0))
-  (logtest +x86-64-pte-present+
-           (page-table-entry page-table index)))
+  (pte-page-present-p (page-table-entry page-table index)))
+
+(defun pte-page-writable-p (pte)
+  (logtest +x86-64-pte-write+ pte))
 
 (defun page-writable-p (page-table &optional (index 0))
-  (logtest +x86-64-pte-write+
-           (page-table-entry page-table index)))
+  (pte-page-writable-p (page-table-entry page-table index)))
+
+(defun pte-page-copy-on-write-p (pte)
+  (logtest +x86-64-pte-copy-on-write+ pte))
 
 (defun page-copy-on-write-p (page-table &optional (index 0))
-  (logtest +x86-64-pte-copy-on-write+
-           (page-table-entry page-table index)))
+  (pte-page-copy-on-write-p (page-table-entry page-table index)))
 
 (defun page-dirty-p (page-table &optional (index 0))
   (logtest +x86-64-pte-dirty+
@@ -79,6 +85,18 @@
           (setf current-entry (logior current-entry +x86-64-pte-dirty+))
           (setf current-entry (logand current-entry (lognot +x86-64-pte-dirty+)))))
     (setf (page-table-entry pte) current-entry)))
+
+(defun update-pte-atomic (pte pte-value &key (writable nil writablep) (dirty nil dirtyp))
+  (let ((current-entry pte-value))
+    (when writablep
+      (if writable
+          (setf current-entry (logior current-entry +x86-64-pte-write+))
+          (setf current-entry (logand current-entry (lognot +x86-64-pte-write+)))))
+    (when dirtyp
+      (if dirty
+          (setf current-entry (logior current-entry +x86-64-pte-dirty+))
+          (setf current-entry (logand current-entry (lognot +x86-64-pte-dirty+)))))
+    (eql (sys.int::cas (page-table-entry pte) pte-value current-entry) pte-value)))
 
 (defun make-pte (frame &key writable (present t) wired dirty copy-on-write (cache-mode :normal))
   (declare (ignore wired cache-mode))

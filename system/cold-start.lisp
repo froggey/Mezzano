@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (declaim (special *cold-toplevel-forms*
                   *package-system*
@@ -217,6 +217,11 @@
     (error "Early call to FIND-CLASS for ~S" name))
   nil)
 
+;;; Early handler bind
+(defun %handler-bind (bindings thunk)
+  (declare (ignore bindings))
+  (funcall thunk))
+
 (defvar *warm-llf-files*)
 
 (defvar *cold-start-start-time*)
@@ -226,7 +231,7 @@
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
 structures to exist, and for memory to be allocated, but not much beyond that."
-  (setf *cold-start-start-time* (get-internal-real-time))
+  (setf *cold-start-start-time* (get-internal-run-time))
   (cold-array-initialization)
   (setf *package* nil
         *terminal-io* :cold-stream
@@ -264,13 +269,16 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *deferred-%defpackage-calls* '())
   ;; System tables.
   (setf *macros* (make-hash-table :test #'eq))
-  (setf *symbol-function-info* (make-hash-table :test #'eq)
-        *setf-function-info* (make-hash-table :test #'eq)
-        *cas-function-info* (make-hash-table :test #'eq))
+  (setf *symbol-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *setf-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *cas-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *function-info-lock* (mezzano.supervisor:make-rw-lock "Function info"))
   (setf *setf-expanders* (make-hash-table :test #'eq))
-  (setf *type-info* (make-hash-table :test #'eq))
+  (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
-  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq))
+  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+        mezzano.clos::*class-reference-table-lock* (mezzano.supervisor:make-rw-lock 'mezzano.clos::*class-reference-table*))
   (loop
      for (name . class) across mezzano.clos::*initial-class-table*
      do (setf (find-class name) class))
@@ -280,7 +288,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *cas-fref-table* (make-hash-table))
   (dotimes (i (length *initial-fref-obarray*))
     (let* ((fref (svref *initial-fref-obarray* i))
-           (name (%object-ref-t fref +fref-name+)))
+           (name (function-reference-name fref)))
       (when (consp name)
         (ecase (first name)
           ((setf)
@@ -344,7 +352,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
     (gc)
     (room)
     (mezzano.supervisor:snapshot)
-    (setf *cold-start-end-time* (get-internal-real-time))
+    (setf *cold-start-end-time* (get-internal-run-time))
     (format t "Hello, world.~%Cold start took ~:D seconds (~:D seconds of GC time).~%"
             (float (/ (- *cold-start-end-time*
                          *cold-start-start-time*)

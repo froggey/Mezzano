@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;;; I/O customization variables.
 
@@ -29,6 +29,51 @@
 
 ;;; Cold stream methods.
 
+(defparameter *cold-stream-is-line-buffered* t)
+(defparameter *cold-stream-buffers* '())
+(defparameter *cold-stream-lock* (mezzano.supervisor:make-mutex '*cold-stream-buffers*))
+
+(defstruct cold-stream-buffer
+  thread
+  data
+  column)
+
+(defmacro with-cold-stream-buffer ((buffer) &body body)
+  `(let ((buffer (get-cold-stream-buffer)))
+     ,@body))
+
+(defun get-cold-stream-buffer ()
+  (mezzano.supervisor:with-mutex (*cold-stream-lock*)
+    (do ((self (mezzano.supervisor:current-thread))
+         (entry nil)
+         (i *cold-stream-buffers*)
+         (prev nil))
+        ((endp i)
+         (when (not entry)
+           (setf entry (make-cold-stream-buffer
+                        :thread (make-weak-pointer self)
+                        :data (make-array 100
+                                          :element-type 'character
+                                          :fill-pointer 0
+                                          :adjustable t
+                                          :area :wired)
+                        :column 0))
+           (push entry *cold-stream-buffers*))
+         entry)
+      (let ((thread (weak-pointer-value (cold-stream-buffer-thread (first i)))))
+        (when (eql thread self)
+          (setf entry (first i)))
+        (cond (thread
+               (setf prev i))
+              (t
+               ;; Entry is dead, flush & remove it.
+               (when (not (zerop (length (cold-stream-buffer-data (first i)))))
+                 (mezzano.supervisor::debug-write-string (cold-stream-buffer-data (first i))))
+               (if prev
+                   (setf (rest prev) (rest i))
+                   (setf *cold-stream-buffers* (rest i)))))
+        (setf i (rest i))))))
+
 (defmethod mezzano.gray:stream-read-char ((stream cold-stream))
   (or (cold-read-char stream) :eof))
 
@@ -38,17 +83,52 @@
 (defmethod mezzano.gray:stream-unread-char ((stream cold-stream) character)
   (cold-unread-char character stream))
 
-(defmethod mezzano.gray:stream-write-char ((stream cold-stream) character)
-  (cold-write-char character stream))
-
 (defmethod mezzano.gray:stream-clear-input ((stream cold-stream))
   (cold-clear-input stream))
 
+(defun cold-stream-buffer-flush (buffer)
+  (let ((data (cold-stream-buffer-data buffer)))
+    (mezzano.supervisor::debug-write-string data)
+    (setf (fill-pointer data) 0)))
+
+(defmethod mezzano.gray:stream-write-char ((stream cold-stream) character)
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (vector-push-extend character (cold-stream-buffer-data buffer))
+           (cond ((eql character #\Newline)
+                  (setf (cold-stream-buffer-column buffer) 0)
+                  (cold-stream-buffer-flush buffer))
+                 (t
+                  (incf (cold-stream-buffer-column buffer))))))
+        (t
+         (cold-write-char character stream))))
+
 (defmethod mezzano.gray:stream-start-line-p ((stream cold-stream))
-  (cold-start-line-p stream))
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (zerop (cold-stream-buffer-column buffer))))
+        (t
+         (cold-start-line-p stream))))
 
 (defmethod mezzano.gray:stream-line-column ((stream cold-stream))
-  (cold-line-column stream))
+  (cond (*cold-stream-is-line-buffered*
+         (with-cold-stream-buffer (buffer)
+           (cold-stream-buffer-column buffer)))
+        (t
+         (cold-line-column stream))))
+
+(defmethod mezzano.gray:stream-finish-output ((stream cold-stream))
+  (when *cold-stream-is-line-buffered*
+    (with-cold-stream-buffer (buffer)
+      (cold-stream-buffer-flush buffer))))
+
+(defmethod mezzano.gray:stream-force-output ((stream cold-stream))
+  (finish-output stream))
+
+(defmethod mezzano.gray:stream-clear-output ((stream cold-stream))
+  (when *cold-stream-is-line-buffered*
+    (with-cold-stream-buffer (buffer)
+      (setf (fill-pointer buffer) 0))))
 
 (defmethod mezzano.gray:stream-line-length ((stream cold-stream))
   (cold-line-length stream))
@@ -490,3 +570,59 @@ CASE may be one of:
 
 (defun fresh-line (&optional stream)
   (mezzano.gray:stream-fresh-line (frob-output-stream stream)))
+
+;;; Location tracking stream. See reader.lisp for the other half.
+
+(defgeneric location-tracking-stream-line (stream)
+  (:documentation "Return STREAM's current line, or NIL.
+Lines are counted from 1.")
+  (:method (stream) nil))
+(defgeneric location-tracking-stream-character (stream)
+  (:documentation "Return STREAM's current character index, or NIL.
+Characters are counted from 0.")
+  (:method (stream) nil))
+
+(defgeneric location-tracking-stream-location (stream)
+  (:documentation "Return a SOURCE-LOCATION indicating the current location in the stream. Returns NIL if location tracking is unavailable.
+This should only fill in the START- slots and ignore the END- slots.")
+  (:method (stream) nil))
+
+(defclass location-tracking-stream (mezzano.gray:fundamental-character-input-stream)
+  ((%stream :initarg :stream :reader location-tracking-stream-stream)
+   (%line :initarg :line :accessor location-tracking-stream-line)
+   (%character :initarg :character :accessor location-tracking-stream-character)
+   (%unread-character :accessor location-tracking-stream-unread-character))
+  (:default-initargs :character 0 :line 1))
+
+(defmethod location-tracking-stream-location ((stream location-tracking-stream))
+  (make-source-location
+   :file (and *compile-file-pathname*
+              (ignore-errors (namestring *compile-file-pathname*)))
+   :top-level-form-number *top-level-form-number*
+   :position (let ((inner (location-tracking-stream-stream stream)))
+               (if (typep inner 'file-stream)
+                   (file-position inner)
+                   nil))
+   :line (location-tracking-stream-line stream)
+   :character (location-tracking-stream-character stream)))
+
+(defmethod mezzano.gray:stream-read-char ((stream location-tracking-stream))
+  (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))
+    (cond ((eql ch :eof))
+          ((eql ch #\Newline)
+           (incf (location-tracking-stream-line stream))
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (setf (location-tracking-stream-character stream) 0))
+          (t
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (incf (location-tracking-stream-character stream))))
+    ch))
+
+(defmethod mezzano.gray:stream-unread-char ((stream location-tracking-stream) character)
+  (when (eql character #\Newline)
+    (decf (location-tracking-stream-line stream)))
+  (setf (location-tracking-stream-character stream)
+        (location-tracking-stream-unread-character stream))
+  (unread-char character (location-tracking-stream-stream stream)))

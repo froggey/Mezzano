@@ -109,7 +109,7 @@
                            (adjust-motion x-motion)
                            (adjust-motion y-motion)))))
              (T
-              (format sys.int::*cold-stream*
+              (format mezzano.internals::*cold-stream*
                       "Interrupt error ~A on endpoint number ~D~%"
                       status endpoint-num)))
     #+nil (push (format nil "~D: ~A" length buf) *ints*)

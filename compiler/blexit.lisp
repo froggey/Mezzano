@@ -7,7 +7,7 @@
 ;;; When a return-from is reached whose target is active, it can be
 ;;; reduced down to just the value.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defgeneric blexit-1 (form live-block-list))
 

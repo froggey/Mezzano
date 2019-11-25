@@ -1,4 +1,4 @@
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Global environment.
 

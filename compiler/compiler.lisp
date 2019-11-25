@@ -1,19 +1,13 @@
 ;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *should-inline-functions* t)
 
 (defparameter *perform-tce* nil
   "When true, attempt to eliminate tail calls.")
 
-(defparameter *suppress-builtins* nil
-  "When true, the built-in functions will not be used and full calls will
-be generated instead.")
-
-(defparameter *enable-branch-tensioner* t)
-(defparameter *enable-stack-alignment-checking* nil)
 (defparameter *trace-asm* nil)
 
 (defvar *jump-table-size-min* 4)
@@ -24,12 +18,13 @@ be generated instead.")
 (defvar *optimize-restrictions* '())
 (defvar *optimize-policy* '(safety 3 debug 3 speed 1))
 
+(defparameter *the-checks-types* nil
+  "When true, THE forms will check types at SAFETY 3.
+Currently disabled by default as it has a severe performance impact.")
+
 (defun compiler-state-bindings ()
   (let ((symbols '(*should-inline-functions*
                    *perform-tce*
-                   *suppress-builtins*
-                   *enable-branch-tensioner*
-                   *enable-stack-alignment-checking*
                    *trace-asm*
                    *jump-table-size-min*
                    *jump-table-size-max*
@@ -37,7 +32,8 @@ be generated instead.")
                    *optimize-restrictions*
                    *optimize-policy*
                    *verify-special-stack*
-                   *constprop-lambda-copy-limit*)))
+                   *constprop-lambda-copy-limit*
+                   *the-checks-types*)))
     (loop
        for sym in symbols
        collect (list sym (symbol-value sym)))))
@@ -82,6 +78,8 @@ be generated instead.")
   ;; Don't optimize at (compiliation-speed 3).
   (let ((run-optimizations (not (eql (optimize-quality form 'compilation-speed) 3)))
         (target (canonicalize-target target-architecture)))
+    (when *the-checks-types*
+      (setf form (insert-type-checks form target)))
     (when run-optimizations
       (setf form (run-optimizers form target)))
     (unless run-optimizations

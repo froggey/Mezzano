@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defmacro lambda (lambda-list &body body)
   `#'(lambda ,lambda-list ,@body))
@@ -199,8 +199,8 @@
                (min-key (apply #'min unique-keys))
                (max-key (apply #'max unique-keys))
                (range (- (1+ max-key) min-key)))
-          (if (and (>= n-keys sys.c::*jump-table-size-min*)
-                   (< range sys.c::*jump-table-size-max*))
+          (if (and (>= n-keys mezzano.compiler::*jump-table-size-min*)
+                   (< range mezzano.compiler::*jump-table-size-max*))
               (let ((default-label (gensym "case-default"))
                     (block-name (gensym "case-block"))
                     (key-sym (gensym "case-key"))
@@ -274,8 +274,8 @@
                (min-key (apply #'min unique-keys))
                (max-key (apply #'max unique-keys))
                (range (- (1+ max-key) min-key)))
-          (if (and (>= n-keys sys.c::*jump-table-size-min*)
-                   (< range sys.c::*jump-table-size-max*))
+          (if (and (>= n-keys mezzano.compiler::*jump-table-size-min*)
+                   (< range mezzano.compiler::*jump-table-size-max*))
               (let ((default-label (gensym "ecase-default"))
                     (block-name (gensym "ecase-block"))
                     (key-sym (gensym "ecase-key"))

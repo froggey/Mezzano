@@ -5,6 +5,10 @@
 
 (in-package :mezzano.clos)
 
+(defmacro push-on-end (value location)
+  "push-on-end is like push except it uses the other end"
+  `(setf ,location (nconc ,location (list ,value))))
+
 ;;; DEFCLASS.
 
 (defvar *defclass-slot-names*)

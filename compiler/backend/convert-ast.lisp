@@ -15,7 +15,7 @@
     (append-instruction *backend-function* i)))
 
 (defun convert (lambda)
-  (sys.c::detect-uses lambda)
+  (mezzano.compiler::detect-uses lambda)
   (codegen-lambda lambda))
 
 (defun codegen-lambda (lambda)
@@ -56,10 +56,6 @@
       (assert (or (null arg)
                   (and (lexical-variable-p arg)
                        (localp arg)))))
-    (let ((arg (lambda-information-fref-arg lambda)))
-      (assert (or (null arg)
-                  (and (lexical-variable-p arg)
-                       (localp arg)))))
     (let ((arg (lambda-information-closure-arg lambda)))
       (assert (or (null arg)
                   (and (lexical-variable-p arg)
@@ -70,8 +66,7 @@
                        (localp arg))))))
 
 (defun emit-argument-setup-code (lambda)
-  (let ((fref-reg (make-instance 'virtual-register :name :fref))
-        (closure-reg (make-instance 'virtual-register :name :closure))
+  (let ((closure-reg (make-instance 'virtual-register :name :closure))
         (count-reg (make-instance 'virtual-register :name :count))
         (required-regs (loop
                           for i from 0
@@ -85,7 +80,6 @@
                       (make-instance 'virtual-register :name :rest)
                       nil)))
     (emit (make-instance 'argument-setup-instruction
-                         :fref fref-reg
                          :closure closure-reg
                          :count count-reg
                          :required required-regs
@@ -99,13 +93,12 @@
                                           :value register)))
                  (emit inst)
                  (setf (gethash variable *variable-registers*) inst)))))
-      (frob-arg (lambda-information-fref-arg lambda) fref-reg)
       (frob-arg (lambda-information-closure-arg lambda) closure-reg)
       (frob-arg (lambda-information-count-arg lambda) count-reg)
       (let ((env-arg (lambda-information-environment-arg lambda)))
         (when env-arg
           (let ((env-reg closure-reg))
-            (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
+            (when (not (getf (lambda-information-plist lambda) 'mezzano.compiler::unwind-protect-cleanup))
               ;; Read environment pointer from closure object.
               (let* ((real-env-reg (make-instance 'virtual-register :name :environment))
                      (index (make-instance 'virtual-register)))
@@ -316,12 +309,15 @@
          (fref-index (make-instance 'virtual-register))
          (fname-reg (make-instance 'virtual-register))
          (is-undefined (make-instance 'virtual-register))
+         (funcallable-instance-tag (make-instance 'virtual-register))
+         (is-funcallable-instance (make-instance 'virtual-register))
          (result (make-instance 'virtual-register))
          (fref-function (make-instance 'virtual-register))
          (fdefinition-function (make-instance 'virtual-register))
          (out (make-instance 'label :name :out :phis (list result)))
          (is-undefined-label (make-instance 'label :name :is-undefined))
-         (is-defined-label (make-instance 'label :name :is-defined)))
+         (is-defined-label (make-instance 'label :name :is-defined))
+         (is-not-funcallable-instance-label (make-instance 'label :name :is-not-funcallable-instance)))
     (emit (make-instance 'constant-instruction
                          :destination fref-reg
                          :value (sys.int::function-reference (ast-name form))))
@@ -334,14 +330,27 @@
                          :arguments (list fref-reg fref-index)))
     (emit (make-instance 'call-instruction
                          :result is-undefined
-                         :function 'sys.int::%undefined-function-p
-                         :arguments (list fref-function)))
+                         :function 'eq
+                         :arguments (list fref-function fref-reg)))
     (emit (make-instance 'branch-instruction
                          :value is-undefined
                          :true-target is-undefined-label
                          :false-target is-defined-label))
+    (emit is-defined-label)
+    ;; Test if this is a funcallable instance (quick test for trace-wrapper).
+    (emit (make-instance 'constant-instruction
+                         :destination funcallable-instance-tag
+                         :value sys.int::+object-tag-funcallable-instance+))
+    (emit (make-instance 'call-instruction
+                         :result is-funcallable-instance
+                         :function 'mezzano.runtime::%%object-of-type-p
+                         :arguments (list fref-function funcallable-instance-tag)))
+    (emit (make-instance 'branch-instruction
+                         :value is-undefined
+                         :true-target is-undefined-label
+                         :false-target is-not-funcallable-instance-label))
     (emit is-undefined-label)
-    ;; Not defined, fall back to FDEFINITION.
+    ;; Not defined or is a funcallable-instance, fall back to FDEFINITION
     (emit (make-instance 'constant-instruction
                          :destination fname-reg
                          :value (ast-name form)))
@@ -352,7 +361,7 @@
     (emit (make-instance 'jump-instruction
                          :target out
                          :values (list fdefinition-function)))
-    (emit is-defined-label)
+    (emit is-not-funcallable-instance-label)
     (emit (make-instance 'jump-instruction
                          :target out
                          :values (list fref-function)))
@@ -523,7 +532,7 @@
             (t
              (ecase result-mode
                (:tail
-                (cond (sys.c::*perform-tce*
+                (cond (mezzano.compiler::*perform-tce*
                        (emit (make-instance 'tail-funcall-instruction
                                             :function fn-tag
                                             :arguments (list value-tag))))
@@ -702,7 +711,7 @@
                                    (return-from cg-funcall nil))
                                  value)))
          (function (first arguments)))
-    (cond ((and sys.c::*perform-tce*
+    (cond ((and mezzano.compiler::*perform-tce*
                 (eql result-mode :tail))
            (emit (make-instance 'tail-funcall-instruction
                                 :function function
@@ -795,7 +804,7 @@
                                 (when (not value)
                                   (return-from cg-call nil))
                                 value))))
-    (cond ((and sys.c::*perform-tce*
+    (cond ((and mezzano.compiler::*perform-tce*
                 (eql result-mode :tail))
            (emit (make-instance 'tail-call-instruction
                                 :function (ast-name form)
@@ -900,7 +909,7 @@
            (cg-funcall form result-mode))
           ((eql (ast-name form) 'values)
            (cg-values form result-mode))
-          ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-simple-vector)
            (assert (eql (length (ast-arguments form)) 1))
            (assert (typep (first (ast-arguments form)) 'ast-quote))
            (check-type (ast-value (first (ast-arguments form))) (integer 0))
@@ -909,13 +918,30 @@
                                   :result result
                                   :size (ast-value (first (ast-arguments form)))))
              result))
-          ((eql (ast-name form) 'sys.c::make-dx-cons)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-typed-vector)
+           (assert (eql (length (ast-arguments form)) 3))
+           ;; Length.
+           (assert (typep (first (ast-arguments form)) 'ast-quote))
+           (check-type (ast-value (first (ast-arguments form))) (integer 0))
+           ;; Array type.
+           (assert (typep (second (ast-arguments form)) 'ast-quote))
+           #++(check-type (ast-value (second (ast-arguments form))) sys.int::specialized-array-definition)
+           ;; Zero-fill-p.
+           (assert (typep (third (ast-arguments form)) 'ast-quote))
+           (let ((result (make-instance 'virtual-register)))
+             (emit (make-instance 'make-dx-typed-vector-instruction
+                                  :result result
+                                  :size (ast-value (first (ast-arguments form)))
+                                  :type (ast-value (second (ast-arguments form)))
+                                  :zero-fill-p (ast-value (third (ast-arguments form)))))
+             result))
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-cons)
            (assert (eql (length (ast-arguments form)) 0))
            (let ((result (make-instance 'virtual-register)))
              (emit (make-instance 'make-dx-cons-instruction
                                   :result result))
              result))
-          ((eql (ast-name form) 'sys.c::make-dx-closure)
+          ((eql (ast-name form) 'mezzano.compiler::make-dx-closure)
            (assert (eql (length (ast-arguments form)) 2))
            (let ((result (make-instance 'virtual-register)))
              (emit (make-instance 'make-dx-closure-instruction

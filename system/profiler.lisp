@@ -121,13 +121,12 @@
     (mezzano.clos::1-effective-discriminator 4 4 t t)
     (mezzano.clos::1-effective-discriminator 4 5 nil t)
     (mezzano.clos::1-effective-discriminator 4 5 t t)
-    sys.int::%progv
-    sys.int::%catch
+    mezzano.internals::%progv
+    mezzano.internals::%catch
     mezzano.supervisor::call-with-snapshot-inhibited
     mezzano.compiler::call-with-metering
     mezzano.supervisor::call-with-mutex
-    sys.int::%%closure-trampoline
-    sys.int::%%funcallable-instance-trampoline
+    mezzano.internals::%%funcallable-instance-trampoline%%
     mezzano.runtime::%allocate-object))
 
 (defclass profile-data ()
@@ -246,7 +245,7 @@ thread states & call-stacks."
                       (let ((fn (consume))
                             (offset (consume)))
                         (unless stop
-                          (when (not (find (sys.int::function-name fn) ignore-functions
+                          (when (not (find (mezzano.internals::function-name fn) ignore-functions
                                            :test #'equal))
                             (vector-push-extend (cons fn offset) call-stack))
                           (when (eql fn prune-function)
@@ -269,9 +268,9 @@ thread states & call-stacks."
   (let ((first nil)
         (tree '()))
     (block nil
-      (sys.int::map-backtrace
+      (mezzano.internals::%map-backtrace
        (lambda (i fp)
-         (let* ((fn (sys.int::function-from-frame (list nil fp nil))))
+         (let* ((fn (mezzano.internals::function-from-frame (list nil fp nil))))
            (when (eql i 3)
              (setf first fn))
            (when (eql fn #'call-with-allocation-profiling)
@@ -302,7 +301,7 @@ thread states & call-stacks."
     (substitute #\_ #\Space
                 (substitute #\L #\<
                             (substitute #\G #\>
-                                        (format nil "~(~S~)" (sys.int::function-name fn)))))))
+                                        (format nil "~(~S~)" (mezzano.internals::function-name fn)))))))
 
 (defun generate-allocation-flame-graph (profile stream threshold)
   (labels ((frob (level stack)

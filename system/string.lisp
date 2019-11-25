@@ -3,7 +3,7 @@
 
 ;;;; String functions.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (deftype string-designator ()
   `(or string symbol character))
@@ -49,7 +49,6 @@ same characters in the corresponding positions; otherwise it returns false."))
 (macrolet ((def (name modifier copy &optional documentation)
              `(defun ,name (string &key (start 0) end)
                 ,@(when documentation (list documentation))
-                (declare (type string string))
                 ,(if copy
                      `(setf string (string string))
                      `(check-type string string))

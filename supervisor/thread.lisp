@@ -414,7 +414,7 @@ Interrupts must be off and the global thread lock must be held."
   value)
 
 (defun make-thread (function &key name initial-bindings (stack-size *default-stack-size*) (priority :normal))
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :high :normal :low))
   (setf name (copy-name-to-wired-area name))
@@ -477,14 +477,22 @@ Interrupts must be off and the global thread lock must be held."
   (let ((return-values 'terminate-thread))
     (unwind-protect
          (catch 'terminate-thread
-           ;; Footholds in a new thread are inhibited until the terminate-thread
-           ;; catch block is established, to guarantee that it's always available.
-           (let ((thread (current-thread)))
-             (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
-             (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
-               (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
-                 (funcall fh))))
-           (setf return-values (multiple-value-list (funcall function))))
+           (unwind-protect
+                ;; Footholds in a new thread are inhibited until the terminate-thread
+                ;; catch block is established, to guarantee that it's always available.
+                (let ((thread (current-thread)))
+                  (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
+                  (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
+                    (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
+                      (funcall fh)))
+                  (setf return-values (multiple-value-list (funcall function))))
+             ;; Re-inhibit footholds when leaving. This way it is never possible
+             ;; to foothold a thread after the TERMINATE-THREAD catch has exited.
+             ;; There's still a race here: If TERMINATE-THREAD is throw to while
+             ;; the unwind protect handler is executing (before inhibit footholds
+             ;; has been incremented), then footholds will still be enabled.
+             ;; The perils of asynchronous interrupts...
+             (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)))
       ;; Cleanup, terminate the thread.
       (thread-final-cleanup return-values))))
 

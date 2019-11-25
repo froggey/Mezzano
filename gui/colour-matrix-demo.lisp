@@ -117,7 +117,7 @@
          (multiple-value-bind (start-x start-y)
              (ignore-errors
                (multiple-value-prog1
-                   (sys.int::stream-cursor-pos *terminal-io*)
+                   (mezzano.internals::stream-cursor-pos *terminal-io*)
                  (print-matrix current-matrix)))
            (flet ((lerp-to (target-matrix &optional (time 2.0))
                     (loop
@@ -128,12 +128,12 @@
                          (setf (comp:postprocess-matrix) (lerp-matrix current-matrix target-matrix lerp-time))
                          (ignore-errors
                            (multiple-value-bind (cur-x cur-y)
-                               (sys.int::stream-cursor-pos *terminal-io*)
-                             (sys.int::stream-clear-between *terminal-io*
-                                                            start-x start-y
-                                                            cur-x cur-y)
-                             (sys.int::stream-move-to *terminal-io*
-                                                      start-x start-y))
+                               (mezzano.internals::stream-cursor-pos *terminal-io*)
+                             (mezzano.internals::stream-clear-between *terminal-io*
+                                                                      start-x start-y
+                                                                      cur-x cur-y)
+                             (mezzano.internals::stream-move-to *terminal-io*
+                                                                start-x start-y))
                            (let ((*standard-output* *terminal-io*))
                              (print-matrix (comp:postprocess-matrix))))
                          (let* ((end-time (/ (get-internal-real-time) internal-time-units-per-second))
@@ -163,11 +163,11 @@
              (lerp-to (make-identity-colour-matrix)))
            (ignore-errors
              (multiple-value-bind (cur-x cur-y)
-                 (sys.int::stream-cursor-pos *terminal-io*)
-               (sys.int::stream-clear-between *terminal-io*
-                                              start-x start-y
-                                              cur-x cur-y)
-               (sys.int::stream-move-to *terminal-io*
-                                        start-x start-y)))))
+                 (mezzano.internals::stream-cursor-pos *terminal-io*)
+               (mezzano.internals::stream-clear-between *terminal-io*
+                                                        start-x start-y
+                                                        cur-x cur-y)
+               (mezzano.internals::stream-move-to *terminal-io*
+                                                  start-x start-y)))))
     (setf (comp:postprocess-matrix) nil))
   (values))

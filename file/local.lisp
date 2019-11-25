@@ -5,9 +5,7 @@
 
 (defpackage :mezzano.file-system.local
   (:export #:add-local-file-host)
-  (:use #:cl #:mezzano.file-system)
-  (:import-from :sys.int
-                #:explode))
+  (:use #:cl #:mezzano.file-system))
 
 (in-package :mezzano.file-system.local)
 
@@ -106,10 +104,10 @@
            (incf start))
           (t (push :relative directory)))
     ;; Last element is the name/type/version.
-    (do* ((x (explode #\> namestring start end) (cdr x)))
+    (do* ((x (mezzano.internals::explode #\> namestring start end) (cdr x)))
          ((null (cdr x))
           (destructuring-bind (&optional name* type* version*)
-              (explode #\. (car x))
+              (mezzano.internals::explode #\. (car x))
             (when (zerop (length name*))
               (setf name* nil))
             (when (zerop (length type*))
@@ -632,7 +630,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
      (when (>= (length container) 2)
        (- (length container) 2)))
     (t
-     (sys.int::bsearch version container :key 'file-container-key))))
+     (mezzano.internals::bsearch version container :key 'file-container-key))))
 
 (defun remove-specific-file (name-table key container version-index)
   (cond ((eql (length container) 1)

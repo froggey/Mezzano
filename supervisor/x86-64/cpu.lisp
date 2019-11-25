@@ -60,6 +60,7 @@
 (sys.int::defglobal sys.int::*bsp-wired-stack*)
 (sys.int::defglobal sys.int::*exception-stack*)
 (sys.int::defglobal sys.int::*irq-stack*)
+(sys.int::defglobal sys.int::*page-fault-stack*)
 (sys.int::defglobal sys.int::*bsp-info-vector*)
 
 (defconstant +cpu-info-self-offset+ 0)
@@ -81,6 +82,11 @@
 
 (defconstant +tss-io-map-base+ 102)
 
+(defconstant +ist-disabled+ 0)
+(defconstant +ist-exception-stack+ 1)
+(defconstant +ist-interrupt-stack+ 2)
+(defconstant +ist-page-fault-stack+ 3)
+
 (defstruct (cpu
              (:area :wired))
   state
@@ -90,7 +96,9 @@
   wired-stack
   exception-stack
   irq-stack
-  lapic-timer-active)
+  page-fault-stack
+  lapic-timer-active
+  page-fault-hook)
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
@@ -111,24 +119,30 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +magic-button-ipi-vector+ #x84
   "Sent to CPUs when the magic debug button is pressed.")
 
-(defun make-idt-entry (&key (offset 0) (segment #x0008)
-                         (present t) (dpl 0) (ist nil)
-                         (interrupt-gate-p t))
-  "Returns the low and high words of the IDT entry."
-  ;; ###: Need to be more careful avoiding bignums.
-  (let ((value 0))
-    ;; Don't do this, can create bignums!
-    ;;(setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
-    (setf value (ash (ldb (byte 16 16) offset) 48)
-          (ldb (byte 1 47) value) (if present 1 0)
-          (ldb (byte 2 45) value) dpl
-          (ldb (byte 4 40) value) (if interrupt-gate-p
-                                      #b1110
-                                      #b1111)
-          (ldb (byte 3 32) value) (or ist 0)
-          (ldb (byte 16 16) value) segment
-          (ldb (byte 16 0) value) (ldb (byte 16 0) offset))
-    (values value (ldb (byte 32 32) offset))))
+(defun set-idt-entry (vector idt-index
+                      &key (offset 0) (segment #x0008)
+                        (present t) (dpl 0) (ist nil)
+                        (interrupt-gate-p t))
+  "Set an IDT entry in the CPU info vector."
+  ;; Be careful and avoid bignums.
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 0))
+        (logior (ldb (byte 16 0) offset)
+                (ash segment 16)))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 1))
+        (logior (or ist 0)
+                (ash (if interrupt-gate-p #b1110 #b1111) 8)
+                (ash dpl 13)
+                (if present (ash 1 15) 0)
+                (ash (ldb (byte 16 16) offset) 16)))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 2))
+        (ldb (byte 32 32) offset))
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 3))
+        0)
+  (values))
 
 (defun lapic-reg (register)
   (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))))
@@ -241,7 +255,7 @@ Protected by the world stop lock."
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
 TLB shootdown must be protected by the VM lock."
-  (ensure (mutex-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
+  (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
@@ -310,6 +324,12 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+(defun local-cpu-page-fault-hook ()
+  (cpu-page-fault-hook (local-cpu-object)))
+
+(defun (setf local-cpu-page-fault-hook) (value)
+  (setf (cpu-page-fault-hook (local-cpu-object)) value))
+
 (sys.int::define-lap-function %lgdt ((length address))
   "Load a new GDT."
   (:gc :no-frame :layout #*0)
@@ -376,17 +396,19 @@ TLB shootdown must be protected by the VM lock."
 (defun populate-idt (vector)
   ;; IDT completely fills the second page (256 * 16)
   (dotimes (i 256)
-    (multiple-value-bind (lo hi)
-        (if (svref sys.int::*interrupt-service-routines* i)
-            (make-idt-entry :offset (isr-thunk-address i)
-                            ;; Take CPU interrupts on the exception stack
-                            ;; and IRQs on the interrupt stack.
-                            :ist (if (< i 32)
-                                     1
-                                     2))
-            (values 0 0))
-      (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2))) lo
-            (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-idt-offset+ (* i 2) 1)) hi))))
+    (cond ((svref sys.int::*interrupt-service-routines* i)
+           (set-idt-entry vector i
+                          :offset (isr-thunk-address i)
+                          ;; Take CPU interrupts on the exception stack
+                          ;; and IRQs on the interrupt stack.
+                          :ist (cond ((eql i 14)
+                                      +ist-page-fault-stack+)
+                                     ((< i 32)
+                                      +ist-exception-stack+)
+                                     (t
+                                      +ist-interrupt-stack+))))
+          (t
+           (set-idt-entry vector i :present nil)))))
 
 (defun populate-gdt (vector tss-base)
   ;; GDT.
@@ -404,7 +426,7 @@ TLB shootdown must be protected by the VM lock."
         ;; TSS high.
         (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 3)) (ldb (byte 32 32) tss-base)))
 
-(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer)
+(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
   ;; TSS, Clear memory first.
   (dotimes (i +cpu-info-tss-size+)
     (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
@@ -412,16 +434,18 @@ TLB shootdown must be protected by the VM lock."
   (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
   ;; IST2.
   (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
+  ;; IST3.
+  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-3+) 0) page-fault-stack-pointer)
   ;; I/O Map Base Address, follows TSS body.
   (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+))
 
-(defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer idle-thread)
+(defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer page-fault-stack-pointer idle-thread)
   (let* ((addr (- (sys.int::lisp-object-address vector)
                   sys.int::+tag-object+))
          (tss-base (+ addr 8 (* +cpu-info-tss-offset+ 8))))
     (populate-idt vector)
     (populate-gdt vector tss-base)
-    (populate-tss tss-base exception-stack-pointer irq-stack-pointer)
+    (populate-tss tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
     ;; Other stuff.
     (setf (sys.int::%object-ref-t vector +cpu-info-self-offset+) vector)
     (setf (sys.int::%object-ref-signed-byte-64 vector +cpu-info-wired-stack-offset+)
@@ -438,6 +462,7 @@ TLB shootdown must be protected by the VM lock."
                             (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
                             (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))
                             (+ (car sys.int::*irq-stack*) (cdr sys.int::*irq-stack*))
+                            (+ (car sys.int::*page-fault-stack*) (cdr sys.int::*page-fault-stack*))
                             sys.int::*bsp-idle-thread*)
   ;; Load various bits.
   (setf (sys.int::msr +msr-ia32-fs-base+)
@@ -592,7 +617,8 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:xor32 :ebp :ebp)
   ;; No arguments
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:jmp (:object :rax #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:lea64 :rax (:object :rax #.sys.int::+fref-code+))
+  (sys.lap-x86:jmp :rax)
   (:align 16)
   gdtr
   (:d16/le (- temporary-gdt-end temporary-gdt 1)) ; Length
@@ -874,6 +900,7 @@ This is a one-shot timer and must be reset after firing."
                               :idle-thread sys.int::*bsp-idle-thread*
                               :state :online))
     (setf (sys.int::%object-ref-t sys.int::*bsp-info-vector* +cpu-info-cpu-object-offset+) *bsp-cpu*))
+  (setf (cpu-page-fault-hook *bsp-cpu*) nil)
   (setf (cpu-apic-id *bsp-cpu*) (ldb (byte 8 24) (lapic-reg +lapic-reg-id+)))
   (debug-print-line "BSP has LAPIC ID " (cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
@@ -896,13 +923,42 @@ This is a one-shot timer and must be reset after firing."
     (%ltr 16)
     (%load-cs 8)))
 
+(defun page-fault-idt-entry-flags (cpu-vec)
+  (sys.int::%object-ref-unsigned-byte-32
+   cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1)))
+
+(defun (setf page-fault-idt-entry-flags) (value cpu-vec)
+  (setf (sys.int::%object-ref-unsigned-byte-32
+         cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1))
+        value))
+
 (defun disable-page-fault-ist ()
+  (let* ((cpu-vec (local-cpu-info))
+         (current (page-fault-idt-entry-flags cpu-vec)))
+    (setf (page-fault-idt-entry-flags cpu-vec)
+          (dpb +ist-disabled+ (byte 3 0) current))
+    (not (eql (ldb (byte 3 0) current) +ist-disabled+))))
+
+(defun enable-page-fault-ist ()
+  (let* ((cpu-vec (local-cpu-info))
+         (current (page-fault-idt-entry-flags cpu-vec)))
+    (ensure (eql (ldb (byte 3 0) current) +ist-disabled+) "page fault ist not disabled")
+    (setf (page-fault-idt-entry-flags cpu-vec)
+          (dpb +ist-page-fault-stack+ (byte 3 0) current))))
+
+(defun restore-page-fault-ist (ist-state)
+  (when ist-state
+    (enable-page-fault-ist)))
+
+(defun arch-pre-panic ()
+  ;; Disable all exception IST entries to make a token effort
+  ;; at not clobbering any exception state if nested panics occur...
   (let ((cpu-vec (local-cpu-info)))
-    (multiple-value-bind (lo hi)
-        (make-idt-entry :offset (isr-thunk-address 14)
-                        :ist 0)
-      (setf (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2))) lo
-            (sys.int::%object-ref-unsigned-byte-64 cpu-vec (+ +cpu-info-idt-offset+ (* 14 2) 1)) hi))))
+    (dotimes (i 32)
+      (when (svref sys.int::*interrupt-service-routines* i)
+        (set-idt-entry cpu-vec i
+                       :offset (isr-thunk-address i)
+                       :ist +ist-disabled+)))))
 
 (defun register-secondary-cpu (apic-id)
   (let* ((info (mezzano.runtime::%allocate-object
@@ -913,17 +969,20 @@ This is a one-shot timer and must be reset after firing."
          (wired-stack (%allocate-stack (* 128 1024) t))
          (exception-stack (%allocate-stack (* 128 1024) t))
          (irq-stack (%allocate-stack (* 128 1024) t))
+         (page-fault-stack (%allocate-stack (* 128 1024) t))
          (cpu (make-cpu :state :offline
                         :info-vector info
                         :apic-id apic-id
                         :idle-thread idle-thread
                         :wired-stack wired-stack
                         :exception-stack exception-stack
-                        :irq-stack irq-stack)))
+                        :irq-stack irq-stack
+                        :page-fault-stack page-fault-stack)))
     (populate-cpu-info-vector info
                               (+ (stack-base wired-stack) (stack-size wired-stack))
                               (+ (stack-base exception-stack) (stack-size exception-stack))
                               (+ (stack-base irq-stack) (stack-size irq-stack))
+                              (+ (stack-base page-fault-stack) (stack-size page-fault-stack))
                               idle-thread)
     (setf (sys.int::%object-ref-t info +cpu-info-cpu-object-offset+) cpu)
     (debug-print-line "Registered new CPU " cpu " " info " " idle-thread " with APIC ID " apic-id)

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defglobal *rtc-is-utc* t "True if the RTC holds UTC, not local time.")
 (defglobal sys.int::*time-zone* 0 "CL time zone.")
@@ -147,12 +147,11 @@
 (defun dump-active-timers ()
   (debug-print-line "Active timers: (current time is " *run-time* ")")
   (do-timer-list (timer *active-timers*)
-    (block nil
-      (with-page-fault-hook
-          (()
-           (debug-print-line "<truncated>")
-           (return))
-        (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer))))))
+    (with-page-fault-hook
+        (()
+         (debug-print-line "<truncated>")
+         (abandon-page-fault))
+      (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer)))))
 
 (defun make-timer (&key name relative deadline)
   (when (and relative deadline)

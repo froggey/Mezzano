@@ -52,12 +52,13 @@
    (dhcp-server :reader dhcp-server :initarg :dhcp-server)
    (mezzano-server :reader mezzano-server :initarg :mezzano-server)
    (lease-timeout :accessor lease-timeout :initarg :lease-timeout)
-   (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)))
+   (lease-timestamp :accessor lease-timestamp :initarg :lease-timestamp)
+   (xid :reader xid :initarg :xid)))
 
 (defun convert-to-ipv4-address (vector)
   (mezzano.network.ip:make-ipv4-address (ub32ref/be vector 0)))
 
-(defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0))
+(defun build-dhcp-packet (&key xid mac-address options (siaddr 0) (ciaddr 0) (broadcast t))
   (assert (typep mac-address '(simple-array (unsigned-byte 8) (6))))
   (let ((packet (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0)))
     (setf (aref packet 0) #x01 ;OP
@@ -66,7 +67,7 @@
           (aref packet 3) #x00 ;HOPS
           (ub32ref/be packet 4) xid
 	  (ub16ref/be packet 8) #x0000 ;SECS
-	  (ub16ref/be packet 10) #x8000 ;FLAGS
+	  (ub16ref/be packet 10) (if broadcast #x8000 0) ;FLAGS
           (ub32ref/be packet 12) ciaddr
           (ub32ref/be packet 16) #x00000000 ;YIADDR
           (ub32ref/be packet 20) siaddr
@@ -126,7 +127,7 @@
          (packet (list header sequence)))
     (setf (ub16ref/be header 0) +dhcp-client-port+
           (ub16ref/be header 2) +dhcp-server-port+
-          (ub16ref/be header 4) (sys.net:packet-length packet)
+          (ub16ref/be header 4) (net:packet-length packet)
           (ub16ref/be header 6) 0)
     (mezzano.network.ethernet:transmit-ethernet-packet
      interface mezzano.network.ethernet:*ethernet-broadcast* mezzano.network.ethernet:+ethertype-ipv4+
@@ -162,7 +163,7 @@
 	       xid)
     (unwind-protect
          (loop
-            (let ((offer (sys.net:receive connection :timeout 4)))
+            (let ((offer (net:receive connection :timeout 4)))
               (when (not offer)
                 ;; Timed out
                 (return-from acquire-lease nil))
@@ -182,7 +183,7 @@
                                    (make-dhcp-option +opt-dhcp-server+ dhcpserver))
                              xid)
                   (loop
-                     (let ((ack (sys.net:receive connection :timeout 4)))
+                     (let ((ack (net:receive connection :timeout 4)))
                        (when (not ack)
                          ;; Timed out
                          (return-from acquire-lease nil))
@@ -197,31 +198,32 @@
                                             :ntp-servers (get-option options +opt-ntp-servers+)
                                             :mezzano-server (get-option options +opt-custom-mezzano-server+)
                                             :lease-timestamp (get-universal-time)
-                                            :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)))))))))))
-      (sys.net:disconnect connection))))
+                                            :lease-timeout (ub32ref/be (get-option options +opt-lease-time+) 0)
+                                            :xid xid))))))))))
+      (net:disconnect connection))))
 
 (defmethod renew-lease ((lease dhcp-lease))
-  (let* ((xid (make-xid))
-	 (options (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)
-			(make-dhcp-option +opt-dhcp-server+ (dhcp-server lease))))
+  (let* ((xid (xid lease))
+	 (options (list (make-dhcp-option +opt-dhcp-message-type+ +dhcp-request+)))
 	 (connection (make-instance 'mezzano.network.udp::udp4-connection
 				    :remote-address (mezzano.network.ip:make-ipv4-address (ub32ref/be (dhcp-server lease) 0))
 				    :remote-port +dhcp-server-port+
 				    :local-address (mezzano.network.ip:make-ipv4-address (ub32ref/be (ip-address lease) 0))
 				    :local-port +dhcp-client-port+))
 	 (packet (build-dhcp-packet :xid xid :mac-address (mezzano.network.ethernet:ethernet-mac (interface lease))
-				    :options options :ciaddr (ub32ref/be (ip-address lease) 0))))
+                                    :options options :ciaddr (ub32ref/be (ip-address lease) 0)
+                                    :broadcast nil)))
     (unwind-protect
 	 (progn
-	   (sys.net:send packet connection)
-	   (let ((reply (sys.net:receive connection :timeout 4)))
+	   (net:send packet connection)
+	   (let ((reply (net:receive connection :timeout 4)))
 	     (if reply
 		 (let ((reply-options (decode-all-options reply)))
 		   (setf (lease-timestamp lease) (get-universal-time)
 			 (lease-timeout lease) (get-option reply-options +opt-lease-time+))
 		   lease)
 		 nil)))
-      (sys.net:disconnect connection))))
+      (net:disconnect connection))))
 
 (defclass interaction ()
   ((%thread :initarg :thread :reader thread)
@@ -286,7 +288,7 @@
 	    (mezzano.sync.dispatch:dispatch-sync
              (lambda ()
                (deconfigure-interface-1 interface))
-             sys.net::*network-serial-queue*)
+             net::*network-serial-queue*)
 	    (loop for pause = 2 then (* 2 pause)
 	       until lease
 	       if (<= 16 pause) do
@@ -302,19 +304,19 @@
 	    (mezzano.sync.dispatch:dispatch-sync
              (lambda ()
                (configure-interface-1 interface lease))
-             sys.net::*network-serial-queue*)
+             net::*network-serial-queue*)
 	    (loop while lease do
 		 (sleep (ceiling (lease-timeout lease) 2))
 		 (setf lease (renew-lease lease)))))
    :name (format nil "DHCP interaction thread on interface ~A" interface)))
 
-(defmethod sys.net::configure-interface (interface (configuration-type (eql :dhcp)) &key)
+(defmethod net::configure-interface (interface (configuration-type (eql :dhcp)) &key)
   (setf (gethash interface *dhcp-interactions*)
         (make-instance 'interaction
                        :lease nil
                        :thread (start-dhcp-interaction interface))))
 
-(defmethod sys.net::deconfigure-interface (interface (configuration-type (eql :dhcp)) &key)
+(defmethod net::deconfigure-interface (interface (configuration-type (eql :dhcp)) &key)
   (deconfigure-interface-1 interface)
   (let ((interaction (gethash interface *dhcp-interactions*)))
     (mezzano.supervisor:terminate-thread (thread interaction))

@@ -20,7 +20,7 @@
                   (format *debug-io* "current: ~S~%" active-debug-values)
                   (print-function backend-function)
                   (let ((*print-pretty* t))
-                    (format *debug-io* "ast: ~S~%" (sys.c::unparse-compiler-form (ast backend-function))))
+                    (format *debug-io* "ast: ~S~%" (mezzano.compiler::unparse-compiler-form (ast backend-function))))
                   (assert (equal (gethash bb result) active-debug-values))))
                (t
                 (do ((inst bb (next-instruction backend-function inst)))

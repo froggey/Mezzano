@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; AST objects.
 
@@ -35,7 +35,6 @@
    (%allow-other-keys :initarg :allow-other-keys :accessor lambda-information-allow-other-keys)
    (%environment-arg :initarg :environment-arg :accessor lambda-information-environment-arg)
    (%environment-layout :initarg :environment-layout :accessor lambda-information-environment-layout)
-   (%fref-arg :initarg :fref-arg :accessor lambda-information-fref-arg)
    (%closure-arg :initarg :closure-arg :accessor lambda-information-closure-arg)
    (%count-arg :initarg :count-arg :accessor lambda-information-count-arg)
    (%plist :initarg :plist :accessor lambda-information-plist))
@@ -51,7 +50,6 @@
                      :allow-other-keys '()
                      :environment-arg nil
                      :environment-layout nil
-                     :fref-arg nil
                      :closure-arg nil
                      :count-arg nil
                      :plist '()))
@@ -456,9 +454,6 @@
     (when (lambda-information-environment-arg form)
       (setf (lambda-information-environment-arg info)
             (copy-variable (lambda-information-environment-arg form))))
-    (when (lambda-information-fref-arg form)
-      (setf (lambda-information-fref-arg info)
-            (copy-variable (lambda-information-fref-arg form))))
     (when (lambda-information-closure-arg form)
       (setf (lambda-information-closure-arg info)
             (copy-variable (lambda-information-closure-arg form))))
@@ -591,8 +586,6 @@
         (reset-var (third arg))))
     (when (lambda-information-environment-arg form)
       (reset-var (lambda-information-environment-arg form)))
-    (when (lambda-information-fref-arg form)
-      (reset-var (lambda-information-fref-arg form)))
     (when (lambda-information-closure-arg form)
       (reset-var (lambda-information-closure-arg form)))
     (when (lambda-information-count-arg form)
@@ -698,8 +691,6 @@
                                                 (unparse-compiler-form suppliedp))))
                            ,@(when (lambda-information-allow-other-keys form)
                                    '(&allow-other-keys))))
-                       (when (lambda-information-fref-arg form)
-                         `(sys.int::&fref ,(unparse-compiler-form (lambda-information-fref-arg form))))
                        (when (lambda-information-closure-arg form)
                          `(sys.int::&closure ,(unparse-compiler-form (lambda-information-closure-arg form))))
                        (when (lambda-information-count-arg form)

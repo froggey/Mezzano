@@ -5,72 +5,93 @@
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
   (:export)
-  (:import-from #:sys.int
-                #:explode))
+  (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.ext4-file-system)
 
 ;; Compatible feature set flags.
-(defconstant +compat-dir-prealloc+ #x1)
-(defconstant +compat-imagic-inodes+ #x2)
-(defconstant +compat-has-journal+ #x4)
-(defconstant +compat-ext-attr+ #x8)
-(defconstant +compat-resize-inode+ #x10)
-(defconstant +compat-dir-index+ #x20)
-(defconstant +compat-lazy-bg+ #x40)
-(defconstant +compat-exclude-inode+ #x80)
-(defconstant +compat-exclude-bitmap+ #x100)
-(defconstant +compat-sparse-super2+ #x200)
+(defconstant +compat-dir-prealloc+ 0)
+(defconstant +compat-imagic-inodes+ 1)
+(defconstant +compat-has-journal+ 2)
+(defconstant +compat-ext-attr+ 3)
+(defconstant +compat-resize-inode+ 4)
+(defconstant +compat-dir-index+ 5)
+(defconstant +compat-lazy-bg+ 6)
+(defconstant +compat-exclude-inode+ 7)
+(defconstant +compat-exclude-bitmap+ 8)
+(defconstant +compat-sparse-super2+ 9)
 
 ;; Incompatible feature set.
-(defconstant +incompat-compression+ #x1)
-(defconstant +incompat-filetype+ #x2)
-(defconstant +incompat-recover+ #x4)
-(defconstant +incompat-journal-dev+ #x8)
-(defconstant +incompat-meta-bg+ #x10)
-(defconstant +incompat-extents+ #x40)
-(defconstant +incompat-64bit+ #x80)
-(defconstant +incompat-mmp+ #x100)
-(defconstant +incompat-flex-bg+ #x200)
-(defconstant +incompat-ea-inode+ #x400)
-(defconstant +incompat-dirdata+ #x1000)
-(defconstant +incompat-csum-seed+ #x2000)
-(defconstant +incompat-largedir+ #x4000)
-(defconstant +incompat-inline-data+ #x8000)
-(defconstant +incompat-encrypt+ #x10000)
+(defconstant +incompat-compression+ 0)
+(defconstant +incompat-filetype+ 1)
+(defconstant +incompat-recover+ 2)
+(defconstant +incompat-journal-dev+ 3)
+(defconstant +incompat-meta-bg+ 4)
+(defconstant +incompat-extents+ 6)
+(defconstant +incompat-64bit+ 7)
+(defconstant +incompat-mmp+ 8)
+(defconstant +incompat-flex-bg+ 9)
+(defconstant +incompat-ea-inode+ 10)
+(defconstant +incompat-dirdata+ 12)
+(defconstant +incompat-csum-seed+ 13)
+(defconstant +incompat-largedir+ 14)
+(defconstant +incompat-inline-data+ 15)
+(defconstant +incompat-encrypt+ 16)
 
 ;; Readonly-compatible feature set.
-(defconstant +ro-compat-sparse-super+ #x1)
-(defconstant +ro-compat-large-file+ #x2)
-(defconstant +ro-compat-btree-dir+ #x4)
-(defconstant +ro-compat-huge-file+ #x8)
-(defconstant +ro-compat-gdt-csum+ #x10)
-(defconstant +ro-compat-dir-nlink+ #x20)
-(defconstant +ro-compat-extra-isize+ #x40)
-(defconstant +ro-compat-has-snapshot+ #x80)
-(defconstant +ro-compat-quota+ #x100)
-(defconstant +ro-compat-bigalloc+ #x200)
-(defconstant +ro-compat-metadata-csum+ #x400)
-(defconstant +ro-compat-replica+ #x800)
-(defconstant +ro-compat-readonly+ #x1000)
-(defconstant +ro-compat-project+ #x2000)
+(defconstant +ro-compat-sparse-super+ 0)
+(defconstant +ro-compat-large-file+ 1)
+(defconstant +ro-compat-btree-dir+ 2)
+(defconstant +ro-compat-huge-file+ 3)
+(defconstant +ro-compat-gdt-csum+ 4)
+(defconstant +ro-compat-dir-nlink+ 5)
+(defconstant +ro-compat-extra-isize+ 6)
+(defconstant +ro-compat-has-snapshot+ 7)
+(defconstant +ro-compat-quota+ 8)
+(defconstant +ro-compat-bigalloc+ 9)
+(defconstant +ro-compat-metadata-csum+ 10)
+(defconstant +ro-compat-replica+ 11)
+(defconstant +ro-compat-readonly+ 12)
+(defconstant +ro-compat-project+ 13)
+
+;; Inode modes
+(defconstant +inode-others-execute+ 0 "Others members may execute")
+(defconstant +inode-others-write+ 1 "Others members may write")
+(defconstant +inode-others-read+ 2 "Others members may read")
+(defconstant +inode-group-execute+ 3 "Group members may execute")
+(defconstant +inode-group-write+ 4 "Group members may write")
+(defconstant +inode-group-execute+ 5 "Group members may read")
+(defconstant +inode-owner-execute+ 6 "Owner may execute")
+(defconstant +inode-owner-write+ 7 "Owner may write")
+(defconstant +inode-owner-read+ 8 "Owner may read")
+(defconstant +inode-sticky-bit+ 9 "Sticky bit")
+(defconstant +inode-gid+ 10 "Group ID")
+(defconstant +inode-uid+ 11 "User ID")
+;; Inode file types, they are mutually-exclusive
+(defconstant +inode-fifo+ #x1)
+(defconstant +inode-character-device+ #x2)
+(defconstant +inode-directory+ #x4)
+(defconstant +inode-block-device+ #x6)
+(defconstant +inode-regular-file+ #x8)
+(defconstant +inode-symbolic-link+ #xA)
+(defconstant +inode-socket+ #xC)
 
 ;; Inode flags
-(defconstant +sync-flag+ #x8) ; All writes to the file must be synchronous
-(defconstant +immutable-flag+ #x10) ; File is immutable
-(defconstant +append-flag+ #x20) ; File can only be appended
-(defconstant +noatime-flag+ #x80) ; Do not update access time
-(defconstant +encrypt-flag+ #x800) ; Encrypted inode
-(defconstant +hashed-indexes-flag+ #x1000) ; Directory has hashed indexes
-(defconstant +imagic-flag+ #x2000) ; AFS magic directory
-(defconstant +journal-data-flag+ #x4000) ; File data must always be written through the journal
-(defconstant +notail-flag+ #x8000) ; File tail should not be merged (not used by ext4)
-(defconstant +dirsync-flag+ #x10000) ; All directory entry data should be written synchronously
-(defconstant +topdir-flag+ #x20000) ; Top of directory hierarchy
-(defconstant +huge-file-flag+ #x40000) ; This is a huge file
-(defconstant +extents-flag+ #x80000) ; Inode uses extents
-(defconstant +ea-inode-flag+ #x200000) ; Inode stores a large extended attribute value in its data blocks
-(defconstant +inline-data-flag+ #x10000000) ; Inode has inline data
+(defconstant +sync-flag+ 3 "All writes to the file must be synchronous")
+(defconstant +immutable-flag+ 4 "File is immutable")
+(defconstant +append-flag+ 5 "File can only be appended")
+(defconstant +noatime-flag+ 7 "Do not update access time")
+(defconstant +encrypt-flag+ 11 "Encrypted inode")
+(defconstant +hashed-indexes-flag+ 12 "Directory has hashed indexes")
+(defconstant +imagic-flag+ 13 "AFS magic directory")
+(defconstant +journal-data-flag+ 14 "File data must always be written through the journal")
+(defconstant +notail-flag+ 15 "File tail should not be merged (not used by ext4)")
+(defconstant +dirsync-flag+ 16 "All directory entry data should be written synchronously")
+(defconstant +topdir-flag+ 17 "Top of directory hierarchy")
+(defconstant +huge-file-flag+ 18 "This is a huge file")
+(defconstant +extents-flag+ 19 "Inode uses extents")
+(defconstant +ea-inode-flag+ 21 "Inode stores a large extended attribute value in its data blocks")
+(defconstant +inline-data-flag+ 28 "Inode has inline data")
 
 ;; Directory file types
 (defconstant +unknown-type+ #x0)
@@ -177,24 +198,23 @@
     (error "Bad magic : #x~x.
   Valid magic value is #xEF53." magic)))
 
-(let* ((not-implemented (list +incompat-compression+
-                              +incompat-journal-dev+
-                              +incompat-meta-bg+
-                              +incompat-mmp+
-                              +incompat-ea-inode+
-                              +incompat-dirdata+
-                              +incompat-csum-seed+
-                              +incompat-largedir+
-                              +incompat-encrypt+))
-       (sum (reduce #'logior not-implemented)))
+(let ((implemented (list +incompat-filetype+
+                         +incompat-extents+
+                         +incompat-64bit+
+                         +incompat-flex-bg+
+                         +incompat-inline-data+)))
   (defun check-feature-incompat (feature-incompat)
-    (when (= +incompat-recover+ (logand +incompat-recover+ feature-incompat))
+    (when (logbitp +incompat-recover+ feature-incompat)
       (error "Filesystem needs recovery"))
-    (unless (= +incompat-filetype+ (logand (+ +incompat-filetype+ sum) feature-incompat))
-      (error "Required features not implemented : ~{#x~x ~}"
-             (loop :for feature :in not-implemented
-                   :unless (zerop (logand feature feature-incompat))
-                   :collect (logand feature feature-incompat))))))
+    (unless (logbitp +incompat-filetype+ feature-incompat)
+      (error "+incompat-filetype+ is required"))
+    (iter (with result := feature-incompat)
+          (for feature :in implemented)
+          (when (logbitp feature feature-incompat)
+            (decf result (ash 1 feature)))
+          (finally
+           (unless (zerop result)
+             (error "Required incompatible features not implemented : ~b" result))))))
 
 (defun read-superblock (disk)
   (let* ((superblock (block-device-read-sector disk 2 2))
@@ -366,13 +386,7 @@
   (reserved nil))
 
 (defun read-block-group-descriptor (superblock block offset)
-  (if (zerop (logand +incompat-64bit+ (superblock-feature-incompat superblock)))
-      (make-block-group-descriptor :block-bitmap (sys.int::ub32ref/le block (+ 0 offset))
-                                   :inode-bitmap (sys.int::ub32ref/le block (+ 4 offset))
-                                   :inode-table (sys.int::ub32ref/le block (+ 8 offset))
-                                   :free-blocks-count (sys.int::ub16ref/le block (+ 12 offset))
-                                   :free-inodes-count (sys.int::ub16ref/le block (+ 14 offset))
-                                   :used-dirs-count (sys.int::ub16ref/le block (+ 16 offset)))
+  (if (logbitp +incompat-64bit+ (superblock-feature-incompat superblock))
       (make-block-group-descriptor :block-bitmap (logior (ash (sys.int::ub32ref/le block (+ 32 offset)) 32)
                                                          (sys.int::ub32ref/le block (+ 0 offset)))
                                    :inode-bitmap (logior (ash (sys.int::ub32ref/le block (+ 36 offset)) 32)
@@ -395,13 +409,18 @@
                                    :itable-unused (logior (ash (sys.int::ub16ref/le block (+ 50 offset)) 16)
                                                           (sys.int::ub16ref/le block (+ 28 offset)))
                                    :checksum (sys.int::ub16ref/le block (+ 30 offset))
-                                   :reserved (sys.int::ub32ref/le block (+ 60 offset)))))
+                                   :reserved (sys.int::ub32ref/le block (+ 60 offset)))
+      (make-block-group-descriptor :block-bitmap (sys.int::ub32ref/le block (+ 0 offset))
+                                   :inode-bitmap (sys.int::ub32ref/le block (+ 4 offset))
+                                   :inode-table (sys.int::ub32ref/le block (+ 8 offset))
+                                   :free-blocks-count (sys.int::ub16ref/le block (+ 12 offset))
+                                   :free-inodes-count (sys.int::ub16ref/le block (+ 14 offset))
+                                   :used-dirs-count (sys.int::ub16ref/le block (+ 16 offset)))))
 
 (defun read-block-group-descriptor-table (disk superblock)
   (make-array (list (n-block-groups superblock)) :initial-contents
-              (iter (with block-group-size := (if (zerop (logand +incompat-64bit+
-                                                                 (superblock-feature-incompat superblock)))
-                                                  32 (superblock-desc-size superblock)))
+              (iter (with block-group-size := (if (logbitp +incompat-64bit+ (superblock-feature-incompat superblock))
+                                                  (superblock-desc-size superblock) 32))
                     (with n-octets := (* block-group-size (n-block-groups superblock)))
                     (with block := (read-block disk superblock 1
                                                (/ n-octets
@@ -411,13 +430,13 @@
                     (collecting (read-block-group-descriptor superblock block offset)))))
 
 (defun read-block-bitmap (disk superblock bgds)
-  (let ((n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
-                      1 (expt 2 (superblock-log-groups-per-flex superblock)))))
+  (let ((n-blocks (if (logbitp +incompat-flex-bg+ (superblock-feature-incompat superblock))
+                      (expt 2 (superblock-log-groups-per-flex superblock)) 1)))
     (read-block disk superblock (block-group-descriptor-block-bitmap bgds) n-blocks)))
 
 (defun read-inode-bitmap (disk superblock bgds)
-  (let ((n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
-                      1 (expt 2 (superblock-log-groups-per-flex superblock)))))
+  (let ((n-blocks (if (logbitp +incompat-flex-bg+ (superblock-feature-incompat superblock))
+                      (expt 2 (superblock-log-groups-per-flex superblock)) 1)))
     (read-block disk superblock (block-group-descriptor-inode-bitmap bgds) n-blocks)))
 
 (defstruct inode
@@ -442,8 +461,8 @@
 
 (defun read-inode (disk superblock bgdt inode-n)
   (let* ((bgds (aref bgdt (block-group inode-n superblock)))
-         (n-blocks (if (zerop (logand +incompat-flex-bg+ (superblock-feature-incompat superblock)))
-                       1 (expt 2 (superblock-log-groups-per-flex superblock))))
+         (n-blocks (if (logbitp +incompat-flex-bg+ (superblock-feature-incompat superblock))
+                       (expt 2 (superblock-log-groups-per-flex superblock)) 1))
          (block (read-block disk
                             superblock
                             (+ (block-group-descriptor-inode-table bgds)
@@ -511,6 +530,7 @@
 (defun read-extent (inode-block offset)
   (let ((length (sys.int::ub16ref/le inode-block (+ 4 offset))))
     (when (> length 32768)
+      ;; TODO: support uninitialized extent
       (error "Uninitialized extent not suported"))
     (make-extent :n-block (sys.int::ub16ref/le inode-block offset)
                  :length length
@@ -530,8 +550,9 @@
   (let* ((inode (read-inode disk superblock bgdt inode-n))
          (inode-block (inode-block inode))
          (inode-flags (inode-flags inode)))
-    (cond ((= +extents-flag+ (logand +extents-flag+ inode-flags))
-           ;; TODO Add support for extent-header-depth not equal to 0
+    (cond ((and (logbitp +incompat-extents+ (superblock-feature-incompat superblock))
+                (logbitp +extents-flag+ inode-flags))
+           ;; TODO: Add support for extent-header-depth not equal to 0
            (let ((extent-header (read-extent-header inode-block)))
              (unless (zerop (extent-header-depth extent-header))
                (error "Not 0 depth extents nodes not implemented"))
@@ -541,7 +562,7 @@
                    (iter (for block-n :from (extent-start-block extent))
                          (repeat (extent-length extent))
                          (funcall fn (read-block disk superblock block-n))))))
-          ((= +inline-data-flag+ (logand +inline-data-flag+ inode-flags))
+          ((logbitp +inline-data-flag+ inode-flags)
            (funcall fn inode-block))
           (t
            (iter (for offset :from 0 :below 48 :by 4)
@@ -605,7 +626,7 @@
            (incf start))
           (t (push :relative directory)))
     ;; Last element is the name.
-    (do* ((x (explode #\> namestring start end) (cdr x)))
+    (do* ((x (sys.int::explode #\> namestring start end) (cdr x)))
          ((null (cdr x))
           (let* ((name-element (car x))
                  (end (length name-element)))

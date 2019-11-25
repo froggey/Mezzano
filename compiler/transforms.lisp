@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun apply-transforms (lambda target-architecture)
   (apply-transforms-1 lambda target-architecture))
@@ -152,7 +152,8 @@
             (mapcar #'list (transform-lambda-list object) (transform-argument-types object))
             (transform-result-type object))))
 
-(defvar *transforms* (make-hash-table :test 'equal))
+(defvar *transforms* (make-hash-table :test 'equal :synchronized nil :enforce-gc-invariant-keys t))
+(defvar *transforms-lock* (mezzano.supervisor:make-rw-lock '*transforms*))
 
 (defmacro define-transform (function lambda-list options &body body)
   (let* ((lambda-parameters (loop
@@ -197,7 +198,13 @@
                                                        (:architecture `',rest)))))))
 
 (defun register-transform (transform)
-  (push transform (gethash (transform-function transform) *transforms*)))
+  (mezzano.supervisor:with-rw-lock-write (*transforms-lock*)
+    (push transform (gethash (transform-function transform) *transforms*))))
+
+(defun get-transforms (function-name)
+  "Return the list of transforms associated with FUNCTION-NAME."
+  (mezzano.supervisor:with-rw-lock-read (*transforms-lock*)
+    (gethash function-name *transforms*)))
 
 (defun match-optimize-settings (call optimize-qualities)
   (dolist (setting optimize-qualities
@@ -243,7 +250,7 @@
   (let ((name (ast-name call)))
     (when (or (eql name 'sys.int::binary-logand)
               (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline)))
-      (dolist (transform (gethash name *transforms*) nil)
+      (dolist (transform (get-transforms name) nil)
         (when (match-one-transform transform call result-type target-architecture)
           (return transform))))))
 

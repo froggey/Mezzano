@@ -209,18 +209,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
    (%rto :accessor tcp-connection-rto :initarg :rto)
    (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
-   (%lock :reader tcp-connection-lock
-          :initform (mezzano.supervisor:make-mutex "TCP connection lock"))
-   (%cvar :reader tcp-connection-cvar
-          :initform (mezzano.supervisor:make-condition-variable "TCP connection cvar"))
-   (%receive-event :reader tcp-connection-receive-event
-                   :initform (mezzano.supervisor:make-event :name "TCP connection data available"))
+   (%lock :reader tcp-connection-lock)
+   (%cvar :reader tcp-connection-cvar)
+   (%receive-event :reader tcp-connection-receive-event)
    (%pending-error :accessor tcp-connection-pending-error :initform nil)
-   (%retransmit-timer :reader tcp-connection-retransmit-timer
-                      :initform (mezzano.supervisor:make-timer :name "TCP connection retransmit"))
+   (%retransmit-timer :reader tcp-connection-retransmit-timer)
    (%retransmit-source :reader tcp-connection-retransmit-source)
-   (%timeout-timer :reader tcp-connection-timeout-timer
-                   :initform (mezzano.supervisor:make-timer :name "TCP connection timeout"))
+   (%timeout-timer :reader tcp-connection-timeout-timer)
    (%timeout-source :reader tcp-connection-timeout-source)
    (%timeout :initarg :timeout :reader tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
@@ -303,16 +298,21 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
        (close-connection connection)))))
 
 (defmethod initialize-instance :after ((instance tcp-connection) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)
+        (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable instance)
+        (slot-value instance '%receive-event) (mezzano.supervisor:make-event :name `(:data-available ,instance))
+        (slot-value instance '%retransmit-timer) (mezzano.supervisor:make-timer :name `(:tcp-retransmit ,instance))
+        (slot-value instance '%timeout-timer) (mezzano.supervisor:make-timer :name `(:tcp-timeout ,instance)))
   (setf (slot-value instance '%retransmit-source)
         (mezzano.sync.dispatch:make-source (tcp-connection-retransmit-timer instance)
                                            (lambda ()
                                              (retransmit-timer-handler instance))
-                                           :target sys.net::*network-serial-queue*))
+                                           :target net::*network-serial-queue*))
   (setf (slot-value instance '%timeout-source)
         (mezzano.sync.dispatch:make-source (tcp-connection-timeout-timer instance)
                                            (lambda ()
                                              (timeout-timer-handler instance))
-                                           :target sys.net::*network-serial-queue*)))
+                                           :target net::*network-serial-queue*)))
 
 (defmethod print-object ((instance tcp-connection) stream)
   (print-unreadable-object (instance stream :type t :identity t)
@@ -554,8 +554,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (when (and (not (eql (tcp-connection-state connection) :established))
                  (logtest flags +tcp4-flag-rst+))
         ;; FIXME: This code isn't correct, it needs to check the sequence numbers
-        ;; before resetting the connection. This is currently only done correctly
-        ;; in the :ESTABLISHED state, but should be done for the other states too.
+        ;; before accepting this packet and resetting the connection. This is
+        ;; currently only done correctly in the :ESTABLISHED state, but should
+        ;; be done for the other states too.
         ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
               (make-condition 'connection-reset
@@ -667,7 +668,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                          "Test SND.UNA =< X =< SEG.ACK"
                          (if (< (tcp-connection-snd.una connection) ack)
                              (<= (tcp-connection-snd.una connection) x ack)
-                             ;; Sequence numbers acked.
+                             ;; Sequence numbers wrapped.
                              (or (<= (tcp-connection-snd.una connection) x)
                                  (<= x ack)))))
                   (loop
@@ -839,9 +840,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                        nil
                        :rst-p t)
      (detach-tcp-connection connection))
-   sys.net::*network-serial-queue*))
+   net::*network-serial-queue*))
 
-(define-condition connection-error (sys.net:network-error)
+(define-condition connection-error (net:network-error)
   ((host :initarg :host :reader connection-error-host)
    (port :initarg :port :reader connection-error-port)))
 
@@ -916,7 +917,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
          (tcp4-send-packet connection iss 0 nil :ack-p nil :syn-p t))
        (arm-retransmit-timer connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
-     sys.net::*network-serial-queue*)
+     net::*network-serial-queue*)
     (with-tcp-connection-locked connection
       (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
                                               (tcp-connection-lock connection))
@@ -1181,7 +1182,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (cond ((or (not element-type)
              (sys.int::type-equal element-type 'character))
          (make-instance 'tcp-stream
-                        :connection (tcp-connect (sys.net::resolve-address address) port
+                        :connection (tcp-connect (net::resolve-address address) port
                                                  :persist persist
                                                  :timeout timeout)
                         :external-format (sys.int::make-external-format
@@ -1192,7 +1193,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
          (assert (or (not external-format)
                      (eql external-format :default)))
          (make-instance 'tcp-octet-stream
-                        :connection (tcp-connect (sys.net::resolve-address address) port
+                        :connection (tcp-connect (net::resolve-address address) port
                                                  :persist persist
                                                  :timeout timeout)))
         (t

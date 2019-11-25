@@ -25,45 +25,44 @@
   (make-mmx-vector value))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform make-mmx-vector ((value (unsigned-byte 64)))
+  (c::define-transform make-mmx-vector ((value (unsigned-byte 64)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the mmx-vector (sys.c::call %make-mmx-vector ,value)))
-  (sys.c::define-transform make-mmx-vector ((value (and fixnum (integer 0))))
+    `(the mmx-vector (c::call %make-mmx-vector ,value)))
+  (c::define-transform make-mmx-vector ((value (and fixnum (integer 0))))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the mmx-vector (sys.c::call %make-mmx-vector/fixnum ,value)))
-  (sys.c::mark-as-constant-foldable 'make-mmx-vector)
-  (sys.c::mark-as-constant-foldable '%make-mmx-vector)
-  (sys.c::mark-as-constant-foldable '%make-mmx-vector/fixnum))
+    `(the mmx-vector (c::call %make-mmx-vector/fixnum ,value)))
+  (c::mark-as-constant-foldable 'make-mmx-vector)
+  (c::mark-as-constant-foldable '%make-mmx-vector)
+  (c::mark-as-constant-foldable '%make-mmx-vector/fixnum))
 
 ;; Called by the compiler to box vectors.
 (sys.int::define-lap-function %%make-mmx-vector-rax ()
   (:gc :no-frame :layout #*0)
-  (sys.lap-x86:push :rbp)
+  (lap:push :rbp)
   (:gc :no-frame :layout #*00)
-  (sys.lap-x86:mov64 :rbp :rsp)
+  (lap:mov64 :rbp :rsp)
   (:gc :frame)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 4 sys.int::+n-fixnum-bits+)) ; fixnum 4
+  (lap:push 0)
+  (lap:push :rax)
+  (lap:mov64 :rcx #.(ash 4 sys.int::+n-fixnum-bits+)) ; fixnum 4
   ;; Tag.
-  (sys.lap-x86:mov64 :r8 #.(ash sys.int::+object-tag-mmx-vector+
+  (lap:mov64 :r8 #.(ash sys.int::+object-tag-mmx-vector+
                                 sys.int::+n-fixnum-bits+))
   ;; Header data.
-  (sys.lap-x86:xor64 :r9 :r9)
+  (lap:xor64 :r9 :r9)
   ;; Words.
-  (sys.lap-x86:mov64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (lap:mov64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   ;; Area
-  (sys.lap-x86:mov64 :r11 nil)
-  (sys.lap-x86:mov64 :r13 (:function mezzano.runtime::%allocate-object))
+  (lap:mov64 :r11 nil)
   ;; Allocate object.
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.runtime::%allocate-object))
   ;; Set data.
-  (sys.lap-x86:pop (:object :r8 0))
+  (lap:pop (:object :r8 0))
   ;; Single-value return.
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
+  (lap:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (lap:leave)
   (:gc :no-frame :layout #*0)
-  (sys.lap-x86:ret))
+  (lap:ret))
 
 (defun mmx-vector-value (vector)
   "Convert an MMX-VECTOR to an unsigned 64-bit value."
@@ -77,17 +76,17 @@
   (%mmx-vector-value vector))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform mmx-vector-value ((value mmx-vector))
+  (c::define-transform mmx-vector-value ((value mmx-vector))
       ((:result-type (unsigned-byte 64)) ; ### hack
        (:optimize (= safety 0) (= speed 3)))
-    `(the (unsigned-byte 64) (sys.c::call %mmx-vector-value ,value)))
-  (sys.c::define-transform mmx-vector-value ((value mmx-vector))
+    `(the (unsigned-byte 64) (c::call %mmx-vector-value ,value)))
+  (c::define-transform mmx-vector-value ((value mmx-vector))
       ((:result-type fixnum)
        (:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %mmx-vector-value/fixnum ,value)))
-  (sys.c::mark-as-constant-foldable 'mmx-vector-value)
-  (sys.c::mark-as-constant-foldable '%mmx-vector-value)
-  (sys.c::mark-as-constant-foldable '%mmx-vector-value/fixnum))
+    `(the (and fixnum (integer 0)) (c::call %mmx-vector-value/fixnum ,value)))
+  (c::mark-as-constant-foldable 'mmx-vector-value)
+  (c::mark-as-constant-foldable '%mmx-vector-value)
+  (c::mark-as-constant-foldable '%mmx-vector-value/fixnum))
 
 (defmethod print-object ((object mmx-vector) stream)
   (print-unreadable-object (object stream :type t)
@@ -118,11 +117,11 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pshufw)
-  (sys.c::define-transform pshufw ((a mmx-vector) (b mmx-vector) (control (unsigned-byte 8)))
+  (c::define-transform pshufw ((a mmx-vector) (b mmx-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the mmx-vector (sys.c::call %pshufw/mmx ,a ,b ,control)))
-  (sys.c::mark-as-constant-foldable 'pshufw)
-  (sys.c::mark-as-constant-foldable '%pshufw/mmx))
+    `(the mmx-vector (c::call %pshufw/mmx ,a ,b ,control)))
+  (c::mark-as-constant-foldable 'pshufw)
+  (c::mark-as-constant-foldable '%pshufw/mmx))
 
 ;;; SSE (128-bit integer/float) vectors.
 
@@ -155,50 +154,49 @@
   (make-sse-vector value))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform make-sse-vector ((value (unsigned-byte 128)))
+  (c::define-transform make-sse-vector ((value (unsigned-byte 128)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %make-sse-vector ,value)))
-  (sys.c::define-transform make-sse-vector ((value (unsigned-byte 64)))
+    `(the sse-vector (c::call %make-sse-vector ,value)))
+  (c::define-transform make-sse-vector ((value (unsigned-byte 64)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %make-sse-vector/ub64 ,value)))
-  (sys.c::define-transform make-sse-vector ((value (and fixnum (integer 0))))
+    `(the sse-vector (c::call %make-sse-vector/ub64 ,value)))
+  (c::define-transform make-sse-vector ((value (and fixnum (integer 0))))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %make-sse-vector/fixnum ,value)))
-  (sys.c::mark-as-constant-foldable 'make-sse-vector)
-  (sys.c::mark-as-constant-foldable '%make-sse-vector)
-  (sys.c::mark-as-constant-foldable '%make-sse-vector/ub64)
-  (sys.c::mark-as-constant-foldable '%make-sse-vector/fixnum))
+    `(the sse-vector (c::call %make-sse-vector/fixnum ,value)))
+  (c::mark-as-constant-foldable 'make-sse-vector)
+  (c::mark-as-constant-foldable '%make-sse-vector)
+  (c::mark-as-constant-foldable '%make-sse-vector/ub64)
+  (c::mark-as-constant-foldable '%make-sse-vector/fixnum))
 
 ;; Called by the compiler to box vectors.
 (sys.int::define-lap-function %%make-sse-vector-xmm0 ()
   (:gc :no-frame :layout #*0)
-  (sys.lap-x86:push :rbp)
+  (lap:push :rbp)
   (:gc :no-frame :layout #*00)
-  (sys.lap-x86:mov64 :rbp :rsp)
+  (lap:mov64 :rbp :rsp)
   (:gc :frame)
-  (sys.lap-x86:sub64 :rsp 16)
-  (sys.lap-x86:movdqa (:rsp) :xmm0)
-  (sys.lap-x86:mov64 :rcx #.(ash 4 sys.int::+n-fixnum-bits+)) ; fixnum 4
+  (lap:sub64 :rsp 16)
+  (lap:movdqa (:rsp) :xmm0)
+  (lap:mov64 :rcx #.(ash 4 sys.int::+n-fixnum-bits+)) ; fixnum 4
   ;; Tag.
-  (sys.lap-x86:mov64 :r8 #.(ash sys.int::+object-tag-sse-vector+
+  (lap:mov64 :r8 #.(ash sys.int::+object-tag-sse-vector+
                                 sys.int::+n-fixnum-bits+))
   ;; Header data.
-  (sys.lap-x86:xor64 :r9 :r9)
+  (lap:xor64 :r9 :r9)
   ;; Words.
-  (sys.lap-x86:mov64 :r10 #.(ash 3 sys.int::+n-fixnum-bits+)) ; fixnum 3
+  (lap:mov64 :r10 #.(ash 3 sys.int::+n-fixnum-bits+)) ; fixnum 3
   ;; Area
-  (sys.lap-x86:mov64 :r11 nil)
-  (sys.lap-x86:mov64 :r13 (:function mezzano.runtime::%allocate-object))
+  (lap:mov64 :r11 nil)
   ;; Allocate object.
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.runtime::%allocate-object))
   ;; Set data.
-  (sys.lap-x86:movdqa :xmm0 (:rsp))
-  (sys.lap-x86:movdqa (:object :r8 1) :xmm0)
+  (lap:movdqa :xmm0 (:rsp))
+  (lap:movdqa (:object :r8 1) :xmm0)
   ;; Single-value return.
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
+  (lap:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (lap:leave)
   (:gc :no-frame :layout #*0)
-  (sys.lap-x86:ret))
+  (lap:ret))
 
 (defun sse-vector-value (vector)
   "Convert an SSE-VECTOR to an unsigned 128-bit integer."
@@ -216,21 +214,21 @@
   (%sse-vector-value vector))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-value ((value sse-vector))
+  (c::define-transform sse-vector-value ((value sse-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(sys.c::call %sse-vector-value ,value))
-  (sys.c::define-transform %sse-vector-value ((value sse-vector))
+    `(c::call %sse-vector-value ,value))
+  (c::define-transform %sse-vector-value ((value sse-vector))
       ((:result-type (unsigned-byte 64))
        (:optimize (= safety 0) (= speed 3)))
-    `(sys.c::call %sse-vector-value/ub64 ,value))
-  (sys.c::define-transform %sse-vector-value ((value sse-vector))
+    `(c::call %sse-vector-value/ub64 ,value))
+  (c::define-transform %sse-vector-value ((value sse-vector))
       ((:result-type fixnum)
        (:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %sse-vector-value/fixnum ,value)))
-  (sys.c::mark-as-constant-foldable 'sse-vector-value)
-  (sys.c::mark-as-constant-foldable '%sse-vector-value)
-  (sys.c::mark-as-constant-foldable '%sse-vector-value/ub64)
-  (sys.c::mark-as-constant-foldable '%sse-vector-value/fixnum))
+    `(the (and fixnum (integer 0)) (c::call %sse-vector-value/fixnum ,value)))
+  (c::mark-as-constant-foldable 'sse-vector-value)
+  (c::mark-as-constant-foldable '%sse-vector-value)
+  (c::mark-as-constant-foldable '%sse-vector-value/ub64)
+  (c::mark-as-constant-foldable '%sse-vector-value/fixnum))
 
 (defun sse-vector-ref-common (vector n-lanes)
   (let* ((element-type-width (etypecase vector
@@ -299,16 +297,16 @@ The total access width must be at least 8 bits and no larger than 128 bits."
                                   (64 '%%object-ref-sse-vector/64-unscaled)
                                   (128 '%%object-ref-sse-vector/128-unscaled))))
                  `(progn
-                    (sys.c::define-transform sse-vector-ref ((vector ,type array-type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
+                    (c::define-transform sse-vector-ref ((vector ,type array-type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
-                                         ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
-                                         (sys.c::call ,',access-fn ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))
-                    (sys.c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type array-type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
+                                         ,(c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
+                                         (c::call ,',access-fn ,vector (c::call c::%fast-fixnum-* ,index ',',(/ width 8))))))
+                    (c::define-transform (setf sse-vector-ref) ((sse-vector sse-vector) (vector ,type array-type) (n-lanes (eql ,n-lanes)) (index fixnum index-type))
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
-                                         ,(sys.c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
-                                         (sys.c::call ,',access-fn ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
+                                         ,(c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
+                                         (c::call ,',access-fn ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
     (def 8 nil)
     (def 16 nil)
     (def 32 nil)
@@ -341,31 +339,31 @@ Equivalent to the _mm_set_ps intrinsic."
     vector))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c single-float) (d single-float))
+  (c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c single-float) (d single-float))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector
-          (sys.c::call %unpcklps/sse
-                       (sys.c::call %unpcklps/sse
-                                    (sys.c::call %single-float-to-sse-vector ,a)
-                                    (sys.c::call %single-float-to-sse-vector ,c))
-                       (sys.c::call %unpcklps/sse
-                                    (sys.c::call %single-float-to-sse-vector ,b)
-                                    (sys.c::call %single-float-to-sse-vector ,d)))))
+          (c::call %unpcklps/sse
+                       (c::call %unpcklps/sse
+                                    (c::call %single-float-to-sse-vector ,a)
+                                    (c::call %single-float-to-sse-vector ,c))
+                       (c::call %unpcklps/sse
+                                    (c::call %single-float-to-sse-vector ,b)
+                                    (c::call %single-float-to-sse-vector ,d)))))
 
-  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c (eql 0.0)) (d (eql 0.0)))
+  (c::define-transform %make-sse-vector-single-float ((a single-float) (b single-float) (c (eql 0.0)) (d (eql 0.0)))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector
-          (sys.c::call %movlhps/sse ; Make sure to clear the high bits.
-                       (sys.c::call %unpcklps/sse
-                                    (sys.c::call %single-float-to-sse-vector ,a)
-                                    (sys.c::call %single-float-to-sse-vector ,b))
-                       (sys.c::call %make-sse-vector/fixnum '0))))
+          (c::call %movlhps/sse ; Make sure to clear the high bits.
+                       (c::call %unpcklps/sse
+                                    (c::call %single-float-to-sse-vector ,a)
+                                    (c::call %single-float-to-sse-vector ,b))
+                       (c::call %make-sse-vector/fixnum '0))))
 
-  (sys.c::define-transform %make-sse-vector-single-float ((a single-float) (b (eql 0.0)) (c (eql 0.0)) (d (eql 0.0)))
+  (c::define-transform %make-sse-vector-single-float ((a single-float) (b (eql 0.0)) (c (eql 0.0)) (d (eql 0.0)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %movss/sse ; Make sure to clear the high bits.
-                                  (sys.c::call %make-sse-vector/fixnum '0)
-                                  (sys.c::call %single-float-to-sse-vector ,a))))
+    `(the sse-vector (c::call %movss/sse ; Make sure to clear the high bits.
+                                  (c::call %make-sse-vector/fixnum '0)
+                                  (c::call %single-float-to-sse-vector ,a))))
 )
 
 (defun sse-vector-single-float-element (vector index)
@@ -374,9 +372,9 @@ Equivalent to the _mm_set_ps intrinsic."
   (%sse-vector-single-float-element vector index))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-element ((vector sse-vector) index)
+  (c::define-transform sse-vector-single-float-element ((vector sse-vector) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(sys.c::call %sse-vector-single-float-element ,vector ,index)))
+    `(c::call %sse-vector-single-float-element ,vector ,index)))
 
 (defun %sse-vector-to-single-float (vector)
   (check-type vector sse-vector)
@@ -417,16 +415,16 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-1-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+  (c::define-transform sse-vector-single-float-1-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type)
-                       (sys.c::call %%object-ref-sse-vector/32-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-1-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+                       ,(c::insert-bounds-check vector array-type index index-type)
+                       (c::call %%object-ref-sse-vector/32-unscaled ,vector (c::call c::%fast-fixnum-* ,index '4)))))
+  (c::define-transform (setf sse-vector-single-float-1-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type)
-                       (sys.c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
+                       ,(c::insert-bounds-check vector array-type index index-type)
+                       (c::call (setf %%object-ref-sse-vector/32-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '4))))))
 
 (defun sse-vector-single-float-2-ref (vector index)
   "Read 2 single-floats from the simple 1D single-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
@@ -443,16 +441,16 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-2-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+  (c::define-transform sse-vector-single-float-2-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
-                       (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-2-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 1)
+                       (c::call %%object-ref-sse-vector/64-unscaled ,vector (c::call c::%fast-fixnum-* ,index '4)))))
+  (c::define-transform (setf sse-vector-single-float-2-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
-                       (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 1)
+                       (c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '4))))))
 
 (defun sse-vector-single-float-4-ref (vector index)
   "Read 4 single-floats from the simple 1D single-float array VECTOR into an sse-vector."
@@ -473,16 +471,16 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-single-float-4-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+  (c::define-transform sse-vector-single-float-4-ref ((vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 3)
-                       (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4)))))
-  (sys.c::define-transform (setf sse-vector-single-float-4-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 3)
+                       (c::call %%object-ref-sse-vector/128-unscaled ,vector (c::call c::%fast-fixnum-* ,index '4)))))
+  (c::define-transform (setf sse-vector-single-float-4-ref) ((sse-vector sse-vector) (vector (simple-array single-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 3)
-                       (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '4))))))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 3)
+                       (c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '4))))))
 
 (declaim (inline make-sse-vector-double-float))
 (defun make-sse-vector-double-float (&optional (a 0.0d0) (b 0.0d0))
@@ -503,18 +501,18 @@ Equivalent to the _mm_set_pd intrinsic."
     vector))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform %make-sse-vector-double-float ((a double-float) (b double-float))
+  (c::define-transform %make-sse-vector-double-float ((a double-float) (b double-float))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector
-          (sys.c::call %unpcklpd/sse
-                       (sys.c::call %double-float-to-sse-vector ,a)
-                       (sys.c::call %double-float-to-sse-vector ,b))))
+          (c::call %unpcklpd/sse
+                       (c::call %double-float-to-sse-vector ,a)
+                       (c::call %double-float-to-sse-vector ,b))))
 
-  (sys.c::define-transform %make-sse-vector-double-float ((a double-float) (b (eql 0.0d0)))
+  (c::define-transform %make-sse-vector-double-float ((a double-float) (b (eql 0.0d0)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %movsd/sse ; Make sure to clear the high bits.
-                                  (sys.c::call %make-sse-vector/fixnum '0)
-                                  (sys.c::call %double-float-to-sse-vector ,a))))
+    `(the sse-vector (c::call %movsd/sse ; Make sure to clear the high bits.
+                                  (c::call %make-sse-vector/fixnum '0)
+                                  (c::call %double-float-to-sse-vector ,a))))
 )
 
 (defun sse-vector-double-float-element (vector index)
@@ -523,9 +521,9 @@ Equivalent to the _mm_set_pd intrinsic."
   (%sse-vector-double-float-element vector index))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-double-float-element ((vector sse-vector) index)
+  (c::define-transform sse-vector-double-float-element ((vector sse-vector) index)
       ((:optimize (= safety 0) (= speed 3)))
-    `(sys.c::call %sse-vector-double-float-element ,vector ,index)))
+    `(c::call %sse-vector-double-float-element ,vector ,index)))
 
 (defun %sse-vector-to-double-float (vector)
   (%sse-vector-to-double-float vector))
@@ -562,16 +560,16 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-double-float-1-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
+  (c::define-transform sse-vector-double-float-1-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type)
-                       (sys.c::call %%object-ref-sse-vector/64-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
-  (sys.c::define-transform (setf sse-vector-double-float-1-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
+                       ,(c::insert-bounds-check vector array-type index index-type)
+                       (c::call %%object-ref-sse-vector/64-unscaled ,vector (c::call c::%fast-fixnum-* ,index '8)))))
+  (c::define-transform (setf sse-vector-double-float-1-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type)
-                       (sys.c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))))
+                       ,(c::insert-bounds-check vector array-type index index-type)
+                       (c::call (setf %%object-ref-sse-vector/64-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '8))))))
 
 (defun sse-vector-double-float-2-ref (vector index)
   "Read 2 double-floats from the simple 1D double-float array VECTOR into lanes 0 and 1 of an sse-vector, with the remaining lanes set to zero."
@@ -588,16 +586,16 @@ The values in the other lanes of the vector are indeterminate and may not be zer
   sse-vector)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::define-transform sse-vector-double-float-2-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
+  (c::define-transform sse-vector-double-float-2-ref ((vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
-                       (sys.c::call %%object-ref-sse-vector/128-unscaled ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8)))))
-  (sys.c::define-transform (setf sse-vector-double-float-2-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 1)
+                       (c::call %%object-ref-sse-vector/128-unscaled ,vector (c::call c::%fast-fixnum-* ,index '8)))))
+  (c::define-transform (setf sse-vector-double-float-2-ref) ((sse-vector sse-vector) (vector (simple-array double-float (*)) array-type) (index fixnum index-type))
       ((:optimize (= safety 0) (= speed 3)))
     `(the sse-vector (progn
-                       ,(sys.c::insert-bounds-check vector array-type index index-type :adjust 1)
-                       (sys.c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (sys.c::call sys.c::%fast-fixnum-* ,index '8))))))
+                       ,(c::insert-bounds-check vector array-type index index-type :adjust 1)
+                       (c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '8))))))
 
 ;; Fake low-level accessors for smaller access widths.
 
@@ -677,18 +675,18 @@ The values in the other lanes of the vector are indeterminate and may not be zer
      (make-sse-vector ',(sse-vector-value object))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (sys.c::mark-as-constant-foldable 'make-sse-vector)
-  (sys.c::mark-as-constant-foldable 'sse-vector-value)
-  (sys.c::mark-as-constant-foldable 'make-sse-vector-single-float)
-  (sys.c::mark-as-constant-foldable '%make-sse-vector-single-float)
-  (sys.c::mark-as-constant-foldable 'sse-vector-single-float-element)
-  (sys.c::mark-as-constant-foldable '%sse-vector-single-float-element)
-  (sys.c::mark-as-constant-foldable '%sse-vector-to-single-float)
-  (sys.c::mark-as-constant-foldable '%single-float-to-sse-vector)
-  (sys.c::mark-as-constant-foldable 'make-sse-vector-double-float)
-  (sys.c::mark-as-constant-foldable 'sse-vector-double-float-element)
-  (sys.c::mark-as-constant-foldable '%sse-vector-to-double-float)
-  (sys.c::mark-as-constant-foldable '%double-float-to-sse-vector))
+  (c::mark-as-constant-foldable 'make-sse-vector)
+  (c::mark-as-constant-foldable 'sse-vector-value)
+  (c::mark-as-constant-foldable 'make-sse-vector-single-float)
+  (c::mark-as-constant-foldable '%make-sse-vector-single-float)
+  (c::mark-as-constant-foldable 'sse-vector-single-float-element)
+  (c::mark-as-constant-foldable '%sse-vector-single-float-element)
+  (c::mark-as-constant-foldable '%sse-vector-to-single-float)
+  (c::mark-as-constant-foldable '%single-float-to-sse-vector)
+  (c::mark-as-constant-foldable 'make-sse-vector-double-float)
+  (c::mark-as-constant-foldable 'sse-vector-double-float-element)
+  (c::mark-as-constant-foldable '%sse-vector-to-double-float)
+  (c::mark-as-constant-foldable '%double-float-to-sse-vector))
 
 (defmacro define-simd-integer-op (name mmx-function sse-function)
   `(progn
@@ -702,15 +700,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
           (,sse-function lhs rhs))))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
-       (sys.c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
+       (c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the mmx-vector (sys.c::call ,',mmx-function ,lhs ,rhs)))
-       (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
+         `(the mmx-vector (c::call ,',mmx-function ,lhs ,rhs)))
+       (c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
-       (sys.c::mark-as-constant-foldable ',name)
-       (sys.c::mark-as-constant-foldable ',mmx-function)
-       (sys.c::mark-as-constant-foldable ',sse-function))
+         `(the sse-vector (c::call ,',sse-function ,lhs ,rhs)))
+       (c::mark-as-constant-foldable ',name)
+       (c::mark-as-constant-foldable ',mmx-function)
+       (c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-shift-op (name mmx-function sse-function)
@@ -731,21 +729,21 @@ The values in the other lanes of the vector are indeterminate and may not be zer
               (,sse-function lhs rhs)))))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
-       (sys.c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
+       (c::define-transform ,name ((lhs mmx-vector) (rhs mmx-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the mmx-vector (sys.c::call ,',mmx-function ,lhs ,rhs)))
-       (sys.c::define-transform ,name ((lhs mmx-vector) (rhs (unsigned-byte 8)))
+         `(the mmx-vector (c::call ,',mmx-function ,lhs ,rhs)))
+       (c::define-transform ,name ((lhs mmx-vector) (rhs (unsigned-byte 8)))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the mmx-vector (sys.c::call ,',mmx-function ,lhs ,rhs)))
-       (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
+         `(the mmx-vector (c::call ,',mmx-function ,lhs ,rhs)))
+       (c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
-       (sys.c::define-transform ,name ((lhs sse-vector) (rhs (unsigned-byte 8)))
+         `(the sse-vector (c::call ,',sse-function ,lhs ,rhs)))
+       (c::define-transform ,name ((lhs sse-vector) (rhs (unsigned-byte 8)))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
-       (sys.c::mark-as-constant-foldable ',name)
-       (sys.c::mark-as-constant-foldable ',mmx-function)
-       (sys.c::mark-as-constant-foldable ',sse-function))
+         `(the sse-vector (c::call ,',sse-function ,lhs ,rhs)))
+       (c::mark-as-constant-foldable ',name)
+       (c::mark-as-constant-foldable ',mmx-function)
+       (c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-float-op (name sse-function)
@@ -757,11 +755,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
           (,sse-function lhs rhs))))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
-       (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
+       (c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,lhs ,rhs)))
-       (sys.c::mark-as-constant-foldable ',name)
-       (sys.c::mark-as-constant-foldable ',sse-function))
+         `(the sse-vector (c::call ,',sse-function ,lhs ,rhs)))
+       (c::mark-as-constant-foldable ',name)
+       (c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-float-op-unary (name sse-function)
@@ -772,11 +770,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
           (,sse-function value))))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
-       (sys.c::define-transform ,name ((value sse-vector))
+       (c::define-transform ,name ((value sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(the sse-vector (sys.c::call ,',sse-function ,value)))
-       (sys.c::mark-as-constant-foldable ',name)
-       (sys.c::mark-as-constant-foldable ',sse-function))
+         `(the sse-vector (c::call ,',sse-function ,value)))
+       (c::mark-as-constant-foldable ',name)
+       (c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 (defmacro define-simd-float-com-op (name sse-function)
@@ -788,11 +786,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
           (,sse-function lhs rhs))))
      (eval-when (:compile-toplevel :load-toplevel :execute)
        (export ',name :mezzano.simd)
-       (sys.c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
+       (c::define-transform ,name ((lhs sse-vector) (rhs sse-vector))
            ((:optimize (= safety 0) (= speed 3)))
-         `(sys.c::call ,',sse-function ,lhs ,rhs))
-       (sys.c::mark-as-constant-foldable ',name)
-       (sys.c::mark-as-constant-foldable ',sse-function))
+         `(c::call ,',sse-function ,lhs ,rhs))
+       (c::mark-as-constant-foldable ',name)
+       (c::mark-as-constant-foldable ',sse-function))
      ',name))
 
 ;; MMX
@@ -993,11 +991,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'shufps)
-  (sys.c::define-transform shufps ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+  (c::define-transform shufps ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %shufps/sse ,a ,b ,control)))
-  (sys.c::mark-as-constant-foldable 'shufps)
-  (sys.c::mark-as-constant-foldable '%shufps/sse))
+    `(the sse-vector (c::call %shufps/sse ,a ,b ,control)))
+  (c::mark-as-constant-foldable 'shufps)
+  (c::mark-as-constant-foldable '%shufps/sse))
 
 (defun shufpd (a b control)
   (check-type a sse-vector)
@@ -1014,12 +1012,12 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'shufpd)
-  (sys.c::define-transform shufpd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+  (c::define-transform shufpd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %shufpd/sse ,a ,b ,control))
-    (sys.c::mark-as-constant-foldable 'shufpd))
-  (sys.c::mark-as-constant-foldable 'shufpd)
-  (sys.c::mark-as-constant-foldable '%shufpd/sse))
+    `(the sse-vector (c::call %shufpd/sse ,a ,b ,control))
+    (c::mark-as-constant-foldable 'shufpd))
+  (c::mark-as-constant-foldable 'shufpd)
+  (c::mark-as-constant-foldable '%shufpd/sse))
 
 (defun pshufd (a b control)
   (check-type a sse-vector)
@@ -1036,11 +1034,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pshufd)
-  (sys.c::define-transform pshufd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+  (c::define-transform pshufd ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %pshufd/sse ,a ,b ,control)))
-  (sys.c::mark-as-constant-foldable 'pshufd)
-  (sys.c::mark-as-constant-foldable '%pshufd/sse))
+    `(the sse-vector (c::call %pshufd/sse ,a ,b ,control)))
+  (c::mark-as-constant-foldable 'pshufd)
+  (c::mark-as-constant-foldable '%pshufd/sse))
 
 (defun pshufhw (a b control)
   (check-type a sse-vector)
@@ -1057,11 +1055,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pshufhw)
-  (sys.c::define-transform pshufhw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+  (c::define-transform pshufhw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %pshufhw/sse ,a ,b ,control)))
-  (sys.c::mark-as-constant-foldable 'pshufhw)
-  (sys.c::mark-as-constant-foldable '%pshufhw/sse))
+    `(the sse-vector (c::call %pshufhw/sse ,a ,b ,control)))
+  (c::mark-as-constant-foldable 'pshufhw)
+  (c::mark-as-constant-foldable '%pshufhw/sse))
 
 (defun pshuflw (a b control)
   (check-type a sse-vector)
@@ -1078,11 +1076,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pshuflw)
-  (sys.c::define-transform pshuflw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
+  (c::define-transform pshuflw ((a sse-vector) (b sse-vector) (control (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %pshuflw/sse ,a ,b ,control)))
-  (sys.c::mark-as-constant-foldable 'pshuflw)
-  (sys.c::mark-as-constant-foldable '%pshuflw/sse))
+    `(the sse-vector (c::call %pshuflw/sse ,a ,b ,control)))
+  (c::mark-as-constant-foldable 'pshuflw)
+  (c::mark-as-constant-foldable '%pshuflw/sse))
 
 (defun pslldq (value count)
   (check-type value sse-vector)
@@ -1098,11 +1096,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pslldq)
-  (sys.c::define-transform pslldq ((value sse-vector) (count (unsigned-byte 8)))
+  (c::define-transform pslldq ((value sse-vector) (count (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %pslldq/sse ,value ,count)))
-  (sys.c::mark-as-constant-foldable 'pslldq)
-  (sys.c::mark-as-constant-foldable '%pslldq/sse))
+    `(the sse-vector (c::call %pslldq/sse ,value ,count)))
+  (c::mark-as-constant-foldable 'pslldq)
+  (c::mark-as-constant-foldable '%pslldq/sse))
 
 (defun psrldq (value count)
   (check-type value sse-vector)
@@ -1118,11 +1116,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'psrldq)
-  (sys.c::define-transform psrldq ((value sse-vector) (count (unsigned-byte 8)))
+  (c::define-transform psrldq ((value sse-vector) (count (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %psrldq/sse ,value ,count)))
-  (sys.c::mark-as-constant-foldable 'psrldq)
-  (sys.c::mark-as-constant-foldable '%psrldq/sse))
+    `(the sse-vector (c::call %psrldq/sse ,value ,count)))
+  (c::mark-as-constant-foldable 'psrldq)
+  (c::mark-as-constant-foldable '%psrldq/sse))
 
 (defun pmovmskb (value)
   (etypecase value
@@ -1137,15 +1135,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pmovmskb)
-  (sys.c::define-transform pmovmskb ((value mmx-vector))
+  (c::define-transform pmovmskb ((value mmx-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %pmovmskb/mmx ,value)))
-  (sys.c::define-transform pmovmskb ((value sse-vector))
+    `(the (and fixnum (integer 0)) (c::call %pmovmskb/mmx ,value)))
+  (c::define-transform pmovmskb ((value sse-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %pmovmskb/sse ,value)))
-  (sys.c::mark-as-constant-foldable 'pmovmskb)
-  (sys.c::mark-as-constant-foldable '%pmovmskb/mmx)
-  (sys.c::mark-as-constant-foldable '%pmovmskb/sse))
+    `(the (and fixnum (integer 0)) (c::call %pmovmskb/sse ,value)))
+  (c::mark-as-constant-foldable 'pmovmskb)
+  (c::mark-as-constant-foldable '%pmovmskb/mmx)
+  (c::mark-as-constant-foldable '%pmovmskb/sse))
 
 (defun movmskps (value)
   (check-type value sse-vector)
@@ -1156,11 +1154,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'movmskps)
-  (sys.c::define-transform movmskps ((value sse-vector))
+  (c::define-transform movmskps ((value sse-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %movmskps/sse ,value)))
-  (sys.c::mark-as-constant-foldable 'movmskps)
-  (sys.c::mark-as-constant-foldable '%movmskps/sse))
+    `(the (and fixnum (integer 0)) (c::call %movmskps/sse ,value)))
+  (c::mark-as-constant-foldable 'movmskps)
+  (c::mark-as-constant-foldable '%movmskps/sse))
 
 (defun movmskpd (value)
   (check-type value sse-vector)
@@ -1171,11 +1169,11 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'movmskpd)
-  (sys.c::define-transform movmskpd ((value sse-vector))
+  (c::define-transform movmskpd ((value sse-vector))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (and fixnum (integer 0)) (sys.c::call %movmskpd/sse ,value)))
-  (sys.c::mark-as-constant-foldable 'movmskpd)
-  (sys.c::mark-as-constant-foldable '%movmskpd/sse))
+    `(the (and fixnum (integer 0)) (c::call %movmskpd/sse ,value)))
+  (c::mark-as-constant-foldable 'movmskpd)
+  (c::mark-as-constant-foldable '%movmskpd/sse))
 
 (defun pextrw (a imm)
   (etypecase a
@@ -1198,15 +1196,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pextrw)
-  (sys.c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
+  (c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (unsigned-byte 16) (sys.c::call %pextrw/mmx ,a ,imm)))
-  (sys.c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
+    `(the (unsigned-byte 16) (c::call %pextrw/mmx ,a ,imm)))
+  (c::define-transform pextrw ((a mmx-vector) (imm (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the (unsigned-byte 16) (sys.c::call %pextrw/sse ,a ,imm)))
-  (sys.c::mark-as-constant-foldable 'pextrw)
-  (sys.c::mark-as-constant-foldable '%pextrw/mmx)
-  (sys.c::mark-as-constant-foldable '%pextrw/sse))
+    `(the (unsigned-byte 16) (c::call %pextrw/sse ,a ,imm)))
+  (c::mark-as-constant-foldable 'pextrw)
+  (c::mark-as-constant-foldable '%pextrw/mmx)
+  (c::mark-as-constant-foldable '%pextrw/sse))
 
 (defun pinsrw (a b imm)
   (check-type b fixnum)
@@ -1230,15 +1228,15 @@ The values in the other lanes of the vector are indeterminate and may not be zer
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export 'pinsrw)
-  (sys.c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
+  (c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the mmx-vector (sys.c::call %pinsrw/mmx ,a ,b ,imm)))
-  (sys.c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
+    `(the mmx-vector (c::call %pinsrw/mmx ,a ,b ,imm)))
+  (c::define-transform pinsrw ((a mmx-vector) (b fixnum) (imm (unsigned-byte 8)))
       ((:optimize (= safety 0) (= speed 3)))
-    `(the sse-vector (sys.c::call %pinsrw/sse ,a ,b ,imm)))
-  (sys.c::mark-as-constant-foldable 'pinsrw)
-  (sys.c::mark-as-constant-foldable '%pinsrw/mmx)
-  (sys.c::mark-as-constant-foldable '%pinsrw/sse))
+    `(the sse-vector (c::call %pinsrw/sse ,a ,b ,imm)))
+  (c::mark-as-constant-foldable 'pinsrw)
+  (c::mark-as-constant-foldable '%pinsrw/mmx)
+  (c::mark-as-constant-foldable '%pinsrw/sse))
 
 (declaim (inline %sse-vector-single-float-element))
 (defun %sse-vector-single-float-element (vector index)

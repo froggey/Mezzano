@@ -3,7 +3,7 @@
 
 ;;; Lowering pass implementing &KEY parameters.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun variable-name (var)
   (etypecase var

@@ -5,7 +5,8 @@
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
                     (:pci :mezzano.supervisor.pci)
-                    (:ata :mezzano.supervisor.ata)))
+                    (:ata :mezzano.supervisor.ata)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.supervisor.ahci)
 
@@ -784,7 +785,7 @@
 
 (defun pci::ahci-pci-register (location)
   ;; Wired allocation required for the IRQ handler closure.
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (let ((ahci (make-ahci :location location
                          :abar (pci:pci-io-region location 5))))
     (setf (ahci-irq-handler-function ahci) (lambda (interrupt-frame irq)

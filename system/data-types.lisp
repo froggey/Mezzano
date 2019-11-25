@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant +n-fixnum-bits+ 1)
 (defconstant +fixnum-tag-mask+ (1- (ash 1 +n-fixnum-bits+)))
@@ -13,11 +13,14 @@
 (defconstant +object-data-size+ 56)
 (defconstant +pinned-object-mark-bit+ #b10)
 
-;;; Low 4 bits of a value are tag bits:
+;;; Low 4 bits of a value are tag bits
 (defconstant +tag-fixnum-000+       #b0000)
-(defconstant +tag-dx-root-object+   #b0001)
+;; +TAG-CONS+ and +TAG-OBJECT+ have been carefully chosen so they have
+;; exactly one bit different. This allows ordinary object pointers to
+;; be detected trivially: (eql (logand val #b111) 1)
+(defconstant +tag-cons+             #b0001)
 (defconstant +tag-fixnum-001+       #b0010)
-(defconstant +tag-cons+             #b0011)
+(defconstant +tag-dx-root-object+   #b0011)
 (defconstant +tag-fixnum-010+       #b0100)
 (defconstant +tag-immediate+        #b0101)
 (defconstant +tag-fixnum-011+       #b0110)
@@ -196,10 +199,10 @@
 (defconstant +delimited-continuation-prompt+ 4)
 
 ;;; Layout of function-references.
-(defconstant +fref-name+ 0)
-;; Layout of these two slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
-(defconstant +fref-function+ 1)
-(defconstant +fref-entry-point+ 2)
+(defconstant +fref-undefined-entry-point+ 0)
+(defconstant +fref-name+ 1)
+(defconstant +fref-function+ 2)
+(defconstant +fref-code+ 3)
 
 ;;; Layout of complex arrays.
 (defconstant +complex-array-storage+ 0)
@@ -230,11 +233,10 @@
 (defconstant +address-tag-size+ 3)
 (defconstant +address-tag+ (byte +address-tag-size+ +address-tag-shift+))
 
-(defconstant +address-generation+ (byte 2 43))
-(defconstant +address-generation-0+ 0)
-(defconstant +address-generation-1+ 1)
-(defconstant +address-generation-2-a+ 2)
-(defconstant +address-generation-2-b+ 3)
+(defconstant +address-old-generation+ (expt 2 43)
+  "This bit distingushes the young and old generations.")
+(defconstant +address-semispace+ (expt 2 44)
+  "This bit defines the semispaces for the young and old generations.")
 
 ;; Pinned must be zero, a number of critical objects are pinned & wired and stored
 ;; below 2GB to permit fast access to them.
@@ -291,7 +293,7 @@ When the page is written to, the corresponding dirty bit in the card table will 
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 30)
+(defparameter *llf-version* 31)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)

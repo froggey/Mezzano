@@ -38,6 +38,13 @@
   "This value can be passed to (CAS SLOT-VALUE) to indicate that
 the old or new values are expected to be unbound.")
 
+(defun mapappend (fun &rest args)
+  "mapappend is like mapcar except that the results are appended together:"
+  (if (some #'null args)
+      ()
+      (append (apply fun (mapcar #'car args))
+              (apply #'mapappend fun (mapcar #'cdr args)))))
+
 ;;;
 ;;; Standard instances
 ;;;
@@ -105,7 +112,9 @@ the old or new values are expected to be unbound.")
 (sys.int::defglobal *standard-class-default-initargs-location*)
 (sys.int::defglobal *standard-effective-slot-definition-location-location*)
 (sys.int::defglobal *standard-effective-slot-definition-name-location*)
+(sys.int::defglobal *funcallable-standard-class-hash-location*)
 (sys.int::defglobal *built-in-class-precedence-list-location*)
+(sys.int::defglobal *built-in-class-hash-location*)
 
 (defun standard-instance-access (instance location)
   (if (consp location)
@@ -712,6 +721,10 @@ the old or new values are expected to be unbound.")
 (defun safe-class-hash (class)
   (cond ((standard-class-instance-p class)
          (standard-instance-access class *standard-class-hash-location*))
+        ((funcallable-standard-class-instance-p class)
+         (standard-instance-access class *funcallable-standard-class-hash-location*))
+        ((built-in-class-instance-p class)
+         (standard-instance-access class *built-in-class-hash-location*))
         (t
          (std-slot-value class 'hash))))
 
@@ -1368,12 +1381,31 @@ Other arguments are included directly."
 
 ;;; ensure-generic-function
 
+(defun normalize-e-g-f-args (&rest all-keys &key generic-function-class method-class &allow-other-keys)
+    ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
+  (remf all-keys :generic-function-class)
+  ;; Passing our own.
+  (remf all-keys :method-class)
+  ;; FIXME: What to do with this?
+  (remf all-keys :environment)
+  (when (and generic-function-class
+             (symbolp generic-function-class))
+    (setf generic-function-class (find-class generic-function-class)))
+  (cond ((null method-class)
+         (setf method-class *the-class-standard-method*))
+        ((symbolp method-class)
+         (setf method-class (find-class method-class))))
+  (values generic-function-class
+          (list* :method-class method-class
+                 all-keys)))
+
+;; Bootstrap note: This partially replicates the behaviour of
+;; ENSURE-GENERIC-FUNCTION-USING-CLASS for standard-generic-function so
+;; as to avoid calling generic functions when initially defining them.
 (defun ensure-generic-function
        (function-name
         &rest all-keys
-        &key generic-function-class
-             (method-class 'standard-method)
-        &allow-other-keys)
+        &key generic-function-class &allow-other-keys)
   (cond ((and (symbolp function-name)
               (special-operator-p function-name))
          ;; Can't override special operators.
@@ -1381,7 +1413,7 @@ Other arguments are included directly."
                 :format-control "~S names a special operator"
                 :format-arguments (list function-name)))
         ((or (and (fboundp function-name)
-                  (not (typep (fdefinition function-name) 'standard-generic-function)))
+                  (not (typep (fdefinition function-name) 'generic-function)))
              (and (symbolp function-name)
                   (macro-function function-name)))
          (cerror "Clobber it" 'sys.int::simple-program-error
@@ -1393,49 +1425,37 @@ Other arguments are included directly."
          (when (fboundp function-name)
            (fmakunbound function-name))
          (setf (compiler-macro-function function-name) nil)))
-  (when (and generic-function-class
-             (symbolp generic-function-class))
-    (setf generic-function-class (find-class generic-function-class)))
-  ;; AMOP seems to imply that METHOD-CLASS should always be a class name,
-  ;; that feels overly restrictive...
-  (when (symbolp method-class)
-    (setf method-class (find-class method-class)))
-  ;; :GENERIC-FUNCTION-CLASS is not included as an initarg.
-  (remf all-keys :generic-function-class)
-  ;; FIXME: What to do with this?
-  (remf all-keys :environment)
-  (cond ((fboundp function-name)
-         (let ((gf (fdefinition function-name)))
-           (when (and generic-function-class
-                      (not (eql (class-of gf) generic-function-class)))
-             (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
-                    function-name gf
-                    (class-of gf) generic-function-class))
-           ;; Bootstrap hack: Avoid calling REINITIALIZE-INSTANCE when
-           ;; no keys are passed in. (ENSURE-GENERIC-FUNCTION name) is
-           ;; called by DEFMETHOD-1 to fetch the generic function and
-           ;; this happens before REINITIALIZE-INSTANCE is defined.
-           (when all-keys
-             (apply #'reinitialize-instance
-                    gf
-                    :name function-name
-                    :method-class method-class
-                    all-keys))
-           gf))
-        (t
-         (when (not generic-function-class)
-           (setf generic-function-class *the-class-standard-gf*))
-         (let ((gf (apply (if (eq generic-function-class *the-class-standard-gf*)
-                              #'make-instance-standard-generic-function
-                              #'make-instance)
-                          generic-function-class
-                          :name function-name
-                          :method-class method-class
-                          all-keys)))
-           ;; Not entirely sure where this should be done.
-           ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
-           (setf (fdefinition function-name) gf)
-           gf))))
+  (let ((existing-gf (and (fboundp function-name)
+                          (fdefinition function-name))))
+    (cond ((and existing-gf
+                (not all-keys)
+                (standard-generic-function-instance-p existing-gf))
+           ;; Bootstrap hack: Don't call reinitialize-instance for
+           ;; standard generic functions when no initargs are specifed.
+           ;; DEFMETHOD-1 does this to fetch the generic function.
+           existing-gf)
+          ((and (not existing-gf)
+                (not generic-function-class))
+           ;; Bootstrap hack: Bypass E-G-F-U-C when defining standard
+           ;; generic functions, the required generics/methods might not have
+           ;; been defined yet.
+           (multiple-value-bind (generic-function-class initargs)
+               (apply #'normalize-e-g-f-args all-keys)
+             (declare (ignore generic-function-class))
+             (let ((gf (apply #'make-instance-standard-generic-function
+                              *the-class-standard-gf*
+                              :name function-name
+                              initargs)))
+               ;; Not entirely sure where this should be done.
+               ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
+               (setf (fdefinition function-name) gf)
+               gf)))
+          (t
+           ;; Off we go, this is the normal path.
+           (apply #'ensure-generic-function-using-class
+                  existing-gf
+                  function-name
+                  all-keys)))))
 
 (defun generic-function-unspecialized-dispatch-p (gf)
   "Returns true when the generic function has no methods with non-t specialized arguments."
@@ -1473,7 +1493,7 @@ has only has class specializer."
   (cond ((single-dispatch-emf-table-p (classes-to-emf-table gf))
          (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
         ((classes-to-emf-table gf)
-         (clrhash (classes-to-emf-table gf)))))
+         (clear-emf-cache (classes-to-emf-table gf)))))
 
 (defun required-portion (gf args)
   (let ((number-required (length (gf-required-arglist gf))))
@@ -1551,10 +1571,11 @@ has only has class specializer."
     (setf (safe-generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
   (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
-                                         (make-single-dispatch-emf-table))
+                                         (make-single-dispatch-emf-table gf))
                                         ((generic-function-unspecialized-dispatch-p gf)
                                          nil)
-                                        (t (make-hash-table :test #'equal))))
+                                        (t
+                                         (make-emf-cache gf))))
   (set-funcallable-instance-function
    gf
    (funcall (if (standard-generic-function-instance-p gf)
@@ -1944,16 +1965,17 @@ has only has class specializer."
                   (slow-single-dispatch-method-lookup gf args class))))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
-  (lambda (&rest args)
-    (when (< (length args) n-required-args)
+  (lambda (&rest args sys.int::&count arg-count)
+    (declare (dynamic-extent args))
+    (when (< arg-count n-required-args)
       (error 'sys.int::simple-program-error
              :format-control "Too few arguments to generic function ~S."
              :format-arguments (list gf)))
-    (let* ((classes (mapcar #'class-of (subseq args 0 n-required-args)))
-           (emfun (gethash classes emf-table nil)))
+    (let* ((emfun (emf-cache-lookup emf-table args)))
       (if emfun
           (apply emfun args)
-          (slow-method-lookup gf args classes)))))
+          ;; Delay copying the argument list until it really needs to have indefinite-extent.
+          (slow-method-lookup gf (copy-list args))))))
 
 (defun compute-1-effective-eql-table (gf argument-offset)
   (loop
@@ -2079,28 +2101,69 @@ has only has class specializer."
               (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
              (apply gf args))))))
 
-(defun slow-method-lookup (gf args classes)
-  (multiple-value-bind (applicable-methods validp)
-      (if (eql (class-of gf) *the-class-standard-gf*)
-          (std-compute-applicable-methods-using-classes gf classes)
-          (compute-applicable-methods-using-classes gf classes))
-    (unless validp
-      (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
-                                   (std-compute-applicable-methods gf args)
-                                   (compute-applicable-methods gf args))))
-    (let ((emfun (cond (applicable-methods
-                        (funcall
-                         (if (eq (class-of gf) *the-class-standard-gf*)
-                             #'std-compute-effective-method-function
-                             #'compute-effective-method-function)
-                         gf applicable-methods))
-                       (t
-                        (lambda (&rest args)
-                          (apply #'no-applicable-method gf args))))))
-      ;; Cache is only valid for non-eql methods.
-      (when validp
-        (setf (gethash classes (classes-to-emf-table gf)) emfun))
-      (apply emfun args))))
+(defun slow-method-lookup (gf args)
+  (let ((std-gf-p (eq (class-of gf) *the-class-standard-gf*))
+        (classes (mapcar #'class-of (required-portion gf args))))
+    (multiple-value-bind (applicable-methods validp)
+        (if std-gf-p
+            (std-compute-applicable-methods-using-classes gf classes)
+            (compute-applicable-methods-using-classes gf classes))
+      (unless validp
+        (setf applicable-methods (if std-gf-p
+                                     (std-compute-applicable-methods gf args)
+                                     (compute-applicable-methods gf args))))
+      (when (not applicable-methods)
+        (return-from slow-method-lookup
+          (apply #'no-applicable-method gf args)))
+      (let ((emfun (if std-gf-p
+                       (std-compute-effective-method-function gf applicable-methods)
+                       (compute-effective-method-function gf applicable-methods))))
+        (insert-into-emf-cache (classes-to-emf-table gf) args emfun)
+        (apply emfun args)))))
+
+(defun reordered-argument (gf arguments index)
+  (nth (reordered-method-argument-index gf index)
+       arguments))
+
+(defun reordered-method-specializer (gf method index)
+  (nth (reordered-method-argument-index gf index)
+       (method-specializers method)))
+
+(defun has-eql-specializer-in-reordered-position-p (gf method index)
+  (typep (reordered-method-specializer gf method index) 'eql-specializer))
+
+(defun method-partial-specializer-match-p (gf method specializers-reordered)
+  (loop
+     for specializer in specializers-reordered
+     for index from 0
+     for method-spec in (reorder-method-specializers
+                         gf (safe-method-specializers method))
+     unless (etypecase method-spec
+              (class
+               (etypecase specializer
+                 (class
+                  (subclassp specializer method-spec))
+                 (eql-specializer
+                  (typep (eql-specializer-object specializer) method-spec))))
+              (eql-specializer
+               (etypecase specializer
+                 (class
+                  ;; Filter these out entirely, matching the behaviour
+                  ;; of the emf cache.
+                  nil)
+                 (eql-specializer
+                  (eql specializer method-spec)))))
+     do (return nil)
+     finally (return t)))
+
+(defun compute-applicable-methods-partial (gf specializers-reordered)
+  "Return a list of all methods matching SPECIALIZERS-REORDERED.
+This list may be shorter than the required portion. Missing argumnts will
+always match."
+  (loop
+     for method in (safe-generic-function-methods gf)
+     when (method-partial-specializer-match-p gf method specializers-reordered)
+     collect method))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
   (let* ((classes (mapcar #'class-of (required-portion gf args))))
@@ -2172,6 +2235,14 @@ has only has class specializer."
        (method-more-specific-with-args-p gf m1 m2 args))))
 
 ;;; method-more-specific-p
+
+(defun reordered-method-argument-index (gf index)
+  "Convert from a reordered argument index to a normal argument index."
+  (let ((ordering-table (argument-reordering-table gf)))
+    (cond (ordering-table
+           (aref ordering-table index))
+          (t
+           index))))
 
 (defun reorder-method-specializers (gf method-specializers)
   (let ((ordering-table (argument-reordering-table gf)))
@@ -2568,6 +2639,8 @@ has only has class specializer."
   (:method ((effective-slot-definition standard-effective-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value effective-slot-definition 'location)))
+;; TODO: Remove this in the future when slime is updated. Use DOCUMENTATION
+;; instead.
 (defgeneric slot-definition-documentation (slot-definition)
   (:method ((slot-definition standard-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
@@ -2738,6 +2811,45 @@ has only has class specializer."
 (defgeneric compute-applicable-methods (generic-function arguments))
 (defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
   (std-compute-applicable-methods generic-function arguments))
+
+(defgeneric ensure-generic-function-using-class
+    (generic-function
+     function-name
+     &key generic-function-class &allow-other-keys))
+
+(defmethod ensure-generic-function-using-class
+    ((generic-function generic-function)
+     function-name
+     &rest all-keys
+     &key &allow-other-keys)
+  (multiple-value-bind (generic-function-class initargs)
+      (apply #'normalize-e-g-f-args all-keys)
+    (when (and generic-function-class
+               (not (eql (class-of generic-function) generic-function-class)))
+      (error "Redefinition of generic function ~S (~S) with different class. Changing from ~S to ~S."
+             function-name generic-function
+             (class-of generic-function) generic-function-class))
+    (apply #'reinitialize-instance
+           generic-function
+           :name function-name
+           initargs)))
+
+(defmethod ensure-generic-function-using-class
+    ((generic-function null)
+     function-name
+     &rest all-keys
+     &key &allow-other-keys)
+  (multiple-value-bind (generic-function-class initargs)
+      (apply #'normalize-e-g-f-args all-keys)
+    (let ((gf (apply #'make-instance
+                     (or generic-function-class
+                         *the-class-standard-gf*)
+                     :name function-name
+                     initargs)))
+      ;; Not entirely sure where this should be done.
+      ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
+      (setf (fdefinition function-name) gf)
+      gf)))
 
 ;;; Dependent maintenance protocol
 
@@ -3148,7 +3260,7 @@ has only has class specializer."
 
 (defmethod print-object ((method standard-method) stream)
   (print-unreadable-object (method stream :identity t)
-    (format stream "~:(~S~) ~S ~S ~S"
+    (format stream "~:(~S~) ~S ~:S ~:S"
 	    (safe-class-name (class-of method))
 	    (when (safe-method-generic-function method)
               (safe-generic-function-name (safe-method-generic-function method)))
@@ -3267,6 +3379,10 @@ has only has class specializer."
 
 (defclass eql-specializer (specializer)
   ((object :initarg :object :reader eql-specializer-object)))
+
+(defmethod print-object ((object eql-specializer) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (eql-specializer-object object))))
 
 (defun intern-eql-specializer (object)
   (or (gethash object *interned-eql-specializers*)

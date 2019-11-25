@@ -494,13 +494,13 @@
 (defun compile-lap (environment code &key (area :pinned) name)
   "Compile a list of LAP code as a function."
   (multiple-value-bind (mc constants fixups symbols gc-info)
-      (let ((sys.lap:*function-reference-resolver*
+      (let ((mezzano.lap:*function-reference-resolver*
              (lambda (name)
                ;; Translate function-reference names from host names to
                ;; names in the environment.
                (function-reference environment (translate-symbol environment name)))))
-        (sys.lap:perform-assembly-using-target
-         (sys.c::canonicalize-target (environment-target environment))
+        (mezzano.lap:perform-assembly-using-target
+         (mezzano.compiler::canonicalize-target (environment-target environment))
          code
          :base-address 16
          :initial-symbols (list '(nil . :fixup)
@@ -572,7 +572,7 @@
                                                   :initform (structure-slot-definition-initform slot)
                                                   :initfunction (let ((slot slot))
                                                                   (lambda ()
-                                                                    ;; Special case calls to sys.int::%symbol-binding-cache-sentinel so they at least work...
+                                                                    ;; Special case calls to mezzano.internals::%symbol-binding-cache-sentinel so they at least work...
                                                                     (let* ((initform (structure-slot-definition-initform slot))
                                                                            (val (cond ((and (consp initform)
                                                                                             (symbolp (first initform))
@@ -637,14 +637,14 @@
 (defun allocate-cross-class-instance (environment layout)
   (let ((instance (make-instance 'cross-class-instance
                                  :layout layout
-                                 :slots (cl:make-array (/ (length (sys.int::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%))))
+                                 :slots (cl:make-array (/ (length (mezzano.internals::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%))))
     (setf (gethash instance (environment-object-area-table environment))
-          (sys.int::layout-area layout))
+          (mezzano.internals::layout-area layout))
     instance))
 
 (defun cross-class-instance-slot-location (object slot-name)
   (let ((layout (cross-class-instance-layout object)))
-    (/ (or (position slot-name (sys.int::layout-instance-slots layout))
+    (/ (or (position slot-name (mezzano.internals::layout-instance-slots layout))
            (error "Slot ~S missing from the object ~S" slot-name object))
        2)))
 

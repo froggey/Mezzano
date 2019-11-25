@@ -124,17 +124,20 @@
            value
            (uart-16550-reg-address reg)))
 
-(defun debug-serial-write-byte (byte)
+(defun debug-serial-write-byte-1 (byte)
   #+x86-64
   (setf (sys.int::io-port/8 +bochs-log-port+) byte)
+  ;; Wait for the TX FIFO to empty.
+  (loop
+     until (logbitp +serial-lsr-thr-empty+
+                    (uart-16550-reg +serial-LSR+)))
+  ;; Write byte.
+  (setf (uart-16550-reg +serial-THR+) byte))
+
+(defun debug-serial-write-byte (byte)
   (safe-without-interrupts (byte)
     (with-symbol-spinlock (*debug-serial-lock*)
-      ;; Wait for the TX FIFO to empty.
-      (loop
-         until (logbitp +serial-lsr-thr-empty+
-                        (uart-16550-reg +serial-LSR+)))
-      ;; Write byte.
-      (setf (uart-16550-reg +serial-THR+) byte))))
+      (debug-serial-write-byte-1 byte))))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
@@ -153,8 +156,37 @@
            (debug-serial-write-byte byte)))))
 
 (defun debug-serial-write-string (string)
-  (dotimes (i (string-length string))
-    (debug-serial-write-char (char string i))))
+  (safe-without-interrupts (string)
+    (with-symbol-spinlock (*debug-serial-lock*)
+      (dotimes (i (string-length string))
+        (let ((char (char string i)))
+          (cond ((eql char #\Newline)
+                 (setf *serial-at-line-start* t)
+                 ;; Turn #\Newline into CRLF
+                 (debug-serial-write-byte-1 #x0D)
+                 (debug-serial-write-byte-1 #x0A))
+                (t
+                 (setf *serial-at-line-start* nil)
+                 (with-utf-8-bytes (char byte)
+                   (debug-serial-write-byte-1 byte)))))))))
+
+(defun debug-serial-flush-buffer (buf)
+  (safe-without-interrupts (buf)
+    (with-symbol-spinlock (*debug-serial-lock*)
+      (let ((buf-data (car buf)))
+        ;; To get inline wired accessors....
+        (declare (type (simple-array (unsigned-byte 8) (*)) buf-data)
+                 (optimize speed (safety 0)))
+        (dotimes (i (cdr buf))
+          (let ((byte (aref buf-data (the fixnum i))))
+            (cond ((eql byte #.(char-code #\Newline))
+                   (setf *serial-at-line-start* t)
+                   ;; Turn #\Newline into CRLF
+                   (debug-serial-write-byte-1 #x0D)
+                   (debug-serial-write-byte-1 #x0A))
+                  (t
+                   (setf *serial-at-line-start* nil)
+                   (debug-serial-write-byte-1 byte)))))))))
 
 (defun debug-serial-stream (op &optional arg)
   (ecase op
@@ -162,6 +194,7 @@
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
+    (:flush-buffer (debug-serial-flush-buffer arg))
     (:force-output)
     (:start-line-p *serial-at-line-start*)))
 

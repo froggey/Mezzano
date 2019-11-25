@@ -211,10 +211,10 @@
        for (server . tag) in *dns-servers*
        for id = (random (expt 2 16))
        do (mezzano.network.udp:with-udp-connection (conn server +dns-port+)
-            (sys.net:send (build-dns-packet id +dns-standard-query+
+            (net:send (build-dns-packet id +dns-standard-query+
                                             :questions `((,domain :a :in)))
                           conn)
-            (let ((response (sys.net:receive conn :timeout 10)))
+            (let ((response (net:receive conn :timeout 10)))
               (when response
                 (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
                     (decode-dns-packet response)

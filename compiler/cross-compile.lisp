@@ -3,7 +3,31 @@
 
 ;;;; Support functions for cross-compilation.
 
-(in-package :sys.c)
+(in-package :cross-support)
+
+(defmacro mezzano.extensions:cas (place old new)
+  ;; As a special cross-build exception, support hash-tables.
+  (cond ((and (consp place)
+              (eql (first place) 'gethash))
+         (destructuring-bind (key hash-table &optional default)
+             (rest place)
+           `(cas-hash-table ,key ,hash-table ,default ,old ,new)))
+        (t
+         `(error "Cross-cas ~S not supported" place))))
+
+(defun sys.int::%defun (name lambda &optional documentation)
+  (declare (ignore documentation))
+  ;; Completely ignore CAS functions when cross compiling, they're not needed.
+  (unless (and (consp name) (eql (first name) 'mezzano.extensions:cas))
+    (setf (fdefinition name) lambda))
+  name)
+
+(defun fboundp (name)
+  (if (and (consp name) (eql (first name) 'mezzano.extensions:cas))
+      nil
+      (cl:fboundp name)))
+
+(in-package :mezzano.compiler)
 
 (define-condition sys.int::simple-style-warning (style-warning simple-condition) ())
 
@@ -11,7 +35,7 @@
 
 (defvar *target-architecture*)
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defun mezzano.clos:class-precedence-list (class)
   (c2mop:class-precedence-list class))
@@ -103,15 +127,15 @@
                   :documentation (structure-slot-definition-documentation object)))))
 
 (defstruct (instance-header
-             (:constructor sys.c::%%make-instance-header
+             (:constructor mezzano.compiler::%%make-instance-header
                            (layout)))
   layout)
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun mezzano.runtime::%make-instance-header (layout)
   (assert (not (eql layout t)))
-  (sys.c::%%make-instance-header layout))
+  (%%make-instance-header layout))
 
 (defun mezzano.runtime::%unpack-instance-header (header)
   (sys.int::instance-header-layout header))
@@ -297,104 +321,11 @@
     (#x1040A0 "WWW-Refresh")
     (#x1040A1 "WWW-Favorites")))
 
-(defun character-reader (stream ch p)
-  (declare (ignore ch p))
-  (let ((x (read-char stream t nil t))
-        (y (peek-char nil stream nil nil t)))
-    (if (or (eql nil y)
-            (get-macro-character y)
-            (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
-        ;; Simple form: Single character followed by EOF or a non-constituent character.
-        ;; Just return the character that was read.
-        x
-        ;; Reading a character name, similar to read-token, but no special handling
-        ;; is done for packages or numbers.
-        (let ((token (make-array 1
-                                 :element-type 'character
-                                 :initial-element x
-                                 :adjustable t
-                                 :fill-pointer t)))
-          (do ((z (read-char stream nil nil t)
-                  (read-char stream nil nil t)))
-              ((or (eql nil z)
-                   (when (or (get-macro-character z)
-                             (member z '(#\Space #\Tab #\Newline) :test #'char-equal))
-                     (unread-char z stream)
-                     t)))
-            (vector-push-extend z token))
-          ;; Finished reading the token, convert it to a character
-          (let ((c (cross-name-char token)))
-            (when (and (not c) (not *read-suppress*))
-              (error 'simple-reader-error :stream stream
-                     :format-control "Unrecognized character name ~S."
-                     :format-arguments (list token)))
-            c)))))
-
-(defun cross-name-char (name)
+(defun name-char (name)
   (or (loop for (code . names) in *char-name-alist*
          when (member name names :test #'string-equal)
          do (return (code-char code)))
-      (name-char name)))
-
-(defvar *cross-readtable* (copy-readtable nil))
-(set-dispatch-macro-character #\# #\\ 'character-reader *cross-readtable*)
-
-(defun read-backquote (stream first)
-  (declare (ignore first))
-  (list 'sys.int::backquote (read stream t nil t)))
-
-(defun read-comma (stream first)
-  (declare (ignore first))
-  (case (peek-char nil stream t)
-    (#\@ (read-char stream t nil t)
-         (list 'sys.int::bq-comma-atsign (read stream t nil t)))
-    (#\. (read-char stream t nil t)
-         (list 'sys.int::bq-comma-dot (read stream t nil t)))
-    (otherwise
-     (list 'sys.int::bq-comma (read stream t nil t)))))
-
-(set-macro-character #\` 'read-backquote nil *cross-readtable*)
-(set-macro-character #\, 'read-comma nil *cross-readtable*)
-
-(defun eval-feature-test (test)
-  "Evaluate the feature expression TEST."
-  (etypecase test
-    (symbol (member test sys.int::*features*))
-    (cons (case (car test)
-            (:not (when (or (null (cdr test)) (cddr test))
-                    (error "Invalid feature expression ~S" test))
-                  (not (eval-feature-test (cadr test))))
-            (:and (dolist (subexpr (cdr test) t)
-                    (when (not (eval-feature-test subexpr))
-                      (return nil))))
-            (:or (dolist (subexpr (cdr test) nil)
-                   (when (eval-feature-test subexpr)
-                     (return t))))
-            (t (error "Invalid feature expression ~S" test))))))
-
-(defun read-features (stream suppress-if-false)
-  "Common function to implement #+ and #-."
-  (let* ((test (let ((*package* (find-package "KEYWORD")))
-                 (read stream t nil t)))
-         (*read-suppress* (or *read-suppress*
-                              (if suppress-if-false
-                                  (not (eval-feature-test test))
-                                  (eval-feature-test test))))
-         (value (read stream t nil t)))
-    (if *read-suppress*
-        (values)
-        value)))
-
-(defun read-feature-plus (stream ch p)
-  (declare (ignore ch p))
-  (read-features stream t))
-
-(defun read-feature-minus (stream ch p)
-  (declare (ignore ch p))
-  (read-features stream nil))
-
-(set-dispatch-macro-character #\# #\+ 'read-feature-plus *cross-readtable*)
-(set-dispatch-macro-character #\# #\- 'read-feature-minus *cross-readtable*)
+      (cl:name-char name)))
 
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)
@@ -571,11 +502,12 @@
                          (and (not compile) (not load) (not eval)))
                      nil)
                     (t (error "Impossible!"))))))
-             ;; 6. Otherwise, the form is a top level form that is not one of the
-             ;;    special cases. In compile-time-too mode, the compiler first
-             ;;    evaluates the form in the evaluation environment and then minimally
-             ;;    compiles it. In not-compile-time mode, the form is simply minimally
-             ;;    compiled. All subforms are treated as non-top-level forms.
+             ;; 6. Otherwise, the form is a top level form that is not one
+             ;;    of the special cases. In compile-time-too mode, the compiler
+             ;;    first evaluates the form in the evaluation environment
+             ;;    and then minimally compiles it. In not-compile-time mode,
+             ;;    the form is simply minimally compiled. All subforms are
+             ;;    treated as non-top-level forms.
              (t (when (eql mode :compile-time-too)
                   (x-eval expansion env))
                 (when *output-fasl*
@@ -626,18 +558,15 @@
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (let ((sys.lap:*function-reference-resolver* #'resolve-fref))
-        (declare (special sys.lap:*function-reference-resolver*)) ; blech.
-        (sys.lap:perform-assembly-using-target
+      (let ((mezzano.lap:*function-reference-resolver* #'resolve-fref))
+        (declare (special mezzano.lap:*function-reference-resolver*)) ; blech.
+        (mezzano.lap:perform-assembly-using-target
          (canonicalize-target architecture)
          code
          :base-address 16
          :initial-symbols '((nil . :fixup)
                             (t . :fixup)
                             (:unbound-value . :fixup)
-                            (:undefined-function . :fixup)
-                            (:closure-trampoline . :fixup)
-                            (:funcallable-instance-trampoline . :fixup)
                             (:symbol-binding-cache-sentinel . :fixup))
          :info (list name debug-info)))
     (declare (ignore symbols))
@@ -1062,7 +991,7 @@
                      :if-exists :supersede
                      :direction :output)
       (write-llf-header *output-fasl* input-file)
-      (let* ((*readtable* (copy-readtable *cross-readtable*))
+      (let* ((*readtable* (copy-readtable *readtable*))
              (*output-map* (make-hash-table))
              (*pending-llf-commands* nil)
              (*package* (or (find-package (or package "CROSS-CL-USER"))
@@ -1073,18 +1002,22 @@
              (*compile-file-truename* (truename *compile-file-pathname*))
              (*gensym-counter* 0)
              (cl:*features* *features*)
-             (sys.int::*top-level-form-number* 0))
+             (sys.int::*top-level-form-number* 0)
+             (location-stream (make-instance 'sys.int::location-tracking-stream
+                                             :stream input)))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
-        (loop for form = (read input nil input) do
-             (when (eql form input)
-               (return))
-             (when *compile-print*
-               (let ((*print-length* 3)
-                     (*print-level* 2))
-                 (format t ";; X-compiling: ~S~%" form)))
-             (x-compile-top-level form nil)
-             (incf sys.int::*top-level-form-number*))
+        (sys.int::with-reader-location-tracking
+          (loop
+             for form = (read location-stream nil input)
+             until (eql form input)
+             do
+               (when *compile-print*
+                 (let ((*print-length* 3)
+                       (*print-level* 2))
+                   (format t ";; X-compiling: ~S~%" form)))
+               (x-compile-top-level form nil)
+               (incf sys.int::*top-level-form-number*)))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *pending-llf-commands*)))
@@ -1106,7 +1039,7 @@
                            (print *compile-print*)
                            (external-format :default))
   (with-open-file (input input-file :external-format external-format)
-    (let* ((*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *readtable*))
            (*package* (find-package "CROSS-CL-USER"))
            (*compile-print* print)
            (*compile-verbose* verbose)
@@ -1132,7 +1065,7 @@
                    :if-exists :supersede
                    :direction :output)
     (write-llf-header *output-fasl* path)
-    (let* ((*readtable* (copy-readtable *cross-readtable*))
+    (let* ((*readtable* (copy-readtable *readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)
            (*package* (find-package "CROSS-CL-USER"))
@@ -1186,7 +1119,7 @@
   `(integer 0 ,most-positive-fixnum))
 
 (defun sys.int::fixnump (object)
-  (sys.c::fixnump object))
+  (fixnump object))
 
 (defun mezzano.runtime::left-shift (integer count)
   (check-type integer integer)
@@ -1259,3 +1192,81 @@
   ;; Always use (type foo ..)  over (foo ..)
   (member declaration '(special constant sys.int::global inline notinline
                         sys.int::maybe-inline type ftype declaration optimize)))
+
+(in-package :mezzano.internals)
+
+(defgeneric location-tracking-stream-line (stream)
+  (:method (stream) nil))
+(defgeneric location-tracking-stream-character (stream)
+  (:method (stream) nil))
+
+(defclass location-tracking-stream (sb-gray:fundamental-character-input-stream)
+  ((%stream :initarg :stream :reader location-tracking-stream-stream)
+   (%line :initarg :line :accessor location-tracking-stream-line)
+   (%character :initarg :character :accessor location-tracking-stream-character)
+   (%unread-character :accessor location-tracking-stream-unread-character))
+  (:default-initargs :character 0 :line 1))
+
+(defgeneric location-tracking-stream-location (stream)
+  (:documentation "Return a SOURCE-LOCATION indicating the current location in the stream. Returns NIL if location tracking is unavailable.
+This should only fill in the START- slots and ignore the END- slots.")
+  (:method (stream) nil))
+
+(defmethod location-tracking-stream-location ((stream location-tracking-stream))
+  (make-source-location
+   :file (and *compile-file-pathname*
+              (ignore-errors (namestring *compile-file-pathname*)))
+   :top-level-form-number *top-level-form-number*
+   :position (let ((inner (location-tracking-stream-stream stream)))
+               (if (typep inner 'file-stream)
+                   (file-position inner)
+                   nil))
+   :line (location-tracking-stream-line stream)
+   :character (location-tracking-stream-character stream)))
+
+(defmethod sb-gray:stream-read-char ((stream location-tracking-stream))
+  (let ((ch (read-char (location-tracking-stream-stream stream) nil :eof)))
+    (cond ((eql ch :eof))
+          ((eql ch #\Newline)
+           (incf (location-tracking-stream-line stream))
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (setf (location-tracking-stream-character stream) 0))
+          (t
+           (setf (location-tracking-stream-unread-character stream)
+                 (location-tracking-stream-character stream))
+           (incf (location-tracking-stream-character stream))))
+    ch))
+
+(defmethod sb-gray:stream-unread-char ((stream location-tracking-stream) character)
+  (when (eql character #\Newline)
+    (decf (location-tracking-stream-line stream)))
+  (setf (location-tracking-stream-character stream)
+        (location-tracking-stream-unread-character stream))
+  (unread-char character (location-tracking-stream-stream stream)))
+
+(defun mezzano.supervisor:make-rw-lock (&optional name)
+  (declare (ignore name))
+  :rw-lock)
+
+(defun mezzano.supervisor:rw-lock-read-acquire (lock &optional wait-p)
+  (declare (ignore lock wait-p))
+  t)
+
+(defun mezzano.supervisor:rw-lock-read-release (lock)
+  (declare (ignore lock))
+  (values))
+
+(defun mezzano.supervisor:rw-lock-write-acquire (lock &optional wait-p)
+  (declare (ignore lock wait-p))
+  t)
+
+(defun mezzano.supervisor:rw-lock-write-release (lock)
+  (declare (ignore lock))
+  (values))
+
+(defmacro mezzano.supervisor:with-rw-lock-read ((lock) &body body)
+  `(progn ,@body))
+
+(defmacro mezzano.supervisor:with-rw-lock-write ((lock) &body body)
+  `(progn ,@body))

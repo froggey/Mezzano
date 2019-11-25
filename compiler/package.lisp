@@ -3,10 +3,10 @@
 
 ;;;; Various packages.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defpackage :mezzano.compiler
-  (:nicknames :sys.c :system.compiler)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:compile
            #:compiler-macro-function
            #:*macroexpand-hook*
@@ -35,7 +35,6 @@
            #:lambda-information-allow-other-keys
            #:lambda-information-environment-arg
            #:lambda-information-environment-layout
-           #:lambda-information-fref-arg
            #:lambda-information-closure-arg
            #:lambda-information-count-arg
            #:lambda-information-plist
@@ -104,16 +103,117 @@
            #:ast-targets)
   (:use :cl))
 
+(defpackage :mezzano.lap
+  (:documentation "The system assembler.")
+  (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:export #:perform-assembly-using-target
+           #:perform-assembly
+           #:emit
+           #:emit-relocation
+           #:immediatep
+           #:resolve-immediate
+           #:*current-address*
+           #:note-fixup
+           #:note-variably-sized-instruction
+           #:*function-reference-resolver*
+           #:label
+           #:make-label
+           #:label-name
+           #:add-to-constant-pool))
+
+(defpackage :mezzano.lap.x86
+  (:documentation "x86 assembler for LAP.")
+  (:local-nicknames (:sys.int :mezzano.internals))
+  (:use :cl :mezzano.lap))
+
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:use :cl))
 
-(defpackage :system.internals
-  (:nicknames :sys.int)
+(defpackage :mezzano.extensions
+  (:use :cl)
+  (:export
+   #:*module-provider-functions*
+   #:*ed-hook*
+   #:*inspect-hook*
+   #:lisp-version-string
+   #:setf-expander-function
+   #:gc
+
+   ;; Weak pointers
+   #:weak-pointer
+   #:weak-pointer-p
+   #:make-weak-pointer
+   #:weak-pointer-value
+   #:weak-pointer-key
+   #:weak-pointer-pair
+
+   ;; Atomics
+   #:cas
+   #:get-cas-expansion
+   #:atomic-incf
+   #:atomic-decf
+
+   ;; Package local nicknames
+   #:find-global-package
+   #:package-local-nicknames
+   #:package-locally-nicknamed-by-list
+   #:add-package-local-nickname
+   #:remove-package-local-nickname
+   ))
+
+(defpackage :mezzano.debug
+  (:use :cl)
+  (:export
+   ;; Backtraces & frames.
+   #:backtrace
+   #:map-backtrace
+   #:frame
+   #:frame-depth
+   #:frame-function
+   #:print-frame
+   #:local-variable
+   #:local-variable-name
+   #:local-variable-value
+   #:frame-local-variables
+   ;; Source locations
+   #:source-location
+   #:source-location-top-level-form-number
+   #:source-location-file
+   #:source-location-line
+   #:source-location-end-line
+   #:source-location-character
+   #:source-location-end-character
+   #:source-location-position
+   #:source-location-end-position
+   #:function-source-location
+   ;; Cross-references
+   #:list-callers
+   #:list-callees
+   ;; Other introspection.
+   #:macro-function-lambda-list
+   #:function-lambda-list
+   #:function-name
+))
+
+(defpackage :mezzano.internals
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:use :cl))
+
+;; Compatibility imports so these symbols have the right home package
+;; but can still be accessed in internals.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (dolist (package '(:mezzano.extensions
+                     :mezzano.debug))
+    (do-external-symbols (sym package)
+      (import sym :mezzano.internals))))
 
 (defpackage :mezzano.clos
   (:use :cl)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:defclass #:defgeneric #:defmethod
 
            #:find-class
@@ -196,6 +296,8 @@
            #:ensure-class
            #:ensure-class-using-class
 
+           #:ensure-generic-function-using-class
+
            #:structure-slot-definition
            #:structure-effective-slot-definition
            #:structure-direct-slot-definition
@@ -212,6 +314,8 @@
 ;;; Supervisor manages the hardware, doing paging and memory management.
 (defpackage :mezzano.supervisor
   (:use :cl)
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:export #:current-thread
            #:with-symbol-spinlock
            #:with-pseudo-atomic
@@ -283,15 +387,31 @@
            #:mutex-p
            #:make-mutex
            #:with-mutex
+           #:mutex-name
            #:mutex-held-p
+           #:mutex-contested-count
            #:acquire-mutex
            #:release-mutex
            #:condition-variable
            #:condition-variable-p
            #:make-condition-variable
+           #:condition-variable-name
            #:condition-wait
            #:condition-wait-for
            #:condition-notify
+           #:rw-lock
+           #:rw-lock-p
+           #:make-rw-lock
+           #:rw-lock-name
+           #:rw-lock-read-acquire
+           #:rw-lock-read-release
+           #:with-rw-lock-read
+           #:rw-lock-read-contested-count
+           #:rw-lock-write-acquire
+           #:rw-lock-write-release
+           #:with-rw-lock-write
+           #:rw-lock-write-held-p
+           #:rw-lock-write-contested-count
            #:latch
            #:latch-p
            #:make-latch
@@ -335,6 +455,8 @@
            #:map-physical-memory
            #:add-deferred-boot-action
            #:logical-core-count
+           #:get-high-precision-timer
+           #:high-precision-time-units-to-internal-time-units
 
            #:boot-uuid
            #:boot-field
@@ -447,31 +569,13 @@
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
 (defpackage :mezzano.runtime
-  (:use :cl))
-
-(defpackage :sys.lap
-  (:documentation "The system assembler.")
   (:use :cl)
-  (:export #:perform-assembly-using-target
-           #:perform-assembly
-           #:emit
-           #:emit-relocation
-           #:immediatep
-           #:resolve-immediate
-           #:*current-address*
-           #:note-fixup
-           #:note-variably-sized-instruction
-           #:*function-reference-resolver*
-           #:label
-           #:make-label
-           #:label-name))
-
-(defpackage :sys.lap-x86
-  (:documentation "x86 assembler for LAP.")
-  (:use :cl :sys.lap))
+  (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.compiler.backend
   (:use :cl :mezzano.compiler)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:virtual-register
            #:virtual-register-kind
            #:backend-function
@@ -506,7 +610,6 @@
            #:label-phis
 
            #:argument-setup-instruction
-           #:argument-setup-fref
            #:argument-setup-closure
            #:argument-setup-count
            #:argument-setup-required
@@ -629,6 +732,12 @@
            #:make-dx-closure-function
            #:make-dx-closure-environment
 
+           #:make-dx-typed-vector-instruction
+           #:make-dx-typed-vector-result
+           #:make-dx-typed-vector-size
+           #:make-dx-typed-vector-type
+           #:make-dx-typed-vector-zero-fill-p
+
            #:box-type
            #:box-instruction
            #:box-destination
@@ -675,6 +784,7 @@
 
 (defpackage :mezzano.compiler.backend.ast-convert
   (:use :cl :mezzano.compiler :mezzano.compiler.backend)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export #:convert))
 
 (defpackage :mezzano.compiler.backend.register-allocator
@@ -683,7 +793,6 @@
   (:export #:target-argument-registers
            #:target-return-register
            #:target-funcall-register
-           #:target-fref-register
            #:target-count-register
            #:architectural-physical-registers
            #:valid-physical-registers-for-kind
@@ -694,18 +803,25 @@
 
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl)
-  (:local-nicknames (:lap :sys.lap-x86)
+  (:local-nicknames (:lap :mezzano.lap.x86)
                     (:ir :mezzano.compiler.backend)
-                    (:ra :mezzano.compiler.backend.register-allocator)))
+                    (:ra :mezzano.compiler.backend.register-allocator)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.compiler.backend.arm64
   (:use :cl)
   (:local-nicknames (:lap :mezzano.lap.arm64)
                     (:ir :mezzano.compiler.backend)
-                    (:ra :mezzano.compiler.backend.register-allocator)))
+                    (:ra :mezzano.compiler.backend.register-allocator)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.simd
   (:use :cl)
+  (:local-nicknames (:lap :mezzano.lap.x86)
+                    (:c :mezzano.compiler)
+                    (:sys.int :mezzano.internals))
   (:export #:make-mmx-vector
            #:mmx-vector-value
            #:mmx-vector
@@ -729,6 +845,8 @@
 
 (defpackage :mezzano.delimited-continuations
   (:use :cl)
+  (:local-nicknames (:lap :mezzano.lap.x86)
+                    (:sys.int :mezzano.internals))
   (:export #:delimited-continuation-p
            #:delimited-continuation
            #:make-prompt-tag
@@ -748,5 +866,4 @@
            #:barrier-present-tag
            #:barrier-present-barrier
            #:unknown-prompt-tag
-           #:unknown-prompt-tag-tag)
-  (:local-nicknames (:lap :sys.lap-x86)))
+           #:unknown-prompt-tag-tag))

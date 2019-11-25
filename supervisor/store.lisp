@@ -2,13 +2,16 @@
 ;;;; This code is licensed under the MIT license.
 
 ;;;; Persistent storage management.
-;;;; This is completely protected by *VM-LOCK*. It must be held before calling
-;;;; STORE-ALLOC, STORE-FREE, or REGENERATE-STORE-FREELIST.
+;;;; This is completely protected by *VM-LOCK*. It must be write-locked
+;;;; before calling STORE-ALLOC, STORE-FREE, or REGENERATE-STORE-FREELIST.
 
 ;;; External API:
 ;;; STORE-ALLOC - Allocate blocks from the store.
 ;;; STORE-FREE - Release blocks back to the store.
 ;;; STORE-STATISTICS - Return information about the store.
+;;; STORE-DEFERRED-FREE - Free blocks, but defer until they're released.
+;;; STORE-RELEASE-DEFERRED-BLOCKS
+;;; REGENERATE-STORE-FREELIST - used by snapshot.
 
 (in-package :mezzano.supervisor)
 
@@ -223,7 +226,7 @@
 
 (defun store-free (start n-blocks)
   (ensure (not (eql start sys.int::+block-map-id-lazy+)) "Tried to free lazy block.")
-  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
+  (ensure (rw-lock-write-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   (incf *store-freelist-n-free-blocks* n-blocks)
   (store-insert-range start n-blocks t))
@@ -231,7 +234,7 @@
 ;; TODO: Be smarter here, check for overlaps in the deferred list and the main freelist.
 (defun store-deferred-free (start n-blocks)
   (ensure (not (eql start sys.int::+block-map-id-lazy+)) "Tried to free lazy block.")
-  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
+  (ensure (rw-lock-write-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   ;;(debug-print-line "Deferred store free " start " " n-blocks)
   (let ((end (+ start n-blocks)))
@@ -250,8 +253,7 @@
         (return)))))
 
 (defun store-alloc (n-blocks)
-  "Allocate from the in-memory freelist only. The freelist lock must be held."
-  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when allocating store.")
+  (ensure (rw-lock-write-held-p *vm-lock*) "*VM-LOCK* must be held when allocating store.")
   (store-maybe-refill-metadata)
   ;; Find a free range large enough.
   (do ((range *store-freelist-head* (freelist-metadata-next range)))
@@ -339,14 +341,14 @@
 
 (defun store-statistics ()
   "Return three values: The number of blocks free, the total number of blocks, and the number of deferred free blocks."
-  ;; Disable interrupts to avoid smearing if a snapshot is taken between the two reads.
-  (safe-without-interrupts ()
+  ;; Inhibit snapshots to avoid smearing if a snapshot is taken between the two reads.
+  (with-snapshot-inhibited ()
     (values *store-freelist-n-free-blocks*
             *store-freelist-total-blocks*
             *store-freelist-n-deferred-free-blocks*)))
 
 (defun regenerate-store-freelist ()
-  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held in REGENERATE-STORE-FREELIST.")
+  (ensure (rw-lock-write-held-p *vm-lock*) "*VM-LOCK* must be held in REGENERATE-STORE-FREELIST.")
   (let ((n-deferred-ranges 0)
         (n-real-ranges 0)
         (free-block-list nil)

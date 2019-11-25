@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Attempt to eliminate temporary variables (bound, never assigned, used once).
 ;;; Bound forms are pushed forward through the IR until their one use point
@@ -77,7 +77,10 @@
 (defun temporary-p (varlike)
   (and (lexical-variable-p varlike)
        (eql (lexical-variable-use-count varlike) 1)
-       (zerop (lexical-variable-write-count varlike))))
+       (zerop (lexical-variable-write-count varlike))
+       ;; Don't move D-X variables forwards, this runs the risk
+       ;; of them losing their D-X nature and causing allocations.
+       (not (lexical-variable-dynamic-extent varlike))))
 
 (defmethod kt-form ((form ast-block) &optional target-variable replacement-form)
   (multiple-value-bind (new-body did-replace)

@@ -6,7 +6,8 @@
   (:import-from #:mezzano.cold-generator
                 #:configure-system-for-target)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
-                    (#:lap #:mezzano.lap.arm64)))
+                    (#:lap #:mezzano.lap.arm64)
+                    (#:sys.int #:mezzano.internals)))
 
 (in-package :mezzano.cold-generator.arm64)
 

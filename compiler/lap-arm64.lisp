@@ -5,8 +5,8 @@
 
 (defparameter *instruction-assemblers* (make-hash-table))
 
-(defmethod sys.lap:perform-assembly-using-target ((target sys.c:arm64-target) code-list &rest args &key &allow-other-keys)
-  (apply 'sys.lap:perform-assembly *instruction-assemblers* code-list args))
+(defmethod mezzano.lap:perform-assembly-using-target ((target mezzano.compiler:arm64-target) code-list &rest args &key &allow-other-keys)
+  (apply 'mezzano.lap:perform-assembly *instruction-assemblers* code-list args))
 
 (defun add-instruction (name function)
   (unless (keywordp name)
@@ -27,16 +27,16 @@
 
 (defun emit-byte (value)
   (check-type value (unsigned-byte 8))
-  (sys.lap:emit value))
+  (mezzano.lap:emit value))
 
 (defun emit-instruction (value)
   (check-type value (unsigned-byte 32))
-  (assert (not (logtest sys.lap:*current-address* #b11)) ()
+  (assert (not (logtest mezzano.lap:*current-address* #b11)) ()
           "Instruction stream is misaligned.")
-  (sys.lap:emit (ldb (byte 8 0) value)
-                (ldb (byte 8 8) value)
-                (ldb (byte 8 16) value)
-                (ldb (byte 8 24) value)))
+  (mezzano.lap:emit (ldb (byte 8 0) value)
+                    (ldb (byte 8 8) value)
+                    (ldb (byte 8 16) value)
+                    (ldb (byte 8 24) value)))
 
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
@@ -45,9 +45,9 @@
          (let ((slot (second value)))
            ;; subtract +tag-object+, skip object header.
            ;; Return an expression, so slot goes through symbol resolution, etc.
-           (+ (- #b1001) 8 (* (sys.lap:resolve-immediate slot) 8))))
+           (+ (- sys.int::+tag-object+) 8 (* (mezzano.lap:resolve-immediate slot) 8))))
         (t
-         (sys.lap:resolve-immediate value))))
+         (mezzano.lap:resolve-immediate value))))
 
 (defun register-class (register)
   (case register
@@ -202,7 +202,7 @@
              `(:constant-address ,(second address))))
     (:function
      (values :pc :pc
-             `(:constant-address ,(funcall sys.lap:*function-reference-resolver*
+             `(:constant-address ,(funcall mezzano.lap:*function-reference-resolver*
                                            (second address)))))
     (:symbol-global-cell
      (values :pc :pc
@@ -380,7 +380,7 @@
         (:pc
          (let ((imm-value (resolve-immediate offset)))
            ;; LDR (literal)
-           (sys.lap:emit-relocation :arm-pcrel
+           (mezzano.lap:emit-relocation :arm-pcrel
                                     (or imm-value offset)
                                     (logior #x18000000
                                             size-bit
@@ -839,7 +839,7 @@
       (:pc
        (let ((imm-value (resolve-immediate offset)))
          ;; LDR (literal)
-         (sys.lap:emit-relocation :arm-pcrel
+         (mezzano.lap:emit-relocation :arm-pcrel
                                   (or imm-value offset)
                                   (logior #x98000000
                                           (ash (register-number reg) +rt-shift+)))
@@ -849,7 +849,7 @@
 (define-instruction adr (reg address)
   (let ((imm-value (resolve-immediate address)))
     (check-register-class reg :gpr-64 :xzr)
-    (sys.lap:emit-relocation :arm-pcrel-adr
+    (mezzano.lap:emit-relocation :arm-pcrel-adr
                              (or imm-value address)
                              (logior #x10000000
                                      (ash (register-number reg) +rd-shift+)))
@@ -1214,7 +1214,7 @@
 
 (defun emit-conditional-branch (condition target)
   (let ((imm-value (resolve-immediate target)))
-    (sys.lap:emit-relocation :arm-pcrel
+    (mezzano.lap:emit-relocation :arm-pcrel
                              (or imm-value target)
                              (logior #x54000000
                                      condition))
@@ -1246,7 +1246,7 @@
 
 (define-instruction b (target)
   (let ((imm-value (resolve-immediate target)))
-    (sys.lap:emit-relocation :arm-pcrel-b
+    (mezzano.lap:emit-relocation :arm-pcrel-b
                              (or imm-value target)
                              #x14000000)
     (emit-instruction 0)
@@ -1273,7 +1273,7 @@
 (define-instruction cbz (reg target)
   (check-register-class reg :gpr-64 :gpr-32)
   (let ((imm-value (resolve-immediate target)))
-    (sys.lap:emit-relocation :arm-pcrel
+    (mezzano.lap:emit-relocation :arm-pcrel
                              (or imm-value target)
                              (logior #x34000000
                                      (if (eql (register-class reg) :gpr-64)
@@ -1286,7 +1286,7 @@
 (define-instruction cbnz (reg target)
   (check-register-class reg :gpr-64 :gpr-32)
   (let ((imm-value (resolve-immediate target)))
-    (sys.lap:emit-relocation :arm-pcrel
+    (mezzano.lap:emit-relocation :arm-pcrel
                              (or imm-value target)
                              (logior #x35000000
                                      (if (eql (register-class reg) :gpr-64)
@@ -1303,7 +1303,7 @@
     (if is-64-bit
         (assert (<= 0 bit 63))
         (assert (<= 0 bit 31)))
-    (sys.lap:emit-relocation :arm-pcrel-imm14
+    (mezzano.lap:emit-relocation :arm-pcrel-imm14
                              (or imm-value target)
                              (logior #x37000000
                                      (ash (ldb (byte 1 5) bit) 31)

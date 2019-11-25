@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;; This is the local IP address of the system running the file-server.
 (defparameter *file-server-host-ip* '(192 168 0 123))

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 ;;; Convert variables bindings that have been declared dynamic-extent and have
 ;;; supported initializers to calls to their appropriate internal functions.
@@ -48,6 +48,69 @@
                           collect `(call (setf sys.int::%object-ref-t) ,arg vec ',i))
                      vec))
                 initform))
+          ((and (eql (ast-name initform) 'sys.int::make-array-with-known-element-type)
+                ;; Must be 1D with a fixed size.
+                (typep (first (ast-arguments initform)) 'ast-quote)
+                (integerp (ast-value (first (ast-arguments initform))))
+                ;; Known array info.
+                (typep (third (ast-arguments initform)) 'ast-quote)
+                #++(sys.int::specialized-array-definition-p
+                    (ast-value (third (ast-arguments initform))))
+                ;; Not a character array.
+                (not (eql (sys.int::specialized-array-definition-type
+                           (ast-value (third (ast-arguments initform))))
+                          'character))
+                ;; Initial element should be known and of the right type.
+
+                (typep (ast-value (fifth (ast-arguments initform)))
+                       (sys.int::specialized-array-definition-type
+                        (ast-value (third (ast-arguments initform)))))
+                ;; Not adjustable and no fill-pointer
+                (typep (sixth (ast-arguments initform)) 'ast-quote)
+                (not (ast-value (sixth (ast-arguments initform))))
+                (typep (seventh (ast-arguments initform)) 'ast-quote)
+                (not (ast-value (seventh (ast-arguments initform)))))
+           ;; Phew.
+           (change-made)
+           ;; If the initial element is known and matches the zero initializer
+           ;; for this array, we can skip setting and have make-dx-t-v zero
+           ;; the vector for us.
+           ;; TODO: There's no way to tell the difference between no
+           ;; :initial-element and an :initial-element of zero.
+           ;; An unspecified :initial-element would mean that make-dx-t-v
+           ;; would not need to zero and that no further initialization needs
+           ;; to be done.
+           (if (and (typep (fifth (ast-arguments initform)) 'ast-quote)
+                    (eql (ast-value (fifth (ast-arguments initform)))
+                         (sys.int::specialized-array-definition-zero-element
+                          (ast-value (third (ast-arguments initform))))))
+               (ast `(the (simple-array ,(sys.int::specialized-array-definition-type
+                                          (ast-value (third (ast-arguments initform))))
+                                        (,(ast-value (first (ast-arguments initform)))))
+                          (call make-dx-typed-vector
+                                ',(ast-value (first (ast-arguments initform)))
+                                ',(ast-value (third (ast-arguments initform)))
+                                't))
+                    initform)
+               ;; Otherwise populate every element by hand.
+               (ast `(let ((vec (the (simple-array ,(sys.int::specialized-array-definition-type
+                                                     (ast-value (third (ast-arguments initform))))
+                                                   (,(ast-value (first (ast-arguments initform)))))
+                                     (call make-dx-typed-vector
+                                           ',(ast-value (first (ast-arguments initform)))
+                                           ',(ast-value (third (ast-arguments initform)))
+                                           'nil)))
+                           (fill-value ,(fifth (ast-arguments initform))))
+                       ;; Fill array.
+                       ;; FIXME: There's no way to distinguish between an unspecified
+                       ;; fill value and a fill value of 0.
+                       ;; You get the fill whether you like it or not.
+                       (progn
+                         ,@(loop
+                              for i below (ast-value (first (ast-arguments initform)))
+                              collect `(call (setf aref) fill-value vec ',i))
+                         vec))
+                    initform)))
           (t
            initform))))
 

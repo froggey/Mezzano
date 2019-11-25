@@ -104,9 +104,8 @@
   (sys.lap-x86:ret)
   BAD-ARGS
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:lea64 :rbx (:rip (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+)))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (sys.lap-x86:jmp (:named-call sys.int::raise-invalid-argument-error)))
 
 (defun arch-initialize-thread-state (thread stack-pointer)
   ;; Initialize the FXSAVE area.

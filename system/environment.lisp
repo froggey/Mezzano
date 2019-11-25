@@ -3,7 +3,7 @@
 
 ;;;; 25. Environment
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defvar *site-info* nil
   "Site information, returned by SHORT- and LONG-SITE-NAME.
@@ -236,6 +236,15 @@ A list of two elements, the short & long name." )
       (remhash x *variable-documentation*))
   new-value)
 
+;; DOCUMENTATION on slot definitions.
+
+(defmethod documentation ((x mezzano.clos:standard-slot-definition) (doc-type (eql 't)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x mezzano.clos:standard-slot-definition) (doc-type (eql 't)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
 (defun map-apropos (fn string package)
   (setf string (string string))
   (cond (package
@@ -356,6 +365,15 @@ A list of two elements, the short & long name." )
   (if *git-revision*
       (format nil "~A ~A" *lisp-implementation-version* *git-revision*)
       *lisp-implementation-version*))
+
+(defun lisp-version-string ()
+  "Return a string that identifies the current Lisp implementation version.
+This string will change when backwards-incompatible changes are made.
+It is the implementation of UIOP's lisp-version-string function."
+  (let ((s (lisp-implementation-version)))
+    (format nil "~A-~D"
+            *lisp-implementation-version*
+            *llf-version*)))
 
 (defun short-site-name () (first *site-info*))
 (defun long-site-name () (second *site-info*))

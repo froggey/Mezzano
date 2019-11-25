@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defglobal *hash-table-unbound-value*)
 (defglobal *hash-table-tombstone*)
@@ -17,9 +17,56 @@
   (storage (error "No storage provided.") :type simple-vector)
   (storage-epoch *gc-epoch*)
   (synchronized t)
-  (lock (error "No lock provided.")))
+  lock
+  ;; If true, then all keys are stable over GCs and no rehashing is required
+  ;; when the GC epoch changes.
+  (gc-invariant t))
 
 (declaim (inline %make-hash-table))
+
+(defun object-hash-gc-invariant-under-test (object test)
+  "Returns true if an object's hash will stay the same after a garbage collection cycle."
+  (ecase test
+    (eq
+     ;; All immediate & pinned objects are invariant.
+     (or (immediatep object)
+         (eql (ldb +address-tag+ (lisp-object-address object))
+              +address-tag-pinned+)))
+    (eql
+     ;; As with EQ, plus some numbers
+     (or (immediatep object)
+         (eql (ldb +address-tag+ (lisp-object-address object))
+              +address-tag-pinned+)
+         (numberp object)))
+    (equal
+     (labels ((frob (object depth)
+                (when (zerop depth)
+                  ;; Hard limit on recursion limit for conses, to avoid more complicated
+                  ;; circularity checks.
+                  ;; TODO: Do the normal fast/slow circularity check and chase
+                  ;; all the way down the cdr.
+                  (return-from frob nil))
+                (or (immediatep object)
+                    (and (eql (ldb +address-tag+ (lisp-object-address object))
+                              +address-tag-pinned+)
+                         ;; Pathnames are never pinned and conses are checked below.
+                         (not (consp object)))
+                    (numberp object)
+                    (stringp object)
+                    (bit-vector-p object)
+                    (pathnamep object)
+                    (and (consp object)
+                         (frob (car object) (1- depth))
+                         (frob (cdr object) (1- depth))))))
+       (frob object 10)))
+    (equalp
+     ;; Don't allow arbitray pinned heap objects. EQUALP gets really hairy.
+     (or (immediatep object)
+         (numberp object)
+         (symbolp object)
+         (stringp object)
+         (bit-vector-p object)
+         (pathnamep object)))))
 
 (defun hash-table-size (hash-table)
   (ash (%object-header-data (hash-table-storage hash-table)) -1))
@@ -43,7 +90,12 @@
     ((equal) 'sxhash)
     ((equalp) 'equalp-hash)))
 
-(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t))
+(defun hash-table-enforce-gc-invariant-keys (hash-table)
+  (eql (hash-table-gc-invariant hash-table) :mandatory))
+
+;;; Unsynchronized hash-tables are safe for use with concurrent readers
+;;; as long as they only contains gc-invariant keys.
+(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t) enforce-gc-invariant-keys)
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
         ((eql test #'eql) (setf test 'eql))
@@ -53,13 +105,18 @@
   (check-type size (integer 0) "a non-negative integer")
   (check-type rehash-size (or (integer 1 *) (float (1.0) *)))
   (check-type rehash-threshold (real 0 1))
-  (%make-hash-table :test test
-                    :hash-function (hash-table-test-hash-function test)
-                    :rehash-size rehash-size
-                    :rehash-threshold rehash-threshold
-                    :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)
-                    :synchronized synchronized
-                    :lock (if synchronized (mezzano.supervisor:make-mutex "Hash-table lock") nil)))
+  (let ((ht (%make-hash-table :test test
+                              :hash-function (hash-table-test-hash-function test)
+                              :rehash-size rehash-size
+                              :rehash-threshold rehash-threshold
+                              :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)
+                              :synchronized synchronized
+                              :gc-invariant (if enforce-gc-invariant-keys
+                                                :mandatory
+                                                t))))
+    (when synchronized
+      (setf (hash-table-lock ht) (mezzano.supervisor:make-mutex ht)))
+    ht))
 
 (defmacro with-hash-table-lock ((hash-table) &body body)
   (let ((sym (gensym)))
@@ -85,6 +142,13 @@
   (declare (ignore default))
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
+    (when (and (hash-table-gc-invariant hash-table)
+               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
+        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
+               key (hash-table-test hash-table)))
+      ;; Hash table is no longer invariant.
+      (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
       (cond
@@ -120,6 +184,13 @@
 (defun (cas gethash) (old-value new-value key hash-table &optional default)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
+    (when (and (hash-table-gc-invariant hash-table)
+               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
+        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
+               key (hash-table-test hash-table)))
+      ;; Hash table is no longer invariant.
+      (setf (hash-table-gc-invariant hash-table) nil))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
       (cond
@@ -178,6 +249,8 @@
   (with-hash-table-lock (hash-table)
     (setf (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
+          ;; Make sure to preserve :MANDATORY.
+          (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
           (hash-table-storage hash-table) (make-array (length (hash-table-storage hash-table))
                                                       :initial-element *hash-table-unbound-value*))
     hash-table))
@@ -213,8 +286,9 @@ Requires at least one completely unbound slot to terminate."
      (let ((epoch *gc-epoch*))
        (multiple-value-bind (offset free-slot)
            (find-hash-table-slot-1 key hash-table)
-         (when (and (eql epoch *gc-epoch*)
-                    (eql (hash-table-storage-epoch hash-table) *gc-epoch*))
+         (when (or (hash-table-gc-invariant hash-table)
+                   (and (eql epoch *gc-epoch*)
+                        (eql (hash-table-storage-epoch hash-table) *gc-epoch*)))
            (return (values offset free-slot)))
          (hash-table-rehash hash-table nil)))))
 
@@ -232,12 +306,18 @@ is below the rehash-threshold."
                                                       :initial-element *hash-table-unbound-value*)
           (hash-table-count hash-table) 0
           (hash-table-used hash-table) 0
+          ;; Make sure to preserve :MANDATORY.
+          (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
           (hash-table-storage-epoch hash-table) *gc-epoch*)
     (dotimes (i old-size hash-table)
       (let ((key (svref old-storage (* i 2)))
             (value (svref old-storage (1+ (* i 2)))))
         (unless (or (eq key *hash-table-unbound-value*)
                     (eq value *hash-table-tombstone*))
+          (when (and (hash-table-gc-invariant hash-table)
+                     (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+            ;; Hash table is no longer invariant.
+            (setf (hash-table-gc-invariant hash-table) nil))
           (multiple-value-bind (slot free-slot)
               (find-hash-table-slot-1 key hash-table)
             (when slot

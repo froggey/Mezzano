@@ -3,9 +3,7 @@
 
 (defpackage :mezzano.gray
   (:use :cl)
-  ;; Deprecated - only exists because some external libraries may
-  ;; still refer to it.
-  (:nicknames :sys.gray)
+  (:local-nicknames (:sys.int :mezzano.internals))
   (:export
    ;; Gray Streams classes.
    #:fundamental-stream

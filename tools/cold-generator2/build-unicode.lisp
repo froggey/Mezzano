@@ -1,12 +1,12 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :build-unicode
+(defpackage :mezzano.cold-generator.build-unicode
   (:export :decode-glyph :generate-unifont-table
 	   :read-unicode-data :generate-unicode-data-tables)
   (:use :cl))
 
-(in-package :build-unicode)
+(in-package :mezzano.cold-generator.build-unicode)
 
 (defun decode-glyph (glyph)
   "Generate a simple-bit-vector from GLYPH."
@@ -308,21 +308,21 @@ the seperator character."
 							       :initial-element 0)))
 	    (setf (aref (aref (aref planes plane) row) cell) 0)
             ;; Name store offset.
-            (setf (cross-cl:ldb sys.int::+unicode-info-name-offset+
+            (setf (cross-cl:ldb mezzano.internals::+unicode-info-name-offset+
                                 (aref (aref (aref planes plane) row) cell))
                   (length name-store))
             ;; Compressed name length.
-            (setf (cross-cl:ldb sys.int::+unicode-info-name-length+
+            (setf (cross-cl:ldb mezzano.internals::+unicode-info-name-length+
                                 (aref (aref (aref planes plane) row) cell))
                   (length encoded-name))
             ;; Othercase code.
-            (setf (cross-cl:ldb sys.int::+unicode-info-othercase-code+
+            (setf (cross-cl:ldb mezzano.internals::+unicode-info-othercase-code+
                                 (aref (aref (aref planes plane) row) cell))
                   othercase-code)
             ;; General_Category.
-            (setf (cross-cl:ldb sys.int::+unicode-info-general-category+
+            (setf (cross-cl:ldb mezzano.internals::+unicode-info-general-category+
                                 (aref (aref (aref planes plane) row) cell))
-                  (sys.int::unicode-general-category-encode general-category))
+                  (mezzano.internals::unicode-general-category-encode general-category))
 	    ;; Append the name to the name-store
 	    (dotimes (i (length encoded-name))
 	      (vector-push-extend (aref encoded-name i) name-store))

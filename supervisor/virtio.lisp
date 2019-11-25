@@ -3,7 +3,8 @@
 
 (defpackage :mezzano.supervisor.virtio
   (:use :cl)
-  (:local-nicknames (:sup :mezzano.supervisor))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals))
   (:export #:+virtio-dev-id-invalid+
            #:+virtio-dev-id-net+
            #:+virtio-dev-id-block+
@@ -444,7 +445,7 @@
 (define-virtio-transport-function configure-virtqueues (device n-queues))
 
 (defun virtio-attach-irq (device handler)
-  (declare (sys.c::closure-allocation :wired))
+  (declare (mezzano.compiler::closure-allocation :wired))
   (sup:irq-attach (sup:platform-irq (virtio-device-irq device))
                   (lambda (interrupt-frame irq)
                     (let ((status (virtio-isr-status device)))

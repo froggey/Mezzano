@@ -5,7 +5,8 @@
   (:use :cl)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
                     (#:ser #:mezzano.cold-generator.serialize)
-                    (#:util #:mezzano.cold-generator.util))
+                    (#:util #:mezzano.cold-generator.util)
+                    (#:sys.int #:mezzano.internals))
   (:export #:image-header
            #:image-header-uuid
            #:image-header-entry-fref
@@ -67,7 +68,7 @@
     ;; Major boot protocol version.
     (setf (nibbles:ub16ref/le encoded-header 32) 0)
     ;; Minor boot protocol version.
-    (setf (nibbles:ub16ref/le encoded-header 34) 24)
+    (setf (nibbles:ub16ref/le encoded-header 34) 25)
     ;; Entry fref.
     (setf (nibbles:ub64ref/le encoded-header 40) (image-header-entry-fref header))
     ;; Initial thread.
@@ -128,7 +129,9 @@
     (save (ser:image-wired-area image) sys.int::+block-map-wired+)
     (save (ser:image-pinned-area image) 0)
     (save (ser:image-general-area image) sys.int::+block-map-track-dirty+)
-    (save (ser:image-cons-area image) sys.int::+block-map-track-dirty+)))
+    (save (ser:image-cons-area image) sys.int::+block-map-track-dirty+)
+    (save (ser:image-wired-function-area image) sys.int::+block-map-wired+)
+    (save (ser:image-function-area image) 0)))
 
 (defun write-stacks (image bml4)
   (ser:do-image-stacks (base size image)
@@ -196,7 +199,9 @@
     (doit (ser:image-wired-area image))
     (doit (ser:image-pinned-area image))
     (doit (ser:image-general-area image))
-    (doit (ser:image-cons-area image))))
+    (doit (ser:image-cons-area image))
+    (doit (ser:image-wired-function-area image))
+    (doit (ser:image-function-area image))))
 
 (defun write-block-map (s image-offset block-offset level)
   (let ((data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))

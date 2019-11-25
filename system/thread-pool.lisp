@@ -9,6 +9,7 @@
            #:work-item
            #:make-thread-pool
            #:thread-pool-add
+           #:thread-pool-add-many
            #:thread-pool-cancel-item
            #:thread-pool-flush
            #:thread-pool-shutdown
@@ -25,8 +26,8 @@
 (defclass thread-pool ()
   ((%name :initarg :name :reader thread-pool-name)
    (%initial-bindings :initarg :initial-bindings :reader thread-pool-initial-bindings)
-   (%lock :initform (sup:make-mutex "Thread-Pool lock") :reader thread-pool-lock)
-   (%cvar :initform (sup:make-condition-variable "Thread-Pool cvar") :reader thread-pool-cvar)
+   (%lock :reader thread-pool-lock)
+   (%cvar :reader thread-pool-cvar)
    (%pending :initform '() :accessor thread-pool-pending)
    (%working-threads :initform '() :accessor thread-pool-working-threads)
    (%idle-threads :initform '() :accessor thread-pool-idle-threads)
@@ -35,6 +36,10 @@
    (%shutdown :initform nil :accessor thread-pool-shutdown-p)
    (%keepalive-time :initarg :keepalive-time :accessor thread-pool-keepalive-time))
   (:default-initargs :name nil :initial-bindings '()))
+
+(defmethod initialize-instance :after ((instance thread-pool) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)
+        (slot-value instance '%cvar) (sup:make-condition-variable instance)))
 
 (defclass work-item ()
   ((%name :initarg :name :reader work-item-name)
@@ -105,7 +110,7 @@
                                         (thread-pool-lock thread-pool)
                                         (/ idle-time-remaining internal-time-units-per-second)))))))
          (setf (sup:thread-thread-pool self) thread-pool)
-         (sys.int::unwind-protect-unwind-only
+         (mezzano.internals::unwind-protect-unwind-only
               (catch 'terminate-work
                 (funcall (work-item-function work)))
            ;; Getting here means an unwind occured in the work item and
@@ -115,15 +120,24 @@
            (decf (thread-pool-n-total-threads thread-pool)))
          (setf (sup:thread-thread-pool self) nil)))))
 
-(defun thread-pool-add (function thread-pool &key name priority)
+(defun thread-pool-add (function thread-pool &key name priority bindings)
   "Add a work item to the thread-pool.
 Functions are called concurrently and in FIFO order.
 A work item is returned, which can be passed to THREAD-POOL-CANCEL-ITEM
-to attempt cancel the work."
+to attempt cancel the work.
+BINDINGS is a list of (SYMBOL VALUE) pairs which specify special bindings
+that should be active when FUNCTION is called. These override the
+thread pool's initial-bindings."
   (declare (ignore priority)) ; TODO
   (check-type function function)
   (let ((work (make-instance 'work-item
-                             :function function
+                             :function (if bindings
+                                           (let ((vars (mapcar #'first bindings))
+                                                 (vals (mapcar #'second bindings)))
+                                             (lambda ()
+                                               (progv vars vals
+                                                 (funcall function))))
+                                           function)
                              :name name
                              :thread-pool thread-pool)))
     (sup:with-mutex ((thread-pool-lock thread-pool) :resignal-errors t)
@@ -143,6 +157,21 @@ to attempt cancel the work."
         (incf (thread-pool-n-total-threads thread-pool)))
       (sup:condition-notify (thread-pool-cvar thread-pool)))
     work))
+
+(defun thread-pool-add-many (function values thread-pool &key name priority bindings)
+  "Add many work items to the pool.
+A work item is created for each element of VALUES and FUNCTION is called
+in the pool with that element.
+Returns a list of the work items added."
+  (loop
+     for value in values
+     collect (thread-pool-add
+              (let ((value value))
+                (lambda () (funcall function value)))
+              thread-pool
+              :name name
+              :priority priority
+              :bindings bindings)))
 
 (defun thread-pool-cancel-item (item)
   "Cancel a work item, removing it from its thread-pool.

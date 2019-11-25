@@ -3,13 +3,25 @@
 
 ;;;; setf.lisp
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
 ;; This is also initialized by cold-start.
 ;; Initializing here is just for the sake of the cold generator.
 (defvar *setf-expanders* (make-hash-table))
+
+(defun setf-expander-function (symbol)
+  (check-type symbol symbol)
+  (gethash symbol *setf-expanders*))
+
+(defun (setf setf-expander-function) (value symbol)
+  (check-type symbol symbol)
+  (check-type value (or function null))
+  (if value
+      (setf (gethash symbol *setf-expanders*) value)
+      (remhash symbol *setf-expanders*))
+  value)
 
 (defun expand-setf-function-call (place environment)
   ;; Generate an expansion for a function call form place.
@@ -31,7 +43,7 @@
 (defun get-setf-expansion (place &optional environment)
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-                           (gethash (car place) *setf-expanders*))))
+                           (setf-expander-function (car place)))))
         (cond
           (expander
            ;; Invoke the exansion function.
@@ -164,7 +176,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander documentation)
   (set-setf-docstring access-fn documentation)
-  (setf (gethash access-fn *setf-expanders*) expander))
+  (setf (setf-expander-function access-fn) expander))
 )
 
 (define-modify-macro incf (&optional (delta 1)) +)

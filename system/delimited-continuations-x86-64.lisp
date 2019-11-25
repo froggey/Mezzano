@@ -91,9 +91,8 @@
   (lap:sub64 :rsp 16)
   (lap:mov64 (:rsp 8) :r9)
   (:gc :frame :layout #*1111001)
-  (lap:mov64 :r13 (:function mezzano.supervisor::run-pending-footholds))
   (lap:xor32 :ecx :ecx)
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.supervisor::run-pending-footholds))
   (lap:mov64 :r9 (:rsp 8))
   (lap:add64 :rsp 16)
   (:gc :frame :layout #*1111)
@@ -110,14 +109,13 @@
   (:gc :frame :layout #*1)
   (lap:push :r9) ; 1, values
   (:gc :frame :layout #*11)
-  (lap:mov64 :r13 (:function mezzano.runtime::%allocate-object))
   (lap:mov32 :ecx #.(ash 4 #.sys.int::+n-fixnum-bits+))
   (lap:mov32 :r8d #.(ash #.sys.int::+object-tag-delimited-continuation+
                          #.sys.int::+n-fixnum-bits+)) ; tag
   (lap:xor32 :r9d :r9d) ; data
   (lap:mov32 :r10d #.(ash 5 #.sys.int::+n-fixnum-bits+)) ; size. entry, stack, state, sp, info
   (lap:mov32 :r11d nil) ; area
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.runtime::%allocate-object))
   (lap:mov64 :r9 (:stack 0)) ; r9 = prompt
   (lap:mov64 :r10 (:stack 1)) ; r10 = values
   ;; r8 = new continuation, r9 = prompt, r10 = values.
@@ -127,7 +125,8 @@
              #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Store the entry point...
   (lap:mov64 :r11 (:function %resume-delimited-continuation))
-  (lap:mov64 :rax (:object :r11 #.sys.int::+fref-entry-point+))
+  (lap:mov64 :r11 (:object :r11 #.sys.int::+fref-function+))
+  (lap:mov64 :rax (:object :r11 #.sys.int::+function-entry-point+))
   (lap:mov64 (:object :r8 #.sys.int::+function-entry-point+) :rax)
   ;; Stack, this is the current stack, not the continuation's original stack. Required to support nested continuations.
   (lap:gs)
@@ -199,9 +198,8 @@
   CALL-HANDLER
   (lap:mov64 :r8 :rbx) ; first arg, handler
   (lap:lea64 :r9 (:rsp #.sys.int::+tag-cons+)) ; second arg, continuation + values
-  (lap:mov64 :r13 (:function mezzano.runtime::%apply))
   (lap:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+))
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.runtime::%apply))
   (:gc :frame :multiple-values 0)
   (lap:leave)
   (:gc :no-frame :layout #*0 :multiple-values 0)
@@ -212,9 +210,8 @@
   (lap:sub64 :rsp 16)
   (lap:mov64 (:rsp 8) :rbx)
   (:gc :frame :layout #*111)
-  (lap:mov64 :r13 (:function mezzano.supervisor::run-pending-footholds))
   (lap:xor32 :ecx :ecx)
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (lap:call (:named-call mezzano.supervisor::run-pending-footholds))
   (lap:mov64 :rbx (:rsp 8))
   (lap:add64 :rsp 16)
   (:gc :frame :layout #*11)
@@ -226,9 +223,8 @@
   (:gc :no-frame :layout #*0)
   (lap:mov64 :rbx :r8) ; rbx = continuation.
   (lap:xor32 :ecx :ecx) ; no arguments
-  (lap:mov64 :r13 (:function %resume-delimited-continuation-1))
   ;; Tail call to the main routine.
-  (lap:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (lap:jmp (:named-call %resume-delimited-continuation-1)))
 
 (sys.int::define-lap-function %resume-delimited-continuation (())
   ;; rbx=cont; args in regs
@@ -239,9 +235,10 @@
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx :extra-registers :rax)
   (lap:lock lap:cmpxchg (:object :rbx #.sys.int::+delimited-continuation-state+) :r13)
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (lap:mov64 :r13 (:function %resume-delimited-continuation-1))
-  (lap:cmov64nz :r13 (:function raise-consumed-continuation-resumed))
-  (lap:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+  (lap:jnz ERR)
+  (lap:jmp (:named-call %resume-delimited-continuation-1))
+  ERR
+  (lap:jmp (:named-call raise-consumed-continuation-resumed)))
 
 (sys.int::define-lap-function %resume-delimited-continuation-1 (())
   ;; rbx=cont; args in regs; r13=scratch
@@ -340,7 +337,6 @@
   TOO-MANY-VALUES
   (:gc :frame)
   PHONY-RETURN-ADDRESS ; match %CALL-WITH-PROMPT's GC info
-  (lap:mov64 :r13 (:function error))
   (lap:mov64 :r8 (:constant "Resuming continuation ~S with too many values (MULTPLE-VALUES-LIMIT exceeded)"))
   (lap:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (lap:call (:object :r13 #.sys.int::+fref-entry-point+)))
+  (lap:call (:named-call error)))

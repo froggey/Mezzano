@@ -20,7 +20,7 @@
    (%last-instruction :initform nil)))
 
 (defun backend-function-name (backend-function)
-  (sys.c:lambda-information-name (ast backend-function)))
+  (lambda-information-name (ast backend-function)))
 
 (defclass backend-instruction ()
   ((%next-instruction)
@@ -200,7 +200,7 @@
   (remove-extraneous-multiple-value-saves backend-function)
   (deconstruct-ssa backend-function)
   (lower-local-variables backend-function)
-  (when (= (sys.c::optimize-quality (ast backend-function) 'debug) 0)
+  (when (= (mezzano.compiler::optimize-quality (ast backend-function) 'debug) 0)
     (remove-debug-variable-instructions backend-function))
   (perform-target-lowering-post-ssa backend-function target)
   (mezzano.compiler.backend.register-allocator::canonicalize-call-operands backend-function target)
@@ -216,10 +216,10 @@
   (simplify-cfg backend-function)
   (multiple-value-bind (lap environment-slot)
       (perform-target-lap-generation backend-function debug-map spill-locations stack-layout target)
-    (when sys.c::*trace-asm*
+    (when mezzano.compiler::*trace-asm*
       (format t "~S:~%" (backend-function-name backend-function))
       (dolist (inst lap)
-        (when (not (and (not (eql sys.c::*trace-asm* :full))
+        (when (not (and (not (eql mezzano.compiler::*trace-asm* :full))
                         (consp inst)
                         (member (first inst) '(:gc :debug))))
           (cond ((symbolp inst)
@@ -236,15 +236,15 @@
              ;; Environment index
              environment-slot
              ;; Environment layout
-             (second (sys.c:lambda-information-environment-layout ast-lambda))
+             (second (lambda-information-environment-layout ast-lambda))
              ;; Source file
              (if *compile-file-pathname*
                  (namestring *compile-file-pathname*)
                  nil)
              ;; Top-level form number
              sys.int::*top-level-form-number*
-             (sys.c:lambda-information-lambda-list ast-lambda) ; lambda-list
-             (sys.c:lambda-information-docstring ast-lambda) ; docstring
+             (lambda-information-lambda-list ast-lambda) ; lambda-list
+             (lambda-information-docstring ast-lambda) ; docstring
              nil)) ; precise debug info
      nil
      target)))

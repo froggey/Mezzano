@@ -1174,7 +1174,7 @@ Only works when the window is active."
          (mezzano.sync:mailbox-receive *event-queue* :wait-p nil)
        (when (not validp)
          (return))
-       (sys.int::log-and-ignore-errors
+       (mezzano.internals::log-and-ignore-errors
          (process-event event))))
   ;; FIXME: reimplement the screensaver stuff. tricky bit is not spawing the screen saver over and over.
   #+(or)

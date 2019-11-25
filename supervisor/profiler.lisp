@@ -41,14 +41,15 @@
                  (()
                   (profile-append-entry addr)
                   (profile-append-entry 0)
-                  (return-from profile-append-return-address))
+                  (abandon-page-fault nil))
                ;; The function might be unmapped and in the pinned area, so it's possible
                ;; that this can fault.
-               (sys.int::return-address-to-function addr)))
-         (fn-address (logand (sys.int::lisp-object-address fn) -16))
-         (offset (- addr fn-address)))
-    (profile-append-entry fn)
-    (profile-append-entry offset)))
+               (sys.int::return-address-to-function addr))))
+    (when fn
+      (let* ((fn-address (logand (sys.int::lisp-object-address fn) -16))
+             (offset (- addr fn-address)))
+        (profile-append-entry fn)
+        (profile-append-entry offset)))))
 
 (defun profile-append-call-stack (initial-frame-pointer)
   "Append a complete-as-possible call stack to the profile buffer."
@@ -57,7 +58,7 @@
   (with-page-fault-hook
       (()
        (profile-append-entry :truncated)
-       (return-from profile-append-call-stack))
+       (abandon-page-fault))
     (do ((fp initial-frame-pointer
              (sys.int::memref-unsigned-byte-64 fp 0)))
         ((eql fp 0))
@@ -72,6 +73,8 @@
              *enable-profiling*
              (or *profile-sample-during-gc*
                  (not (world-stopped-p))))
+    (setf *debug-magic-button-hold-variable* t)
+    (stop-other-cpus-for-debug-magic-button)
     (profile-append-entry :start)
     (profile-append-entry (get-internal-real-time))
     (when (or (not *profile-thread*)
@@ -104,7 +107,8 @@
                   (when (thread-full-save-p thread)
                     ;; RIP is valid in the save area.
                     (profile-append-return-address (thread-state-rip thread)))
-                  (profile-append-call-stack (thread-frame-pointer thread))))))))
+                  (profile-append-call-stack (thread-frame-pointer thread))))))
+    (setf *debug-magic-button-hold-variable* nil)))
 
 (defun start-profiling (&key buffer-size thread (reset t) (sample-during-gc t))
   "Set up a profile sample buffer and enable sampling."

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defun ast (form &optional (inherit *current-lambda*))
   "Produce AST nodes from a programmer-friendly representation.

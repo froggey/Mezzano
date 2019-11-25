@@ -109,7 +109,8 @@
 
 (defpackage :mezzano.driver.usb.buffers
   (:use :cl :mezzano.driver.usb)
-  (:local-nicknames (:sup :mezzano.supervisor)))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.driver.usb.threads
   (:use :cl :mezzano.driver.usb)
@@ -119,7 +120,8 @@
   (:use :cl :mezzano.driver.usb)
   (:local-nicknames (:sup :mezzano.supervisor)
                     (:pci :mezzano.supervisor.pci)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
 
 (defpackage :mezzano.driver.usb.ehci
   (:use :cl :mezzano.driver.usb)

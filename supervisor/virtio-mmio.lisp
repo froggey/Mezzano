@@ -6,7 +6,8 @@
 (defpackage :mezzano.supervisor.virtio-mmio-transport
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:virtio :mezzano.supervisor.virtio)))
+                    (:virtio :mezzano.supervisor.virtio)
+                    (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.supervisor.virtio-mmio-transport)
 

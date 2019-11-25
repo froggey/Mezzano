@@ -3,7 +3,7 @@
 
 ;;; Implementations of the standard stream types.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defclass file-stream (stream) ())
 (defclass string-stream (stream) ())

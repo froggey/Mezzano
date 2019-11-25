@@ -5,7 +5,7 @@
 
 ;;; This needs to be redone with CLOS in mind.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 

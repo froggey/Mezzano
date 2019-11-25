@@ -84,7 +84,7 @@
                                 (eql tag (route-tag x)))))
                      *routing-table*))))
 
-(define-condition no-route-to-host (sys.net:network-error)
+(define-condition no-route-to-host (net:network-error)
   ((host :initarg :host :reader no-route-to-host-host))
   (:report (lambda (condition stream)
              (format stream "No route to host ~A"
@@ -225,7 +225,7 @@ ADDRESS must be an ipv4-address designator."
     (push (list destination-host interface packet 0)
           *outstanding-sends*)))
 
-(defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
+(defmethod transmit-ipv4-packet-on-interface (destination-host (interface net::loopback-interface) packet)
   ;; Bounce loopback packets out over the nic for testing as well.
   (mezzano.network.ethernet:transmit-ethernet-packet
    (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))
@@ -233,9 +233,9 @@ ADDRESS must be an ipv4-address designator."
    mezzano.network.ethernet:+ethertype-ipv4+
    packet)
   ;; Use dispatch-async to avoid recursively calling back into the receive path.
-  (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
+  (let ((loopback-packet (make-array (+ 14 (net::packet-length packet))
                                      :element-type '(unsigned-byte 8))))
-    (sys.net::copy-packet loopback-packet
+    (net::copy-packet loopback-packet
                           (cons #(0 0 0 0 0 0
                                   0 0 0 0 0 0
                                   8 0)
@@ -245,7 +245,7 @@ ADDRESS must be an ipv4-address designator."
        (sys.int::log-and-ignore-errors
          (mezzano.network.ethernet::receive-ethernet-packet
           interface loopback-packet)))
-     sys.net::*network-serial-queue*)
+     net::*network-serial-queue*)
     loopback-packet))
 
 (defun assemble-ipv4-packet (source destination protocol payload)
@@ -257,7 +257,7 @@ ADDRESS must be an ipv4-address designator."
      ;; Differentiated Services Field, normal packet.
      (aref ip-header +ipv4-header-dsf+) #x00
      ;; Total length.
-     (ub16ref/be ip-header +ipv4-header-total-length+) (sys.net:packet-length packet)
+     (ub16ref/be ip-header +ipv4-header-total-length+) (net:packet-length packet)
      ;; Packet ID. No fragmentation support yet, no ID needed.
      (ub16ref/be ip-header +ipv4-header-identification+) 0
      ;; Flags & fragment offset.
@@ -567,7 +567,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
   (let ((in-flight-pings nil)
         (received-packets '())
         (identifier 1234)
-        (host-ip (sys.net::resolve-address host))
+        (host-ip (net::resolve-address host))
         (rx-lock (mezzano.supervisor:make-mutex "ping lock")))
     (with-icmp-listener
         (lambda (packet source-ip start end)

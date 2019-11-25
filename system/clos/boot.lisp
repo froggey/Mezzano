@@ -15,16 +15,24 @@
 ;;; be converted in-place to real classes after boot.
 
 (sys.int::defglobal *class-reference-table*)
+(sys.int::defglobal *class-reference-table-lock*)
 
 (defstruct class-reference
   name
   class)
 
-(defun class-reference (symbol)
-  (check-type symbol symbol)
-  (or (gethash symbol *class-reference-table*)
-      (setf (gethash symbol *class-reference-table*)
-            (make-class-reference :name symbol))))
+(defun class-reference (name)
+  (check-type name symbol)
+  (let ((entry (mezzano.supervisor:with-rw-lock-read (*class-reference-table-lock*)
+                 (gethash name *class-reference-table*))))
+    (when (not entry)
+      (mezzano.supervisor:with-rw-lock-write (*class-reference-table-lock*)
+        (let ((new-entry (make-class-reference :name name)))
+          (setf entry (or (sys.int::cas (gethash name *class-reference-table*)
+                                        nil
+                                        new-entry)
+                          new-entry)))))
+    entry))
 
 (define-compiler-macro find-class (&whole whole symbol &optional (errorp t) environment)
   (if (and (null environment)
@@ -148,8 +156,11 @@
     (setf *the-layout-standard-effective-slot-definition* s-e-s-d-layout)
     (setf *standard-effective-slot-definition-name-location* (primordial-slot-location-in-layout s-e-s-d-layout 'name)
           *standard-effective-slot-definition-location-location* (primordial-slot-location-in-layout s-e-s-d-layout 'location)))
+  (let ((f-s-c-layout (primordial-slot-value (find-class 'funcallable-standard-class) 'slot-storage-layout)))
+    (setf *funcallable-standard-class-hash-location* (primordial-slot-location-in-layout f-s-c-layout 'hash)))
   (let ((b-i-c-layout (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
-    (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list))))
+    (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list)
+          *built-in-class-hash-location* (primordial-slot-location-in-layout b-i-c-layout 'hash))))
 
 ;; Initial version of class-constructor, replaced after the compiler is loaded.
 (defun safe-class-constructor (class)

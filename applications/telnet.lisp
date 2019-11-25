@@ -1,11 +1,11 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :telnet
+(defpackage :mezzano.telnet
   (:use :cl)
   (:export #:spawn))
 
-(in-package :telnet)
+(in-package :mezzano.telnet)
 
 (defconstant +command-se+ 240
   "End of subnegotiation parameters.")
@@ -341,7 +341,7 @@ party to perform, the indicated option.")
                            while msg
                            do (dispatch-event telnet msg))
                         (loop
-                           for byte = (sys.int::read-byte-no-hang (connection telnet) nil :eof)
+                           for byte = (mezzano.internals::read-byte-no-hang (connection telnet) nil :eof)
                            while byte
                            do (cond ((eql byte :eof)
                                      ;; Server disconnected

@@ -910,7 +910,7 @@
 ;they do not need error checking of fancy stream coercion.  The '++' forms
 ;additionally assume the thing being output does not contain a newline.
 
-(defun sys.int::write-pretty (object stream)
+(defun mezzano.internals::write-pretty (object stream)
   (cond ((xp-structure-p stream) (write+ object stream))
         (*print-pretty* (maybe-initiate-xp-printing
                           (lambda (s o) (write+ o s)) stream object))

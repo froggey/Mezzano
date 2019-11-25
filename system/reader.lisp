@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defvar *read-base* 10 "The current input base.")
 (defvar *read-eval* t "Controls the #. reader macro.")
@@ -12,11 +12,12 @@
 (defvar *read-package* nil)
 
 (declaim (special *readtable* *standard-readtable*)
-         (type readtable *readtable* *standard-readtable*))
+         ;; Disabled due to issues with cross-compiled structures.
+         #++(type readtable *readtable* *standard-readtable*))
 
 (defstruct (readtable
              (:predicate readtablep)
-             (:copier))
+             (:copier nil))
   (case :upcase :type (member :upcase :downcase :preserve :invert))
   (base-characters (make-array 256 :initial-element nil) :type (simple-vector 256))
   (extended-characters (make-hash-table) :type hash-table))
@@ -506,41 +507,50 @@
         ((and (eql x #\.)
               (not *read-suppress*))
          ;; Reading a potentially dotted list
-         ;; Read the dot and drop it
-         (read-char stream t nil t)
-         (let ((y (peek-char nil stream t nil t)))
-           (when (or (terminating-macro-p y) (whitespace[2]p y))
-             (let ((final (read stream t nil t)))
-               (when (eql list tail)
-                 (error 'simple-reader-error :stream stream
-                        :format-control "No forms before dot in dotted list."
-                        :format-arguments '()))
-               (unless (char= (peek-char t stream t nil t) #\))
-                 (error 'simple-reader-error :stream stream
-                        :format-control "Too many elements after dot in dotted list."
-                        :format-arguments '()))
-               (read-char stream t nil t)
-               (setf (cdr tail) final)
-               (return (if *read-suppress* nil (cdr list))))))
-         ;; Oops, it wasn't a dotted list and we can't unread
-         ;; the dot because of the peek-char call
-         ;; Manually dispatch to the next reader function
-         (let ((value (multiple-value-list
-                       (funcall (or (get-macro-character x)
-                                    #'read-token)
-                                stream x))))
-           (when value
-             (setf (cdr tail) (cons (car value) nil))
-             (setf tail (cdr tail)))))
-        (t (let* ((c (read-char stream t nil t))
-                  (value (multiple-value-list (funcall (or (get-macro-character c)
-                                                           #'read-token)
-                                                       stream
-                                                       c))))
+         ;; Locations for the oops case below.
+         (let ((start-loc (location-tracking-stream-location stream)))
+           ;; Read the dot and drop it
+           (read-char stream t nil t)
+           (let ((y (peek-char nil stream t nil t)))
+             (when (or (terminating-macro-p y) (whitespace[2]p y))
+               (let ((final (read stream t nil t)))
+                 (when (eql list tail)
+                   (error 'simple-reader-error :stream stream
+                          :format-control "No forms before dot in dotted list."
+                          :format-arguments '()))
+                 (unless (char= (peek-char t stream t nil t) #\))
+                   (error 'simple-reader-error :stream stream
+                          :format-control "Too many elements after dot in dotted list."
+                          :format-arguments '()))
+                 (read-char stream t nil t)
+                 (setf (cdr tail) final)
+                 (return (if *read-suppress* nil (cdr list))))))
+           ;; Oops, it wasn't a dotted list and we can't unread
+           ;; the dot because of the peek-char call
+           ;; Manually dispatch to the next reader function
+           (let ((value (multiple-value-list
+                         (funcall (or (get-macro-character x)
+                                      #'read-token)
+                                  stream x))))
              (when value
-               (setf (cdr value) nil
-                     (cdr tail) value
-                     tail value))))))))
+               (let ((end-loc (location-tracking-stream-location stream))
+                     (elt (cons (first value) nil)))
+                 (set-reader-element-location elt start-loc end-loc)
+                 (setf (cdr tail) elt
+                       tail (cdr tail)))))))
+        (t
+         (let* ((start-loc (location-tracking-stream-location stream))
+                (c (read-char stream t nil t))
+                (value (multiple-value-list (funcall (or (get-macro-character c)
+                                                         #'read-token)
+                                                     stream
+                                                     c))))
+           (when value
+             (let ((end-loc (location-tracking-stream-location stream))
+                   (elt (cons (first value) nil)))
+               (set-reader-element-location elt start-loc end-loc)
+               (setf (cdr tail) elt
+                     tail (cdr tail))))))))))
 
 (defun read-right-parenthesis (stream first)
   "Signals a reader-error when an unexpected #\) is seen."
@@ -910,7 +920,8 @@
                                  *read-package*)
                             *package*)))
     ;; Skip leading whitespace.
-    (loop (let ((c (read-char stream eof-error-p 'nil t)))
+    (loop (let ((start-loc (location-tracking-stream-location stream))
+                (c (read-char stream eof-error-p 'nil t)))
             (when (eql c 'nil)
               (return eof-value))
             (when (invalidp c)
@@ -922,8 +933,10 @@
               ;; read subfunction.
               (let ((value (multiple-value-list (funcall (or (get-macro-character c)
                                                              #'read-token)
-                                                         stream c))))
+                                                         stream c)))
+                    (end-loc (location-tracking-stream-location stream)))
                 (when value
+                  (set-reader-form-location (first value) start-loc end-loc)
                   (return (first value)))))))))
 
 (defun read (&optional input-stream (eof-error-p t) eof-value recursive-p)
@@ -1042,3 +1055,57 @@
 (initialize-standard-readtable *standard-readtable*)
 (setf *protect-the-standard-readtable* t)
 (setf *readtable* (copy-readtable nil))
+
+(defmacro with-reader-location-tracking (&body body)
+  `(call-with-reader-location-tracking (lambda () ,@body)))
+
+(defvar *reader-element-locations* nil)
+(defvar *reader-form-locations* nil)
+
+(defun call-with-reader-location-tracking (thunk)
+  (let ((*reader-form-element-locations* (make-hash-table))
+        (*reader-form-locations* (make-hash-table)))
+    (funcall thunk)))
+
+(defun reader-form-location (form)
+  (and *reader-form-locations*
+       (gethash form *reader-form-locations*)))
+
+(defstruct source-location
+  ;; Namestring
+  file
+  top-level-form-number
+  ;; Raw file position.
+  position end-position
+  ;; Line number (from 1).
+  line end-line
+  ;; Character index (from 0).
+  character end-character)
+
+(defun combine-source-locations (start-location end-location)
+  (make-source-location
+   :file (source-location-file start-location)
+   :top-level-form-number (source-location-top-level-form-number start-location)
+   :position (source-location-position start-location)
+   :end-position (source-location-position end-location)
+   :line (source-location-line start-location)
+   :end-line (source-location-line end-location)
+   :character (source-location-character start-location)
+   :end-character (source-location-character end-location)))
+
+(defun set-reader-form-location (form start-location end-location)
+  (when (and start-location end-location
+             *reader-form-locations*)
+    (setf (gethash form *reader-form-locations*)
+          (combine-source-locations start-location end-location))))
+
+(defun reader-element-location (element)
+  (and *reader-element-locations*
+       (gethash element *reader-element-locations*)))
+
+(defun set-reader-element-location (element start-location end-location)
+  (when (and start-location end-location
+             *reader-element-locations*)
+    (set-reader-form-location (car element) start-location end-location)
+    (setf (gethash element *reader-element-locations*)
+          (combine-source-locations start-location end-location))))

@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
 (defconstant least-negative-single-float (%integer-as-single-float #x80000001))

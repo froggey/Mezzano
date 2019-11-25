@@ -139,8 +139,7 @@
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
           *deferred-boot-actions* '()
-          *paging-disk* nil
-          *page-fault-hook* nil)
+          *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
     (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))

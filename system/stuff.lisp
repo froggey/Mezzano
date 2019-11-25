@@ -3,14 +3,14 @@
 
 ;;;; A bunch of functions with no proper home.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defconstant call-arguments-limit 500)
 (defconstant lambda-parameters-limit 500)
 (defconstant multiple-values-limit (+ 5 mezzano.supervisor::+thread-mv-slots-size+))
 
 (unless (boundp 'lambda-list-keywords)
-  (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole &fref &closure &count)))
+  (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole &closure &count)))
 
 (declaim (inline null not))
 
@@ -155,9 +155,9 @@
 (defun macroexpand-1 (form &optional env)
   (declare (notinline typep)) ; ### Bootstrap hack.
   (cond ((symbolp form)
-         (let ((var (sys.c::lookup-variable-in-environment form env)))
-           (cond ((typep var 'sys.c::symbol-macro)
-                  (values (sys.c::symbol-macro-expansion var) t))
+         (let ((var (mezzano.compiler::lookup-variable-in-environment form env)))
+           (cond ((typep var 'mezzano.compiler::symbol-macro)
+                  (values (mezzano.compiler::symbol-macro-expansion var) t))
                  (t
                   (values form nil)))))
         ((consp form)
@@ -368,7 +368,7 @@
     (loop
        (setf (fill-pointer objects) 0)
        ;; Don't include :CONS as it's just full of CONSes
-       (dolist (area '(:general :pinned :wired))
+       (dolist (area '(:general :pinned :wired :wired-function :function))
          (walk-area area
                     (lambda (object address size)
                       (declare (ignore address size))
@@ -379,6 +379,52 @@
          (return))
        (adjust-array objects (* (array-dimension objects 0) 2)))
     objects))
+
+(defun get-all-object-references (object)
+  "Find all objects that refer to OBJECT."
+  (let* ((objects (make-array 10000 :fill-pointer 0))
+         (helper (locally
+                     ;; Hide this from the compiler.
+                     ;; The closure needs to be created here, not brought
+                     ;; forwards into the lambda passed to walk-all-areas.
+                     (declare (notinline identity))
+                   (identity
+                    (lambda (container inner-object index)
+                      (declare (ignore index))
+                      (when (eql inner-object object)
+                        (vector-push container objects)))))))
+    (loop
+       (setf (fill-pointer objects) 0)
+       (walk-all-areas
+        (lambda (object address size)
+          (declare (ignore address size))
+          (walk-object-references object helper)))
+       (when (not (eql (fill-pointer objects) (array-dimension objects 0)))
+         (return))
+       (adjust-array objects (* (array-dimension objects 0) 2)))
+    objects))
+
+(defun contestable-lock-p (object)
+  (or (mezzano.supervisor:mutex-p object)
+      (mezzano.supervisor:rw-lock-p object)))
+
+(defun lock-contested-count (lock)
+  (if (mezzano.supervisor:mutex-p lock)
+      (mezzano.supervisor:mutex-contested-count lock)
+      (+ (mezzano.supervisor:rw-lock-read-contested-count lock)
+         (mezzano.supervisor:rw-lock-write-contested-count lock))))
+
+(defun print-contested-mutexes (&key (threshold 0))
+  (let ((mutexes (sort
+                  (remove-if
+                   (lambda (m)
+                     (<= (lock-contested-count m) threshold))
+                   (get-all-objects #'contestable-lock-p))
+                  #'>
+                  :key #'lock-contested-count)))
+    (loop
+       for m across mutexes
+       do (format t "~S: ~:D times.~%" m (lock-contested-count m)))))
 
 ;;; Memory grovelling
 

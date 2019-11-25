@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -53,24 +53,51 @@
            (,new-sym ,new))
        ,cas-form)))
 
+(declaim (inline wrapping-fixnum-+))
+(defun wrapping-fixnum-+ (x y)
+  "+ on fixnums, implementing 2's complement wrapping behaviour.
+Returns a fixnum. X & Y must be fixnums."
+  (when (not (fixnump x))
+    (raise-type-error x 'fixnum)
+    (%%unreachable))
+  (when (not (fixnump y))
+    (raise-type-error y 'fixnum)
+    (%%unreachable))
+  ;; FIXME: %FAST-FIXNUM-+ isn't the right function to use.
+  ;; The behaviour on overflow is undefined, not wrapping, but the current
+  ;; implementation wraps the result.
+  (the fixnum (mezzano.compiler::%fast-fixnum-+ x y)))
+
 (defmacro atomic-incf (place &optional (delta 1) &environment environment)
   "Atomically increment PLACE by DELTA.
 PLACE must contain a fixnum and if overflow occurs then the resulting value
 will be wrapped as though it were a fixnum-sized signed 2's complement integer.
 Returns the old value of PLACE."
-  (let ((expansion (macroexpand place environment))
-        (delta-sym (gensym "DELTA")))
-    ;; TODO: Support on struct slots that have been declared fixnum.
-    (when (not (and (symbolp expansion)
-                    (eql (symbol-mode expansion) :global)
-                    (type-equal (mezzano.runtime::symbol-type expansion) 'fixnum)))
-      (error "ATOMIC-INCF place ~S not supported. Must be global symbol declaimed fixnum."
-             place))
-    `(let ((,delta-sym ,delta))
-       (when (not (fixnump ,delta-sym))
-         (raise-type-error ,delta-sym 'fixnum)
-         (%%unreachable))
-       (%atomic-fixnum-add-symbol ',expansion ,delta-sym))))
+  (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
+      (get-cas-expansion place environment)
+    (let ((delta-sym (gensym "DELTA")))
+      ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
+      ;; this is a global symbol and can touch it directly.
+      ;; Only do this when the symbol has been declaimed fixnum.
+      (cond ((and (typep read-form '(cons (eql symbol-global-value)
+                                     (cons (cons (eql quote) (cons symbol null))
+                                      null)))
+                  (type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum environment))
+             `(let ((,delta-sym ,delta))
+                (when (not (fixnump ,delta-sym))
+                  (raise-type-error ,delta-sym 'fixnum)
+                  (%%unreachable))
+                (%atomic-fixnum-add-symbol ',(second (second read-form)) ,delta-sym)))
+          (t
+           ;; Fall back on a CAS loop.
+           ;; TODO: Support directly on struct slots that have been declared fixnum.
+           `(let (,@(mapcar #'list vars vals)
+                  (,delta-sym ,delta))
+              (loop
+                 for ,old-sym = ,read-form
+                 for ,new-sym = (wrapping-fixnum-+ ,old-sym ,delta-sym)
+                 when (eq ,cas-form ,old-sym)
+                 return ,old-sym)))))))
 
 (defmacro atomic-decf (place &optional (delta 1))
   "Like ATOMIC-INCF, but subtracting."

@@ -3,13 +3,14 @@
 
 ;;;; Constant folding & propagation.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler)
 
 (defvar *known-variables* nil
   "An alist mapping lexical-variables to their values, if known.")
 
 (defparameter *constprop-lambda-copy-limit* 3)
-(defparameter *constant-fold-modes* (make-hash-table :test 'equal))
+(defparameter *constant-fold-modes* (make-hash-table :test 'equal :synchronized nil :enforce-gc-invariant-keys t))
+(defparameter *constant-fold-modes-lock* (mezzano.supervisor:make-rw-lock '*constant-fold-modes*))
 
 (defun constprop (lambda architecture)
   (declare (ignore architecture))
@@ -273,7 +274,8 @@
 (defun constant-fold (form function arg-list)
   ;; Bail out in case of errors.
   (ignore-errors
-    (let* ((info (gethash function *constant-fold-modes*))
+    (let* ((info (mezzano.supervisor:with-rw-lock-read (*constant-fold-modes-lock*)
+                   (gethash function *constant-fold-modes*)))
            (mode (car info))
            (folder (or (cdr info) function)))
       (etypecase mode
@@ -380,7 +382,8 @@
   form)
 
 (defun mark-as-constant-foldable (name &key (mode t) folder)
-  (setf (gethash name *constant-fold-modes*) (cons mode folder)))
+  (mezzano.supervisor:with-rw-lock-write (*constant-fold-modes-lock*)
+    (setf (gethash name *constant-fold-modes*) (cons mode folder))))
 
 ;;; Initialize constant folders.
 (dolist (x '((sys.int::%simple-array-length ((satisfies sys.int::%simple-array-p)))

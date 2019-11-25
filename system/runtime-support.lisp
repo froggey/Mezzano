@@ -1,9 +1,9 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
-(setf sys.lap:*function-reference-resolver* #'function-reference)
+(setf mezzano.lap:*function-reference-resolver* #'function-reference)
 
 (defstruct function-info
   compiler-macro
@@ -13,6 +13,7 @@
 (defvar *symbol-function-info*)
 (defvar *setf-function-info*)
 (defvar *cas-function-info*)
+(defvar *function-info-lock*)
 
 (defun function-info-for (name &optional (create t))
   (multiple-value-bind (name-root location)
@@ -21,11 +22,13 @@
                     (symbol *symbol-function-info*)
                     (setf *setf-function-info*)
                     (cas *cas-function-info*)))
-           (entry (gethash name-root table)))
+           (entry (mezzano.supervisor:with-rw-lock-read (*function-info-lock*)
+                    (gethash name-root table))))
       (when (and (not entry) create)
         (let ((new-entry (make-function-info)))
-          (setf entry (or (cas (gethash name-root table) nil new-entry)
-                          new-entry))))
+          (mezzano.supervisor:with-rw-lock-write (*function-info-lock*)
+            (setf entry (or (cas (gethash name-root table) nil new-entry)
+                            new-entry)))))
       entry)))
 
 (defun proclaim-symbol-mode (symbol new-mode)
@@ -96,7 +99,7 @@
                quality)
          (check-type quality (member compilation-speed debug safety space speed))
          (check-type value (member 0 1 2 3))
-         (setf (getf sys.c::*optimize-policy* quality) value))))
+         (setf (getf mezzano.compiler::*optimize-policy* quality) value))))
     (t
      (cond ((type-specifier-p (first declaration-specifier))
             ;; Actually a type declaration.
@@ -108,7 +111,7 @@
 (defun variable-information (symbol)
   (symbol-mode symbol))
 
-(defun sys.c::function-inline-info (name)
+(defun mezzano.compiler::function-inline-info (name)
   (let ((info (function-info-for name nil)))
     (if info
         (values (eql (function-info-inline-mode info) 't)
@@ -174,7 +177,7 @@
 (defun macro-function (symbol &optional env)
   (check-type symbol symbol)
   (cond (env
-         (sys.c::macro-function-in-environment symbol env))
+         (mezzano.compiler::macro-function-in-environment symbol env))
         (t
          (let ((entry (gethash symbol *macros*)))
            (when entry
@@ -209,7 +212,7 @@
 
 (defun compiler-macro-function (name &optional environment)
   (cond (environment
-         (sys.c::compiler-macro-function-in-environment name environment))
+         (mezzano.compiler::compiler-macro-function-in-environment name environment))
         (t
          (let ((info (function-info-for name nil)))
            (if info
@@ -550,9 +553,26 @@
 (defglobal *cas-fref-table*)
 
 (defun make-function-reference (name)
-  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 3 :wired)))
-    (setf (%object-ref-t fref +fref-name+) name
-          (function-reference-function fref) nil)
+  (let ((fref (mezzano.runtime::%allocate-function
+               +object-tag-function-reference+ 0 8 t)))
+    (setf (%object-ref-t fref +fref-name+) name)
+    ;; Undefined frefs point directly at raise-undefined-function.
+    (setf (%object-ref-unsigned-byte-64 fref +fref-undefined-entry-point+)
+          (%function-reference-code-location
+           (function-reference 'raise-undefined-function)))
+    (setf (%object-ref-t fref +fref-function+) fref)
+    ;; (nop (:rax))
+    ;; (jmp <direct-target>) ; initially 0 to activate the fallback path.
+    (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
+          #xE9001F0F)
+    ;; (mov :rbx (:rip fref-function))
+    ;; (jmp ...
+    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 1))
+          #xFFFFFFFFE91D8B48)
+    ;; ... (:object :rbx entry-point))
+    ;; (ud2)
+    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 2))
+          #x0B0FFF63)
     fref))
 
 (defun valid-function-name-p (name)
@@ -621,44 +641,56 @@ then NIL will be returned."
 (defun function-reference-function (fref)
   (check-type fref function-reference)
   (let ((fn (%object-ref-t fref +fref-function+)))
-    (if (%undefined-function-p fn)
+    (if (eq fn fref)
         nil
         fn)))
 
+(defun %activate-function-reference-full-path (fref)
+  (setf (%object-ref-unsigned-byte-32 fref (1+ (* +fref-code+ 2))) 0))
+
+(defun %function-reference-code-location (fref)
+  (mezzano.runtime::%object-slot-address fref +fref-code+))
+
+(defun %activate-function-reference-fast-path (fref entry-point)
+  ;; Address is *after* the jump.
+  (let* ((fref-jmp-address (+ (%function-reference-code-location fref) 8))
+         (rel-jump (- entry-point fref-jmp-address)))
+    (check-type rel-jump (signed-byte 32))
+    (setf (%object-ref-signed-byte-32 fref (1+ (* +fref-code+ 2)))
+          rel-jump)))
+
 (defun (setf function-reference-function) (value fref)
-  "Update the function & entry-point fields of a function-reference.
+  "Update the function field of a function-reference.
 VALUE may be nil to make the fref unbound."
   (check-type value (or function null))
   (check-type fref function-reference)
-  (multiple-value-bind (new-fn new-entry-point)
-      (cond
-        ((not value)
-         ;; Use the undefined function trampoline.
-         ;; This must be stored in function slot so the closure-trampoline
-         ;; works correctly.
-         (values (%undefined-function)
-                 (%object-ref-t (%undefined-function)
-                                +function-entry-point+)))
-        ((eql (%object-tag value) +object-tag-function+)
-         ;; Normal call.
-         (values value
-                 (%object-ref-t value
-                                +function-entry-point+)))
-        (t ;; Something else, either a closure or funcallable-instance. Use the closure trampoline.
-         (values value
-                 (%object-ref-t (%closure-trampoline)
-                                +function-entry-point+))))
-    ;; Atomically update both values.
-    ;; Functions is followed by entry point.
-    ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
-    (let ((old-1 (%object-ref-t fref +fref-function+))
-          (old-2 (%object-ref-t fref +fref-entry-point+)))
-      ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
-      ;; this write succeeded, but was immediately overwritten.
-      (%dcas-object fref +fref-function+
-                    old-1 old-2
-                    new-fn new-entry-point)))
+  ;; FIXME: FREF should be locked for the duration.
+  ;; FIXME: Fences.
+  ;; FIXME: Cross-CPU synchronization.
+  (cond
+    ((not value)
+     ;; Making it unbound.
+     (setf (%object-ref-t fref +fref-function+) fref)
+     (%activate-function-reference-full-path fref))
+    ((%object-of-type-p value +object-tag-function+)
+     ;; Plain function, use the fast path.
+     (setf (%object-ref-t fref +fref-function+) value)
+     (%activate-function-reference-fast-path
+      fref (%object-ref-unsigned-byte-64 value +function-entry-point+)))
+    (t
+     ;; Bound to an unusual function. Full path.
+     (setf (%object-ref-t fref +fref-function+) value)
+     (%activate-function-reference-full-path fref)))
   value)
+
+(defun trace-wrapper-p (object)
+  (and (funcallable-instance-p object) ; Avoid typep in the usual case.
+       (locally
+           (declare (notinline find-class)) ; bootstrap hack.
+         ;; The trace-wrapper class might not be defined during early boot
+         (let ((class (find-class 'trace-wrapper nil)))
+           (and class
+                (typep object class))))))
 
 (defun fdefinition (name)
   (let* ((fref (function-reference name nil))
@@ -666,11 +698,7 @@ VALUE may be nil to make the fref unbound."
     (when (not fn)
       (error 'undefined-function :name name))
     ;; Hide trace wrappers. Makes defining methods on traced generic functions work.
-    ;; FIXME: Doesn't match the behaviour of FUNCTION.
-    (when (and (funcallable-instance-p fn) ; Avoid typep in the usual case.
-               (locally
-                   (declare (notinline typep)) ; bootstrap hack.
-                 (typep fn 'trace-wrapper)))
+    (when (trace-wrapper-p fn)
       (setf fn (trace-wrapper-original fn)))
     fn))
 
@@ -682,9 +710,7 @@ VALUE may be nil to make the fref unbound."
     (remhash name *macros*))
   (let* ((fref (function-reference name))
          (existing (function-reference-function fref)))
-    (when (locally
-              (declare (notinline typep)) ; bootstrap hack.
-            (typep existing 'trace-wrapper))
+    (when (trace-wrapper-p existing)
       ;; Update the traced function instead of setting the fref's function.
       (setf (trace-wrapper-original existing) value)
       (return-from fdefinition value))
@@ -705,9 +731,7 @@ VALUE may be nil to make the fref unbound."
       ;; Check for and update any existing TRACE-WRAPPER.
       ;; This is not very thread-safe, but if the user is tracing it shouldn't matter much.
       (let ((existing (function-reference-function fref)))
-        (when (locally
-                  (declare (notinline typep)) ; bootstrap hack.
-                (typep existing 'trace-wrapper))
+        (when (trace-wrapper-p existing)
           ;; Untrace the function.
           (%untrace (function-reference-name fref)))
         (setf (function-reference-function (function-reference name)) nil))))

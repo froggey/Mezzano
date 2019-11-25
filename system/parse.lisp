@@ -3,7 +3,7 @@
 
 ;;; Function for parsing various parts of CL.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defun parse-ordinary-lambda-list (lambda-list)
   "Parse LAMBDA-LIST as an ordinary lambda list.
@@ -17,7 +17,6 @@ from the lambda-list or throws an error if the lambda-list is invalid."
         (keys '())
         (allow-other-keys nil)
         (aux '())
-        (fref nil)
         (closure nil)
         (count nil))
     (dolist (i lambda-list)
@@ -30,7 +29,6 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                      (&key (setf state :key
                                  enable-keys t))
                      (&aux (setf state :aux))
-                     (&fref (setf state :fref))
                      (&closure (setf state :closure))
                      (&count (setf state :count))
                      (t (when (not (symbolp i))
@@ -43,7 +41,6 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                      (&key (setf state :key
                                  enable-keys t))
                      (&aux (setf state :aux))
-                     (&fref (setf state :fref))
                      (&closure (setf state :closure))
                      (&count (setf state :count))
                      (t (etypecase i
@@ -66,7 +63,7 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                                       (setf supplied-p (caddr i))))
                                   (push (list name default supplied-p) optional)))))))
         (:rest (case i
-                 ((&optional &rest &key &allow-other-keys &aux &fref &closure &count)
+                 ((&optional &rest &key &allow-other-keys &aux &closure &count)
                   (error "Unexpected ~S in lambda list ~S" i lambda-list))
                  ((nil) (error "Invalid &REST parameter name"))
                  (t (setf state :after-rest
@@ -75,7 +72,6 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                        (&key (setf state :key
                                    enable-keys t))
                        (&aux (setf state :aux))
-                       (&fref (setf state :fref))
                        (&closure (setf state :closure))
                        (&count (setf state :count))
                        (t (error "Unexpected ~S in lambda list ~S" i lambda-list))))
@@ -86,7 +82,6 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                  (setf state :after-allow-other-keys
                        allow-other-keys t))
                 (&aux (setf state :aux))
-                (&fref (setf state :fref))
                 (&closure (setf state :closure))
                 (&count (setf state :count))
                 (t (let (keyword name default supplied-p)
@@ -121,14 +116,12 @@ from the lambda-list or throws an error if the lambda-list is invalid."
         (:after-allow-other-keys
          (case i
            (&aux (setf state :aux))
-           (&fref (setf state :fref))
            (&closure (setf state :closure))
            (&count (setf state :count))
            (t (error "Unexpected ~S in lambda list ~S" i lambda-list))))
         (:aux (case i
                 ((&optional &rest &key &allow-other-keys &aux)
                  (error "Unexpected ~S in lambda list ~S" i lambda-list))
-                (&fref (setf state :fref))
                 (&closure (setf state :closure))
                 (&count (setf state :count))
                 (t (let (name default)
@@ -143,18 +136,8 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                             (error "Invalid aux parameter ~S in lambda list ~S" i lambda-list))
                           (setf default (cadr i)))))
                      (push (list name default) aux)))))
-        (:fref (case i
-                 ((&optional &rest &key &allow-other-keys &aux &fref &closure &count)
-                  (error "Unexpected ~S in lambda list ~S" i lambda-list))
-                 ((nil) (error "Invalid &FREF parameter name"))
-                 (t (setf state :after-fref
-                          fref i))))
-        (:after-fref (case i
-                       (&closure (setf state :closure))
-                       (&count (setf state :count))
-                       (t (error "Unexpected ~S in lambda list ~S" i lambda-list))))
         (:closure (case i
-                    ((&optional &rest &key &allow-other-keys &aux &fref &closure &count)
+                    ((&optional &rest &key &allow-other-keys &aux &closure &count)
                      (error "Unexpected ~S in lambda list ~S" i lambda-list))
                     ((nil) (error "Invalid &CLOSURE parameter name"))
                     (t (setf state :after-closure
@@ -163,7 +146,7 @@ from the lambda-list or throws an error if the lambda-list is invalid."
                           (&count (setf state :count))
                           (t (error "Unexpected ~S in lambda list ~S" i lambda-list))))
         (:count (case i
-                 ((&optional &rest &key &allow-other-keys &aux &fref &closure &count)
+                 ((&optional &rest &key &allow-other-keys &aux &closure &count)
                   (error "Unexpected ~S in lambda list ~S" i lambda-list))
                  ((nil) (error "Invalid &COUNT parameter name"))
                  (t (setf state :after-count
@@ -172,13 +155,11 @@ from the lambda-list or throws an error if the lambda-list is invalid."
          (error "Unexpected ~S in lambda list ~S" i lambda-list))))
     (when (eql state :rest)
       (error "Missing &REST parameter name after &REST in lambda list ~S" lambda-list))
-    (when (eql state :fref)
-      (error "Missing &FREF parameter name after &FREF in lambda list ~S" lambda-list))
     (when (eql state :closure)
       (error "Missing &CLOSURE parameter name after &CLOSURE in lambda list ~S" lambda-list))
     (when (eql state :count)
       (error "Missing &COUNT parameter name after &COUNT in lambda list ~S" lambda-list))
-    (values (nreverse required) (nreverse optional) rest enable-keys (nreverse keys) allow-other-keys (nreverse aux) fref closure count)))
+    (values (nreverse required) (nreverse optional) rest enable-keys (nreverse keys) allow-other-keys (nreverse aux) closure count)))
 
 (defun parse-declares (forms &key permit-docstring)
   "Extract any leading declare forms and an optional docstring from FORMS
