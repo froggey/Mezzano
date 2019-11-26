@@ -125,7 +125,8 @@
                  (format stream "pointing to ~S" value)
                  (format stream "with key ~S pointing to ~S" key value)))
             (t
-             (format stream "dead"))))))
+             (format stream "dead"))))
+    (format stream " with weakness ~:(~S~)" (weak-pointer-weakness o))))
 
 (defmethod print-object ((o weak-pointer-vector) stream)
   (print-unreadable-object (o stream :identity t :type t)

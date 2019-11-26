@@ -2158,11 +2158,31 @@ No type information will be provided."
        ;; Entry not found. Go back a card (TODO: should go back a whole bunch of cards.)
        (decf current-address +card-size+))))
 
+(defun encode-weak-pointer-weakness (weakness)
+  (ecase weakness
+    (:key sys.int::+weak-pointer-weakness-key+)
+    (:value sys.int::+weak-pointer-weakness-value+)
+    (:key-and-value sys.int::+weak-pointer-weakness-and+)
+    (:key-or-value sys.int::+weak-pointer-weakness-or+)))
+
+(defun decode-weak-pointer-weakness (weakness)
+  (ecase weakness
+    (#.sys.int::+weak-pointer-weakness-key+ :key)
+    (#.sys.int::+weak-pointer-weakness-value+ :value)
+    (#.sys.int::+weak-pointer-weakness-and+ :key-and-value)
+    (#.sys.int::+weak-pointer-weakness-or+ :key-or-value)))
+
 (deftype weak-pointer ()
   '(satisfies weak-pointer-p))
 
 (defun weak-pointer-p (object)
   (%object-of-type-p object +object-tag-weak-pointer+))
+
+(defun weak-pointer-weakness (weak-pointer)
+  "Return the weakness of WEAK-POINTER."
+  (check-type weak-pointer weak-pointer)
+  (decode-weak-pointer-weakness
+   (ldb +weak-pointer-header-weakness+ (%object-header-data weak-pointer))))
 
 (defun weak-pointer-pair (weak-pointer)
   "Returns the key, the value, and T if the key is still live, otherwise NIL, NIL and NIL."
@@ -2317,6 +2337,92 @@ No type information will be provided."
              (t
               (values nil nil)))))))
 
+(defun update-one-weak-pointer (weak-pointer)
+  (ecase (weak-pointer-weakness weak-pointer)
+    (:key
+     (multiple-value-bind (new-key livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (when livep
+         (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key)
+         ;; Keep the value live.
+         (scavengef (%object-ref-t weak-pointer +weak-pointer-value+) :major)
+         t)))
+    (:value
+     (multiple-value-bind (new-value livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+       (when livep
+         (setf (%object-ref-t weak-pointer +weak-pointer-value+) new-value)
+         ;; Keep the key live.
+         (scavengef (%object-ref-t weak-pointer +weak-pointer-key+) :major)
+         t)))
+    (:key-and-value
+     (multiple-value-bind (new-key key-livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (multiple-value-bind (new-value value-livep)
+           (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+         ;; Key and value must be live.
+         (when (and key-livep value-livep)
+           (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key
+                 (%object-ref-t weak-pointer +weak-pointer-value+) new-value)
+           t))))
+    (:key-or-value
+     (multiple-value-bind (new-key key-livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (multiple-value-bind (new-value value-livep)
+           (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+         ;; Either key or value must be live.
+         (cond ((and key-livep value-livep)
+                ;; Both live, need to update both and scav neither.
+                (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key
+                      (%object-ref-t weak-pointer +weak-pointer-value+) new-value)
+                t)
+               (key-livep
+                ;; Key is live, scav value.
+                (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key)
+                (scavengef (%object-ref-t weak-pointer +weak-pointer-value+) :major)
+                t)
+               (key-livep
+                ;; Value is live, scav key.
+                (setf (%object-ref-t weak-pointer +weak-pointer-value+) new-value)
+                (scavengef (%object-ref-t weak-pointer +weak-pointer-key+) :major)
+                t)
+               (t
+                ;; Neither live. Weak pointer appears dead.
+                nil)))))))
+
+(defun check-weak-pointer-dead (weak-pointer)
+  (ecase (weak-pointer-weakness weak-pointer)
+    (:key
+     (multiple-value-bind (new-key livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (when livep
+         (mezzano.supervisor:panic "Weak pointer key live?"))))
+    (:value
+     (multiple-value-bind (new-value livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+       (when livep
+         (mezzano.supervisor:panic "Weak pointer key live?"))))
+    (:key-and-value
+     ;; Both key and value must be live.
+     (multiple-value-bind (new-key key-livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (declare (ignore new-key))
+       (multiple-value-bind (new-value value-livep)
+           (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+         (declare (ignore new-key))
+         (when (and key-livep value-livep)
+           (mezzano.supervisor:panic "Weak pointer key live?")))))
+    (:key-or-value
+     ;; Either key or value should be live.
+     (multiple-value-bind (new-key key-livep)
+         (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (declare (ignore new-key))
+       (multiple-value-bind (new-value value-livep)
+           (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+         (declare (ignore new-key))
+         (when (or key-livep value-livep)
+           (mezzano.supervisor:panic "Weak pointer key live?")))))))
+
 (defun update-weak-pointers ()
   (loop
      with did-something = nil
@@ -2328,18 +2434,13 @@ No type information will be provided."
          (let ((weak-pointer iter))
            (cond ((weak-pointer-p weak-pointer)
                   (setf iter (%object-ref-t weak-pointer +weak-pointer-link+))
-                  (multiple-value-bind (new-key livep)
-                      (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
-                    (cond (livep
-                           ;; Key is live.
-                           ;; Drop this weak pointer from the worklist.
-                           (setf did-something t)
-                           (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key)
-                           ;; Keep the value live.
-                           (scavengef (%object-ref-t weak-pointer +weak-pointer-value+) :major))
-                          (t ;; Key is either dead or not scanned yet. Add to the new worklist.
-                           (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
-                                 new-worklist weak-pointer)))))
+                  (cond ((update-one-weak-pointer weak-pointer)
+                         ;; Weak pointer is live. Drop from the worklist.
+                         (setf did-something t))
+                        (t
+                         ;; Key is either dead or not scanned yet. Add to the new worklist.
+                         (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
+                               new-worklist weak-pointer))))
                  ((weak-pointer-vector-p weak-pointer)
                   (setf iter (%weak-pointer-vector-link weak-pointer))
                   (let ((saw-potentially-dead-object nil))
@@ -2376,14 +2477,13 @@ No type information will be provided."
   (do ((weak-pointer *weak-pointer-worklist*))
       ((not weak-pointer))
     (cond ((weak-pointer-p weak-pointer)
-           (multiple-value-bind (new-key livep)
-               (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
-             (declare (ignore new-key))
-             (when livep
-               (mezzano.supervisor:panic "Weak pointer key live?")))
+           (check-weak-pointer-dead weak-pointer)
            (setf (%object-ref-t weak-pointer +weak-pointer-key+) nil
-                 (%object-ref-t weak-pointer +weak-pointer-value+) nil
-                 (%object-header-data weak-pointer) 0)
+                 (%object-ref-t weak-pointer +weak-pointer-value+) nil)
+           ;; Clear the live bit, leaving the other fields alone.
+           (setf (%object-header-data weak-pointer)
+                 (logand (%object-header-data weak-pointer)
+                         (lognot +weak-pointer-header-livep+)))
            (setf weak-pointer (%object-ref-t weak-pointer +weak-pointer-link+)))
           ((weak-pointer-vector-p weak-pointer)
            (dotimes (i (%object-header-data weak-pointer))

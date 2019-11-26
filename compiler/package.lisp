@@ -146,6 +146,7 @@
    #:weak-pointer
    #:weak-pointer-p
    #:make-weak-pointer
+   #:weak-pointer-weakness
    #:weak-pointer-value
    #:weak-pointer-key
    #:weak-pointer-pair

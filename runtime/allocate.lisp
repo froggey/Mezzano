@@ -795,17 +795,25 @@
                     (+ 1 (* length 2) (ceiling length 64))
                     area))
 
-(defun sys.int::make-weak-pointer (key &optional (value key) finalizer area)
+(defun dynamic-extent-p (object)
+  "Returns true if OBJECT has dynamic extent."
+  (and (not (sys.int::immediatep object))
+       (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+)
+                 (sys.int::lisp-object-address object))
+            sys.int::+address-tag-stack+)))
+
+;; TODO: Change this fully over to &KEY at some point.
+;; The only external consumer is Swank and that should be using a weak hash table.
+(defun sys.int::make-weak-pointer (key &optional (value key) &key finalizer area (weakness :key))
   ;; Hold VALUE as long as KEY is live.
   ;; Call FINALIZER when the weak-pointer dies.
   ;; Disallow weak pointers to objects with dynamic-extent allocation.
   (check-type finalizer (or null function))
-  (assert (or (sys.int::immediatep key)
-              (not (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+)
-                             (sys.int::lisp-object-address key))
-                        sys.int::+address-tag-stack+)))
-          (key)
-          "Weak pointers to object with dynamic-extent allocation not supported.")
+  (assert (and (not (dynamic-extent-p key))
+               (not (dynamic-extent-p value)))
+          (key value)
+          "Weak pointers to objects with dynamic-extent allocation not supported.")
+  (check-type weakness (member :key :value :key-and-value :key-or-value))
   (let ((object (%allocate-object sys.int::+object-tag-weak-pointer+
                                   ;; Set the live bit in the header before setting the key cell.
                                   ;; If a GC occurs during initialization then the key will
@@ -813,7 +821,10 @@
                                   ;; to it.
                                   ;; %ALLOCATE-OBJECT will initialize the key cell to some
                                   ;; safe object (probably 0).
-                                  (ash 1 sys.int::+weak-pointer-header-livep+)
+                                  (logior (ash 1 sys.int::+weak-pointer-header-livep+)
+                                          (dpb (sys.int::encode-weak-pointer-weakness weakness)
+                                               sys.int::+weak-pointer-header-weakness+
+                                               0))
                                   5
                                   area)))
     (when finalizer
@@ -828,11 +839,11 @@
                                     object)
                       prev-finalizer)
              (return))))
-    ;; Order carefully, KEY must be set last or the GC might finalize this
-    ;; too soon.
-    (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-value+) value
-          (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer+) finalizer
-          (sys.int::%object-ref-t object sys.int::+weak-pointer-key+) key)
+    ;; Keep KEY & VALUE live until the weak pointer has been fully filled in.
+    (with-live-objects (key value)
+      (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-key+) key
+            (sys.int::%object-ref-t object sys.int::+weak-pointer-value+) value
+            (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer+) finalizer))
     object))
 
 (defun sys.int::make-ratio (numerator denominator)
@@ -862,12 +873,13 @@
          (stack (%make-stack nil size)))
     ;; Allocate the stack object & finalizer up-front to prevent any issues
     ;; if the system runs out of memory while allocating the stack.
-    (sys.int::make-weak-pointer stack stack
-                                (lambda ()
-                                  (when stack-address
-                                    (release-memory-range stack-address size)
-                                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))))
-                                :wired)
+    (sys.int::make-weak-pointer
+     stack stack
+     :finalizer (lambda ()
+                  (when stack-address
+                    (release-memory-range stack-address size)
+                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))))
+     :area :wired)
     (tagbody
      RETRY
        (mezzano.supervisor:without-footholds

@@ -266,11 +266,14 @@
                  ;; A typeface was created for this font while the lock
                  ;; was dropped. Forget our font loader and use this one.
                  (zpb-ttf:close-font-loader loader))
-                (t (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader)
-                         (gethash typeface-key *typeface-cache*) (sys.int::make-weak-pointer typeface typeface
-                                                                                             (lambda ()
-                                                                                               (zpb-ttf:close-font-loader loader))))
-                   #+(or)(format t "Creating new typeface ~S.~%" typeface)))
+                (t
+                 (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader))
+                 (setf (gethash typeface-key *typeface-cache*)
+                       (sys.int::make-weak-pointer
+                        typeface typeface
+                        :finalizer (lambda ()
+                                     (zpb-ttf:close-font-loader loader))))
+                 #+(or)(format t "Creating new typeface ~S.~%" typeface)))
           (let ((font (make-instance 'font
                                      :typeface typeface
                                      :size (float size))))

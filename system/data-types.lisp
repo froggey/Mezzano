@@ -211,7 +211,17 @@
 (defconstant +complex-array-axis-0+ 3)
 
 ;;; Layout of weak pointers.
-(defconstant +weak-pointer-header-livep+ 0) ; The value is live when this bit is set in the header.
+(defconstant +weak-pointer-header-livep+ 0
+  "Set by the GC when the value is live.")
+(defconstant +weak-pointer-header-weakness+ (byte 2 1))
+(defconstant +weak-pointer-weakness-key+ 0
+  "The weak pointer is live as long as the key is reachable.")
+(defconstant +weak-pointer-weakness-value+ 1
+  "The weak pointer is live as long as the value is reachable.")
+(defconstant +weak-pointer-weakness-and+ 2
+  "The weak pointer is live as long as both the key and the value are reachable.")
+(defconstant +weak-pointer-weakness-or+ 3
+  "The weak pointer is live as long as either the key or the value are reachable.")
 (defconstant +weak-pointer-link+ 0)
 (defconstant +weak-pointer-key+ 1)
 (defconstant +weak-pointer-value+ 2)
