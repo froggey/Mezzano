@@ -523,14 +523,10 @@
             :key key))
 
 (defun assoc (item alist &key key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (assoc-if (lambda (x) (funcall test item x))
-            alist
-            :key key))
+  (with-test-test-not (test test-not)
+    (assoc-if (lambda (x) (funcall test item x))
+              alist
+              :key key)))
 
 (declaim (inline member-if member-if-not member))
 (defun member-if (predicate list &key key)
@@ -546,14 +542,10 @@
              :key key))
 
 (defun member (item list &key key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (member-if (lambda (x) (funcall test item x))
-             list
-             :key key))
+  (with-test-test-not (test test-not)
+    (member-if (lambda (x) (funcall test item x))
+               list
+               :key key)))
 
 (define-compiler-macro member (&whole whole item list &key key test test-not)
   (cond
@@ -609,23 +601,19 @@
   (cons (cons key datum) alist))
 
 (defun sublis (alist tree &key key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (unless key
-    (setf key 'identity))
-  (labels ((sublis-one (thing)
-             (let ((x (assoc (funcall key thing) alist :test test)))
-               (cond (x
-                      (cdr x))
-                     ((consp thing)
-                      (cons (sublis-one (car thing))
-                            (sublis-one (cdr thing))))
-                     (t
-                      thing)))))
-    (sublis-one tree)))
+  (with-test-test-not (test test-not)
+    (unless key
+      (setf key 'identity))
+    (labels ((sublis-one (thing)
+               (let ((x (assoc (funcall key thing) alist :test test)))
+                 (cond (x
+                        (cdr x))
+                       ((consp thing)
+                        (cons (sublis-one (car thing))
+                              (sublis-one (cdr thing))))
+                       (t
+                        thing)))))
+      (sublis-one tree))))
 
 (defun pairlis (keys data &optional alist)
   (assert (or (and keys data)
@@ -684,15 +672,11 @@
             :key key))
 
 (defun subst (new old tree &key key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (subst-if new
-            (lambda (x) (funcall test old x))
-            tree
-            :key key))
+  (with-test-test-not (test test-not)
+    (subst-if new
+              (lambda (x) (funcall test old x))
+              tree
+              :key key)))
 
 (declaim (inline endp))
 (defun endp (list)
@@ -721,14 +705,10 @@
              :key key))
 
 (defun rassoc (item alist &key key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (rassoc-if (lambda (x) (funcall test item x))
-             alist
-             :key key))
+  (with-test-test-not (test test-not)
+    (rassoc-if (lambda (x) (funcall test item x))
+               alist
+               :key key)))
 
 (declaim (inline set-difference nset-difference
                  union nunion
@@ -815,17 +795,13 @@
          list-1))
 
 (defun tree-equal (tree-1 tree-2 &key test test-not)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (unless test
-    (setf test 'eql))
-  (labels ((frob (lhs rhs)
-             (or (and (atom lhs)
-                      (atom rhs)
-                      (funcall test lhs rhs))
-                 (and (consp lhs)
-                      (consp rhs)
-                      (frob (car lhs) (car rhs))
-                      (frob (cdr lhs) (cdr rhs))))))
-    (frob tree-1 tree-2)))
+  (with-test-test-not (test test-not)
+    (labels ((frob (lhs rhs)
+               (or (and (atom lhs)
+                        (atom rhs)
+                        (funcall test lhs rhs))
+                   (and (consp lhs)
+                        (consp rhs)
+                        (frob (car lhs) (car rhs))
+                        (frob (cdr lhs) (cdr rhs))))))
+      (frob tree-1 tree-2))))

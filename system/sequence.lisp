@@ -15,6 +15,16 @@
   (when (and test test-not)
     (error "TEST and TEST-NOT specified")))
 
+(defmacro with-test-test-not ((test test-not &key (default-test ''eql)) &body body)
+  (check-type test symbol)
+  (check-type test-not symbol)
+  `(progn
+     (check-test-test-not ,test ,test-not)
+     (let ((,test (cond (,test)
+                        (,test-not (complement ,test-not))
+                        (t ,default-test))))
+       ,@body)))
+
 (defun length (sequence)
   (cond ((null sequence) 0)
         ((consp sequence)
@@ -97,14 +107,12 @@
 
 (declaim (inline position))
 (defun position (item sequence &key test test-not key from-end (start 0) end)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (position-if (lambda (x) (funcall test item x)) sequence
-               :key key
-               :from-end from-end
-               :start start
-               :end end))
+  (with-test-test-not (test test-not)
+    (position-if (lambda (x) (funcall test item x)) sequence
+                 :key key
+                 :from-end from-end
+                 :start start
+                 :end end)))
 
 (declaim (inline position-if-not))
 (defun position-if-not (predicate sequence &key key from-end (start 0) end)
@@ -132,10 +140,8 @@
     n))
 
 (defun count (item sequence &key key from-end (start 0) end test test-not)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (count-if #'(lambda (y) (funcall test item y)) sequence :key key :from-end from-end :start start :end end))
+  (with-test-test-not (test test-not)
+    (count-if #'(lambda (y) (funcall test item y)) sequence :key key :from-end from-end :start start :end end)))
 
 (defun count-if-not (predicate sequence &key key from-end (start 0) end)
   (count-if (complement predicate) sequence :key key :from-end from-end :start start :end end))
@@ -172,10 +178,8 @@
                  do (return val))))))))
 
 (defun find (item sequence &key key test test-not (start 0) end from-end)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (find-if (lambda (x) (funcall test item x)) sequence :key key :start start :end end :from-end from-end))
+  (with-test-test-not (test test-not)
+    (find-if (lambda (x) (funcall test item x)) sequence :key key :start start :end end :from-end from-end)))
 
 (defun find-if-not (predicate sequence &key key (start 0) end from-end)
   (find-if (complement predicate) sequence :key key :start start :end end :from-end from-end))
@@ -228,15 +232,13 @@
                             result))))))
 
 (defun remove (item sequence &key from-end test test-not (start 0) end count key)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (remove-if (lambda (x) (funcall test item x)) sequence
-             :from-end from-end
-             :start start
-             :end end
-             :count count
-             :key key))
+  (with-test-test-not (test test-not)
+    (remove-if (lambda (x) (funcall test item x)) sequence
+               :from-end from-end
+               :start start
+               :end end
+               :count count
+               :key key)))
 
 (defun remove-if-not (test sequence &key from-end (start 0) end count key)
   (remove-if (complement test) sequence
@@ -251,15 +253,13 @@
   (remove-if test sequence :from-end from-end :start start :end end :count count :key key))
 
 (defun delete (item sequence &key from-end test test-not (start 0) end count key)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (delete-if (lambda (x) (funcall test item x)) sequence
-             :from-end from-end
-             :start start
-             :end end
-             :count count
-             :key key))
+  (with-test-test-not (test test-not)
+    (delete-if (lambda (x) (funcall test item x)) sequence
+               :from-end from-end
+               :start start
+               :end end
+               :count count
+               :key key)))
 
 (defun delete-if-not (test sequence &key from-end (start 0) end count key)
   (delete-if (complement test) sequence
@@ -270,50 +270,48 @@
              :key key))
 
 (defun remove-duplicates (sequence &key from-end test test-not key (start 0) end)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (unless key (setf key 'identity))
-  (when (or (not (eql start 0))
-            end)
-    (setf sequence (subseq sequence start end)))
-  (etypecase sequence
-    (list
-     (if from-end
-         (do* ((result (cons nil nil))
-               (tail result)
-               (i sequence (cdr i)))
-              ((null i)
-               (cdr result))
-           (declare (dynamic-extent result))
-           (unless (member (funcall key (car i)) (cdr result) :test test :key key)
-             (setf (cdr tail) (cons (car i) nil)
-                   tail (cdr tail))))
-         (do* ((result (cons nil nil))
-               (tail result)
-               (i sequence (cdr i)))
-              ((null i)
-               (cdr result))
-           (declare (dynamic-extent result))
-           (unless (member (funcall key (car i)) (cdr i) :test test :key key)
-             (setf (cdr tail) (cons (car i) nil)
-                   tail (cdr tail))))))
-    (vector
-     (when from-end
-       (setf sequence (reverse sequence)))
-     (let ((result (make-array (length sequence)
-                               :element-type (array-element-type sequence)
-                               :fill-pointer 0)))
-       (dotimes (i (length sequence))
-         (unless (find (funcall key (aref sequence i))
-                       result
-                       :key key
-                       :test test)
-           (vector-push (aref sequence i) result)))
+  (with-test-test-not (test test-not)
+    (unless key (setf key 'identity))
+    (when (or (not (eql start 0))
+              end)
+      (setf sequence (subseq sequence start end)))
+    (etypecase sequence
+      (list
+       (if from-end
+           (do* ((result (cons nil nil))
+                 (tail result)
+                 (i sequence (cdr i)))
+                ((null i)
+                 (cdr result))
+             (declare (dynamic-extent result))
+             (unless (member (funcall key (car i)) (cdr result) :test test :key key)
+               (setf (cdr tail) (cons (car i) nil)
+                     tail (cdr tail))))
+           (do* ((result (cons nil nil))
+                 (tail result)
+                 (i sequence (cdr i)))
+                ((null i)
+                 (cdr result))
+             (declare (dynamic-extent result))
+             (unless (member (funcall key (car i)) (cdr i) :test test :key key)
+               (setf (cdr tail) (cons (car i) nil)
+                     tail (cdr tail))))))
+      (vector
        (when from-end
-         (setf result (nreverse result)))
-       ;; Simplify result.
-       (subseq result 0)))))
+         (setf sequence (reverse sequence)))
+       (let ((result (make-array (length sequence)
+                                 :element-type (array-element-type sequence)
+                                 :fill-pointer 0)))
+         (dotimes (i (length sequence))
+           (unless (find (funcall key (aref sequence i))
+                         result
+                         :key key
+                         :test test)
+             (vector-push (aref sequence i) result)))
+         (when from-end
+           (setf result (nreverse result)))
+         ;; Simplify result.
+         (subseq result 0))))))
 
 (defun delete-duplicates (sequence &key from-end test test-not (start 0) end key)
   (remove-duplicates sequence
@@ -892,17 +890,15 @@
                  :from-end from-end))
 
 (defun substitute (newitem olditem sequence &key test test-not key (start 0) end count from-end)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (substitute-if newitem
-                 (lambda (x) (funcall test olditem x))
-                 sequence
-                 :key key
-                 :start start
-                 :end end
-                 :count count
-                 :from-end from-end))
+  (with-test-test-not (test test-not)
+    (substitute-if newitem
+                   (lambda (x) (funcall test olditem x))
+                   sequence
+                   :key key
+                   :start start
+                   :end end
+                   :count count
+                   :from-end from-end)))
 
 (defun nsubstitute-if (newitem predicate sequence &key key (start 0) end from-end count)
   (unless key (setf key 'identity))
@@ -932,17 +928,15 @@
                   :count count))
 
 (defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end from-end count)
-  (check-test-test-not test test-not)
-  (when test-not (setf test (complement test-not)))
-  (unless test (setf test 'eql))
-  (nsubstitute-if newitem
-                 (lambda (x) (funcall test olditem x))
-                 sequence
-                 :key key
-                 :start start
-                 :end end
-                 :from-end from-end
-                 :count count))
+  (with-test-test-not (test test-not)
+    (nsubstitute-if newitem
+                    (lambda (x) (funcall test olditem x))
+                    sequence
+                    :key key
+                    :start start
+                    :end end
+                    :from-end from-end
+                    :count count)))
 
 (defun reduce (function sequence &key key (initial-value nil initial-valuep) from-end (start 0) end)
   (check-type key (or null symbol function))
@@ -1018,46 +1012,40 @@
 (defun search (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
   (setf end1 (or end1 (length sequence-1)))
   (setf end2 (or end2 (length sequence-2)))
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (setf test (or test #'eql))
-  (setf key (or key #'identity))
-  (do ((index2 start2 (1+ index2))
-       (terminus (- end2 (- end1 start1)))
-       (last-match nil))
-      ((> index2 terminus)
-       last-match)
-    (if (do ((index index2 (1+ index))
-             (sub-index start1 (1+ sub-index)))
-            ((= sub-index end1) t)
-          (if (not (funcall test
-                            (funcall key (elt sequence-1 sub-index))
-                            (funcall key (elt sequence-2 index))))
-              (return nil)))
-        (if from-end
-            (setf last-match index2)
-            (return index2)))))
+  (with-test-test-not (test test-not)
+    (setf key (or key #'identity))
+    (do ((index2 start2 (1+ index2))
+         (terminus (- end2 (- end1 start1)))
+         (last-match nil))
+        ((> index2 terminus)
+         last-match)
+      (if (do ((index index2 (1+ index))
+               (sub-index start1 (1+ sub-index)))
+              ((= sub-index end1) t)
+            (if (not (funcall test
+                              (funcall key (elt sequence-1 sub-index))
+                              (funcall key (elt sequence-2 index))))
+                (return nil)))
+          (if from-end
+              (setf last-match index2)
+              (return index2))))))
 
 (defun mismatch (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
-  (check-test-test-not test test-not)
-  (when test-not
-    (setf test (complement test-not)))
-  (setf test (or test #'eql))
-  (setf key (or key #'identity))
-  (when from-end
-    (setf sequence-1 (reverse sequence-1)
-          sequence-2 (reverse sequence-2)))
-  (setf end1 (or end1 (length sequence-1)))
-  (setf end2 (or end2 (length sequence-2)))
-  (dotimes (position (min (- end1 start1)
-                          (- end2 start2))
-            (when (not (eql (- end1 start1) (- end2 start2)))
-              (+ start1 position)))
-    (when (not (funcall test
-                        (funcall key (elt sequence-1 (+ start1 position)))
-                        (funcall key (elt sequence-2 (+ start2 position)))))
-      (return (+ start1 position)))))
+  (with-test-test-not (test test-not)
+    (setf key (or key #'identity))
+    (when from-end
+      (setf sequence-1 (reverse sequence-1)
+            sequence-2 (reverse sequence-2)))
+    (setf end1 (or end1 (length sequence-1)))
+    (setf end2 (or end2 (length sequence-2)))
+    (dotimes (position (min (- end1 start1)
+                            (- end2 start2))
+              (when (not (eql (- end1 start1) (- end2 start2)))
+                (+ start1 position)))
+      (when (not (funcall test
+                          (funcall key (elt sequence-1 (+ start1 position)))
+                          (funcall key (elt sequence-2 (+ start2 position)))))
+        (return (+ start1 position))))))
 
 
 ;;;; MERGE, from SBCL.
