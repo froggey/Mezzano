@@ -249,7 +249,7 @@ The file will only be recompiled if the source is newer than the output file, or
     dest))
 
 ;; FIXME: Should be a weak hash table.
-(defvar *symbol-macro-expansions* (make-hash-table))
+(defvar *symbol-macro-expansions* (make-hash-table :synchronized t))
 
 (defun symbol-macro-p (symbol)
   (check-type symbol symbol)

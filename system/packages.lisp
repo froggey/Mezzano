@@ -8,6 +8,8 @@
 
 (declaim (special *package*))
 
+;; FIXME: Everything here needs a big lock around it.
+
 (defvar *package-list* '()
   "The package registry.")
 (defvar *keyword-package* nil
@@ -22,8 +24,8 @@
   %used-by-list
   %local-nickname-list
   %locally-nicknamed-by-list
-  (%internal-symbols (make-hash-table :test 'equal))
-  (%external-symbols (make-hash-table :test 'equal))
+  (%internal-symbols (make-hash-table :test 'equal :synchronized t))
+  (%external-symbols (make-hash-table :test 'equal :synchronized t))
   %shadowing-symbols
   documentation)
 

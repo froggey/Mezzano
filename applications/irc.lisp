@@ -204,7 +204,7 @@
                    (subseq line (or rest-start (length line)) rest-end))))
         (t (values "say" line))))
 
-(defvar *command-table* (make-hash-table :test 'equal))
+(defvar *command-table* (make-hash-table :test 'equal :synchronized t))
 
 (defmacro define-server-command (name (state . lambda-list) &body body)
   (let ((args (gensym)))
@@ -305,8 +305,8 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
            (return))
          (mezzano.supervisor:fifo-push (make-instance 'server-line-event :line line) fifo)))))
 
-(defvar *top-level-commands* (make-hash-table :test 'equal))
-(defvar *top-level-command-doc* (make-hash-table :test 'equal))
+(defvar *top-level-commands* (make-hash-table :test 'equal :synchronized t))
+(defvar *top-level-command-doc* (make-hash-table :test 'equal :synchronized t))
 
 (defmacro define-command (name (irc text) docstring &body body)
   `(progn

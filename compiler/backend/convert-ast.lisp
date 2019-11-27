@@ -834,7 +834,7 @@
    (%lambda-list :initarg :lambda-list :reader primitive-lambda-list)
    (%emitter :initarg :emitter :reader primitive-emitter)))
 
-(defvar *primitives* (make-hash-table :test 'equal))
+(defvar *primitives* (make-hash-table :test 'equal :synchronized t))
 
 (defmacro define-primitive (name (lambda-list result-mode) &body body)
   `(setf (gethash ',name *primitives*)

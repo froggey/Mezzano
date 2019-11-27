@@ -239,7 +239,7 @@ the old or new values are expected to be unbound.")
                (slot-value-using-class (class-of object) object slot)
                (values (slot-missing (class-of object) object slot-name 'slot-value)))))))
 
-(defparameter *fast-slot-value-readers* (make-hash-table))
+(defparameter *fast-slot-value-readers* (make-hash-table :synchronized t))
 
 (defun fast-slot-value-reader (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-readers*)))
@@ -314,7 +314,7 @@ the old or new values are expected to be unbound.")
                   (slot-missing (class-of object) object slot-name 'setf new-value)
                   new-value))))))
 
-(defparameter *fast-slot-value-writers* (make-hash-table))
+(defparameter *fast-slot-value-writers* (make-hash-table :synchronized t))
 
 (defun fast-slot-value-writer (slot-name)
   (let ((gf (gethash slot-name *fast-slot-value-writers*)))
@@ -2989,7 +2989,7 @@ always match."
              (when ,invalid-initargs
                (funcall ,error-fn ,valid-initargs ,invalid-initargs))))))))
 
-(sys.int::defglobal *make-instance-initargs-cache* (make-hash-table))
+(sys.int::defglobal *make-instance-initargs-cache* (make-hash-table :synchronized t))
 
 (defun check-make-instance-initargs (class initargs)
   (check-initargs
@@ -3029,7 +3029,7 @@ always match."
 (defmethod initialize-instance ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance t initargs))
 
-(sys.int::defglobal *reinitialize-instance-initargs-cache* (make-hash-table))
+(sys.int::defglobal *reinitialize-instance-initargs-cache* (make-hash-table :synchronized t))
 
 (defun check-reinitialize-instance-initargs (object initargs)
   (check-initargs
@@ -3100,7 +3100,7 @@ always match."
            ((instance standard-object) (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
 
-(sys.int::defglobal *u-i-f-d-c-initargs-cache* (make-hash-table))
+(sys.int::defglobal *u-i-f-d-c-initargs-cache* (make-hash-table :synchronized t))
 
 (defun check-update-instance-for-different-class-initargs (old new initargs)
   (check-initargs
@@ -3375,7 +3375,7 @@ always match."
 
 ;;; eql specializers.
 
-(sys.int::defglobal *interned-eql-specializers* (make-hash-table))
+(sys.int::defglobal *interned-eql-specializers* (make-hash-table :synchronized t))
 
 (defclass eql-specializer (specializer)
   ((object :initarg :object :reader eql-specializer-object)))
@@ -3385,10 +3385,13 @@ always match."
     (format stream "~S" (eql-specializer-object object))))
 
 (defun intern-eql-specializer (object)
-  (or (gethash object *interned-eql-specializers*)
-      (setf (gethash object *interned-eql-specializers*)
-            (make-instance 'eql-specializer
-                           :object object))))
+  (let ((eql-spec (gethash object *interned-eql-specializers*)))
+    (when (not eql-spec)
+      (let ((new (make-instance 'eql-specializer :object object)))
+        (setf eql-spec (or (sys.int::cas (gethash object *interned-eql-specializers*)
+                                         nil new)
+                           new))))
+    eql-spec))
 
 (defmacro with-slots (slot-entries instance-form &body body)
   (let ((in (gensym)))
@@ -3536,7 +3539,7 @@ always match."
     ;; Magic.
     (update-instance-for-redefined-class instance added-slots discarded-slots property-list)))
 
-(sys.int::defglobal *u-i-f-r-c-initargs-cache* (make-hash-table))
+(sys.int::defglobal *u-i-f-r-c-initargs-cache* (make-hash-table :synchronized t))
 
 (defun check-update-instance-for-redefined-class-initargs (object added-slots discarded-slots property-list initargs)
   (check-initargs

@@ -16,7 +16,7 @@
 (defconstant +evdev-type-pwr+ #x16)
 (defconstant +evdev-type-ff-status+ #x17)
 
-(defvar *virtio-input-forwarders* (make-hash-table))
+(defvar *virtio-input-forwarders* (make-hash-table :synchronized t))
 
 (defparameter *evdev-key-to-hid-character*
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace

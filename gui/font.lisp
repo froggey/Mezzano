@@ -115,9 +115,9 @@
 
 ;; TODO: Replace these when weak hash-tables are implemented.
 ;; font-name (lowercase) -> [weak-pointer typeface]
-(defvar *typeface-cache* (make-hash-table :test 'equal))
+(defvar *typeface-cache* (make-hash-table :test 'equal :synchronized t))
 ;; (lowercase font name . single-float size) -> [weak-pointer font]
-(defvar *font-cache* (make-hash-table :test 'equal))
+(defvar *font-cache* (make-hash-table :test 'equal :synchronized t))
 
 (defun path-map-line (path function)
   "Iterate over all the line on the contour of the path."

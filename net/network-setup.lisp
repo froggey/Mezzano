@@ -6,6 +6,8 @@
 ;; Everything in the network stack uses a single serial queue for the moment...
 (defvar *network-serial-queue*)
 
+;; These three variables are only accessed from the network serial queue
+;; and don't need additional synchronization.
 (defvar *receive-sources* (make-hash-table))
 (defvar *boot-source* nil)
 (defvar *interface-config* (make-hash-table))

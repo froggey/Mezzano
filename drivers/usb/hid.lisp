@@ -587,7 +587,10 @@
 ;; Pages info - implement sparse array as hash table - may change later
 ;;======================================================================
 
-(defvar *pages* (make-hash-table :test 'equal))
+;; This looks like it might be read by multiple threads, but only written
+;; here during initialization and only invariant keys are used.
+;; It is safe to leave it unsynchronized with invariant keys.
+(defvar *pages* (make-hash-table :test 'equal :enforce-gc-invariant-keys t))
 
 (setf
  (gethash (list 1 #x01) *pages*) :pointer

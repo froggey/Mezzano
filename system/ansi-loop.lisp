@@ -474,7 +474,9 @@ code to be loaded.
   #-(and CLOE Source-Bootstrap) (check-type ansi (member nil t :extended))
   (flet ((maketable (entries)
 	   (let* ((size (length entries))
-		  (ht (make-hash-table :size (if (< size 10) 10 size) :test #'equal)))
+                  ;; The standard loop universe is read during compliation but only
+                  ;; initialized here.
+		  (ht (make-hash-table :test #'equal :enforce-gc-invariant-keys t)))
 	     (dolist (x entries) (setf (gethash (symbol-name (car x)) ht) (cadr x)))
 	     ht)))
     (make-loop-universe
@@ -486,7 +488,7 @@ code to be loaded.
       :implicit-for-required (not (null ansi))
       :type-keywords (maketable type-keywords)
       :type-symbols (let* ((size (length type-symbols))
-			   (ht (make-hash-table :size (if (< size 10) 10 size) :test #'eq)))
+			   (ht (make-hash-table :test #'eq :enforce-gc-invariant-keys t)))
 		      (dolist (x type-symbols)
 			(if (atom x) (setf (gethash x ht) x) (setf (gethash (car x) ht) (cadr x))))
 		      ht))))

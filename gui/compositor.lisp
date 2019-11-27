@@ -123,7 +123,7 @@
    (%hot-x :initarg :hot-x :reader mouse-cursor-hot-x)
    (%hot-y :initarg :hot-y :reader mouse-cursor-hot-y)))
 
-(defvar *mouse-cursor-library* (make-hash-table))
+(defvar *mouse-cursor-library* (make-hash-table :synchronized t))
 
 (defun make-mouse-cursor (surface &key (hot-x 0) (hot-y 0))
   (assert (eql (mezzano.gui:surface-format surface) :argb32))

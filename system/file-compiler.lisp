@@ -797,6 +797,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            ;; Don't persist optimize proclaimations outside COMPILE-FILE.
            (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
            (*gensym-counter* 0)
+           ;; During parallel compilation this is written to by the workers.
            (*fixup-table* (make-hash-table :synchronized (if *compile-parallel* t nil)))
            (location-stream (make-instance 'sys.int::location-tracking-stream
                                            :stream input-stream)))

@@ -103,7 +103,7 @@
                      :last-command nil
                      :current-completion nil))
 
-(defvar *line-editor-command-table* (make-hash-table))
+(defvar *line-editor-command-table* (make-hash-table :synchronized t))
 
 (defun global-set-key (keys command)
   "Create keyboard shortcut to any command."

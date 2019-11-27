@@ -82,6 +82,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (ldb (byte 32 0) (- x y)))
 
 ;; FIXME: Inbound connections need to timeout if state :syn-received don't change.
+;; TODO: Better locking on this is probably needed. It looks like it is accesed
+;; from the network serial queue and from user threads.
 (defclass tcp-listener ()
   ((local-port :reader tcp-listener-local-port
                :initarg :local-port
@@ -145,7 +147,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                (t
                                 local-port)))
              (listener (make-instance 'tcp-listener
-                                      :pending-connections (make-hash-table :test 'equalp)
+                                      :pending-connections (make-hash-table :test 'equalp :synchronized t)
                                       :connections (mezzano.sync:make-mailbox
                                                     :name "TCP Listener")
                                       :backlog backlog
@@ -202,6 +204,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
    (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
+   ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
                        :initform (make-hash-table :synchronized nil))
    (%last-ack-time :accessor tcp-connection-last-ack-time :initarg :last-ack-time)

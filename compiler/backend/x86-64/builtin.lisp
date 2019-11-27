@@ -62,7 +62,7 @@
    (%generator :initarg :generator :reader builtin-generator)
    (%has-wrapper :initarg :has-wrapper :reader builtin-has-wrapper)))
 
-(defvar *builtins* (make-hash-table :test 'equal))
+(defvar *builtins* (make-hash-table :test 'equal :synchronized t))
 
 ;; Produce an alist of symbol names and their associated functions.
 (defun generate-builtin-functions ()

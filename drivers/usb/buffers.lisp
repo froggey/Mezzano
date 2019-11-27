@@ -26,8 +26,10 @@
 (defvar *buf-pool-lock* (sup:make-mutex "Global Buffer Pool Lock"))
 (defvar *buf-pools* NIL)
 
-(defvar *array->buf* (make-hash-table))
-(defvar *phys-addr->buf* (make-hash-table))
+;; ### Do these need to be synchronized?
+;; It looks like they are accessed by multiple threads.
+(defvar *array->buf* (make-hash-table :synchronized t))
+(defvar *phys-addr->buf* (make-hash-table :synchronized t))
 
 (defstruct (buffer (:print-function buffer-print))
   state

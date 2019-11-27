@@ -229,6 +229,8 @@
   ((%thread :initarg :thread :reader thread)
    (%lease :initarg :lease :accessor lease)))
 
+;; This hash table is only modified from the network serial queue,
+;; so can safely be left unsynchronized.
 (defvar *dhcp-interactions* (make-hash-table))
 
 (defun netmask-to-prefix-length (netmask)
