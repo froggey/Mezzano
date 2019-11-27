@@ -166,8 +166,12 @@
   "Convert a return address to a function pointer.
 Dangerous! The return address must be kept live as a return address on a
 thread's stack if this function is called from normal code."
-  ;; Return address must be within the pinned or wired area.
-  (assert (< return-address sys.int::*pinned-area-bump*))
+  ;; Return address must be within the function area.
+  (mezzano.supervisor:ensure
+   (<= sys.int::*wired-function-area-limit*
+       return-address
+       sys.int::*function-area-limit*)
+   "Return address " return-address " in wrong area")
   ;; Walk backwards looking for an object header with a function type and
   ;; an appropriate entry point.
   (loop
