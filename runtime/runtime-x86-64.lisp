@@ -705,3 +705,9 @@ the GC must be deferred during FILL-WORDS."
 (defun mezzano.runtime::%fixnum-left-shift (integer count)
   (dotimes (i count integer)
     (setf integer (+ integer integer))))
+
+;; Avoid a trip through FUNCTION-REFERENCE.
+(sys.int::define-lap-function sys.int::get-raise-undefined-function-fref (())
+  (sys.lap-x86:mov64 :r8 (:function sys.int::raise-undefined-function))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))

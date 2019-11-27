@@ -176,20 +176,32 @@ thread's stack if this function is called from normal code."
   ;; an appropriate entry point.
   (loop
      with address = (logand return-address -16)
+     with raise-undefined-function-fref-addr =
+       (sys.int::%function-reference-code-location
+        (get-raise-undefined-function-fref))
      ;; Be careful when reading to avoid bignums.
      for potential-header-type = (ldb (byte +object-type-size+ +object-type-shift+)
                                       (memref-unsigned-byte-8 address 0))
      do
-       (when (and
-              ;; Only compiled functions contain code.
-              (eql potential-header-type +object-tag-function+)
-              ;; Check entry point halves individually, avoiding bignums.
-              ;; Currently the entry point of every non-closure function
-              ;; points to the base-address + 16.
-              (eql (logand (+ address 16) #xFFFFFFFF)
-                   (memref-unsigned-byte-32 (+ address 8) 0))
-              (eql (logand (ash (+ address 16) -32) #xFFFFFFFF)
-                   (memref-unsigned-byte-32 (+ address 12) 0)))
+       (when (or (and
+                  ;; Only compiled functions contain code.
+                  (eql potential-header-type +object-tag-function+)
+                  ;; Check entry point halves individually, avoiding bignums.
+                  ;; Currently the entry point of every non-closure function
+                  ;; points to the base-address + 16.
+                  (eql (logand (+ address 16) #xFFFFFFFF)
+                       (memref-unsigned-byte-32 (+ address 8) 0))
+                  (eql (logand (ash (+ address 16) -32) #xFFFFFFFF)
+                       (memref-unsigned-byte-32 (+ address 12) 0)))
+                 (and
+                  ;; Frefs do too...
+                  (eql potential-header-type +object-tag-function-reference+)
+                  ;; The entry point of an fref always points at the address
+                  ;; of the raise-undefined-function fref entry point.
+                  (eql (logand raise-undefined-function-fref-addr #xFFFFFFFF)
+                       (memref-unsigned-byte-32 (+ address 8) 0))
+                  (eql (logand (ash raise-undefined-function-fref-addr -32) #xFFFFFFFF)
+                       (memref-unsigned-byte-32 (+ address 12) 0))))
          (return (values (%%assemble-value address sys.int::+tag-object+)
                          (- return-address address))))
        (decf address 16)))
