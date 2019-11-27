@@ -93,7 +93,7 @@
                    (cond ((eql fn *funcallable-instance-trampoline*)
                           (mezzano.supervisor:thread-state-rbx-value thread))
                          (t
-                          (or (function-name fn) fn)))
+                          (function-like-name fn)))
                    (fetch-thread-function-arguments thread))
            (return))
          (when (not (eql fn prev-fn))
@@ -225,6 +225,12 @@
                (memref-unsigned-byte-64 sp i)
                (memref-unsigned-byte-64 sp (1+ i)))))
 
+(defun function-like-name (function)
+  (typecase function
+    (function (function-name function))
+    (function-reference `(function-reference ,(function-reference-name function)))
+    (t function)))
+
 (defun trace-execution (function &key full-dump run-forever (print-instructions t) trace-call-mode (trim-stepper-noise t) report-call-counts)
   "Trace the execution of FUNCTION.
 If FULL-DUMP is true, then the register state of the thread will be printed each instruction.
@@ -312,7 +318,8 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                       (t
                        (when (and prev-fn
                                   (not (eql fn prev-fn)))
-                         (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                         (cond ((or (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                                    (function-reference-p fn))
                                 (incf (gethash (cond ((eql fn *funcallable-instance-trampoline*)
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
                                                      (t
@@ -336,14 +343,14 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (write-char #\Space)
                                        (write (mezzano.supervisor:thread-state-rsp thread) :base 16)
                                        (write-char #\Space)
-                                       (write (function-name fn))
+                                       (write (function-like-name fn))
                                        (terpri))
                                       (print-instructions
                                        (format t "Entered function ~S with arguments ~:A.~%"
                                                (cond ((eql fn *funcallable-instance-trampoline*)
                                                       (mezzano.supervisor:thread-state-rbx-value thread))
                                                      (t
-                                                      (or (function-name fn) fn)))
+                                                      (or (function-like-name fn) fn)))
                                                (mapcar #'print-safely-to-string
                                                        (fetch-thread-function-arguments thread))))))
                                (t
@@ -354,19 +361,19 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                        (write-char #\Space)
                                        (write (mezzano.supervisor:thread-state-rsp thread) :base 16)
                                        (write-char #\Space)
-                                       (write (function-name prev-fn))
+                                       (write (function-like-name prev-fn))
                                        (terpri))
                                       (print-instructions
                                        (format t "Returning from function ~S to ~S with results ~:A.~%"
-                                               (or (function-name prev-fn) prev-fn)
-                                               (or (function-name fn) fn)
+                                               (function-like-name prev-fn)
+                                               (function-like-name fn)
                                                (mapcar #'print-safely-to-string
                                                        (fetch-thread-return-values thread))))))))
                        (when print-instructions
                          (when (not (eql fn (mezzano.disassemble:disassembler-context-function disassembler-context)))
                            (setf disassembler-context (mezzano.disassemble:make-disassembler-context fn)))
                          (let ((inst (mezzano.disassemble:instruction-at disassembler-context offset)))
-                           (format t "~8,'0X: ~S + ~D " rip (or (function-name fn) fn) offset)
+                           (format t "~8,'0X: ~S + ~D " rip (function-like-name fn) offset)
                            (when inst
                              (mezzano.disassemble:print-instruction disassembler-context inst :print-annotations nil :print-labels nil))
                            (terpri)))
