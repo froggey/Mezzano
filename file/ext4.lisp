@@ -4,7 +4,7 @@
 
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
-  (:export)
+  (:export :make-ext-host)
   (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.ext4-file-system)
@@ -602,13 +602,24 @@
           :reader host-name)
    (%lock :initarg :lock
           :reader ext-host-lock)
-   (partition :initarg :partition
-              :reader partition)
-   (superblock :initarg :superblock
-               :reader superblock)
-   (bgdt :initarg :bgdt
-         :reader bgdt))
+   (%partition :initarg :partition
+               :reader partition)
+   (%superblock :initarg :superblock
+                :reader superblock)
+   (%bgdt :initarg :bgdt
+          :reader bgdt))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
+
+(defmethod initialize-instance :after ((instance ext-host) &key)
+  (let* ((partition (partition instance))
+         (superblock (read-superblock partition)))
+    (setf (slot-value instance '%superblock) superblock
+          (slot-value instance '%bgdt) (read-block-group-descriptor-table partition superblock))))
+
+(defun make-ext-host (name partition-n)
+  (make-instance 'ext-host
+                 :name name
+                 :partition (nth partition-n (mezzano.supervisor:all-disks))))
 
 (defmethod host-default-device ((host ext-host))
   nil)
