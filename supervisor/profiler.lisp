@@ -73,7 +73,6 @@
              *enable-profiling*
              (or *profile-sample-during-gc*
                  (not (world-stopped-p))))
-    (setf *debug-magic-button-hold-variable* t)
     (stop-other-cpus-for-debug-magic-button)
     (profile-append-entry :start)
     (profile-append-entry (get-internal-real-time))
@@ -108,7 +107,7 @@
                     ;; RIP is valid in the save area.
                     (profile-append-return-address (thread-state-rip thread)))
                   (profile-append-call-stack (thread-frame-pointer thread))))))
-    (setf *debug-magic-button-hold-variable* nil)))
+    (resume-other-cpus-for-debug-magic-button)))
 
 (defun start-profiling (&key buffer-size thread (reset t) (sample-during-gc t))
   "Set up a profile sample buffer and enable sampling."

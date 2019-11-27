@@ -24,10 +24,7 @@
 (sys.int::defglobal sys.int::*supervisor-log-buffer*)
 (sys.int::defglobal *supervisor-log-buffer-position*)
 
-(sys.int::defglobal *debug-magic-button-hold-variable*)
-
 (defun initialize-debug-log ()
-  (setf *debug-magic-button-hold-variable* nil)
   (setf *debug-pseudostream* (lambda (&rest ignored) (declare (ignore ignored))))
   (cond ((boundp '*supervisor-log-buffer-position*)
          (debug-log-buffer-write-char #\Newline))
@@ -328,12 +325,11 @@
 
 (defun debug-magic-button ()
   ;; Try to bring all the other CPUs to a complete stop before doing anything.
-  (setf *debug-magic-button-hold-variable* t)
   (stop-other-cpus-for-debug-magic-button)
   (debug-print-line "---- Begin magic button dump ----")
   (debug-dump-threads)
   (debug-print-line "---- End magic button dump ----")
-  (setf *debug-magic-button-hold-variable* nil))
+  (resume-other-cpus-for-debug-magic-button))
 
 (defun panic-1 (things extra)
   (safe-without-interrupts (things extra)
