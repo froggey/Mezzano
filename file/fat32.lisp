@@ -1178,7 +1178,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            :pathname pathname
                            :format-control "File ~A exists."
                            :format-arguments (list pathname)))
-            ((:new-version :rename :rename-and-delete :overwrite)
+            ((:new-version :rename :rename-and-delete)
              (error 'simple-file-error
                     :pathname pathname
                     :format-control ":if-exists ~S not implemented."
@@ -1205,6 +1205,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                         (last-cluster-value fat32))
              (write-fat disk fat32 fat)
              (setf abort-action :delete))
+            (:overwrite)
             (:append
              (setf file-position (read-file-length dir-array file-offset)))
             ((nil) (return-from open-using-host nil))))

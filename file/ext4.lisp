@@ -4,7 +4,7 @@
 
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
-  (:export)
+  (:export :make-ext4-host)
   (:local-nicknames (:sys.int :mezzano.internals)))
 
 (in-package :mezzano.ext4-file-system)
@@ -597,20 +597,31 @@
 
 ;;; Host integration
 
-(defclass ext-host ()
+(defclass ext4-host ()
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock
-          :reader ext-host-lock)
-   (partition :initarg :partition
-              :reader partition)
-   (superblock :initarg :superblock
-               :reader superblock)
-   (bgdt :initarg :bgdt
-         :reader bgdt))
+          :reader ext4-host-lock)
+   (%partition :initarg :partition
+               :reader partition)
+   (%superblock :initarg :superblock
+                :reader superblock)
+   (%bgdt :initarg :bgdt
+          :reader bgdt))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
-(defmethod host-default-device ((host ext-host))
+(defmethod initialize-instance :after ((instance ext4-host) &key)
+  (let* ((partition (partition instance))
+         (superblock (read-superblock partition)))
+    (setf (slot-value instance '%superblock) superblock
+          (slot-value instance '%bgdt) (read-block-group-descriptor-table partition superblock))))
+
+(defun make-ext4-host (name partition-n)
+  (make-instance 'ext4-host
+                 :name name
+                 :partition (nth partition-n (mezzano.supervisor:all-disks))))
+
+(defmethod host-default-device ((host ext4-host))
   nil)
 
 (defun parse-simple-file-path (host namestring)
@@ -655,11 +666,11 @@
                    :type type
                    :version :newest)))
 
-(defmethod parse-namestring-using-host ((host ext-host) namestring junk-allowed)
+(defmethod parse-namestring-using-host ((host ext4-host) namestring junk-allowed)
   (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
   (parse-simple-file-path host namestring))
 
-(defmethod namestring-using-host ((host ext-host) pathname)
+(defmethod namestring-using-host ((host ext4-host) pathname)
   (when (pathname-device pathname)
     (error 'no-namestring-error
            :pathname pathname
@@ -740,14 +751,14 @@
                                      mezzano.gray:unread-char-mixin)
   ())
 
-(defmacro with-ext-host-locked ((host) &body body)
-  `(mezzano.supervisor:with-mutex ((ext-host-lock ,host))
+(defmacro with-ext4-host-locked ((host) &body body)
+  `(mezzano.supervisor:with-mutex ((ext4-host-lock ,host))
      ,@body))
 
 ;; WIP
-(defmethod open-using-host ((host ext-host) pathname
+(defmethod open-using-host ((host ext4-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
-  (with-ext-host-locked (host)
+  (with-ext4-host-locked (host)
     (let ((file-inode nil)
           (buffer nil)
           (file-position 0)
@@ -796,11 +807,11 @@
                             :abort-action abort-action))
             (t (error "Unsupported element-type ~S." element-type))))))
 
-(defmethod probe-using-host ((host ext-host) pathname)
+(defmethod probe-using-host ((host ext4-host) pathname)
   (multiple-value-bind (inode-n) (find-file host pathname)
     (if inode-n t nil)))
 
-(defmethod directory-using-host ((host ext-host) pathname &key)
+(defmethod directory-using-host ((host ext4-host) pathname &key)
   (let ((inode-n (find-file host pathname))
         (disk (partition host))
         (superblock (superblock host))
@@ -821,15 +832,15 @@
                 stack))))
     (return-from directory-using-host stack)))
 
-;; (defmethod ensure-directories-exist-using-host ((host ext-host) pathname &key verbose))
+;; (defmethod ensure-directories-exist-using-host ((host ext4-host) pathname &key verbose))
 
-;; (defmethod rename-file-using-host ((host ext-host) source dest))
+;; (defmethod rename-file-using-host ((host ext4-host) source dest))
 
-;; (defmethod file-write-date-using-host ((host ext-host) path))
+;; (defmethod file-write-date-using-host ((host ext4-host) path))
 
-;; (defmethod delete-file-using-host ((host ext-host) path &key))
+;; (defmethod delete-file-using-host ((host ext4-host) path &key))
 
-(defmethod expunge-directory-using-host ((host ext-host) path &key)
+(defmethod expunge-directory-using-host ((host ext4-host) path &key)
   (declare (ignore host path))
   t)
 
