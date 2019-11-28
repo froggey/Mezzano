@@ -220,10 +220,17 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (multiple-value-bind (gc-info-address gc-info-length)
       (function-gc-info object)
     (save-integer gc-info-length stream)
-    (dotimes (i (- (function-code-size object) 16))
-      (write-byte (function-code-byte object (+ i 16)) stream))
-    (dotimes (i gc-info-length)
-      (write-byte (memref-unsigned-byte-8 gc-info-address i) stream))))
+    ;; Accumulate the code & gc metadata into a single big octet vector
+    ;; and blat that out in one go. Faster than calling write-byte a
+    ;; bunch of time.
+    (let* ((n-code-bytes (- (function-code-size object) 16))
+           (data (make-array (+ n-code-bytes gc-info-length) :element-type '(unsigned-byte 8))))
+      (dotimes (i n-code-bytes)
+        (setf (aref data i) (function-code-byte object (+ i 16))))
+      (dotimes (i gc-info-length)
+        (setf (aref data (+ n-code-bytes i)) (memref-unsigned-byte-8 gc-info-address i)))
+      (when (not *llf-dry-run*)
+        (write-sequence data stream)))))
 
 ;;; From Alexandria.
 (defun proper-list-p (object)
