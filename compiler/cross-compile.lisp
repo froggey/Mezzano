@@ -1004,7 +1004,8 @@
              (cl:*features* *features*)
              (sys.int::*top-level-form-number* 0)
              (location-stream (make-instance 'sys.int::location-tracking-stream
-                                             :stream input)))
+                                             :stream input
+                                             :namestring (namestring *compile-file-pathname*))))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
         (sys.int::with-reader-location-tracking
@@ -1202,6 +1203,7 @@
 
 (defclass location-tracking-stream (sb-gray:fundamental-character-input-stream)
   ((%stream :initarg :stream :reader location-tracking-stream-stream)
+   (%namestring :initarg :namestring :reader location-tracking-stream-namestring)
    (%line :initarg :line :accessor location-tracking-stream-line)
    (%character :initarg :character :accessor location-tracking-stream-character)
    (%unread-character :accessor location-tracking-stream-unread-character))
@@ -1214,8 +1216,7 @@ This should only fill in the START- slots and ignore the END- slots.")
 
 (defmethod location-tracking-stream-location ((stream location-tracking-stream))
   (make-source-location
-   :file (and *compile-file-pathname*
-              (ignore-errors (namestring *compile-file-pathname*)))
+   :file (location-tracking-stream-namestring stream)
    :top-level-form-number *top-level-form-number*
    :position (let ((inner (location-tracking-stream-stream stream)))
                (if (typep inner 'file-stream)
