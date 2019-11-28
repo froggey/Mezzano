@@ -54,7 +54,7 @@ the server instead of reconnecting for each operation.")
    ;; File position where the buffer data starts.
    (%buffer-position :accessor buffer-position)
    ;; True when the buffer has been written to.
-   (%buffer-dirty-b :initform nil :accessor buffer-dirty-p)
+   (%buffer-dirty-p :initform nil :accessor buffer-dirty-p)
    (%abort-action :initarg :abort-action :accessor abort-action))
   (:default-initargs :position 0))
 
@@ -414,6 +414,50 @@ the server instead of reconnecting for each operation.")
   (setf (file-length* stream) (max (file-position* stream)
                                    (file-length* stream)))
   byte)
+
+(defun buffer-bytes-available-for-write (stream)
+  "Returns the number of bytes that can currently be written into the buffer."
+  (let ((buffer (buffer stream)))
+    (cond (buffer
+           (let ((write-position (- (file-position* stream) (buffer-position stream))))
+             (cond ((<= 0 write-position (length buffer))
+                    ;; Buffer exists and the write position is within it.
+                    (- (array-dimension buffer 0) write-position))
+                   (t
+                    ;; Buffer does not exist or write position outside it.
+                    0))))
+          (t 0))))
+
+(defmethod gray:stream-write-sequence ((stream remote-file-stream) sequence &optional (start 0) end)
+  (assert (member (direction stream) '(:output :io)))
+  (unless end (setf end (length sequence)))
+  (let ((offset start)
+        (bytes-to-go (- end start)))
+    (loop
+       (when (<= bytes-to-go 0)
+         (return))
+       (let ((avail (buffer-bytes-available-for-write stream)))
+         (when (zerop avail)
+           ;; No buffer, buffer full or buffer in the wrong place.
+           ;; Flush and reallocate.
+           (flush-buffer stream)
+           (setf (buffer-position stream) (file-position* stream))
+           (setf (buffer stream) (make-array *cache-size* :element-type '(unsigned-byte 8) :fill-pointer 0))
+           (setf avail *cache-size*))
+         (let* ((buffer-offset (- (file-position* stream) (buffer-position stream)))
+                (bytes-to-write (min avail bytes-to-go)))
+           (incf (fill-pointer (buffer stream)) bytes-to-write)
+           (setf (buffer-dirty-p stream) t)
+           (replace (buffer stream) sequence
+                    :start1 buffer-offset
+                    :start2 offset
+                    :end1 (+ buffer-offset bytes-to-write))
+           (incf (file-position* stream) bytes-to-write)
+           (setf (file-length* stream) (max (file-position* stream)
+                                            (file-length* stream)))
+           (incf offset bytes-to-write)
+           (decf bytes-to-go bytes-to-write)))))
+  sequence)
 
 (defmethod close ((stream remote-file-stream) &key abort)
   (call-next-method)
