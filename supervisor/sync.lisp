@@ -564,7 +564,6 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
              (t
               ;; Locked for reading, nothing pending or we're not
               ;; the last reader. Just decrement the reader count.
-              (ensure (eql (ldb +rw-lock-state-mode+ state) +rw-lock-mode-readers+))
               (let ((new (- state +rw-lock-state-reader-increment+)))
                 (when (eql (sys.int::cas (rw-lock-state rw-lock) state new) state)
                   ;; Successfully released as a reader.
