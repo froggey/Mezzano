@@ -34,17 +34,14 @@
                (sup:disk-read disk addr sectors-per-4K wired-buffer)
              (when (not success-p)
                (error "Disk read error: ~A" error-reason)))
-           (dotimes (i 4096)
-             (setf (aref buffer (+ base-offset i)) (aref wired-buffer i)))
+           (replace buffer wired-buffer :start1 base-offset)
          finally
            (when (/= partial-transfer 0)
              (multiple-value-bind (success-p error)
                  (sup:disk-read disk addr partial-transfer wired-buffer)
                (when (not success-p)
                  (error "Disk read error: ~A" error)))
-             (dotimes (i (* partial-transfer sector-size))
-               (setf (aref buffer (+ base-offset i))
-                     (aref wired-buffer i))))))))
+             (replace buffer wired-buffer :start1 base-offset))))))
 
 (defgeneric block-device-write (device lba n-sectors buffer &key offset))
 
@@ -63,17 +60,14 @@
          for base-offset = offset then (+ base-offset 4096)
          repeat full-transfers
          do
-           (dotimes (i 4096)
-             (setf (aref wired-buffer i) (aref buffer (+ base-offset i))))
+           (replace wired-buffer buffer :start2 base-offset)
            (multiple-value-bind (success-p error-reason)
                (sup:disk-write disk addr sectors-per-4K wired-buffer)
              (when (not success-p)
                (error "Disk write error: ~A" error-reason)))
          finally
            (when (/= partial-transfer 0)
-             (dotimes (i (* partial-transfer sector-size))
-               (setf (aref wired-buffer i)
-                     (aref buffer (+ base-offset i))))
+             (replace wired-buffer buffer :start2 base-offset)
              (multiple-value-bind (success-p error-reason)
                  (sup:disk-write disk addr partial-transfer wired-buffer)
                (when (not success-p)
