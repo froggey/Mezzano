@@ -173,8 +173,6 @@ Returns 4 values:
   (without-interrupts
     (let* ((frame *snapshot-pending-writeback-pages*)
            (address (physical-page-virtual-address frame))
-           (block-info (or (block-info-for-virtual-address address)
-                           (panic "No block info for CoW address?" address)))
            (block-id (physical-page-frame-block-id frame)))
       ;; Remove frame from list.
       (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
@@ -190,7 +188,12 @@ Returns 4 values:
          ;; Allow access to the page again.
          (let* ((pte (or (get-pte-for-address address nil)
                          (panic "No PTE for CoW address?")))
-                (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
+                (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))
+                ;; The block map should only be consulted for active pages.
+                ;; Other kinds of pages indicate that the virtual memory was modified
+                ;; and the page may no longer exist in the most recent block map.
+                (block-info (or (block-info-for-virtual-address address)
+                                (panic "No block info for CoW address?" address))))
            ;; Update PTE bits. Clear CoW bit, make writable.
            (setf (sys.int::memref-unsigned-byte-64 pte 0)
                  (make-pte frame
@@ -222,7 +225,7 @@ Returns 4 values:
                  nil
                  block-id
                  address))
-        (t (panic "Page " frame " for address " address " has non-writeback type "
+        (t (panic "Frame " frame " for address " address " has non-writeback type "
                   (physical-page-frame-type frame)))))))
 
 (defun snapshot-write-back-pages ()
