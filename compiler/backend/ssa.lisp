@@ -251,8 +251,7 @@ Virtual registers must be defined exactly once."
       (format t "Converted ~D simple loads.~%" n-simple-loads-converted))
     n-simple-loads-converted))
 
-(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour debugp)
-  (declare (ignore basic-blocks bb-succs))
+(defun ssa-convert-one-local-locate-binding-storing-basic-blocks (backend-function candidate dom dynamic-contour)
   (let ((visited (make-hash-table :test 'eq :synchronized nil))
         (phi-sites '())
         (def-sites '())
@@ -288,6 +287,104 @@ Virtual registers must be defined exactly once."
            (when (not (gethash frontier visited))
              (setf (gethash frontier visited) t)
              (push frontier def-sites)))))
+    (values phi-sites binding-bb)))
+
+(defun ssa-convert-one-local-insert-phi-nodes (backend-function candidate bb-preds debugp phi-sites)
+  ;; Insert phi nodes.
+  (dolist (bb phi-sites)
+    (let ((phi (make-instance 'virtual-register :name `(:phi ,candidate))))
+      (push phi (label-phis bb))
+      ;; Update each predecessor jump.
+      (dolist (pred (gethash bb bb-preds))
+        (loop
+           (when (typep pred 'terminator-instruction) (return))
+           (setf pred (next-instruction backend-function pred)))
+        (let ((tmp (make-instance 'virtual-register)))
+          (insert-before backend-function pred
+                         (make-instance 'load-local-instruction
+                                        :local candidate
+                                        :destination tmp))
+          (push tmp (jump-values pred))))
+      ;; And insert stores after each phi.
+      (insert-after backend-function bb
+                    (make-instance 'store-local-instruction
+                                   :local candidate
+                                   :value phi))
+      (when debugp
+        ;; Debug updates too.
+        (insert-after backend-function bb
+                      (make-instance 'debug-update-variable-instruction
+                                     :variable (bind-local-ast candidate)
+                                     :value phi))))))
+
+(defun ssa-convert-one-local-rename-values (backend-function candidate dom debugp binding-bb)
+  ;; Now walk the dominator tree to rename values, starting at the binding's basic block.
+  (let ((uses (build-use/def-maps backend-function))
+        (remove-me '())
+        (worklist '()))
+    (when debugp
+      (insert-after backend-function candidate
+                    (make-instance 'debug-bind-variable-instruction
+                                   :variable (bind-local-ast candidate)
+                                   :value (bind-local-value candidate))))
+    (push candidate remove-me)
+    ;; Initial value is whatever value it was bound with.
+    (push (list binding-bb (bind-local-value candidate)) worklist)
+    (loop
+       (when (endp worklist)
+         (return))
+       (let* ((worklist-entry (pop worklist))
+              (bb (first worklist-entry))
+              (current-value (second worklist-entry))
+              (inst bb))
+         (loop
+            (typecase inst
+              (load-local-instruction
+               (when (eql (load-local-local inst) candidate)
+                 (let ((new-value current-value)
+                       (load-value (load-local-destination inst)))
+                   ;; Replace all uses with the new value
+                   (dolist (u (gethash load-value uses))
+                     (replace-all-registers u
+                                            (lambda (reg)
+                                              (cond ((eql reg load-value)
+                                                     new-value)
+                                                    (t reg)))))
+                   (push inst remove-me))))
+              (store-local-instruction
+               (when (eql (store-local-local inst) candidate)
+                 (when debugp
+                   (insert-after backend-function inst
+                                 (make-instance 'debug-update-variable-instruction
+                                                :variable (bind-local-ast candidate)
+                                                :value (store-local-value inst))))
+                 (push inst remove-me)
+                 (setf current-value (store-local-value inst))))
+              (unbind-local-instruction
+               (when (eql (unbind-local-local inst) candidate)
+                 (when debugp
+                   (insert-after backend-function inst
+                                 (make-instance 'debug-unbind-variable-instruction
+                                                :variable (bind-local-ast candidate))))
+                 (push inst remove-me)
+                 ;; Stop renaming this branch of the dom tree
+                 ;; when the variable is unbound.
+                 (return))))
+            (when (typep inst 'terminator-instruction)
+              ;; Reached the end of this basic block, add the domintaor tree children
+              ;; to the worklist.
+              (dolist (child (mezzano.compiler.backend.dominance:dominator-tree-children dom bb))
+                (push (list child current-value) worklist))
+              (return))
+            (setf inst (next-instruction backend-function inst)))))
+    (dolist (inst remove-me)
+      (remove-instruction backend-function inst))))
+
+(defun ssa-convert-one-local (backend-function candidate dom basic-blocks bb-preds bb-succs dynamic-contour debugp)
+  (declare (ignore basic-blocks bb-succs))
+  (multiple-value-bind (phi-sites binding-bb)
+      (ssa-convert-one-local-locate-binding-storing-basic-blocks
+       backend-function candidate dom dynamic-contour)
     (when (not *shut-up*)
       (format t "Phi sites for ~S: ~:S~%" candidate phi-sites))
     ;; FIXME: Critical edges will prevent phi insertion, need to break them.
@@ -304,86 +401,10 @@ Virtual registers must be defined exactly once."
             (format t "Bailing out of conversion for ~S due to non-jump ~S.~%"
                     candidate pred))
           (return-from ssa-convert-one-local nil))))
-    ;; Insert phi nodes.
-    (dolist (bb phi-sites)
-      (let ((phi (make-instance 'virtual-register :name `(:phi ,candidate))))
-        (push phi (label-phis bb))
-        ;; Update each predecessor jump.
-        (dolist (pred (gethash bb bb-preds))
-          (loop
-             (when (typep pred 'terminator-instruction) (return))
-             (setf pred (next-instruction backend-function pred)))
-          (let ((tmp (make-instance 'virtual-register)))
-            (insert-before backend-function pred
-                           (make-instance 'load-local-instruction
-                                          :local candidate
-                                          :destination tmp))
-            (push tmp (jump-values pred))))
-        ;; And insert stores after each phi.
-        (insert-after backend-function bb
-                      (make-instance 'store-local-instruction
-                                     :local candidate
-                                     :value phi))
-        (when debugp
-          ;; Debug updates too.
-          (insert-after backend-function bb
-                        (make-instance 'debug-update-variable-instruction
-                                       :variable (bind-local-ast candidate)
-                                       :value phi)))))
-    ;; Now walk the dominator tree to rename values, starting at the binding's basic block.
-    (let ((uses (build-use/def-maps backend-function))
-          (remove-me '()))
-      (labels ((rename (bb stack)
-                 (let ((inst bb))
-                   (loop
-                      (typecase inst
-                        (load-local-instruction
-                         (when (eql (load-local-local inst) candidate)
-                           (let ((new-value (first stack))
-                                 (load-value (load-local-destination inst)))
-                             ;; Replace all uses with the new value
-                             (dolist (u (gethash load-value uses))
-                               (replace-all-registers u
-                                                      (lambda (reg)
-                                                        (cond ((eql reg load-value)
-                                                               new-value)
-                                                              (t reg)))))
-                             (push inst remove-me))))
-                        (store-local-instruction
-                         (when (eql (store-local-local inst) candidate)
-                           (when debugp
-                             (insert-after backend-function inst
-                                           (make-instance 'debug-update-variable-instruction
-                                                          :variable (bind-local-ast candidate)
-                                                          :value (store-local-value inst))))
-                           (push inst remove-me)
-                           (push (store-local-value inst) stack)))
-                        (unbind-local-instruction
-                         (when (eql (unbind-local-local inst) candidate)
-                           (when debugp
-                             (insert-after backend-function inst
-                                           (make-instance 'debug-unbind-variable-instruction
-                                                          :variable (bind-local-ast candidate))))
-                           (push inst remove-me)
-                           ;; Stop renaming this branch of the dom tree
-                           ;; when the variable is unbound.
-                           (return-from rename))))
-                      (when (typep inst 'terminator-instruction)
-                        (return))
-                      (setf inst (next-instruction backend-function inst))))
-                 (dolist (child (mezzano.compiler.backend.dominance:dominator-tree-children dom bb))
-                   (rename child stack))))
-        (when debugp
-          (insert-after backend-function candidate
-                        (make-instance 'debug-bind-variable-instruction
-                                       :variable (bind-local-ast candidate)
-                                       :value (bind-local-value candidate))))
-        (push candidate remove-me)
-        (rename binding-bb
-                ;; Initial value is whatever value it was bound with.
-                (list (bind-local-value candidate)))
-        (dolist (inst remove-me)
-          (remove-instruction backend-function inst))))
+    (ssa-convert-one-local-insert-phi-nodes
+     backend-function candidate bb-preds debugp phi-sites)
+    (ssa-convert-one-local-rename-values
+     backend-function candidate dom debugp binding-bb)
     t))
 
 (defun ssa-convert-locals (backend-function candidates debugp)
