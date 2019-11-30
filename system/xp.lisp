@@ -114,13 +114,14 @@
 
 ;                       ---- DISPATCHING ----
 
+;; FIXME: This needs locking, not just the hash-tables but also for others.
 (defclass pprint-dispatch-table ()
   ((conses-with-cars :initarg :conses-with-cars :accessor conses-with-cars)
    (structures :initarg :structures :accessor structures)
    (others :initarg :others :accessor others))
   (:default-initargs
-   :conses-with-cars (make-hash-table :test #'eq)
-   :structures (make-hash-table :test #'eq)
+   :conses-with-cars (make-hash-table :test #'eq :synchronized t)
+   :structures (make-hash-table :test #'eq :synchronized t)
    :others nil))
 
 (defun make-pprint-dispatch (&rest args)
@@ -148,12 +149,12 @@
 
 (defun copy-pprint-dispatch (&optional (table *print-pprint-dispatch*))
   (when (null table) (setf table *IPD*))
-  (let* ((new-conses-with-cars
-           (make-hash-table :test #'eq
-             :size (max (hash-table-count (conses-with-cars table)) 32)))
-         (new-structures
-           (make-hash-table :test #'eq
-             :size (max (hash-table-count (structures table)) 32))))
+  (let* ((new-conses-with-cars (make-hash-table
+                                :test #'eq
+                                :synchronized t))
+         (new-structures (make-hash-table
+                          :test #'eq
+                          :synchronized t)))
     (maphash (lambda (key value)
                  (setf (gethash key new-conses-with-cars) (copy-entry value)))
              (conses-with-cars table))

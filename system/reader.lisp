@@ -20,7 +20,9 @@
              (:copier nil))
   (case :upcase :type (member :upcase :downcase :preserve :invert))
   (base-characters (make-array 256 :initial-element nil) :type (simple-vector 256))
-  (extended-characters (make-hash-table) :type hash-table))
+  ;; Full synchronization. Readtables can be modified from any thread.
+  ;; FIXME: A full lock around the readtable would be better.
+  (extended-characters (make-hash-table :synchronized t) :type hash-table))
 
 ;;; TODO: At some point the init code must copy the standard readtable to create
 ;;; the initial readtable.
@@ -89,7 +91,7 @@
   (setf (readtable-syntax-type char readtable)
         (list 'read-dispatch-char (not non-terminating-p)
               (make-array 256 :initial-element nil)
-              (make-hash-table)))
+              (make-hash-table :synchronized t)))
   t)
 
 (defun get-dispatch-macro-character (disp-char sub-char &optional (readtable *readtable*))
@@ -123,7 +125,7 @@
            (setf (readtable-syntax-type to-char to-readtable) data))
           ((= (length data) 4)
            ;; Dispatching character, must copy the dispatch tables.
-           (let ((ht (make-hash-table)))
+           (let ((ht (make-hash-table :synchronized t)))
              (maphash (lambda (k v) (setf (gethash k ht) v)) (fourth data))
              (setf (readtable-syntax-type to-char to-readtable)
                    (list (first data) (second data)

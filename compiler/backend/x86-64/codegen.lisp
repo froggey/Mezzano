@@ -534,7 +534,7 @@
     (:ng :g   lap:jng  lap:cmov64ng)))
 
 (defparameter *predicate-instructions*
-  (let ((ht (make-hash-table :test 'eq)))
+  (let ((ht (make-hash-table :test 'eq :synchronized t)))
     (mapc (lambda (i)
             (setf (gethash (first i) ht)
                   (make-predicate-instruction

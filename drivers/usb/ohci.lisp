@@ -1661,7 +1661,8 @@
                                 :lock (sup:make-mutex "OHCI Lock")
                                 :bar bar0
                                 :hcca-phys-addr 0 ;; dummy value for print-ohci
-                                :td->xfer-info (make-hash-table))))
+                                ;; ### Does this need to be synchronized?
+                                :td->xfer-info (make-hash-table :synchronized t))))
       (setf (pci:pci-bus-master-enabled device) T)
       (setf *ohci* ohci)
 

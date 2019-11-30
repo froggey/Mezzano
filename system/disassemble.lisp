@@ -46,9 +46,10 @@
     (setf fn (compile nil fn)))
   (when (and (consp fn) (eql (first fn) 'defmethod))
     (setf fn (mezzano.clos:method-function (defmethod-name-to-method fn))))
-  (when (not (functionp fn))
+  (when (and (not (functionp fn))
+             (not (sys.int::function-reference-p fn)))
     (setf fn (fdefinition fn)))
-  (check-type fn function)
+  (check-type fn (or function sys.int::function-reference))
   (setf architecture (mezzano.compiler::canonicalize-target architecture))
   (let ((*print-gc-metadata* gc-metadata)
         (*print-debug-metadata* debug-metadata)
@@ -69,10 +70,11 @@
            (when (not (member fn closures))
              (when (not (eql fn fundamental-fn))
                (push fn closures))
-             (dotimes (i (sys.int::function-pool-size fn))
-               (let ((entry (sys.int::function-pool-object fn i)))
-                 (when (sys.int::%object-of-type-p entry sys.int::+object-tag-function+)
-                   (push entry worklist))))))
+             (when (not (sys.int::function-reference-p fn))
+               (dotimes (i (sys.int::function-pool-size fn))
+                 (let ((entry (sys.int::function-pool-object fn i)))
+                   (when (sys.int::%object-of-type-p entry sys.int::+object-tag-function+)
+                     (push entry worklist)))))))
       (setf closures (reverse closures))
       (dolist (fn closures)
         (format t "----------~%" fn)
@@ -82,14 +84,18 @@
 
 (defun disassemble-subfunction (function architecture)
   (let ((base-address (logand (sys.int::lisp-object-address function) -16))
-        (offset 16)
+        (offset (code-initial-offset function))
         (context (make-disassembler-context function architecture))
-        (gc-md (sys.int::decode-function-gc-info function))
-        (debug-md (sys.int::decompress-precise-debug-info
-                   (sys.int::decode-precise-debug-info
-                    function
-                    (sys.int::debug-info-precise-variable-data
-                     (sys.int::function-debug-info function))))))
+        (gc-md (if (sys.int::function-reference-p function)
+                   '()
+                   (sys.int::decode-function-gc-info function)))
+        (debug-md (if (sys.int::function-reference-p function)
+                      '()
+                      (sys.int::decompress-precise-debug-info
+                       (sys.int::decode-precise-debug-info
+                        function
+                        (sys.int::debug-info-precise-variable-data
+                         (sys.int::function-debug-info function)))))))
     (loop
        for decoded across (context-instructions context)
        do
@@ -112,17 +118,19 @@
                         (loop
                            repeat (inst-size decoded)
                            for i from offset
-                           collect (sys.int::function-code-byte function i)))
+                           collect (code-byte function i)))
                 (print-instruction context decoded)
                 (terpri)
                 (incf offset (inst-size decoded)))
                (t
                 (format t "<bad ~2,'0X>~%"
-                        (sys.int::function-code-byte function offset))
+                        (code-byte function offset))
                 (incf offset 1))))))
 
 (defun peel-function (function)
   "Remove layers of closures and funcallable-instances from FUNCTION."
+  (when (sys.int::function-reference-p function)
+    (return-from peel-function function))
   (check-type function function)
   (let ((fundamental-fn function))
     (when (sys.int::funcallable-instance-p fundamental-fn)
@@ -135,16 +143,31 @@
     (assert (sys.int::%object-of-type-p fundamental-fn sys.int::+object-tag-function+))
     fundamental-fn))
 
+(defun code-end (function-like)
+  (if (sys.int::function-reference-p function-like)
+      64 ; Function references are this long.
+      (sys.int::function-code-size function-like)))
+
+(defun code-initial-offset (function-like)
+  (if (sys.int::function-reference-p function-like)
+      32
+      16))
+
+(defun code-byte (function-like offset)
+  (if (sys.int::function-reference-p function-like)
+      (sys.int::%object-ref-unsigned-byte-8 function-like (- offset 8))
+      (sys.int::function-code-byte function-like offset)))
+
 (defun make-disassembler-context (function &optional architecture)
   (declare (ignore architecture))
   (setf function (peel-function function))
   (let ((context (make-instance 'disassembler-context :function function))
-        (true-end (sys.int::function-code-size function))
-        (offset 16))
+        (true-end (code-end function))
+        (offset (code-initial-offset function)))
       ;; Find the approximate end of the function. The size is rounded up to 16 bytes and
       ;; it's padded with zeros.
       (loop
-         (when (not (zerop (sys.int::function-code-byte function (1- true-end))))
+         (when (not (zerop (code-byte function (1- true-end))))
            (return))
          (decf true-end))
       ;; Disassemble all instructions.
@@ -223,7 +246,7 @@
                                   (target (+ (inst-offset instruction)
                                              (inst-size instruction)
                                              (ea-disp operand)))
-                                  (pool-index (truncate (- target (sys.int::function-code-size (context-function context))) 8))
+                                  (pool-index (truncate (- target (code-end (context-function context))) 8))
                                   (label (label context target)))
                              (cond
                                ((and print-labels label)
@@ -232,6 +255,7 @@
                                (t
                                 (cond ((and (not (logtest target #b111))
                                             (<= 0 pool-index)
+                                            (not (sys.int::function-reference-p (context-function context)))
                                             (< pool-index (sys.int::function-pool-size (context-function context))))
                                        (let ((pool-object (sys.int::function-pool-object (context-function context) pool-index)))
                                          (push
@@ -399,10 +423,13 @@
 
 (defclass disassembler-context ()
   ((%function :initarg :function :reader context-function :reader disassembler-context-function)
-   (%offset :initform 16 :accessor context-code-offset)
+   (%offset :accessor context-code-offset)
    (%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)
    (%label-table :initform (make-hash-table) :reader context-label-table)
    (%instructions :initform (make-array 0 :adjustable t :fill-pointer 0) :reader context-instructions)))
+
+(defmethod initialize-instance :after ((instance disassembler-context) &key function)
+  (setf (slot-value instance '%offset) (code-initial-offset function)))
 
 (defun instruction-at (context offset)
   (loop
@@ -420,10 +447,10 @@
 (define-condition read-past-end-of-machine-code (error) ())
 
 (defun consume-octet (context)
-  (when (>= (context-code-offset context) (sys.int::function-code-size (context-function context)))
+  (when (>= (context-code-offset context) (code-end (context-function context)))
     (error 'read-past-end-of-machine-code))
   (prog1
-      (sys.int::function-code-byte (context-function context) (context-code-offset context))
+      (code-byte (context-function context) (context-code-offset context))
     (incf (context-code-offset context))))
 
 (defun consume-word/le (context n-octets signedp)
@@ -880,7 +907,7 @@
     nil
     nil
     nil
-    nil
+    (decode-nop-ev)
     (decode-mov-r-c) ; 20
     (decode-mov-r-d)
     (decode-mov-c-r)
@@ -1486,6 +1513,12 @@
             (make-instruction inst decoded-reg imm)
             nil)))))
 
+(defun decode-nop-ev (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (declare (ignore reg))
+    (make-instruction 'sys.lap-x86:nop (decode-gpr64-or-mem r/m (rex-b info)))))
+
 (defun decode-mov-r-c (context info)
   (multiple-value-bind (reg r/m)
       (disassemble-modr/m context info)
@@ -2040,7 +2073,7 @@
 (defun disassemble-one-instruction (context)
   (let* ((start (context-code-offset context))
          (code-start 16)
-         (code-end (+ code-start (sys.int::function-code-size (context-function context)))))
+         (code-end (code-end (context-function context))))
     (cond ((decoding-jump-table-p context)
            (let* ((dest (consume-ub64/le context))
                   (absolute-dest (+ (decoding-jump-table-p context) dest)))

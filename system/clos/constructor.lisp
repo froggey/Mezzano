@@ -188,7 +188,7 @@
 ;; TODO: Should be weak :key-and-value
 ;; A collection of all constructors, used to flush constructors when
 ;; a method is added to ALLOCATE-INSTANCE.
-(sys.int::defglobal *all-constructors* (make-hash-table))
+(sys.int::defglobal *all-constructors* (make-hash-table :synchronized t))
 
 (defclass constructor-cache-flusher ()
   ((%purge :initarg :purge :initform nil :reader constructor-cache-flusher-purge)))

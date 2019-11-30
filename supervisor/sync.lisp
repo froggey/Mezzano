@@ -488,6 +488,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                          (eql (sys.int::cas (rw-lock-state rw-lock) state (+ state +rw-lock-state-reader-increment+)) state))
                 ;; Easy!
                 (return)))
+            (thread-pool-blocking-hijack rw-lock-read-acquire rw-lock wait-p)
             ;; Going to block.
             (when (not (%call-on-wired-stack-without-interrupts
                         #'rw-lock-read-acquire-slow nil rw-lock))
@@ -563,7 +564,6 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
              (t
               ;; Locked for reading, nothing pending or we're not
               ;; the last reader. Just decrement the reader count.
-              (ensure (eql (ldb +rw-lock-state-mode+ state) +rw-lock-mode-readers+))
               (let ((new (- state +rw-lock-state-reader-increment+)))
                 (when (eql (sys.int::cas (rw-lock-state rw-lock) state new) state)
                   ;; Successfully released as a reader.
@@ -631,6 +631,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                   :mutex rw-lock
                   :format-control "Recursive locking detected on ~S ~S"
                   :format-arguments (list rw-lock (rw-lock-name rw-lock)))))
+     (thread-pool-blocking-hijack rw-lock-write-acquire rw-lock wait-p)
      (when (not wait-p)
        (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-write-contested-count+ 1)
        (return nil))

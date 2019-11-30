@@ -57,7 +57,7 @@
    (%result-list :initarg :result-list :reader builtin-result-list)
    (%generator :initarg :generator :reader builtin-generator)))
 
-(defvar *builtins* (make-hash-table :test 'equal))
+(defvar *builtins* (make-hash-table :test 'equal :synchronized t))
 
 (defun match-builtin (name n-arguments)
   (let ((builtin (gethash name *builtins*)))
@@ -114,7 +114,7 @@
     (:le  :ge lap:b.le lap:csel.le)))
 
 (defparameter *predicate-instructions*
-  (let ((ht (make-hash-table :test 'eq)))
+  (let ((ht (make-hash-table :test 'eq :synchronized t)))
     (mapc (lambda (i)
             (setf (gethash (first i) ht)
                   (make-predicate-instruction

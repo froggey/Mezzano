@@ -56,6 +56,12 @@
 
 (defmethod sup:thread-pool-block ((thread-pool thread-pool) blocking-function &rest arguments)
   (declare (dynamic-extent arguments))
+  (when (and (eql blocking-function 'mezzano.supervisor:acquire-mutex)
+             (eql (first arguments) (thread-pool-lock thread-pool)))
+    ;; Don't suspend when acquiring the thread-pool lock, this causes
+    ;; recursive locking on it.
+    (return-from sup:thread-pool-block
+      (apply blocking-function arguments)))
   (unwind-protect
        (progn
          (sup:with-mutex ((thread-pool-lock thread-pool))

@@ -121,11 +121,16 @@
 (defmethod describe-object ((object weak-pointer) stream)
   (format stream "~S is a weak pointer, with address ~X~%"
           object (lisp-object-address object))
-  (multiple-value-bind (value livep)
-      (weak-pointer-value object)
-    (if livep
-        (format stream "  It points to the live value ~S.~%" value)
-        (format stream "  It is dead.~%"))))
+  (format stream "  It has weakness ~:(~S~)~%"
+          (weak-pointer-weakness object))
+  (multiple-value-bind (key value livep)
+      (weak-pointer-pair object)
+    (cond ((not livep)
+           (format stream "  It is dead.~%"))
+          ((eql key value)
+           (format stream "  It points to the live value ~S.~%" value))
+          (t
+           (format stream "  It has the key ~S and points to the live value ~S.~%" key value)))))
 
 (defmethod describe-object ((object integer) stream)
   (cond ((fixnump object)

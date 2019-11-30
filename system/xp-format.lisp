@@ -12,7 +12,9 @@
 (proclaim '(special *string* *used-args* *used-outer-args* *used-initial*
                     *get-arg-carefully* *inner-end* *outer-end* *at-top*))
 
-(defvar *fn-table* (make-hash-table) "used to access fns for commands")
+;; Probably safe to make unsynchronized-gc-invariant...
+(defvar *fn-table* (make-hash-table :synchronized t)
+  "used to access fns for commands")
 
 ;Each of these functions expect to get called with two arguments
 ;start and end.  Start points to the first character after the ~
@@ -761,7 +763,7 @@
            (apply string-or-fn stream args)
            nil)))
 
-(defvar *format-string-cache* (make-hash-table :test #'equal))
+(defvar *format-string-cache* (make-hash-table :test #'equal :synchronized t))
 (defvar *compiling-format-string* nil)
 
 (defun compile-format-string (string)

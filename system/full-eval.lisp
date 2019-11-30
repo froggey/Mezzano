@@ -11,7 +11,7 @@
 
 (in-package :mezzano.full-eval)
 
-(defparameter *special-forms* (make-hash-table))
+(defparameter *special-forms* (make-hash-table :synchronized t))
 
 (defmacro defspecial (name lambda-list &body body)
   (let ((form-sym (gensym))

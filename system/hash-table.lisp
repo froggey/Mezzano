@@ -16,7 +16,7 @@
   rehash-threshold
   (storage (error "No storage provided.") :type simple-vector)
   (storage-epoch *gc-epoch*)
-  (synchronized t)
+  synchronized
   lock
   ;; If true, then all keys are stable over GCs and no rehashing is required
   ;; when the GC epoch changes.
@@ -95,7 +95,7 @@
 
 ;;; Unsynchronized hash-tables are safe for use with concurrent readers
 ;;; as long as they only contains gc-invariant keys.
-(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) (synchronized t) enforce-gc-invariant-keys)
+(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5) synchronized enforce-gc-invariant-keys)
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
         ((eql test #'eql) (setf test 'eql))

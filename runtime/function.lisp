@@ -70,7 +70,7 @@ Arguments to FUNCTION:
  block-or-tagbody-thunk
  extra-registers
  restart"
-  (%type-check function-to-inspect +object-tag-function+ function)
+  (%type-check function-to-inspect +object-tag-function+ 'function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
          (mc-size (* (ldb +function-header-code-size+ header-data) 16))

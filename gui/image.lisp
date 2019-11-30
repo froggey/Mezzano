@@ -10,7 +10,7 @@
 (in-package :mezzano.gui.image)
 
 ;; FIXME: This should probably be weak.
-(defvar *image-cache* (make-hash-table :test 'equal))
+(defvar *image-cache* (make-hash-table :test 'equal :synchronized t))
 
 (defun flush-image-cache ()
   (clrhash *image-cache*)

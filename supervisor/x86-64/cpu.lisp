@@ -231,17 +231,45 @@ Protected by the world stop lock."
       (%%switch-to-thread-common idle
                                  idle))))
 
+;; TODO: This needs to be fixed up to prevent multiple CPUs hitting it at
+;; once. It can't currently happen because it is only used from IRQ handlers
+;; and IRQs are only sent to the BSP.
+(sys.int::defglobal *debug-magic-button-hold-variable*)
+(sys.int::defglobal *debug-magic-button-ready-variable*)
+
 (defun stop-other-cpus-for-debug-magic-button ()
-  (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+))
+  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
+        *debug-magic-button-hold-variable* t)
+  (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+)
+  ;; Wait for other CPUs to arrive, this ensures the thread state is actually
+  ;; consistent.
+  (loop until (eql *debug-magic-button-ready-variable* 0)))
+
+(defun resume-other-cpus-for-debug-magic-button ()
+  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
+        *debug-magic-button-hold-variable* nil)
+  ;; Wait for other CPUs to leave, this ensures they've all seen
+  ;; the hold variable going to NIL.
+  (loop until (eql *debug-magic-button-ready-variable* 0)))
 
 (defun magic-button-ipi-handler (interrupt-frame info)
   (declare (ignore info))
+  (magic-button-ipi-handler-1 interrupt-frame)
+  (lapic-eoi))
+
+(defun magic-button-ipi-handler-1 (interrupt-frame)
+  (when (not *debug-magic-button-hold-variable*)
+    ;; Can happen due to double-entry from the TLB path.
+    (return-from magic-button-ipi-handler-1))
   ;; Save the current thread state so it looks approximately correct.
   (let ((current (current-thread)))
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
+  (sys.int::%atomic-fixnum-add-symbol
+   '*debug-magic-button-ready-variable* -1)
   (loop while *debug-magic-button-hold-variable*)
-  (lapic-eoi))
+  (sys.int::%atomic-fixnum-add-symbol
+   '*debug-magic-button-ready-variable* -1))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
@@ -288,13 +316,16 @@ TLB shootdown must be protected by the VM lock."
      (sys.int::cpu-relax)))
 
 (defun tlb-shootdown-ipi-handler (interrupt-frame info)
-  (declare (ignore interrupt-frame info))
+  (declare (ignore info))
   (lapic-eoi)
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1)
   (loop
      (when (not *tlb-shootdown-in-progress*)
        (return))
+     ;; FIXME: hack... maybe this should sit with interrupts enabled?
+     (when *debug-magic-button-hold-variable*
+       (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
   (flush-tlb)
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
@@ -457,6 +488,7 @@ TLB shootdown must be protected by the VM lock."
   (when (not (boundp '*cpus*))
     ;; For panics early in the first boot.
     (setf *cpus* '()))
+  (setf *debug-magic-button-hold-variable* nil)
   (setf *tlb-shootdown-in-progress* nil)
   (populate-cpu-info-vector sys.int::*bsp-info-vector*
                             (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))

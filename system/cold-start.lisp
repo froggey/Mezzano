@@ -268,12 +268,12 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *hash-table-tombstone* (list "hash-table tombstone")
         *deferred-%defpackage-calls* '())
   ;; System tables.
-  (setf *macros* (make-hash-table :test #'eq))
+  (setf *macros* (make-hash-table :test #'eq :synchronized t))
   (setf *symbol-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *setf-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *cas-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *function-info-lock* (mezzano.supervisor:make-rw-lock "Function info"))
-  (setf *setf-expanders* (make-hash-table :test #'eq))
+  (setf *setf-expanders* (make-hash-table :test #'eq :synchronized t))
   (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
         *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
@@ -284,8 +284,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
      do (setf (find-class name) class))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.
-  (setf *setf-fref-table* (make-hash-table))
-  (setf *cas-fref-table* (make-hash-table))
+  (setf *setf-fref-table* (make-hash-table :synchronized t))
+  (setf *cas-fref-table* (make-hash-table :synchronized t))
   (dotimes (i (length *initial-fref-obarray*))
     (let* ((fref (svref *initial-fref-obarray* i))
            (name (function-reference-name fref)))
@@ -296,10 +296,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
           ((cas)
            (setf (gethash (second name) *cas-fref-table*) fref))))))
   ;; Create documentation hash tables.
-  (setf *function-documentation* (make-hash-table :test #'equal))
-  (setf *compiler-macro-documentation* (make-hash-table :test #'equal))
-  (setf *setf-documentation* (make-hash-table))
-  (setf *variable-documentation* (make-hash-table))
+  (setf *function-documentation* (make-hash-table :test #'equal :synchronized t))
+  (setf *compiler-macro-documentation* (make-hash-table :test #'equal :synchronized t))
+  (setf *setf-documentation* (make-hash-table :synchronized t))
+  (setf *variable-documentation* (make-hash-table :synchronized t))
   ;; Transfer the initial function documentation over.
   (loop
      for (name doc) in *initial-function-docstrings*
