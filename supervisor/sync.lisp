@@ -471,7 +471,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
     (acquire-global-thread-lock)
     (unlock-wait-queue (rw-lock-reader-wait-queue rw-lock))
     (release-place-spinlock (rw-lock-lock rw-lock))
-    (setf (thread-wait-item self) rw-lock
+    (setf (thread-wait-item self) (rw-lock-reader-wait-queue rw-lock)
           (thread-state self) :sleeping
           (thread-unsleep-helper self) #'rw-lock-read-acquire
           (thread-unsleep-helper-argument self) rw-lock)
@@ -608,7 +608,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
     (acquire-global-thread-lock)
     (unlock-wait-queue (rw-lock-writer-wait-queue rw-lock))
     (release-place-spinlock (rw-lock-lock rw-lock))
-    (setf (thread-wait-item self) rw-lock
+    (setf (thread-wait-item self) (rw-lock-writer-wait-queue rw-lock)
           (thread-state self) :sleeping
           (thread-unsleep-helper self) #'rw-lock-write-acquire
           (thread-unsleep-helper-argument self) rw-lock)
