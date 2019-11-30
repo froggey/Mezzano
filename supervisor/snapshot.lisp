@@ -80,6 +80,7 @@
                                         (panic "Aiiee, out of store when copying wired area!")))
                          (old-block (ash bme (- sys.int::+block-map-id-shift+))))
                     (setf (physical-page-frame-block-id backing-frame) new-block)
+                    (setf (physical-page-frame-type backing-frame) :wired-backing-writeback)
                     (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
                                       sys.int::+block-map-committed+
                                       (logand bme #xFF))
@@ -215,12 +216,14 @@ Returns 4 values:
                  t
                  block-id
                  address))
-        (:wired-backing
+        (:wired-backing-writeback
          ;; Page is a wired backing page.
          ;; Copy to the bounce buffer.
          ;; Page may be freed during writeback if VM is modified.
          (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
                           (convert-to-pmap-address (ash frame 12)))
+         ;; Return page to normal use.
+         (setf (physical-page-frame-type frame) :wired-backing)
          (values *snapshot-bounce-buffer-page*
                  nil
                  block-id
