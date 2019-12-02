@@ -88,8 +88,9 @@
 (defun crc-32 (buf &key (start 0) (end nil))
   (update-crc-32 0 buf start (or end (length buf))))
 
- ;;; output should be #xCBF43926
 (defun test-crc ()
   (let ((a (make-array 9 :element-type '(unsigned-byte 8)
 		       :initial-contents '(#x31 #x32 #x33 #x34 #x35 #x36 #x37 #x38 #x39))))
-    (crc a)))
+    (assert (eql 3421780262 (crc-32 a))
+            (a)
+            "Expected result is 3421780262")))
