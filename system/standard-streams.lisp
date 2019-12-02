@@ -257,7 +257,7 @@
 (defmethod mezzano.gray:stream-write-char ((stream echo-stream) character)
   (write-char character (echo-stream-output-stream stream)))
 
-(defmethod mezzano.gray:stream-write-sequence ((stream broadcast-stream) seq &optional (start 0) end)
+(defmethod mezzano.gray:stream-write-sequence ((stream echo-stream) seq &optional (start 0) end)
   (write-sequence seq (echo-stream-output-stream stream) :start start :end end))
 
 (defmethod mezzano.gray:stream-read-byte ((stream echo-stream))
