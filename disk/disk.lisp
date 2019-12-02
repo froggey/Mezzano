@@ -39,7 +39,7 @@
          finally
          (when (/= partial-transfer 0)
            (read-sector disk addr partial-transfer wired-buffer buffer base-offset
-                        (* partial-transfer sector-size)))))))
+                        (+ base-offset (* partial-transfer sector-size))))))))
 
 (defgeneric block-device-write (device lba n-sectors buffer &key offset))
 
@@ -67,7 +67,7 @@
          finally
          (when (/= partial-transfer 0)
            (write-sector disk addr partial-transfer wired-buffer buffer base-offset
-                         (* partial-transfer sector-size)))))))
+                         (+ base-offset (* partial-transfer sector-size))))))))
 
 (defgeneric block-device-flush (device))
 
