@@ -15,12 +15,12 @@
 
 (defgeneric block-device-read (device lba n-sectors buffer &key offset))
 
-(defun read-sector (disk addr n-sectors wired-buffer buffer base-offset)
+(defun read-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end1 nil))
   (multiple-value-bind (success-p error-reason)
       (sup:disk-read disk addr n-sectors wired-buffer)
     (unless success-p
       (error "Disk read error: ~A" error-reason)))
-  (replace buffer wired-buffer :start1 base-offset))
+  (replace buffer wired-buffer :start1 base-offset :end1 end1))
 
 (defmethod block-device-read ((disk sup:disk) lba n-sectors buffer &key (offset 0))
   (let* ((sector-size (sup:disk-sector-size disk))
@@ -38,12 +38,13 @@
          do (read-sector disk addr sectors-per-4K wired-buffer buffer base-offset)
          finally
          (when (/= partial-transfer 0)
-           (read-sector disk addr partial-transfer wired-buffer buffer base-offset))))))
+           (read-sector disk addr partial-transfer wired-buffer buffer base-offset
+                        (* partial-transfer sector-size)))))))
 
 (defgeneric block-device-write (device lba n-sectors buffer &key offset))
 
-(defun write-sector (disk addr n-sectors wired-buffer buffer base-offset)
-  (replace wired-buffer buffer :start2 base-offset)
+(defun write-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end2 nil))
+  (replace wired-buffer buffer :start2 base-offset :end2 end2)
   (multiple-value-bind (success-p error-reason)
       (sup:disk-write disk addr n-sectors wired-buffer)
     (unless success-p
@@ -65,7 +66,8 @@
          do (write-sector disk addr sectors-per-4K wired-buffer buffer base-offset)
          finally
          (when (/= partial-transfer 0)
-           (write-sector disk addr partial-transfer wired-buffer buffer base-offset))))))
+           (write-sector disk addr partial-transfer wired-buffer buffer base-offset
+                         (* partial-transfer sector-size)))))))
 
 (defgeneric block-device-flush (device))
 
