@@ -12,11 +12,10 @@
 (sys.int::defglobal *all-threads*)
 (sys.int::defglobal *n-running-cpus*)
 
-(sys.int::defglobal *world-stop-lock*)
-(sys.int::defglobal *world-stop-cvar*)
-(sys.int::defglobal *world-stop-pending*)
 (sys.int::defglobal *world-stopper*)
 (sys.int::defglobal *pseudo-atomic-thread-count*)
+(sys.int::defglobal *pending-world-stoppers*)
+(sys.int::defglobal *pending-pseudo-atomics*)
 
 (sys.int::defglobal *default-stack-size*)
 
@@ -664,10 +663,9 @@ not and WAIT-P is false."
     ;; Default timeslice is 10ms/0.01s.
     ;; Work at read-time to avoid floats at runtime.
     (setf *timeslice-length* #.(truncate (* 0.01 internal-time-units-per-second)))
-    (setf *world-stop-lock* (make-mutex "World stop lock")
-          *world-stop-cvar* (make-condition-variable "World stop cvar")
-          *world-stop-pending* nil
-          *pseudo-atomic-thread-count* 0)
+    (setf *pseudo-atomic-thread-count* 0
+          *pending-world-stoppers* (make-wait-queue :name '*pending-world-stoppers*)
+          *pending-pseudo-atomics* (make-wait-queue :name '*pending-pseudo-atomics*))
     (setf *all-threads* sys.int::*snapshot-thread*
           (thread-global-next sys.int::*snapshot-thread*) sys.int::*pager-thread*
           (thread-global-prev sys.int::*snapshot-thread*) nil
@@ -682,8 +680,7 @@ not and WAIT-P is false."
   ;; Don't let the pager run until the paging disk has been found.
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :sleeping :supervisor)
   (setf (thread-wait-item sys.int::*pager-thread*) "Waiting for paging disk")
-  (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable :supervisor)
-  (condition-notify *world-stop-cvar* t))
+  (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable :supervisor))
 
 (defun wake-thread (thread)
   "Wake a sleeping thread."
@@ -716,7 +713,8 @@ not and WAIT-P is false."
   ;; The initial thread must finish with no values on the special stack.
   ;; This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
-    (setf *world-stopper* nil)
+    (%call-on-wired-stack-without-interrupts
+     #'%resume-the-world nil)
     (%disable-interrupts)
     (acquire-global-thread-lock)
     (setf (thread-wait-item thread) "The start of a new world"
@@ -859,23 +857,55 @@ not and WAIT-P is false."
 ;;; WITH-WORLD-STOPPED and WITH-PSEUDO-ATOMIC work together as a sort-of global
 ;;; reader/writer lock over the whole system.
 
-(defmacro with-world-stop-lock (&body body)
-  ;; Run with boosted priority to prevent livelocking with other threads spinning against the lock.
-  `(let ((%prev-priority (thread-priority (current-thread))))
-     (unwind-protect
-          (progn
-            (setf (thread-priority (current-thread)) :high)
-            (loop
-               ;; Spin on the lock to prevent threads stacking up on wait list.
-               ;; Threads sleeping on the mutex will never wake up if the world
-               ;; is stopped.
-               ;; Mutexes and cvars probably aren't the right thing to use here.
-               (when (acquire-mutex *world-stop-lock* nil)
-                 (return))
-               (thread-yield))
-            ,@body)
-       (release-mutex *world-stop-lock*)
-       (setf (thread-priority (current-thread)) %prev-priority))))
+(defun acquire-stw-locks ()
+  (lock-wait-queue *pending-world-stoppers*)
+  (lock-wait-queue *pending-pseudo-atomics*)
+  (acquire-global-thread-lock))
+
+(defun release-stw-locks (&optional exclude-global-thread-lock)
+  (when (not exclude-global-thread-lock)
+    (release-global-thread-lock))
+  (unlock-wait-queue *pending-pseudo-atomics*)
+  (unlock-wait-queue *pending-world-stoppers*))
+
+(defun %stop-the-world-unsleep (arg)
+  (declare (ignore arg))
+  (%call-on-wired-stack-without-interrupts #'%stop-the-world nil))
+
+(defun %stop-the-world (sp fp)
+  (acquire-stw-locks)
+  (let ((self (current-thread)))
+    (when (and (eql *pseudo-atomic-thread-count* 0)
+               (not *world-stopper*))
+      (setf *world-stopper* self)
+      (release-stw-locks)
+      (return-from %stop-the-world))
+    (push-wait-queue self *pending-world-stoppers*)
+    ;; Leave the thread-lock locked, going to sleep.
+    (release-stw-locks t)
+    (setf (thread-wait-item self) *pending-world-stoppers*
+          (thread-state self) :sleeping
+          (thread-unsleep-helper self) #'%stop-the-world-unsleep
+          (thread-unsleep-helper-argument self) nil)
+    (%reschedule-via-wired-stack sp fp)))
+
+(defun %resume-the-world (sp fp)
+  (declare (ignore sp fp))
+  (acquire-stw-locks)
+  (cond ((not (wait-queue-empty-p *pending-world-stoppers*))
+         ;; If there is another thread waiting to stop, hand over directly to them.
+         (let ((thread (pop-wait-queue *pending-world-stoppers*)))
+           (setf *world-stopper* thread)
+           (wake-thread-1 thread)))
+        (t
+         ;; Wake any PA threads & resume the world.
+         (setf *world-stopper* nil)
+         (loop
+            until (wait-queue-empty-p *pending-pseudo-atomics*)
+            do
+              (wake-thread-1 (pop-wait-queue *pending-pseudo-atomics*))
+              (incf *pseudo-atomic-thread-count*))))
+  (release-stw-locks))
 
 (defun call-with-world-stopped (thunk)
   (let ((self (current-thread)))
@@ -885,38 +915,13 @@ not and WAIT-P is false."
       (panic "Stopping world while pseudo-atomic!"))
     (ensure-interrupts-enabled)
     (inhibit-thread-pool-blocking-hijack
-      (with-world-stop-lock ()
-        ;; First, try to position ourselves as the next thread to stop the world.
-        ;; This prevents any more threads from becoming PA.
-        (loop
-           (when (null *world-stop-pending*)
-             (setf *world-stop-pending* self)
-             (return))
-           ;; Wait for the world to unstop.
-           ;; FIXME: This can still cause deadlocks when reacquiring the lock.
-           (condition-wait *world-stop-cvar* *world-stop-lock*))
-        ;; Now wait for any PA threads to finish.
-        (loop
-           (when (zerop *pseudo-atomic-thread-count*)
-             (return))
-           ;; FIXME: Same here.
-           (condition-wait *world-stop-cvar* *world-stop-lock*))
-        (safe-without-interrupts (self)
-                                 (acquire-global-thread-lock)
-                                 (setf *world-stopper* self
-                                       *world-stop-pending* nil)
-                                 (release-global-thread-lock))
-        (quiesce-cpus-for-world-stop))
-      (unwind-protect
-           (funcall thunk)
-        (with-world-stop-lock ()
-          ;; Release the dogs!
-          (safe-without-interrupts ()
-                                   (acquire-global-thread-lock)
-                                   (setf *world-stopper* nil)
-                                   (release-global-thread-lock))
-          (condition-notify *world-stop-cvar* t)
-          (broadcast-wakeup-ipi))))))
+     (%call-on-wired-stack-without-interrupts #'%stop-the-world nil)
+     (unwind-protect
+          (progn
+            (quiesce-cpus-for-world-stop)
+            (funcall thunk))
+       (%call-on-wired-stack-without-interrupts #'%resume-the-world nil)
+       (broadcast-wakeup-ipi)))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
@@ -925,27 +930,51 @@ not and WAIT-P is false."
   "Returns true if the world is stopped."
   *world-stopper*)
 
+(defun %enter-pseudo-atomic-unsleep (arg)
+  (declare (ignore arg))
+  (%call-on-wired-stack-without-interrupts #'%enter-pseudo-atomic nil))
+
+(defun %enter-pseudo-atomic (sp fp)
+  (acquire-stw-locks)
+  (let ((self (current-thread)))
+    (when (and (wait-queue-empty-p *pending-world-stoppers*)
+               ;; This might be possible? If the world is stopped on
+               ;; another CPU this might slip in between the other CPU
+               ;; releasing locks & quiescing CPUs?
+               (not *world-stopper*))
+      (incf *pseudo-atomic-thread-count*)
+      (release-stw-locks)
+      (return-from %enter-pseudo-atomic))
+    (push-wait-queue self *pending-pseudo-atomics*)
+    ;; Leave the thread-lock locked, going to sleep.
+    (release-stw-locks t)
+    (setf (thread-wait-item self) *pending-pseudo-atomics*
+          (thread-state self) :sleeping
+          (thread-unsleep-helper self) #'%enter-pseudo-atomic-unsleep
+          (thread-unsleep-helper-argument self) nil)
+    (%reschedule-via-wired-stack sp fp)))
+
+(defun %leave-pseudo-atomic (sp fp)
+  (declare (ignore sp fp))
+  (acquire-stw-locks)
+  (decf *pseudo-atomic-thread-count*)
+  (when (and (eql *pseudo-atomic-thread-count* 0)
+             (not (wait-queue-empty-p *pending-world-stoppers*)))
+    (let ((thread (pop-wait-queue *pending-world-stoppers*)))
+      (setf *world-stopper* thread)
+      (wake-thread-1 thread)))
+  (release-stw-locks))
+
 (defun call-with-pseudo-atomic (thunk)
   (when (eql *world-stopper* (current-thread))
     (panic "Going PA with world stopped!"))
   (ensure-interrupts-enabled)
   (inhibit-thread-pool-blocking-hijack
-    (with-world-stop-lock ()
-      (loop
-         (when (null *world-stop-pending*)
-           (return))
-         ;; Don't go PA if there is a thread waiting to stop the world.
-         ;; FIXME: Can deadlock...
-         (condition-wait *world-stop-cvar* *world-stop-lock*))
-      ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
-      ;; from being inspected.
-      (incf *pseudo-atomic-thread-count*))
-    (unwind-protect
-         (let ((*pseudo-atomic* t))
-           (funcall thunk))
-      (with-world-stop-lock ()
-        (decf *pseudo-atomic-thread-count*)
-        (condition-notify *world-stop-cvar* t)))))
+   (%call-on-wired-stack-without-interrupts #'%enter-pseudo-atomic nil)
+   (unwind-protect
+        (let ((*pseudo-atomic* t))
+          (funcall thunk))
+     (%call-on-wired-stack-without-interrupts #'%leave-pseudo-atomic nil))))
 
 (defmacro with-pseudo-atomic (&body body)
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))

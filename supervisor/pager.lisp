@@ -328,9 +328,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
      (when (not allow-wired)
        (panic "Releasing page wired " frame))
      ;; Release the backing frame, if any.
-     (when (and (not stackp)
-                (physical-page-frame-next frame))
-       (release-physical-pages (physical-page-frame-next frame) 1))
+     (when (not stackp)
+       (let ((backing-frame (physical-page-frame-next frame)))
+         (when backing-frame
+           (ecase (physical-page-frame-type backing-frame)
+             (:wired-backing
+              (release-physical-pages backing-frame 1))
+             (:wired-backing-writeback
+              (setf (physical-page-frame-type backing-frame) :inactive-writeback))))))
      (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))

@@ -115,8 +115,14 @@
                                       (if (eql old-type 't)
                                           type
                                           `(and ,type ,old-type)))))))
-                 (when (assoc name new-decls :key #'name)
-                   (error "Multiple type declarations for ~S." name))
+                 (let ((existing (assoc name new-decls :key #'name)))
+                   (when existing
+                     (warn 'sys.int::simple-style-warning
+                           :format-control "Multiple type declarations at same scope for ~S."
+                           :format-arguments (list name))
+                     ;; Merge the two types together.
+                     (unless (compiler-type-equal-p real-type (second existing))
+                       (setf (second existing) `(and ,(second existing) real-type)))))
                  (push (list actual-var real-type) new-decls))))
         (loop
            for (what type . names) in declarations

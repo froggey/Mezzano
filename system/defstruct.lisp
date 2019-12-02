@@ -227,8 +227,8 @@
          (values mezzano.runtime::+location-type-t+ 8))))
 
 ;; Parses slot-description and returns a struct slot definition
-(defun parse-defstruct-slot (conc-name slot current-index)
-  (destructuring-bind (name &optional initform &key (type 't) read-only fixed-vector align documentation)
+(defun parse-defstruct-slot (conc-name slot current-index default-slot-type)
+  (destructuring-bind (name &optional initform &key (type default-slot-type) read-only fixed-vector align documentation)
       (if (symbolp slot)
           (list slot)
           slot)
@@ -413,20 +413,56 @@
 (defun generate-defstruct-list-constructor (leader-name slots name lambda-list area)
   (generate-defstruct-list/vector-constructor leader-name slots name lambda-list 'list))
 
-(defun generate-simple-defstruct-vector-constructor (leader-name slots name area)
-  (generate-defstruct-list/vector-constructor leader-name
-                                              slots
-                                              name
-                                              (list* '&key
-                                                     (mapcar (lambda (slot)
-                                                               (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
-                                                             slots))
-                                              'vector))
+(defun generate-simple-defstruct-vector-constructor (leader-name slots name area inner-type)
+  (generate-defstruct-vector-constructor leader-name
+                                         slots
+                                         name
+                                         (list* '&key
+                                                (mapcar (lambda (slot)
+                                                          (list (structure-slot-definition-name slot) (structure-slot-definition-initform slot)))
+                                                        slots))
+                                         area
+                                         inner-type))
 
-(defun generate-defstruct-vector-constructor (leader-name slots name lambda-list area)
-  (generate-defstruct-list/vector-constructor leader-name slots name lambda-list 'vector))
+(defun generate-defstruct-vector-constructor (leader-name slots name lambda-list area inner-type)
+  (cond ((and (eql inner-type 't) (not area))
+         (generate-defstruct-list/vector-constructor leader-name slots name lambda-list 'vector))
+        (t
+         (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
+             (parse-ordinary-lambda-list lambda-list)
+           (declare (ignore enable-keys allow-other-keys))
+           ;; Pick out the slot names and compute the slots without a lambda variable
+           (let* ((assigned-slots (append required
+                                          (mapcar #'first optional)
+                                          (remove 'nil (mapcar #'third optional))
+                                          (when rest (list rest))
+                                          (mapcar #'cadar keys)
+                                          (remove 'nil (mapcar #'third keys))
+                                          (mapcar #'first aux)))
+                  (default-slots (set-difference (mapcar #'structure-slot-definition-name slots) assigned-slots))
+                  (object (gensym "OBJECT")))
+             `(defun ,name ,lambda-list
+                ,@(loop
+                     for s in slots
+                     when (not (member (structure-slot-definition-name s) default-slots))
+                     collect `(check-type ,(structure-slot-definition-name s) ,(structure-slot-definition-type s)))
+                (let ((,object (make-array ',(+ (if leader-name 1 0) (length slots)) :element-type ',inner-type :area ',area)))
+                  (declare (type (simple-array ,inner-type (,(+ (if leader-name 1 0) (length slots)))) ,object))
+                  ,@(when leader-name
+                      `((setf (aref ,object 0) ',leader-name)))
+                  ,@(loop
+                       for s in slots
+                       for index from (if leader-name 1 0)
+                       collect `(setf (aref ,object ',index)
+                                      ,(if (member (structure-slot-definition-name s) default-slots)
+                                           (let ((val (gensym (string (structure-slot-definition-name s)))))
+                                             `(let ((,val ,(structure-slot-definition-initform s)))
+                                                (check-type ,val ,(structure-slot-definition-type s))
+                                                ,val))
+                                           (structure-slot-definition-name s))))
+                  ,object)))))))
 
-(defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
+(defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions default-slot-type)
   (let ((included-slots (when included-structure
                           (mapcar (lambda (x)
                                     (list (structure-slot-definition-name x)
@@ -450,7 +486,7 @@
        for s in (append included-slots
                         slot-descriptions)
        collect (multiple-value-bind (def slot-index next-index boxedp)
-                   (parse-defstruct-slot conc-name s current-index)
+                   (parse-defstruct-slot conc-name s current-index default-slot-type)
                  (adjust-array layout (truncate (+ next-index 7) 8) :initial-element 0)
                  (when boxedp
                    (dotimes (i (ceiling (- next-index slot-index) 8))
@@ -505,7 +541,8 @@
         (compute-defstruct-slots conc-name
                                  slot-descriptions
                                  included-structure
-                                 included-slot-descriptions)
+                                 included-slot-descriptions
+                                 t)
       (let ((struct-type (make-struct-definition name
                                                  slots
                                                  included-structure
@@ -564,7 +601,8 @@
   (let ((slots (compute-defstruct-slots conc-name
                                         slot-descriptions
                                         nil
-                                        included-slot-descriptions)))
+                                        included-slot-descriptions
+                                        t)))
     `(progn
        ,@(when predicate
            (list `(defun ,predicate (object)
@@ -612,7 +650,11 @@
   (let ((slots (compute-defstruct-slots conc-name
                                         slot-descriptions
                                         nil
-                                        included-slot-descriptions)))
+                                        included-slot-descriptions
+                                        inner-type))
+        (access-fn (if (eql inner-type 't)
+                       'svref
+                       'aref)))
     `(progn
        ,@(when predicate
            (list `(defun ,predicate (object)
@@ -622,7 +664,8 @@
            (list `(defun ,copier (object)
                     (make-array (length object)
                                 :element-type ',inner-type
-                                :initial-contents object))))
+                                :initial-contents object
+                                :area ',area))))
        ,@(let ((n (if named 0 -1)))
            (mapcar (lambda (s)
                      (incf n)
@@ -631,23 +674,28 @@
                         (defun ,(structure-slot-definition-accessor s) (object)
                           ,@(when (and named predicate)
                               (list `(check-type object (satisfies ,predicate))))
-                          (svref object ,n))
+                          (the ,(structure-slot-definition-type s)
+                               (,access-fn object ,n)))
                         ,@(unless (structure-slot-definition-read-only s)
                             (list `(declaim (inline (setf ,(structure-slot-definition-accessor s))))
                                   `(defun (setf ,(structure-slot-definition-accessor s)) (new-value object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (setf (svref object ,n) (the ,(structure-slot-definition-type s) new-value)))
+                                     (the ,(structure-slot-definition-type s)
+                                          (setf (,access-fn object ,n) (the ,(structure-slot-definition-type s) new-value))))
                                   `(declaim (inline (cas ,(structure-slot-definition-accessor s))))
                                   `(defun (cas ,(structure-slot-definition-accessor s)) (old new object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (cas (svref object ,n) (the ,(structure-slot-definition-type s) old) (the ,(structure-slot-definition-type s) new)))))))
+                                     (the ,(structure-slot-definition-type s)
+                                          (cas (,access-fn object ,n)
+                                               (the ,(structure-slot-definition-type s) old)
+                                               (the ,(structure-slot-definition-type s) new))))))))
                    slots))
        ,@(mapcar (lambda (x)
                    (if (symbolp x)
-                       (generate-simple-defstruct-vector-constructor (when named name) slots x area)
-                       (generate-defstruct-vector-constructor (when named name) slots (first x) (second x) area)))
+                       (generate-simple-defstruct-vector-constructor (when named name) slots x area inner-type)
+                       (generate-defstruct-vector-constructor (when named name) slots (first x) (second x) area inner-type)))
                  constructors)
        ',name)))
 )
