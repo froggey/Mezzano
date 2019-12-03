@@ -460,7 +460,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                             :rehash-size ',(hash-table-rehash-size object)
                             :rehash-threshold ',(hash-table-rehash-threshold object)
                             :synchronized ',(hash-table-synchronized object)
-                            :enforce-gc-invariant-keys ',(hash-table-enforce-gc-invariant-keys object))
+                            :enforce-gc-invariant-keys ',(hash-table-enforce-gc-invariant-keys object)
+                            :weakness ',(hash-table-weakness object))
           (if (not (zerop (hash-table-count object)))
               `(load-hash-table-entries
                 ',object

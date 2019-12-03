@@ -58,9 +58,10 @@
 
 (defmethod print-object ((object hash-table) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream ":Test ~S :Count ~S :Synchronized ~S"
+    (format stream ":Test ~S :Count ~S :Weakness ~S :Synchronized ~S"
             (hash-table-test object)
             (hash-table-count object)
+            (hash-table-weakness object)
             (hash-table-synchronized object))))
 
 (defmethod print-object ((object mezzano.supervisor:thread) stream)
