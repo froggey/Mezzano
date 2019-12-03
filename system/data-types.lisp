@@ -125,7 +125,7 @@
 ;;#b110001
 ;;#b110010
 (defconstant +object-tag-sse-vector+              #b110011)
-(defconstant +object-tag-weak-pointer-vector+     #b110100)
+;;#b110100
 ;; Low two bits must match high two bits of +tag-instance-header+.
 ;; Must be one bit different from +object-tag-funcallable-instance+.
 (defconstant +object-tag-instance+                #b110101)

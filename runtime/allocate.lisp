@@ -781,20 +781,6 @@
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function)
     object))
 
-;;; A weak pointer vector looks like:
-;;; -1: header, tag = weak-pointer-vector, data = length
-;;; 0: link
-;;; 1-(n*2+1): key/value pairs
-;;; (n*2+1)-(n*2+1 + ceiling(n, 64)): live bit vector
-
-(defun sys.int::make-weak-pointer-vector (length &optional area)
-  ;; Allocate-object must zero-fill the vector.
-  ;; Dead objects must be set to zero.
-  (%allocate-object sys.int::+object-tag-weak-pointer-vector+
-                    length
-                    (+ 1 (* length 2) (ceiling length 64))
-                    area))
-
 (defun dynamic-extent-p (object)
   "Returns true if OBJECT has dynamic extent."
   (and (not (sys.int::immediatep object))
