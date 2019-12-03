@@ -2340,7 +2340,7 @@ No type information will be provided."
     ;; Clear the live bit, leaving the other fields alone.
     (setf (%object-header-data weak-pointer)
           (logand (%object-header-data weak-pointer)
-                  (lognot +weak-pointer-header-livep+)))
+                  (lognot (ash 1 +weak-pointer-header-livep+))))
     (setf weak-pointer (%object-ref-t weak-pointer +weak-pointer-link+))))
 
 (defun finalizer-processing ()
