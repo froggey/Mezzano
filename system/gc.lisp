@@ -2186,6 +2186,10 @@ No type information will be provided."
         (values value t)
         (values nil nil))))
 
+(defun weak-pointer-live-p (weak-pointer)
+  "Returns true if the weak pointer is still live."
+  (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer)))
+
 (defun examine-weak-pointer-key (key)
   (when (immediatep key)
     ;; Immediate objects are always live.

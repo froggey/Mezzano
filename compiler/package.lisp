@@ -150,6 +150,7 @@
    #:weak-pointer-value
    #:weak-pointer-key
    #:weak-pointer-pair
+   #:weak-pointer-live-p
 
    ;; Atomics
    #:cas
