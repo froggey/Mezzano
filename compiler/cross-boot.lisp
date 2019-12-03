@@ -5,8 +5,8 @@
 
 (in-package :cross-support)
 
-(defun make-hash-table (&rest args &key test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys)
-  (declare (ignore test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys))
+(defun make-hash-table (&rest args &key test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys weakness)
+  (declare (ignore test size rehash-size rehash-threshold synchronized enforce-gc-invariant-keys weakness))
   (remf args :synchronized)
   (remf args :enforce-gc-invariant-keys)
   (apply #'cl:make-hash-table args))

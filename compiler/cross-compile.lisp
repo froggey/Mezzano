@@ -534,7 +534,7 @@
 (defstruct (cross-fref (:constructor make-cross-fref (name)))
   name)
 
-;; Should be a weak hash table.
+;; FIXME: Should be a weak hash table. How to deal with setf/cas names?
 (defvar *fref-table* (make-hash-table :test #'equal))
 
 (defun resolve-fref (name)
@@ -544,8 +544,7 @@
 (defun sys.int::function-reference (name)
   (resolve-fref name))
 
-;; Should be a weak hash table.
-(defvar *symbol-global-value-cell-table* (make-hash-table :test #'equal))
+(defvar *symbol-global-value-cell-table* (make-hash-table :test #'equal :weakness :key))
 
 (defstruct (cross-symbol-global-value-cell
              (:constructor make-cross-symbol-global-value-cell (name)))

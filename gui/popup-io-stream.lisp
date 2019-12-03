@@ -258,7 +258,7 @@
   (mezzano.supervisor:with-mutex ((lock stream))
     (sys.int::stream-clear-between (display stream) start-x start-y end-x end-y)))
 
-(defvar *instances* '())
+(defvar *instances* (make-hash-table :weakness :key))
 (defvar *instances-lock* (mezzano.supervisor:make-mutex "Popup instances lock"))
 
 (defclass lazy-popup-io-stream (mezzano.gray:fundamental-character-input-stream
@@ -267,18 +267,13 @@
 
 (defun get-thread-popup-io-stream ()
   (mezzano.supervisor:with-mutex (*instances-lock*)
-    ;; Prune dead pointers.
-    (setf *instances* (remove nil *instances* :key #'sys.int::weak-pointer-value))
-    (let ((thread (mezzano.supervisor:current-thread)))
-      (dolist (instance *instances*
-               (let ((new (make-instance 'popup-io-stream
-                                         :title (format nil "Console for ~S" thread))))
-                 (push (sys.int::make-weak-pointer thread new) *instances*)
-                 new))
-        (multiple-value-bind (key value)
-            (sys.int::weak-pointer-pair instance)
-          (when (eql key thread)
-            (return value)))))))
+    (let* ((thread (mezzano.supervisor:current-thread))
+           (entry (gethash thread *instances*)))
+      (when (not entry)
+        (setf entry (make-instance 'popup-io-stream
+                                   :title (format nil "Console for ~S" thread))
+              (gethash thread *instances*) entry))
+      entry)))
 
 (defmethod mezzano.gray:stream-read-char ((stream lazy-popup-io-stream))
   (mezzano.gray:stream-read-char (get-thread-popup-io-stream)))

@@ -114,10 +114,10 @@
   "Lock protecting the typeface and font caches.")
 
 ;; TODO: Replace these when weak hash-tables are implemented.
-;; font-name (lowercase) -> [weak-pointer typeface]
-(defvar *typeface-cache* (make-hash-table :test 'equal :synchronized t))
-;; (lowercase font name . single-float size) -> [weak-pointer font]
-(defvar *font-cache* (make-hash-table :test 'equal :synchronized t))
+;; font-name (lowercase) -> typeface
+(defvar *typeface-cache* (make-hash-table :test 'equal :weakness :value))
+;; (lowercase font name . single-float size) -> font
+(defvar *font-cache* (make-hash-table :test 'equal :weakness :value))
 
 (defun path-map-line (path function)
   "Iterate over all the line on the contour of the path."
@@ -236,18 +236,16 @@
   (let* ((typeface-key (string-downcase name))
          (font-key (cons typeface-key (float size))))
     (mezzano.supervisor:with-mutex (*font-lock*)
-      (let* ((font-pointer (gethash font-key *font-cache* (sys.int::make-weak-pointer nil)))
-             (font (sys.int::weak-pointer-value font-pointer)))
+      (let ((font (gethash font-key *font-cache*)))
         (when font
           (return-from open-font font))
         ;; No font object, create a new one.
-        (let* ((typeface-pointer (gethash typeface-key *typeface-cache* (sys.int::make-weak-pointer nil)))
-               (typeface (sys.int::weak-pointer-value typeface-pointer)))
+        (let ((typeface (gethash typeface-key *typeface-cache*)))
           (when typeface
             (setf font (make-instance 'font
                                       :typeface typeface
                                       :size (float size))
-                  (gethash font-key *font-cache*) (sys.int::make-weak-pointer font))
+                  (gethash font-key *font-cache*) font)
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (return-from open-font font)))))
     ;; Neither font nor typeface in cache. Open the TTF outside the lock
@@ -256,27 +254,25 @@
       (mezzano.supervisor:with-mutex (*font-lock*)
         ;; Repeat font test, another thread may have created the font while
         ;; the lock was dropped.
-        (let* ((font-pointer (gethash font-key *font-cache* (sys.int::make-weak-pointer nil)))
-               (font (sys.int::weak-pointer-value font-pointer)))
+        (let ((font (gethash font-key *font-cache*)))
           (when font
             (return-from open-font font)))
-        (let* ((typeface-pointer (gethash typeface-key *typeface-cache* (sys.int::make-weak-pointer nil)))
-               (typeface (sys.int::weak-pointer-value typeface-pointer)))
+        (let ((typeface (gethash typeface-key *typeface-cache*)))
           (cond (typeface
                  ;; A typeface was created for this font while the lock
                  ;; was dropped. Forget our font loader and use this one.
                  (zpb-ttf:close-font-loader loader))
                 (t
                  (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader))
-                 (setf (gethash typeface-key *typeface-cache*)
-                       (sys.int::make-weak-pointer
-                        typeface typeface
-                        :finalizer (lambda ()
-                                     (zpb-ttf:close-font-loader loader))))
+                 (setf (gethash typeface-key *typeface-cache*) typeface)
+                 (sys.int::make-weak-pointer
+                  typeface typeface
+                  :finalizer (lambda ()
+                               (zpb-ttf:close-font-loader loader)))
                  #+(or)(format t "Creating new typeface ~S.~%" typeface)))
           (let ((font (make-instance 'font
                                      :typeface typeface
                                      :size (float size))))
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
-            (setf (gethash font-key *font-cache*) (sys.int::make-weak-pointer font))
+            (setf (gethash font-key *font-cache*) font)
             font))))))

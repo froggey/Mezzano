@@ -30,6 +30,8 @@
 ;;; Cold stream methods.
 
 (defparameter *cold-stream-is-line-buffered* t)
+;; This uses a list of buffers instead of a weak hash table so
+;; that GET-COLD-STREAM-BUFFER can flush any dead entries.
 (defparameter *cold-stream-buffers* '())
 (defparameter *cold-stream-lock* (mezzano.supervisor:make-mutex '*cold-stream-buffers*))
 
