@@ -164,7 +164,11 @@
    #:package-locally-nicknamed-by-list
    #:add-package-local-nickname
    #:remove-package-local-nickname
-   ))
+
+   ;; Hash-table extensions
+   #:hash-table-synchronized
+   #:hash-table-enforce-gc-invariant-keys
+   #:hash-table-weakness))
 
 (defpackage :mezzano.debug
   (:use :cl)

@@ -10,13 +10,13 @@
              (:constructor %make-hash-table))
   (test 'eql :type (member eq eql equal equalp) :read-only t)
   (hash-function nil :read-only t)
-  (count 0)
+  (%count 0)
   (used 0)
-  rehash-size
-  rehash-threshold
+  (rehash-size 1 :type (or (integer 1 *) (float (1.0) *)))
+  (rehash-threshold 0 :type (real 0 1))
   (storage (error "No storage provided.") :type simple-vector)
   (storage-epoch *gc-epoch*)
-  synchronized
+  (synchronized nil :read-only t)
   lock
   ;; If true, then all keys are stable over GCs and no rehashing is required
   ;; when the GC epoch changes.
@@ -74,6 +74,9 @@
       (%object-header-data (hash-table-storage hash-table))
       (strong-hash-table-size hash-table)))
 
+(defun hash-table-count (hash-table)
+  (hash-table-%count hash-table))
+
 (defun strong-hash-table-size (hash-table)
   (ash (%object-header-data (hash-table-storage hash-table)) -1))
 
@@ -121,7 +124,7 @@
                               :rehash-size rehash-size
                               :rehash-threshold rehash-threshold
                               :storage (make-array (if weakness size (* size 2)) :initial-element *hash-table-unbound-value*)
-                              :synchronized synchronized
+                              :synchronized (if synchronized t nil)
                               :gc-invariant (if enforce-gc-invariant-keys
                                                 :mandatory
                                                 t)
@@ -174,7 +177,7 @@
         ;; Adding a new entry.
         ((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
                   (= (1+ (hash-table-used hash-table)) (strong-hash-table-size hash-table)))
-             (>= (/ (float (hash-table-count hash-table)) (float (strong-hash-table-size hash-table)))
+             (>= (/ (float (hash-table-%count hash-table)) (float (strong-hash-table-size hash-table)))
                  (hash-table-rehash-threshold hash-table)))
          ;; There must always be at least one unbound slot in the hash table.
          (hash-table-rehash hash-table t)
@@ -187,13 +190,13 @@
              (error "Impossible!"))
            (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
              (incf (hash-table-used hash-table)))
-           (incf (hash-table-count hash-table))
+           (incf (hash-table-%count hash-table))
            (setf (hash-table-key-at hash-table free-slot) key
                  (hash-table-value-at hash-table free-slot) value)))
         ;; No rehash/resize needed. Insert directly.
         (t (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
              (incf (hash-table-used hash-table)))
-           (incf (hash-table-count hash-table))
+           (incf (hash-table-%count hash-table))
            (setf (hash-table-key-at hash-table free-slot) key
                  (hash-table-value-at hash-table free-slot) value))))))
 
@@ -221,7 +224,7 @@
         ;; Adding a new entry.
         ((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
                   (= (1+ (hash-table-used hash-table)) (strong-hash-table-size hash-table)))
-             (>= (/ (float (hash-table-count hash-table)) (float (strong-hash-table-size hash-table)))
+             (>= (/ (float (hash-table-%count hash-table)) (float (strong-hash-table-size hash-table)))
                  (hash-table-rehash-threshold hash-table)))
          (when (not (eq old-value default))
            (return-from gethash default))
@@ -236,7 +239,7 @@
              (error "Impossible!"))
            (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
              (incf (hash-table-used hash-table)))
-           (incf (hash-table-count hash-table))
+           (incf (hash-table-%count hash-table))
            (setf (hash-table-key-at hash-table free-slot) key
                  (hash-table-value-at hash-table free-slot) new-value)
            default))
@@ -246,7 +249,7 @@
            (return-from gethash default))
          (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
            (incf (hash-table-used hash-table)))
-         (incf (hash-table-count hash-table))
+         (incf (hash-table-%count hash-table))
          (setf (hash-table-key-at hash-table free-slot) key
                (hash-table-value-at hash-table free-slot) new-value)
          default)))))
@@ -261,13 +264,13 @@
         ;; Entry exists.
         (setf (hash-table-key-at hash-table slot) *hash-table-tombstone*
               (hash-table-value-at hash-table slot) *hash-table-tombstone*)
-        (decf (hash-table-count hash-table))
+        (decf (hash-table-%count hash-table))
         t))))
 
 (defun clrhash (hash-table)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
-    (setf (hash-table-count hash-table) 0
+    (setf (hash-table-%count hash-table) 0
           (hash-table-used hash-table) 0
           ;; Make sure to preserve :MANDATORY.
           (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
@@ -324,7 +327,7 @@ is below the rehash-threshold."
         (old-storage (hash-table-storage hash-table)))
     (setf (hash-table-storage hash-table) (make-array (* new-size 2)
                                                       :initial-element *hash-table-unbound-value*)
-          (hash-table-count hash-table) 0
+          (hash-table-%count hash-table) 0
           (hash-table-used hash-table) 0
           ;; Make sure to preserve :MANDATORY.
           (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
@@ -343,7 +346,7 @@ is below the rehash-threshold."
             (when slot
               (error "Duplicate key ~S in hash-table?" key))
             (incf (hash-table-used hash-table))
-            (incf (hash-table-count hash-table))
+            (incf (hash-table-%count hash-table))
             (setf (hash-table-key-at hash-table free-slot) key
                   (hash-table-value-at hash-table free-slot) value)))))))
 
@@ -518,7 +521,7 @@ is below the rehash-threshold."
       ;; Adding a new entry.
       ((or (and (eq (weak-hash-table-entry-at hash-table free-slot) *hash-table-unbound-value*)
                 (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
-           (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
+           (>= (/ (float (hash-table-%count hash-table)) (float (hash-table-size hash-table)))
                (hash-table-rehash-threshold hash-table)))
        ;; There must always be at least one unbound slot in the hash table.
        (weak-hash-table-rehash hash-table t)
@@ -531,12 +534,12 @@ is below the rehash-threshold."
            (error "Impossible!"))
          (unless (eql (weak-hash-table-entry-at hash-table free-slot) *hash-table-tombstone*)
            (incf (hash-table-used hash-table)))
-         (incf (hash-table-count hash-table))
+         (incf (hash-table-%count hash-table))
          (set-full-weak-hash-table-entry hash-table free-slot key value)))
       ;; No rehash/resize needed. Insert directly.
       (t (unless (eql (weak-hash-table-entry-at hash-table free-slot) *hash-table-tombstone*)
            (incf (hash-table-used hash-table)))
-         (incf (hash-table-count hash-table))
+         (incf (hash-table-%count hash-table))
          (set-full-weak-hash-table-entry hash-table free-slot key value))))
   value)
 
@@ -556,7 +559,7 @@ is below the rehash-threshold."
       ;; Adding a new entry.
       ((or (and (eq (weak-hash-table-entry-at hash-table free-slot) *hash-table-unbound-value*)
                 (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
-           (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
+           (>= (/ (float (hash-table-%count hash-table)) (float (hash-table-size hash-table)))
                (hash-table-rehash-threshold hash-table)))
        (when (not (eq old-value default))
          (return-from gethash-weak default))
@@ -571,7 +574,7 @@ is below the rehash-threshold."
            (error "Impossible!"))
          (unless (eql (weak-hash-table-entry-at hash-table free-slot) *hash-table-tombstone*)
            (incf (hash-table-used hash-table)))
-         (incf (hash-table-count hash-table))
+         (incf (hash-table-%count hash-table))
          (set-full-weak-hash-table-entry hash-table free-slot key new-value)
          default))
       (t
@@ -580,7 +583,7 @@ is below the rehash-threshold."
          (return-from gethash-weak default))
        (unless (eql (weak-hash-table-entry-at hash-table free-slot) *hash-table-tombstone*)
          (incf (hash-table-used hash-table)))
-       (incf (hash-table-count hash-table))
+       (incf (hash-table-%count hash-table))
        (set-full-weak-hash-table-entry hash-table free-slot key new-value)
        default))))
 
@@ -589,7 +592,7 @@ is below the rehash-threshold."
     (when slot
       ;; Entry exists.
       (setf (weak-hash-table-entry-at hash-table slot) *hash-table-tombstone*)
-      (decf (hash-table-count hash-table))
+      (decf (hash-table-%count hash-table))
       t)))
 
 (defun find-weak-hash-table-slot-1 (key hash-table)
@@ -646,7 +649,7 @@ is below the rehash-threshold."
         (old-storage (hash-table-storage hash-table)))
     (setf (hash-table-storage hash-table) (make-array new-size
                                                       :initial-element *hash-table-unbound-value*)
-          (hash-table-count hash-table) 0
+          (hash-table-%count hash-table) 0
           (hash-table-used hash-table) 0
           ;; Make sure to preserve :MANDATORY.
           (hash-table-gc-invariant hash-table) (or (hash-table-gc-invariant hash-table) t)
@@ -667,5 +670,5 @@ is below the rehash-threshold."
                 (when slot
                   (error "Duplicate key ~S in hash-table?" key))
                 (incf (hash-table-used hash-table))
-                (incf (hash-table-count hash-table))
+                (incf (hash-table-%count hash-table))
                 (setf (weak-hash-table-entry-at hash-table free-slot) entry)))))))))
