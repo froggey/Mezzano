@@ -15,12 +15,6 @@
 (defvar *keyword-package* nil
   "The keyword package.")
 
-;; FIXME: This needs to be more careful when signalling errors, particularly
-;; when restarts are involved. If the debugger requires assistance from
-;; a separate thread (possibly swank?) then that thread may also need to
-;; interact with the package system.
-;; WITH-MUTEX's :resignal argument doesn't work because of the restarts...
-;;
 ;; FIXME: This is a recursive mutex because some package functions (eg INTERN)
 ;; call other package functions (eg FIND-PACKAGE). This needs to be untangled
 ;; at some point by providing versions of the inner functions that don't
@@ -29,7 +23,19 @@
    (if (mezzano.supervisor:mutex-held-p *package-system-lock*)
        (funcall thunk)
        (mezzano.supervisor:with-mutex (*package-system-lock*)
-         (funcall thunk))))
+         (handler-bind
+             ;; Release the mutex when errors are signalled. This way the
+             ;; debugger will run with the lock unheld but restarts will
+             ;; properly reacquire it.
+             ;; This is required when the debugger may span multiple threads,
+             ;; like slime/swank's does.
+             ((error (lambda (c)
+                       (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
+                         (mezzano.supervisor:release-mutex *package-system-lock*)
+                         (unwind-protect
+                              (error c)
+                           (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
+           (funcall thunk)))))
 
 (defmacro with-package-system-lock ((&key) &body body)
   `(call-with-package-system-lock (lambda () ,@body)))
