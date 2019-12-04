@@ -269,15 +269,15 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *deferred-%defpackage-calls* '())
   ;; System tables.
   (setf *macros* (make-hash-table :test #'eq :synchronized t))
-  (setf *symbol-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
-        *setf-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
-        *cas-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf *symbol-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t)
+        *setf-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t)
+        *cas-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t)
         *function-info-lock* (mezzano.supervisor:make-rw-lock "Function info"))
   (setf *setf-expanders* (make-hash-table :test #'eq :synchronized t))
-  (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf *type-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t)
         *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
-  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :enforce-gc-invariant-keys t)
         mezzano.clos::*class-reference-table-lock* (mezzano.supervisor:make-rw-lock 'mezzano.clos::*class-reference-table*))
   (loop
      for (name . class) across mezzano.clos::*initial-class-table*

@@ -9,7 +9,7 @@
   "An alist mapping lexical-variables to their values, if known.")
 
 (defparameter *constprop-lambda-copy-limit* 3)
-(defparameter *constant-fold-modes* (make-hash-table :test 'equal :synchronized nil :enforce-gc-invariant-keys t))
+(defparameter *constant-fold-modes* (make-hash-table :test 'equal :enforce-gc-invariant-keys t))
 (defparameter *constant-fold-modes-lock* (mezzano.supervisor:make-rw-lock '*constant-fold-modes*))
 
 (defun constprop (lambda architecture)

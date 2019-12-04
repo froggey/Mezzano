@@ -9,7 +9,7 @@
 (in-package :mezzano.compiler.backend)
 
 (defun multiple-value-flow (function architecture)
-  (let ((flow (make-hash-table :test 'eq :synchronized nil))
+  (let ((flow (make-hash-table :test 'eq))
         (worklist (list (cons (first-instruction function) nil))))
     ;; DFS over the instructions, following multiple values.
     (loop

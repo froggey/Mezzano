@@ -152,7 +152,7 @@
             (mapcar #'list (transform-lambda-list object) (transform-argument-types object))
             (transform-result-type object))))
 
-(defvar *transforms* (make-hash-table :test 'equal :synchronized nil :enforce-gc-invariant-keys t))
+(defvar *transforms* (make-hash-table :test 'equal :enforce-gc-invariant-keys t))
 (defvar *transforms-lock* (mezzano.supervisor:make-rw-lock '*transforms*))
 
 (defmacro define-transform (function lambda-list options &body body)

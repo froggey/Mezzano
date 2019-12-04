@@ -252,7 +252,7 @@ Virtual registers must be defined exactly once."
     n-simple-loads-converted))
 
 (defun ssa-convert-one-local-locate-binding-storing-basic-blocks (backend-function candidate dom dynamic-contour)
-  (let ((visited (make-hash-table :test 'eq :synchronized nil))
+  (let ((visited (make-hash-table :test 'eq))
         (phi-sites '())
         (def-sites '())
         (binding-bb nil))

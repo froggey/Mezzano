@@ -206,7 +206,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
-                       :initform (make-hash-table :synchronized nil))
+                       :initform (make-hash-table))
    (%last-ack-time :accessor tcp-connection-last-ack-time :initarg :last-ack-time)
    (%srtt :accessor tcp-connection-srtt :initarg :srtt)
    (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
