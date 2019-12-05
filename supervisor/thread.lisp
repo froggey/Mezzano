@@ -110,6 +110,8 @@
   ;; Run time meter.
   (%run-time 0)
   (switch-time-start 0) ; set when the thread is switched to, used to update run-time
+  ;; Time spent in the slow allocation path (including GC time).
+  (allocation-time 0)
   ;; Per-thread allocation meter.
   (bytes-consed 0)
   ;; Slots used as part of the multiple-value return convention.

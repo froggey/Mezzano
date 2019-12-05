@@ -51,7 +51,6 @@
 (sys.int::defglobal *cons-allocation-count*)
 
 (sys.int::defglobal *bytes-consed*)
-(sys.int::defglobal *allocation-time*)
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
@@ -94,7 +93,6 @@
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
-        *allocation-time* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *allocation-fudge* (* 8 1024 1024)
         sys.int::*generation-size-ratio* 2))
@@ -221,10 +219,10 @@
     (incf (sys.int::symbol-global-value limit-sym) grow-by)))
 
 (defun update-allocation-time (start-time)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*allocation-time*
-   (mezzano.supervisor:high-precision-time-units-to-internal-time-units
-    (- (mezzano.supervisor:get-high-precision-timer) start-time))))
+  (incf (mezzano.supervisor:thread-allocation-time
+         (mezzano.supervisor:current-thread))
+        (mezzano.supervisor:high-precision-time-units-to-internal-time-units
+         (- (mezzano.supervisor:get-high-precision-timer) start-time))))
 
 (defun %allocate-from-pinned-area (tag data words)
   (loop

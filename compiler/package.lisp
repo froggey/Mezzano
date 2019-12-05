@@ -352,6 +352,7 @@
            #:thread-unsleep-helper
            #:thread-unsleep-helper-argument
            #:thread-run-time
+           #:thread-allocation-time
            #:thread-bytes-consed
            #:thread-state-r15
            #:thread-state-r14
