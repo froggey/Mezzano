@@ -494,7 +494,13 @@
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
-    (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
+    (let ((bytes (* words 8)))
+      (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* bytes)
+      ;; ### This won't accurately track if the thread gets footholded
+      ;; partway through the add...
+      (incf (mezzano.supervisor:thread-bytes-consed
+             (mezzano.supervisor:current-thread))
+            bytes))
     (ecase area
       ((nil)
        (%allocate-from-general-area tag data words))

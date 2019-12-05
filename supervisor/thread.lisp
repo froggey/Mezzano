@@ -110,6 +110,8 @@
   ;; Run time meter.
   (%run-time 0)
   (switch-time-start 0) ; set when the thread is switched to, used to update run-time
+  ;; Per-thread allocation meter.
+  (bytes-consed 0)
   ;; Slots used as part of the multiple-value return convention.
   ;; These contain lisp values, but need to be scanned specially by the GC,
   ;; which is why they have type UB64 instead of T.

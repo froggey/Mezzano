@@ -639,7 +639,11 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov64 :rbx (:symbol-global-cell *bytes-consed*))
   (sys.lap-x86:lock)
-  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 16 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+)
+                     #.(ash 16 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:gs)
+  (sys.lap-x86:add64 (:object nil #.mezzano.supervisor::+thread-bytes-consed+)
+                     #.(ash 16 sys.int::+n-fixnum-bits+))
   ;; Check *ENABLE-ALLOCATION-PROFILING*
   (sys.lap-x86:mov64 :rbx (:symbol-global-cell *enable-allocation-profiling*))
   (sys.lap-x86:cmp64 (:object :rbx #.sys.int::+symbol-value-cell-value+) nil)
