@@ -382,15 +382,22 @@ Interrupts must be off and the global thread lock must be held."
   ;; Jump to common function.
   (%%switch-to-thread-common current-thread next-thread))
 
+(defun update-run-time (thread now)
+  (let ((start (thread-switch-time-start thread)))
+    (incf (thread-%run-time thread)
+          (high-precision-time-units-to-internal-time-units
+           (if (< now start)
+               ;; Wrapped. Assume that it has only wrapped once.
+               (- (- now start))
+               (- now start))))))
+
 (defun thread-run-time (thread)
   (when (eql thread (current-thread))
     ;; Update the run-time variable so it is as accurate as possible.
     (safe-without-interrupts ()
       (let ((self (current-thread))
             (now (get-high-precision-timer)))
-        (incf (thread-%run-time self)
-              (high-precision-time-units-to-internal-time-units
-               (- now (thread-switch-time-start self))))
+        (update-run-time self now)
         (setf (thread-switch-time-start self) now))))
   (thread-%run-time thread))
 
@@ -398,11 +405,7 @@ Interrupts must be off and the global thread lock must be held."
   ;; Current thread's state has been saved, restore the new-thread's state.
   ;; Update run-time meters.
   (let ((now (get-high-precision-timer)))
-    ;; TODO: Account for potential wrap-around of the timer
-    ;; if (< start now) wrapped...
-    (incf (thread-%run-time current-thread)
-          (high-precision-time-units-to-internal-time-units
-           (- now (thread-switch-time-start current-thread))))
+    (update-run-time current-thread now)
     (setf (thread-switch-time-start new-thread) now))
   ;; Switch threads.
   (set-current-thread new-thread)
@@ -729,7 +732,8 @@ not and WAIT-P is false."
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
     (setf *world-stopper* thread)
-    (setf (thread-state thread) :active)))
+    (setf (thread-state thread) :active)
+    (setf (thread-switch-time-start thread) (get-high-precision-timer))))
 
 (defun finish-initial-thread ()
   "Called when the boot code is done with the initial thread."
