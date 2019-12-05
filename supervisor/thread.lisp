@@ -107,6 +107,9 @@
   join-event
   ;; The thread pool that this thread belongs to, if any.
   thread-pool
+  ;; Run time meter.
+  (%run-time 0)
+  (switch-time-start 0) ; set when the thread is switched to, used to update run-time
   ;; Slots used as part of the multiple-value return convention.
   ;; These contain lisp values, but need to be scanned specially by the GC,
   ;; which is why they have type UB64 instead of T.
@@ -375,9 +378,28 @@ Interrupts must be off and the global thread lock must be held."
   ;; Jump to common function.
   (%%switch-to-thread-common current-thread next-thread))
 
+(defun thread-run-time (thread)
+  (when (eql thread (current-thread))
+    ;; Update the run-time variable so it is as accurate as possible.
+    (safe-without-interrupts ()
+      (let ((self (current-thread))
+            (now (get-high-precision-timer)))
+        (incf (thread-%run-time self)
+              (high-precision-time-units-to-internal-time-units
+               (- now (thread-switch-time-start self))))
+        (setf (thread-switch-time-start self) now))))
+  (thread-%run-time thread))
+
 (defun %%switch-to-thread-common (current-thread new-thread)
-  (declare (ignore current-thread))
   ;; Current thread's state has been saved, restore the new-thread's state.
+  ;; Update run-time meters.
+  (let ((now (get-high-precision-timer)))
+    ;; TODO: Account for potential wrap-around of the timer
+    ;; if (< start now) wrapped...
+    (incf (thread-%run-time current-thread)
+          (high-precision-time-units-to-internal-time-units
+           (- now (thread-switch-time-start current-thread))))
+    (setf (thread-switch-time-start new-thread) now))
   ;; Switch threads.
   (set-current-thread new-thread)
   ;; Restore FPU state.
