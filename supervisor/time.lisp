@@ -279,7 +279,7 @@ Will wait forever if TIMER has not been armed."
   "Allocate & arm a timer from the timer pool."
   (let ((timer-actual (gensym "TIMER")))
     `(let ((,timer-actual (pop-timer-pool)))
-       (setf (timer-name ,timer-actual) ,name)
+       (setf (timer-name ,timer-actual) ,(or name `',timer))
        (unwind-protect
             (progn
               ,(when relative
@@ -301,6 +301,6 @@ Will wait forever if TIMER has not been armed."
 
 (defun sleep (seconds)
   (check-type seconds (real 0))
-  (with-timer (timer :relative seconds :name 'sleep)
-    (timer-wait timer))
+  (with-timer (sleep :relative seconds)
+    (timer-wait sleep))
   nil)
