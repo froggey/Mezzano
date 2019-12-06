@@ -207,19 +207,23 @@ The current internal run time can be fetched with GET-INTERNAL-RUN-TIME."
   (/ (min 0 (- deadline (get-internal-run-time)))
      internal-time-units-per-second))
 
+(defun timer-disarm-absolute (timer)
+  "Reset TIMER back to its a disarmed state.
+Returns the TIMER's old deadline if was armed or NIL if it was disarmed."
+  (check-type timer timer)
+  ;; Disarm the timer and return the previous deadline.
+  (safe-without-interrupts (timer)
+    (with-place-spinlock ((timer-queue-lock *active-timers*))
+      (prog1 (timer-%deadline timer)
+        (timer-disarm-1 timer)))))
+
 (defun timer-disarm (timer)
   "Reset TIMER back to its a disarmed state.
-Returns the number of seconds remaining if was armed or NIL if it was disarmed."
-  (check-type timer timer)
-  (flet ((do-disarm ()
-           ;; Disarm the timer and return the previous deadline.
-           (safe-without-interrupts (timer)
-             (with-place-spinlock ((timer-queue-lock *active-timers*))
-               (prog1 (timer-%deadline timer)
-                 (timer-disarm-1 timer))))))
-    (let ((deadline (do-disarm)))
-      (when deadline
-        (convert-deadline-to-remaining-time deadline)))))
+Returns the number of seconds remaining if was armed or NIL if it was disarmed.
+This function may cons."
+  (let ((deadline (timer-disarm-absolute timer)))
+    (when deadline
+      (convert-deadline-to-remaining-time deadline))))
 
 (defun timer-remaining (timer)
   "Returns the number of seconds remaining if TIMER is armed or NIL if it is disarmed."
@@ -247,7 +251,7 @@ Will wait forever if TIMER has not been armed."
 (sys.int::defglobal *timer-pool-miss-count* 0)
 
 (defun push-timer-pool (timer)
-  (timer-disarm timer)
+  (timer-disarm-absolute timer) ; don't cons
   (setf (timer-name timer) 'pooled-timer)
   (with-mutex (*timer-pool-lock*)
     (when (< *timer-pool-size* *timer-pool-limit*)
@@ -292,7 +296,7 @@ Will wait forever if TIMER has not been armed."
        (progn
          (timer-arm seconds timer)
          (timer-wait timer))
-    (timer-disarm timer))
+    (timer-disarm-absolute timer)) ; don't cons
   nil)
 
 (defun sleep (seconds)

@@ -563,6 +563,7 @@
            #:timer-arm
            #:timer-arm-absolute
            #:timer-disarm
+           #:timer-disarm-absolute
            #:timer-remaining
            #:timer-deadline
            #:timer-wait
