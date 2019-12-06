@@ -341,7 +341,6 @@ Returns 4 values:
   (when *paging-read-only*
     (debug-print-line "Not taking snapshot, running read-only.")
     (return-from take-snapshot))
-  (debug-print-line "Begin snapshot.")
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
   ;; That should be enough to boot the system.
   (set-snapshot-light t)
@@ -355,6 +354,7 @@ Returns 4 values:
       (when (not (zerop *snapshot-inhibit*))
         (set-snapshot-light nil)
         (return-from take-snapshot :retry))
+      (debug-print-line "Begin snapshot.")
       (with-rw-lock-write (*vm-lock*)
         (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
         (debug-print-line "Copying wired area.")
@@ -392,24 +392,28 @@ Returns 4 values:
   (debug-print-line "End snapshot."))
 
 (defun snapshot-thread ()
-  (loop
-     ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
-     (loop
-        while (eql (take-snapshot) :retry)
-        do (sleep 0.1))
-     ;; After taking a snapshot, clear *snapshot-in-progress*
-     ;; and go back to sleep.
-     ;; FIXME: There's a race between setting this event and the thread
-     ;; going to sleep. (SETF EVENT-STATE) can't be called with the
-     ;; global thread-lock held.
-     (setf (event-state *snapshot-state*) t)
-     (%disable-interrupts)
-     (acquire-global-thread-lock)
-     (setf *snapshot-in-progress* nil)
-     (setf (thread-state sys.int::*snapshot-thread*) :sleeping
-           (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
-     (%run-on-wired-stack-without-interrupts (sp fp)
-      (%reschedule-via-wired-stack sp fp))))
+  ;; A preallocated timer is required here because the snapshot thread
+  ;; runs at :supervisor priority and must not cons outside of boot.
+  (with-timer (snapshot-retry-timer)
+    (loop
+       ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
+       (loop
+          while (or (not (eql *snapshot-inhibit* 0))
+                    (eql (take-snapshot) :retry))
+          do (timer-sleep snapshot-retry-timer 0.1))
+       ;; After taking a snapshot, clear *snapshot-in-progress*
+       ;; and go back to sleep.
+       ;; FIXME: There's a race between setting this event and the thread
+       ;; going to sleep. (SETF EVENT-STATE) can't be called with the
+       ;; global thread-lock held.
+       (setf (event-state *snapshot-state*) t)
+       (%disable-interrupts)
+       (acquire-global-thread-lock)
+       (setf *snapshot-in-progress* nil)
+       (setf (thread-state sys.int::*snapshot-thread*) :sleeping
+             (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
+       (%run-on-wired-stack-without-interrupts (sp fp)
+         (%reschedule-via-wired-stack sp fp)))))
 
 (defun allocate-snapshot-wired-backing-pages (start end &key sparse)
   (map-ptes
