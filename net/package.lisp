@@ -62,6 +62,7 @@
            #:address-equal
            #:compute-ip-checksum
            #:compute-ip-partial-checksum
+           #:finalize-ip-checksum
            #:no-route-to-host
            #:ipv4-route
            #:add-route

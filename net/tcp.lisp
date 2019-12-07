@@ -828,7 +828,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                     mezzano.network.ip:+ip-protocol-tcp+
                     (+ (length header) payload-size)))
     (setf checksum (mezzano.network.ip:compute-ip-partial-checksum header 0 nil checksum))
-    (setf checksum (mezzano.network.ip:compute-ip-checksum payload 0 nil checksum))
+    (when payload
+      (setf checksum (mezzano.network.ip:compute-ip-partial-checksum payload 0 nil checksum)))
+    (setf checksum (mezzano.network.ip:finalize-ip-checksum checksum))
     (setf (ub16ref/be header +tcp4-header-checksum+) checksum)
     packet))
 

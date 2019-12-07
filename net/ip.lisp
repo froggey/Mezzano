@@ -148,6 +148,8 @@ ADDRESS must be an ipv4-address designator."
 
 ;;; Checksums.
 
+#|
+;; Original un-optimized implementation
 (defun compute-ip-partial-checksum (buffer &optional (start 0) end (initial 0))
   ;; From RFC 1071.
   (let ((total initial))
@@ -159,14 +161,54 @@ ADDRESS must be an ipv4-address designator."
         ((>= i end))
       (incf total (ub16ref/be buffer i)))
     total))
+|#
 
-(defun compute-ip-checksum (buffer &optional (start 0) end (initial 0))
-  (let ((total (compute-ip-partial-checksum buffer start end initial)))
+(defun compute-ip-partial-checksum (buffer &optional (start 0) end (initial 0))
+  ;; From RFC 1071.
+  (check-type buffer (simple-array (unsigned-byte 8) (*)))
+  (check-type initial (unsigned-byte 32))
+  (check-type start fixnum)
+  (check-type end (or null fixnum))
+  (let ((total initial))
+    (declare (type (unsigned-byte 32) total)
+             (type (simple-array (unsigned-byte 8) (*)) buffer)
+             (optimize speed (safety 0) (debug 0)))
+    (let ((true-end (or end (length buffer))))
+      (declare (type fixnum start true-end))
+      ;; ODDP open-coded because the compiler is too dumb to optimize
+      ;; away the check-type inside.
+      (when (logtest 1 (the fixnum (- true-end start)))
+        (decf true-end)
+        (incf total (the (unsigned-byte 16)
+                         (ash (the (unsigned-byte 8)
+                                   (aref buffer true-end))
+                              8))))
+      (do ((i start (+ i 2)))
+          ((>= i true-end))
+        (declare (type fixnum i))
+        ;; Open-coded UB16REF/BE. TODO: Optimize...
+        (incf total (the fixnum
+                         (logior (the (unsigned-byte 16)
+                                      (ash (the (unsigned-byte 8)
+                                                (aref buffer i))
+                                           8))
+                                 (the (unsigned-byte 8)
+                                      (aref buffer (the fixnum (1+ i)))))))))
+    total))
+
+(defun finalize-ip-checksum (checksum)
+  (check-type checksum (unsigned-byte 32))
+  (let ((total checksum))
+    (declare (type (unsigned-byte 32) total)
+             (optimize speed (safety 0) (debug 0)))
     (do ()
         ((not (logtest total #xFFFF0000)))
-      (setf total (+ (logand total #xFFFF)
-                     (ash total -16))))
-    (logand (lognot total) #xFFFF)))
+      (setf total (+ (the (unsigned-byte 16) (logand total #xFFFF))
+                     (the (unsigned-byte 16) (ash total -16)))))
+    (logand (the (signed-byte 32) (lognot total)) #xFFFF)))
+
+(defun compute-ip-checksum (buffer &optional (start 0) end (initial 0))
+  (finalize-ip-checksum (compute-ip-partial-checksum buffer start end initial)))
 
 ;;; Other.
 
@@ -532,7 +574,8 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                    type code))))))
 
 (defun transmit-icmp-packet (destination type code &optional (identifier 0) (sequence-number 0) payload)
-  (let ((packet (make-array (+ +icmp4-header-size+ (if payload (length payload) 0)))))
+  (let ((packet (make-array (+ +icmp4-header-size+ (if payload (length payload) 0))
+                            :element-type '(unsigned-byte 8))))
     (setf (aref packet +icmp4-type+) type
           (aref packet +icmp4-code+) code
           (ub16ref/be packet +icmp4-checksum+) 0
