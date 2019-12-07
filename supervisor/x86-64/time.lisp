@@ -56,9 +56,9 @@
 
 (defun high-precision-time-units-to-internal-time-units (tsc-time)
   (if (boundp '*cpu-speed*)
-      ;; Multiply first, then truncate to avoid producing an intermediate
-      ;; ratio result.
-      (truncate (* tsc-time internal-time-units-per-second) *cpu-speed*)
+      ;; Do this to avoid producing intermediate bignum or ratio results.
+      ;; This loses a bit of precision...
+      (truncate tsc-time (truncate *cpu-speed* internal-time-units-per-second))
       0))
 
 (defun get-high-precision-timer ()
