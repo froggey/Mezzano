@@ -978,6 +978,14 @@ Only works when the window is active."
   ((%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
 
+;;;; Screen update notification.
+
+(defclass screen-update (event)
+  ((%x :initarg :x :reader x)
+   (%y :initarg :y :reader y)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
 ;;;; Other event stuff.
 
 (defun send-event (window event)
@@ -1116,6 +1124,12 @@ Only works when the window is active."
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
     (return-from recompose-windows))
+  (broadcast-notification :screen-updates
+                          (make-instance 'screen-update
+                                         :x *clip-rect-x*
+                                         :y *clip-rect-y*
+                                         :width *clip-rect-width*
+                                         :height *clip-rect-height*))
   ;; Draw windows back-to-front.
   (dolist (window (reverse *window-list*))
     (blit-with-clip (width window) (height window)

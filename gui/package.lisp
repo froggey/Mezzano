@@ -54,6 +54,8 @@
   (:use :cl :mezzano.gui)
   (:export #:window
            #:window-buffer
+           #:x
+           #:y
            #:width
            #:height
            #:event
@@ -96,6 +98,7 @@
            #:unsubscribe-notification
            #:get-window-by-kind
            #:screen-geometry-update
+           #:screen-update
            #:force-redisplay
            #:window-x
            #:window-y
