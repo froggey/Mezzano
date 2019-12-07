@@ -254,7 +254,9 @@
              (setf *m-tab-active* nil
                    *m-tab-list* '())))
           (t ;; Normal key, try to translate it.
-           (let ((translated (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))
+           (let ((translated (or (key-key event)
+                                 (and scancode
+                                      (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))))
              (when translated
                (cond
                  ;; Global shortcuts.
@@ -319,11 +321,12 @@
                                              :key translated
                                              :modifier-state (copy-list *keyboard-modifier-state*)))))))))))
 
-(defun submit-key (scancode releasep)
+(defun submit-key (scancode releasep &key key)
   "Submit a key event into the input system."
   (submit-compositor-event (make-instance 'key-event
                                           :scancode scancode
-                                          :releasep releasep)))
+                                          :releasep releasep
+                                          :key key)))
 
 ;;;; Mouse events
 
