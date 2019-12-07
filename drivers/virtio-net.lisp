@@ -205,9 +205,8 @@ and then some alignment.")
     ;; Copy packet into temp buffer.
     (let ((offset 0))
       (dolist (p packet)
-        (dotimes (i (length p))
-          (setf (aref data offset) (aref p i))
-          (incf offset))))
+        (replace data p :start1 offset)
+        (incf offset (length p))))
     (sync:mailbox-send data (virtio-net-tx-mailbox nic))))
 
 (defmethod nic:statistics ((nic virtio-net))
