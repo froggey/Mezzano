@@ -1943,11 +1943,15 @@ has only has class specializer."
       (or (gen-all)
           (lambda (&rest args)
             (declare (dynamic-extent args))
-            (let* ((class (class-of (nth argument-offset args)))
-                   (emfun (single-dispatch-emf-entry emf-table class)))
-              (if emfun
-                  (apply emfun args)
-                  (slow-single-dispatch-method-lookup gf args class))))))))
+            (let* ((arg (nth argument-offset args))
+                   (eql-emfun (assoc arg eql-table)))
+              (if eql-emfun
+                  (apply (cdr eql-emfun) args)
+                  (let* ((class (class-of arg))
+                         (emfun (single-dispatch-emf-entry emf-table class)))
+                    (if emfun
+                        (apply emfun args)
+                        (slow-single-dispatch-method-lookup gf args class))))))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args sys.int::&count arg-count)
