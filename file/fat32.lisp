@@ -971,6 +971,100 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defmethod host-default-device ((host fat-host))
   nil)
 
+;; According to jdebp (Jonathan de Boyne Pollard)'s Frequently Given
+;; Answers, the question of how to determine if a partition contains a
+;; FAT file system is answered at the following URL:
+;; https://jdebp.eu/FGA/determining-filesystem-type.html#FSTypeDefinitive
+;;
+;; The following two routines detect BPB (Bios Partition Block)
+;; version 7.0 and version 4.0 for FAT file systems. Where buffer is
+;; the contents of sector 0 of the partition.
+
+(defun bpb-v7-p (buffer)
+  (and (member (aref buffer #x42) '(#x28 #x29))
+       (string= (map 'string #'code-char (subseq buffer #x52 #x5A))
+                "FAT32   ")))
+
+(defun bpb-v4-p (buffer)
+  (and (member (aref buffer #x26) '(#x28 #x29))
+       (member (map 'string #'code-char (subseq buffer #x36 #x3E))
+               '("FAT     " "FAT16   " "FAT12   ") :test #'string=)))
+
+;; According to the Microsoft document "Microsoft Extensible Firmware
+;; Initiative FAT32 File System Specification, FAT: General Overview
+;; of On-Disk Format", the correct (and only) way to determine if a
+;; FAT file system is FAT12, FAT16 or FAT32 by computing the cluster
+;; count.
+;;
+;; if cluster-count < 4085 then it is FAT12
+;; else if cluster-count < 65525 then it is FAT16
+;; else it is FAT32
+;;
+;; "<", 4085 and 65525 are the correct symbol/values.
+;;
+;; Due to errors in non-Microsoft applications, when creating a FAT
+;; file system it is wise to avoid cluster counts that are near 4085
+;; and 65525. The cluster count can be adjusted by varying the number
+;; of data sectors and the number of sectors per cluster.
+;;
+;; The function below computes the cluster count using the algorithm
+;; described in the document listed above. Where buffer is the
+;; contents of sector 0 of the partition.
+
+(defun compute-cluster-count (buffer)
+  (let* ((bytes-per-sector (sys.int::ub16ref/le buffer 11))
+         (n-root-entries (sys.int::ub16ref/le buffer 17))
+         (root-dir-sectors (ceiling (* 32 n-root-entries) bytes-per-sector))
+         (fat-size (let ((fs16 (sys.int::ub16ref/le buffer 22)))
+                     (if (/= fs16 0) fs16 (sys.int::ub32ref/le buffer 36))))
+         (total-sectors (let ((ts16 (sys.int::ub16ref/le buffer 19)))
+                          (if (/= ts16 0) ts16 (sys.int::ub32ref/le buffer 32))))
+         (data-sectors (- total-sectors
+                          (+ (sys.int::ub16ref/le buffer 14)  ;; Rserved Sectors
+                             (* fat-size (aref buffer 16))
+                             root-dir-sectors))))
+    (floor data-sectors (aref buffer 13))))
+
+(defmethod probe-disk ((class (eql 'fat-host)) partition)
+  "If the partition contains a FAT file system, return the Volume ID otherwise NIL"
+  ;; read first sector and check for FAT file system
+  (let* ((sector-size (block-device-sector-size partition))
+         (buffer (make-array sector-size)))
+    (block-device-read partition 0 1 buffer)
+    (cond ((bpb-v7-p buffer)      ;; Check for version 7.0 BPB
+           (sys.int::ub32ref/le buffer 67))
+          ((bpb-v4-p buffer)      ;; Check for version 4.0 BPB
+           (sys.int::ub32ref/le buffer 39)))))
+
+(defun mount-fat (partition host-name)
+  "If the partition contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
+  (let* ((sector-size (block-device-sector-size partition))
+         (buffer (make-array sector-size)))
+    (block-device-read partition 0 1 buffer)
+    (when (not (or (bpb-v7-p buffer) (bpb-v4-p buffer)))
+      (error "partition ~A does not contain a FAT file system" partition))
+
+    (let* ((cluster-count (compute-cluster-count buffer))
+           ;; In code below, <, 4085 and 65525 are correct see Microsoft Doc.
+           (ffs (cond ((< cluster-count 4085)
+                       ;; FAT12
+                       (read-fat12-structure partition))
+                      ((< cluster-count 65525)
+                       ;; FAT16
+                       (read-fat16-structure partition))
+                      (T
+                       ;; FAT32
+                       (read-fat32-structure partition))))
+           (fat (read-fat partition ffs)))
+      (setf (mezzano.file-system:find-host host-name)
+            (make-instance 'fat-host
+                           :name host-name
+                           :partition partition
+                           :fat-structure ffs
+                           :fat32-info nil
+                           :fat fat))
+      host-name)))
+
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)
         (end (length namestring))
