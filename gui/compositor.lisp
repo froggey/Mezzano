@@ -529,9 +529,10 @@ A passive drag sends no drag events to the window.")
                                           :x-motion x-motion
                                           :y-motion y-motion)))
 
-(defun submit-mouse-absolute (x-position y-position)
+(defun submit-mouse-absolute (x-position y-position &key buttons)
   "Submit a mouse event into the input system."
   (submit-compositor-event (make-instance 'mouse-event
+                                          :button-state buttons
                                           :x-position x-position
                                           :y-position y-position)))
 
