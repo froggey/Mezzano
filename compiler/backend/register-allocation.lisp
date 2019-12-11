@@ -36,7 +36,7 @@
 ;; Uses too much stack space when compiling Ironclad.
 (defun instructions-reverse-postorder (backend-function)
   "Return instructions in reverse postorder."
-  (let ((visited (make-hash-table :test 'eq :synchronized nil))
+  (let ((visited (make-hash-table :test 'eq))
         (order '()))
     (labels ((visit (inst)
                (let ((additional '())
@@ -61,7 +61,7 @@
 |#
 
 (defun instructions-reverse-postorder (backend-function)
-  (let ((visited (make-hash-table :test 'eq :synchronized nil))
+  (let ((visited (make-hash-table :test 'eq))
         (order '())
         (stack (make-array 128 :adjustable t :fill-pointer 0)))
     ;; instruction, additional-basic-blocks, block-instruction-order, at-end.
@@ -203,7 +203,7 @@
     (nreverse order)))
 
 (defun number-virtual-registers (backend-function)
-  (let ((vreg-to-id (make-hash-table :synchronized nil :test 'eq))
+  (let ((vreg-to-id (make-hash-table :test 'eq))
         (id-to-vreg (make-array 0 :adjustable t :fill-pointer 0)))
     (flet ((add (reg)
              (when (and (typep reg 'ir:virtual-register)
@@ -229,9 +229,9 @@
         (let* ((order (if ordering
                           (funcall ordering backend-function)
                           (instructions-reverse-postorder backend-function)))
-               (instruction-to-index-table (make-hash-table :test 'eq :synchronized nil))
+               (instruction-to-index-table (make-hash-table :test 'eq))
                (mv-flow (ir::multiple-value-flow backend-function architecture))
-               (clobbers (make-hash-table :test 'eq :synchronized nil)))
+               (clobbers (make-hash-table :test 'eq)))
           (loop
              for i from 0
              for inst in order
@@ -263,20 +263,20 @@
 (defun build-live-ranges (allocator)
   (let* ((vreg-to-id (allocator-vreg-to-id-table allocator))
          (ranges (make-array 128 :adjustable t :fill-pointer 0))
-         (vreg-ranges (make-hash-table :test 'eq :synchronized nil))
+         (vreg-ranges (make-hash-table :test 'eq))
          (ordering (allocator-instruction-ordering allocator))
          (live-in (allocator-live-in allocator))
          (live-out (allocator-live-out allocator))
          (active-vregs '())
          (active-zombie-vregs '())
-         (vreg-liveness-start (make-hash-table :test 'eq :synchronized nil))
-         (vreg-conflicts (make-hash-table :test 'eq :synchronized nil))
-         (vreg-move-hint (make-hash-table :test 'eq :synchronized nil))
+         (vreg-liveness-start (make-hash-table :test 'eq))
+         (vreg-conflicts (make-hash-table :test 'eq))
+         (vreg-move-hint (make-hash-table :test 'eq))
          (arch (allocator-architecture allocator))
          (arch-phys-regs (architectural-physical-registers arch))
          (arg-regs (target-argument-registers arch))
          (funcall-reg (target-funcall-register arch))
-         (starts (make-hash-table :synchronized nil))
+         (starts (make-hash-table))
          (valid-pregs-cache-kind nil)
          (valid-pregs-cache-regs nil))
     (labels ((valid-pregs (vreg)
@@ -377,7 +377,7 @@
         (dolist (vreg active-zombie-vregs)
           (add-range vreg range-end t))))
     (setf (slot-value allocator '%ranges) (sort ranges #'> :key #'live-range-start)
-          (slot-value allocator '%vreg-ranges) (let ((real-vreg-ranges (make-hash-table :test 'eq :synchronized nil)))
+          (slot-value allocator '%vreg-ranges) (let ((real-vreg-ranges (make-hash-table :test 'eq)))
                                                  ;; INTERVAL-AT binary searches through this, ranges must be sorted.
                                                  (loop
                                                     for vreg being the hash-keys of vreg-ranges using (hash-value ranges)
@@ -568,10 +568,10 @@
 
 (defun linear-scan-allocate (allocator)
   (setf (allocator-active-ranges allocator) '()
-        (allocator-range-allocations allocator) (make-hash-table :test 'eq :synchronized nil)
+        (allocator-range-allocations allocator) (make-hash-table :test 'eq)
         (allocator-free-registers allocator) (architectural-physical-registers (allocator-architecture allocator))
-        (allocator-spilled-ranges allocator) (make-hash-table :test 'eq :synchronized nil)
-        (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal :synchronized nil))
+        (allocator-spilled-ranges allocator) (make-hash-table :test 'eq)
+        (allocator-instantaneous-allocations allocator) (make-hash-table :test 'equal))
   (loop
      with arch = (allocator-architecture allocator)
      for inst in (allocator-instruction-ordering allocator)
@@ -929,14 +929,14 @@
             (rewrite-ordinary-instruction allocator backend-function inst instruction-index spilled-input-vregs spilled-output-vregs))))))
 
 (defun rebuild-debug-map (allocator)
-  (let ((result (make-hash-table :synchronized nil))
+  (let ((result (make-hash-table))
         (original-debug-map (allocator-debug-variable-value-map allocator)))
     ;; Walk ranges & known instructions to produce a partial debug map.
     ;; Only valid for instructions originally in the function.
     (loop
        with starts = (allocator-range-starts allocator)
        with active-ranges = '()
-       with active-vreg-to-range-table = (make-hash-table :synchronized nil)
+       with active-vreg-to-range-table = (make-hash-table)
        with range-allocations = (allocator-range-allocations allocator)
        for index from 0
        for inst in (allocator-instruction-ordering allocator)
@@ -1099,7 +1099,7 @@ Returns the interference graph and the set of spilled virtual registers."
 (defun assign-stack-slots (allocator interference-graph spilled-vregs)
   (let ((slots (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
         (slot-classes (make-array 8 :adjustable t :fill-pointer 0 :initial-element '()))
-        (locations (make-hash-table :synchronized nil))
+        (locations (make-hash-table))
         (id-to-vreg-table (allocator-id-to-vreg-table allocator)))
     (loop
        for vreg-id across spilled-vregs
@@ -1138,7 +1138,7 @@ Returns the interference graph and the set of spilled virtual registers."
           (assign-stack-slots allocator interference-graph spilled-vregs))
       (rewrite-after-allocation allocator)
       (cond ((= (mezzano.compiler::optimize-quality (ir::ast backend-function) 'debug) 0)
-             (setf (allocator-debug-variable-value-map allocator) (make-hash-table :synchronized nil)))
+             (setf (allocator-debug-variable-value-map allocator) (make-hash-table)))
             (t
              (rebuild-debug-map allocator)))
       (when *log*

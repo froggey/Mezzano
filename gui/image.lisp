@@ -10,6 +10,7 @@
 (in-package :mezzano.gui.image)
 
 ;; FIXME: This should probably be weak.
+;; ### Normal weakness seems excessive. Soft references?
 (defvar *image-cache* (make-hash-table :test 'equal :synchronized t))
 
 (defun flush-image-cache ()

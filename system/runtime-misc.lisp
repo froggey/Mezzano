@@ -58,10 +58,16 @@
 
 (defmethod print-object ((object hash-table) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream ":Test ~S :Count ~S :Synchronized ~S"
+    (format stream ":Test ~S :Count ~S"
             (hash-table-test object)
-            (hash-table-count object)
-            (hash-table-synchronized object))))
+            (hash-table-count object))
+    (when (hash-table-weakness object)
+      (format stream " :Weakness ~S" (hash-table-weakness object)))
+    (when (hash-table-synchronized object)
+      (format stream " :Synchronized ~S" (hash-table-synchronized object)))
+    (when (hash-table-enforce-gc-invariant-keys object)
+      (format stream " :Enforce-Gc-Invariant-Keys ~S"
+              (hash-table-enforce-gc-invariant-keys object)))))
 
 (defmethod print-object ((object mezzano.supervisor:thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -248,8 +254,7 @@ The file will only be recompiled if the source is newer than the output file, or
                (return))))))
     dest))
 
-;; FIXME: Should be a weak hash table.
-(defvar *symbol-macro-expansions* (make-hash-table :synchronized t))
+(defvar *symbol-macro-expansions* (make-hash-table :synchronized t :weakness :key))
 
 (defun symbol-macro-p (symbol)
   (check-type symbol symbol)

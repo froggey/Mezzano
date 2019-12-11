@@ -8,12 +8,40 @@
 
 (declaim (special *package*))
 
-;; FIXME: Everything here needs a big lock around it.
+(defvar *package-system-lock* (mezzano.supervisor:make-mutex '*package-system-lock*))
 
 (defvar *package-list* '()
   "The package registry.")
 (defvar *keyword-package* nil
   "The keyword package.")
+
+;; FIXME: This is a recursive mutex because some package functions (eg INTERN)
+;; call other package functions (eg FIND-PACKAGE). This needs to be untangled
+;; at some point by providing versions of the inner functions that don't
+;; take the locks.
+(defun call-with-package-system-lock (thunk)
+   (if (mezzano.supervisor:mutex-held-p *package-system-lock*)
+       (funcall thunk)
+       (mezzano.supervisor:with-mutex (*package-system-lock*)
+         (handler-bind
+             ;; Release the mutex when errors are signalled. This way the
+             ;; debugger will run with the lock unheld but restarts will
+             ;; properly reacquire it.
+             ;; This is required when the debugger may span multiple threads,
+             ;; like slime/swank's does.
+             ((error (lambda (c)
+                       (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
+                         (mezzano.supervisor:release-mutex *package-system-lock*)
+                         (unwind-protect
+                              (error c)
+                           (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
+           (funcall thunk)))))
+
+(defmacro with-package-system-lock ((&key) &body body)
+  `(call-with-package-system-lock (lambda () ,@body)))
+
+(defun check-package-system-lock-held ()
+  (assert (mezzano.supervisor:mutex-held-p *package-system-lock*)))
 
 (defstruct (package
              (:constructor %make-package (%name %nicknames))
@@ -24,8 +52,8 @@
   %used-by-list
   %local-nickname-list
   %locally-nicknamed-by-list
-  (%internal-symbols (make-hash-table :test 'equal :synchronized t))
-  (%external-symbols (make-hash-table :test 'equal :synchronized t))
+  (%internal-symbols (make-hash-table :test 'equal))
+  (%external-symbols (make-hash-table :test 'equal))
   %shadowing-symbols
   documentation)
 
@@ -45,7 +73,8 @@
   (package-%shadowing-symbols (find-package-or-die package)))
 
 (defun list-all-packages ()
-  (remove-duplicates (mapcar 'cdr *package-list*)))
+  (with-package-system-lock ()
+    (remove-duplicates (mapcar 'cdr *package-list*))))
 
 (defmacro in-package (name)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
@@ -63,7 +92,8 @@
   (check-type name (or package string-designator))
   (if (packagep name)
       name
-      (cdr (assoc (string name) *package-list* :test 'string=))))
+      (with-package-system-lock ()
+        (cdr (assoc (string name) *package-list* :test 'string=)))))
 
 (defun find-global-package-or-die (name)
   (or (find-global-package name)
@@ -81,11 +111,12 @@
          (find-global-package name))
         (t
          ;; Search local nicknames, then fall back on the global namespace.
-         (loop
-            for (local-nickname . actual-package) in (package-local-nicknames *package*)
-            when (string= local-nickname name)
-            return actual-package
-            finally (return (find-global-package name))))))
+         (with-package-system-lock ()
+           (loop
+              for (local-nickname . actual-package) in (package-local-nicknames *package*)
+              when (string= local-nickname name)
+              return actual-package
+              finally (return (find-global-package name)))))))
 
 (defun find-package-or-die (name)
   (or (find-package name)
@@ -95,6 +126,7 @@
              :expected-type 'package-designator)))
 
 (defun use-one-package (package-to-use package)
+  (check-package-system-lock-held)
   (when (eql package-to-use *keyword-package*)
     (error 'simple-package-error
            :package package
@@ -104,77 +136,83 @@
   (pushnew package (package-%used-by-list package-to-use)))
 
 (defun use-package (packages-to-use &optional (package *package*))
-  (let ((p (find-package-or-die package)))
-    (if (listp packages-to-use)
-        (dolist (use-package packages-to-use)
-          (use-one-package (find-package-or-die use-package) p))
-        (use-one-package (find-package-or-die packages-to-use) p)))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (if (listp packages-to-use)
+          (dolist (use-package packages-to-use)
+            (use-one-package (find-package-or-die use-package) p))
+          (use-one-package (find-package-or-die packages-to-use) p))))
   t)
 
 (defun unuse-one-package (package-to-unuse package)
+  (check-package-system-lock-held)
   (setf (package-%use-list package)
         (remove package-to-unuse (package-%use-list package)))
   (setf (package-%used-by-list package-to-unuse)
         (remove package (package-%used-by-list package-to-unuse))))
 
 (defun unuse-package (packages-to-unuse &optional (package *package*))
-  (let ((package (find-package-or-die package)))
-    (if (listp packages-to-unuse)
-        (dolist (unuse-package packages-to-unuse)
-          (unuse-one-package (find-package-or-die unuse-package) package))
-        (unuse-one-package (find-package-or-die packages-to-unuse) package)))
+  (with-package-system-lock ()
+    (let ((package (find-package-or-die package)))
+      (if (listp packages-to-unuse)
+          (dolist (unuse-package packages-to-unuse)
+            (unuse-one-package (find-package-or-die unuse-package) package))
+          (unuse-one-package (find-package-or-die packages-to-unuse) package))))
   t)
 
 (defun make-package (package-name &key nicknames use)
-  (when (find-global-package package-name)
-    (error 'simple-package-error
-           :package package-name
-           :format-control "A package named ~S already exists."
-           :format-arguments (list package-name)))
-  (dolist (n nicknames)
-    (when (find-global-package n)
+  (with-package-system-lock ()
+    (when (find-global-package package-name)
       (error 'simple-package-error
-             :package n
+             :package package-name
              :format-control "A package named ~S already exists."
-             :format-arguments (list n))))
-  (let ((use-list (mapcar 'find-package use))
-        (package (%make-package (string package-name)
-                                (mapcar (lambda (x) (string x)) nicknames))))
-    ;; Use packages.
-    (use-package use-list package)
-    ;; Install the package in the package registry.
-    (push (cons (package-name package) package) *package-list*)
-    (dolist (s (package-nicknames package))
-      (push (cons s package) *package-list*))
-    package))
+             :format-arguments (list package-name)))
+    (dolist (n nicknames)
+      (when (find-global-package n)
+        (error 'simple-package-error
+               :package n
+               :format-control "A package named ~S already exists."
+               :format-arguments (list n))))
+    (let ((use-list (mapcar 'find-package use))
+          (package (%make-package (string package-name)
+                                  (mapcar (lambda (x) (string x)) nicknames))))
+      ;; Use packages.
+      (use-package use-list package)
+      ;; Install the package in the package registry.
+      (push (cons (package-name package) package) *package-list*)
+      (dolist (s (package-nicknames package))
+        (push (cons s package) *package-list*))
+      package)))
 
 (defun find-symbol (string &optional (package *package*))
   (check-type string string)
-  (let ((p (find-package-or-die package)))
-    (multiple-value-bind (sym present-p)
-        (gethash string (package-%internal-symbols p))
-      (when present-p
-        (return-from find-symbol (values sym :internal))))
-    (multiple-value-bind (sym present-p)
-        (gethash string (package-%external-symbols p))
-      (when present-p
-        (return-from find-symbol (values sym :external))))
-    (let ((pending (remove-duplicates (package-use-list p)))
-          (visited '()))
-      (loop
-         (when (endp pending)
-           (return (values nil nil)))
-         (let ((pak (pop pending)))
-           (when (not (member pak visited))
-             (push pak visited)
-             (multiple-value-bind (sym present-p)
-                 (gethash string (package-%external-symbols pak))
-               (when present-p
-                 (return (values sym :inherited))))
-             (dolist (subpak (package-use-list pak))
-               (pushnew subpak pending))))))))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (multiple-value-bind (sym present-p)
+          (gethash string (package-%internal-symbols p))
+        (when present-p
+          (return-from find-symbol (values sym :internal))))
+      (multiple-value-bind (sym present-p)
+          (gethash string (package-%external-symbols p))
+        (when present-p
+          (return-from find-symbol (values sym :external))))
+      (let ((pending (remove-duplicates (package-use-list p)))
+            (visited '()))
+        (loop
+           (when (endp pending)
+             (return (values nil nil)))
+           (let ((pak (pop pending)))
+             (when (not (member pak visited))
+               (push pak visited)
+               (multiple-value-bind (sym present-p)
+                   (gethash string (package-%external-symbols pak))
+                 (when present-p
+                   (return (values sym :inherited))))
+               (dolist (subpak (package-use-list pak))
+                 (pushnew subpak pending)))))))))
 
 (defun import-one-symbol (symbol package)
+  (check-package-system-lock-held)
   ;; Check for a conflicting symbol.
   (multiple-value-bind (existing-symbol existing-mode)
       (find-symbol (symbol-name symbol) package)
@@ -217,14 +255,16 @@
       (setf (symbol-package symbol) package))))
 
 (defun import (symbols &optional (package *package*))
-  (let ((p (find-package-or-die package)))
-    (if (listp symbols)
-        (dolist (s symbols)
-          (import-one-symbol s p))
-        (import-one-symbol symbols p)))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (if (listp symbols)
+          (dolist (s symbols)
+            (import-one-symbol s p))
+          (import-one-symbol symbols p))))
   t)
 
 (defun export-one-symbol (symbol package)
+  (check-package-system-lock-held)
   (dolist (q (package-used-by-list package))
     (multiple-value-bind (other-symbol status)
         (find-symbol (symbol-name symbol) q)
@@ -251,14 +291,16 @@
   (setf (gethash (symbol-name symbol) (package-%external-symbols package)) symbol))
 
 (defun export (symbols &optional (package *package*))
-  (let ((p (find-package-or-die package)))
-    (if (listp symbols)
-        (dolist (s symbols)
-          (export-one-symbol s p))
-        (export-one-symbol symbols p)))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (if (listp symbols)
+          (dolist (s symbols)
+            (export-one-symbol s p))
+          (export-one-symbol symbols p))))
   t)
 
 (defun unexport-one-symbol (symbol package)
+  (check-package-system-lock-held)
   (let* ((name (symbol-name symbol)))
     (multiple-value-bind (sym mode)
         (find-symbol name package)
@@ -278,52 +320,55 @@
   t)
 
 (defun unexport (symbols &optional (package *package*))
-  (let ((p (find-package-or-die package)))
-    (if (listp symbols)
-        (dolist (s symbols)
-          (unexport-one-symbol s p))
-        (unexport-one-symbol symbols p)))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (if (listp symbols)
+          (dolist (s symbols)
+            (unexport-one-symbol s p))
+          (unexport-one-symbol symbols p))))
   t)
 
 (defun unintern (symbol &optional (package *package*))
   (check-type symbol symbol)
-  (setf package (find-package-or-die package))
-  (when (eql (symbol-package symbol) package)
-    (setf (symbol-package symbol) nil))
-  (let ((removed-symbol-p nil))
-    (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
-        (gethash (symbol-name symbol) (package-%internal-symbols package))
-      (when (and internal-symbol-presentp (eql existing-internal-symbol symbol))
-        (setf removed-symbol-p t)
-        (remhash (symbol-name symbol) (package-%internal-symbols package))))
-    (multiple-value-bind (existing-external-symbol external-symbol-presentp)
-        (gethash (symbol-name symbol) (package-%external-symbols package))
-      (when (and external-symbol-presentp (eql existing-external-symbol symbol))
-        (setf removed-symbol-p t)
-        (remhash (symbol-name symbol) (package-%external-symbols package))))
-    (setf (package-%shadowing-symbols package) (remove symbol (package-%shadowing-symbols package)))
-    removed-symbol-p))
+  (with-package-system-lock ()
+    (setf package (find-package-or-die package))
+    (when (eql (symbol-package symbol) package)
+      (setf (symbol-package symbol) nil))
+    (let ((removed-symbol-p nil))
+      (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
+          (gethash (symbol-name symbol) (package-%internal-symbols package))
+        (when (and internal-symbol-presentp (eql existing-internal-symbol symbol))
+          (setf removed-symbol-p t)
+          (remhash (symbol-name symbol) (package-%internal-symbols package))))
+      (multiple-value-bind (existing-external-symbol external-symbol-presentp)
+          (gethash (symbol-name symbol) (package-%external-symbols package))
+        (when (and external-symbol-presentp (eql existing-external-symbol symbol))
+          (setf removed-symbol-p t)
+          (remhash (symbol-name symbol) (package-%external-symbols package))))
+      (setf (package-%shadowing-symbols package) (remove symbol (package-%shadowing-symbols package)))
+      removed-symbol-p)))
 
 (defun make-package-iterator-find-symbols (package symbol-types)
   "Find all the symbols in PACKAGE that match SYMBOL-TYPES."
-  (let ((symbols '()))
-    (when (member :internal symbol-types)
-      (maphash (lambda (k v)
-                 (declare (ignore k))
-                 (push (cons v :internal) symbols))
-               (package-%internal-symbols package)))
-    (when (member :external symbol-types)
-      (maphash (lambda (k v)
-                 (declare (ignore k))
-                 (push (cons v :external) symbols))
-               (package-%external-symbols package)))
-    (when (member :inherited symbol-types)
-      (dolist (p (package-use-list package))
+  (with-package-system-lock ()
+    (let ((symbols '()))
+      (when (member :internal symbol-types)
         (maphash (lambda (k v)
                    (declare (ignore k))
-                   (push (cons v :inherited) symbols))
-                 (package-%external-symbols p))))
-    symbols))
+                   (push (cons v :internal) symbols))
+                 (package-%internal-symbols package)))
+      (when (member :external symbol-types)
+        (maphash (lambda (k v)
+                   (declare (ignore k))
+                   (push (cons v :external) symbols))
+                 (package-%external-symbols package)))
+      (when (member :inherited symbol-types)
+        (dolist (p (package-use-list package))
+          (maphash (lambda (k v)
+                     (declare (ignore k))
+                     (push (cons v :inherited) symbols))
+                   (package-%external-symbols p))))
+      symbols)))
 
 (defun make-package-iterator (package-list symbol-types)
   ;; Listify PACKAGE-LIST.
@@ -429,62 +474,65 @@
 
 (defun find-all-symbols (string)
   (setf string (string string))
-  (let ((symbols '()))
-    (dolist (p (list-all-packages))
-      (multiple-value-bind (sym foundp)
-          (gethash string (package-%internal-symbols p))
-        (when foundp
-          (pushnew sym symbols)))
-      (multiple-value-bind (sym foundp)
-          (gethash string (package-%external-symbols p))
-        (when foundp
-          (pushnew sym symbols))))
-    symbols))
+  (with-package-system-lock ()
+    (let ((symbols '()))
+      (dolist (p (list-all-packages))
+        (multiple-value-bind (sym foundp)
+            (gethash string (package-%internal-symbols p))
+          (when foundp
+            (pushnew sym symbols)))
+        (multiple-value-bind (sym foundp)
+            (gethash string (package-%external-symbols p))
+          (when foundp
+            (pushnew sym symbols))))
+      symbols)))
 
 (defun intern (name &optional (package *package*))
-  (assert *package-list* () "Package system not initialized?")
-  (let ((p (find-package-or-die package)))
-    (multiple-value-bind (symbol status)
-        (find-symbol name p)
-      (when status
-        (return-from intern (values symbol status))))
-    (let ((symbol (make-symbol name)))
-      (import (list symbol) p)
-      (when (eql p *keyword-package*)
-        (setf (symbol-mode symbol) :special)
-        (setf (symbol-value symbol) symbol)
-        (setf (symbol-mode symbol) :constant)
-        (export (list symbol) p))
-      (values symbol nil))))
+  (with-package-system-lock ()
+    (assert *package-list* () "Package system not initialized?")
+    (let ((p (find-package-or-die package)))
+      (multiple-value-bind (symbol status)
+          (find-symbol name p)
+        (when status
+          (return-from intern (values symbol status))))
+      (let ((symbol (make-symbol name)))
+        (import (list symbol) p)
+        (when (eql p *keyword-package*)
+          (setf (symbol-mode symbol) :special)
+          (setf (symbol-value symbol) symbol)
+          (setf (symbol-mode symbol) :constant)
+          (export (list symbol) p))
+        (values symbol nil)))))
 
 (defun delete-package (package)
   (when (and (packagep package)
              (not (package-%name package)))
     (return-from delete-package nil))
-  (let ((p (find-package-or-die package)))
-    (when (package-used-by-list p)
-      (error 'simple-package-error
-             :package package
-             :format-control "Package ~S is in use."
-             :format-arguments (list package)))
-    ;; Remove the package from the use list.
-    (dolist (other (package-use-list p))
-      (setf (package-%used-by-list other) (remove p (package-used-by-list other))))
-    ;; Remove all symbols.
-    (maphash (lambda (name symbol)
-               (declare (ignore name))
-               (when (eq (symbol-package symbol) package)
-                 (setf (symbol-package symbol) nil)))
-             (package-%internal-symbols p))
-    (maphash (lambda (name symbol)
-               (declare (ignore name))
-               (when (eq (symbol-package symbol) package)
-                 (setf (symbol-package symbol) nil)))
-             (package-%external-symbols p))
-    (setf (package-%name p) nil
-          (package-%nicknames p) '())
-    (setf *package-list* (remove p *package-list* :key 'cdr))
-    t))
+  (with-package-system-lock ()
+    (let ((p (find-package-or-die package)))
+      (when (package-used-by-list p)
+        (error 'simple-package-error
+               :package package
+               :format-control "Package ~S is in use."
+               :format-arguments (list package)))
+      ;; Remove the package from the use list.
+      (dolist (other (package-use-list p))
+        (setf (package-%used-by-list other) (remove p (package-used-by-list other))))
+      ;; Remove all symbols.
+      (maphash (lambda (name symbol)
+                 (declare (ignore name))
+                 (when (eq (symbol-package symbol) package)
+                   (setf (symbol-package symbol) nil)))
+               (package-%internal-symbols p))
+      (maphash (lambda (name symbol)
+                 (declare (ignore name))
+                 (when (eq (symbol-package symbol) package)
+                   (setf (symbol-package symbol) nil)))
+               (package-%external-symbols p))
+      (setf (package-%name p) nil
+            (package-%nicknames p) '())
+      (setf *package-list* (remove p *package-list* :key 'cdr))
+      t)))
 
 (defun keywordp (object)
   (and (symbolp object)
@@ -500,34 +548,35 @@
                            ((:shadows shadow-list))
                            ((:shadowing-imports shadow-import-list))
                            local-nicknames)
-  (let ((p (find-package name)))
-    (cond (p ;; Add nicknames.
-           (dolist (n nicknames)
-             (when (and (find-package n)
-                        (not (eql (find-package n) p)))
-               (error 'simple-package-error
-                      :package p
-                      :format-control "A package named ~S already exists."
-                      :format-arguments (list n))))
-           (dolist (n nicknames)
-             (pushnew (cons n p) *package-list* :test #'equal)))
-          (t (setf p (make-package name :nicknames nicknames))))
-    (when documentation
-      (setf (package-documentation p) documentation))
-    (dolist (s shadow-list)
-      (shadow-one-symbol (string s) p))
-    (shadowing-import shadow-import-list p)
-    (use-package use-list p)
-    (import import-list p)
-    (dolist (s intern-list)
-      (intern (string s) p))
-    (dolist (s export-list)
-      (export-one-symbol (intern (string s) p) p))
-    (dolist (package-nickname-pair local-nicknames)
-      (destructuring-bind (local-nickname actual-package)
-          package-nickname-pair
-        (add-package-local-nickname local-nickname actual-package p)))
-    p))
+  (with-package-system-lock ()
+    (let ((p (find-package name)))
+      (cond (p ;; Add nicknames.
+             (dolist (n nicknames)
+               (when (and (find-package n)
+                          (not (eql (find-package n) p)))
+                 (error 'simple-package-error
+                        :package p
+                        :format-control "A package named ~S already exists."
+                        :format-arguments (list n))))
+             (dolist (n nicknames)
+               (pushnew (cons n p) *package-list* :test #'equal)))
+            (t (setf p (make-package name :nicknames nicknames))))
+      (when documentation
+        (setf (package-documentation p) documentation))
+      (dolist (s shadow-list)
+        (shadow-one-symbol (string s) p))
+      (shadowing-import shadow-import-list p)
+      (use-package use-list p)
+      (import import-list p)
+      (dolist (s intern-list)
+        (intern (string s) p))
+      (dolist (s export-list)
+        (export-one-symbol (intern (string s) p) p))
+      (dolist (package-nickname-pair local-nicknames)
+        (destructuring-bind (local-nickname actual-package)
+            package-nickname-pair
+          (add-package-local-nickname local-nickname actual-package p)))
+      p)))
 
 (defmacro defpackage (defined-package-name &rest options)
   (let ((nicknames '())
@@ -612,31 +661,34 @@
                     :local-nicknames ',local-nicknames))))
 
 (defun rename-package (package new-name &optional new-nicknames)
-  (setf package (find-package-or-die package))
-  (when (packagep new-name) (error "Not sure what to do when NEW-NAME is a package?"))
-  (setf new-name (string new-name))
-  (setf new-nicknames (mapcar 'string new-nicknames))
-  (let ((new-names (remove-duplicates (cons new-name new-nicknames)))
-        (old-names (cons (package-name package) (package-nicknames package))))
-    (dolist (name new-names)
-      (when (and (find-package name)
-                 (not (eql (find-package name) package)))
-        (error "New name ~S for package ~S conflicts with existing package ~S.~%"
-               name package (find-package name))))
-    ;; Remove the old names.
-    (setf *package-list* (remove-if (lambda (name)
-                                      (member name old-names :test 'string=))
-                                    *package-list*
-                                    :key 'car))
-    ;; Add the new names.
-    (dolist (name new-names)
-      (push (cons name package) *package-list*))
-    ;; Rename the package
-    (setf (package-%name package) new-name
-          (package-%nicknames package) new-nicknames))
-  package)
+  (with-package-system-lock ()
+    (setf package (find-package-or-die package))
+    (when (packagep new-name)
+      (error "Not sure what to do when NEW-NAME is a package?"))
+    (setf new-name (string new-name))
+    (setf new-nicknames (mapcar 'string new-nicknames))
+    (let ((new-names (remove-duplicates (cons new-name new-nicknames)))
+          (old-names (cons (package-name package) (package-nicknames package))))
+      (dolist (name new-names)
+        (when (and (find-package name)
+                   (not (eql (find-package name) package)))
+          (error "New name ~S for package ~S conflicts with existing package ~S.~%"
+                 name package (find-package name))))
+      ;; Remove the old names.
+      (setf *package-list* (remove-if (lambda (name)
+                                        (member name old-names :test 'string=))
+                                      *package-list*
+                                      :key 'car))
+      ;; Add the new names.
+      (dolist (name new-names)
+        (push (cons name package) *package-list*))
+      ;; Rename the package
+      (setf (package-%name package) new-name
+            (package-%nicknames package) new-nicknames))
+    package))
 
 (defun shadow-one-symbol (symbol-name package)
+  (check-package-system-lock-held)
   (multiple-value-bind (symbol presentp)
       (gethash symbol-name (package-%internal-symbols package))
     (declare (ignore symbol))
@@ -651,20 +703,22 @@
           (gethash symbol-name (package-%internal-symbols package)) new-symbol)))
 
 (defun shadowing-import (symbols &optional (package *package*))
-  (when (not (listp symbols))
-    (setf symbols (list symbols)))
-  (setf package (find-package-or-die package))
-  (dolist (symbol symbols)
-    (check-type symbol symbol)
-    (pushnew symbol (package-%shadowing-symbols package)))
-  (import symbols package))
+  (with-package-system-lock ()
+    (when (not (listp symbols))
+      (setf symbols (list symbols)))
+    (setf package (find-package-or-die package))
+    (dolist (symbol symbols)
+      (check-type symbol symbol)
+      (pushnew symbol (package-%shadowing-symbols package)))
+    (import symbols package)))
 
 (defun shadow (symbol-names &optional (package *package*))
-  (unless (listp symbol-names)
-    (setf symbol-names (list symbol-names)))
-  (setf package (find-package-or-die package))
-  (dolist (symbol symbol-names)
-    (shadow-one-symbol (string symbol) package))
+  (with-package-system-lock ()
+    (unless (listp symbol-names)
+      (setf symbol-names (list symbol-names)))
+    (setf package (find-package-or-die package))
+    (dolist (symbol symbol-names)
+      (shadow-one-symbol (string symbol) package)))
   t)
 
 (defun package-shortest-name (package)
@@ -681,50 +735,53 @@
   (package-%locally-nicknamed-by-list (find-package-or-die package)))
 
 (defun add-package-local-nickname (local-nickname actual-package &optional (package *package*))
-  (let ((local-nickname (string local-nickname))
-        (actual-package (find-global-package-or-die actual-package)))
-    (when (member local-nickname '("CL" "COMMON-LISP" "KEYWORD") :test #'string=)
-      (error "New package local nickname ~S conflicts with standard CL package." local-nickname))
-    (let ((existing (assoc local-nickname (package-local-nicknames package) :test #'string=)))
-      (cond ((not existing)
-             (push (cons local-nickname actual-package) (package-%local-nickname-list package))
-             (pushnew package (package-%locally-nicknamed-by-list actual-package)))
-            ((not (eql actual-package (cdr existing)))
-             (cerror "Replace it" "New local nickname ~S for package ~S conflicts with existing nickname for package ~S."
-                     local-nickname actual-package (cdr existing))
-             (remove-package-local-nickname local-nickname package)
-             (push (cons local-nickname actual-package) (package-%local-nickname-list package))
-             (pushnew package (package-%locally-nicknamed-by-list actual-package))))))
+  (with-package-system-lock ()
+    (let ((local-nickname (string local-nickname))
+          (actual-package (find-global-package-or-die actual-package)))
+      (when (member local-nickname '("CL" "COMMON-LISP" "KEYWORD") :test #'string=)
+        (error "New package local nickname ~S conflicts with standard CL package." local-nickname))
+      (let ((existing (assoc local-nickname (package-local-nicknames package) :test #'string=)))
+        (cond ((not existing)
+               (push (cons local-nickname actual-package) (package-%local-nickname-list package))
+               (pushnew package (package-%locally-nicknamed-by-list actual-package)))
+              ((not (eql actual-package (cdr existing)))
+               (cerror "Replace it" "New local nickname ~S for package ~S conflicts with existing nickname for package ~S."
+                       local-nickname actual-package (cdr existing))
+               (remove-package-local-nickname local-nickname package)
+               (push (cons local-nickname actual-package) (package-%local-nickname-list package))
+               (pushnew package (package-%locally-nicknamed-by-list actual-package)))))))
   package)
 
 (defun remove-package-local-nickname (local-nickname &optional (package *package*))
-  (let* ((existing (assoc local-nickname (package-%local-nickname-list package) :test #'string=)))
-    (when existing
-      (let ((other-package (cdr existing)))
-        (setf (package-%local-nickname-list package) (remove local-nickname (package-%local-nickname-list package)
-                                                             :test #'string= :key #'car))
-        (when (zerop (count other-package (package-%local-nickname-list package)
-                            :key #'cdr))
-          (setf (package-%locally-nicknamed-by-list other-package) (remove package (package-%locally-nicknamed-by-list other-package)))))
-      t)))
+  (with-package-system-lock ()
+    (let* ((existing (assoc local-nickname (package-%local-nickname-list package) :test #'string=)))
+      (when existing
+        (let ((other-package (cdr existing)))
+          (setf (package-%local-nickname-list package) (remove local-nickname (package-%local-nickname-list package)
+                                                               :test #'string= :key #'car))
+          (when (zerop (count other-package (package-%local-nickname-list package)
+                              :key #'cdr))
+            (setf (package-%locally-nicknamed-by-list other-package) (remove package (package-%locally-nicknamed-by-list other-package)))))
+        t))))
 
 (defun initialize-package-system ()
   (write-line "Initializing package system.")
-  ;; Create the core packages.
-  (setf *package-list* '())
-  (setf *keyword-package* (make-package "KEYWORD"))
-  (make-package "COMMON-LISP" :nicknames '("CL"))
-  (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
-  (setf *package* (make-package "MEZZANO.INTERNALS" :use '("CL")))
-  ;; Now import all the symbols.
-  (dotimes (i (length *initial-obarray*))
-    (let ((sym (aref *initial-obarray* i)))
-      (let* ((package-keyword (symbol-package sym))
-             (package (find-package (string package-keyword))))
-        (when (not package)
-          (setf package (make-package (string package-keyword) :use '("CL"))))
-        (setf (symbol-package sym) nil)
-        (import-one-symbol sym package)
-        (when (member package-keyword '(:common-lisp :keyword))
-          (export-one-symbol sym package)))))
+  (with-package-system-lock ()
+    ;; Create the core packages.
+    (setf *package-list* '())
+    (setf *keyword-package* (make-package "KEYWORD"))
+    (make-package "COMMON-LISP" :nicknames '("CL"))
+    (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
+    (setf *package* (make-package "MEZZANO.INTERNALS" :use '("CL")))
+    ;; Now import all the symbols.
+    (dotimes (i (length *initial-obarray*))
+      (let ((sym (aref *initial-obarray* i)))
+        (let* ((package-keyword (symbol-package sym))
+               (package (find-package (string package-keyword))))
+          (when (not package)
+            (setf package (make-package (string package-keyword) :use '("CL"))))
+          (setf (symbol-package sym) nil)
+          (import-one-symbol sym package)
+          (when (member package-keyword '(:common-lisp :keyword))
+            (export-one-symbol sym package))))))
   (values))

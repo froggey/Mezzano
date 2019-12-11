@@ -268,24 +268,24 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *hash-table-tombstone* (list "hash-table tombstone")
         *deferred-%defpackage-calls* '())
   ;; System tables.
-  (setf *macros* (make-hash-table :test #'eq :synchronized t))
-  (setf *symbol-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
-        *setf-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
-        *cas-function-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf *macros* (make-hash-table :test #'eq :synchronized t :weakness :key))
+  (setf *symbol-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t :weakness :key)
+        *setf-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t :weakness :key)
+        *cas-function-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t :weakness :key)
         *function-info-lock* (mezzano.supervisor:make-rw-lock "Function info"))
-  (setf *setf-expanders* (make-hash-table :test #'eq :synchronized t))
-  (setf *type-info* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf *setf-expanders* (make-hash-table :test #'eq :synchronized t :weakness :key))
+  (setf *type-info* (make-hash-table :test #'eq :enforce-gc-invariant-keys t :weakness :key)
         *type-info-lock* (mezzano.supervisor:make-rw-lock '*type-info*))
   ;; Put initial classes into the class table.
-  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :synchronized nil :enforce-gc-invariant-keys t)
+  (setf mezzano.clos::*class-reference-table* (make-hash-table :test #'eq :enforce-gc-invariant-keys t :weakness :key)
         mezzano.clos::*class-reference-table-lock* (mezzano.supervisor:make-rw-lock 'mezzano.clos::*class-reference-table*))
   (loop
      for (name . class) across mezzano.clos::*initial-class-table*
      do (setf (find-class name) class))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.
-  (setf *setf-fref-table* (make-hash-table :synchronized t))
-  (setf *cas-fref-table* (make-hash-table :synchronized t))
+  (setf *setf-fref-table* (make-hash-table :synchronized t :weakness :key))
+  (setf *cas-fref-table* (make-hash-table :synchronized t :weakness :key))
   (dotimes (i (length *initial-fref-obarray*))
     (let* ((fref (svref *initial-fref-obarray* i))
            (name (function-reference-name fref)))
@@ -296,10 +296,11 @@ structures to exist, and for memory to be allocated, but not much beyond that."
           ((cas)
            (setf (gethash (second name) *cas-fref-table*) fref))))))
   ;; Create documentation hash tables.
+  ;; FIXME: These should be weak but have structured keys. Need separate hash tables for setf/cas
   (setf *function-documentation* (make-hash-table :test #'equal :synchronized t))
   (setf *compiler-macro-documentation* (make-hash-table :test #'equal :synchronized t))
-  (setf *setf-documentation* (make-hash-table :synchronized t))
-  (setf *variable-documentation* (make-hash-table :synchronized t))
+  (setf *setf-documentation* (make-hash-table :synchronized t :weakness :key))
+  (setf *variable-documentation* (make-hash-table :synchronized t :weakness :key))
   ;; Transfer the initial function documentation over.
   (loop
      for (name doc) in *initial-function-docstrings*

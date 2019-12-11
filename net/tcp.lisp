@@ -206,7 +206,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
-                       :initform (make-hash-table :synchronized nil))
+                       :initform (make-hash-table))
    (%last-ack-time :accessor tcp-connection-last-ack-time :initarg :last-ack-time)
    (%srtt :accessor tcp-connection-srtt :initarg :srtt)
    (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
@@ -695,6 +695,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       (setf (tcp-connection-state connection) :close-wait
                             (tcp-connection-rcv.nxt connection)
                             (+u32 seq 1))
+                      (setf (mezzano.supervisor:event-state
+                             (tcp-connection-receive-event connection))
+                            t)
                       (tcp4-send-packet connection ack (+u32 seq 1) nil :ack-p t))
                     (tcp4-receive-data connection data-length end header-length packet seq start)))
                ((eql (tcp-connection-snd.una connection) ack)
@@ -1055,7 +1058,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defun maybe-clear-receive-ready-event (stream)
   (let ((connection (tcp-stream-connection stream)))
     (when (and (null (tcp-stream-packet stream))
-               (endp (tcp-connection-rx-data connection)))
+               (endp (tcp-connection-rx-data connection))
+               (connection-may-have-additional-data-p connection))
       (setf (mezzano.supervisor:event-state
              (tcp-connection-receive-event connection))
             nil))))

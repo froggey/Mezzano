@@ -387,7 +387,7 @@ a vector of constants and an alist of symbols & addresses."
                                      :fill-pointer t
                                      :adjustable t
                                      :initial-contents info))
-        (*symbol-table* (make-hash-table :synchronized nil))
+        (*symbol-table* (make-hash-table))
         (*missing-symbols* '())
         (*mc-end* nil))
     (dolist (x initial-symbols)

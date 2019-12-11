@@ -56,7 +56,7 @@
     invalid-110001             ; #b110001
     invalid-110010             ; #b110010
     mezzano.simd:sse-vector    ; #b110011
-    weak-pointer-vector        ; #b110100
+    invalid-110100             ; #b110100
     instance                   ; #b110101
     function-reference         ; #b110110
     interrupt-frame            ; #b110111
@@ -363,7 +363,6 @@ on floats or integers."
            (#.+object-tag-symbol+
             (dotimes (i 5)
               (funcall fn object (%object-ref-t object i) i)))
-           ;;+object-tag-weak-pointer-vector+
            (#.+object-tag-instance+
             ;; Gets a bit hairy with gc link-snapping...
             (let* ((direct-layout (%instance-layout object))

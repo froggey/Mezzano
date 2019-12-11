@@ -179,7 +179,10 @@
                 old new))
 
 (defvar *symbol-plists*
-  (make-hash-table :test #'eq :synchronized t :enforce-gc-invariant-keys t))
+  (make-hash-table :test #'eq
+                   :synchronized t
+                   :enforce-gc-invariant-keys t
+                   :weakness :key))
 
 (defun symbol-plist (symbol)
   (check-type symbol symbol)

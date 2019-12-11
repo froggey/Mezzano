@@ -1068,8 +1068,6 @@ This is required to make the GC interrupt safe."
       #.+object-tag-sse-vector+))
     (#.+object-tag-weak-pointer+
      (scan-weak-pointer object cycle-kind))
-    (#.+object-tag-weak-pointer-vector+
-     (scan-weak-pointer-vector object cycle-kind))
     (#.+object-tag-delimited-continuation+
      (scan-delimited-continuation object cycle-kind))
     (t (scan-error object))))
@@ -1103,28 +1101,6 @@ This is required to make the GC interrupt safe."
        (scavengef (%object-ref-t object +weak-pointer-value+) cycle-kind))))
   (scavengef (%object-ref-t object +weak-pointer-finalizer-link+) cycle-kind)
   (scavengef (%object-ref-t object +weak-pointer-finalizer+) cycle-kind))
-
-(defun scan-weak-pointer-vector (object cycle-kind)
-  (ecase cycle-kind
-    (:major
-     ;; Wipe all live bits except for those for 0 keys.
-     (dotimes (i (%object-header-data object))
-       (cond ((eql (%weak-pointer-vector-key object i) 0)
-              ;; Immediately scavenge values for zero keys.
-              (scavengef (%weak-pointer-vector-value object i) :major))
-             (t
-              (setf (%weak-pointer-vector-live-bit object i) nil))))
-     ;; Add to the worklist.
-     (setf (%weak-pointer-vector-link object) *weak-pointer-worklist*
-           *weak-pointer-worklist* object))
-    (:minor
-     ;; Weak pointer processing doesn't occur during a minor cycle.
-     ;; If the key was previously live, assume it is still alive.
-     (loop
-        for index below (weak-pointer-vector-length object)
-        do
-          (scavengef (%weak-pointer-vector-key object index) cycle-kind)
-          (scavengef (%weak-pointer-vector-value object index) cycle-kind)))))
 
 (defun scan-function (object cycle-kind)
   ;; Scan the constant pool.
@@ -1336,11 +1312,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           (+ 4 length))
          (#.+object-tag-weak-pointer+
           6)
-         (#.+object-tag-weak-pointer-vector+
-          (+ 1 ; header
-             (* length 2) ; key/value pairs
-             1 ; link
-             (ceiling length 64))) ; live bits
          (#.+object-tag-delimited-continuation+
           6)
          (t
@@ -1713,9 +1684,6 @@ Additionally update the card table offset fields."
       #.+object-tag-mmx-vector+
       #.+object-tag-sse-vector+))
     (#.+object-tag-weak-pointer+
-     ;; not implemented
-     nil)
-    (#.+object-tag-weak-pointer-vector+
      ;; not implemented
      nil)
     (#.+object-tag-delimited-continuation+
@@ -2218,94 +2186,9 @@ No type information will be provided."
         (values value t)
         (values nil nil))))
 
-(declaim (inline weak-pointer-vector-p))
-(defun weak-pointer-vector-p (object)
-  (%object-of-type-p object +object-tag-weak-pointer-vector+))
-
-(deftype weak-pointer-vector ()
-  `(satisfies weak-pointer-vector-p))
-
-(defun weak-pointer-vector-length (weak-pointer-vector)
-  (check-type weak-pointer-vector weak-pointer-vector)
-  (%object-header-data weak-pointer-vector))
-
-(defun %weak-pointer-vector-key (weak-pointer-vector index)
-  (%object-ref-t weak-pointer-vector (+ 1 (* index 2))))
-
-(defun (setf %weak-pointer-vector-key) (value weak-pointer-vector index)
-  (setf (%object-ref-t weak-pointer-vector (+ 1 (* index 2))) value))
-
-(defun %weak-pointer-vector-value (weak-pointer-vector index)
-  (%object-ref-t weak-pointer-vector (+ 2 (* index 2))))
-
-(defun (setf %weak-pointer-vector-value) (value weak-pointer-vector index)
-  (setf (%object-ref-t weak-pointer-vector (+ 2 (* index 2))) value))
-
-(defun %weak-pointer-vector-link (weak-pointer-vector)
-  (%object-ref-t weak-pointer-vector 0))
-
-(defun (setf %weak-pointer-vector-link) (value weak-pointer-vector)
-  (setf (%object-ref-t weak-pointer-vector 0) value))
-
-(defun %weak-pointer-vector-byte-offset (weak-pointer-vector offset)
-  (+ (* (%object-header-data weak-pointer-vector) 16) 8 offset))
-
-(defun %weak-pointer-vector-live-bit (weak-pointer-vector index)
-  ;; Use 8-bit reads over 64-bit reads to avoid creating bignums.
-  (multiple-value-bind (offset bit)
-      (truncate index 8)
-    (logbitp bit (%object-ref-unsigned-byte-8
-                  weak-pointer-vector
-                  (%weak-pointer-vector-byte-offset weak-pointer-vector
-                                                    offset)))))
-
-(defun (setf %weak-pointer-vector-live-bit) (value weak-pointer-vector index)
-  ;; WARNING: Not atomic.
-  ;; Use 8-bit reads over 64-bit reads to avoid creating bignums.
-  (multiple-value-bind (offset bit)
-      (truncate index 8)
-    (let* ((byte-offset (%weak-pointer-vector-byte-offset weak-pointer-vector
-                                                          offset))
-           (bits (%object-ref-unsigned-byte-8 weak-pointer-vector byte-offset)))
-      (setf (%object-ref-unsigned-byte-8 weak-pointer-vector byte-offset)
-            (if value
-                (logior bits (ash 1 bit))
-                (logand bits (lognot (ash 1 bit)))))))
-  value)
-
-(defun weak-pointer-vector-pair (weak-pointer-vector index)
-  (check-type weak-pointer-vector weak-pointer-vector)
-  (%bounds-check weak-pointer-vector index)
-  ;; Make a strong reference to key & value first.
-  ;; It'll be set to some other live value if the weak pointer is dead.
-  (let ((key (%weak-pointer-vector-key weak-pointer-vector index))
-        (value (%weak-pointer-vector-value weak-pointer-vector index)))
-    ;; Inspect the live bit for this index.
-    (if (%weak-pointer-vector-live-bit weak-pointer-vector index)
-        (values key value t)
-        (values nil nil nil))))
-
-(defsetf weak-pointer-vector-pair (weak-pointer-vector index) (new-key new-value)
-  `(%set-weak-pointer-vector-pair ,new-key ,new-value ,weak-pointer-vector ,index))
-
-(defun %set-weak-pointer-vector-pair (new-key new-value weak-pointer-vector index)
-  (check-type weak-pointer-vector weak-pointer-vector)
-  (%bounds-check weak-pointer-vector index)
-  ;; Clear the old key/value. This is required as the GC may run between
-  ;; the live bit being set and the new key/value being stored.
-  (setf (%weak-pointer-vector-key weak-pointer-vector index) nil
-        (%weak-pointer-vector-value weak-pointer-vector index) nil)
-  ;; Set the live bit for this entry.
-  ;; Do this under pseudo-atomic to prevent the GC modifying other bits
-  ;; under us. An atomic bit set operation would also work.
-  (mezzano.supervisor:with-pseudo-atomic
-    (setf (%weak-pointer-vector-live-bit weak-pointer-vector index) t))
-  ;; Now the new value can be stored safely.
-  ;; Set key last to preserve a strong reference to it until everything
-  ;; is set right.
-  (setf (%weak-pointer-vector-value weak-pointer-vector index) new-value
-        (%weak-pointer-vector-key weak-pointer-vector index) new-key)
-  (values new-key new-value))
+(defun weak-pointer-live-p (weak-pointer)
+  "Returns true if the weak pointer is still live."
+  (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer)))
 
 (defun examine-weak-pointer-key (key)
   (when (immediatep key)
@@ -2432,41 +2315,17 @@ No type information will be provided."
             ((not iter)
              (setf *weak-pointer-worklist* new-worklist))
          (let ((weak-pointer iter))
-           (cond ((weak-pointer-p weak-pointer)
-                  (setf iter (%object-ref-t weak-pointer +weak-pointer-link+))
-                  (cond ((update-one-weak-pointer weak-pointer)
-                         ;; Weak pointer is live. Drop from the worklist.
-                         (setf did-something t))
-                        (t
-                         ;; Key is either dead or not scanned yet. Add to the new worklist.
-                         (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
-                               new-worklist weak-pointer))))
-                 ((weak-pointer-vector-p weak-pointer)
-                  (setf iter (%weak-pointer-vector-link weak-pointer))
-                  (let ((saw-potentially-dead-object nil))
-                    (dotimes (i (%object-header-data weak-pointer))
-                      ;; If the key is not live and non-zero then it needs to be examined.
-                      (let ((old-key (%weak-pointer-vector-key weak-pointer i)))
-                        (when (and (not (eql old-key 0))
-                                   (not (%weak-pointer-vector-live-bit weak-pointer i)))
-                          (multiple-value-bind (new-key livep)
-                              (examine-weak-pointer-key old-key)
-                            (cond (livep
-                                   ;; Key is live. Must do another scavenge pass.
-                                   (setf did-something t)
-                                   (setf (%weak-pointer-vector-key weak-pointer i) new-key)
-                                   ;; Keep the value live.
-                                   (scavengef (%weak-pointer-vector-value weak-pointer (1+ (* i 2))) :major)
-                                   ;; Set live bit so we don't touch this entry again.
-                                   (setf (%weak-pointer-vector-live-bit weak-pointer i) t))
-                                  (t
-                                   ;; Key is either dead or not scanned yet.
-                                   (setf saw-potentially-dead-object t)))))))
-                    (when saw-potentially-dead-object
-                      ;; Saw possibly dead keys, keep on the worklist.
-                      (setf (%weak-pointer-vector-link weak-pointer) new-worklist
-                            new-worklist weak-pointer))))
-                 (t (mezzano.supervisor:panic "Invalid object " weak-pointer " on weak pointer worklist (1)")))))
+           (when (not (weak-pointer-p weak-pointer))
+             (mezzano.supervisor:panic
+              "Invalid object " weak-pointer " on weak pointer worklist (1)"))
+           (setf iter (%object-ref-t weak-pointer +weak-pointer-link+))
+           (cond ((update-one-weak-pointer weak-pointer)
+                  ;; Weak pointer is live. Drop from the worklist.
+                  (setf did-something t))
+                 (t
+                  ;; Key is either dead or not scanned yet. Add to the new worklist.
+                  (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
+                        new-worklist weak-pointer)))))
      ;; Stop when no more memory needs to be scavenged.
        (when (not did-something)
          (return))
@@ -2476,32 +2335,17 @@ No type information will be provided."
   ;; All weak pointers left on the worklist should be dead.
   (do ((weak-pointer *weak-pointer-worklist*))
       ((not weak-pointer))
-    (cond ((weak-pointer-p weak-pointer)
-           (check-weak-pointer-dead weak-pointer)
-           (setf (%object-ref-t weak-pointer +weak-pointer-key+) nil
-                 (%object-ref-t weak-pointer +weak-pointer-value+) nil)
-           ;; Clear the live bit, leaving the other fields alone.
-           (setf (%object-header-data weak-pointer)
-                 (logand (%object-header-data weak-pointer)
-                         (lognot +weak-pointer-header-livep+)))
-           (setf weak-pointer (%object-ref-t weak-pointer +weak-pointer-link+)))
-          ((weak-pointer-vector-p weak-pointer)
-           (dotimes (i (%object-header-data weak-pointer))
-             ;; Dead objects must really be dead.
-             (let ((old-key (%weak-pointer-vector-key weak-pointer i)))
-               (when (and (not (%weak-pointer-vector-live-bit weak-pointer i))
-                          ;; Ignore zero keys.
-                          (not (eql old-key 0)))
-                 (multiple-value-bind (new-key livep)
-                     (examine-weak-pointer-key old-key)
-                   (declare (ignore new-key))
-                   (when livep
-                     (mezzano.supervisor:panic "Weak pointer key live?")))
-                 ;; Wipe away the key & value.
-                 (setf (%weak-pointer-vector-key weak-pointer i) 0
-                       (%weak-pointer-vector-value weak-pointer i) nil))))
-           (setf weak-pointer (%weak-pointer-vector-link weak-pointer)))
-          (t (mezzano.supervisor:panic "Invalid object " weak-pointer " on weak pointer worklist (2)")))))
+    (when (not (weak-pointer-p weak-pointer))
+      (mezzano.supervisor:panic
+       "Invalid object " weak-pointer " on weak pointer worklist (2)"))
+    (check-weak-pointer-dead weak-pointer)
+    (setf (%object-ref-t weak-pointer +weak-pointer-key+) nil
+          (%object-ref-t weak-pointer +weak-pointer-value+) nil)
+    ;; Clear the live bit, leaving the other fields alone.
+    (setf (%object-header-data weak-pointer)
+          (logand (%object-header-data weak-pointer)
+                  (lognot (ash 1 +weak-pointer-header-livep+))))
+    (setf weak-pointer (%object-ref-t weak-pointer +weak-pointer-link+))))
 
 (defun finalizer-processing ()
   ;; Walk the list of known finalizers, remove any weak pointers

@@ -80,6 +80,7 @@
                                         (panic "Aiiee, out of store when copying wired area!")))
                          (old-block (ash bme (- sys.int::+block-map-id-shift+))))
                     (setf (physical-page-frame-block-id backing-frame) new-block)
+                    (setf (physical-page-frame-type backing-frame) :wired-backing-writeback)
                     (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
                                       sys.int::+block-map-committed+
                                       (logand bme #xFF))
@@ -173,8 +174,6 @@ Returns 4 values:
   (without-interrupts
     (let* ((frame *snapshot-pending-writeback-pages*)
            (address (physical-page-virtual-address frame))
-           (block-info (or (block-info-for-virtual-address address)
-                           (panic "No block info for CoW address?" address)))
            (block-id (physical-page-frame-block-id frame)))
       ;; Remove frame from list.
       (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
@@ -190,7 +189,12 @@ Returns 4 values:
          ;; Allow access to the page again.
          (let* ((pte (or (get-pte-for-address address nil)
                          (panic "No PTE for CoW address?")))
-                (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
+                (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12))
+                ;; The block map should only be consulted for active pages.
+                ;; Other kinds of pages indicate that the virtual memory was modified
+                ;; and the page may no longer exist in the most recent block map.
+                (block-info (or (block-info-for-virtual-address address)
+                                (panic "No block info for CoW address?" address))))
            ;; Update PTE bits. Clear CoW bit, make writable.
            (setf (sys.int::memref-unsigned-byte-64 pte 0)
                  (make-pte frame
@@ -212,17 +216,19 @@ Returns 4 values:
                  t
                  block-id
                  address))
-        (:wired-backing
+        (:wired-backing-writeback
          ;; Page is a wired backing page.
          ;; Copy to the bounce buffer.
          ;; Page may be freed during writeback if VM is modified.
          (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
                           (convert-to-pmap-address (ash frame 12)))
+         ;; Return page to normal use.
+         (setf (physical-page-frame-type frame) :wired-backing)
          (values *snapshot-bounce-buffer-page*
                  nil
                  block-id
                  address))
-        (t (panic "Page " frame " for address " address " has non-writeback type "
+        (t (panic "Frame " frame " for address " address " has non-writeback type "
                   (physical-page-frame-type frame)))))))
 
 (defun snapshot-write-back-pages ()
@@ -335,7 +341,6 @@ Returns 4 values:
   (when *paging-read-only*
     (debug-print-line "Not taking snapshot, running read-only.")
     (return-from take-snapshot))
-  (debug-print-line "Begin snapshot.")
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
   ;; That should be enough to boot the system.
   (set-snapshot-light t)
@@ -349,6 +354,7 @@ Returns 4 values:
       (when (not (zerop *snapshot-inhibit*))
         (set-snapshot-light nil)
         (return-from take-snapshot :retry))
+      (debug-print-line "Begin snapshot.")
       (with-rw-lock-write (*vm-lock*)
         (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
         (debug-print-line "Copying wired area.")
@@ -386,24 +392,28 @@ Returns 4 values:
   (debug-print-line "End snapshot."))
 
 (defun snapshot-thread ()
-  (loop
-     ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
-     (loop
-        while (eql (take-snapshot) :retry)
-        do (sleep 0.1))
-     ;; After taking a snapshot, clear *snapshot-in-progress*
-     ;; and go back to sleep.
-     ;; FIXME: There's a race between setting this event and the thread
-     ;; going to sleep. (SETF EVENT-STATE) can't be called with the
-     ;; global thread-lock held.
-     (setf (event-state *snapshot-state*) t)
-     (%disable-interrupts)
-     (acquire-global-thread-lock)
-     (setf *snapshot-in-progress* nil)
-     (setf (thread-state sys.int::*snapshot-thread*) :sleeping
-           (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
-     (%run-on-wired-stack-without-interrupts (sp fp)
-      (%reschedule-via-wired-stack sp fp))))
+  ;; A preallocated timer is required here because the snapshot thread
+  ;; runs at :supervisor priority and must not cons outside of boot.
+  (with-timer (snapshot-retry-timer)
+    (loop
+       ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
+       (loop
+          while (or (not (eql *snapshot-inhibit* 0))
+                    (eql (take-snapshot) :retry))
+          do (timer-sleep snapshot-retry-timer 0.1))
+       ;; After taking a snapshot, clear *snapshot-in-progress*
+       ;; and go back to sleep.
+       ;; FIXME: There's a race between setting this event and the thread
+       ;; going to sleep. (SETF EVENT-STATE) can't be called with the
+       ;; global thread-lock held.
+       (setf (event-state *snapshot-state*) t)
+       (%disable-interrupts)
+       (acquire-global-thread-lock)
+       (setf *snapshot-in-progress* nil)
+       (setf (thread-state sys.int::*snapshot-thread*) :sleeping
+             (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
+       (%run-on-wired-stack-without-interrupts (sp fp)
+         (%reschedule-via-wired-stack sp fp)))))
 
 (defun allocate-snapshot-wired-backing-pages (start end &key sparse)
   (map-ptes

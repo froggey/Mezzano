@@ -1040,8 +1040,6 @@
                   (t 'symbol)))
            (#.+object-tag-sse-vector+
             'mezzano.simd:sse-vector)
-           (#.+object-tag-weak-pointer-vector+
-            'weak-pointer-vector)
            ((#.+object-tag-instance+
              #.+object-tag-funcallable-instance+)
             (let* ((class (class-of object))

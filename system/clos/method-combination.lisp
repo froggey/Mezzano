@@ -3,7 +3,7 @@
 
 (in-package :mezzano.clos)
 
-(defvar *method-combinations* (make-hash-table :synchronized t))
+(defvar *method-combinations* (make-hash-table :synchronized t :weakness :key))
 
 (defclass method-combination ()
   ((%name :initarg :name :reader method-combination-name)

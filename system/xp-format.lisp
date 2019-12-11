@@ -763,7 +763,12 @@
            (apply string-or-fn stream args)
            nil)))
 
-(defvar *format-string-cache* (make-hash-table :test #'equal :synchronized t))
+(defvar *format-string-cache*
+  ;; Weak pointers check liveness using EQ, this will start forgetting
+  ;; entries when there are no references to the original strings.
+  (make-hash-table :test #'equal
+                   :synchronized t
+                   :weakness :key))
 (defvar *compiling-format-string* nil)
 
 (defun compile-format-string (string)
@@ -784,7 +789,6 @@
              (when (or (not value) (and force-fn? (stringp value)))
                (when (> (hash-table-count *format-string-cache*) 1000)
                  ;; Keep the size of the cache down.
-                 ;; TODO: Use a weak hash table.
                  (clrhash *format-string-cache*))
                (multiple-value-bind (fn cachep)
                    (compile-format-string string-or-fn)

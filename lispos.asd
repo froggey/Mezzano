@@ -9,7 +9,8 @@
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
   :depends-on (#:nibbles #:cl-ppcre #:iterate
-               #:alexandria #:closer-mop)
+               #:alexandria #:closer-mop
+               #:trivial-gray-streams)
   :serial t
   :components ((:file "compiler/cross")
                (:file "compiler/cross-boot")

@@ -5,7 +5,7 @@
 
 (defun remove-unused-local-variables (backend-function)
   "Remove all locals that are not loaded."
-  (let ((loaded-variables (make-hash-table :test 'eq :synchronized nil))
+  (let ((loaded-variables (make-hash-table :test 'eq))
         (stores '())
         (binds '())
         (unbinds '()))

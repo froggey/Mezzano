@@ -141,28 +141,26 @@
                                        (member c '(#\| #\\))
                                        (lower-case-p c)))
                                  string)
-                           (zerop (length string)))))
-    (ecase *print-case*
-      (:upcase
-       (when need-escaping
-         (write-char #\| stream))
-       (write-string string stream)
-       (when need-escaping
-         (write-char #\| stream)))
-      (:downcase
-       (cond (need-escaping
-              (write-char #\| stream)
-              (write-string string stream)
-              (write-char #\| stream))
-             (t
-              (write-string (string-downcase string) stream))))
-      (:capitalize
-       (cond (need-escaping
-              (write-char #\| stream)
-              (write-string string stream)
-              (write-char #\| stream))
-             (t
-              (write-string (string-capitalize string) stream)))))))
+                           (zerop (length string))))
+        (need-single-escaping (some (lambda (c)
+                                      (member c '(#\| #\\)))
+                                    string)))
+    (flet ((print (transform-fn)
+             (cond (need-escaping
+                    (write-char #\| stream)
+                    (if need-single-escaping
+                        (loop for ch across string do
+                             (when (member ch '(#\| #\\))
+                               (write-char #\\ stream))
+                             (write-char ch stream))
+                        (write-string string stream))
+                    (write-char #\| stream))
+                   (t
+                    (write-string (funcall transform-fn string) stream)))))
+      (ecase *print-case*
+        (:upcase (print #'identity))
+        (:downcase (print #'string-downcase))
+        (:capitalize (print #'string-capitalize))))))
 
 (defun write-symbol (object stream)
   (when (or *print-escape* *print-readably*)

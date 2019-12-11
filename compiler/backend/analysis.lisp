@@ -13,7 +13,7 @@
 
 (defun compute-actual-successors (backend-function)
   ;; Add control edges from calls/invoke-nlx instructions to all live NLX thunks.
-  (let ((actual-successors (make-hash-table :test 'eq :synchronized nil))
+  (let ((actual-successors (make-hash-table :test 'eq))
         (additional-successors '())
         (dc (dynamic-contours backend-function))
         (current-bb (first-instruction backend-function)))
@@ -34,9 +34,9 @@
 
 (defun compute-basic-block-input-output-sets (backend-function mv-regs)
   ;; Produce input/output sets for basic blocks.
-  (let ((bb-inputs (make-hash-table :test 'eq :synchronized nil))
-        (bb-outputs (make-hash-table :test 'eq :synchronized nil))
-        (terminator-to-bb (make-hash-table :test 'eq :synchronized nil))
+  (let ((bb-inputs (make-hash-table :test 'eq))
+        (bb-outputs (make-hash-table :test 'eq))
+        (terminator-to-bb (make-hash-table :test 'eq))
         (basic-blocks '())
         (current-inputs '())
         (current-outputs '())
@@ -67,10 +67,10 @@
     (values bb-inputs bb-outputs basic-blocks terminator-to-bb)))
 
 (defun compute-liveness (backend-function target)
-  (let ((live-in (make-hash-table :test 'eq :synchronized nil))
-        (live-in* (make-hash-table :test 'eq :synchronized nil))
-        (live-out (make-hash-table :test 'eq :synchronized nil))
-        (live-out* (make-hash-table :test 'eq :synchronized nil))
+  (let ((live-in (make-hash-table :test 'eq))
+        (live-in* (make-hash-table :test 'eq))
+        (live-out (make-hash-table :test 'eq))
+        (live-out* (make-hash-table :test 'eq))
         (actual-successors (compute-actual-successors backend-function))
         (mv-regs (list* (mezzano.compiler.backend.register-allocator:target-count-register target)
                         (mezzano.compiler.backend.register-allocator:target-argument-registers target))))
@@ -123,8 +123,8 @@
       (values live-in live-out))))
 
 (defun build-use/def-maps (backend-function)
-  (let ((uses (make-hash-table :test 'eq :synchronized nil))
-        (defs (make-hash-table :test 'eq :synchronized nil)))
+  (let ((uses (make-hash-table :test 'eq))
+        (defs (make-hash-table :test 'eq)))
     (do-instructions (inst backend-function)
       (dolist (use (instruction-inputs inst))
         (when (typep use 'virtual-register)
@@ -135,7 +135,7 @@
     (values uses defs)))
 
 (defun dynamic-contours (function)
-  (let ((contour (make-hash-table :test 'eq :synchronized nil))
+  (let ((contour (make-hash-table :test 'eq))
         (worklist (list (cons (first-instruction function) '()))))
     (loop
        (when (endp worklist)

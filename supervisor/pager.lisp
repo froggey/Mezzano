@@ -29,8 +29,6 @@
 
 (sys.int::defglobal *store-fudge-factor*)
 
-(sys.int::defglobal *pager-meter*)
-
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
   (when (eql *pager-noisy* t)
@@ -328,9 +326,14 @@ Returns NIL if the entry is missing and ALLOCATE is false."
      (when (not allow-wired)
        (panic "Releasing page wired " frame))
      ;; Release the backing frame, if any.
-     (when (and (not stackp)
-                (physical-page-frame-next frame))
-       (release-physical-pages (physical-page-frame-next frame) 1))
+     (when (not stackp)
+       (let ((backing-frame (physical-page-frame-next frame)))
+         (when backing-frame
+           (ecase (physical-page-frame-type backing-frame)
+             (:wired-backing
+              (release-physical-pages backing-frame 1))
+             (:wired-backing-writeback
+              (setf (physical-page-frame-type backing-frame) :inactive-writeback))))))
      (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
@@ -931,8 +934,7 @@ It will put the thread to sleep, while it waits for the page."
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)
           *pager-fast-path-enabled* t
-          *pager-lazy-block-allocation-enabled* t
-          *pager-meter* 0))
+          *pager-lazy-block-allocation-enabled* t))
   (setf *page-replacement-list-lock* (place-spinlock-initializer)
         *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
@@ -991,27 +993,22 @@ It will put the thread to sleep, while it waits for the page."
              (%reschedule-via-wired-stack sp fp))
             (%disable-interrupts)
             (acquire-place-spinlock (sys.int::symbol-global-value '*pager-lock*)))))
-     (let ((start-time (get-high-precision-timer)))
-       (cond ((eql (thread-state *pager-current-thread*) :pager-request)
-              (handle-pager-request))
-             ;; Page it in
-             ((wait-for-page (thread-wait-item *pager-current-thread*))
-              ;; Release the thread.
-              (wake-thread *pager-current-thread*))
-             ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
-             ((or (not (boundp '*panic-on-unhandled-paging-requests*))
-                  *panic-on-unhandled-paging-requests*)
-              (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
-                (declare (dynamic-extent message))
-                (panic-1 message (lambda ()
-                                   (dump-thread-saved-pc *pager-current-thread*)
-                                   (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
-                                   (debug-print-line "-------")))))
-             (t
-              (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
-              (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
-       (setf *pager-current-thread* nil)
-       ;; Update meter.
-       (sys.int::%atomic-fixnum-add-symbol
-        '*pager-meter* (high-precision-time-units-to-internal-time-units
-                        (- (get-high-precision-timer) start-time))))))
+     (cond ((eql (thread-state *pager-current-thread*) :pager-request)
+            (handle-pager-request))
+           ;; Page it in
+           ((wait-for-page (thread-wait-item *pager-current-thread*))
+            ;; Release the thread.
+            (wake-thread *pager-current-thread*))
+           ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
+           ((or (not (boundp '*panic-on-unhandled-paging-requests*))
+                *panic-on-unhandled-paging-requests*)
+            (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
+              (declare (dynamic-extent message))
+              (panic-1 message (lambda ()
+                                 (dump-thread-saved-pc *pager-current-thread*)
+                                 (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                                 (debug-print-line "-------")))))
+           (t
+            (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
+            (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
+     (setf *pager-current-thread* nil)))

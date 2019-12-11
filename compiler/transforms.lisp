@@ -152,7 +152,7 @@
             (mapcar #'list (transform-lambda-list object) (transform-argument-types object))
             (transform-result-type object))))
 
-(defvar *transforms* (make-hash-table :test 'equal :synchronized nil :enforce-gc-invariant-keys t))
+(defvar *transforms* (make-hash-table :test 'equal :enforce-gc-invariant-keys t))
 (defvar *transforms-lock* (mezzano.supervisor:make-rw-lock '*transforms*))
 
 (defmacro define-transform (function lambda-list options &body body)
@@ -290,9 +290,7 @@
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-- %fast-fixnum--)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-* %fast-fixnum-*)
-(define-fast-fixnum-transform-arith-two-arg sys.int::%truncate %fast-fixnum-truncate)
-(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-truncate %fast-fixnum-truncate)
-(define-fast-fixnum-transform-arith-two-arg rem %fast-fixnum-rem)
+(define-fast-fixnum-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fixnum-truncate)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior :result t)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)

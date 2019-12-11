@@ -182,7 +182,7 @@ the server instead of reconnecting for each operation.")
 
 (defun call-with-connection (host fn auto-restart)
   (if *reuse-connection*
-      (mezzano.supervisor:with-mutex ((remote-host-lock host))
+      (mezzano.supervisor:with-mutex ((remote-host-lock host) :resignal-errors file-error)
         ;; Inhibit snapshots to prevent the connection from becoming stale
         ;; at a bad time.
         (mezzano.supervisor:with-snapshot-inhibited ()

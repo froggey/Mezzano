@@ -150,6 +150,7 @@
    #:weak-pointer-value
    #:weak-pointer-key
    #:weak-pointer-pair
+   #:weak-pointer-live-p
 
    ;; Atomics
    #:cas
@@ -163,7 +164,11 @@
    #:package-locally-nicknamed-by-list
    #:add-package-local-nickname
    #:remove-package-local-nickname
-   ))
+
+   ;; Hash-table extensions
+   #:hash-table-synchronized
+   #:hash-table-enforce-gc-invariant-keys
+   #:hash-table-weakness))
 
 (defpackage :mezzano.debug
   (:use :cl)
@@ -346,6 +351,9 @@
            #:thread-pager-argument-3
            #:thread-unsleep-helper
            #:thread-unsleep-helper-argument
+           #:thread-run-time
+           #:thread-allocation-time
+           #:thread-bytes-consed
            #:thread-state-r15
            #:thread-state-r14
            #:thread-state-r13
@@ -555,6 +563,7 @@
            #:timer-arm
            #:timer-arm-absolute
            #:timer-disarm
+           #:timer-disarm-absolute
            #:timer-remaining
            #:timer-deadline
            #:timer-wait

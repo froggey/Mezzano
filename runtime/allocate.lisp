@@ -51,7 +51,6 @@
 (sys.int::defglobal *cons-allocation-count*)
 
 (sys.int::defglobal *bytes-consed*)
-(sys.int::defglobal *allocation-time*)
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
@@ -94,7 +93,6 @@
         *cons-fast-path-hits* 0
         *cons-allocation-count* 0
         *bytes-consed* 0
-        *allocation-time* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *allocation-fudge* (* 8 1024 1024)
         sys.int::*generation-size-ratio* 2))
@@ -221,10 +219,10 @@
     (incf (sys.int::symbol-global-value limit-sym) grow-by)))
 
 (defun update-allocation-time (start-time)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*allocation-time*
-   (mezzano.supervisor:high-precision-time-units-to-internal-time-units
-    (- (mezzano.supervisor:get-high-precision-timer) start-time))))
+  (incf (mezzano.supervisor:thread-allocation-time
+         (mezzano.supervisor:current-thread))
+        (mezzano.supervisor:high-precision-time-units-to-internal-time-units
+         (- (mezzano.supervisor:get-high-precision-timer) start-time))))
 
 (defun %allocate-from-pinned-area (tag data words)
   (loop
@@ -494,7 +492,13 @@
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
-    (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
+    (let ((bytes (* words 8)))
+      (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* bytes)
+      ;; ### This won't accurately track if the thread gets footholded
+      ;; partway through the add...
+      (incf (mezzano.supervisor:thread-bytes-consed
+             (mezzano.supervisor:current-thread))
+            bytes))
     (ecase area
       ((nil)
        (%allocate-from-general-area tag data words))
@@ -780,20 +784,6 @@
      ;; Function
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function)
     object))
-
-;;; A weak pointer vector looks like:
-;;; -1: header, tag = weak-pointer-vector, data = length
-;;; 0: link
-;;; 1-(n*2+1): key/value pairs
-;;; (n*2+1)-(n*2+1 + ceiling(n, 64)): live bit vector
-
-(defun sys.int::make-weak-pointer-vector (length &optional area)
-  ;; Allocate-object must zero-fill the vector.
-  ;; Dead objects must be set to zero.
-  (%allocate-object sys.int::+object-tag-weak-pointer-vector+
-                    length
-                    (+ 1 (* length 2) (ceiling length 64))
-                    area))
 
 (defun dynamic-extent-p (object)
   "Returns true if OBJECT has dynamic extent."

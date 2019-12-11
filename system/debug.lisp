@@ -559,7 +559,23 @@ Returns the function that was called, the actual function object being
 executed, and the offset into it."
   (multiple-value-bind (actual-function offset)
       (function-from-frame (list nil (frame-fp frame) nil))
-    (values actual-function actual-function offset)))
+    (let ((function actual-function)
+          (name (function-name actual-function)))
+      ;; Poke around in some CLOS discriminating functions to get
+      ;; better names.
+      (when (or (and (consp name)
+                     (eql (first name) 'mezzano.clos::1-effective-discriminator))
+                (equal name '(lambda :in mezzano.clos::std-compute-discriminating-function))
+                (equal name '(lambda :in mezzano.clos::compute-n-effective-discriminator))
+                (equal name '(lambda :in mezzano.clos::compute-reader-discriminator))
+                (equal name '(lambda :in mezzano.clos::compute-writer-discriminator)))
+        (loop
+           for var in (frame-local-variables frame)
+           when (eql (local-variable-name var) 'mezzano.clos::gf)
+           do
+             (setf function (local-variable-value frame var))
+             (return)))
+      (values function actual-function offset))))
 
 (defun print-frame (frame &key (stream *debug-io*))
   (format stream "~S" (frame-function frame)))
