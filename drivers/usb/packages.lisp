@@ -20,6 +20,9 @@
    :usbd
    :delete-controller
    :num-ports
+   :pci-device
+   :pci-irq
+   :interrupt-thread
    :usbd-lock
    :pci-device
    :buf-pool
@@ -27,6 +30,7 @@
 
    ;; USBD Device Class
    :usb-device
+   :usb-device-endpoints
    :usb-device-drivers
    :usb-device-max-packet
    :usb-device-desc-size

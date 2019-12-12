@@ -42,6 +42,29 @@
      (export ',name)
      (defmacro ,name ,lambda-list ,@body)))
 
+(defmacro define-structure (name &body fields)
+  ;; simplistic macro for defining a structure
+  (when (or (not (symbolp name))
+            (find-if #'(lambda (field) (not (symbolp field))) fields))
+    (error  "define-structure not implemented for ~A definition" name))
+  (let* ((name-string (symbol-name name))
+         (make (intern (concatenate 'string "MAKE" "-" name-string)))
+         (copy (intern (concatenate 'string "COPY" "-" name-string)))
+         (predicate (intern (concatenate 'string name-string "-P"))))
+  `(progn
+     (export ',name)
+     (export ',make)
+     (export ',copy)
+     (export ',predicate)
+     ,@(mapcar #'(lambda (field)
+                   (let ((accessor (intern (concatenate 'string
+                                                        name-string
+                                                        "-"
+                                                        (symbol-name field)))))
+                     `(export ',accessor)))
+               fields)
+     (defstruct ,name ,@fields))))
+
 ;;======================================================================
 ;; Standard Reequest Type from USB Spec 1.1 Sec 9.4
 ;;======================================================================
@@ -374,3 +397,38 @@
                                  buf))
       (when buf
         (free-buffer buf)))))
+
+
+;;======================================================================
+;;
+;; xfer-info holds information used when a transfer is completed by
+;; a controller.
+;;
+;; event-type:
+;;    if keyword, generate a usb-event with this value as the type
+;;    if semaphore, signal the semaphore
+;;    otherwise, it must be a function that is called with:
+;;        driver object
+;;        endpoint-num
+;;        transaction status
+;;        actual length transfer
+;;        data buffer
+;;
+;;======================================================================
+
+(define-structure xfer-info
+  event-type
+  endpoint
+  buf-size
+  buf)
+
+;;======================================================================
+;; endpoint holds the information associated with an endpoint.
+;;======================================================================
+
+(define-structure endpoint
+  type          ;; endpoint type (:control :interrupt :bulk :isochronous)
+  device        ;; device associated with the endpoint
+  driver        ;; driver associated with the device
+  num           ;; endpoint number
+  event-type)   ;; event type - used to initialize xfer-info
