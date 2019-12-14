@@ -263,6 +263,26 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                                        :initial-element 0))
          (return fat)))
 
+(defun write-fat-sectors (disk flags ffs fat-offset fat-sector buf)
+  ;; flags bit 7 = 0 means write all FATs
+  ;; flags bit 7 = 1 means write only the FAT specified by bits 0-3
+  ;; flags are really only defined for FAT32, so FAT12 and FAT16 always pass in 0
+  (if (logbitp 7 flags)
+      ;; write just one FAT
+      (block-device-write disk
+                          (+ fat-offset
+                             fat-sector
+                             (* (logand flags #x0F) (fat-%sectors-per-fat ffs)))
+                          1
+                          buf)
+      ;; write all FATs
+      (loop
+         repeat (fat-%n-fats ffs)
+         for sector = (+ fat-offset fat-sector) then
+           (+ sector (fat-%sectors-per-fat ffs))
+         do
+           (block-device-write disk sector 1 buf))))
+
 (defmethod write-fat (disk (fat12 fat12) fat)
   (let* ((dirty-bits (fat-%fat-dirty-bits fat12))
          (sector-size (block-device-sector-size disk))
@@ -318,7 +338,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            (aref buf (+ buf-idx 1)) (ldb (byte 8  8) byte-24)
                            (aref buf (+ buf-idx 2)) (ldb (byte 8 16) byte-24))))
                  )))
-            (block-device-write disk (+ sector fat-offset) 1 buf)))))
+            (write-fat-sectors disk 0 fat12 fat-offset sector buf)))))
     (setf (aref dirty-bits 0) 0)))
 
 (defmethod read-fat (disk (fat16 fat16) &optional fat-array)
@@ -352,7 +372,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (word-offset (* sector clusters-per-sector)))
                 (dotimes (i clusters-per-sector)
                   (setf (sys.int::ub16ref/le buf (* 2 i)) (aref fat (+ word-offset i))))
-                (block-device-write disk (+ sector fat-offset) 1 buf)))))
+                (write-fat-sectors disk 0 fat16 fat-offset sector buf)))))
         (setf (aref dirty-bits word-idx) 0)))))
 
 (defmethod read-fat (disk (fat32 fat32) &optional fat-array)
@@ -386,7 +406,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      (word-offset (* sector clusters-per-sector)))
                 (dotimes (i clusters-per-sector)
                   (setf (sys.int::ub32ref/le buf (* 4 i)) (aref fat (+ word-offset i))))
-                (block-device-write disk (+ sector fat-offset) 1 buf)))))
+                (write-fat-sectors disk (fat32-%flags fat32) fat32 fat-offset sector buf)))))
         (setf (aref dirty-bits word-idx) 0)))))
 
 (defun fat-value (fat idx)
