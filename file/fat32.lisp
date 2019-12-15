@@ -733,7 +733,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   ;; num is multiple of ten need to add another digit
                   (let ((pos (position #\~ name))
                         (num-string (format nil "~D" num)))
-                    (format t "pos ~D, width ~D~%" pos width)
                     (if (< (+ pos width) 7)
                         (setf name (concatenate 'string name " ")
                               (subseq name (1+ pos)) num-string)
@@ -1043,13 +1042,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
           (let ((new-dir (make-array cluster-size
                                      :area :wired
                                      :element-type '(unsigned-byte 8)
-                                     :initial-element 0)))
+                                     :initial-element 0))
+                (dot-dot-cluster (if (= cluster-n (first-root-dir-cluster ffs))
+                                     0
+                                     cluster-n)))
             (fill-in-entry new-dir
                            (create-directory-entry new-dir "." "" NIL 0)
                            cluster-number)
             (fill-in-entry new-dir
                            (create-directory-entry new-dir ".." "" NIL 0)
-                           cluster-n)
+                           dot-dot-cluster)
             ;; Write to disk
             (write-file ffs (partition host) cluster-number fat new-dir)))
         ;; Write parent directory to disk
