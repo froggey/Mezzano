@@ -798,7 +798,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
     (values name type)))
 
 (defun read-long-name-section (directory offset)
-  (let ((name (make-string 13 :initial-element #\Space))
+  (let ((name (make-string 13))
         (idx 0))
     (flet ((add-chars (start end)
              (loop
@@ -811,7 +811,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (add-chars 1 10)
       (add-chars 14 25)
       (add-chars 28 31))
-    (string-right-trim  '(#\Space) name)))
+    (if (= idx 13)
+        name
+        (subseq name 0 idx))))
 
 (defun read-long-name (directory start checksum)
   (let ((name ""))
