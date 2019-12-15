@@ -189,7 +189,7 @@
   (reg-value thread-state-rdi-value +thread-state-rdi+)
   (reg-value thread-state-rsi-value +thread-state-rsi+)
   (reg-value thread-state-rbx-value +thread-state-rbx+)
-  (reg-value thread-state-rdi-value +thread-state-rdx+)
+  (reg-value thread-state-rdx-value +thread-state-rdx+)
   (reg-value thread-state-rcx-value +thread-state-rcx+)
   (reg-value thread-state-rax-value +thread-state-rax+)
   (reg-value thread-state-rbp-value +thread-state-rbp+)
