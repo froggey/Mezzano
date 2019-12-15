@@ -545,36 +545,38 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                          result
                          :offset (* n-cluster spc sector-size)))))
 
-(defun write-file (ffs disk start-cluster fat array)
+(defun write-file (ffs disk start-cluster fat array file-length)
   (let* ((spc (fat-%sectors-per-cluster ffs))
-         (sector-size (block-device-sector-size disk)))
+         (bytes-per-cluster (* spc (block-device-sector-size disk))))
     (do ((cluster-n start-cluster (fat-value fat cluster-n))
          (last-cluster 0)
-         (n-cluster 0 (1+ n-cluster)))
-        ((>= cluster-n (last-cluster-value ffs))
-         (if (> (length array)
-                (* n-cluster spc sector-size))
-             (do ((cluster-n (next-free-cluster fat 3)
-                             (next-free-cluster fat (1+ cluster-n)))
-                  (i 0 (1+ i)))
-                 ((= (length array)
-                     (* (+ i n-cluster) spc sector-size))
-                  (setf (fat-value ffs fat last-cluster) (last-cluster-value ffs))
-                  (write-fat disk ffs fat))
-               (block-device-write disk
-                                   (first-sector-of-cluster ffs cluster-n)
-                                   spc
-                                   array
-                                   :offset (* (+ i n-cluster) spc sector-size))
-               (setf (fat-value ffs fat last-cluster) cluster-n)
-               (setf last-cluster cluster-n))
-             t))
+         (byte-offset 0 (+ byte-offset bytes-per-cluster)))
+        ((or (>= byte-offset file-length)
+             (>= cluster-n (last-cluster-value ffs)))
+         (when (> file-length byte-offset)
+           (do ((cluster-n (next-free-cluster fat 3)
+                           (next-free-cluster fat (1+ cluster-n)))
+                (byte-offset byte-offset (+ byte-offset bytes-per-cluster)))
+               ((>= byte-offset file-length)
+                (setf (fat-value ffs fat last-cluster) (last-cluster-value ffs))
+                (write-fat disk ffs fat))
+             (block-device-write disk
+                                 (first-sector-of-cluster ffs cluster-n)
+                                 spc
+                                 array
+                                 :offset byte-offset)
+             (setf (fat-value ffs fat last-cluster) cluster-n)
+             (setf last-cluster cluster-n)))
+         T)
       (setf last-cluster cluster-n)
       (block-device-write disk
                           (first-sector-of-cluster ffs cluster-n)
                           spc
                           array
-                          :offset (* n-cluster spc sector-size)))))
+                          :offset byte-offset))))
+
+(defun write-directory (ffs disk start-cluster fat array)
+  (write-file ffs disk start-cluster fat array (length array)))
 
 (defun read-attributes (directory offset)
   (aref directory (+ offset 11)))
@@ -876,7 +878,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (free-file-entry directory start)
   ;; Write to disk
   (write-fat disk ffs fat)
-  (write-file ffs disk cluster-n fat directory))
+  (write-directory ffs disk cluster-n fat directory))
 
 (defun expand-directory (directory cluster-size)
   (let ((new-dir (make-array (+ (length directory) cluster-size)
@@ -1053,9 +1055,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            (create-directory-entry new-dir ".." "" NIL 0)
                            dot-dot-cluster)
             ;; Write to disk
-            (write-file ffs (partition host) cluster-number fat new-dir)))
+            (write-directory ffs (partition host) cluster-number fat new-dir)))
         ;; Write parent directory to disk
-        (write-file ffs (partition host) cluster-n fat directory)
+        (write-directory ffs (partition host) cluster-n fat directory)
         ;; Write fat
         (write-fat (partition host) ffs fat)
         ;; Return cluster-number, possibly new directory array and offset
@@ -1695,14 +1697,14 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                    ;; destination directory (already modified above)
                    ;; remove source file entry
                    (free-file-entry dest-dir source-start)
-                   (write-file ffs disk dest-cluster fat dest-dir))
+                   (write-directory ffs disk dest-cluster fat dest-dir))
                   (T
                    ;; source and destination are different directories
                    ;; remove source file entry
                    (free-file-entry source-dir source-start)
                    ;; write both directories
-                   (write-file ffs disk source-cluster fat source-dir)
-                   (write-file ffs disk dest-cluster fat dest-dir))))))))
+                   (write-directory ffs disk source-cluster fat source-dir)
+                   (write-directory ffs disk dest-cluster fat dest-dir))))))))
 
 (defmethod file-write-date-using-host ((host fat-host) path)
   (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
@@ -1803,7 +1805,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (error condition)))
         ;; Write to disk
         (write-fat disk ffs fat)
-        (write-file ffs disk parent-cluster fat parent-dir)))
+        (write-directory ffs disk parent-cluster fat parent-dir)))
     (force-directory-only path)))
 
 (defmethod expunge-directory-using-host ((host fat-host) path &key)
@@ -1825,13 +1827,14 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                              (partition host)
                              (buffer-position stream)
                              (fat host)
-                             (buffer stream))
+                             (buffer stream)
+                             file-length)
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) file-length))
                (setf (read-last-access-date parent-dir file-offset) date)
                ;; Write to disk new metadata
-               (write-file (fat-structure host) (partition host) parent-cluster (fat host) parent-dir)))
+               (write-directory (fat-structure host) (partition host) parent-cluster (fat host) parent-dir)))
             (t
              (when (eql (abort-action stream) :delete)
                (remove-file parent-dir file-offset (partition host) parent-cluster (fat-structure host) (fat host)))))))
