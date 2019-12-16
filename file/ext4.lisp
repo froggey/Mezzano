@@ -627,10 +627,10 @@
     (setf (slot-value instance '%superblock) superblock
           (slot-value instance '%bgdt) (read-block-group-descriptor-table partition superblock))))
 
-(defun make-ext4-host (name partition-n)
+(defun make-ext4-host (name partition)
   (make-instance 'ext4-host
                  :name name
-                 :partition (nth partition-n (mezzano.supervisor:all-disks))))
+                 :partition partition))
 
 (defmethod host-default-device ((host ext4-host))
   nil)
