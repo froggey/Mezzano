@@ -60,8 +60,8 @@
 
 (defmethod mezzano.gray:stream-write-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:output :io)))
-  (unless end (setf end (file-length* stream)))
-  (let ((end2 (min end (length sequence))))
+  (let* ((end (or end (file-length* stream)))
+         (end2 (min end (length sequence))))
     (when (> end2 (file-length* stream))
       (setf (buffer stream) (adjust-array (buffer stream) end2 :initial-element 0)))
     (replace (buffer stream) sequence
@@ -73,8 +73,8 @@
 
 (defmethod mezzano.gray:stream-read-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
-  (unless end (setf end (length sequence)))
-  (let ((end2 (min end (file-length* stream))))
+  (let* ((end (or end (length sequence)))
+         (end2 (min end (file-length* stream))))
     (replace sequence (buffer stream) :start1 start :end1 end :start2 0 :end2 end2)
     end2))
 
