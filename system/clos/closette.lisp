@@ -1318,11 +1318,6 @@ Other arguments are included directly."
 (defun (setf safe-generic-function-relevant-arguments) (value generic-function)
   (setf (std-slot-value generic-function 'relevant-arguments) value))
 
-(defun safe-generic-function-has-unusual-specializers (generic-function)
-  (std-slot-value generic-function 'weird-specializers-p))
-(defun (setf safe-generic-function-has-unusual-specializers) (value generic-function)
-  (setf (std-slot-value generic-function 'weird-specializers-p) value))
-
 (defun classes-to-emf-table (generic-function)
   (std-slot-value generic-function 'classes-to-emf-table))
 (defun (setf classes-to-emf-table) (new-value generic-function)
@@ -1469,9 +1464,7 @@ Other arguments are included directly."
 (defun generic-function-single-dispatch-p (gf)
   "Returns true when the generic function only one non-t specialized argument and
 has only has class specializer."
-  (when (and (eq (class-of gf) *the-class-standard-gf*)
-             (or (not (safe-generic-function-has-unusual-specializers gf))
-                 (eql (safe-generic-function-has-unusual-specializers gf) :eql)))
+  (when (eq (class-of gf) *the-class-standard-gf*)
     (let ((specializers (safe-generic-function-relevant-arguments gf))
           (count 0)
           (offset 0))
@@ -1554,18 +1547,10 @@ has only has class specializer."
                   do (setf (aref table i) (position arg required-args)))
              (setf (argument-reordering-table gf) table))))
     ;; Examine all methods and compute the relevant argument bit-vector.
-    (setf (safe-generic-function-has-unusual-specializers gf) nil)
     (dolist (m (safe-generic-function-methods gf))
       (do ((i 0 (1+ i))
            (spec (safe-method-specializers m) (rest spec)))
           ((null spec))
-        (typecase (first spec)
-          (class)
-          (eql-specializer
-           (setf (safe-generic-function-has-unusual-specializers gf) (or (safe-generic-function-has-unusual-specializers gf)
-                                                                    :eql)))
-          (t
-           (setf (safe-generic-function-has-unusual-specializers gf) t)))
         (unless (eql (first spec) class-t)
           (setf (bit relevant-args i) 1))))
     (setf (safe-generic-function-relevant-arguments gf) relevant-args))
@@ -1958,11 +1943,15 @@ has only has class specializer."
       (or (gen-all)
           (lambda (&rest args)
             (declare (dynamic-extent args))
-            (let* ((class (class-of (nth argument-offset args)))
-                   (emfun (single-dispatch-emf-entry emf-table class)))
-              (if emfun
-                  (apply emfun args)
-                  (slow-single-dispatch-method-lookup gf args class))))))))
+            (let* ((arg (nth argument-offset args))
+                   (eql-emfun (assoc arg eql-table)))
+              (if eql-emfun
+                  (apply (cdr eql-emfun) args)
+                  (let* ((class (class-of arg))
+                         (emfun (single-dispatch-emf-entry emf-table class)))
+                    (if emfun
+                        (apply emfun args)
+                        (slow-single-dispatch-method-lookup gf args class))))))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args sys.int::&count arg-count)

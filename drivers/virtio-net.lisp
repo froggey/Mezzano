@@ -108,18 +108,19 @@ and then some alignment.")
            (virtio:virtio-kick dev +virtio-net-receiveq+)
            (return)))
        ;; Allocate a buffer. Try to minimize the amount of work done in a device-access region, hence the dropping in and out.
+       ;; TODO: Get the packet size correct.
        (let ((packet (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))))
          (with-virito-net-access (nic)
            (let* ((ring-entry (rem (virtio:virtqueue-last-seen-used rx-queue)
                                    (virtio:virtqueue-size rx-queue)))
                   (id (virtio:virtio-ring-used-elem-id rx-queue ring-entry))
+                  (len (virtio:virtio-ring-used-elem-len rx-queue ring-entry))
                   ;; Cheat slightly, RX descriptor IDs can be converted directly
                   ;; to offsets in the RX buffer.
                   (rx-offset (+ (* (truncate id 2) +virtio-net-rx-buffer-size+) +virtio-net-hdr-size+)))
-             #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
+             ;;(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
              ;; Extract the packet!
-             ;; FIXME: Just how long are the packets supposed to be?
-             (dotimes (i +virtio-net-mtu+)
+             (dotimes (i (- len +virtio-net-hdr-size+))
                (setf (aref packet i) (sys.int::memref-unsigned-byte-8 (virtio-net-rx-virt nic)
                                                                       (+ rx-offset i))))
              (incf (virtio-net-total-rx-bytes nic) +virtio-net-mtu+)
@@ -205,9 +206,8 @@ and then some alignment.")
     ;; Copy packet into temp buffer.
     (let ((offset 0))
       (dolist (p packet)
-        (dotimes (i (length p))
-          (setf (aref data offset) (aref p i))
-          (incf offset))))
+        (replace data p :start1 offset)
+        (incf offset (length p))))
     (sync:mailbox-send data (virtio-net-tx-mailbox nic))))
 
 (defmethod nic:statistics ((nic virtio-net))

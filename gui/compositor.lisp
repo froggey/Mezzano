@@ -254,7 +254,9 @@
              (setf *m-tab-active* nil
                    *m-tab-list* '())))
           (t ;; Normal key, try to translate it.
-           (let ((translated (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))
+           (let ((translated (or (key-key event)
+                                 (and scancode
+                                      (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))))
              (when translated
                (cond
                  ;; Global shortcuts.
@@ -319,11 +321,12 @@
                                              :key translated
                                              :modifier-state (copy-list *keyboard-modifier-state*)))))))))))
 
-(defun submit-key (scancode releasep)
+(defun submit-key (scancode releasep &key key)
   "Submit a key event into the input system."
   (submit-compositor-event (make-instance 'key-event
                                           :scancode scancode
-                                          :releasep releasep)))
+                                          :releasep releasep
+                                          :key key)))
 
 ;;;; Mouse events
 
@@ -500,13 +503,8 @@ A passive drag sends no drag events to the window.")
                (expand-clip-rectangle-by-window *drag-window*))))
       ;; Mouse position changed, redraw the screen.
       (update-mouse-cursor)
-      (let* ((cursor-surface (mouse-cursor-surface *mouse-pointer*))
-             (hot-x (mouse-cursor-hot-x *mouse-pointer*))
-             (hot-y (mouse-cursor-hot-y *mouse-pointer*))
-             (cursor-width (mezzano.gui:surface-width cursor-surface))
-             (cursor-height (mezzano.gui:surface-height cursor-surface)))
-        (expand-clip-rectangle (- old-x hot-x) (- old-y hot-y) cursor-width cursor-height)
-        (expand-clip-rectangle (- new-x hot-x) (- new-y hot-y) cursor-width cursor-height)))
+      (damage-mouse-region old-x old-y)
+      (damage-mouse-region new-x new-y))
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
                *drag-window*)
@@ -531,9 +529,10 @@ A passive drag sends no drag events to the window.")
                                           :x-motion x-motion
                                           :y-motion y-motion)))
 
-(defun submit-mouse-absolute (x-position y-position)
+(defun submit-mouse-absolute (x-position y-position &key buttons)
   "Submit a mouse event into the input system."
   (submit-compositor-event (make-instance 'mouse-event
+                                          :button-state buttons
                                           :x-position x-position
                                           :y-position y-position)))
 
@@ -546,6 +545,14 @@ A passive drag sends no drag events to the window.")
 (defvar *prev-resize-rect-w* nil)
 (defvar *prev-resize-rect-h* nil)
 
+(defun damage-mouse-region (x y)
+  (let* ((cursor-surface (mouse-cursor-surface *mouse-pointer*))
+         (hot-x (mouse-cursor-hot-x *mouse-pointer*))
+         (hot-y (mouse-cursor-hot-y *mouse-pointer*))
+         (cursor-width (mezzano.gui:surface-width cursor-surface))
+         (cursor-height (mezzano.gui:surface-height cursor-surface)))
+    (expand-clip-rectangle (- x hot-x) (- y hot-y) cursor-width cursor-height)))
+
 (defun update-mouse-cursor ()
   ;; Get cursor style under mouse.
   (let* ((mwin (window-at-point *mouse-x* *mouse-y*))
@@ -557,8 +564,9 @@ A passive drag sends no drag events to the window.")
     (when (eql style :none)
       (setf style *none-mouse-pointer*))
     (when (not (eql style *mouse-pointer*))
+      (damage-mouse-region *mouse-x* *mouse-y*)
       (setf *mouse-pointer* style)
-      (recompose-windows t)))
+      (damage-mouse-region *mouse-x* *mouse-y*)))
   (cond ((and (not *enable-live-resize*)
               (resize-in-progress-p))
          ;; Active resize, redraw the entire resize rect.
@@ -970,6 +978,14 @@ Only works when the window is active."
   ((%width :initarg :width :reader width)
    (%height :initarg :height :reader height)))
 
+;;;; Screen update notification.
+
+(defclass screen-update (event)
+  ((%x :initarg :x :reader x)
+   (%y :initarg :y :reader y)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
+
 ;;;; Other event stuff.
 
 (defun send-event (window event)
@@ -1108,6 +1124,12 @@ Only works when the window is active."
   (when (or (zerop *clip-rect-width*)
             (zerop *clip-rect-height*))
     (return-from recompose-windows))
+  (broadcast-notification :screen-updates
+                          (make-instance 'screen-update
+                                         :x *clip-rect-x*
+                                         :y *clip-rect-y*
+                                         :width *clip-rect-width*
+                                         :height *clip-rect-height*))
   ;; Draw windows back-to-front.
   (dolist (window (reverse *window-list*))
     (blit-with-clip (width window) (height window)

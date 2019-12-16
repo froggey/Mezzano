@@ -28,7 +28,6 @@
    (method-class :initarg :method-class)
    (classes-to-emf-table :initform nil)
    (relevant-arguments)
-   (weird-specializers-p)
    (method-combination :initarg :method-combination)
    (argument-precedence-order :initarg :argument-precedence-order)
    (argument-reordering-table :initform nil)
