@@ -543,15 +543,6 @@
                  :start-block (logior (ash (sys.int::ub16ref/le inode-block (+ 6 offset)) 32)
                                       (sys.int::ub32ref/le inode-block (+ 8 offset))))))
 
-(defun follow-pointer (disk superblock block-n fn n-indirection)
-  (if (zerop n-indirection)
-      (funcall fn (read-block disk superblock block-n))
-      (iter (with i-block := (read-block disk superblock block-n))
-            (for offset :from 0 :below (block-size-in-bytes disk superblock) :by 4)
-            (for block-n := (sys.int::ub32ref/le i-block offset))
-            (unless (and (zerop block-n))
-              (follow-pointer disk superblock block-n fn (1- n-indirection))))))
-
 (defun do-file (fn host inode-n)
   (let* ((partition (partition host))
          (superblock (superblock host))
@@ -573,15 +564,23 @@
           ((logbitp +inline-data-flag+ inode-flags)
            (funcall fn inode-block))
           (t
-           (iter (for offset :from 0 :below 48 :by 4)
-                 (for block-n := (sys.int::ub32ref/le inode-block offset))
-                 (never (zerop block-n))
-                 (follow-pointer partition superblock block-n fn 0))
-           (iter (for offset :from 48 :below 60 :by 4)
-                 (for indirection :from 1)
-                 (for block-n := (sys.int::ub32ref/le inode-block offset))
-                 (never (zerop block-n))
-                 (follow-pointer partition superblock block-n fn indirection))))))
+           (labels ((follow-pointer (disk superblock block-n fn n-indirection)
+                      (if (zerop n-indirection)
+                          (funcall fn (read-block disk superblock block-n))
+                          (iter (with i-block := (read-block disk superblock block-n))
+                                (for offset :from 0 :below (block-size-in-bytes disk superblock) :by 4)
+                                (for block-n := (sys.int::ub32ref/le i-block offset))
+                                (unless (and (zerop block-n))
+                                  (follow-pointer disk superblock block-n fn (1- n-indirection)))))))
+             (iter (for offset :from 0 :below 48 :by 4)
+                   (for block-n := (sys.int::ub32ref/le inode-block offset))
+                   (never (zerop block-n))
+                   (follow-pointer partition superblock block-n fn 0))
+             (iter (for offset :from 48 :below 60 :by 4)
+                   (for indirection :from 1)
+                   (for block-n := (sys.int::ub32ref/le inode-block offset))
+                   (never (zerop block-n))
+                   (follow-pointer partition superblock block-n fn indirection)))))))
 
 (defun read-file (host inode-n)
   (let ((blocks))
@@ -732,16 +731,18 @@
                        :pathname pathname
                        :format-control "Directory ~A not found. ~S"
                        :format-arguments (list directory pathname))
-                (when (string= directory (linked-directory-entry-name (read-linked-directory-entry block offset)))
-                  (setf inode-n (linked-directory-entry-inode (read-linked-directory-entry block offset)))
-                  (return-from do-files t))))
+                (let ((entry (read-linked-directory-entry block offset)))
+                  (when (string= directory (linked-directory-entry-name entry))
+                    (setf inode-n (linked-directory-entry-inode entry))
+                    (return-from do-files t)))))
         :finally
         (if (null file-name)
             (return inode-n)
             (block do-files
               (do-files (block offset) host inode-n nil
-                (when (string= file-name (linked-directory-entry-name (read-linked-directory-entry block offset)))
-                  (return-from find-file (linked-directory-entry-inode (read-linked-directory-entry block offset)))))))))
+                (let ((entry (read-linked-directory-entry block offset)))
+                  (when (string= file-name (linked-directory-entry-name entry))
+                    (return-from find-file (linked-directory-entry-inode entry)))))))))
 
 (defclass ext-file-stream (mezzano.gray:fundamental-binary-input-stream
                            mezzano.gray:fundamental-binary-output-stream
