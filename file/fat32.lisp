@@ -269,7 +269,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   ;; flags are really only defined for FAT32, so FAT12 and FAT16 always pass in 0
   (if (logbitp 7 flags)
       ;; write just one FAT
-      (block-device-write disk
+      (block-device-write (dp-disk disk)
                           (+ fat-offset
                              fat-sector
                              (* (logand flags #x0F) (fat-%sectors-per-fat ffs)))
@@ -281,7 +281,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          for sector = (+ fat-offset fat-sector) then
            (+ sector (fat-%sectors-per-fat ffs))
          do
-           (block-device-write disk sector 1 buf))))
+           (block-device-write (dp-disk disk) sector 1 buf))))
 
 (defmethod write-fat (disk (fat12 fat12) fat)
   (let* ((dirty-bits (fat-%fat-dirty-bits fat12))
@@ -336,8 +336,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      ;; byte-24 is pair of 12-bit cluster numbers - write as little endian
                      (setf (aref buf buf-idx)       (ldb (byte 8  0) byte-24)
                            (aref buf (+ buf-idx 1)) (ldb (byte 8  8) byte-24)
-                           (aref buf (+ buf-idx 2)) (ldb (byte 8 16) byte-24))))
-                 )))
+                           (aref buf (+ buf-idx 2)) (ldb (byte 8 16) byte-24)))))))
             (write-fat-sectors disk 0 fat12 fat-offset sector buf)))))
     (setf (aref dirty-bits 0) 0)))
 
@@ -539,11 +538,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
     (do ((cluster-n start-cluster (fat-value fat cluster-n))
          (n-cluster 0 (1+ n-cluster)))
         ((>= cluster-n (last-cluster-value ffs)) result)
-      (block-device-read disk
-                         (first-sector-of-cluster ffs cluster-n)
-                         spc
-                         result
-                         :offset (* n-cluster spc sector-size)))))
+      (replace result (block-device-read-sector disk
+                                                (first-sector-of-cluster ffs cluster-n)
+                                                spc)
+               :start1 (* n-cluster spc sector-size)))))
 
 (defun write-file (ffs disk start-cluster fat array file-length)
   (let* ((spc (fat-%sectors-per-cluster ffs))
@@ -560,7 +558,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                ((>= byte-offset file-length)
                 (setf (fat-value ffs fat last-cluster) (last-cluster-value ffs))
                 (write-fat disk ffs fat))
-             (block-device-write disk
+             (block-device-write (dp-disk disk)
                                  (first-sector-of-cluster ffs cluster-n)
                                  spc
                                  array
@@ -569,7 +567,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
              (setf last-cluster cluster-n)))
          T)
       (setf last-cluster cluster-n)
-      (block-device-write disk
+      (block-device-write (dp-disk disk)
                           (first-sector-of-cluster ffs cluster-n)
                           spc
                           array
@@ -1142,19 +1140,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defmethod probe-disk ((class (eql 'fat-host)) partition)
   "If the partition contains a FAT file system, return the Volume ID otherwise NIL"
   ;; read first sector and check for FAT file system
-  (let* ((sector-size (block-device-sector-size partition))
-         (buffer (make-array sector-size)))
-    (block-device-read partition 0 1 buffer)
-    (cond ((bpb-v7-p buffer)      ;; Check for version 7.0 BPB
+  (let ((buffer (block-device-read-sector partition 0 1)))
+    (cond ((bpb-v7-p buffer) ;; Check for version 7.0 BPB
            (sys.int::ub32ref/le buffer 67))
-          ((bpb-v4-p buffer)      ;; Check for version 4.0 BPB
+          ((bpb-v4-p buffer) ;; Check for version 4.0 BPB
            (sys.int::ub32ref/le buffer 39)))))
 
 (defun mount-fat (partition host-name)
   "If the partition contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
-  (let* ((sector-size (block-device-sector-size partition))
-         (buffer (make-array sector-size)))
-    (block-device-read partition 0 1 buffer)
+  (let ((buffer (block-device-read-sector partition 0 1)))
     (when (not (or (bpb-v7-p buffer) (bpb-v4-p buffer)))
       (error "partition ~A does not contain a FAT file system" partition))
     (let* ((cluster-count (compute-cluster-count buffer))
@@ -1618,8 +1612,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                  (read-first-cluster dir-array offset)
                                  fat)
                       (cdr dir-list)
-                      pathname)))))))
-        ))
+                      pathname)))))))))
 
 (defmethod directory-using-host ((host fat-host) pathname &key)
   (let ((disk (partition host))
