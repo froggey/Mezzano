@@ -199,17 +199,23 @@
     (read-http-response con)))
 
 (defun make-http-stream (pathname body element-type external-format)
-  (if (mezzano.internals::type-equal element-type 'character)
-      (make-instance 'http-character-stream
-                     :path pathname
-                     :direction :input
-                     :buffer body
-                     :length (length body))
-      (make-instance 'http-binary-stream
-                     :path pathname
-                     :direction :input
-                     :buffer body
-                     :length (length body))))
+  (let ((cache (make-hash-table :weakness :key-and-value))
+        (body-length (length body)))
+    (setf (gethash 0 cache) body)
+    (if (mezzano.internals::type-equal element-type 'character)
+        (make-instance 'http-character-stream
+                       :path pathname
+                       :direction :input
+                       :buffer cache
+                       :length body-length
+                       :block-length body-length
+                       :external-format (mezzano.internals::make-external-format 'character external-format))
+        (make-instance 'http-binary-stream
+                       :path pathname
+                       :direction :input
+                       :buffer cache
+                       :length body-length
+                       :block-length body-length))))
 
 (defun decode-location (location)
   ;; This should parse an absoluteURI from rfc2396.
