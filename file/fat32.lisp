@@ -1277,6 +1277,30 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   `(mezzano.supervisor:with-mutex ((fat-host-lock ,host))
      ,@body))
 
+(defmethod fs-read-block ((stream fat-file-stream) block-n)
+  (do* ((host (host stream))
+        (ffs (fat-structure host))
+        (fat (fat host))
+        (cluster-offset (buffer-position stream) (fat-value fat cluster-offset))
+        (cluster-n 0 (1+ cluster-n)))
+       ((= cluster-n block-n)
+        (block-device-read-sector (partition host)
+                                  (first-sector-of-cluster ffs cluster-offset)
+                                  (fat-%sectors-per-cluster ffs)))))
+
+;; FIXME: This is workaround for new cache
+(defun write-file* (stream)
+  (let* ((host (host stream))
+         (ffs (fat-structure host))
+         (partition (partition host))
+         (fat (fat host))
+         (file (read-file ffs partition (buffer-position stream) fat))
+         (file-length (file-length* stream)))
+    (loop :for block :being :the :hash-values :of (dirty-blocks stream)
+          :using (hash-key block-n)
+          :do (replace file block :start1 (* block-n (mezzano.file-system-cache::block-length stream))))
+    (write-file ffs partition (buffer-position stream) fat file file-length)))
+
 (defun file-name (pathname)
   "Take pathname and return file name."
   (let ((name (pathname-name pathname))
@@ -1354,7 +1378,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (createdp nil)
             (first-cluster)
             (abort-action nil)
-            (buffer)
             (buffer-position)
             (file-length)
             (file-position 0))
@@ -1411,11 +1434,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             ((nil) (return-from open-using-host nil))))
         ;; Done processing arguements - now open the file
         (if createdp
-            (setf buffer (make-array (bytes-per-cluster ffs) :initial-element 0)
-                  buffer-position first-cluster
+            (setf buffer-position first-cluster
                   file-length 0)
             (setf buffer-position (read-first-cluster dir-array file-offset)
-                  buffer (read-file ffs disk buffer-position fat)
                   file-length (read-file-length dir-array file-offset)))
         (cond ((or (eql element-type :default)
                    (subtypep element-type 'character))
@@ -1423,10 +1444,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :pathname pathname
                               :host host
                               :direction direction
-                              :buffer buffer
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
+                              :block-length (bytes-per-cluster ffs)
                               :abort-action abort-action
                               :external-format (sys.int::make-external-format 'character external-format)))
               ((and (subtypep element-type '(unsigned-byte 8))
@@ -1436,10 +1457,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :pathname pathname
                               :host host
                               :direction direction
-                              :buffer buffer
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
+                              :block-length (bytes-per-cluster ffs)
                               :abort-action abort-action))
               (t (error "Unsupported element-type ~S." element-type)))))))
 
@@ -1818,12 +1839,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (cond ((not abort)
              (multiple-value-bind (time date) (get-fat-time)
                (when (member (direction stream) '(:output :io))
-                 (write-file (fat-structure host)
-                             (partition host)
-                             (buffer-position stream)
-                             (fat host)
-                             (buffer stream)
-                             file-length)
+                 (write-file* stream)
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) file-length))
