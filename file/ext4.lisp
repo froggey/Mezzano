@@ -582,18 +582,6 @@
                    (never (zerop block-n))
                    (follow-pointer partition superblock block-n fn indirection)))))))
 
-(defun read-file (host inode-n)
-  (let ((blocks))
-    (do-file #'(lambda (block)
-                 (push block blocks))
-      host inode-n)
-    (iter (with block-size := (block-size-in-bytes (partition host) (superblock host)))
-          (with result := (make-array (list (* block-size (length blocks))) :element-type '(unsigned-byte 8)))
-          (for block :in (nreverse blocks))
-          (for offset :from 0 :by block-size)
-          (replace result block :start1 offset)
-          (finally (return result)))))
-
 (defmacro do-files ((arg var) host inode-n finally &body body)
   `(unless (do-file (lambda (,arg)
                       (do ((,var 0 (+ ,var (sys.int::ub16ref/le ,arg (+ 4 ,var)))))
@@ -764,12 +752,18 @@
   `(mezzano.supervisor:with-mutex ((ext4-host-lock ,host))
      ,@body))
 
-;; WIP
+(defmethod fs-read-block ((stream ext-file-stream) block-n)
+  (let ((host (host stream))
+        (block-n* -1))
+    (do-file #'(lambda (block)
+                 (when (eql (incf block-n*) block-n)
+                   (return-from fs-read-block block)))
+      host (find-file host (file-stream-pathname stream)))))
+
 (defmethod open-using-host ((host ext4-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
   (with-ext4-host-locked (host)
     (let ((file-inode nil)
-          (buffer nil)
           (file-position 0)
           (file-length 0)
           (created-file nil)
@@ -778,7 +772,6 @@
         (if inode-n
             (let ((file-inode (read-inode host inode-n)))
               (setf file-inode file-inode
-                    buffer (read-file host inode-n)
                     file-length (inode-size file-inode)))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
@@ -797,9 +790,9 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :buffer buffer
                             :position file-position
                             :length file-length
+                            :block-length (block-size-in-bytes (partition host) (superblock host))
                             :abort-action abort-action
                             :external-format (sys.int::make-external-format 'character external-format)))
             ((and (subtypep element-type '(unsigned-byte 8))
@@ -810,9 +803,9 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :buffer buffer
                             :position file-position
                             :length file-length
+                            :block-length (block-size-in-bytes (partition host) (superblock host))
                             :abort-action abort-action))
             (t (error "Unsupported element-type ~S." element-type))))))
 
