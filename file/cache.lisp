@@ -6,10 +6,12 @@
   (:export #:file-cache-stream
            #:file-cache-character-stream
            #:fs-read-block
+           #:fs-write-block
            #:fs-get-block
            #:direction
            #:buffer
-           #:dirty-blocks
+           #:dirty-block
+           #:dirty-block-n
            #:file-position*
            #:file-length*))
 
@@ -18,12 +20,14 @@
 (defclass file-cache-stream (file-stream)
   ((%direction :initarg :direction :reader direction)
    (%buffer :initarg :buffer :accessor buffer)
-   (%dirty-blocks :initarg :dirty-blocks :accessor dirty-blocks)
+   (%dirty-block :initarg :dirty-block :accessor dirty-block)
+   (%dirty-block-n :initarg :dirty-block-n :accessor dirty-block-n)
    (%position :initarg :position :accessor file-position*)
    (%length :initarg :length :accessor file-length*)
    (%block-length :initarg :block-length :accessor block-length))
   (:default-initargs :buffer (make-hash-table :weakness :key-and-value)
-                     :dirty-blocks (make-hash-table)
+                     :dirty-block nil
+                     :dirty-block-n nil
                      :position 0
                      :length 0))
 
@@ -52,6 +56,9 @@
 (defgeneric fs-read-block (stream block-n)
   (:documentation "Read block-n from file"))
 
+(defgeneric fs-write-block (stream)
+  (:documentation "Write block-n to file"))
+
 (defgeneric fs-get-block (stream)
   (:documentation "Request new block from FS"))
 
@@ -66,9 +73,10 @@
                             (or (fs-read-block stream buffer-n)
                                 (fs-get-block stream))))))
       (setf (aref buffer offset) byte)
-      (or (gethash buffer-n (dirty-blocks stream))
-          (setf (gethash buffer-n (dirty-blocks stream))
-                buffer))))
+      (unless (eql buffer-n (dirty-block-n stream))
+        (fs-write-block stream)
+        (setf (dirty-block stream) buffer
+              (dirty-block-n stream) buffer-n))))
   (incf (file-position* stream)))
 
 (defmethod mezzano.gray:stream-read-byte ((stream file-cache-stream))

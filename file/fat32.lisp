@@ -1288,18 +1288,21 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                   (first-sector-of-cluster ffs cluster-offset)
                                   (fat-%sectors-per-cluster ffs)))))
 
-;; FIXME: This is workaround for new cache
-(defun write-file* (stream)
-  (let* ((host (host stream))
-         (ffs (fat-structure host))
-         (partition (partition host))
-         (fat (fat host))
-         (file (read-file ffs partition (buffer-position stream) fat))
-         (file-length (file-length* stream)))
-    (loop :for block :being :the :hash-values :of (dirty-blocks stream)
-          :using (hash-key block-n)
-          :do (replace file block :start1 (* block-n (mezzano.file-system-cache::block-length stream))))
-    (write-file ffs partition (buffer-position stream) fat file file-length)))
+;; TODO: Update FAT when writing new cluster
+;; TODO: Allocate new clusters
+;; TODO: Have in mind :if-exists like :supersede
+(defmethod fs-write-block ((stream fat-file-stream))
+  (when (dirty-block-n stream)
+    (do* ((host (host stream))
+          (ffs (fat-structure host))
+          (fat (fat host))
+          (cluster-offset (buffer-position stream) (fat-value fat cluster-offset))
+          (cluster-n 0 (1+ cluster-n)))
+         ((= cluster-n (dirty-block-n stream))
+          (block-device-write-sector (partition host)
+                                     (first-sector-of-cluster ffs cluster-offset)
+                                     (dirty-block stream)
+                                     (fat-%sectors-per-cluster ffs))))))
 
 (defun file-name (pathname)
   "Take pathname and return file name."
@@ -1839,7 +1842,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (cond ((not abort)
              (multiple-value-bind (time date) (get-fat-time)
                (when (member (direction stream) '(:output :io))
-                 (write-file* stream)
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) file-length))
