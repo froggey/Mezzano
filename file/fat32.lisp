@@ -970,14 +970,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   with checksum = (checksum directory end-offset)
                   with offset = end-offset
                   with idx = 32
-                  with seq-num = 1 do
+                  with seq-num = 1
+                  do
                   ;; finished last directory entry, move to previous
                     (when (= idx 32)
                       (decf offset 32)
                       (setf (aref directory offset) seq-num
+                            ;; Attributes
                             (aref directory (+ offset 11)) #x0F
+                            ;; Type
                             (aref directory (+ offset 12)) #x00
-                            (aref directory (+ offset 13)) checksum)
+                            (aref directory (+ offset 13)) checksum
+                            ;; Set first cluster to Zero
+                            (aref directory (+ offset 26)) #x00
+                            (aref directory (+ offset 27)) #x00)
                       (incf seq-num)
                       (setf idx 1))
                     (setf (aref directory (+ idx offset)) (char-code char)
