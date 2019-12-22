@@ -7,7 +7,6 @@
            #:file-cache-character-stream
            #:fs-read-block
            #:fs-write-block
-           #:fs-get-block
            #:direction
            #:buffer
            #:dirty-block
@@ -59,8 +58,11 @@
 (defgeneric fs-write-block (stream)
   (:documentation "Write block-n to file"))
 
-(defgeneric fs-get-block (stream)
-  (:documentation "Request new block from FS"))
+;; TODO: Give error when out of space
+(defun make-block (stream)
+  (make-array (block-length stream)
+              :element-type '(unsigned-byte 8)
+              :area :wired))
 
 (defmethod mezzano.gray:stream-write-byte ((stream file-cache-stream) byte)
   (assert (member (direction stream) '(:output :io)))
@@ -71,7 +73,7 @@
     (let ((buffer (or (gethash buffer-n (buffer stream))
                       (setf (gethash buffer-n (buffer stream))
                             (or (fs-read-block stream buffer-n)
-                                (fs-get-block stream))))))
+                                (make-block stream))))))
       (setf (aref buffer offset) byte)
       (unless (eql buffer-n (dirty-block-n stream))
         (fs-write-block stream)
