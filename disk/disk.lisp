@@ -93,23 +93,24 @@
 ;;    Cache API implementation
 ;;======================================================================
 
-(defclass page-cache (disk-partition-mixin)
-  ((%cache :initarg :cache :reader cache))
+(defclass page-cache ()
+  ((%partition :initarg :partition :reader partition)
+   (%cache :initarg :cache :reader cache))
   (:default-initargs :cache (make-hash-table :weakness :value)))
 
 (defmethod block-device-sector-size ((disk page-cache))
-  (block-device-sector-size (dp-disk disk)))
+  (block-device-sector-size (partition disk)))
 
 (defmethod block-device-n-sectors ((disk page-cache))
-  (block-device-n-sectors (dp-disk disk)))
+  (block-device-n-sectors (partition disk)))
 
 (defmethod block-device-flush ((disk page-cache))
-  (block-device-flush (dp-disk disk)))
+  (block-device-flush (partition disk)))
 
 (defmethod block-device-read-sector ((disk page-cache) start-sector n-sectors)
   (or (gethash start-sector (cache disk))
       (setf (gethash start-sector (cache disk))
-            (block-device-read-sector (dp-disk disk) start-sector n-sectors))))
+            (block-device-read-sector (partition disk) start-sector n-sectors))))
 
 (defmethod block-device-write-sector ((disk page-cache) start-sector block n-sectors)
-  (block-device-write-sector (dp-disk disk) start-sector block n-sectors))
+  (block-device-write-sector (partition disk) start-sector block n-sectors))

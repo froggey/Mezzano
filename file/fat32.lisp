@@ -269,7 +269,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   ;; flags are really only defined for FAT32, so FAT12 and FAT16 always pass in 0
   (if (logbitp 7 flags)
       ;; write just one FAT
-      (block-device-write (dp-disk disk)
+      (block-device-write (partition disk)
                           (+ fat-offset
                              fat-sector
                              (* (logand flags #x0F) (fat-%sectors-per-fat ffs)))
@@ -281,7 +281,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          for sector = (+ fat-offset fat-sector) then
            (+ sector (fat-%sectors-per-fat ffs))
          do
-           (block-device-write (dp-disk disk) sector 1 buf))))
+           (block-device-write (partition disk) sector 1 buf))))
 
 (defmethod write-fat (disk (fat12 fat12) fat)
   (let* ((dirty-bits (fat-%fat-dirty-bits fat12))
@@ -558,7 +558,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                ((>= byte-offset file-length)
                 (setf (fat-value ffs fat last-cluster) (last-cluster-value ffs))
                 (write-fat disk ffs fat))
-             (block-device-write (dp-disk disk)
+             (block-device-write (partition disk)
                                  (first-sector-of-cluster ffs cluster-n)
                                  spc
                                  array
@@ -567,7 +567,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
              (setf last-cluster cluster-n)))
          T)
       (setf last-cluster cluster-n)
-      (block-device-write (dp-disk disk)
+      (block-device-write (partition disk)
                           (first-sector-of-cluster ffs cluster-n)
                           spc
                           array
