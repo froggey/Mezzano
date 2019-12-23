@@ -2,7 +2,7 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.file-system-cache
-  (:use :cl :mezzano.disk)
+  (:use :cl)
   (:export #:file-cache-stream
            #:file-cache-character-stream
            #:fs-read-block
