@@ -24,7 +24,7 @@
    (%position :initarg :position :accessor file-position*)
    (%length :initarg :length :accessor file-length*)
    (%block-length :initarg :block-length :accessor block-length))
-  (:default-initargs :buffer (make-hash-table :weakness :key-and-value)
+  (:default-initargs :buffer (make-hash-table :weakness :value)
                      :dirty-block nil
                      :dirty-block-n nil
                      :position 0

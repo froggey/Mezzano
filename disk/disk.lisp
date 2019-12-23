@@ -105,7 +105,7 @@
 
 (defclass page-cache (disk-partition-mixin)
   ((%cache :initarg :cache :reader cache))
-  (:default-initargs :cache (make-hash-table :weakness :key-and-value)))
+  (:default-initargs :cache (make-hash-table :weakness :value)))
 
 (defmethod block-device-sector-size ((disk page-cache))
   (block-device-sector-size (dp-disk disk)))

@@ -606,7 +606,7 @@
    (%inode-cache :initarg :inode-cache
                  :reader inode-cache))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")
-                     :inode-cache (make-hash-table :weakness :key-and-value)))
+                     :inode-cache (make-hash-table :weakness :value)))
 
 (defmethod initialize-instance :after ((instance ext4-host) &key)
   (let* ((partition (partition instance))
