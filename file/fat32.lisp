@@ -32,6 +32,7 @@
    (%volume-label :initarg :volume-label :accessor fat-%volume-label :type string)
    (%fat-type-label :initarg :fat-type-label :accessor fat-%fat-type-label :type string)
    (%boot-code :initarg :boot-code :accessor fat-%boot-code)
+   (%n-clusters :initarg :max-cluser :accessor fat-%n-clusters)
    (%fat-dirty-bits :initarg :fat-dirty-bits :accessor fat-%fat-dirty-bits)))
 
 (defun check-boot-jump (boot-jump)
@@ -86,7 +87,8 @@ Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
           (fat-%sectors-per-track ffs) (sys.int::ub16ref/le sector 24)
           (fat-%n-heads/sides ffs) (sys.int::ub16ref/le sector 26)
           (fat-%n-hidden-sectors ffs) (sys.int::ub32ref/le sector 28)
-          (fat-%n-sectors32 ffs) (sys.int::ub32ref/le sector 32))))
+          (fat-%n-sectors32 ffs) (sys.int::ub32ref/le sector 32)
+          (fat-%n-clusters ffs) (+ (compute-cluster-count sector) 2))))
 
 (defclass fat12 (fat-base)
   ())
@@ -240,10 +242,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod read-fat (disk (fat12 fat12) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat12)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat12))
+        :with fat-sectors := (ceiling (* 3 (fat-%n-clusters fat12))
+                                      (* 2 (fat-%bytes-per-sector fat12)))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset fat-sectors)
         :with fat := (if fat-array
                          fat-array
-                         (make-array (list (floor (/ (ash (length file-allocation-table) 3) 12)))))
+                         (make-array (floor (* 2 (length file-allocation-table)) 3)))
         :for offset :from 0 :by 3 :below (- (length file-allocation-table) 2)
         :for i :from 0 :by 2
         :for byte-24 = (logior (aref file-allocation-table offset)
@@ -254,10 +258,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :do (setf (aref fat i) cluster0
                   (aref fat (1+ i)) cluster1)
         :finally
-         (when (> (fat-%sectors-per-fat fat12) 12)
-           ;; 1.5 bytes * 4087 entries = 6130.5 bytes / 512 bytes per sector = 11.97 sectors
-           (error "FAT12 file allocation table too big - max size should be <=12 actual size ~D"
-                  (fat-%sectors-per-fat fat12)))
          (setf (fat-%fat-dirty-bits fat12) (make-array 1
                                                        :element-type '(unsigned-byte 32)
                                                        :initial-element 0))
@@ -343,7 +343,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod read-fat (disk (fat16 fat16) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat16)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat16))
+        :with fat-sectors := (ceiling (* 2 (fat-%n-clusters fat16)) (fat-%bytes-per-sector fat16))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset fat-sectors)
         :with fat := (if fat-array
                          fat-array
                          (make-array (list (ash (length file-allocation-table) -1))))
@@ -377,7 +378,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod read-fat (disk (fat32 fat32) &optional fat-array)
   (loop :with fat-offset := (fat-%n-reserved-sectors fat32)
-        :with file-allocation-table := (block-device-read-sector disk fat-offset (fat-%sectors-per-fat fat32))
+        :with fat-sectors := (ceiling (* 4 (fat-%n-clusters fat32)) (fat-%bytes-per-sector fat32))
+        :with file-allocation-table := (block-device-read-sector disk fat-offset fat-sectors)
         :with fat := (if fat-array
                          fat-array
                          (make-array (list (ash (length file-allocation-table) -2))))
@@ -495,8 +497,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (* (fat-%sectors-per-cluster ffs)
      (fat-%bytes-per-sector ffs)))
 
-(defun next-free-cluster (fat &optional (start 0))
-  (loop :for offset :from start :below (length fat)
+;; FAT[0] = Media Type, FAT[1] = EOC
+(defun next-free-cluster (ffs fat &optional (start 2))
+  (loop :for offset :from start :below (fat-%n-clusters ffs)
         :for cluster-n := (fat-value fat offset)
         :when (zerop cluster-n)
         :return offset))
@@ -554,8 +557,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         ((or (>= byte-offset file-length)
              (>= cluster-n (last-cluster-value ffs)))
          (when (> file-length byte-offset)
-           (do ((cluster-n (next-free-cluster fat 3)
-                           (next-free-cluster fat (1+ cluster-n)))
+           (do ((cluster-n (next-free-cluster ffs fat 3)
+                           (next-free-cluster ffs fat (1+ cluster-n)))
                 (byte-offset byte-offset (+ byte-offset bytes-per-cluster)))
                ((>= byte-offset file-length)
                 (setf (fat-value ffs fat last-cluster) (last-cluster-value ffs))
@@ -970,14 +973,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   with checksum = (checksum directory end-offset)
                   with offset = end-offset
                   with idx = 32
-                  with seq-num = 1 do
+                  with seq-num = 1
+                  do
                   ;; finished last directory entry, move to previous
                     (when (= idx 32)
                       (decf offset 32)
                       (setf (aref directory offset) seq-num
+                            ;; Attributes
                             (aref directory (+ offset 11)) #x0F
+                            ;; Type
                             (aref directory (+ offset 12)) #x00
-                            (aref directory (+ offset 13)) checksum)
+                            (aref directory (+ offset 13)) checksum
+                            ;; Set first cluster to Zero
+                            (aref directory (+ offset 26)) #x00
+                            (aref directory (+ offset 27)) #x00)
                       (incf seq-num)
                       (setf idx 1))
                     (setf (aref directory (+ idx offset)) (char-code char)
@@ -1020,7 +1029,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            (ffs (fat-structure host))
            (fat (fat host))
            (cluster-size (bytes-per-cluster ffs))
-           (cluster-number (next-free-cluster fat 3)))
+           (cluster-number (next-free-cluster ffs fat 3)))
       ;; Terminate cluster list (allocate one cluster to the file)
       (setf (fat-value ffs fat cluster-number) (last-cluster-value ffs))
       (multiple-value-setq (offset directory)
