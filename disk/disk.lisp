@@ -7,13 +7,13 @@
 ;;    Helper functions
 ;;======================================================================
 
-(defun read-cluster (disk lba n-sectors wired-buffer)
+(defun read-sector (disk lba n-sectors wired-buffer)
   (multiple-value-bind (success-p error-reason)
       (sup:disk-read disk lba n-sectors wired-buffer)
     (unless success-p
       (error "Disk read error: ~A" error-reason))))
 
-(defun write-cluster (disk lba n-sectors wired-buffer)
+(defun write-sector (disk lba n-sectors wired-buffer)
   (multiple-value-bind (success-p error-reason)
       (sup:disk-write disk lba n-sectors wired-buffer)
     (unless success-p
@@ -70,22 +70,22 @@
   (sup:disk-n-sectors disk))
 
 (defmethod block-device-read ((disk sup:disk) lba n-sectors buffer &key (offset 0))
-  (flet ((read-cluster (disk addr n-sectors wired-buffer buffer base-offset &optional (end1 nil))
-           (read-cluster disk addr n-sectors wired-buffer)
+  (flet ((read-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end1 nil))
+           (read-sector disk addr n-sectors wired-buffer)
            (replace buffer wired-buffer :start1 base-offset :end1 end1)))
-    (do-block disk #'read-cluster lba n-sectors buffer offset)))
+    (do-block disk #'read-sector lba n-sectors buffer offset)))
 
 (defmethod block-device-write ((disk sup:disk) lba n-sectors buffer &key (offset 0))
-  (flet ((write-cluster (disk addr n-sectors wired-buffer buffer base-offset &optional (end2 nil))
+  (flet ((write-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end2 nil))
            (replace wired-buffer buffer :start2 base-offset :end2 end2)
-           (write-cluster disk addr n-sectors wired-buffer)))
-    (do-block disk #'write-cluster lba n-sectors buffer offset)))
+           (write-sector disk addr n-sectors wired-buffer)))
+    (do-block disk #'write-sector lba n-sectors buffer offset)))
 
 (defmethod block-device-read-wired ((disk sup:disk) lba n-sectors wired-buffer)
-  (read-cluster disk lba n-sectors wired-buffer))
+  (read-sector disk lba n-sectors wired-buffer))
 
 (defmethod block-device-write-wired ((disk sup:disk) lba n-sectors wired-buffer)
-  (write-cluster disk lba n-sectors wired-buffer))
+  (write-sector disk lba n-sectors wired-buffer))
 
 (defmethod block-device-flush ((disk sup:disk))
   (sup:disk-flush disk))

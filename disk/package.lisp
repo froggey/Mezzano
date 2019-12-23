@@ -7,8 +7,8 @@
                     (:sys :mezzano.internals))
   (:export
    ;; APIs
-   :read-cluster
-   :write-cluster
+   :read-sector
+   :write-sector
    :block-device-sector-size
    :block-device-n-sectors
    :block-device-read
