@@ -14,6 +14,7 @@
    :block-device-flush
    :block-device-read-sector
    :block-device-write-sector
+   :partition
    :parse-partition-table
 
    ;; disk mixin
