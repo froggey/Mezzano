@@ -61,8 +61,7 @@
 ;; TODO: Give error when out of space
 (defun make-block (stream)
   (make-array (block-length stream)
-              :element-type '(unsigned-byte 8)
-              :area :wired))
+              :element-type '(unsigned-byte 8)))
 
 (defmethod mezzano.gray:stream-write-byte ((stream file-cache-stream) byte)
   (assert (member (direction stream) '(:output :io)))

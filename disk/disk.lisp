@@ -49,10 +49,6 @@
 
 (defgeneric block-device-write (device lba n-sectors buffer &key offset))
 
-(defgeneric block-device-read-wired (device lba n-sectors wired-buffer))
-
-(defgeneric block-device-write-wired (device lba n-sectors wired-buffer))
-
 (defgeneric block-device-flush (device))
 
 (defgeneric block-device-read-sector (disk start-sector n-sectors))
@@ -80,12 +76,6 @@
            (replace wired-buffer buffer :start2 base-offset :end2 end2)
            (write-sector disk addr n-sectors wired-buffer)))
     (do-block disk #'write-sector lba n-sectors buffer offset)))
-
-(defmethod block-device-read-wired ((disk sup:disk) lba n-sectors wired-buffer)
-  (read-sector disk lba n-sectors wired-buffer))
-
-(defmethod block-device-write-wired ((disk sup:disk) lba n-sectors wired-buffer)
-  (write-sector disk lba n-sectors wired-buffer))
 
 (defmethod block-device-flush ((disk sup:disk))
   (sup:disk-flush disk))
@@ -118,11 +108,8 @@
 
 (defmethod block-device-read-sector ((disk page-cache) start-sector n-sectors)
   (or (gethash start-sector (cache disk))
-      (let ((wired-buffer (make-array (* (block-device-sector-size disk) n-sectors)
-                                      :element-type '(unsigned-byte 8)
-                                      :area :wired)))
-        (block-device-read-wired (dp-disk disk) start-sector n-sectors wired-buffer)
-        (setf (gethash start-sector (cache disk)) wired-buffer))))
+      (setf (gethash start-sector (cache disk))
+            (block-device-read-sector (dp-disk disk) start-sector n-sectors))))
 
 (defmethod block-device-write-sector ((disk page-cache) start-sector block n-sectors)
-  (block-device-write-wired (dp-disk disk) start-sector n-sectors (buffer block)))
+  (block-device-write-sector (dp-disk disk) start-sector block n-sectors))

@@ -12,8 +12,6 @@
    :block-device-read
    :block-device-write
    :block-device-flush
-   :block-device-read-wired
-   :block-device-write-wired
    :block-device-read-sector
    :block-device-write-sector
    :parse-partition-table
