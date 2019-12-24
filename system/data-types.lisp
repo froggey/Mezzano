@@ -11,7 +11,6 @@
 (defconstant +object-type-size+ 6)
 (defconstant +object-data-shift+ 8)
 (defconstant +object-data-size+ 56)
-(defconstant +pinned-object-mark-bit+ #b10)
 
 ;;; Low 4 bits of a value are tag bits
 (defconstant +tag-fixnum-000+       #b0000)
@@ -277,8 +276,16 @@ should continue looking backwards.")
 ;; about partial page coverage.
 ;; NOTE: Stacks don't have card table entries and aren't subject to this
 ;; alignment constraint. They must still be page-aligned.
+;; This must also be chosen so that (>= (/ +a-m-a+ 16 8) page-size), to support
+;; the mark bit region.
 (defconstant +allocation-minimum-alignment+ (* (/ #x1000 +card-table-entry-size+)
                                                +card-size+))
+
+;; GC mark bit region.
+(defconstant +octets-per-mark-bit+ 16)
+(defconstant +mark-bit-region-base+ #x0000100000000000)
+;; 48 address bits, every 2 words/16 bytes needs a mark bit, 8 bits per byte.
+(defconstant +mark-bit-region-size+ (/ (expt 2 48) +octets-per-mark-bit+ 8))
 
 (defconstant +block-map-present+ #x01
   "Entry is present. This entry may still have a block associated with it, even if it is not present.")

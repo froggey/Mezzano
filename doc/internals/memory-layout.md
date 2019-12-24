@@ -9,7 +9,9 @@ Virtual memory layout for the x86-64 target
 0000007F80000000 - 0000008000000000  Wired function area
 0000008000000000 - 0000008080000000  Function area
 0000008080000000 - 0000010000000000  Unused
-0000010000000000 - 0000200000000000  Pinned area
+0000010000000000 - 0000100000000000  Pinned area
+0000100000000000 - 0000120000000000  GC mark bits (one per 2 words)
+0000120000000000 - 0000200000000000  Unused
 0000200000000000 - 0000200080000000  Wired stack area
 0000200080000000 - 0000208000000000  Unused (future expansion for wired stack area)
 0000208000000000 - 0000400000000000  Stack area
@@ -47,3 +49,8 @@ The entire function area will eventually be subject to the full write barrier.
 Supervisor code must not write to it.
 NX will eventually be applied to all memory outside the function area, to
 assist with catching wild jumps.
+
+Mark bits
+----------
+Every two words of memory has a mark bit assigned to it so that objects
+do not need to have a mark bit in their header.

@@ -89,6 +89,11 @@
 (defun stack-area-p (address)
   (eql (ldb sys.int::+address-tag+ address) sys.int::+address-tag-stack+))
 
+(defun mark-bit-region-p (address)
+  (and (<= sys.int::+mark-bit-region-base+ address)
+       (< address (+ sys.int::+mark-bit-region-base+
+                     sys.int::+mark-bit-region-size+))))
+
 (defun allocate-page (&optional mandatory)
   (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
     (when frame
@@ -360,7 +365,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (thread-pager-argument-1 (current-thread))))
 
 (defun allocate-memory-range (base length flags)
-  (cond ((stack-area-p base)
+  (cond ((or (stack-area-p base)
+             (mark-bit-region-p base))
          (assert (and (page-aligned-p base)
                       (page-aligned-p length))
                  (base length)
@@ -424,7 +430,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
        (+ base (* i #x1000))
        flags
        :eager (logtest flags sys.int::+block-map-wired+)))
-    (when (not (stack-area-p base))
+    (when (not (or (stack-area-p base)
+                   (mark-bit-region-p base)))
       ;; Allocate new card table pages.
       (let ((card-base (+ sys.int::+card-table-base+
                           (* (truncate base sys.int::+card-size+)
@@ -457,7 +464,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   t)
 
 (defun release-memory-range (base length)
-  (cond ((stack-area-p base)
+  (cond ((or (stack-area-p base)
+             (mark-bit-region-p base))
          (assert (and (page-aligned-p base)
                       (page-aligned-p length))
                  (base length)
@@ -479,7 +487,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                            sys.int::+card-table-entry-size+)))
           (card-length (* (truncate length sys.int::+card-size+)
                           sys.int::+card-table-entry-size+)))
-      (when (not stackp)
+      (when (not (or stackp
+                     (mark-bit-region-p base)))
         ;; Release card table pages.
         (dotimes (i (truncate card-length #x1000))
           ;; Update block map.
@@ -502,7 +511,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
             (setf (page-table-entry pte 0) 0))))
       (begin-tlb-shootdown)
       (flush-tlb)
-      (when (not stackp)
+      (when (not (or stackp
+                     (mark-bit-region-p base)))
         (tlb-shootdown-range card-base card-length))
       (tlb-shootdown-range base length)
       (finish-tlb-shootdown))))

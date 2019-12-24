@@ -36,8 +36,6 @@
 ;; Identical to *YOUNG-GEN-NEWSPACE-BIT*, but shifted right by one so
 ;; the fast assembly allocation functions can use it directly.
 (defglobal *young-gen-newspace-bit-raw*)
-;; State of the object header mark bit, used for pinned objects.
-(defglobal *pinned-mark-bit* 0)
 ;; Used to track the last address that was scanned in newspace
 (defglobal *scavenge-general-young-finger*)
 (defglobal *scavenge-general-old-finger*)
@@ -1322,34 +1320,49 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun object-size-error (object)
   (mezzano.supervisor:panic "Sizing invalid object " object))
 
+(defun set-mark-bit (address)
+  "Set the mark bit for ADDRESS, returning the old value."
+  (when (logtest address (1- +octets-per-mark-bit+))
+    (mezzano.supervisor:panic "Tried to set mark bit for misaligned address " address))
+  (multiple-value-bind (byte-index bit-index)
+      (truncate (truncate address +octets-per-mark-bit+) 8)
+    (let ((byte (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index))
+          (field (ash 1 bit-index)))
+      (cond ((logtest field byte)
+             ;; Mark bit set already.
+             t)
+            (t
+             ;; Not set, set it.
+             (setf (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index)
+                   (logior byte field))
+             nil)))))
+
+(defun get-mark-bit (address)
+  "Read the mark bit for address."
+  (when (logtest address (1- +octets-per-mark-bit+))
+    (mezzano.supervisor:panic "Tried to get mark bit for misaligned address " address))
+  (multiple-value-bind (byte-index bit-index)
+      (truncate (truncate address +octets-per-mark-bit+) 8)
+    (let ((byte (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index))
+          (field (ash 1 bit-index)))
+      (logtest field byte))))
+
 (defun mark-pinned-object (object)
   (let ((address (ash (%pointer-field object) 4)))
     (cond ((consp object)
            ;; The object header for conses is 16 bytes behind the address.
+           (decf address 16)
            (when (not (eql (ldb (byte +object-type-size+ +object-type-shift+)
-                                (memref-unsigned-byte-64 address -2))
+                                (memref-unsigned-byte-8 address))
                            +object-tag-cons+))
-             (mezzano.supervisor:panic "Invalid pinned cons " object))
-           (when (not (eql (logand (memref-unsigned-byte-64 address -2)
-                                   +pinned-object-mark-bit+)
-                           *pinned-mark-bit*))
-             ;; Not marked, mark it.
-             (setf (memref-unsigned-byte-64 address -2) (logior (logand (memref-unsigned-byte-64 address -2)
-                                                                        (lognot +pinned-object-mark-bit+))
-                                                                *pinned-mark-bit*))
-             ;; And scan.
-             (scan-object object :major)))
-          (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
-               (mezzano.supervisor:panic "Marking freelist entry " object))
-             (when (not (eql (logand (memref-unsigned-byte-8 address 0) ; Read carefully, no bignums.
-                                     +pinned-object-mark-bit+)
-                             *pinned-mark-bit*))
-               ;; Not marked, mark it.
-               (setf (memref-unsigned-byte-8 address 0) (logior (logand (memref-unsigned-byte-8 address 0)
-                                                                        (lognot +pinned-object-mark-bit+))
-                                                                *pinned-mark-bit*))
-               ;; And scan.
-               (scan-object object :major))))))
+             (mezzano.supervisor:panic "Invalid pinned cons " object)))
+          ;; If it isn't a cons, then it must be a regular object.
+          ;; Make sure it isn't a freelist entry.
+          ((mezzano.runtime::%%object-of-type-p object +object-tag-freelist-entry+)
+           (mezzano.supervisor:panic "Marking freelist entry " object)))
+    (when (not (set-mark-bit address))
+      ;; Was not marked, scan it.
+      (scan-object object :major))))
 
 (defun scavenge-dynamic (cycle-kind)
   (loop
@@ -1412,8 +1425,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (loop
      (when (>= start limit)
        (return nil))
-     (when (not (eql (logand (memref-unsigned-byte-8 start 0) +pinned-object-mark-bit+)
-                     *pinned-mark-bit*))
+     (when (not (get-mark-bit start))
        ;; Not marked, must be free.
        (return start))
      (let ((size (* (align-up (size-of-pinned-area-allocation start) 2) 8)))
@@ -1429,8 +1441,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun make-freelist-header (len)
   (when *gc-debug-freelist-rebuild*
     (gc-log "hdr " len))
-  (logior *pinned-mark-bit*
-          (ash +object-tag-freelist-entry+ +object-type-shift+)
+  (logior (ash +object-tag-freelist-entry+ +object-type-shift+)
           (ash (align-up len 2) +object-data-shift+)))
 
 (defun dump-pinned-area (base limit)
@@ -1463,8 +1474,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun rebuild-freelist (bins name base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist.
-Additionally update the card table offset fields."
+Additionally update the card table offset fields and clear the mark bits."
   (gc-log "rebuild freelist " name)
+  ;; Reset bins.
   (dotimes (i 64)
     (setf (svref bins i) nil))
   ;; Build the freelist.
@@ -1489,8 +1501,7 @@ Additionally update the card table offset fields."
             (finish-freelist-entry bins entry-start entry-len)
             (return))
            ;; Test the mark bit.
-           ((eql (logand (memref-unsigned-byte-8 next-addr 0) +pinned-object-mark-bit+)
-                 *pinned-mark-bit*)
+           ((get-mark-bit next-addr)
             ;; Is marked, finish this entry and start the next one.
             (setf current (find-next-free-object next-addr limit))
             (when *gc-debug-freelist-rebuild*
@@ -1502,7 +1513,11 @@ Additionally update the card table offset fields."
                   entry-len 0))
            (t
             ;; Advance to the next object
-            (setf current next-addr)))))))
+            (setf current next-addr))))))
+  ;; Flush mark bits.
+  (mezzano.supervisor:release-memory-range
+   (+ +mark-bit-region-base+ (truncate base (* +octets-per-mark-bit+ 8)))
+   (truncate (- limit base) (* +octets-per-mark-bit+ 8))))
 
 (defun minor-scan-thread (thread)
   (scan-thread thread :minor))
@@ -1920,6 +1935,15 @@ Additionally update the card table offset fields."
           *cons-area-young-gen-bump* 0
           *cons-area-young-gen-limit* 0)))
 
+(defun allocate-mark-bit-region (base limit)
+  (when (not (mezzano.supervisor:allocate-memory-range
+              (+ +mark-bit-region-base+ (truncate base (* +octets-per-mark-bit+ 8)))
+              (truncate (- limit base) (* +octets-per-mark-bit+ 8))
+              (logior +block-map-present+
+                      +block-map-writable+
+                      +block-map-zero-fill+)))
+    (gc-insufficient-space)))
+
 (defun gc-major-cycle ()
   "Collect both generations."
     (gc-log "Major GC.")
@@ -1936,8 +1960,7 @@ Additionally update the card table offset fields."
     ;; Flip.
     (setf *young-gen-newspace-bit* (logxor *young-gen-newspace-bit* +address-semispace+)
           *young-gen-newspace-bit-raw* (ash *young-gen-newspace-bit* -1)
-          *old-gen-newspace-bit* (logxor *old-gen-newspace-bit* +address-semispace+)
-          *pinned-mark-bit* (logxor *pinned-mark-bit* +pinned-object-mark-bit+))
+          *old-gen-newspace-bit* (logxor *old-gen-newspace-bit* +address-semispace+))
     (gc-log "Gnrl Newspace " (logior *old-gen-newspace-bit* +address-old-generation+ (ash +address-tag-general+ +address-tag-shift+))
             "-" (+ (logior *old-gen-newspace-bit* +address-old-generation+ (ash +address-tag-general+ +address-tag-shift+))
                    maximum-general-limit))
@@ -1972,6 +1995,11 @@ Additionally update the card table offset fields."
           *cons-area-old-gen-bump* 0
           *scavenge-general-old-finger* 0
           *scavenge-cons-old-finger* 0)
+    ;; Allocate pinned mark bit regions.
+    (allocate-mark-bit-region *wired-area-base* *wired-area-bump*)
+    (allocate-mark-bit-region *pinned-area-base* *pinned-area-bump*)
+    (allocate-mark-bit-region *wired-function-area-limit* *function-area-base*)
+    (allocate-mark-bit-region *function-area-base* *function-area-limit*)
     (gc-log "Scav roots")
     ;; Scavenge NIL to start things off.
     (scavenge-object 'nil :major)
@@ -2209,12 +2237,9 @@ No type information will be provided."
                (t ;; Object is dead.
                 (values nil nil)))))
       (#.+address-tag-pinned+
-       (cond ((eql (logand (memref-unsigned-byte-64 address
-                                                    (if (consp key)
-                                                        -2
-                                                        0))
-                           +pinned-object-mark-bit+)
-                   *pinned-mark-bit*)
+       (cond ((get-mark-bit (if (consp key)
+                                (- address 16)
+                                address))
               ;; Object is live.
               (values key t))
              (t
