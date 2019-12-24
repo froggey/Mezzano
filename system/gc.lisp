@@ -2303,11 +2303,13 @@ No type information will be provided."
     (:key
      (multiple-value-bind (new-key livep)
          (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+       (declare (ignore new-key))
        (when livep
          (mezzano.supervisor:panic "Weak pointer key live?"))))
     (:value
      (multiple-value-bind (new-value livep)
          (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
+       (declare (ignore new-value))
        (when livep
          (mezzano.supervisor:panic "Weak pointer key live?"))))
     (:key-and-value
@@ -2317,7 +2319,7 @@ No type information will be provided."
        (declare (ignore new-key))
        (multiple-value-bind (new-value value-livep)
            (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
-         (declare (ignore new-key))
+         (declare (ignore new-value))
          (when (and key-livep value-livep)
            (mezzano.supervisor:panic "Weak pointer key live?")))))
     (:key-or-value
@@ -2327,7 +2329,7 @@ No type information will be provided."
        (declare (ignore new-key))
        (multiple-value-bind (new-value value-livep)
            (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-value+))
-         (declare (ignore new-key))
+         (declare (ignore new-value))
          (when (or key-livep value-livep)
            (mezzano.supervisor:panic "Weak pointer key live?")))))))
 
