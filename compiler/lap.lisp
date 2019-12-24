@@ -380,6 +380,28 @@
         (encode-compressed-layout compressed-layout result constant-pool)))
     result))
 
+(defvar *last-gc-data*)
+
+(defun current-gc-metadata ()
+  "Return the currently active GC metadata.
+Should only be called from assembler macros."
+  (or *last-gc-data*
+      (error "No current GC metadata")))
+
+(defun expand-macros (instruction-set code-list)
+  (loop
+     for inst in code-list
+     when (not (listp inst))
+     collect inst
+     else
+     append (let ((handler (gethash (first inst) instruction-set)))
+              (when (eql (first inst) :gc)
+                (setf *last-gc-data* (rest inst)))
+              (if (and (consp handler)
+                       (eql (first handler) :macro))
+                  (expand-macros instruction-set (funcall (second handler) inst))
+                  (list inst)))))
+
 (defun perform-assembly (instruction-set code-list &key (base-address 0) (initial-symbols '()) info &allow-other-keys)
   "Assemble a list of instructions, returning a u-b 8 vector of machine code,
 a vector of constants and an alist of symbols & addresses."
@@ -390,6 +412,8 @@ a vector of constants and an alist of symbols & addresses."
         (*symbol-table* (make-hash-table))
         (*missing-symbols* '())
         (*mc-end* nil))
+    (let ((*last-gc-data* nil))
+      (setf code-list (expand-macros instruction-set code-list)))
     (dolist (x initial-symbols)
       (setf (gethash (first x) *symbol-table*) (rest x)))
     (let ((chunks (perform-assembly-pass1 instruction-set code-list base-address)))

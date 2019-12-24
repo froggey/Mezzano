@@ -120,7 +120,8 @@
            #:label
            #:make-label
            #:label-name
-           #:add-to-constant-pool))
+           #:add-to-constant-pool
+           #:current-gc-metadata))
 
 (defpackage :mezzano.lap.x86
   (:documentation "x86 assembler for LAP.")
