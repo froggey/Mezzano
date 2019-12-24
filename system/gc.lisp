@@ -117,6 +117,15 @@
 (defun gc (&key full)
   "Run a garbage-collection cycle.
 If FULL is true, then a major collection will be forced."
+  (%gc :reason 'gc :full full :major-required full))
+
+(defun %gc (&key full reason major-required)
+  "Like GC, but internal. This is the entry point the allocation functions use."
+  (when *gc-enable-logging*
+    (mezzano.supervisor:debug-print-line
+     (if full "Full " "")
+     (if major-required "Major " "")
+     "GC triggered by " reason))
   ;; Clear the thread pool over this bit so that CONDITION-WAIT
   ;; doesn't try to call THREAD-POOL-BLOCK. T-P-B allocates and
   ;; that could cause a recursive call back into GC.
@@ -124,7 +133,7 @@ If FULL is true, then a major collection will be forced."
     (mezzano.supervisor:with-mutex (*gc-lock*)
       (let ((epoch *gc-epoch*))
         (setf *gc-requested* t)
-        (when full
+        (when (or major-required full)
           (setf *gc-force-major-cycle* t))
         (mezzano.supervisor:condition-notify *gc-cvar* t)
         (mezzano.supervisor:condition-wait-for (*gc-cvar* *gc-lock*)

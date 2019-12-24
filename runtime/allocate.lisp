@@ -256,9 +256,7 @@
        (cond (inhibit-gc
               (setf inhibit-gc nil))
              (t
-              (when sys.int::*gc-enable-logging*
-                (mezzano.supervisor:debug-print-line "Full GC due to pinned allocation."))
-              (sys.int::gc :full t)))))
+              (sys.int::%gc :reason :pinned :major-required t :full (not (zerop i)))))))
 
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
@@ -287,9 +285,7 @@
            (return result)))
        (when (> i *maximum-allocation-attempts*)
          (error 'storage-condition))
-       (when sys.int::*gc-enable-logging*
-         (mezzano.supervisor:debug-print-line "Full GC due to wired allocation."))
-       (sys.int::gc :full t)))
+       (sys.int::%gc :reason :wired :major-required t :full (not (zerop i)))))
 
 (defun with-live-objects-helper (&rest objects)
   (declare (ignore objects)))
@@ -473,11 +469,7 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
-       (when sys.int::*gc-enable-logging*
-         (mezzano.supervisor:debug-print-line
-          (if (eql gc-count 1) "" "Full ")
-          "GC due to general allocation."))
-       (sys.int::gc :full (not (eql gc-count 1)))
+       (sys.int::%gc :reason :general :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
 (defun %allocate-object (tag data size area)
@@ -579,11 +571,7 @@
        (when (> gc-count *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
-       (when sys.int::*gc-enable-logging*
-         (mezzano.supervisor:debug-print-line
-          (if (eql gc-count 1) "" "Full ")
-          "GC due to cons allocation."))
-       (sys.int::gc :full (not (eql gc-count 1)))
+       (sys.int::%gc :reason :cons :full (not (eql gc-count 1)))
        (go OUTER-LOOP))))
 
 (defun sys.int::make-simple-vector (size &optional area)
@@ -697,9 +685,7 @@
        (cond (inhibit-gc
               (setf inhibit-gc nil))
              (t
-              (when sys.int::*gc-enable-logging*
-                (mezzano.supervisor:debug-print-line "Full GC due to function allocation."))
-              (sys.int::gc :full t)))))
+              (sys.int::%gc :reason (if wiredp :wired-function :function) :major-required t :full (not (zerop i)))))))
 
 (defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
@@ -911,10 +897,7 @@
        (when (> gc-count mezzano.runtime::*maximum-allocation-attempts*)
          (error 'storage-condition))
        (incf gc-count)
-       (when sys.int::*gc-enable-logging*
-         (mezzano.supervisor:debug-print-line
-          "Full GC due to stack allocation."))
-       (sys.int::gc :full t)
+       (sys.int::%gc :reason :stack :full t)
        (go RETRY))))
 
 ;;; Card table.
