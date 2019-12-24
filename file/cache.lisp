@@ -55,7 +55,7 @@
 (defgeneric fs-read-block (stream block-n)
   (:documentation "Read block-n from file"))
 
-(defgeneric fs-write-block (stream)
+(defgeneric fs-write-block (stream buffer block-n)
   (:documentation "Write block-n to file"))
 
 ;; TODO: Give error when out of space
@@ -75,7 +75,7 @@
                                 (make-block stream))))))
       (setf (aref buffer offset) byte)
       (unless (eql buffer-n (dirty-block-n stream))
-        (fs-write-block stream)
+        (fs-write-block stream buffer (dirty-block-n stream))
         (setf (dirty-block stream) buffer
               (dirty-block-n stream) buffer-n))))
   (incf (file-position* stream)))

@@ -1291,17 +1291,17 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 ;; TODO: Update FAT when writing new cluster
 ;; TODO: Allocate new clusters
 ;; TODO: Have in mind :if-exists like :supersede
-(defmethod fs-write-block ((stream fat-file-stream))
-  (when (dirty-block-n stream)
+(defmethod fs-write-block ((stream fat-file-stream) cluster block-n)
+  (when block-n
     (do* ((host (host stream))
           (ffs (fat-structure host))
           (fat (fat host))
           (cluster-offset (buffer-position stream) (fat-value fat cluster-offset))
           (cluster-n 0 (1+ cluster-n)))
-         ((= cluster-n (dirty-block-n stream))
+         ((= cluster-n block-n)
           (block-device-write-sector (partition host)
                                      (first-sector-of-cluster ffs cluster-offset)
-                                     (dirty-block stream)
+                                     cluster
                                      (fat-%sectors-per-cluster ffs))))))
 
 (defun file-name (pathname)
