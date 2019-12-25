@@ -1755,6 +1755,10 @@ Additionally update the card table offset fields and clear the mark bits."
                   (- *wired-area-bump* *wired-area-base*))
     (verify-range *pinned-area-base*
                   (- *pinned-area-bump* *pinned-area-base*))
+    (verify-range *wired-function-area-limit*
+                  (- *function-area-base* *wired-function-area-limit*))
+    (verify-range *function-area-base*
+                  (- *function-area-limit* *function-area-base*))
     (verify-range (logior (ash +address-tag-general+ +address-tag-shift+)
                           +address-old-generation+
                           *old-gen-newspace-bit*)
