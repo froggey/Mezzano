@@ -1039,7 +1039,7 @@
     nil ; A0
     nil
     (decode-simple sys.lap-x86:cpuid)
-    nil
+    (decode-ev-gv sys.lap-x86:bt16 sys.lap-x86:bt32 sys.lap-x86:bt64)
     (decode-ev-gv-ib sys.lap-x86:shld16 sys.lap-x86:shld32 sys.lap-x86:shld64)
     (decode-ev-gv-cl sys.lap-x86:shld16 sys.lap-x86:shld32 sys.lap-x86:shld64)
     nil
@@ -1047,7 +1047,7 @@
     nil ; A8
     nil
     nil
-    nil
+    (decode-ev-gv sys.lap-x86:bts16 sys.lap-x86:bts32 sys.lap-x86:bts64)
     (decode-ev-gv-ib sys.lap-x86:shrd16 sys.lap-x86:shrd32 sys.lap-x86:shrd64)
     (decode-ev-gv-cl sys.lap-x86:shrd16 sys.lap-x86:shrd32 sys.lap-x86:shrd64)
     nil
@@ -1055,15 +1055,15 @@
     (decode-eb-gb sys.lap-x86:cmpxchg) ; B0
     (decode-ev-gv sys.lap-x86:cmpxchg sys.lap-x86:cmpxchg sys.lap-x86:cmpxchg)
     nil
-    nil
+    (decode-ev-gv sys.lap-x86:btr16 sys.lap-x86:btr32 sys.lap-x86:btr64)
     nil
     nil
     (decode-movzx8)
     (decode-movzx16)
     nil ; B8
     nil
-    nil
-    nil
+    (decode-ev-ib *group-8*)
+    (decode-ev-gv sys.lap-x86:btc16 sys.lap-x86:btc32 sys.lap-x86:btc64)
     nil
     nil
     (decode-movsx8)
@@ -1162,6 +1162,16 @@
     nil
     sys.lap-x86:push
     nil))
+
+(defparameter *group-8*
+  #(nil
+    nil
+    nil
+    nil
+    (nil sys.lap-x86:bt16 sys.lap-x86:bt32 sys.lap-x86:bt64)
+    (nil sys.lap-x86:bts16 sys.lap-x86:bts32 sys.lap-x86:bts64)
+    (nil sys.lap-x86:btr16 sys.lap-x86:btr32 sys.lap-x86:btr64)
+    (nil sys.lap-x86:btc16 sys.lap-x86:btc32 sys.lap-x86:btc64)))
 
 (defparameter *group-11*
   #((sys.lap-x86:mov8 sys.lap-x86:mov16 sys.lap-x86:mov32 sys.lap-x86:mov64)
