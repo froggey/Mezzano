@@ -208,9 +208,6 @@
                                   :new-instance replacement))))
              (with-live-objects (new-layout)
                ;; ###: Should this be a CAS?
-               ;; FIXME: This needs to keep the GC bits intact.
-               ;; Not a problem for objects on the dynamic heap, but will
-               ;; be an issue when dealing wired/pinned objects.
                (setf (sys.int::%object-ref-unsigned-byte-64 old-instance -1)
                      ;; Construct a new obsolete-instance header containing
                      ;; our new obsolete layout.
