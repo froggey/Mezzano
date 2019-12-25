@@ -940,7 +940,7 @@
 
 (defun card-table-dirty-gen (address)
   (let* ((cte (memref-unsigned-byte-32 +card-table-base+ (truncate address +card-size+)))
-         (gen (ldb +cart-table-entry-dirty-gen+ cte)))
+         (gen (ldb +card-table-entry-dirty-gen+ cte)))
     (if (eql gen 0)
         nil
         (1- gen))))
@@ -954,7 +954,7 @@
     (loop
        ;; TODO: Atomic or/and, instead of this cas loop.
        (let* ((original-cte (memref-unsigned-byte-32 +card-table-base+ index))
-              (new-cte (dpb entry +cart-table-entry-dirty-gen+ original-cte)))
+              (new-cte (dpb entry +card-table-entry-dirty-gen+ original-cte)))
          (when (eq (cas (memref-unsigned-byte-32 +card-table-base+ index)
                         original-cte
                         new-cte)
