@@ -1715,13 +1715,20 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cmpxchg16b (place)
   (modrm-single :gpr-64 place '(#x0F #xC7) 1))
 
-(define-instruction bt64 (bit-base bit-offset)
-  (modrm :gpr-64 bit-base bit-offset '(#x0F #xA3))
-  (imm-short :gpr-64 bit-base bit-offset '(#x0F #xBA) 4))
+(defmacro define-bit-instruction (name reg-opc imm-opc)
+  `(progn
+     ,@(loop
+          for class in '(:gpr-16 :gpr-32 :gpr-64)
+          for bit-width in '(16 32 64)
+          for width-name = (intern (format nil "~A~D" name bit-width))
+          collect `(define-instruction ,width-name (bit-base bit-offset)
+                     (modrm ,class bit-base bit-offset '(#x0F ,reg-opc))
+                     (imm-short ,class bit-base bit-offset '(#x0F #xBA) ,imm-opc)))))
 
-(define-instruction btr64 (bit-base bit-offset)
-  (modrm :gpr-64 bit-base bit-offset '(#x0F #xB3))
-  (imm-short :gpr-64 bit-base bit-offset '(#x0F #xBA) 6))
+(define-bit-instruction bt #xA3 4)
+(define-bit-instruction btc #xBB 7)
+(define-bit-instruction btr #xB3 6)
+(define-bit-instruction bts #xAB 5)
 
 (define-instruction invlpg (address)
   (when (and (not (keywordp address))
