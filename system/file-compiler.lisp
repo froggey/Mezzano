@@ -228,7 +228,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       (dotimes (i n-code-bytes)
         (setf (aref data i) (function-code-byte object (+ i 16))))
       (dotimes (i gc-info-length)
-        (setf (aref data (+ n-code-bytes i)) (memref-unsigned-byte-8 gc-info-address i)))
+        (setf (aref data (+ n-code-bytes i)) (function-gc-metadata-byte object i)))
       (when (not *llf-dry-run*)
         (write-sequence data stream)))))
 

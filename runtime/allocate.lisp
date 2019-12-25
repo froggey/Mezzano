@@ -707,7 +707,8 @@
       (setf (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16))
       ;; Initialize code.
       (dotimes (i (length machine-code))
-        (setf (sys.int::memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
+        (setf (sys.int::%object-ref-unsigned-byte-8 object (+ i 8))
+              (aref machine-code i)))
       ;; Apply fixups.
       (loop
          for (fixup . byte-offset) in fixups
@@ -721,22 +722,24 @@
                               (:symbol-binding-cache-sentinel
                                (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
                               (t (error "Unsupported fixup ~S." fixup)))))
-                 (setf (sys.int::memref-unsigned-byte-32 (+ address byte-offset))
+                 (setf (sys.int::%object-ref-unsigned-byte-32-unscaled object (+ -8 byte-offset))
                        value)))
               (sys.int::function-reference
                (let* ((entry (%object-slot-address fixup sys.int::+fref-code+))
                       (absolute-origin (+ address byte-offset 4))
                       (value (- entry absolute-origin)))
                  (check-type value (signed-byte 32))
-                 (setf (sys.int::memref-signed-byte-32 (+ address byte-offset))
+                 (setf (sys.int::%object-ref-signed-byte-32-unscaled object (+ -8 byte-offset))
                        value)))))
       ;; Initialize constant pool.
-      (dotimes (i (length constants))
-        (setf (sys.int::memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+      (let ((constant-pool-base (1- (* mc-size 2))))
+        (dotimes (i (length constants))
+          (setf (sys.int::%object-ref-t object (+ constant-pool-base i))
+                (aref constants i))))
       ;; Initialize GC info.
-      (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
+      (let ((gc-info-offset (+ -8 (* mc-size 16) (* pool-size 8))))
         (dotimes (i (length gc-info))
-          (setf (sys.int::memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
+          (setf (sys.int::%object-ref-unsigned-byte-8 object (+ gc-info-offset i)) (aref gc-info i))))
       object)))
 
 (defun sys.int::%allocate-instance (layout)

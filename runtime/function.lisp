@@ -32,17 +32,16 @@
   (%type-check function +object-tag-function+ 'compiled-function)
   (check-type offset (integer 0))
   (assert (< offset (function-code-size function)))
-  (let ((address (logand (lisp-object-address function) -16)))
-    (memref-unsigned-byte-8 address offset)))
+  (%object-ref-unsigned-byte-8 function (- offset 8)))
 
 (defun function-gc-metadata-byte (function offset)
   (%type-check function +object-tag-function+ 'compiled-function)
   (check-type offset (integer 0))
   (assert (< offset (function-gc-metadata-size function)))
-  (let* ((address (logand (lisp-object-address function) -16))
-         (mc-size (function-code-size function))
-         (n-constants (function-pool-size function)))
-    (memref-unsigned-byte-8 address (+ mc-size (* n-constants 8) offset))))
+  (let* ((mc-size (function-code-size function))
+         (n-constants (function-pool-size function))
+         (gcmd-base (+ -8 mc-size (* n-constants 8))))
+    (%object-ref-unsigned-byte-8 function (+ gcmd-base offset))))
 
 (defun function-gc-info (function)
   "Return the address of and the number of bytes in FUNCTION's GC info."
