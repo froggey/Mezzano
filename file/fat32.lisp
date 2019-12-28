@@ -475,19 +475,6 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (fat-%sectors-per-fat ffs))
      (root-dir-sectors ffs)))
 
-(defun first-root-dir-sector (fat12)
-  (- (first-data-sector fat12)
-     (root-dir-sectors fat12)))
-
-(defmethod first-root-dir-cluster ((fat12 fat12))
-  (/ (+ (first-root-dir-sector fat12)
-        (- (first-data-sector fat12))
-        (ash (fat-%sectors-per-cluster fat12) 1))
-     (fat-%sectors-per-cluster fat12)))
-
-(defmethod first-root-dir-cluster ((fat32 fat32))
-  (fat32-%root-cluster fat32))
-
 (defun first-sector-of-cluster (ffs cluster-n)
   (+ (* (- cluster-n 2)
         (fat-%sectors-per-cluster ffs))
@@ -548,6 +535,20 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                          result
                          :offset (* n-cluster spc sector-size)))))
 
+(defmethod read-root-directory (disk (fat12 fat12) fat)
+  (declare (ignore fat))
+  (let* ((root-dir-start (+ (fat-%n-reserved-sectors fat12)
+                            (* (fat-%n-fats fat12)
+                               (fat-%sectors-per-fat fat12))))
+         (n-sectors (root-dir-sectors fat12))
+         (result (make-array (* n-sectors (fat-%bytes-per-sector fat12))
+                             :element-type '(unsigned-byte 8))))
+    (block-device-read disk root-dir-start n-sectors result)
+    result))
+
+(defmethod read-root-directory (disk (fat32 fat32) fat)
+  (read-file fat32 disk (fat32-%root-cluster fat32) fat))
+
 (defun write-file (ffs disk start-cluster fat array file-length)
   (let* ((spc (fat-%sectors-per-cluster ffs))
          (bytes-per-cluster (* spc (block-device-sector-size disk))))
@@ -579,7 +580,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                           :offset byte-offset))))
 
 (defun write-directory (ffs disk start-cluster fat array)
-  (write-file ffs disk start-cluster fat array (length array)))
+  (cond (start-cluster
+         (write-file ffs disk start-cluster fat array (length array)))
+        ((typep ffs 'fat32)
+         (write-file ffs disk (fat32-%root-cluster ffs) fat array (length array)))
+        (T
+         (let* ((root-dir-start (+ (fat-%n-reserved-sectors ffs)
+                                   (* (fat-%n-fats ffs)
+                                      (fat-%sectors-per-fat ffs))))
+                (n-sectors (root-dir-sectors ffs)))
+           (block-device-write disk root-dir-start n-sectors array)))))
 
 (defun read-attributes (directory offset)
   (aref directory (+ offset 11)))
@@ -1056,9 +1066,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                      :area :wired
                                      :element-type '(unsigned-byte 8)
                                      :initial-element 0))
-                (dot-dot-cluster (if (= cluster-n (first-root-dir-cluster ffs))
-                                     0
-                                     cluster-n)))
+                ;; (null cluster-n) => root dir, when ".." is root dir,
+                ;; spec requires 0 for ".." cluster
+                (dot-dot-cluster (or cluster-n 0)))
             (fill-in-entry new-dir
                            (create-directory-entry new-dir "." "" NIL 0)
                            cluster-number)
@@ -1152,7 +1162,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   "If the partition contains a FAT file system, return the Volume ID otherwise NIL"
   ;; read first sector and check for FAT file system
   (let* ((sector-size (block-device-sector-size partition))
-         (buffer (make-array sector-size)))
+         (buffer (make-array sector-size :element-type '(unsigned-byte 8))))
     (block-device-read partition 0 1 buffer)
     (cond ((bpb-v7-p buffer)      ;; Check for version 7.0 BPB
            (sys.int::ub32ref/le buffer 67))
@@ -1162,7 +1172,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defun mount-fat (partition host-name)
   "If the partition contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
   (let* ((sector-size (block-device-sector-size partition))
-         (buffer (make-array sector-size)))
+         (buffer (make-array sector-size :element-type '(unsigned-byte 8))))
     (block-device-read partition 0 1 buffer)
     (when (not (or (bpb-v7-p buffer) (bpb-v4-p buffer)))
       (error "partition ~A does not contain a FAT file system" partition))
@@ -1310,9 +1320,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defun open-file-metadata (host pathname)
   (loop :with ffs := (fat-structure host)
+        :with fat := (fat host)
         :with disk := (partition host)
-        :with directory-cluster := (first-root-dir-cluster ffs)
-        :with directory := (read-file ffs disk (first-root-dir-cluster ffs) (fat host))
+        :with directory-cluster := NIL
+        :with directory := (read-root-directory disk ffs fat)
         :with file-name := (file-name pathname)
         :for directory-name :in (rest (pathname-directory pathname))
         :do (do-files (start) directory
@@ -1323,7 +1334,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                       directory (read-file ffs
                                            disk
                                            (read-first-cluster directory start)
-                                           (fat host)))
+                                           fat))
                 (return)))
         :finally (do-files (start) directory
                    (return-from open-file-metadata (values directory directory-cluster))
@@ -1644,7 +1655,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
     (with-fat-host-locked (host)
       (remove-duplicates
        (match-in-directory disk ffs fat
-                           (read-file ffs disk (first-root-dir-cluster ffs) fat)
+                           (read-root-directory disk ffs fat)
                            (cdr dir-list)
                            pathname)
        :test #'equal))))
@@ -1657,8 +1668,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         :with ffs := (fat-structure host)
         :with fat := (fat host)
         :with disk := (partition host)
-        :with directory-cluster := (first-root-dir-cluster ffs)
-        :with directory := (read-file ffs disk (first-root-dir-cluster ffs) fat)
+        :with directory-cluster := NIL
+        :with directory := (read-root-directory disk ffs fat)
         :for directory-name :in (rest (pathname-directory pathname))
         :do (do-files (start) directory
                 (setf directory-cluster (create-file host directory directory-cluster directory-name nil
