@@ -139,8 +139,7 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :rax (:object :r8 -1))
   ;; Simple vector object tag is zero.
-  (sys.lap-x86:test8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                                sys.int::+object-type-shift+))
+  (sys.lap-x86:test8 :al :al)
   (sys.lap-x86:jnz type-error)
   ;; Get number of values.
   (sys.lap-x86:shr64 :rax #.sys.int::+object-data-shift+)
@@ -253,13 +252,8 @@
   (sys.lap-x86:jnz OBJECTS-UNEQUAL)
   ;; Both are objects.
   ;; Test that both are the same kind of object.
-  (sys.lap-x86:mov64 :rax (:object :r8 -1))
-  (sys.lap-x86:and8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:mov64 :rdx (:object :r9 -1))
-  (sys.lap-x86:and8 :dl #.(ash (1- (ash 1 sys.int::+object-type-size+))
-                               sys.int::+object-type-shift+))
-  (sys.lap-x86:cmp8 :al :dl)
+  (sys.lap-x86:mov8 :al (:object :r8 -1))
+  (sys.lap-x86:cmp8 (:object :r9 -1) :al)
   (sys.lap-x86:jne OBJECTS-UNEQUAL)
   ;; They must be numbers. Characters were handled above.
   (sys.lap-x86:sub8 :al #.(ash sys.int::+first-numeric-object-tag+
