@@ -295,10 +295,10 @@
                                (when thread-slot
                                  (push thread-slot annotations))))
                            (when (and (not (ea-index operand))
-                                      (eql (ea-disp operand) -3))
+                                      (eql (ea-disp operand) (- sys.int::+tag-cons+)))
                              (push "car" annotations))
                            (when (and (not (ea-index operand))
-                                      (eql (ea-disp operand) 5))
+                                      (eql (ea-disp operand) (+ (- sys.int::+tag-cons+) 8)))
                              (push "cdr" annotations))
                            (format t "~S" (append (if (ea-segment operand)
                                                       (list (ea-segment operand))
