@@ -209,6 +209,10 @@ This is required to make the GC interrupt safe."
                     return-address
                     :major)))
 
+(declaim (inline object-base-address))
+(defun object-base-address (object)
+  (logand (lisp-object-address object) (lognot #xF)))
+
 (defun scavenge-object (object cycle-kind)
   "Scavenge one object, returning an updated pointer."
   (when (immediatep object)
@@ -221,7 +225,7 @@ This is required to make the GC interrupt safe."
     ;; and don't need to move.
     (scavenge-object (mezzano.runtime::%unpack-instance-header object) cycle-kind)
     (return-from scavenge-object object))
-  (let ((address (ash (%pointer-field object) 4)))
+  (let ((address (object-base-address object)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
       ((#.+address-tag-general+
         #.+address-tag-cons+)
@@ -265,7 +269,7 @@ This is required to make the GC interrupt safe."
 
 (defun scan-generic (object size cycle-kind)
   "Scavenge SIZE words pointed to by OBJECT."
-  (scavenge-many (ash (%pointer-field object) 4) size cycle-kind))
+  (scavenge-many (object-base-address object) size cycle-kind))
 
 (defun scavenge-stack-n-incoming-arguments (frame-pointer stack-pointer framep
                                             layout-length n-args cycle-kind)
@@ -311,7 +315,7 @@ This is required to make the GC interrupt safe."
                           ;; DX root, convert it to a normal object pointer and scan.
                           (gc-log
                            "Scav DX root " (lisp-object-address value))
-                          (scan-object (%%assemble-value (ash (%pointer-field value) 4)
+                          (scan-object (%%assemble-value (object-base-address value)
                                                          +tag-object+)
                                        cycle-kind))
                          ;; Normal object. Don't do anything interesting.
@@ -817,7 +821,7 @@ This is required to make the GC interrupt safe."
         ;; Scavenge the MV area.
         (let* ((n-values (+ (mezzano.supervisor:thread-state-rcx-value thread) multiple-values))
                (n-mv-area-values (max 0 (- n-values 5))))
-          (scavenge-many (+ (ash (%pointer-field thread) 4)
+          (scavenge-many (+ (object-base-address thread)
                             8
                             (* mezzano.supervisor::+thread-mv-slots+ 8))
                          n-mv-area-values
@@ -1113,7 +1117,7 @@ This is required to make the GC interrupt safe."
 
 (defun scan-function (object cycle-kind)
   ;; Scan the constant pool.
-  (let* ((address (ash (%pointer-field object) 4))
+  (let* ((address (object-base-address object))
          (header (%object-header-data object))
          (mc-size (* (ldb +function-header-code-size+ header) 16))
          (pool-size (ldb +function-header-pool-size+ header)))
@@ -1131,14 +1135,14 @@ This is required to make the GC interrupt safe."
 (defun transport-object (object cycle-kind)
   "Transport LENGTH words from oldspace to newspace, returning
 a pointer to the new object. Leaves a forwarding pointer in place."
-  (let* ((address (ash (%pointer-field object) 4))
+  (let* ((address (object-base-address object))
          (first-word (memref-t address 0)))
     ;; Check for a GC forwarding pointer.
     ;; Do this before getting the length as the forwarding pointer will
     ;; have overwritten the header word.
     (when (%value-has-tag-p first-word +tag-gc-forward+)
       (return-from transport-object
-        (%%assemble-value (ash (%pointer-field first-word) 4)
+        (%%assemble-value (object-base-address first-word)
                           (%tag-field object))))
     (when (and (or (instance-p object)
                    (funcallable-instance-p object))
@@ -1205,7 +1209,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                     delta)))))
 
 (defun really-transport-object (object cycle-kind)
-  (let* ((address (ash (%pointer-field object) 4))
+  (let* ((address (object-base-address object))
          (start-time (when *gc-enable-transport-metering* (tsc)))
          (length (object-size object))
          (new-address nil))
@@ -1366,7 +1370,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (logtest field byte))))
 
 (defun mark-pinned-object (object)
-  (let ((address (ash (%pointer-field object) 4)))
+  (let ((address (object-base-address object)))
     (cond ((consp object)
            ;; The object header for conses is 16 bytes behind the address.
            (decf address 16)
@@ -1612,7 +1616,7 @@ Additionally update the card table offset fields and clear the mark bits."
       ;; and don't need to move.
       (verify-object (mezzano.runtime::%unpack-instance-header object))
       (return-from verify-one object))
-    (let ((object-address (ash (%pointer-field object) 4)))
+    (let ((object-address (object-base-address object)))
       (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) object-address)
         ((#.+address-tag-general+
           #.+address-tag-cons+)
@@ -1623,7 +1627,7 @@ Additionally update the card table offset fields and clear the mark bits."
 
 (defun verify-generic (object size)
   "Scavenge SIZE words pointed to by OBJECT."
-  (let ((address (ash (%pointer-field object) 4)))
+  (let ((address (object-base-address object)))
     (dotimes (i size)
       (verify-one address (+ address (* i 8))))))
 
@@ -2245,7 +2249,7 @@ No type information will be provided."
     ;; Immediate objects are always live.
     (return-from examine-weak-pointer-key
       (values key t)))
-  (let ((address (ash (%pointer-field key) 4)))
+  (let ((address (object-base-address key)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
       ((#.+address-tag-general+
         #.+address-tag-cons+)
@@ -2253,7 +2257,7 @@ No type information will be provided."
        (let ((first-word (memref-t address 0)))
          (cond ((%value-has-tag-p first-word +tag-gc-forward+)
                 ;; Object is still live.
-                (values (%%assemble-value (ash (%pointer-field first-word) 4)
+                (values (%%assemble-value (object-base-address first-word)
                                           (%tag-field key))
                         t))
                (t ;; Object is dead.

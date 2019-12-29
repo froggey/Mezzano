@@ -702,7 +702,7 @@
                             (dpb (length gc-info) sys.int::+function-header-metadata-size+ 0))
                     total
                     wired))
-           (address (ash (sys.int::%pointer-field object) 4)))
+           (address (sys.int::object-base-address object)))
       ;; Initialize entry point.
       (setf (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16))
       ;; Initialize code.
