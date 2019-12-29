@@ -699,13 +699,43 @@ the GC must be deferred during FILL-WORDS."
   (check-type value (unsigned-byte 32))
   (setf (sys.int::%io-port/32 port) value))
 
-;; TODO...
-(defun mezzano.runtime::%fixnum-left-shift (integer count)
+(sys.int::define-lap-function %fixnum-left-shift ((integer count))
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:cmp64 :r9 #.(ash (- 63 sys.int::+n-fixnum-bits+)
+                                sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ja DO-BIG-SHIFT)
+  ;; Sign extend INTEGER into :RDX.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:cqo)
+  (sys.lap-x86:mov64 :rsi :rdx)
+  (sys.lap-x86:mov32 :ecx :r9d)
+  (sys.lap-x86:shr32 :ecx #.sys.int::+n-fixnum-bits+) ; unbox fixnum count
+  ;; Check for overflow.
+  ;; Shift bits from INTEGER into :RSI and check if it stops matching the
+  ;; extended sign.
+  ;; TODO: This could be cleverer, do the shift and construct the bignum.
+  (sys.lap-x86:shld64 :rsi :rax :cl) ; High bits
+  (sys.lap-x86:cmp64 :rsi :rdx)
+  (sys.lap-x86:jne DO-BIG-SHIFT) ; overflow occured.
+  (sys.lap-x86:shl64 :rax :cl) ; Do the actual shift.
+  (sys.lap-x86:cqo)
+  (sys.lap-x86:cmp64 :rsi :rdx)
+  (sys.lap-x86:jne DO-BIG-SHIFT) ; overflow occured.
+  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  ;; Bail out, call the helper.
+  DO-BIG-SHIFT
+  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jmp (:named-call %fixnum-left-shift-slow)))
+
+(defun %fixnum-left-shift-slow (integer count)
   (dotimes (i count integer)
     (setf integer (+ integer integer))))
 
 ;; Avoid a trip through FUNCTION-REFERENCE.
 (sys.int::define-lap-function sys.int::get-raise-undefined-function-fref (())
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :r8 (:function sys.int::raise-undefined-function))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))

@@ -255,7 +255,7 @@
              (= x y))))))
 
 ;; ARM makes it difficult to detect overflow when shifting left.
-(declaim (inline %fixnum-left-shift))
+;;(declaim (inline %fixnum-left-shift))
 (defun %fixnum-left-shift (integer count)
   (dotimes (i count)
      (setf integer (+ integer integer)))
