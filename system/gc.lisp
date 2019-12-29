@@ -1342,22 +1342,38 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun object-size-error (object)
   (mezzano.supervisor:panic "Sizing invalid object " object))
 
-(defun set-mark-bit (address)
-  "Set the mark bit for ADDRESS, returning the old value."
-  (when (logtest address (1- +octets-per-mark-bit+))
-    (mezzano.supervisor:panic "Tried to set mark bit for misaligned address " address))
-  (multiple-value-bind (byte-index bit-index)
-      (truncate (truncate address +octets-per-mark-bit+) 8)
-    (let ((byte (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index))
-          (field (ash 1 bit-index)))
-      (cond ((logtest field byte)
-             ;; Mark bit set already.
-             t)
-            (t
-             ;; Not set, set it.
-             (setf (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index)
-                   (logior byte field))
-             nil)))))
+#+x86-64
+(define-lap-function set-mark-bit ((object))
+  "Set the mark bit for OBJECT, returning the old value."
+  (sys.lap-x86:cmp64 :rcx #.(ash 1 +n-fixnum-bits+))
+  (sys.lap-x86:jne BAIL)
+  ;; Convert to bit index into card table.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax #.(rational (log +octets-per-mark-bit+ 2)))
+  ;; Fetch & set the bit.
+  (sys.lap-x86:mov64 :rsi #.+mark-bit-region-base+)
+  (sys.lap-x86:bts64 (:rsi) :rax)
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:cmov64c :r8 (:constant t))
+  (sys.lap-x86:ret)
+  BAIL
+  (sys.lap-x86:jmp (:named-call set-mark-bit-slow)))
+
+(defun #-x86-64 set-mark-bit #+x86-64 set-mark-bit-slow (object)
+  "Set the mark bit for OBJECT, returning the old value."
+  (let ((address (object-base-address object)))
+    (multiple-value-bind (byte-index bit-index)
+        (truncate (truncate address +octets-per-mark-bit+) 8)
+      (let ((byte (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index))
+            (field (ash 1 bit-index)))
+        (cond ((logtest field byte)
+               ;; Mark bit set already.
+               t)
+              (t
+               ;; Not set, set it.
+               (setf (memref-unsigned-byte-8 +mark-bit-region-base+ byte-index)
+                     (logior byte field))
+               nil))))))
 
 (defun get-mark-bit (address)
   "Read the mark bit for address."
@@ -1370,21 +1386,26 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (logtest field byte))))
 
 (defun mark-pinned-object (object)
-  (let ((address (object-base-address object)))
-    (cond ((consp object)
-           ;; The object header for conses is 16 bytes behind the address.
-           (decf address 16)
+  (cond ((consp object)
+         ;; Reconstruct an object-tagged cons for set-mark-bit.
+         ;; The object header for conses is 16 bytes behind the address.
+         (let ((address (- (object-base-address object) 16)))
            (when (not (eql (ldb (byte +object-type-size+ +object-type-shift+)
                                 (memref-unsigned-byte-8 address))
                            +object-tag-cons+))
-             (mezzano.supervisor:panic "Invalid pinned cons " object)))
-          ;; If it isn't a cons, then it must be a regular object.
-          ;; Make sure it isn't a freelist entry.
-          ((mezzano.runtime::%%object-of-type-p object +object-tag-freelist-entry+)
-           (mezzano.supervisor:panic "Marking freelist entry " object)))
-    (when (not (set-mark-bit address))
-      ;; Was not marked, scan it.
-      (scan-object object :major))))
+             (mezzano.supervisor:panic "Invalid pinned cons " object))
+           (when (not (set-mark-bit (%%assemble-value address +tag-object+)))
+             ;; Was not marked, scan it.
+             (scan-object object :major))))
+        ;; If it isn't a cons, then it must be a regular object.
+        ;; Make sure it isn't a freelist entry.
+        ((mezzano.runtime::%%object-of-type-p object +object-tag-freelist-entry+)
+         (mezzano.supervisor:panic "Marking freelist entry " object))
+        (t
+         ;; Normal object.
+         (when (not (set-mark-bit object))
+           ;; Was not marked, scan it.
+           (scan-object object :major)))))
 
 (defun scavenge-dynamic (cycle-kind)
   (loop
