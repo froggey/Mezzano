@@ -613,7 +613,7 @@
 
  (gethash (list 1 #x80) *pages*) :system-control
  (gethash (list 1 #x81) *pages*) :system-power-down
- (gethash (list 1 #x82) *pages*) :system-sleeep
+ (gethash (list 1 #x82) *pages*) :system-sleep
  (gethash (list 1 #x83) *pages*) :system-wake-up
 
  (gethash (list 7 #xE0) *pages*) :left-control
