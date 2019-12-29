@@ -164,7 +164,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defun broadcast-ipi (type vector &optional including-self)
   ;; BROADCAST-IPI can be called very early due to thread wakeups, before
   ;; the lapic is mapped by INITIALIZE-CPU.
-  (when *lapic-address*
+  (when (and (boundp '*lapic-address*)
+             *lapic-address*)
     ;; Disable interrupts to prevent cross-cpu migration from
     ;; fouling up behaviour of INCLUDING-SELF.
     (safe-without-interrupts (type vector including-self)
