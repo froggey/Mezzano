@@ -12,68 +12,109 @@
     (lexical-variable
      (lexical-variable-name var))))
 
-;; Rewrites:
-;; (lambda (&key (x x-init) (y nil y-p) z) ...)
-;; into something like:
-;; (lambda (&rest args)
-;;   (let ((x-val nil)
-;;         (x-suppliedp nil)
-;;         (y-val nil)
-;;         (y-suppliedp nil)
-;;         (z-val nil)
-;;         (z-suppliedp nil)
-;;         (allow-other-keys nil)
-;;         (itr args))
-;;     (tagbody
-;;        (go TEST)
-;;      HEAD
-;;        (when (eql (car itr1) :allow-other-keys)
-;;          (setf allow-other-keys (car (cdr itr)))
-;;          (go OUT))
-;;        (setq itr (cddr itr))
-;;      TEST
-;;        (when itr
-;;          (go HEAD))
-;;      OUT)
-;;     (setf itr args)
-;;     (tagbody
-;;        (go TEST)
-;;      HEAD
-;;        (if (null (cdr itr))
-;;            (error "Odd number of keys"))
-;;        (let ((kw (car itr)))
-;;          (cond ((eql kw :x)
-;;                 (unless x-suppliedp
-;;                   (setq x-suppliedp t
-;;                         x-val (car (cdr itr)))))
-;;                ((eql kw :y)
-;;                 (unless y-suppliedp
-;;                   (setq y-suppliedp t
-;;                         y-val (car (cdr itr)))))
-;;                ((eql kw :z)
-;;                 (unless z-suppliedp
-;;                   (setq z-suppliedp t
-;;                         z-val (car (cdr itr)))))
-;;                ((eql kw :allow-other-keys))
-;;                (t
-;;                 (unless allow-other-keys
-;;                   (error "Unknown keyword ~S" kw)))))
-;;        (setq itr (cddr itr))
-;;      TEST
-;;        (when itr
-;;          (go HEAD)))
-;;     (let* ((x (if x-suppliedp
-;;                   x-val
-;;                   x-init))
-;;            (y (if y-suppliedp
-;;                   y-val
-;;                   nil))
-;;            (y-p y-suppliedp)
-;;            (z (if z-suppliedp
-;;                   z-val
-;;                   nil)))
-;;       ...)))
-(defun lower-key-arguments* (form body rest keys allow-other-keys)
+(defun emit-even-keyword-check (form count)
+  ;; Test even number of keyword arguments.
+  (let ((n-ordinary-arguments (+ (length (lambda-information-required-args form))
+                                 (length (lambda-information-optional-args form)))))
+    `(if (call eq (call %fast-fixnum-logand
+                        ,(etypecase count
+                           (special-variable
+                            `(call symbol-value (quote ,count)))
+                           (lexical-variable
+                            count))
+                        '1)
+               '0)
+         ,(if (oddp n-ordinary-arguments)
+              '(call error
+                'sys.int::simple-program-error
+                ':format-control '"Odd number of &KEY arguments.")
+              '(quote nil))
+         ,(if (oddp n-ordinary-arguments)
+              '(quote nil)
+              '(call error
+                'sys.int::simple-program-error
+                ':format-control '"Odd number of &KEY arguments.")))))
+
+(defun emit-key-correctness-check (keys rest)
+  ;; Check that all keywords provided are keywords accepted by
+  ;; this function, unless :A-O-K is supplied and true.
+  (let ((valid-keywords (loop
+                           for ((keyword var) init-form suppliedp) in keys
+                           collect keyword)))
+    ;; The list evenness was checked earlier, so it is safe to use
+    ;; the raw %car/%cdr functions.
+    `(let ((aok (quote nil)))
+       (progn
+         ;; Look for :ALLOW-OTHER-KEYS.
+         (let ((aok-itr ,rest))
+           (tagbody aok-tb
+              (aok-entry
+               (go aok-test aok-tb))
+              (aok-head
+               (progn
+                 (if (call eq (call mezzano.runtime::%car aok-itr) (quote :allow-other-keys))
+                     (progn
+                       (setq aok (call mezzano.runtime::%car (call mezzano.runtime::%cdr aok-itr)))
+                       (go aok-out aok-tb))
+                     (quote nil))
+                 (setq aok-itr (call mezzano.runtime::%cdr (call mezzano.runtime::%cdr aok-itr)))
+                 (go aok-test aok-tb)))
+              (aok-test
+               (if aok-itr
+                   (go aok-head aok-tb)
+                   (go aok-out aok-tb)))
+              (aok-out
+               (quote nil))))
+         (if aok
+             (quote nil)
+             ;; And keyword checking, if AOK was nil.
+             (let ((chk-itr ,rest))
+               (tagbody chk-tb
+                  (chk-entry
+                   (go chk-test chk-tb))
+                  (chk-head
+                   (progn
+                     (let ((current-keyword (call mezzano.runtime::%car chk-itr)))
+                       (if (call member current-keyword (quote (:allow-other-keys ,@valid-keywords)))
+                           (quote nil)
+                           (call error
+                                 'sys.int::simple-program-error
+                                 ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
+                                 ':format-arguments (call list current-keyword (quote ,valid-keywords)))))
+                     (setq chk-itr (call mezzano.runtime::%cdr (call mezzano.runtime::%cdr chk-itr)))
+                     (go chk-test chk-tb)))
+                  (chk-test
+                   (if chk-itr
+                       (go chk-head chk-tb)
+                       (go chk-out chk-tb)))
+                  (chk-out
+                   (quote nil)))))))))
+
+(defun emit-keyword-arg (rest keyword value suppliedp)
+  ;; Perform processing for a single keyword argument.
+  ;; Walk the list and look for it.
+  `(let ((itr ,rest))
+     (tagbody tb
+        (entry
+         (go test tb))
+        (head
+         (progn
+           (if (call eq (call mezzano.runtime::%car itr) (quote ,keyword))
+               (progn
+                 (setq ,value (call mezzano.runtime::%car (call mezzano.runtime::%cdr itr)))
+                 (setq ,suppliedp (quote t))
+                 (go out tb))
+               (quote nil))
+           (setq itr (call mezzano.runtime::%cdr (call mezzano.runtime::%cdr itr)))
+           (go test tb)))
+        (test
+         (if itr
+             (go head tb)
+             (go out tb)))
+        (out
+         (quote nil)))))
+
+(defun lower-key-arguments* (form body original-rest keys allow-other-keys count)
   (let* ((values (mapcar (lambda (x)
                            (make-instance 'lexical-variable
                                           :inherit form
@@ -88,39 +129,13 @@
                                                        (gensym))
                                              :definition-point *current-lambda*))
                             keys))
-         (aok (make-instance 'lexical-variable
-                             :inherit form
-                             :name (gensym "ALLOW-OTHER-KEYS")
-                             :definition-point *current-lambda*))
-         (itr (make-instance 'lexical-variable
-                             :inherit form
-                             :name (gensym)
-                             :definition-point *current-lambda*))
-         (current-keyword (make-instance 'lexical-variable
-                                         :inherit form
-                                         :name (gensym)
-                                         :definition-point *current-lambda*)))
-    (labels ((create-key-test-list (key-args values suppliedp)
-               (cond (key-args
-                      `(if (call eql ,current-keyword (quote ,(caar (first key-args))))
-                           (if ,(first suppliedp)
-                               (quote nil)
-                               (progn
-                                 (setq ,(first suppliedp) 't)
-                                 (setq ,(first values) (call cadr ,itr))))
-                           ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
-                     (allow-other-keys
-                      '(quote nil))
-                     (t
-                      `(if ,aok
-                           (quote nil)
-                           (if (call eql ,current-keyword (quote :allow-other-keys))
-                               (quote nil)
-                               (call error
-                                     'sys.int::simple-program-error
-                                     ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
-                                     ':format-arguments (call list ,current-keyword (quote ,(mapcar 'caar keys)))))))))
-             (bind-variable (name value)
+         (rest (if (lexical-variable-p original-rest)
+                   original-rest
+                   (make-instance 'lexical-variable
+                                  :inherit form
+                                  :name (gensym "REST")
+                                  :definition-point *current-lambda*))))
+    (labels ((bind-variable (name value)
                (list name
                      (wrap-type-check name (ast value form))))
              (create-key-let-body (key-args values suppliedp)
@@ -136,55 +151,23 @@
                      (t body))))
       (ast `(let (,@(mapcar (lambda (x) (list x '(quote nil))) values)
                   ,@(mapcar (lambda (x) (list x '(quote nil))) suppliedp)
-                    (,aok (quote ,(if allow-other-keys t nil)))
-                    (,itr ,(etypecase rest
-                             (special-variable
-                              `(call symbol-value (quote ,rest)))
-                             (lexical-variable
-                              rest))))
+                  ,@(unless (lexical-variable-p original-rest)
+                      (list (list rest `(call symbol-value (quote ,original-rest))))))
               (progn
-                ,@(when (not allow-other-keys)
-                    `((tagbody aok-tb
-                         (aok-entry
-                          (go aok-test aok-tb))
-                         (aok-head
-                          (progn
-                            (if (call eql (call car ,itr) (quote :allow-other-keys))
-                                (progn
-                                  (setq ,aok (call car (call cdr ,itr)))
-                                  (go aok-out aok-tb))
-                                (quote nil))
-                            (setq ,itr (call cddr ,itr))
-                            (go aok-test aok-tb)))
-                         (aok-test
-                          (if ,itr
-                              (go aok-head aok-tb)
-                              (go aok-out aok-tb)))
-                         (aok-out
-                          (quote nil)))
-                      (setq ,itr ,(etypecase rest
-                                    (special-variable
-                                     `(call symbol-value (quote ,rest)))
-                                    (lexical-variable
-                                     rest)))))
-                (tagbody tb
-                   (entry
-                    (go test-tag tb))
-                   (head-tag
+                ;; No processing at all if the list is empty.
+                ;; This is needed to get the list length evenness check
+                ;; right when optional arguments are not supplied.
+                (if ,rest
                     (progn
-                      (if (call null (call cdr ,itr))
-                          (call error
-                                'sys.int::simple-program-error
-                                ':format-control '"Odd number of &KEY arguments.")
-                          (quote nil))
-                      (let ((,current-keyword (call car ,itr)))
-                        ,(create-key-test-list keys values suppliedp))
-                      (setq ,itr (call cddr ,itr))
-                      (go test-tag tb)))
-                   (test-tag
-                    (if ,itr
-                        (go head-tag tb)
-                        (quote nil))))
+                      ,(emit-even-keyword-check form count)
+                      ,@(unless allow-other-keys
+                          (list (emit-key-correctness-check keys rest)))
+                      ,@(loop
+                           for ((keyword original-value) init-form original-suppliedp) in keys
+                           for value in values
+                           for suppliedp in suppliedp
+                           collect (emit-keyword-arg rest keyword value suppliedp)))
+                    (quote nil))
                 ,(create-key-let-body keys values suppliedp)))
            form))))
 
@@ -262,6 +245,16 @@
 (defmethod lower-keyword-arguments-1 ((form lambda-information))
   (let ((*current-lambda* form))
     (when (lambda-information-enable-keys form)
+      ;; TODO: If &REST or &COUNT are special, they should be lowered to
+      ;; lexicals and those lexicals used for the &KEY processing.
+      (unless (lambda-information-count-arg form)
+        ;; Add in a &COUNT arg.
+        (setf (lambda-information-count-arg form)
+              (make-instance 'lexical-variable
+                             :inherit form
+                             :name (gensym "COUNT")
+                             :definition-point *current-lambda*
+                             :ignore :maybe)))
       (unless (lambda-information-rest-arg form)
         ;; Add in a &REST arg and make it dynamic-extent.
         (setf (lambda-information-rest-arg form)
@@ -276,7 +269,8 @@
                                   (lambda-information-body form)
                                   (lambda-information-rest-arg form)
                                   (lambda-information-key-args form)
-                                  (lambda-information-allow-other-keys form)))
+                                  (lambda-information-allow-other-keys form)
+                                  (lambda-information-count-arg form)))
       ;; Remove the old keyword arguments.
       (setf (lambda-information-enable-keys form) nil
             (lambda-information-key-args form) '()
