@@ -23,6 +23,8 @@
 (defglobal *old-objects-copied* 0)
 (defglobal *objects-copied* 0)
 (defglobal *words-copied* 0)
+
+(defglobal *gc-enable-transport-metering* nil)
 (defglobal *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
 (defglobal *gc-transport-old-counts* (make-array 64 :area :pinned :initial-element 0))
 (defglobal *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
@@ -1182,9 +1184,29 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                      *old-gen-newspace-bit*)
            (incf *general-area-old-gen-bump* (* length 8))))))
 
+(defun transport-meter-update (start-time length address)
+  (let ((cycles (- (tsc) start-time))
+        (bin (integer-length (1- (* length 8)))))
+    (incf (svref *gc-transport-counts* bin))
+    (when (logtest address +address-old-generation+)
+      (incf *old-objects-copied*)
+      (incf (svref *gc-transport-old-counts* bin)))
+    (incf (svref *gc-transport-cycles* bin) cycles)))
+
+(defun transport-object-start-update (object new-address length)
+  ;; Conses are exempt as the cons area has a uniform layout.
+  (when (not (consp object))
+    (loop
+       for card from (align-up new-address +card-size+) below (+ new-address (* length 8)) by +card-size+
+       for delta = (- new-address card)
+       do (setf (card-table-offset card)
+                (if (<= delta (- (* (1- (ash 1 (byte-size +card-table-entry-offset+))) 16)))
+                    nil
+                    delta)))))
+
 (defun really-transport-object (object cycle-kind)
   (let* ((address (ash (%pointer-field object) 4))
-         (start-time (tsc))
+         (start-time (when *gc-enable-transport-metering* (tsc)))
          (length (object-size object))
          (new-address nil))
     ;; Update meters.
@@ -1202,24 +1224,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (setf (memref-t new-address length) 0))
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
-    ;; Update meters.
-    (let ((cycles (- (tsc) start-time))
-          (bin (integer-length (1- (* length 8)))))
-      (incf (svref *gc-transport-counts* bin))
-      (when (logtest address +address-old-generation+)
-        (incf *old-objects-copied*)
-        (incf (svref *gc-transport-old-counts* bin)))
-      (incf (svref *gc-transport-cycles* bin) cycles))
+    (when *gc-enable-transport-metering*
+      ;; Update meters.
+      (transport-meter-update start-time length address))
     ;; Update object starts.
-    ;; Conses are exempt as the cons area has a uniform layout.
-    (when (not (consp object))
-      (loop
-         for card from (align-up new-address +card-size+) below (+ new-address (* length 8)) by +card-size+
-         for delta = (- new-address card)
-         do (setf (card-table-offset card)
-                  (if (<= delta (- (* (1- (ash 1 (byte-size +card-table-entry-offset+))) 16)))
-                      nil
-                      delta))))
+    (transport-object-start-update object new-address length)
     ;; Complete! Return the new object
     (%%assemble-value new-address (%tag-field object))))
 
