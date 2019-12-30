@@ -25,30 +25,31 @@
 ;; Support functions
 ;;======================================================================
 
-(defun aref-n-octets (buf idx length)
-  (loop :for n :from idx :below (+ idx length)
-        :for res := (aref buf n) :then (logior (ash res 8) (aref buf n))
-        :finally (return res)))
-
-(defun (setf aref-n-octets) (value buf idx length)
-  (loop :for n :from idx :below (+ idx length)
-        :for offset :downfrom (- (ash length 3) 8) :by 8
-        :do (setf (aref buf n) (ldb (byte 8 offset) value))
-        :finally (return value)))
-
 (defmacro def-accessor (name offset size)
   (let ((acc-name (intern (concatenate 'string "GET-" (symbol-name name)))))
     `(progn
        (defun ,acc-name (buf &optional (base 0))
-         (let ((idx (+ ,offset base)))
-           ,(if (eql size 1)
-                '(aref buf idx)
-                `(aref-n-octets buf idx ,size))))
+         ,(case size
+            (1 `(aref buf (+ ,offset base)))
+            (2 `(sys::ub16ref/le buf (+ ,offset base)))
+            (4 `(sys::ub32ref/le buf (+ ,offset base)))
+            (8 `(sys::ub64ref/le buf (+ ,offset base)))
+            (16 `(let ((idx (+ ,offset base)))
+                   (logior
+                    (sys::ub64ref/le buf idx)
+                    (ash (sys::ub64ref/le buf (+ idx 8)) 64))))
+            (T (error "def-accessor: invalid field ~A~%" name ))))
        (defun (setf ,acc-name) (value buf &optional (base 0))
-         (let ((idx (+ ,offset base)))
-           ,(if (eql size 1)
-                '(setf (aref buf idx) value)
-                `(setf (aref-n-octets buf idx ,size) value)))))))
+         ,(case size
+            (1 `(setf (aref buf (+ ,offset base)) value))
+            (2 `(setf (sys::ub16ref/le buf (+ ,offset base)) value))
+            (4 `(setf (sys::ub32ref/le buf (+ ,offset base)) value))
+            (8 `(setf (sys::ub64ref/le buf (+ ,offset base)) value))
+            (16 `(let ((idx (+ ,offset base)))
+                   (setf
+                    (sys::ub64ref/le buf idx) value
+                    (sys::ub64ref/le buf (+ idx 8)) (ldb (byte 64 64) value)))))
+         value))))
 
 ;;======================================================================
 ;; GUID Partition Table Code (GPT)
