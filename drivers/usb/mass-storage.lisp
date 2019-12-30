@@ -115,7 +115,7 @@
 (defstruct mass-storage
   usbd
   device
-  semaphore
+  event
   bulk-in-endpt-num
   bulk-out-endpt-num
   lock
@@ -136,6 +136,13 @@
 (defun next-cbw-tag (driver)
   (sup:with-mutex ((mass-storage-lock driver))
     (incf (mass-storage-cbw-tag driver))))
+
+(defun timed-wait (event timeout)
+  (sup:with-timer (timer :relative timeout :name "Mass Storage timed wait")
+    (sync:wait-for-objects timer event)
+    (if (and (not (sup:event-state event)) (sup:timer-expired-p timer))
+        :timeout
+        :complete)))
 
 ;;======================================================================
 ;;======================================================================
@@ -224,12 +231,14 @@
 
 (defun %read-sector (usbd device mass-storage lba buf offset)
   (enter-function "%read-sector")
-  (let ((data-length (mass-storage-block-size mass-storage)))
+  (let ((data-length (mass-storage-block-size mass-storage))
+        (event (mass-storage-event mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
       (encode-cbw mass-storage cmd-buf 0 data-length T 0)
       (encode-scsi-read/10 cmd-buf 0 lba 1)
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-out-endpt-num mass-storage)
@@ -239,19 +248,24 @@
         (sup:debug-print-line "%read-sector command buffer:")
         (print-buffer sys.int::*cold-stream* cmd-buf :indent "  "))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read sector command timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "%read-sector command status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         data-buf
                         data-length)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read sector data timeout"))
 
       (with-trace-level (3)
         (sup:debug-print-line "read sector data buffer:")
@@ -259,6 +273,7 @@
         (sup:debug-print-line "read sector data status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
@@ -269,7 +284,9 @@
       (dotimes (i data-length)
         (setf (aref buf (+ offset i)) (aref data-buf i)))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read sector status timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "%read-sector status buffer:")
@@ -329,12 +346,14 @@
 
 (defun %write-sector (usbd device mass-storage lba buf offset)
   (enter-function "%write-sector")
-  (let ((data-length (mass-storage-block-size mass-storage)))
+  (let ((data-length (mass-storage-block-size mass-storage))
+        (event (mass-storage-event mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
       (encode-cbw mass-storage cmd-buf 0 data-length NIL 0)
       (encode-scsi-write/10 cmd-buf 0 lba 1)
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-out-endpt-num mass-storage)
@@ -348,12 +367,15 @@
       (dotimes (i data-length)
         (setf (aref data-buf i) (aref buf (+ offset i))))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage write sector command timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "%write-sector command status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-out-endpt-num mass-storage)
@@ -375,7 +397,9 @@
          sys.int::*cold-stream*
          mezzano.driver.usb.ohci::*ohci*))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read sector data timeout"))
 
       (with-trace-level (3)
         (sup:debug-print-line "write sector data buffer:")
@@ -383,13 +407,16 @@
         (sup:debug-print-line "write sector data status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         status-buf
                         13)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read sector status timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "%write-sector status buffer:")
@@ -470,8 +497,6 @@
                        mass-storage
                        endpt-num
                        endpt-in
-                       #+nil
-                       (mass-storage-semaphore mass-storage)
                        'mass-storage-int-callback)
     (if endpt-in
         (setf (mass-storage-bulk-in-endpt-num mass-storage) endpt-num)
@@ -489,13 +514,15 @@
 (defun parse-inquiry (usbd device mass-storage)
   (enter-function "parse-inquiry")
 
-  (let ((data-length 36))
+  (let ((data-length 36)
+        (event (mass-storage-event mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
       ;; send inquiry command
       (encode-cbw mass-storage cmd-buf 0 data-length T 0)
       (encode-scsi-inquiry cmd-buf 0 NIL 0 data-length)
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-out-endpt-num mass-storage)
@@ -506,19 +533,24 @@
         (sup:debug-print-line "inquiry command buffer:")
         (print-buffer sys.int::*cold-stream* cmd-buf :indent "  "))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage inquiry command timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "inquiry command status"
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         data-buf
                         data-length)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage inquiry data timeout"))
 
       (with-trace-level (3)
         (sup:debug-print-line "inquiry data buffer:")
@@ -526,13 +558,16 @@
         (sup:debug-print-line "inquiry data status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         status-buf
                         13)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage inquiry status timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "inquiry status buffer:")
@@ -566,7 +601,8 @@
 (defun parse-read-capacity (usbd device mass-storage cap/10-p)
   (enter-function "parse-read-capacity")
 
-  (let ((data-length (if cap/10-p 8 32)))
+  (let ((data-length (if cap/10-p 8 32))
+        (event (mass-storage-event mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
@@ -575,6 +611,7 @@
       (if cap/10-p
           (encode-scsi-read-capacity/10 cmd-buf 0)
           (encode-scsi-read-capacity/16 cmd-buf 0 data-length))
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-out-endpt-num mass-storage)
@@ -585,19 +622,24 @@
         (sup:debug-print-line "read capacity command buffer:")
         (print-buffer sys.int::*cold-stream* cmd-buf :indent "  "))
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read capacity command timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "read capacity command status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         data-buf
                         data-length)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read capacity data timeout"))
 
       (with-trace-level (3)
         (sup:debug-print-line "read capacity data buffer:")
@@ -605,13 +647,16 @@
         (sup:debug-print-line "read capacity data status "
                               (mass-storage-status mass-storage)))
 
+      (setf (sup:event-state event) nil)
       (bulk-enqueue-buf usbd
                         device
                         (mass-storage-bulk-in-endpt-num mass-storage)
                         status-buf
                         13)
 
-      (sync:semaphore-down (mass-storage-semaphore mass-storage))
+      (when (eq (timed-wait event 1.0) :timeout)
+        ;; TODO need better error message here
+        (error "Mass storage read capacity status timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "read capacity status buffer:")
@@ -661,8 +706,8 @@
   (let ((mass-storage (make-mass-storage
                        :usbd usbd
                        :device device
-                       :semaphore (sync:make-semaphore
-                                   :name "MASS STORAGE SEMAPHORE")
+                       :event  (sup:make-event
+                                :name "Mass Storage Event")
                        :bulk-in-endpt-num nil
                        :bulk-out-endpt-num nil
                        :lock (sup:make-mutex "USB Mass Storage Lock")
@@ -681,7 +726,7 @@
     (when (or (null (mass-storage-bulk-in-endpt-num mass-storage))
               (null (mass-storage-bulk-out-endpt-num mass-storage)))
       (sup:debug-print-line "Mass Storage probe failed because "
-                            "did not both in and out bulk endpoints")
+                            "did not have both in and out bulk endpoints")
       (throw :probe-failed nil))
 
     (parse-inquiry usbd device mass-storage)
@@ -726,8 +771,9 @@
   '((#.+id-class-mass-storage+ #.+mass-subclass-scsi+ #.+id-protocol-bulk-only+)))
 
 (defun mass-storage-int-callback (mass-storage endpoint-num status length buf)
-  (setf (mass-storage-status mass-storage) status)
-  (sync:semaphore-up (mass-storage-semaphore mass-storage))
+  (setf (mass-storage-status mass-storage) status
+        (sup:event-state (mass-storage-event mass-storage)) T)
+
   #+nil
   (unwind-protect
        (cond ((eql endpoint-num (mass-storage-bulk-in-endpt-num mass-storage))
