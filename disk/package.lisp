@@ -15,6 +15,9 @@
    :block-device-read-sector
    :block-device-write-sector
    :parse-partition-table
+   :all-block-devices
+   :register-block-device
+   :unregister-block-device
 
    ;; disk mixin
    :disk-mixin
