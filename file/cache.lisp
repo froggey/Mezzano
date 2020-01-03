@@ -84,7 +84,7 @@
                                       (:start 0)
                                       (:end (file-length* stream))
                                       (t position-spec)))
-      (t (file-position* stream))))
+      (file-position* stream)))
 
 (defmethod mezzano.gray:stream-file-length ((stream file-cache-stream))
   (file-length* stream))
