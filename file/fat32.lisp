@@ -169,7 +169,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                :drive-n (aref sector 64) ; Operating system specific
                                :boot-code (subseq sector 90 510))))
     (when (/= (sys.int::ub16ref/le sector 22) 0)
-      error "Bad FATsz16 - got ~D should be 0" (sys.int::ub16ref/le sector 22))
+      (error "Bad FATsz16 - got ~D should be 0" (sys.int::ub16ref/le sector 22)))
     (when (check-signature (aref sector 66))
       (setf (fat-%signature fat32) (aref sector 66)
             (fat-%volume-id fat32) (sys.int::ub32ref/le sector 67)
