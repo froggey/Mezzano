@@ -916,7 +916,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (return-from next-space (values i directory))))))
 
 (defun next-n-spaces (directory n cluster-size)
-  "Return offset of next n contiguous spaces and directory possibly expanded)"
+  "Return offset of next n contiguous spaces and directory (possibly expanded)"
   (multiple-value-bind (start directory) (next-space directory 0 cluster-size)
     (do ((cnt 0 (1+ cnt))
          (last start next)
