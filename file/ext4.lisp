@@ -820,8 +820,11 @@
         (path (directory-namestring pathname)))
     (do-files (block offset) disk superblock bgdt inode-n t
       (let* ((file (read-linked-directory-entry block offset))
+             (file-name (linked-directory-entry-name file))
              (type (linked-directory-entry-file-type file)))
-        (unless (= +unknown-type+ type)
+        (unless (or (= +unknown-type+ type)
+                    (string= "." file-name)
+                    (string= ".." file-name))
           (push (parse-simple-file-path host
                                         (format nil
                                                 (if (= +directory-type+ type)
