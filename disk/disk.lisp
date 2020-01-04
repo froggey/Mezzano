@@ -53,10 +53,6 @@
 
 (defgeneric block-device-flush (device))
 
-(defgeneric block-device-read-sector (disk start-sector n-sectors))
-
-(defgeneric block-device-write-sector (disk start-sector array n-sectors))
-
 ;;======================================================================
 ;;    Supervisor disk API implementation
 ;;======================================================================
@@ -76,11 +72,11 @@
 (defmethod block-device-flush ((disk sup:disk))
   (sup:disk-flush disk))
 
-(defmethod block-device-read-sector (disk start-sector n-sectors)
+(defun block-device-read-sector (disk start-sector n-sectors)
   (let ((result (make-array (* (block-device-sector-size disk) n-sectors)
                             :element-type '(unsigned-byte 8))))
     (block-device-read disk start-sector n-sectors result)
     result))
 
-(defmethod block-device-write-sector (disk start-sector array n-sectors)
+(defun block-device-write-sector (disk start-sector array n-sectors)
   (block-device-write disk start-sector n-sectors array))
