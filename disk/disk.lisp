@@ -7,13 +7,15 @@
 ;;    Helper functions
 ;;======================================================================
 
-(defun read-sector (disk lba n-sectors wired-buffer)
+(defun read-sector (disk lba n-sectors wired-buffer buffer base-offset &optional (end1 nil))
   (multiple-value-bind (success-p error-reason)
       (sup:disk-read disk lba n-sectors wired-buffer)
-    (unless success-p
-      (error "Disk read error: ~A" error-reason))))
+    (if success-p
+        (replace buffer wired-buffer :start1 base-offset :end1 end1)
+        (error "Disk read error: ~A" error-reason))))
 
-(defun write-sector (disk lba n-sectors wired-buffer)
+(defun write-sector (disk lba n-sectors wired-buffer buffer base-offset &optional (end2 nil))
+  (replace wired-buffer buffer :start2 base-offset :end2 end2)
   (multiple-value-bind (success-p error-reason)
       (sup:disk-write disk lba n-sectors wired-buffer)
     (unless success-p
@@ -66,25 +68,19 @@
   (sup:disk-n-sectors disk))
 
 (defmethod block-device-read ((disk sup:disk) lba n-sectors buffer &key (offset 0))
-  (flet ((read-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end1 nil))
-           (read-sector disk addr n-sectors wired-buffer)
-           (replace buffer wired-buffer :start1 base-offset :end1 end1)))
-    (do-block disk #'read-sector lba n-sectors buffer offset)))
+  (do-block disk #'read-sector lba n-sectors buffer offset))
 
 (defmethod block-device-write ((disk sup:disk) lba n-sectors buffer &key (offset 0))
-  (flet ((write-sector (disk addr n-sectors wired-buffer buffer base-offset &optional (end2 nil))
-           (replace wired-buffer buffer :start2 base-offset :end2 end2)
-           (write-sector disk addr n-sectors wired-buffer)))
-    (do-block disk #'write-sector lba n-sectors buffer offset)))
+  (do-block disk #'write-sector lba n-sectors buffer offset))
 
 (defmethod block-device-flush ((disk sup:disk))
   (sup:disk-flush disk))
 
-(defmethod block-device-read-sector ((disk sup:disk) start-sector n-sectors)
+(defmethod block-device-read-sector (disk start-sector n-sectors)
   (let ((result (make-array (* (block-device-sector-size disk) n-sectors)
                             :element-type '(unsigned-byte 8))))
     (block-device-read disk start-sector n-sectors result)
     result))
 
-(defmethod block-device-write-sector ((disk sup:disk) start-sector array n-sectors)
+(defmethod block-device-write-sector (disk start-sector array n-sectors)
   (block-device-write disk start-sector n-sectors array))
