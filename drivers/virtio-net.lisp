@@ -287,10 +287,11 @@ and then some alignment.")
   t)
 
 (defun virtio-net-worker (nic)
+  (when (not (virtio-net-initialize nic))
+    (virtio:virtio-driver-detached (virtio-net-virtio-device nic))
+    (return-from virtio-net-worker))
   (unwind-protect
        (catch 'nic-detached
-         (when (not (virtio-net-initialize nic))
-           (return-from virtio-net-worker))
          (loop
             ;; Wait for something to happen.
             ;; Either an interrupt, a request to send, or the device's boot epoch expiring.
@@ -310,19 +311,22 @@ and then some alignment.")
     (virtio:virtio-driver-detached (virtio-net-virtio-device nic))))
 
 (defun virtio-net-initialize (nic)
-  (with-virito-net-access (nic)
+  (sup:with-device-access ((virtio-net-boot-id nic)
+                           nil)
     (let ((device (virtio-net-virtio-device nic)))
       ;; Set the driver bit in the status field.
       (setf (virtio:virtio-device-status device) (logior virtio:+virtio-status-acknowledge+
                                                          virtio:+virtio-status-driver+))
       ;; Feature negotiation, we only have eyes for the MAC feature.
       (when (not (virtio:virtio-device-feature device +virtio-net-f-mac+))
+        (sup:debug-print-line "Virtio feature mismatch")
         (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
         (return-from virtio-net-initialize nil))
       ;; Enable MAC feature.
       (setf (virtio:virtio-driver-feature device +virtio-net-f-mac+) t)
       ;; Allocate virtqueues.
       (when (not (virtio:virtio-configure-virtqueues device 2))
+        (sup:debug-print-line "Unable to configure virtqueues")
         (setf (virtio:virtio-device-status device) virtio:+virtio-status-failed+)
         (return-from virtio-net-initialize nil))
       ;; Read the MAC address.
