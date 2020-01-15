@@ -147,48 +147,26 @@
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-mmio-queue-notify dev) vq-id))
 
-(defun virtio-legacy-mmio-transport-configure-virtqueues (device n-queues)
-  (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
-  (dotimes (queue n-queues)
-    ;; 1. Write the virtqueue index to the queue select field.
-    (setf (virtio-mmio-queue-sel device) queue)
-    ;; Read the virtqueue size from the queue size field.
-    (let* ((queue-size (virtio-mmio-queue-num-max device))
-           (size (virtio:virtio-ring-size queue-size)))
-      (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
-        ;; Allocate and clear the virtqueue.
-        ;; Must be 4k aligned and contiguous in physical memory.
-        (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
-                          (progn (sup::debug-print-line "Virtqueue allocation failed")
-                                 (return-from virtio-legacy-mmio-transport-configure-virtqueues nil))))
-               (phys (* frame sup::+4k-page-size+))
-               (virt (sup::convert-to-pmap-address phys)))
-          (sup::debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
-          (setf (virtio-mmio-queue-num device) queue-size)
-          (dotimes (i size)
-            (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
-          ;; Write the address to the the queue address field.
-          ;; This is a page number, not an actual address.
-          (setf (virtio-mmio-guest-page-size device) sup::+4k-page-size+)
-          (setf (virtio-mmio-queue-pfn device) frame)
-          (let ((vq (virtio:make-virtqueue :index queue
-                                           :virtual virt
-                                           :physical phys
-                                           :size queue-size
-                                           :avail-offset (* queue-size virtio:+virtio-ring-desc-size+)
-                                           :used-offset (sup::align-up (+ (* queue-size virtio:+virtio-ring-desc-size+)
-                                                                          4
-                                                                          (* queue-size 2))
-                                                                       4096)
-                                           :last-seen-used 0)))
-            (setf (svref (virtio:virtio-device-virtqueues device) queue) vq)
-            ;; Initialize the free descriptor list.
-            (dotimes (i (1- queue-size))
-              (setf (virtio:virtio-ring-desc-next vq i) (1+ i)
-                    (virtio:virtio-ring-desc-flags vq i) (ash 1 virtio:+virtio-ring-desc-f-next+)))
-            (setf (virtio:virtqueue-next-free-descriptor vq) 0))))))
-  t)
+(defun virtio-legacy-mmio-transport-queue-select (device)
+  (virtio-mmio-queue-sel device))
+
+(defun (setf virtio-legacy-mmio-transport-queue-select) (queue device)
+  (setf (virtio-mmio-queue-sel device) queue))
+
+(defun virtio-legacy-mmio-transport-queue-size (device)
+  (virtio-mmio-queue-num-max device))
+
+(defun virtio-legacy-mmio-transport-queue-address (device)
+  (* (virtio-mmio-queue-pfn device) sup::+4k-page-size+))
+
+(defun (setf virtio-legacy-mmio-transport-queue-address) (address device)
+  ;; This is a page number, not an actual address.
+  (setf (virtio-mmio-guest-page-size device) sup::+4k-page-size+)
+  (setf (virtio-mmio-queue-pfn device) (truncate address sup::+4k-page-size+)))
+
+(defun virtio-legacy-mmio-transport-enable-queue (device queue)
+  (declare (ignore device queue))
+  nil)
 
 (defun virtio-mmio-device-irq (device)
   (virtio-legacy-mmio-device-mmio-irq device))

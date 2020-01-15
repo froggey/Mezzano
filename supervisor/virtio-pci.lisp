@@ -170,56 +170,28 @@
                             (virtio-pci-common-cfg-queue-notify-off device)))
     (setf (pci:pci-io-region/le16 loc real-offset) vq-id)))
 
-(defun virtio-pci-transport-configure-virtqueues (device n-queues)
-  (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
-  (dotimes (queue n-queues)
-    ;; 1. Write the virtqueue index to the queue select field.
-    (setf (virtio-pci-common-cfg-queue-select device) queue)
-    ;; Read the virtqueue size from the queue size field.
-    ;; TODO: This is the maximum size, could be reduced.
-    (let* ((queue-size (virtio-pci-common-cfg-queue-size device))
-           (size (virtio:virtio-ring-size queue-size)))
-      (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
-        ;; Allocate and clear the virtqueue.
-        ;; Must be 4k aligned and contiguous in physical memory.
-        (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
-                          (progn (sup:debug-print-line "Virtqueue allocation failed")
-                                 (return-from virtio-pci-transport-configure-virtqueues nil))))
-               (phys (* frame sup::+4k-page-size+))
-               (virt (sup::convert-to-pmap-address phys)))
-          (sup:debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
-          (dotimes (i size)
-            (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
-          ;; Write the address to the the queue address field.
-          (setf (virtio-pci-common-cfg-queue-desc device) phys)
-          (setf (virtio-pci-common-cfg-queue-avail device) (+ phys (* queue-size virtio:+virtio-ring-desc-size+)))
-          (setf (virtio-pci-common-cfg-queue-used device) (+ phys (sup::align-up
-                                                                   (+ (* queue-size virtio:+virtio-ring-desc-size+)
-                                                                      4
-                                                                      (* queue-size 2))
-                                                                   4096)))
-          (let ((vq (virtio:make-virtqueue :index queue
-                                           :virtual virt
-                                           :physical phys
-                                           :size queue-size
-                                           :avail-offset (* queue-size virtio:+virtio-ring-desc-size+)
-                                           :used-offset (sup::align-up (+ (* queue-size virtio:+virtio-ring-desc-size+)
-                                                                          4
-                                                                          (* queue-size 2))
-                                                                       4096)
-                                           :last-seen-used 0)))
-            (setf (svref (virtio:virtio-device-virtqueues device) queue) vq)
-            ;; Initialize the free descriptor list.
-            (dotimes (i (1- queue-size))
-              (setf (virtio:virtio-ring-desc-next vq i) (1+ i)
-                    (virtio:virtio-ring-desc-flags vq i) (ash 1 virtio:+virtio-ring-desc-f-next+)))
-            (setf (virtio:virtqueue-next-free-descriptor vq) 0))))))
-  ;; Enable virtqueues.
-  (dotimes (queue n-queues)
-    (setf (virtio-pci-common-cfg-queue-select device) queue)
-    (setf (virtio-pci-common-cfg-queue-enable device) 1))
-  t)
+(defun virtio-pci-transport-queue-address (device)
+  (virtio-pci-common-cfg-queue-desc device))
+
+(defun (setf virtio-pci-transport-queue-address) (address device)
+  (let ((queue-size (virtio-pci-common-cfg-queue-size device)))
+    ;; Write the address to the the queue address fields.
+    (setf (virtio-pci-common-cfg-queue-desc device) address)
+    (setf (virtio-pci-common-cfg-queue-avail device)
+          (+ address
+             (* queue-size virtio:+virtio-ring-desc-size+)))
+    (setf (virtio-pci-common-cfg-queue-used device)
+          (+ address
+           (sup::align-up
+            (+ (* queue-size virtio:+virtio-ring-desc-size+)
+               4
+               (* queue-size 2))
+            4096))))
+  address)
+
+(defun virtio-pci-transport-enable-queue (device queue)
+  (setf (virtio-pci-common-cfg-queue-select device) queue)
+  (setf (virtio-pci-common-cfg-queue-enable device) 1))
 
 ;;;; Legacy PCI transport.
 
@@ -259,7 +231,7 @@
                   (setf (,how (virtio-legacy-pci-device-header device) ,offset) value)))))
   (accessor virtio-legacy-pci-transport-device-features +virtio-legacy-pci-device-features+ pci:pci-io-region/32)
   (accessor virtio-legacy-pci-transport-guest-features  +virtio-legacy-pci-guest-features+  pci:pci-io-region/32)
-  (accessor virtio-legacy-pci-transport-queue-address   +virtio-legacy-pci-queue-address+   pci:pci-io-region/32)
+  (accessor virtio-legacy-pci-transport-queue-pfn       +virtio-legacy-pci-queue-address+   pci:pci-io-region/32)
   (accessor virtio-legacy-pci-transport-queue-size      +virtio-legacy-pci-queue-size+      pci:pci-io-region/16)
   (accessor virtio-legacy-pci-transport-queue-select    +virtio-legacy-pci-queue-select+    pci:pci-io-region/16)
   (accessor virtio-legacy-pci-transport-queue-notify    +virtio-legacy-pci-queue-notify+    pci:pci-io-region/16)
@@ -311,52 +283,22 @@
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-legacy-pci-transport-queue-notify dev) vq-id))
 
-(defun virtio-legacy-pci-transport-configure-virtqueues (device n-queues)
-  (setf (virtio:virtio-device-virtqueues device) (sys.int::make-simple-vector n-queues :wired))
-  (dotimes (queue n-queues)
-    ;; 1. Write the virtqueue index to the queue select field.
-    (setf (virtio-legacy-pci-transport-queue-select device) queue)
-    ;; Read the virtqueue size from the queue size field.
-    (let* ((queue-size (virtio-legacy-pci-transport-queue-size device))
-           (size (virtio:virtio-ring-size queue-size)))
-      (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
-      (when (not (zerop queue-size))
-        ;; Allocate and clear the virtqueue.
-        ;; Must be 4k aligned and contiguous in physical memory.
-        (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
-                          (progn (sup:debug-print-line "Virtqueue allocation failed")
-                                 (return-from virtio-legacy-pci-transport-configure-virtqueues nil))))
-               (phys (* frame sup::+4k-page-size+))
-               (virt (sup::convert-to-pmap-address phys)))
-          (sup:debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
-          (dotimes (i size)
-            (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
-          ;; Write the address to the the queue address field.
-          ;; This is a page number, not an actual address.
-          (setf (virtio-legacy-pci-transport-queue-address device) frame)
-          (let ((vq (virtio:make-virtqueue :index queue
-                                           :virtual virt
-                                           :physical phys
-                                           :size queue-size
-                                           :avail-offset (* queue-size virtio:+virtio-ring-desc-size+)
-                                           :used-offset (sup::align-up (+ (* queue-size virtio:+virtio-ring-desc-size+)
-                                                                          4
-                                                                          (* queue-size 2))
-                                                                       4096)
-                                           :last-seen-used 0)))
-            (setf (svref (virtio:virtio-device-virtqueues device) queue) vq)
-            ;; Initialize the free descriptor list.
-            (dotimes (i (1- queue-size))
-              (setf (virtio:virtio-ring-desc-next vq i) (1+ i)
-                    (virtio:virtio-ring-desc-flags vq i) (ash 1 virtio:+virtio-ring-desc-f-next+)))
-            (setf (virtio:virtqueue-next-free-descriptor vq) 0))))))
-  t)
-
 (defun virtio-legacy-pci-transport-device-irq (device)
   (pci:pci-intr-line (virtio-legacy-pci-device-pci-device device)))
 
 (defun virtio-legacy-pci-transport-ack-irq (device status)
   (declare (ignore device status))
+  nil)
+
+(defun virtio-legacy-pci-transport-queue-address (device)
+  (* (virtio-legacy-pci-transport-queue-pfn device) #x1000))
+
+(defun (setf virtio-legacy-pci-transport-queue-address) (address device)
+  (setf (virtio-legacy-pci-transport-queue-pfn device) (truncate address #x1000))
+  address)
+
+(defun virtio-legacy-pci-transport-enable-queue (device queue)
+  (declare (ignore device queue))
   nil)
 
 (defun pci::virtio-pci-register (location)

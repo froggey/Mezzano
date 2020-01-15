@@ -77,6 +77,10 @@
            #:virtio-device-irq
            #:virtio-attach-irq
            #:virtio-ack-irq
+           #:virtio-queue-select
+           #:virtio-queue-size
+           #:virtio-queue-address
+           #:virtio-enable-queue
            #:virtio-irq-mask
            #:virtio-configure-virtqueues
            #:virtio-driver-detached
@@ -159,7 +163,13 @@
                                isr-status
                                device-irq
                                ack-irq
-                               configure-virtqueues)))
+                               queue-select
+                               (setf-queue-select queue-select)
+                               queue-size
+                               (setf-queue-size queue-size)
+                               queue-address
+                               (setf-queue-address queue-address)
+                               enable-queue)))
     `(defun ,name (function)
        (ecase function
          ,@(loop
@@ -442,7 +452,76 @@
 (define-virtio-transport-function isr-status (device))
 (define-virtio-transport-function device-irq (device))
 (define-virtio-transport-function ack-irq (device status))
-(define-virtio-transport-function configure-virtqueues (device n-queues))
+(define-virtio-transport-function queue-select (device))
+(define-virtio-transport-function (setf queue-select) (queue device))
+(define-virtio-transport-function queue-size (device))
+(define-virtio-transport-function queue-address (device))
+(define-virtio-transport-function (setf queue-address) (address device))
+(define-virtio-transport-function enable-queue (device queue))
+
+(defun virtio-configure-1-virtqueue (device queue)
+  ;; Select this queue.
+  (setf (virtio-queue-select device) queue)
+  ;; Read the virtqueue size from the queue size field,
+  ;; and calculate the total ring size.
+  (let* ((queue-size (virtio-queue-size device))
+         (size (virtio-ring-size queue-size)))
+    (sup:debug-print-line "Virtqueue " queue " has size " queue-size ". Computed size is " size)
+    (when (zerop queue-size)
+      (setf (svref (virtio-device-virtqueues device) queue) nil)
+      (return-from virtio-configure-1-virtqueue nil))
+    ;; Allocate and clear the virtqueue.
+    ;; Must be 4k aligned and contiguous in physical memory.
+    (let* ((frame (or (sup::allocate-physical-pages (ceiling size sup::+4k-page-size+))
+                      (progn (sup:debug-print-line "Virtqueue allocation failed")
+                             (return-from virtio-configure-1-virtqueue nil))))
+           (phys (* frame sup::+4k-page-size+))
+           (virt (sup::convert-to-pmap-address phys)))
+      (sup:debug-print-line "Virtqueue allocated at " phys " (" (ceiling size sup::+4k-page-size+) ")")
+      (dotimes (i size)
+        (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
+      ;; Write the address to the the queue address field.
+      (setf (virtio-queue-address device) phys)
+      (let ((vq (make-virtqueue :index queue
+                                :virtual virt
+                                :physical phys
+                                :size queue-size
+                                :avail-offset (* queue-size +virtio-ring-desc-size+)
+                                :used-offset (sup::align-up (+ (* queue-size +virtio-ring-desc-size+)
+                                                               4
+                                                               (* queue-size 2))
+                                                            4096)
+                                :last-seen-used 0)))
+        (setf (svref (virtio-device-virtqueues device) queue) vq)
+        ;; Initialize the free descriptor list.
+        (dotimes (i (1- queue-size))
+          (setf (virtio-ring-desc-next vq i) (1+ i)
+                (virtio-ring-desc-flags vq i) (ash 1 +virtio-ring-desc-f-next+)))
+        (setf (virtqueue-next-free-descriptor vq) 0)))))
+
+(defun virtio-deconfigure-1-virtqueue (device queue)
+  "Release all system resources associated with QUEUE."
+  (let ((vq (svref (virtio-device-virtqueues device) queue)))
+    (when vq
+      (let* ((queue-size (virtqueue-size vq))
+             (size (virtio-ring-size queue-size)))
+        (sup::release-physical-pages (truncate (virtqueue-physical vq) sup::+4k-page-size+)
+                                     (ceiling size sup::+4k-page-size+))))))
+
+(defun virtio-configure-virtqueues (device n-queues)
+  (setf (virtio-device-virtqueues device)
+        (sys.int::make-simple-vector n-queues :wired))
+  (dotimes (queue n-queues)
+    (when (not (virtio-configure-1-virtqueue device queue))
+      ;; Configuration of this queue failed.
+      ;; Release any allocated memory for earlier queues and bail out.
+      (dotimes (configured-queue (1- queue))
+        (virtio-deconfigure-1-virtqueue device configured-queue))
+      (setf (virtio-device-status device) +virtio-status-failed+)
+      (return-from virtio-configure-virtqueues nil)))
+  (dotimes (queue n-queues)
+    (virtio-enable-queue device queue))
+  t)
 
 (defun virtio-attach-irq (device handler)
   (declare (mezzano.compiler::closure-allocation :wired))
@@ -500,9 +579,12 @@
         *virtio-late-probe-devices* '())
   (sup::add-deferred-boot-action 'virtio-late-probe))
 
-(defun virtio-driver-detached (dev)
+(defun virtio-driver-detached (device)
   "Call when a driver is done with a device."
-  (setf (virtio-device-claimed dev) nil)
-  (sup:with-device-access ((virtio-device-boot-id dev) nil)
+  (setf (virtio-device-claimed device) nil)
+  (sup:with-device-access ((virtio-device-boot-id device) nil)
+    (setf (virtio-device-status device) +virtio-status-failed+)
     ;; TODO: Maybe reprobe the device?
-    (setf (virtio-device-status dev) +virtio-status-failed+)))
+    ;; Free the virtqueues.
+    (dotimes (queue (length (virtio-device-virtqueues device)))
+      (virtio-deconfigure-1-virtqueue device queue))))
