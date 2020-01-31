@@ -5,11 +5,6 @@
 
 (in-package :mezzano.internals)
 
-;;; FIXME: Should be a class, but this is much faster.
-;;; ### Specialize in TYPEP?
-(deftype sequence ()
-  '(or vector list))
-
 (declaim (inline check-test-test-not))
 (defun check-test-test-not (test test-not)
   (when (and test test-not)

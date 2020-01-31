@@ -898,6 +898,15 @@
                         ',(mezzano.runtime::%make-instance-header
                            (mezzano.clos:class-layout struct-type))))
                   (structure-type-p ,object-sym ',struct-type))))))))
+  (when (eql type-specifier 'sequence)
+    ;; Open-code parts the sequence type check.
+    ;; This is a performance hack that replaces the old DEFTYPE SEQUENCE,
+    ;; which was just plain wrong.
+    (return-from compile-typep-expression
+      (let ((object-sym (gensym "OBJECT")))
+        `(let ((,object-sym ,object))
+           (or (listp ,object-sym)
+               (vectorp ,object-sym))))))
   (when (and (symbolp type-specifier)
              (let ((info (type-info-for type-specifier nil)))
                (and info
