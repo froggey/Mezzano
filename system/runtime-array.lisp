@@ -484,7 +484,8 @@
       (#.+object-tag-array-t+ ;; simple-vector
        (cas (memref-t address index) old new))
       (#.+object-tag-array-fixnum+
-       (check-type value fixnum)
+       (check-type old fixnum)
+       (check-type new fixnum)
        (cas (memref-t address index) old new))
       ((#.+object-tag-array-bit+
         #.+object-tag-array-unsigned-byte-2+
