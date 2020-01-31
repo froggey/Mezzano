@@ -748,6 +748,8 @@
                     (sys.int::layout-heap-size layout)
                     (sys.int::layout-area layout)))
 
+(declaim (special sys.int::*funcallable-instance-trampoline*))
+
 (defun sys.int::%allocate-funcallable-instance (function layout)
   "Allocate a funcallable instance."
   (check-type function function)
