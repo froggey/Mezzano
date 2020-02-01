@@ -54,7 +54,8 @@
     (#.+llf-if+ 'if)
     (#.+llf-else+ 'else)
     (#.+llf-fi+ 'fi)
-    (#.+llf-layout+ 'layout)))
+    (#.+llf-layout+ 'layout)
+    (#.+llf-initialize-array+ 'initialize-array)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -159,15 +160,8 @@
     (make-function tag mc fixups constants gc-info *load-wired*)))
 
 (defun load-llf-vector (stream stack)
-  (let* ((len (load-integer stream))
-         (vector (subseq stack (- (length stack) len))))
-    ;; Drop vector values.
-    (decf (fill-pointer stack) len)
-    (if *load-wired*
-        (make-array (length vector)
-                    :initial-contents vector
-                    :area :wired)
-        vector)))
+  (let ((len (load-integer stream)))
+    (make-array len :area (if *load-wired* :wired nil))))
 
 (defun structure-slot-definition-compatible (x y)
   (and (eql (structure-slot-definition-name x) (structure-slot-definition-name y))
@@ -375,7 +369,16 @@
      (values))
     (#.sys.int::+llf-layout+
      (let ((structure-class (vector-pop stack)))
-       (mezzano.runtime::instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout)))))
+       (mezzano.runtime::instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout)))
+    (#.sys.int::+llf-initialize-array+
+     (let* ((len (load-integer stream))
+            (elements (subseq stack (- (length stack) len))))
+       ;; Drop vector values.
+       (decf (fill-pointer stack) len)
+       (let ((array (vector-pop stack)))
+         (dotimes (i len)
+           (setf (row-major-aref array i) (aref elements i)))
+         array)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)

@@ -310,7 +310,7 @@ When the page is written to, the corresponding dirty bit in the card table will 
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 31)
+(defparameter *llf-version* 32)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
@@ -354,6 +354,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-else+                      #x27)
 (defconstant +llf-fi+                        #x28)
 (defconstant +llf-layout+                    #x29)
+(defconstant +llf-initialize-array+          #x2A)
 
 ;;; Fields in the Unicode info tables.
 

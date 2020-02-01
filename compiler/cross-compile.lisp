@@ -693,10 +693,13 @@
          (save-integer (length object) stream)
          (dotimes (i (length object))
            (save-integer (aref object i) stream)))
-        (t (dotimes (i (length object))
-             (save-object (aref object i) omap stream))
-           (write-byte sys.int::+llf-simple-vector+ stream)
-           (save-integer (length object) stream))))
+        (t
+         (write-byte sys.int::+llf-simple-vector+ stream)
+         (save-integer (length object) stream)
+         (dotimes (i (length object))
+           (save-object (aref object i) omap stream))
+         (write-byte sys.int::+llf-initialize-array+ stream)
+         (save-integer (length object) stream))))
 
 (defmethod save-one-object ((object character) omap stream)
   (write-byte sys.int::+llf-character+ stream)

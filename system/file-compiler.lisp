@@ -249,6 +249,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          nil)))
 
 (defmethod save-one-object ((object cons) omap stream)
+  ;; FIXME: This has issues with circularities.
   (cond ((proper-list-p object)
          (let ((len 0))
            (dolist (o object)
@@ -285,16 +286,20 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defmethod save-one-object ((object vector) omap stream)
   (cond ((eql (array-element-type object) 't)
-         ;; Save as a simple-vector.
+         (write-byte +llf-simple-vector+ stream)
+         (save-integer (length object) stream)
+         (write-object-backlink object omap stream :keep t)
          (dotimes (i (length object))
            (save-object (aref object i) omap stream))
-         (write-byte +llf-simple-vector+ stream)
+         (write-byte +llf-initialize-array+ stream)
          (save-integer (length object) stream))
         (t
          ;; Save the vector with the appropriate element-type,
          ;; trimming it down based on the fill-pointer (if any).
          ;; Objects saved to a file are EQUAL to their original objects, not
          ;; EQL, and EQUAL respects the fill-pointer when comparing vectors.
+         ;; Non-T vectors can't contain any complex Lisp objects, so
+         ;; circularity isn't an issue.
          (dotimes (i (length object))
            (save-object (aref object i) omap stream))
          (save-object (array-element-type object) omap stream)
@@ -496,17 +501,20 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         (make-load-form object)
       (compile-top-level-form-for-value creation-form nil)
       (when initialization-form
-        (write-object-backlink object omap stream)
+        (write-object-backlink object omap stream :keep t)
         (compile-top-level-form initialization-form nil)))))
 
-(defun write-object-backlink (object omap stream)
+(defun write-object-backlink (object omap stream &key keep)
   (when (not *llf-dry-run*)
     (let ((info (gethash object omap)))
       (assert (eql (third info) :save-in-progress))
       (setf (third info) t)
       (unless (eql (second info) 1)
         (write-byte +llf-add-backlink+ stream)
-        (save-integer (first info) stream)))))
+        (save-integer (first info) stream)
+        (when keep
+          (write-byte +llf-backlink+ stream)
+          (save-integer (first info) stream))))))
 
 (defun save-object (object omap stream)
   (when (typep object 'deferred-function)
@@ -536,13 +544,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (setf (third info) :save-in-progress)
               (save-one-object object omap stream)
               (when (eql (third info) :save-in-progress)
-                (write-object-backlink object omap stream)))
+                (write-object-backlink object omap stream :keep t)))
              (:save-in-progress
               (error "Unbroken circularity detected when saving object ~S. This can happen when an object's allocation form contains the object, possibly indirectly." object))
-             ((t))) ; object saved ok
-           (unless (eql (second info) 1)
-             (write-byte +llf-backlink+ stream)
-             (save-integer (first info) stream))))))
+             ((t)
+              ;; object saved ok
+              (unless (eql (second info) 1)
+                (write-byte +llf-backlink+ stream)
+                (save-integer (first info) stream))))))))
 
 (defun make-load-form-saving-slots (object &key (slot-names nil slot-names-p) environment)
   (declare (ignore environment))

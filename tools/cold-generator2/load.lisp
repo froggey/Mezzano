@@ -208,14 +208,10 @@
     (#.sys.int::+llf-integer+
      (load-integer loader))
     (#.sys.int::+llf-simple-vector+
-     (let* ((length (load-integer loader))
-            (array (env:make-array (loader-environment loader)
-                                   length
-                                   :area (loader-allocation-area loader))))
-       (dotimes (i length)
-         (setf (aref array (- length i 1))
-               (stack-pop loader)))
-       array))
+     (let ((length (load-integer loader)))
+       (env:make-array (loader-environment loader)
+                       length
+                       :area (loader-allocation-area loader))))
     (#.sys.int::+llf-character+
      (load-character loader))
     (#.sys.int::+llf-structure-definition+
@@ -338,6 +334,15 @@
     (#.sys.int::+llf-layout+
      (let ((sdef (stack-pop loader)))
        (env:make-layout-proxy sdef)))
+    (#.sys.int::+llf-initialize-array+
+     (let* ((length (load-integer loader))
+            (elements (make-array length)))
+       (dotimes (i length)
+         (setf (aref elements (- length i 1)) (stack-pop loader)))
+       (let ((array (stack-pop loader)))
+         (dotimes (i length)
+           (setf (row-major-aref array i) (aref elements i)))
+         array)))
 ))
 
 (defun load-compiled-file (environment filespec &key wired)
