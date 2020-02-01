@@ -81,7 +81,7 @@
     (cerror "Carry on!" "This would modify the standard readtable."))
   (if new-function
       (setf (readtable-syntax-type char readtable)
-            (list new-function (not non-terminating-p)))
+            (list new-function (not (not non-terminating-p))))
       (setf (readtable-syntax-type char readtable) nil))
   t)
 
@@ -89,7 +89,7 @@
   (when (and (null readtable) *protect-the-standard-readtable*)
     (cerror "Carry on!" "This would modify the standard readtable."))
   (setf (readtable-syntax-type char readtable)
-        (list 'read-dispatch-char (not non-terminating-p)
+        (list 'read-dispatch-char (not (not non-terminating-p))
               (make-array 256 :initial-element nil)
               (make-hash-table :synchronized t)))
   t)
@@ -169,10 +169,9 @@
   (eql char #\-))
 
 (defun terminating-macro-p (char &optional (readtable *readtable*))
-  (multiple-value-bind (fn terminatingp)
+  (multiple-value-bind (fn non-terminating-p)
       (get-macro-character char readtable)
-    (declare (ignore fn))
-    terminatingp))
+    (and fn (not non-terminating-p))))
 
 (defun read-token (stream first)
   "Read a normal Lisp token from STREAM with FIRST as the initial character."
