@@ -204,7 +204,9 @@
                      :path pathname
                      :direction :input
                      :buffer body
-                     :length (length body))
+                     :length (length body)
+                     :external-format (mezzano.internals::make-external-format
+                                       'character external-format))
       (make-instance 'http-binary-stream
                      :path pathname
                      :direction :input
