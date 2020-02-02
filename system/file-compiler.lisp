@@ -693,10 +693,23 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        (compile-top-level-form-for-value `(fdefinition ',(second form))
                                          env))
       ((eql (first expansion) 'setq)
-       (compile-top-level-form-for-value `(funcall #'(setf symbol-value)
-                                                   ,(third form)
-                                                   ',(second form))
-                                         env))
+       (loop
+          with first-iteration = t
+          for (symbol value) on (rest form) by #'cddr
+          do
+            (assert (typep symbol 'symbol))
+            (cond (first-iteration
+                   (setf first-iteration nil))
+                  (t
+                   (add-to-llf sys.int::+llf-drop+)))
+            (if (nth-value 1 (macroexpand-1 symbol))
+                ;; This is a symbol macro, defer to SETF.
+                (compile-top-level-form-for-value `(setf ,symbol ,value) env)
+                ;; Regular symbol.
+                (compile-top-level-form-for-value `(funcall #'(setf symbol-value)
+                                                            ,value
+                                                            ',symbol)
+                                                  env))))
       ((eql (first expansion) 'if)
        (destructuring-bind (test then &optional else)
            (rest expansion)
