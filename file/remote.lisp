@@ -163,7 +163,8 @@ the server instead of reconnecting for each operation.")
              (write-char #\* s))
             (name
              (write-string name s)))
-      (when type
+      (when (and type
+                 (not (eql type :unspecific)))
         (write-char #\. s)
         (if (eql type :wild)
             (write-char #\* s)
